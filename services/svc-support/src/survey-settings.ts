@@ -10,6 +10,9 @@ import type { Sql } from 'postgres';
 import {
   SUPPORT_SURVEY_CAP_REACHED,
   SUPPORT_SURVEY_CAP_UNSET,
+  SUPPORT_SURVEY_ID_CONFLICT,
+  SUPPORT_SURVEY_NOT_FOUND,
+  SUPPORT_SURVEY_REVISION_STALE,
   type SupportSurvey,
   type SupportSurveyConfig,
   type SupportSurveyConfigureInput,
@@ -17,15 +20,26 @@ import {
 } from '@intafaced/contracts';
 
 export class SurveyStaleError extends Error {
+  readonly code = SUPPORT_SURVEY_REVISION_STALE;
   constructor() {
-    super('support.survey_revision_stale');
+    super(SUPPORT_SURVEY_REVISION_STALE);
     this.name = 'SurveyStaleError';
   }
 }
 export class SurveyNotFoundError extends Error {
+  readonly code = SUPPORT_SURVEY_NOT_FOUND;
   constructor() {
-    super('support.survey_not_found');
+    super(SUPPORT_SURVEY_NOT_FOUND);
     this.name = 'SurveyNotFoundError';
+  }
+}
+
+/** A client-chosen new survey id already holds a different configuration. */
+export class SurveyIdConflictError extends Error {
+  readonly code = SUPPORT_SURVEY_ID_CONFLICT;
+  constructor() {
+    super(SUPPORT_SURVEY_ID_CONFLICT);
+    this.name = 'SurveyIdConflictError';
   }
 }
 
@@ -84,6 +98,13 @@ export class MemorySurveyBook implements SurveyBook {
   }
 
   async configure(input: SurveyConfigure): Promise<SupportSurvey> {
+    if (input.surveyId === null && input.newSurveyId !== undefined) {
+      const taken = this.surveys.get(input.newSurveyId);
+      if (taken) {
+        if (same(this.byKey.get(surveyKey(taken.surveyId, 1)) ?? ({} as never), input.config)) return taken;
+        throw new SurveyIdConflictError();
+      }
+    }
     const prior = input.surveyId === null ? undefined : this.surveys.get(input.surveyId);
     if (input.surveyId !== null && !prior) throw new SurveyNotFoundError();
     const currentRevision = prior?.revision ?? 0;
@@ -92,7 +113,7 @@ export class MemorySurveyBook implements SurveyBook {
       throw new SurveyStaleError();
     }
     if (!prior) checkSurveyCap(this.cap, this.surveys.size);
-    const surveyId = prior?.surveyId ?? this.newId();
+    const surveyId = prior?.surveyId ?? input.newSurveyId ?? this.newId();
     const next: SupportSurvey = { surveyId, revision: currentRevision + 1, active: true, config: input.config, updatedAt: input.at };
     for (const [id, s] of this.surveys) if (id !== surveyId && s.active) this.surveys.set(id, { ...s, active: false });
     this.surveys.set(surveyId, next);
@@ -128,6 +149,17 @@ export class SqlSurveyBook implements SurveyBook {
     return this.sql.begin(async (tx) => {
       // Serialise every configure: one active survey is decided under this lock.
       await tx`SELECT pg_advisory_xact_lock(hashtext('svc-support'), hashtext('surveys'))`;
+      if (input.surveyId === null && input.newSurveyId !== undefined) {
+        // Replay of a create under the client's id: the revision-1 log row is what that create wrote.
+        const [taken] = await tx<Row[]>`
+          SELECT survey_id, revision, active, config, updated_at FROM support.surveys WHERE survey_id = ${input.newSurveyId}`;
+        if (taken) {
+          const [logged] = await tx<{ config: SupportSurveyConfig }[]>`
+            SELECT config FROM support.survey_log WHERE key = ${surveyKey(input.newSurveyId, 1)}`;
+          if (logged && same(logged.config, input.config)) return fromRow(taken);
+          throw new SurveyIdConflictError();
+        }
+      }
       let prior: SupportSurvey | undefined;
       if (input.surveyId !== null) {
         const [row] = await tx<
@@ -149,7 +181,7 @@ export class SqlSurveyBook implements SurveyBook {
         const [row] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM support.surveys`;
         checkSurveyCap(this.cap, row?.n ?? 0);
       }
-      const surveyId = prior?.surveyId ?? this.newId();
+      const surveyId = prior?.surveyId ?? input.newSurveyId ?? this.newId();
       const revision = currentRevision + 1;
       await tx`UPDATE support.surveys SET active = false WHERE active AND survey_id <> ${surveyId}`;
       await tx`

@@ -11,7 +11,18 @@ export const SUPPORT_SURVEY_CAP_UNSET = 'support.survey_cap_unset' as const;
 /** The owner-set survey cap is reached: a new survey is refused, never an old one silently replaced. */
 export const SUPPORT_SURVEY_CAP_REACHED = 'support.survey_cap_reached' as const;
 export const SUPPORT_SURVEY_SCALE_INVALID = 'support.survey_scale_invalid' as const;
+export const SUPPORT_SURVEY_REVISION_STALE = 'support.survey_revision_stale' as const;
+export const SUPPORT_SURVEY_NOT_FOUND = 'support.survey_not_found' as const;
+/** A client-chosen new survey id is already taken by a different configuration: refused, never overwritten. */
+export const SUPPORT_SURVEY_ID_CONFLICT = 'support.survey_id_conflict' as const;
 export const supportSurveyErrorCodeSchema = z.enum([SUPPORT_SURVEY_CAP_UNSET, SUPPORT_SURVEY_CAP_REACHED, SUPPORT_SURVEY_SCALE_INVALID]);
+/** Every code a survey door refuses with: the config codes plus the configure door's stale-revision and unknown-survey codes. */
+export const supportSurveyRefusalCodeSchema = z.enum([
+  ...supportSurveyErrorCodeSchema.options,
+  SUPPORT_SURVEY_REVISION_STALE,
+  SUPPORT_SURVEY_NOT_FOUND,
+]);
+export type SupportSurveyRefusalCode = z.infer<typeof supportSurveyRefusalCodeSchema>;
 export type SupportSurveyErrorCode = z.infer<typeof supportSurveyErrorCodeSchema>;
 
 const id = z.string().uuid();
@@ -62,12 +73,22 @@ export const SUPPORT_SURVEY_REASON_MAX = 500;
 export const supportSurveyConfigureInputSchema = z
   .object({
     surveyId: id.nullable(),
+    /**
+     * Create only (surveyId null, expectedRevision 0): the client-chosen id for the new survey, so a lost reply replays.
+     * The same id with the same config returns the original survey; with a different config it refuses
+     * `support.survey_id_conflict`. Absent, the service picks the id.
+     */
+    newSurveyId: id.optional(),
     expectedRevision: z.number().int().nonnegative().safe(),
     config: supportSurveyConfigSchema,
     /** Audit: why the operator changed it (spec Security row). */
     reason: z.string().trim().min(1).max(SUPPORT_SURVEY_REASON_MAX),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.newSurveyId === undefined || (v.surveyId === null && v.expectedRevision === 0), {
+    path: ['newSurveyId'],
+    message: 'newSurveyId is for a new survey only',
+  });
 export type SupportSurveyConfigureInput = z.infer<typeof supportSurveyConfigureInputSchema>;
 
 export const supportSurveyCapSchema = z.discriminatedUnion('status', [
@@ -86,8 +107,23 @@ export const supportSurveySchema = z
   .strict();
 export type SupportSurvey = z.infer<typeof supportSurveySchema>;
 
-export const supportSurveyListSchema = z
-  .object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema) })
-  .strict()
-  .refine((list) => list.surveys.filter((s) => s.active).length <= 1, { path: ['surveys'], message: 'One active survey at a time' });
+const oneActiveSurvey = (list: { surveys: { active: boolean }[] }) => list.surveys.filter((s) => s.active).length <= 1;
+const oneActiveSurveyIssue = { path: ['surveys'], message: 'One active survey at a time' };
+const supportSurveyListObjectSchema = z.object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema) }).strict();
+export const supportSurveyListSchema = supportSurveyListObjectSchema.refine(oneActiveSurvey, oneActiveSurveyIssue);
 export type SupportSurveyList = z.infer<typeof supportSurveyListSchema>;
+
+/** Email delivery is `vendor.email`, NotConnected: the same `notConnected` shape as svc-notify and kyb-documents. */
+export const supportSurveyEmailDeliverySchema = z
+  .object({ status: z.literal('not_connected'), notConnected: z.literal('vendor.email') })
+  .strict();
+export type SupportSurveyEmailDelivery = z.infer<typeof supportSurveyEmailDeliverySchema>;
+export const SUPPORT_SURVEY_EMAIL_DELIVERY: SupportSurveyEmailDelivery = { status: 'not_connected', notConnected: 'vendor.email' };
+/** The survey doors' output: the list or survey plus where email delivery stands. */
+export const supportSurveyListViewSchema = supportSurveyListObjectSchema
+  .extend({ emailDelivery: supportSurveyEmailDeliverySchema })
+  .strict()
+  .refine(oneActiveSurvey, oneActiveSurveyIssue);
+export type SupportSurveyListView = z.infer<typeof supportSurveyListViewSchema>;
+export const supportSurveyViewSchema = supportSurveySchema.extend({ emailDelivery: supportSurveyEmailDeliverySchema }).strict();
+export type SupportSurveyView = z.infer<typeof supportSurveyViewSchema>;
