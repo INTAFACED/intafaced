@@ -75,10 +75,12 @@ export class DisputeCases {
     input: { reasonCode: string; statement: string; linkedActivityIds: string[] },
   ): Promise<PayDisputeOpenResult> {
     const card = await this.facts.isCardLine(item);
-    if (card === 'unknown') {
+    // Allow-list: only an explicit 'yes' routes and only an explicit 'no' proceeds; anything else (unknown, or an
+    // untyped adapter returning undefined/true/false) refuses as unset.
+    if (card === 'yes') return { routedTo: 'card_issuer', activityId: item.id };
+    if (card !== 'no') {
       throw new BankError('Whether this line is a card line is not known yet; a dispute cannot be routed', 'pay.dispute_line_facts_unset');
     }
-    if (card === 'yes') return { routedTo: 'card_issuer', activityId: item.id };
 
     const key = disputeCaseKey(userId, item.id);
     const existing = await this.sql<CaseRow[]>`
@@ -89,11 +91,11 @@ export class DisputeCases {
 
     if (item.kind === 'order_hold') throw new BankError('A pending charge cannot be disputed yet (pending)', 'pay.dispute_ineligible');
     const refunded = await this.facts.isFullyRefunded(item);
-    if (refunded === 'unknown') {
-      throw new BankError('Whether this line was refunded is not known yet; a dispute cannot be opened', 'pay.dispute_line_facts_unset');
-    }
     if (refunded === 'yes') {
       throw new BankError('This line was already refunded in full (already_refunded)', 'pay.dispute_ineligible');
+    }
+    if (refunded !== 'no') {
+      throw new BankError('Whether this line was refunded is not known yet; a dispute cannot be opened', 'pay.dispute_line_facts_unset');
     }
 
     const reasons = await this.sql<Array<{ code: string }>>`SELECT code FROM bank.dispute_reasons`;
