@@ -158,9 +158,14 @@ export interface MerchantTierRecord {
   readonly assessmentEndsAt: number | null;
 }
 
+/**
+ * Applier contract: `upgrade` and `reset_upgrade_clock` both clear
+ * `qualifiedSince`, so every upgrade waits the full owner delay again.
+ */
 export type TierMove =
   | { readonly kind: 'none' }
   | { readonly kind: 'start_upgrade_clock'; readonly at: number }
+  | { readonly kind: 'reset_upgrade_clock' }
   | { readonly kind: 'upgrade'; readonly from: number | null; readonly to: number }
   | { readonly kind: 'start_assessment'; readonly endsAt: number }
   | { readonly kind: 'end_assessment' }
@@ -183,6 +188,12 @@ export function reassess(input: {
   if (record.state === 'revoked' || record.state === 'downgrade_requested') return { kind: 'none' };
   const target = qualifyingRank(policy.ladder, metrics);
   const current = record.rank;
+
+  // The upgrade clock only runs while a HIGHER rank is met. Dropping back
+  // resets it, so a later re-qualification waits the full delay again.
+  if (record.qualifiedSince !== null && !(target !== null && (current === null || target > current))) {
+    return { kind: 'reset_upgrade_clock' };
+  }
 
   if (record.state === 'assessment') {
     if (target !== null && current !== null && target >= current) return { kind: 'end_assessment' };
