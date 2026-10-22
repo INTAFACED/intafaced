@@ -11,7 +11,15 @@ import {
 } from './founding-badge.js';
 
 /** Postgres `BadgeStore` over `protocol.founding_badge_list` and `protocol.founding_badge_claims` (0001). */
-type Row = { key: string; account_id: string; chain_id: number; to_address: string; tx_hash: string | null; minting_at: Date | null };
+// The service pool (`createDb`) returns timestamptz as text; a bare `postgres()` client returns Date. Accept both.
+type Row = {
+  key: string;
+  account_id: string;
+  chain_id: number;
+  to_address: string;
+  tx_hash: string | null;
+  minting_at: Date | string | null;
+};
 
 function toRecord(r: Row): BadgeClaimRecord {
   return {
@@ -20,7 +28,7 @@ function toRecord(r: Row): BadgeClaimRecord {
     chainId: r.chain_id,
     to: toChecksum(r.to_address),
     txHash: (r.tx_hash as Hex | null) ?? null,
-    mintingSince: r.minting_at ?? null,
+    mintingSince: r.minting_at == null ? null : new Date(r.minting_at),
   };
 }
 
