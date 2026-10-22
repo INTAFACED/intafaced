@@ -73,6 +73,8 @@ function openOrder(clientOrderId: string): OrderRecord {
     tif: 'GTC',
     holdAsset: 'USDT',
     holdAmount: 100n * ONE,
+    priceAdjusted: false,
+    requestedPrice: null,
     amendReleased: 0n,
     feeDiscountBps: 0,
     protectionPrice: null,

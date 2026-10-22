@@ -5,6 +5,7 @@
  * window longer than that limit is refused, and a limit over 720 is refused,
  * both before SQL.
  */
+import { TEST_ORDER_ENTRY_RULES } from './__tests__/order-entry-fixture.js';
 import { describe, expect, it } from 'vitest';
 import { TradeService } from './trade-service.js';
 import { candleRangePointCount, queryCandlesFromFills, TRADE_CANDLES_RANGE_POINT_CAP } from './candles.js';
@@ -25,6 +26,7 @@ function recordingSql(refuse: boolean): { sql: never; called: () => boolean } {
 
 function tradeAt(sql: never): TradeService {
   return new TradeService(sql, {} as never, {} as never, {} as never, {} as never, {
+    orderEntry: TEST_ORDER_ENTRY_RULES,
     now: () => new Date(END_MS),
   });
 }

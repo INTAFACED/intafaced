@@ -2,6 +2,7 @@
  * algo.createTwap refuses, before any parent is stored, a schedule that cannot
  * place its first slice. Balance is a read. Nothing is held.
  */
+import { TEST_ORDER_ENTRY_RULES } from '../spot/__tests__/order-entry-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -69,6 +70,7 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
     };
     const controls = new TradingControls(db.sql, { check: async () => 'enabled' }, identity);
     return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
+      orderEntry: TEST_ORDER_ENTRY_RULES,
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: options.feeSchedule === undefined ? PUBLISHED_TEST_FEE_SCHEDULE : options.feeSchedule,

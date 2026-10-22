@@ -1,4 +1,5 @@
 /** Explicit legacy test adapters. Never imported by production boot. */
+import { TEST_ORDER_ENTRY_RULES } from '../spot/__tests__/order-entry-fixture.js';
 import { randomUUID } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import type { CommittedOperationAdmission } from '@intafaced/contracts';
@@ -52,10 +53,22 @@ function readyForSql(sql: object): TradingAdmissionPort {
   }
   return port;
 }
+type ProductionTradeArgs = ConstructorParameters<typeof ProductionTradeService>;
+type TestTradeOptions = Omit<ProductionTradeArgs[5], 'orderEntry'> & Partial<Pick<ProductionTradeArgs[5], 'orderEntry'>>;
 export class TradeService extends ProductionTradeService {
-  constructor(...args: ConstructorParameters<typeof ProductionTradeService>) {
-    const [sql, ledger, matching, perks, bus, options = {}] = args;
-    super(sql, ledger, matching, perks, bus, { ...options, accountAdmission: options.accountAdmission ?? readyForSql(sql) });
+  constructor(
+    sql: ProductionTradeArgs[0],
+    ledger: ProductionTradeArgs[1],
+    matching: ProductionTradeArgs[2],
+    perks: ProductionTradeArgs[3],
+    bus: ProductionTradeArgs[4],
+    options: TestTradeOptions = {},
+  ) {
+    super(sql, ledger, matching, perks, bus, {
+      ...options,
+      orderEntry: options.orderEntry ?? TEST_ORDER_ENTRY_RULES,
+      accountAdmission: options.accountAdmission ?? readyForSql(sql),
+    });
   }
 }
 export class PositionService extends ProductionPositionService {

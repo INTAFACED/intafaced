@@ -1,3 +1,4 @@
+import { TEST_ORDER_ENTRY_RULES } from '../spot/__tests__/order-entry-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -54,6 +55,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   };
   function build(admission = controls) {
     return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      orderEntry: TEST_ORDER_ENTRY_RULES,
       accountAdmission: admission,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
@@ -184,6 +186,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   });
   it('production class without an admission port refuses before any new order hold', async () => {
     const absent = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      orderEntry: TEST_ORDER_ENTRY_RULES,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
     });

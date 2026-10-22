@@ -6,6 +6,7 @@
  * stub that survives a "crash" the way the engine does. The market id is pinned: orders and fills derive their ids, and
  * so their idempotency keys, from it, and a fresh market row would otherwise get a new random id on every replay.
  */
+import { TEST_ORDER_ENTRY_RULES } from './order-entry-fixture.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +50,7 @@ export async function openTradeDatabase(): Promise<{ db: TestDatabase; stop: () 
 /** The production service over `ledger`. The matching stub is passed in so it outlives a simulated crash. */
 export function tradeOver(db: TestDatabase, ledger: LedgerClient, matching: StubMatching): TradeService {
   return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+    orderEntry: TEST_ORDER_ENTRY_RULES,
     marketLifecycle: READY_MARKET_LIFECYCLE,
     spotEnabled: true,
     marketSlippageCapBps: 150,
