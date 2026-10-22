@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 import {
   badgeClaimKey,
+  badgeChainIsMainnet,
   badgeEligibility,
+  badgeWindowFromSetting,
+  noBadgeSigner,
   BadgeRefusedError,
   claimBadge,
   type BadgeClaimRecord,
@@ -169,5 +172,17 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
       audited: false,
       txHash: null,
     });
+  });
+
+  it('boot wiring helpers: blank window is null, unknown chain is mainnet, no signer refuses rail.crypto', async () => {
+    expect(badgeWindowFromSetting(undefined, '2026-11-01T00:00:00Z')).toBeNull();
+    expect(badgeWindowFromSetting('2026-10-01T00:00:00Z', undefined)).toBeNull();
+    expect(badgeWindowFromSetting('2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z')).toEqual(WINDOW);
+    expect(badgeChainIsMainnet(84532, [{ chainId: 84532, kind: 'testnet' }])).toBe(false);
+    expect(badgeChainIsMainnet(31337, [{ chainId: 31337, kind: 'local' }])).toBe(false);
+    expect(badgeChainIsMainnet(1, [])).toBe(true);
+    expect(badgeChainIsMainnet(5, [{ chainId: 5, kind: 'unconfirmed' }])).toBe(true);
+    const { d } = deps({ minter: noBadgeSigner });
+    expect(await refusal(claimBadge(d, ACCOUNT, ADDR, TESTNET))).toBe('rail.crypto');
   });
 });

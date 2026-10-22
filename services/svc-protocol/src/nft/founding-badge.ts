@@ -169,3 +169,21 @@ export async function claimBadge(
   const done = await deps.store.setTxHash(key, txHash);
   return { ...done, label: 'TEST', audited: false };
 }
+
+/** Founder setting to window; either side blank = null (`badge.window_unset`). */
+export function badgeWindowFromSetting(opensAt: string | undefined, closesAt: string | undefined): BadgeWindow | null {
+  if (!opensAt || !closesAt) return null;
+  return { opensAt: new Date(opensAt), closesAt: new Date(closesAt) };
+}
+
+/**
+ * Mainnet unless the owner's network registry names this chain `testnet` or `local`. An unknown or `unconfirmed`
+ * chain is treated as mainnet, so it refuses `audit.external` rather than minting.
+ */
+export function badgeChainIsMainnet(chainId: number, networks: ReadonlyArray<{ chainId: number; kind: string }>): boolean {
+  const entry = networks.find((n) => n.chainId === chainId);
+  return !(entry && (entry.kind === 'testnet' || entry.kind === 'local'));
+}
+
+/** No badge signer is wired yet: every network refuses `rail.crypto` from `claimBadge` itself. */
+export const noBadgeSigner: BadgeMinter = { signerFor: () => null };

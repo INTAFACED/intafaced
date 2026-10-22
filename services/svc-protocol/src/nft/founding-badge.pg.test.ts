@@ -30,12 +30,12 @@ const SECRET = 'a-protocol-badge-test-edge-secret-length';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-protocol' });
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
-function signedAs(userId: string) {
+function signedAs(userId: string, scopes: string[] = ['protocol:read', 'identity:write']) {
   const raw = encodePrincipal({
     sub: userId,
     userId,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['protocol:read'],
+    scopes,
     tier: 'none',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
@@ -140,6 +140,19 @@ describe.skipIf(!sql)('founding badge (Postgres + router)', () => {
     const { router, mints } = build();
     await expect(router.createCaller(signedAs(OTHER)).badge.claim()).rejects.toThrow(/badge\.already_claimed/);
     expect(mints).toHaveLength(0);
+  });
+
+  it('a read-only principal cannot claim (claim is a write), but can read eligibility', async () => {
+    const { router, mints } = build();
+    await expect(router.createCaller(signedAs(USER, ['protocol:read'])).badge.claim()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(router.createCaller(signedAs(USER, ['protocol:read'])).badge.eligibility()).resolves.toMatchObject({ audited: false });
+    expect(mints).toHaveLength(0);
+  });
+
+  it('eligibility needs no signer', async () => {
+    await expect(build({ signer: false }).router.createCaller(signedAs(USER)).badge.eligibility()).resolves.toMatchObject({
+      eligible: true,
+    });
   });
 
   it('anonymous caller is refused', async () => {

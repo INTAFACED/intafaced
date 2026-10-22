@@ -151,6 +151,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics
      * read with `owner.decision` unless the caller names a window.
      */
+    /**
+     * Founding badge Drop phase I window (RC-more-catalogue-04), founder setting. Both ISO instants or the badge
+     * refuses `badge.window_unset`; no default window.
+     */
+    PROTOCOL_BADGE_WINDOW_OPENS_AT: blankIsUnset(z.string().datetime().optional()),
+    PROTOCOL_BADGE_WINDOW_CLOSES_AT: blankIsUnset(z.string().datetime().optional()),
+
     PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /** Kill-switch mirror for `protocol.smartAccounts` (§14 admin controls). */

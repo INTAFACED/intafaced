@@ -66,6 +66,7 @@ import {
   badgeEligibility,
   BadgeRefusedError,
   claimBadge,
+  BADGE_WINDOW_UNSET,
   RAIL_CRYPTO,
   type BadgeMinter,
   type BadgeStore,
@@ -330,7 +331,7 @@ export interface ProtocolRouterDeps {
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
   /**
-   * Founding badge (RC-more-catalogue-04). Absent = no signer wired for this network: claims refuse `rail.crypto`.
+   * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
    */
@@ -890,7 +891,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         .query(async ({ ctx }) => {
           try {
             const b = deps.badge;
-            if (!b) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${chain.config.chainId}`);
+            if (!b) throw new BadgeRefusedError(BADGE_WINDOW_UNSET, 'founding badge is not wired on this service');
             return await badgeEligibility(
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
@@ -900,7 +901,9 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             throw toTrpcError(err);
           }
         }),
-      claim: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+      // A user write: needs a write scope, not `protocol:read` (packages/auth has no protocol:write by design;
+      // the badge is a profile item, so it uses the customer profile write scope).
+      claim: scopedProcedure('identity:write', { module: 'protocol', plane: 'protocol' })
         .output(protocolBadgeClaimOutputSchema)
         .mutation(async ({ ctx }) => {
           try {
