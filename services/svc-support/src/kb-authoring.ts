@@ -40,7 +40,8 @@ export interface KbAuthoringBook {
   /** Publishes the article's draft from `revision`. Same key again returns the same version. */
   publish(articleId: string, revision: number, by: string, at: string): Promise<SupportKbAuthoredArticle>;
   /** Newest version of every article, newest publish first. */
-  listPublished(limit: number): Promise<SupportKbAuthoredArticle[]>;
+  /** `language` keeps only versions in that language; omitted returns every language. */
+  listPublished(limit: number, language?: string): Promise<SupportKbAuthoredArticle[]>;
   getPublished(articleId: string): Promise<SupportKbAuthoredArticle | null>;
   versions(articleId: string): Promise<SupportKbAuthoredArticle[]>;
 }
@@ -125,9 +126,10 @@ export class MemoryKbAuthoringBook implements KbAuthoringBook {
     return strip(row);
   }
 
-  async listPublished(limit: number): Promise<SupportKbAuthoredArticle[]> {
+  async listPublished(limit: number, language?: string): Promise<SupportKbAuthoredArticle[]> {
     const newest = [...this.heads.entries()].map(([id, v]) => this.rows.find((r) => r.articleId === id && r.version === v)!);
     return newest
+      .filter((r) => language === undefined || r.language === language)
       .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || a.articleId.localeCompare(b.articleId))
       .slice(0, limit)
       .map(strip);
@@ -292,11 +294,12 @@ export class SqlKbAuthoringBook implements KbAuthoringBook {
     }) as Promise<SupportKbAuthoredArticle>;
   }
 
-  async listPublished(limit: number): Promise<SupportKbAuthoredArticle[]> {
+  async listPublished(limit: number, language?: string): Promise<SupportKbAuthoredArticle[]> {
     const rows = await this.sql<VersionRow[]>`
       SELECT v.article_id, v.version, v.language, v.title, v.body, v.section_id, v.published_at
       FROM support.kb_authored_articles a
       JOIN support.kb_authored_versions v ON v.article_id = a.id AND v.version = a.revision
+      WHERE ${language === undefined ? this.sql`true` : this.sql`v.language = ${language}`}
       ORDER BY v.published_at DESC, v.article_id
       LIMIT ${limit}`;
     return rows.map(fromVersion);

@@ -63,14 +63,23 @@ export const supportKbLanguageSchema = z.string().regex(/^[a-z]{2,3}(-[A-Z]{2})?
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+const LINK = /\[([^\]]+)\]\((https:\/\/[^\s)*]+|mailto:[^\s)*]+)\)/g;
+
+/** Bold, then italic, within one run of text that holds no link, so a tag never straddles a link boundary. */
+function emphasis(escaped: string): string {
+  return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
 function inline(text: string): string {
-  let out = escapeHtml(text);
-  out = out.replace(/\[([^\]]+)\]\((https:\/\/[^\s)*]+|mailto:[^\s)*]+)\)/g, (_m, label: string, href: string) => {
-    return `<a href="${href}" rel="noopener noreferrer nofollow">${label}</a>`;
-  });
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  return out;
+  const escaped = escapeHtml(text);
+  let out = '';
+  let last = 0;
+  for (const m of escaped.matchAll(LINK)) {
+    out += emphasis(escaped.slice(last, m.index));
+    out += `<a href="${m[2]}" rel="noopener noreferrer nofollow">${emphasis(m[1]!)}</a>`;
+    last = m.index! + m[0].length;
+  }
+  return out + emphasis(escaped.slice(last));
 }
 
 /**

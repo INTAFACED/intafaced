@@ -5,6 +5,7 @@ import {
   createKbSectionInputSchema,
   publicProcedure,
   publishKbDraftInputSchema,
+  supportKbLanguageSchema,
   saveKbDraftInputSchema,
   scopedProcedure,
   supportKbAuthoredArticleSchema,
@@ -41,16 +42,18 @@ export function kbAuthoringProcedures(book: KbAuthoringBook, now: () => Date = (
     listKbCategories: publicProcedure.output(supportKbCategoriesSchema).query(() => book.categories()),
 
     listKbAuthored: publicProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(KB_AUTHORED_LIST_MAX) }).strict())
+      .input(z.object({ limit: z.number().int().min(1).max(KB_AUTHORED_LIST_MAX), language: supportKbLanguageSchema.optional() }).strict())
       .output(z.array(supportKbAuthoredArticleSchema))
-      .query(({ input }) => book.listPublished(input.limit)),
+      .query(({ input }) => book.listPublished(input.limit, input.language)),
 
     getKbAuthored: publicProcedure
-      .input(z.object({ articleId: z.string().uuid() }).strict())
+      .input(z.object({ articleId: z.string().uuid(), language: supportKbLanguageSchema.optional() }).strict())
       .output(supportKbAuthoredArticleSchema)
       .query(async ({ input }) => {
         const found = await book.getPublished(input.articleId);
-        if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: 'support.kb.not_published' });
+        // An article holds one language; asking for another reads the same as not published in it.
+        if (!found || (input.language !== undefined && found.language !== input.language))
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'support.kb.not_published' });
         return found;
       }),
 
