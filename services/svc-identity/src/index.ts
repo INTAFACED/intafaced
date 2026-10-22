@@ -347,6 +347,16 @@ auth.useEmailConfirmation({
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
 });
+// Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
+auth.useSignUpPolicy({
+  minAgeYears: env.IDENTITY_SIGNUP_MIN_AGE_YEARS,
+  codeTtlSeconds: env.IDENTITY_SIGNUP_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_SIGNUP_RESEND_SECONDS,
+  requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
+  closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
