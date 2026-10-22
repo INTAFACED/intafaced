@@ -20,7 +20,9 @@ import { z } from 'zod';
 import { supportKbArticleSchema } from './support.js';
 
 export const SUPPORT_KB_AUTHORING_ERROR_CODES = [
-  'support.kb_body_markup_refused',
+  'support.kb_body_invalid',
+  'support.kb_title_blank',
+  'support.kb_title_invalid',
   'support.kb_section_unknown',
   'support.kb_category_unknown',
   'support.kb_category_not_empty',
@@ -40,19 +42,24 @@ export function kbBodyIsRestrictedFormat(text: string): boolean {
   return !RAW_MARKUP.test(text);
 }
 
+/**
+ * Blank, over-long or raw-markup body: `support.kb_body_invalid`. The wire check refuses tag openers only; link schemes
+ * (e.g. `javascript:`) are checked by the server and client renderers at render time, not here.
+ */
 export const supportKbBodySchema = z
   .string()
   .trim()
-  .min(1)
-  .max(SUPPORT_KB_BODY_MAX)
-  .refine(kbBodyIsRestrictedFormat, { message: 'support.kb_body_markup_refused' });
+  .min(1, { message: 'support.kb_body_invalid' })
+  .max(SUPPORT_KB_BODY_MAX, { message: 'support.kb_body_invalid' })
+  .refine(kbBodyIsRestrictedFormat, { message: 'support.kb_body_invalid' });
 
+/** Blank title: `support.kb_title_blank`; over-long or raw markup in the title: `support.kb_title_invalid`. */
 export const supportKbTitleSchema = z
   .string()
   .trim()
-  .min(1)
-  .max(SUPPORT_KB_TITLE_MAX)
-  .refine(kbBodyIsRestrictedFormat, { message: 'support.kb_body_markup_refused' });
+  .min(1, { message: 'support.kb_title_blank' })
+  .max(SUPPORT_KB_TITLE_MAX, { message: 'support.kb_title_invalid' })
+  .refine(kbBodyIsRestrictedFormat, { message: 'support.kb_title_invalid' });
 
 /** BCP-47-ish language tag (`en`, `es`, `pt-BR`). Which languages are offered is checked by the service. */
 export const supportKbLanguageSchema = z.string().regex(/^[a-z]{2,3}(-[A-Z]{2})?$/);
@@ -150,9 +157,31 @@ export const supportKbTemplateSchema = z
   .strict();
 export type SupportKbTemplate = z.infer<typeof supportKbTemplateSchema>;
 
-/** A published reader article may now also name its section; omitted on rows written before sections. */
-export const supportKbReaderArticleSchema = supportKbArticleSchema.extend({
-  sectionId: z.string().uuid().optional(),
-  language: supportKbLanguageSchema.optional(),
-});
+/**
+ * A published reader article. Desk-authored versions carry the typed `title` and `body` (with `language` and
+ * `sectionId`); the spine rows keep their i18n `titleKey`/`bodyKey` until they migrate to ordinary versions. Exactly one
+ * of the two pairs is present.
+ */
+export const supportKbReaderArticleSchema = supportKbArticleSchema
+  .extend({
+    titleKey: z.string().min(1).optional(),
+    bodyKey: z.string().min(1).optional(),
+    title: supportKbTitleSchema.optional(),
+    body: supportKbBodySchema.optional(),
+    sectionId: z.string().uuid().optional(),
+    language: supportKbLanguageSchema.optional(),
+  })
+  .superRefine((a, ctx) => {
+    const typed = a.title !== undefined && a.body !== undefined;
+    const keyed = a.titleKey !== undefined && a.bodyKey !== undefined;
+    const partial = (a.title === undefined) !== (a.body === undefined) || (a.titleKey === undefined) !== (a.bodyKey === undefined);
+    if (partial || typed === keyed)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['body'],
+        message: 'an article carries either title and body or titleKey and bodyKey',
+      });
+    if (typed && (a.language === undefined || a.sectionId === undefined))
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['language'], message: 'a desk-authored article names its language and section' });
+  });
 export type SupportKbReaderArticle = z.infer<typeof supportKbReaderArticleSchema>;

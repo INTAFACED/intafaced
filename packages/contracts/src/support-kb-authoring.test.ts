@@ -26,13 +26,20 @@ describe('draft save input', () => {
     for (const body of ['<script>x</script>', 'hi <b>there</b>', '</div>', '<!-- c -->']) {
       const r = saveKbDraftInputSchema.safeParse({ ...draft, body });
       expect(r.success).toBe(false);
-      if (!r.success) expect(r.error.issues[0]?.message).toBe('support.kb_body_markup_refused');
+      if (!r.success) expect(r.error.issues[0]?.message).toBe('support.kb_body_invalid');
     }
-    expect(saveKbDraftInputSchema.safeParse({ ...draft, title: '<i>t</i>' }).success).toBe(false);
+    const title = saveKbDraftInputSchema.safeParse({ ...draft, title: '<i>t</i>' });
+    expect(title.success).toBe(false);
+    if (!title.success) expect(title.error.issues[0]?.message).toBe('support.kb_title_invalid');
     expect(kbBodyIsRestrictedFormat('a < b and 3<4')).toBe(true);
   });
   it('refuses a blank body, an oversized body, a bad language, a missing section and extra keys', () => {
-    expect(saveKbDraftInputSchema.safeParse({ ...draft, body: '   ' }).success).toBe(false);
+    const blank = saveKbDraftInputSchema.safeParse({ ...draft, body: '   ' });
+    expect(blank.success).toBe(false);
+    if (!blank.success) expect(blank.error.issues[0]?.message).toBe('support.kb_body_invalid');
+    const noTitle = saveKbDraftInputSchema.safeParse({ ...draft, title: '  ' });
+    expect(noTitle.success).toBe(false);
+    if (!noTitle.success) expect(noTitle.error.issues[0]?.message).toBe('support.kb_title_blank');
     expect(saveKbDraftInputSchema.safeParse({ ...draft, body: 'x'.repeat(SUPPORT_KB_BODY_MAX + 1) }).success).toBe(false);
     expect(saveKbDraftInputSchema.safeParse({ ...draft, language: 'english' }).success).toBe(false);
     const { sectionId: _s, ...noSection } = draft;
@@ -88,9 +95,20 @@ describe('versions and history', () => {
       true,
     );
   });
+  it('reader article carries a desk-typed title and body with language and section', () => {
+    const typed = { id: 'reset-2fa', title: 'Reset 2FA', body: '## Steps', language: 'en', sectionId: S };
+    expect(supportKbReaderArticleSchema.safeParse(typed).success).toBe(true);
+    expect(supportKbReaderArticleSchema.safeParse({ ...typed, titleKey: 't', bodyKey: 'b' }).success).toBe(false);
+    expect(supportKbReaderArticleSchema.safeParse({ id: 'a', title: 'T', language: 'en', sectionId: S }).success).toBe(false);
+    expect(supportKbReaderArticleSchema.safeParse({ id: 'a', titleKey: 't' }).success).toBe(false);
+    const { language: _l, ...noLanguage } = typed;
+    expect(supportKbReaderArticleSchema.safeParse(noLanguage).success).toBe(false);
+    expect(supportKbReaderArticleSchema.safeParse({ ...typed, body: '<script>x</script>' }).success).toBe(false);
+  });
 });
 
 it('is exported from the package root', () => {
   expect(root.saveKbDraftInputSchema).toBe(saveKbDraftInputSchema);
-  expect(root.SUPPORT_KB_AUTHORING_ERROR_CODES).toContain('support.kb_body_markup_refused');
+  expect(root.SUPPORT_KB_AUTHORING_ERROR_CODES).toContain('support.kb_body_invalid');
+  expect(root.SUPPORT_KB_AUTHORING_ERROR_CODES).toContain('support.kb_title_blank');
 });
