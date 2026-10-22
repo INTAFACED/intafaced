@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState } from '@intafaced/contracts';
+import type { AccountState, EmailProof } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -430,7 +430,10 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
   await tx.unsafe(query.text, query.values);
 }
 
-/** A password-policy refusal at registration answers the typed `auth.password_policy`, as change and reset do. */
+/**
+ * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
+ * `auth.password_policy`, as change and reset do, before any hashing.
+ */
 function policyRefusal(check: () => void): void {
   try {
     check();
@@ -819,7 +822,10 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
     return this.finishRegistration(userId, input);
@@ -897,7 +903,10 @@ export class AuthService {
     const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
     if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
 
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
     try {
@@ -2055,6 +2064,20 @@ export class AuthService {
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+  }
+
+  /**
+   * Whether the account's current email is proved (RC-identity-01), for svc-trade's order gate. Null for an unknown
+   * user, which the caller must refuse on, never read as proved.
+   */
+  async emailProof(userId: string): Promise<EmailProof | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<Array<{ id: string; email_verified_at: Date | string | null }>>`
+      SELECT id, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
   }
 
   /**

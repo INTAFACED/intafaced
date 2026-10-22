@@ -7,6 +7,7 @@
  *   node tooling/scripts/local-test-gates.mjs lifecycle  publish the market lifecycle (the "owner" stand-in)
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
+ *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
@@ -15,7 +16,8 @@
  *   1. the owner who publishes a market lifecycle (opens markets),
  *   2. the compliance officer who accepts the local test sanctions list (the stack env, not this file),
  *   3. the operator who verifies test accounts,
- *   4. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
+ *   5. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -605,6 +607,40 @@ export async function publishLifecycles(ctx) {
   return out;
 }
 
+/** Same hash services/svc-bank/src/action-approval-consume.ts computes for a bank ops action (fields sorted by key). */
+export function bankPayloadHash(actionType, fields) {
+  const sorted = Object.fromEntries(
+    Object.keys(fields)
+      .sort()
+      .map((k) => [k, fields[k]]),
+  );
+  return `sha256:${crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ actionType, fields: sorted }))
+    .digest('hex')}`;
+}
+
+/**
+ * LOCAL TEST personal transfer limits, per asset: not owner values. Without a published row svc-bank refuses every
+ * personal send with bank.personal_transfer_terms_unset, so the stack publishes these through compliance's own door.
+ */
+export const TEST_TRANSFER_TERMS = [
+  { assetId: 'USDT', perTransferLimit: '1000', dailyLimit: '5000', fee: '0' },
+  { assetId: 'USDC', perTransferLimit: '1000', dailyLimit: '5000', fee: '0' },
+];
+export const PUBLISH_TERMS_ACTION = 'bank.ops.publishTransferTerms';
+
+export function termsProposal(terms) {
+  return {
+    actionType: PUBLISH_TERMS_ACTION,
+    targetService: 'svc-bank',
+    targetId: PUBLISH_TERMS_ACTION,
+    expectedVersion: '1',
+    payloadHash: bankPayloadHash(PUBLISH_TERMS_ACTION, terms),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
 // ── 2. Open the books in matching (two-person approval) ─────────────────────
 
 export async function openBooks(ctx) {
@@ -643,6 +679,27 @@ export async function openBooks(ctx) {
     });
     ctx.log(
       `matching open ${m.symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label}); approval ${ids.approvalId}`,
+    );
+  }
+  return out;
+}
+
+// ── 2b. Personal transfer limits (two-person approval) ──────────────────────
+
+/** One founder proposes, the other approves (identity keeps bank ops founder-only), the first publishes through svc-bank ops.publishTransferTerms. */
+export async function publishTransferTerms(ctx) {
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const terms of TEST_TRANSFER_TERMS) {
+    const ids = await twoPerson(ctx, sessions, termsProposal(terms));
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate('bank', 'ops.publishTransferTerms', { ...terms, ...ids }, await sessions.a.complianceToken());
+    const row = data(res);
+    if (!row?.publishedAt)
+      throw new Error(`bank ops.publishTransferTerms for ${terms.assetId} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ ...terms, approvedBy: row.approvedBy, approvalId: ids.approvalId });
+    ctx.log(
+      `terms ${terms.assetId}: ${terms.perTransferLimit} per payment, ${terms.dailyLimit} a day, fee ${terms.fee} (${MARKERS.label}); approval ${ids.approvalId}`,
     );
   }
   return out;
@@ -824,9 +881,12 @@ async function main() {
         say(
           `  still without a verified tier (must submit the request themselves, e.g. tap Verify in the app): ${r.stillWithoutFull.join(', ')}`,
         );
+    } else if (cmd === 'terms') {
+      for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'apply') {
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
+      for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
@@ -839,7 +899,10 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die('usage: local-test-gates.mjs apply | operators | lifecycle | open | verify | halt <SYMBOL> | resume <SYMBOL> | status', 2);
+      die(
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        2,
+      );
     }
   } catch (err) {
     die(String(err.message ?? err));
