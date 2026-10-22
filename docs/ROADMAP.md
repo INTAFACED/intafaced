@@ -44,7 +44,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1485 slices left in 21 modules. 279 need no other slice. 47 sit in a dependency loop that the lane untangles first. 353 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 678 M, 104 S.
+1488 slices left in 21 modules. 281 need no other slice. 47 sit in a dependency loop that the lane untangles first. 353 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 679 M, 106 S.
 
 ### Journey map
 
@@ -80,7 +80,7 @@ Done is defined by 462 journeys (3111 steps) in `modules/<module>/acceptance/jou
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
 | merchant       | 210    | 35           | 9                             | 105   |
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
-| ops-console    | 112    | 22           | 41                            | 66    |
+| ops-console    | 115    | 24           | 41                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
 | bank           | 97     | 40           | 6                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
@@ -115,7 +115,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 2             |
 | svc-trade futures             | 48     | 8            | 0                     | 9                     | 0             |
-| svc-ops                       | 40     | 10           | 4                     | 0                     | 6             |
+| svc-ops                       | 41     | 11           | 4                     | 0                     | 7             |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 10                    | 3             |
@@ -157,7 +157,9 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: nav                    | 1      | 0            | 0                     | 1                     | 0             |
 | admin: support-ticket-actions | 1      | 0            | 0                     | 1                     | 0             |
 | ci gate                       | 1      | 1            | 0                     | 0                     | 1             |
+| config                        | 1      | 1            | 0                     | 0                     | 1             |
 | customer: coin                | 1      | 0            | 0                     | 0                     | 0             |
+| docs                          | 1      | 0            | 0                     | 0                     | 1             |
 
 ### By journey
 
