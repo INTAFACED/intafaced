@@ -154,6 +154,7 @@ describe('contact policy (BK-safe-02)', () => {
     ).toBe('notify.contact_policy_domain_invalid');
     expect(code(() => validateContactPolicy({ ...POLICY, contactChannels: ['whatsapp'] }))).toBe('notify.contact_policy_channel_unknown');
     expect(code(() => validateContactPolicy({ ...POLICY, neverAskStatement: 'x'.repeat(2001) }))).toBe('notify.contact_policy_too_long');
+    expect(code(() => validateContactPolicy({ ...POLICY, phishingReport: 'x'.repeat(2001) }))).toBe('notify.contact_policy_too_long');
   });
 
   it('needs a second person, refuses with no approval service, and spends an approval once', async () => {
@@ -214,7 +215,9 @@ describe('contact policy on the router', () => {
     const wired = createNotifyRouter(service(new ContactPolicy(new MemoryContactPolicyStore(), new Second(), new MemoryCommandLog())));
     const anon = edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon-cp' });
     expect(await wired.createCaller(anon).notify.contactPolicy()).toEqual({ status: 'not_published' });
-    await expect(wired.createCaller(signed(ADMIN, ['admin:read'])).notify.publishContactPolicy(publishInput(1))).rejects.toBeDefined();
+    await expect(wired.createCaller(signed(ADMIN, ['admin:read'])).notify.publishContactPolicy(publishInput(1))).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     await expect(
       wired.createCaller(signed(ADMIN, ['admin:write'])).notify.publishContactPolicy(publishInput(2, { neverAskStatement: '' })),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'notify.contact_policy_field_unset' });
