@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { subaccountCopy as copy } from './subaccount-copy';
 import { SubaccountDelete } from './SubaccountDelete';
+import { SubaccountFeatures } from './SubaccountFeatures';
 import { isDeleteRefusal } from './sub-account-delete';
 import {
   KIND_KEYS,
@@ -407,6 +408,7 @@ export function Account() {
                               {t('reviewRevoke')}
                             </Button>
                           )}
+                          {!row.revoked && <SubaccountFeatures subAccountId={row.id} />}
                           {!row.revoked && <SubaccountDelete subAccountId={row.id} onDeleted={reload} />}
                         </li>
                       ))}
