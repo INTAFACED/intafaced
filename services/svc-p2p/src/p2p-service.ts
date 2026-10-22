@@ -51,6 +51,7 @@ import {
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
+import { ownStats, payTiming, type OwnStats } from './user-center.js';
 import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
 import {
   DEFAULT_DEADLINES,
@@ -224,6 +225,7 @@ export type P2pErrorCode =
   | 'p2p.export_too_many_rows'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
+  | 'p2p.user_not_found'
   | 'p2p.offer_update_empty'
   | 'p2p.chat_attachment_unwired'
   | 'p2p.chat_text_required'
@@ -3167,6 +3169,22 @@ export class P2pService {
 
   async tradesInWindow(userId: string): Promise<number> {
     return tradesReleasedIn30Days(this.sql, userId);
+  }
+
+  /** P-ads-merchant-20: own performance, recomputed from trades. */
+  async ownStats(userId: string): Promise<OwnStats> {
+    return ownStats(this.sql, userId);
+  }
+
+  /** P-ads-merchant-20: buyer-side escrow-to-paid average. Null with no sample. */
+  async payTimingOf(userId: string): Promise<{ avgPaySecs: number | null; paySamples: number }> {
+    return payTiming(this.sql, userId);
+  }
+
+  /** P-ads-merchant-20: refuses `p2p.blocked` when either side blocked the other. */
+  async assertNotBlocked(viewerId: string, subjectId: string): Promise<void> {
+    if (viewerId === subjectId) return;
+    if (await eitherBlocked(this.sql, viewerId, subjectId)) throw new P2pError('p2p.blocked', 'p2p.blocked');
   }
 
   /** Read-only. True when this trade has a dispute that is still open. */

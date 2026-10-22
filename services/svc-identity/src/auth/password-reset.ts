@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 import {
   assertPasswordShape,
+  assertPasswordNotIdentity,
   dummyPasswordHash,
   generateToken,
   hashPassword,
@@ -303,14 +304,15 @@ export async function completePasswordReset(
     return rejectInvalidProof(input.newPassword);
   }
 
-  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string }>>`
-    SELECT id, password_hash, status FROM users WHERE id = ${flow.user_id}
+  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string; handle: string; email: string }>>`
+    SELECT id, password_hash, status, handle, email FROM users WHERE id = ${flow.user_id}
   `;
   const user = users[0];
   if (!user || user.status !== 'active') return rejectInvalidProof(input.newPassword);
 
   try {
     assertPasswordShape(input.newPassword);
+    assertPasswordNotIdentity(input.newPassword, user);
   } catch (err) {
     if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
     throw err;

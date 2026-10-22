@@ -32,9 +32,17 @@ import {
   type OtcSide,
 } from './rfq.js';
 import { planOtcSettle, postOtcSettle } from './settle.js';
+import {
+  assertOtcConvertBounds,
+  describeOtcConvertBounds,
+  NO_OTC_CONVERT_BOUNDS,
+  type OtcConvertBounds,
+  type OtcConvertFlow,
+} from './otc-convert-bounds.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 
@@ -49,19 +57,25 @@ export interface OtcDeskServiceOptions {
   liveObservationFeed?: boolean;
   /** Boot wiring honesty — separates flag-off from flag-on-but-unwired. */
   midFeedWiring?: OtcMidFeedWiringStatus;
+  /** Owner amount bounds for one-click buy and convert at OTC pricing (CB-otc-12). Absent → both refuse. */
+  convertBounds?: OtcConvertBounds;
   /** Durable quote table. Tests inject MemoryOtcQuoteStore; boot uses SQL. */
   store?: OtcQuoteStore;
+  /** Owner provider directory (CB-otc-01). Absent → "No providers set" and requests refuse. */
+  makerDirectory?: OtcMakerDirectory;
   now?: () => Date;
 }
 
 export class OtcDeskService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly store: OtcQuoteStore;
+  private readonly convertBounds: OtcConvertBounds;
   private readonly law: OtcDeskLaw;
   private readonly platformCounterpartyId: string;
   private readonly midSource: OtcMidSource;
   private readonly liveObservationFeed: boolean;
   private readonly midFeedWiring: OtcMidFeedWiringStatus | null;
+  private readonly makerDirectory: OtcMakerDirectory;
   private readonly now: () => Date;
 
   constructor(
@@ -76,7 +90,22 @@ export class OtcDeskService {
     this.liveObservationFeed = options.liveObservationFeed === true;
     this.midFeedWiring = options.midFeedWiring ?? null;
     this.store = options.store ?? new MemoryOtcQuoteStore();
+    this.makerDirectory = options.makerDirectory ?? UNPUBLISHED_OTC_MAKER_DIRECTORY;
+    this.convertBounds = options.convertBounds ?? NO_OTC_CONVERT_BOUNDS;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /** `trade.otc.makers.list` — the owner directory, or the honest empty state. */
+  listMakers() {
+    return listOtcMakers(this.makerDirectory);
+  }
+
+  /** `trade.otc.makers.select` — validates a provider pick against the list and the owner cap. */
+  selectMakers(makerIds: readonly string[]) {
+    return {
+      makers: selectOtcMakers(this.makerDirectory, makerIds),
+      selectCap: this.makerDirectory.published ? this.makerDirectory.selectCap : null,
+    };
   }
 
   deskStatus() {
@@ -96,6 +125,33 @@ export class OtcDeskService {
     };
   }
 
+  /** Owner bounds for the two OTC-priced flows; null per flow when not set. */
+  convertBoundsStatus() {
+    return describeOtcConvertBounds(this.convertBounds);
+  }
+
+  /**
+   * One-click large buy / convert at OTC pricing (CB-otc-12): the owner bounds
+   * gate first, then the ordinary desk quote (same stake gate, mid, spread,
+   * expiry). Accept and settle are the existing `trade.otc.accept` / `settle`.
+   */
+  async convertQuote(
+    principal: Principal,
+    input: { flow: OtcConvertFlow; side: OtcSide; baseAsset: string; quoteAsset: string; qty: string },
+  ) {
+    if (input.flow === 'oneClickBuy' && input.side !== 'buy') {
+      throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
+    }
+    assertOtcConvertBounds(this.convertBounds, input.flow, parseRequiredOtcSize(input.qty));
+    const quote = await this.quote(principal, {
+      side: input.side,
+      baseAsset: input.baseAsset,
+      quoteAsset: input.quoteAsset,
+      qty: input.qty,
+    });
+    return { flow: input.flow, ...quote };
+  }
+
   async quote(
     principal: Principal,
     input: {
@@ -109,6 +165,15 @@ export class OtcDeskService {
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
+
+    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
+    // free text. A blank list, an unknown provider or an outside provider refuses
+    // the request before any stake read or price lookup.
+    // A blank makerId is not skipped: it goes through the same selection, so a
+    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
+    if (law.counterparty === 'maker') {
+      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+    }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
     // what the desk can price, and a mid source that costs a round trip is not

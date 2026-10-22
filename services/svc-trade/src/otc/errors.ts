@@ -18,11 +18,18 @@ export type OtcErrorCode =
   | 'trade.otc_quote_missing'
   | 'trade.otc_already_settled'
   | 'trade.otc_settle_refused'
+  | 'trade.convert_bounds_not_set'
+  | 'trade.convert_out_of_bounds'
+  | 'trade.convert_flow_side_refused'
   | 'trade.rfq_missing_size'
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_allocation_refused'
-  | 'trade.rfq_give_up_refused';
+  | 'trade.rfq_give_up_refused'
+  | 'trade.otc_makers_unset'
+  | 'trade.otc_provider_required'
+  | 'trade.otc_provider_cap'
+  | 'trade.otc_provider_unknown';
 
 export class OtcError extends Error {
   constructor(

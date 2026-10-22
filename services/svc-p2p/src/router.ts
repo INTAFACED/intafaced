@@ -64,7 +64,7 @@ export type P2pRouterOptions = {
    * `p2p.public_profile_unwired` and returns nulls. Never a made-up handle.
    */
   publicProfile?: {
-    lookup(userId: string): Promise<{ handle: string; memberSince: string } | null>;
+    lookup(userId: string): Promise<{ handle: string; memberSince: string; verificationLevel?: string | null } | null>;
   };
   /**
    * Fan-out for a new chat message. Unset → the message is stored and the
@@ -245,6 +245,25 @@ const disputeOutput = z.object({
   lastSeenByModeratorAt: z.string().nullable(),
 });
 
+const ownStatsOutput = z.object({
+  ordersTotal: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  cancelled: z.number().int().nonnegative(),
+  disputed: z.number().int().nonnegative(),
+  completionRate: z.number().min(0).max(1),
+  cancelRate: z.number().min(0).max(1),
+  avgReleaseSecs: z.number().int().nonnegative().nullable(),
+  avgPaySecs: z.number().int().nonnegative().nullable(),
+  volume: z.array(
+    z.object({
+      asset: z.string(),
+      fiatCurrency: z.string(),
+      amount: amountString,
+      fiatAmount: amountString,
+    }),
+  ),
+});
+
 const reputationOutput = z.object({
   tradesTotal: z.number().int(),
   completed: z.number().int(),
@@ -264,6 +283,12 @@ const reputationOutput = z.object({
   }),
   /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
   trades30d: z.number().int().nonnegative(),
+  /** Buyer side: average seconds from escrow lock to "marked paid". Null with no sample, never 0-as-fast. */
+  avgPaySecs: z.number().int().nonnegative().nullable(),
+  /** Order reviews arrive with P-ads-merchant-21. Until then there is no rating, and none is invented. */
+  rating: z.null(),
+  /** Identity verification level only (no documents). Null when identity has not published it. */
+  verification: z.object({ level: z.string().min(1) }).nullable(),
   /**
    * Merchant standing, as a counterparty may see it (TRK-p2p.merchants Stage 2).
    *
@@ -357,6 +382,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_not_found':
       case 'p2p.trade_not_found':
       case 'p2p.dispute_not_found':
+      case 'p2p.user_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'p2p.not_a_party':
       case 'p2p.not_the_seller':
@@ -2420,12 +2446,18 @@ export function createP2pRouter(
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ userId: z.string().uuid() }))
         .output(reputationOutput)
-        .query(async ({ input }) =>
+        .query(async ({ ctx, input }) =>
           guard(async () => {
+            // A blocked pair cannot see each other's card: the block is the
+            // viewer's (or the subject's) decision not to deal, and a profile is
+            // the first step of a deal.
+            await p2p.assertNotBlocked(requireUser(ctx), input.userId);
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
-            const door = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const reputationDoor = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
             const trades30d = await p2p.tradesInWindow(input.userId);
+            const { avgPaySecs } = await p2p.payTimingOf(input.userId);
+            const door = { ...reputationDoor, avgPaySecs, rating: null, verification: null as { level: string } | null };
             if (!publicProfile) {
               return {
                 ...door,
@@ -2436,6 +2468,11 @@ export function createP2pRouter(
               };
             }
             const found = await publicProfile.lookup(input.userId);
+            if (!found && r.tradesTotal === 0) {
+              // Identity knows no such person and this service has no trade
+              // with them: there is no counterparty, not an empty one.
+              throw new P2pError('p2p.user_not_found', 'p2p.user_not_found');
+            }
             if (!found) {
               return {
                 ...door,
@@ -2447,6 +2484,7 @@ export function createP2pRouter(
             }
             return {
               ...door,
+              verification: found.verificationLevel ? { level: found.verificationLevel } : null,
               handle: found.handle,
               memberSince: found.memberSince,
               profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
@@ -2468,6 +2506,15 @@ export function createP2pRouter(
      * empty — the same shape `moderationConfigured` uses above.
      */
     merchants: router({
+      /**
+       * P-ads-merchant-20: the caller's own P2P performance for the user
+       * center. Any signed-in trader, merchant or not; recomputed from trades.
+       * Volume is decimal strings per (asset, fiat), never a JS number.
+       */
+      stats: merchantApiProcedure('p2p:read')
+        .output(ownStatsOutput)
+        .query(async ({ ctx }) => guard(async () => p2p.ownStats(requireUser(ctx)))),
+
       /**
        * Check whether current standing unlocks the merchant API.
        *
