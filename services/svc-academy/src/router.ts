@@ -11,6 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { relatedItems } from './curriculum/related.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -762,6 +763,9 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.slug_reserved':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
@@ -873,6 +877,12 @@ export function createAcademyRouter(
      * Unknown slug → `academy.curriculum_not_found` (NOT_FOUND). We do not
      * invent titles for the residual DERIV//DESK library that is not in-repo.
      */
+    /** AC-articles-02 — related items by shared path. None → []. */
+    curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120), limit: z.number().optional() }))
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
+
     curriculumItem: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
