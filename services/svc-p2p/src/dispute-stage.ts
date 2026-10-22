@@ -89,6 +89,13 @@ const TIMED: Partial<Record<DisputeStage, keyof StageTimers>> = {
   providing_proof: 'proofWindowSeconds',
 };
 
+/**
+ * Engineering input guard (no owner or contracts bound exists for these
+ * seconds): any dispute timer, lease or expiry above one year is refused
+ * `p2p.config_unset`, so a misconfigured value cannot park a dispute forever.
+ */
+export const MAX_DISPUTE_SECONDS = 365 * 24 * 60 * 60;
+
 /** Deadline for entering `stage` at `now`; null for untimed stages. Blank or bad timer refuses. */
 export function stageDeadline(stage: DisputeStage, now: Date, timers: StageTimers): Date | null {
   const key = TIMED[stage];
@@ -96,6 +103,9 @@ export function stageDeadline(stage: DisputeStage, now: Date, timers: StageTimer
   const s = timers[key];
   if (typeof s !== 'number' || !Number.isSafeInteger(s) || s <= 0) {
     throw new DisputeStageError(`Dispute timer ${key} is not set.`, 'p2p.config_unset');
+  }
+  if (s > MAX_DISPUTE_SECONDS) {
+    throw new DisputeStageError(`Dispute timer ${key} is out of range.`, 'p2p.config_unset');
   }
   const at = new Date(now.getTime() + s * 1000);
   // A huge safe-integer timer overflows Date (Invalid Date), which would fire at once: refuse.
@@ -118,6 +128,33 @@ export function timedTransition(stage: DisputeStage, deadlineAt: Date | null, no
   if (now < deadlineAt) return null;
   assertStage(stage, 'under_review');
   return { from: stage, to: 'under_review' };
+}
+
+export interface TimedRow {
+  id: string;
+  stage: DisputeStage;
+  deadlineAt: Date | null;
+}
+
+/**
+ * One sweeper batch: each row is decided on its own, so a row that throws
+ * (bad deadline, bad stage) is reported in `failed` and never stalls the rest.
+ */
+export function sweepTimedTransitions(
+  rows: readonly TimedRow[],
+  now: Date,
+): { moves: { id: string; from: DisputeStage; to: DisputeStage }[]; failed: { id: string; code: string }[] } {
+  const moves: { id: string; from: DisputeStage; to: DisputeStage }[] = [];
+  const failed: { id: string; code: string }[] = [];
+  for (const row of rows) {
+    try {
+      const m = timedTransition(row.stage, row.deadlineAt, now);
+      if (m) moves.push({ id: row.id, ...m });
+    } catch (e) {
+      failed.push({ id: row.id, code: e instanceof DisputeStageError ? e.code : 'p2p.internal' });
+    }
+  }
+  return { moves, failed };
 }
 
 export const DISPUTE_EVENT_KINDS = [
