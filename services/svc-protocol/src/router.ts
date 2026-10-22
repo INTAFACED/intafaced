@@ -901,11 +901,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             throw toTrpcError(err);
           }
         }),
-      // A user write: needs a write scope, not `protocol:read` (packages/auth has no protocol:write by design;
-      // the badge is a profile item, so it uses the customer profile write scope).
-      claim: scopedProcedure('identity:write', { module: 'protocol', plane: 'protocol' })
+      // `protocol:read` like claimAccount: no platform scope authorises on this plane (no protocol:write by design).
+      // What authorises the claim is the owner key's signature over `badgeClaimMessage`, verified in `claimBadge`.
+      claim: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+        .input(z.object({ signature: hexSchema.optional() }).optional())
         .output(protocolBadgeClaimOutputSchema)
-        .mutation(async ({ ctx }) => {
+        .mutation(async ({ ctx, input }) => {
           try {
             const b = deps.badge;
             if (!b) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${chain.config.chainId}`);
@@ -913,8 +914,9 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             const r = await claimBadge(
               { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
               ctx.principal.userId,
-              own?.address ?? null,
+              own ? { address: own.address, owner: own.owner } : null,
               { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              input?.signature ?? null,
             );
             return { key: r.key, chainId: r.chainId, to: r.to, txHash: r.txHash, label: r.label, audited: r.audited };
           } catch (err) {

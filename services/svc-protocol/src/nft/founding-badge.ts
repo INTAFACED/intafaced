@@ -1,4 +1,4 @@
-import { getAddress as toChecksum, isAddress } from 'viem';
+import { getAddress as toChecksum, hashMessage, isAddress, recoverAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 
 /**
@@ -125,11 +125,45 @@ export async function badgeEligibility(deps: BadgeDeps, accountId: string, netwo
   };
 }
 
+/**
+ * The message the registered smart account's owner key signs to claim. Names the claim key and the chain; it
+ * authorises one badge mint to the account's own address and nothing else.
+ */
+export function badgeClaimMessage(args: { accountId: string; chainId: number; address: Address }): string {
+  return [
+    'INTAFACED — claim founding badge',
+    '',
+    `key:     ${badgeClaimKey(args.accountId)}`,
+    `chain:   ${args.chainId}`,
+    `to:      ${toChecksum(args.address)}`,
+    '',
+    'Signing this claims one founding badge NFT to your own account.',
+    'It grants no other permission and moves no funds.',
+  ].join('\n');
+}
+
+/** The caller's own registered smart account, resolved server side from the registry. */
+export interface BadgeOwnAccount {
+  address: string;
+  owner: string;
+}
+
+async function signedByOwner(message: string, owner: string, signature: string | null | undefined): Promise<boolean> {
+  if (!signature || !/^0x[0-9a-fA-F]+$/.test(signature) || !isAddress(owner, { strict: false })) return false;
+  try {
+    const recovered = await recoverAddress({ hash: hashMessage(message), signature: signature as Hex });
+    return toChecksum(recovered) === toChecksum(owner);
+  } catch {
+    return false;
+  }
+}
+
 export async function claimBadge(
   deps: BadgeDeps,
   accountId: string,
-  ownAddress: string | null | undefined,
+  own: BadgeOwnAccount | null | undefined,
   network: BadgeNetwork,
+  signature: string | null | undefined,
 ): Promise<BadgeClaimRecord & { label: 'TEST'; audited: false }> {
   const window = requireBadgeWindow(deps.window);
   if (network.mainnet) {
@@ -151,8 +185,14 @@ export async function claimBadge(
   }
   // The address is the account's own registered smart account, resolved server side.
   // No registered account means there is nowhere of its own to mint to.
-  if (!ownAddress || !isAddress(ownAddress, { strict: false })) {
+  const ownAddress = own?.address;
+  if (!own || !ownAddress || !isAddress(ownAddress, { strict: false })) {
     throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'account has no registered smart account address');
+  }
+  // The owner key of the account's own registered smart account must sign the claim, verified before anything is stored.
+  const message = badgeClaimMessage({ accountId, chainId: network.chainId, address: toChecksum(ownAddress) });
+  if (!(await signedByOwner(message, own.owner, signature))) {
+    throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'claim signature missing or not from the account owner key');
   }
   // One badge per address: another account already claimed to this address.
   const onAddress = await deps.store.findClaimByAddress(network.chainId, toChecksum(ownAddress));

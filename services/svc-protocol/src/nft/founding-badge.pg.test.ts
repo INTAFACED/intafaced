@@ -4,11 +4,12 @@ import { fileURLToPath } from 'node:url';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
-import { badgeClaimKey, type BadgeMinter } from './founding-badge.js';
+import { badgeClaimKey, badgeClaimMessage, type BadgeMinter } from './founding-badge.js';
 import { PostgresBadgeStore } from './founding-badge.pg.js';
 
 /**
@@ -26,11 +27,13 @@ const OTHER = 'bad9e000-2222-4222-8222-222222222222';
 const STRANGER = 'bad9e000-3333-4333-8333-333333333333';
 const ADDR = '0x00000000000000000000000000000000000000B1' as Address;
 const CHAIN_ID = 31337;
+const OWNER_KEY = privateKeyToAccount(`0x${'33'.repeat(32)}`);
+const sig = (accountId: string) => OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: CHAIN_ID, address: ADDR }) });
 const SECRET = 'a-protocol-badge-test-edge-secret-length';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-protocol' });
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
-function signedAs(userId: string, scopes: string[] = ['protocol:read', 'identity:write']) {
+function signedAs(userId: string, scopes: string[] = ['protocol:read']) {
   const raw = encodePrincipal({
     sub: userId,
     userId,
@@ -68,7 +71,7 @@ function build(opts: { window?: typeof WINDOW | null; mainnet?: boolean; signer?
     chain: { config: { chainId: CHAIN_ID }, isDeployed: async () => false },
     registry: {
       accountsOf: async (userId: string) =>
-        userId === STRANGER ? [] : [{ id: 'a', userId, chainId: CHAIN_ID, address: ADDR, owner: ADDR, deployed: true }],
+        userId === STRANGER ? [] : [{ id: 'a', userId, chainId: CHAIN_ID, address: ADDR, owner: OWNER_KEY.address, deployed: true }],
     },
     relay: {},
     relayEnabled: () => true,
@@ -105,30 +108,46 @@ describe.skipIf(!sql)('founding badge (Postgres + router)', () => {
 
   it('blank window: badge.window_unset and no row, no mint', async () => {
     const { router, mints } = build({ window: null });
-    await expect(router.createCaller(signedAs(USER)).badge.claim()).rejects.toThrow(/badge\.window_unset/);
+    await expect(router.createCaller(signedAs(USER)).badge.claim({ signature: await sig(USER) })).rejects.toThrow(/badge\.window_unset/);
     await expect(router.createCaller(signedAs(USER)).badge.eligibility()).rejects.toThrow(/badge\.window_unset/);
     expect(mints).toHaveLength(0);
     expect(await sql!`SELECT 1 FROM protocol.founding_badge_claims WHERE account_id = ${USER}`).toHaveLength(0);
   });
 
   it('mainnet: audit.external; no signer: rail.crypto', async () => {
-    await expect(build({ mainnet: true }).router.createCaller(signedAs(USER)).badge.claim()).rejects.toThrow(/audit\.external/);
-    await expect(build({ signer: false }).router.createCaller(signedAs(USER)).badge.claim()).rejects.toThrow(/rail\.crypto/);
+    await expect(
+      build({ mainnet: true })
+        .router.createCaller(signedAs(USER))
+        .badge.claim({ signature: await sig(USER) }),
+    ).rejects.toThrow(/audit\.external/);
+    await expect(
+      build({ signer: false })
+        .router.createCaller(signedAs(USER))
+        .badge.claim({ signature: await sig(USER) }),
+    ).rejects.toThrow(/rail\.crypto/);
   });
 
   it('no registered own account: badge.not_eligible', async () => {
-    await expect(build().router.createCaller(signedAs(STRANGER)).badge.claim()).rejects.toThrow(/badge\.not_eligible/);
+    await expect(
+      build()
+        .router.createCaller(signedAs(STRANGER))
+        .badge.claim({ signature: await sig(STRANGER) }),
+    ).rejects.toThrow(/badge\.not_eligible/);
   });
 
   it('crash after claim stored: retry mints once with the stored key; second claim returns the stored claim', async () => {
-    await expect(build({ failMint: true }).router.createCaller(signedAs(USER)).badge.claim()).rejects.toBeTruthy();
+    await expect(
+      build({ failMint: true })
+        .router.createCaller(signedAs(USER))
+        .badge.claim({ signature: await sig(USER) }),
+    ).rejects.toBeTruthy();
     const pending = await sql!`SELECT tx_hash FROM protocol.founding_badge_claims WHERE key = ${badgeClaimKey(USER)}`;
     expect(pending).toHaveLength(1);
     expect(pending[0]!.tx_hash).toBeNull();
 
     const { router, mints } = build();
-    const first = await router.createCaller(signedAs(USER)).badge.claim();
-    const second = await router.createCaller(signedAs(USER)).badge.claim();
+    const first = await router.createCaller(signedAs(USER)).badge.claim({ signature: await sig(USER) });
+    const second = await router.createCaller(signedAs(USER)).badge.claim({ signature: await sig(USER) });
     expect(mints).toEqual([{ to: ADDR, key: badgeClaimKey(USER) }]);
     expect(second).toEqual(first);
     expect(first).toMatchObject({ key: badgeClaimKey(USER), to: ADDR, label: 'TEST', audited: false });
@@ -138,15 +157,18 @@ describe.skipIf(!sql)('founding badge (Postgres + router)', () => {
 
   it('another account claiming to the same address: badge.already_claimed', async () => {
     const { router, mints } = build();
-    await expect(router.createCaller(signedAs(OTHER)).badge.claim()).rejects.toThrow(/badge\.already_claimed/);
+    await expect(router.createCaller(signedAs(OTHER)).badge.claim({ signature: await sig(OTHER) })).rejects.toThrow(
+      /badge\.already_claimed/,
+    );
     expect(mints).toHaveLength(0);
   });
 
-  it('a read-only principal cannot claim (claim is a write), but can read eligibility', async () => {
+  it('an unsigned claim is refused badge.not_eligible and stores nothing', async () => {
     const { router, mints } = build();
-    await expect(router.createCaller(signedAs(USER, ['protocol:read'])).badge.claim()).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(router.createCaller(signedAs(USER, ['protocol:read'])).badge.eligibility()).resolves.toMatchObject({ audited: false });
+    await expect(router.createCaller(signedAs(OTHER)).badge.claim()).rejects.toThrow(/badge\.not_eligible/);
+    await expect(router.createCaller(signedAs(OTHER)).badge.claim({})).rejects.toThrow(/badge\.not_eligible/);
     expect(mints).toHaveLength(0);
+    expect(await sql!`SELECT 1 FROM protocol.founding_badge_claims WHERE account_id = ${OTHER}`).toHaveLength(0);
   });
 
   it('eligibility needs no signer', async () => {
