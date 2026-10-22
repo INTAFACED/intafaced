@@ -13,7 +13,7 @@ import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
  * - no reference price never hides or refuses a fixed ad (fixed ads still work).
  */
 
-export type PriceGuardCode = 'p2p.config_unset' | 'p2p.price_out_of_range' | 'p2p.invalid_amount';
+export type PriceGuardCode = 'p2p.config_unset' | 'p2p.price_out_of_range' | 'p2p.invalid_amount' | 'p2p.reference_price_invalid';
 
 export class PriceGuardError extends Error {
   constructor(
@@ -28,7 +28,7 @@ export class PriceGuardError extends Error {
 export interface PriceGuardPolicy {
   /** Max allowed |price - reference| / reference, in basis points (1..10000). */
   readonly maxDeviationBps: number;
-  /** Optional absolute floor and ceiling on a fixed price (scaled Amount). */
+  /** Optional (bounds are INCLUSIVE: price == min or price == max passes) absolute floor and ceiling on a fixed price (scaled Amount). */
   readonly minPrice: Amount | null;
   readonly maxPrice: Amount | null;
 }
@@ -106,7 +106,11 @@ export function evaluateFixedOfferPrice(input: EvaluateFixedInput): PriceGuardVe
   }
 
   const ref = input.referencePrice;
-  if (ref === undefined || ref === null || ref <= 0n) return { ok: true, checked: 'bounds' };
+  // A MISSING mark passes (spec: fixed ads still work with no reference).
+  if (ref === undefined || ref === null) return { ok: true, checked: 'bounds' };
+  // A zero or negative mark is a feed fault, not "unavailable": refuse it typed,
+  // so a broken feed cannot quietly switch the deviation check off.
+  if (ref <= 0n) throw new PriceGuardError('Reference price must be positive', 'p2p.reference_price_invalid');
 
   const diff = input.price > ref ? input.price - ref : ref - input.price;
   if (diff * 10_000n > ref * BigInt(policy.maxDeviationBps)) {
