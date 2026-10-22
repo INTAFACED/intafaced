@@ -22,6 +22,7 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-options.js';
 import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
 import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
 import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
@@ -399,16 +400,30 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .array(z.string().regex(/^[a-z_]{1,64}$/))
                 .max(32)
                 .optional(),
+              /** M-rep-01: local days in a time zone; the server computes the UTC boundaries. Not combined with filters.from/to. */
+              period: z
+                .object({
+                  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  timeZone: z.string().trim().min(1).max(64),
+                })
+                .strict()
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
-              const result = await p.exports.create(await callerOf(ctx), input);
+              const caller = await callerOf(ctx);
+              const { period, ...rest } = input;
+              const filters = period ? zonedFilters(rest.filters, period, new Date()) : rest.filters;
+              const result = await p.exports.create(caller, { ...rest, filters });
               if (result.created) kick(result.job.jobId, () => p.exports.process(result.job.jobId));
               return result.job;
             }),
           ),
+        /** M-rep-01: per kind, the date basis and the columns this caller's role may pick; formats offered. */
+        options: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => reportOptions(await callerOf(ctx)))),
         list: read
           .input(
             z.object({
