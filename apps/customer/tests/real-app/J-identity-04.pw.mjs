@@ -76,3 +76,48 @@ test(`${J}, part of #2: the refused passkey add goes ahead after the authenticat
   await expect(page.locator('.security__passkeys')).not.toContainText('No passkeys yet');
   await expect(page.locator('.failure')).toHaveCount(0);
 });
+
+test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and label; the name holds 64 characters at most, an empty one is refused, and no limit shows as "no limit set"`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const who = person('pn');
+  await virtualAuthenticator(page);
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+
+  const names = page.locator('.security__passkey-names');
+  await expect(names).toContainText('No passkey limit is set.');
+  await expect(names).toContainText('This device');
+  await expect(names).toContainText('Unnamed passkey');
+
+  // Renaming confirms with the passkey itself. The name field stops at 64 characters, and an empty name is refused
+  // before anything is sent.
+  await names.getByRole('button', { name: /^Rename passkey/ }).click();
+  const name = names.getByLabel('Name (1 to 64 characters)');
+  await name.fill('x'.repeat(70));
+  expect((await name.inputValue()).length).toBeLessThanOrEqual(64);
+  await name.fill('   ');
+  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names.getByRole('alert')).toContainText('Use 1 to 64 characters');
+  await name.fill('Work laptop');
+  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names).toContainText('Name saved.');
+  await expect(names).toContainText('Work laptop');
+
+  // A second passkey from another authenticator. This sign-in has not passed a second factor, so the add asks
+  // "Confirm it is you" first; the first passkey answers it.
+  await virtualAuthenticator(page, 'usb');
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  const refusal = page.locator('.failure');
+  await expect(refusal).toContainText('Confirm it is you');
+  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(sheet).toBeHidden();
+  // The names list follows the add on its own, with no refresh.
+  await expect(names.locator('.security__row')).toHaveCount(2);
+  await expect(names.locator('.security__row', { hasText: 'Work laptop' })).toContainText('This device');
+  await expect(names.locator('.security__row', { hasText: 'Unnamed passkey' })).toContainText('Security key');
+});

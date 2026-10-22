@@ -28,6 +28,7 @@ import {
   securityKey,
   securitySessionLock,
   setupResponse,
+  stepUpKind,
   type Passkey,
   type SecurityJournal,
   type SecurityKind,
@@ -60,14 +61,6 @@ type Response = {
   guardRetained?: boolean;
   unconfirmed?: boolean;
 };
-/**
- * The change a "Confirm it is you" may send again after a second-factor refusal: adding or removing a passkey, or
- * starting an authenticator. Not a confirmation (its code has likely expired by then) and not signing out everywhere.
- */
-function stepUpKind(refused: Response): 'options' | 'remove' | 'setup' | null {
-  const kind = refused.record?.kind;
-  return kind === 'options' || kind === 'register' ? 'options' : kind === 'remove' || kind === 'setup' ? kind : null;
-}
 const emptyJournal: SecurityJournal = { records: [], failed: false };
 
 export function Security() {
@@ -94,6 +87,8 @@ export function Security() {
     controller = useRef<AbortController | null>(null);
   const setupHeading = useRef<HTMLHeadingElement | null>(null);
   const [stepUp, setStepUp] = useState<Response | null>(null);
+  /** Counts passkeys added or removed here, so the passkey names below load again. */
+  const [passkeyRevision, setPasskeyRevision] = useState(0);
   const setupFocus = useRef<{
     intent: Original;
     origin: Element | null;
@@ -112,6 +107,10 @@ export function Security() {
         : Promise.resolve({ ok: true as const, data: [] }),
     `security-credentials:${userId}:${clientVersion.current.value}:${limit}`,
   );
+  const passkeysChanged = () => {
+    reload();
+    setPasskeyRevision((value) => value + 1);
+  };
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -330,7 +329,7 @@ export function Security() {
       return;
     }
     known(intent, registration, answer, answer.ok ? 'registered' : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function removePasskey(intent: Original) {
     if (!intent.credential) return;
@@ -349,7 +348,7 @@ export function Security() {
     }
     if (!fresh.data.some((row) => row.credentialId === intent.credential!.credentialId && row.createdAt === intent.credential!.createdAt)) {
       setProblem('keyChanged');
-      reload();
+      passkeysChanged();
       return;
     }
     const record = makeRecord(intent, 'remove', intent.credential.credentialId);
@@ -366,7 +365,7 @@ export function Security() {
       return;
     }
     known(intent, record, answer, answer.ok ? (answer.data.removed ? 'removed' : 'notRemoved') : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function startSetup(intent: Original) {
     const record = makeRecord(intent, 'setup');
@@ -475,7 +474,7 @@ export function Security() {
    * expired, so that refusal offers signing in again instead.
    */
   async function afterStepUp(refused: Response, token: string): Promise<ApiResult<null>> {
-    const kind = stepUpKind(refused);
+    const kind = stepUpKind(refused.record?.kind);
     if (!kind || !userId || running.current || !sameActor(refused.original)) {
       return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
     }
@@ -746,7 +745,7 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
-          <PasskeyNames />
+          <PasskeyNames revision={passkeyRevision} />
           <Authenticator />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <FreezeAccount />
@@ -797,8 +796,12 @@ export function Security() {
                 // them here sends the same change once more; signing in again with the code or a passkey also works.
                 <div className="failure" role="status">
                   <h3>{secondFactor.title}</h3>
-                  {stepUpKind(currentResponse) ? <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p> : <p>{secondFactor.body}</p>}
-                  {stepUpKind(currentResponse) && (
+                  {stepUpKind(currentResponse.record?.kind) ? (
+                    <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
+                  ) : (
+                    <p>{secondFactor.body}</p>
+                  )}
+                  {stepUpKind(currentResponse.record?.kind) && (
                     <Button onClick={() => setStepUp(currentResponse)}>
                       <Copy k="stepUpConfirm" />
                     </Button>

@@ -4,13 +4,14 @@ import { expect } from '@playwright/test';
 // customer app at http://localhost:3210 and Chromium's virtual authenticator in place of a device.
 export const PASSKEY_ORIGIN = 'http://localhost:3210';
 
-export async function virtualAuthenticator(page) {
+/** Chromium allows one built-in authenticator; `transport: 'usb'` adds a security key beside it. */
+export async function virtualAuthenticator(page, transport = 'internal') {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', {
     options: {
       protocol: 'ctap2',
-      transport: 'internal',
+      transport,
       hasResidentKey: true,
       hasUserVerification: true,
       isUserVerified: true,
