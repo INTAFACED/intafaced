@@ -35,6 +35,7 @@ import { planOtcSettle, postOtcSettle } from './settle.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 
@@ -51,6 +52,8 @@ export interface OtcDeskServiceOptions {
   midFeedWiring?: OtcMidFeedWiringStatus;
   /** Durable quote table. Tests inject MemoryOtcQuoteStore; boot uses SQL. */
   store?: OtcQuoteStore;
+  /** Owner provider directory (CB-otc-01). Absent → "No providers set" and requests refuse. */
+  makerDirectory?: OtcMakerDirectory;
   now?: () => Date;
 }
 
@@ -62,6 +65,7 @@ export class OtcDeskService {
   private readonly midSource: OtcMidSource;
   private readonly liveObservationFeed: boolean;
   private readonly midFeedWiring: OtcMidFeedWiringStatus | null;
+  private readonly makerDirectory: OtcMakerDirectory;
   private readonly now: () => Date;
 
   constructor(
@@ -76,7 +80,21 @@ export class OtcDeskService {
     this.liveObservationFeed = options.liveObservationFeed === true;
     this.midFeedWiring = options.midFeedWiring ?? null;
     this.store = options.store ?? new MemoryOtcQuoteStore();
+    this.makerDirectory = options.makerDirectory ?? UNPUBLISHED_OTC_MAKER_DIRECTORY;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /** `trade.otc.makers.list` — the owner directory, or the honest empty state. */
+  listMakers() {
+    return listOtcMakers(this.makerDirectory);
+  }
+
+  /** `trade.otc.makers.select` — validates a provider pick against the list and the owner cap. */
+  selectMakers(makerIds: readonly string[]) {
+    return {
+      makers: selectOtcMakers(this.makerDirectory, makerIds),
+      selectCap: this.makerDirectory.published ? this.makerDirectory.selectCap : null,
+    };
   }
 
   deskStatus() {

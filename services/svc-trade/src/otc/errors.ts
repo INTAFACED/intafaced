@@ -22,7 +22,11 @@ export type OtcErrorCode =
   | 'trade.rfq_missing_price'
   | 'trade.rfq_already_bound'
   | 'trade.rfq_allocation_refused'
-  | 'trade.rfq_give_up_refused';
+  | 'trade.rfq_give_up_refused'
+  | 'trade.otc_makers_unset'
+  | 'trade.otc_provider_required'
+  | 'trade.otc_provider_cap'
+  | 'trade.otc_provider_unknown';
 
 export class OtcError extends Error {
   constructor(
