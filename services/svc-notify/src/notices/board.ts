@@ -24,6 +24,10 @@ export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changel
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
 
+/** Locales a public notice can be read in. Lead ruling D27 (1): en only; migration 0026 backfills every row as en. */
+export const NOTICE_LOCALES = ['en'] as const;
+export type NoticeLocale = (typeof NOTICE_LOCALES)[number];
+
 /** What a status notice can be about. Components with no notice stay `unknown`. */
 export const STATUS_COMPONENTS = ['api', 'webhooks', 'console'] as const;
 export type StatusComponent = (typeof STATUS_COMPONENTS)[number];
@@ -47,6 +51,7 @@ export type NoticeCode =
   | 'notify.notices_limit_invalid'
   | 'notify.notice_not_found'
   | 'notify.notice_kind_unknown'
+  | 'notify.notice_locale_unknown'
   | 'notify.notice_copy_unset'
   | 'notify.notice_publish_approval_unavailable'
   | 'notify.notice_publish_same_operator'
@@ -143,7 +148,8 @@ export interface NoticeStore {
   insert(row: NoticeRow): Promise<void>;
   findByDraftRequest(authorId: string, clientRequestId: string): Promise<NoticeRow | null>;
   findById(id: string): Promise<NoticeRow | null>;
-  listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /** Published rows, newest first. A locale narrows the read; null reads every locale. */
+  listPublished(kind: NoticeKind | null, limit: number, locale?: NoticeLocale | null): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
   markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void>;
@@ -158,11 +164,18 @@ export interface NoticeStore {
 
 export const NOTICES_LIST_LIMIT_MAX = 50;
 
+/** Page cap on the public announcements door, engineering-set by the SP-developer-status-02 pack. Also the page size when no limit is sent. */
+export const ANNOUNCEMENTS_LIMIT_MAX = 100;
+
 export function clampNoticeLimit(limit: number): number {
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) {
     throw new NoticeError('notify.notices_limit_invalid');
   }
   return Math.min(limit, NOTICES_LIST_LIMIT_MAX);
+}
+
+function isLocale(value: string): value is NoticeLocale {
+  return (NOTICE_LOCALES as readonly string[]).includes(value);
 }
 
 function isKind(value: string): value is NoticeKind {
@@ -258,9 +271,11 @@ export class MemoryNoticeStore implements NoticeStore {
     return this.rows.get(id) ?? null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+  async listPublished(kind: NoticeKind | null, limit: number, locale: NoticeLocale | null = null): Promise<readonly NoticeRow[]> {
+    // Memory rows carry no locale column; every row is en, as migration 0026 backfills them.
+    const rowLocale: NoticeLocale = 'en';
     return [...this.rows.values()]
-      .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
+      .filter((row) => row.status === 'published' && (kind == null || row.kind === kind) && (locale == null || rowLocale === locale))
       .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
       .slice(0, limit);
   }
@@ -433,6 +448,22 @@ export class NoticeBoard {
     const kind = input.kind == null || input.kind === '' ? null : input.kind;
     if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
     const rows = await this.store.listPublished(kind, limit);
+    return rows.map(toNoticeWire);
+  }
+
+  /**
+   * The public announcements door (GET /api/v1/announcements). Published rows only,
+   * narrowed by kind and locale. An unknown kind or locale refuses with its typed code.
+   */
+  async announcements(input: { kind?: string | null; locale?: string | null; limit?: number | null }): Promise<readonly NoticeWire[]> {
+    const requested = input.limit ?? ANNOUNCEMENTS_LIMIT_MAX;
+    if (!Number.isInteger(requested) || requested < 1) throw new NoticeError('notify.notices_limit_invalid');
+    const limit = Math.min(requested, ANNOUNCEMENTS_LIMIT_MAX);
+    const kind = input.kind == null || input.kind === '' ? null : input.kind;
+    if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
+    const locale = input.locale == null || input.locale === '' ? null : input.locale;
+    if (locale != null && !isLocale(locale)) throw new NoticeError('notify.notice_locale_unknown');
+    const rows = await this.store.listPublished(kind, limit, locale);
     return rows.map(toNoticeWire);
   }
 

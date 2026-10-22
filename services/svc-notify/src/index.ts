@@ -23,6 +23,7 @@ import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
 import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
+import { registerAnnouncementsRoute } from './notices/announcements-rest.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -131,6 +132,9 @@ await sql`SELECT impact, components, parent_id, resolves FROM notify.notices LIM
 
 await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices has no changelog column — run migration 0015_notify_changelog_fields before starting svc-notify');
+});
+await sql`SELECT locale FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices has no locale column — run migration 0026_notify_notice_locale before starting svc-notify');
 });
 
 // Consumer only — trade / p2p / identity / token / bank own their streams.
@@ -321,6 +325,8 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 
 const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
+
+registerAnnouncementsRoute(app, notices);
 
 app.get('/health', async () => ({
   ok: true,

@@ -13,6 +13,7 @@ import {
   type IncidentImpact,
   type IncidentPhase,
   type NoticeKind,
+  type NoticeLocale,
   type NoticeRow,
   type NoticeStore,
   type StatusComponent,
@@ -143,21 +144,15 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows[0] ? fromPg(rows[0]) : null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
-    const rows =
-      kind == null
-        ? await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published'
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `
-        : await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published' AND kind = ${kind}
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `;
+  async listPublished(kind: NoticeKind | null, limit: number, locale: NoticeLocale | null = null): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published'
+         ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+         ${locale == null ? this.sql`` : this.sql`AND locale = ${locale}`}
+       ORDER BY published_at DESC, id ASC
+       LIMIT ${limit}
+    `;
     return rows.map(fromPg);
   }
 

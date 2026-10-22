@@ -1123,7 +1123,8 @@ export function createNotifyRouter(
         )
         .output(z.array(noticeWireOutput))
         .query(async ({ input }) => {
-          if (!notify.notices) return [];
+          // Lead ruling D27 (4): an unwired board refuses; an empty list would read as "no notices".
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return [...(await notify.notices.notices({ kind: input.kind ?? null, limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX) }))];
           } catch (err) {
