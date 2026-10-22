@@ -1,8 +1,8 @@
-import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';

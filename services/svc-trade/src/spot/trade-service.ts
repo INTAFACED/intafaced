@@ -1,4 +1,3 @@
-import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -8,6 +7,7 @@ import {
   type TradingAdmissionPort,
   type TradingOperationKind,
 } from '../controls/trading-controls.js';
+import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { businessPayload } from '../controls/business-payload.js';
 import type { Timeframe } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
