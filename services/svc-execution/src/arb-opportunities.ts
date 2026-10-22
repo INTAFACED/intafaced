@@ -57,6 +57,7 @@ export class ArbOpportunityError extends Error {
  */
 export const CUSTOMER_REFUSAL_LABELS = {
   funding_rate_unset: 'Funding rate not set',
+  freshness_window_unset: 'Price freshness window not set',
   empty_book: 'No order book to compare',
   missing_quote: 'A price is missing',
   stale_quote: 'Prices are out of date',
@@ -70,7 +71,7 @@ export const CUSTOMER_REFUSAL_LABELS = {
   insufficient_size: 'Not enough size on the book',
   size_refused: 'Not enough size on the book',
   amount_conflict: 'Amount does not fit the book',
-  capital_unset: 'Not available',
+  capital_unset: 'Capital not set',
   capital_invalid: 'Not available',
   unavailable: 'Not available',
 } as const;
@@ -164,10 +165,13 @@ export async function readArbOpportunities(input: {
       scanClass: scanClassFor(scanClass),
       fundingRate: scanClass === 'funding' ? read.fundingRate : undefined,
     });
+    // A blank owner window is "nobody set this", not "the feed is late": name it first so it
+    // is never masked by the scanner's stale_quote (review #5795 blocker 1).
+    const windowUnset = read.maxQuoteAgeMs == null ? [refusal('freshness_window_unset')] : [];
     return {
       scanClass,
       opportunities: scanned.opportunities.map(customerOpportunity),
-      refused: dedupe(scanned.refused.map(customerRefusal)),
+      refused: dedupe([...windowUnset, ...scanned.refused.map(customerRefusal)]),
     };
   });
   return { status: 'ok', symbol: input.symbol, amount: input.amount, rows };

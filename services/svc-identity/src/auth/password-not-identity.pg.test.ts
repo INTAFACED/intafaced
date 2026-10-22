@@ -65,7 +65,7 @@ if (!available) {
   const rank = new RankService(db.sql, bus);
   const keyMaterial = randomBytes(32).toString('base64');
   const auth = new AuthService(db.sql, bus, rank, tokenConfig, webauthnConfig, keyMaterial, undefined, undefined, 25);
-  const router = createIdentityRouter(auth, rank, { registrationOpen: true, actionApprovals: stubActionApprovals() });
+  const router = createIdentityRouter(auth, rank, { registrationOpen: true, directRegister: true, actionApprovals: stubActionApprovals() });
   const anon = () => router.createCaller(anonContext);
 
   const sent: Array<{ email: string; code: string; expiresAt: Date; purpose?: string; handle?: string }> = [];
@@ -135,6 +135,14 @@ if (!available) {
           userId: expect.any(String),
         },
       );
+    });
+
+    it('refuses a too-short password at register with the typed auth.password_policy, not a raw WeakPasswordError', async () => {
+      const handle = `short${Date.now()}`;
+      await expect(auth.register({ handle, email: `${handle}@example.com`, password: 'abc', region: 'DE' })).rejects.toMatchObject({
+        code: 'auth.password_policy',
+      });
+      expect(await db.sql`SELECT count(*)::int AS n FROM users WHERE handle = ${handle}`).toEqual([{ n: 0 }]);
     });
 
     it('refuses a change to the email address and keeps the old password', async () => {

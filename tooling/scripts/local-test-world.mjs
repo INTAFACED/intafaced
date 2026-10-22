@@ -30,7 +30,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack, localPgBin, localStackState } from './local-test-state.mjs';
+import {
+  assertActiveLocalStack,
+  localEmailOutboxPath,
+  localPgBin,
+  localStackState,
+  readLatestEmailConfirmToken,
+} from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -2329,36 +2335,8 @@ const MERCHANT_MONEY = new Set([
  * because that scope is withheld from every session (the same local stand-in
  * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
-/** Same file the local stack's identity process writes. */
-export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
-  return path.join(localStackState(home, env), 'email-outbox.log');
-}
-
-/**
- * Newest LOCAL-TEST confirm link for this address, or null.
- * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
- */
-export function readLatestEmailConfirmToken(text, email) {
-  const want = String(email ?? '')
-    .trim()
-    .toLowerCase();
-  let token = null;
-  for (const line of String(text ?? '').split('\n')) {
-    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
-    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
-    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
-    if (!emailMatch || !linkMatch) continue;
-    if (emailMatch[1].toLowerCase() !== want) continue;
-    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
-    if (!q?.[1]) continue;
-    try {
-      token = decodeURIComponent(q[1]);
-    } catch {
-      token = null;
-    }
-  }
-  return token;
-}
+// Shared with local-test-market, which proves its accounts' emails the same way.
+export { localEmailOutboxPath, readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 /** What the merchant step does with a session and an outbox. No database write. */
 export function planEmailConfirm({ emailVerified, outboxText, email }) {

@@ -39,6 +39,8 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
+import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
+import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
 import {
   createLimitsRouter,
@@ -47,15 +49,18 @@ import {
   limitRequestQueueProcedure,
 } from './transfers/limit-requests.js';
 import { createLoanProductProcedure } from './ops/loan-products.js';
+import { publishTransferTermsProcedure } from './transfers/transfer-terms.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from './ops/customer-balances.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
+import { authorizationGetProcedure } from './ops/authorization-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -312,6 +317,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_product_not_found':
       case 'bank.personal_transfer_not_found':
       case 'bank.ops_transfer_not_found':
+      case 'bank.ops_authorization_not_found':
       case 'bank.personal_request_not_found':
       case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
@@ -430,6 +436,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'bank.asset_paused':
+      case 'bank.ops_revision_conflict':
+      case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
       case 'bank.limit_request_decided':
@@ -510,10 +519,14 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.activity_filter_name_invalid':
+      case 'bank.activity_filter_empty':
+      case 'bank.activity_filter_limit_unset':
       case 'bank.limit_request_reason_too_short':
       case 'bank.limit_request_list_limit_unset':
       case 'bank.limit_grant_unset':
       case 'bank.loan_params_invalid':
+      case 'bank.personal_transfer_terms_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
@@ -613,6 +626,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.statement_unavailable':
       case 'bank.ops_audit_unavailable':
       case 'bank.account_details_unavailable':
+      // The pause read failed; the new borrow or deposit was refused rather than assumed open.
+      case 'bank.asset_pause_unreadable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -827,6 +842,8 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
+  loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
@@ -1577,6 +1594,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // The desk supply pause is checked inside earn.deposit, so every caller respects it.
           const position = await bank.earn.deposit({
             poolId: input.poolId,
             userId: ctx.principal.userId,
@@ -1851,6 +1869,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // Pre-flight: a desk pause on either asset of the product refuses before collateral is locked.
+          const product = await bank.loans.product(input.productId);
+          await bank.assetPauses.assertBorrowOpen([product.debtAssetId, product.collateralAssetId]);
           const result = await bank.loans.open({
             loanId: input.loanId,
             productId: input.productId,
@@ -2075,6 +2096,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId };
         }),
       ),
+    // BK-loan-09: unsecured-loan servicing previews (typed Preview refusals) and the owner missed-payment policy.
+    ...loanServicingPreviewProcedures(options.loanMissedPaymentPolicy),
   });
 
   /**
@@ -3392,15 +3415,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
+    setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
+    publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
+    /** BK-cops-01: one card authorisation for a compliance operator. Read-only. */
+    authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
@@ -4710,6 +4738,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
     spaces,
     transfers,
+    /**
+     * PP-money-balance-04: the published personal-send fee schedule. No rows → `published: false`
+     * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
+     */
+    fees: router({
+      schedule: router({
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({
+              published: z.boolean(),
+              entries: z.array(
+                z.object({
+                  assetId: z.string(),
+                  fee: amountString,
+                  free: z.boolean(),
+                  feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
+                  publishedAt: z.string(),
+                }),
+              ),
+            }),
+          )
+          .query(() => guard(() => bank.personalPay.feeSchedule())),
+      }),
+    }),
     earn,
     loans,
     cards,
@@ -4809,6 +4861,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
+    /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
+    creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),

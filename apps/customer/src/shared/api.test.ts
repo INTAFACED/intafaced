@@ -70,6 +70,34 @@ describe('customer transport boundary', () => {
     });
     expect(await api.query('bank', 'read', {}, z.unknown())).toMatchObject({ ok: false, code: 'denied.kyc_required' });
   });
+  it('carries the account state of a frozen or closed sign-in, and nothing unknown', async () => {
+    const answer = (data: Record<string, unknown>) =>
+      createApiClient({
+        fetch: async () => new Response(JSON.stringify({ error: { message: 'You do not have access to this.', data } }), { status: 403 }),
+      });
+    const closed = await answer({ intafacedCode: 'auth.account_frozen', accountState: 'closed' }).mutate(
+      'identity',
+      'auth.login',
+      {},
+      z.unknown(),
+    );
+    expect(closed).toMatchObject({ ok: false, code: 'auth.account_frozen', accountState: 'closed' });
+    const odd = await answer({ intafacedCode: 'auth.account_frozen', accountState: 'active' }).mutate(
+      'identity',
+      'auth.login',
+      {},
+      z.unknown(),
+    );
+    expect(odd).toMatchObject({ ok: false, code: 'auth.account_frozen' });
+    expect(odd).not.toHaveProperty('accountState');
+    const other = await answer({ intafacedCode: 'auth.invalid_credentials', accountState: 'closed' }).mutate(
+      'identity',
+      'auth.login',
+      {},
+      z.unknown(),
+    );
+    expect(other).not.toHaveProperty('accountState');
+  });
   it('reads the specific reason from a market route refusal instead of its broad class', async () => {
     // Observed from the public ticker of a listed market that has no live book: the class sits in `code`, the reason beside it.
     const api = createApiClient({

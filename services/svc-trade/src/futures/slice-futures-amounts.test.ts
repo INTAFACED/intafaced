@@ -36,7 +36,7 @@ import type { Amount, Balance } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { CommittedOperationAdmission } from '@intafaced/contracts';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
-import { principalFor } from '../spot/testing.js';
+import { StubEmailProof, principalFor } from '../spot/testing.js';
 import { closeHoldFailureAction } from '../spot/close-position.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
@@ -357,6 +357,7 @@ function creditBook(options?: { balanceThrows?: boolean }) {
     maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
     now: () => CREDIT_NOW,
     accountAdmission: recordingAdmission(),
+    emailProof: new StubEmailProof(),
   });
 
   return {

@@ -10,16 +10,16 @@ import {
   SCREENING_REVIEWED_EMPTY,
 } from '@intafaced/config';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 import { READY_MARKET_LIFECYCLE, READY_MARKET_NOW, readyMarket } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
-import { registerSpotOrderPreviewRest, SPOT_ORDER_PREVIEW_PATH } from './order-preview-rest.js';
+import { registerSpotOrderPreviewRest, SPOT_ORDER_PREVIEW_PATH, type SpotOrderPreviewRestDeps } from './order-preview-rest.js';
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Market } from './types.js';
+import { TradeError, type Market } from './types.js';
 
 const EDGE_SECRET = 'spot-order-preview-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -128,6 +128,8 @@ function appWith(input: {
   slippageCapBps?: number | null;
   feeDiscountBps?: (userId: string) => Promise<number>;
   stopLimitEnabled?: boolean;
+  matchingHalt?: (marketId: string) => Promise<{ market: boolean; venue: boolean }>;
+  operatorRisk?: SpotOrderPreviewRestDeps['operatorRisk'];
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -167,6 +169,8 @@ function appWith(input: {
     slippageCapBps: input.slippageCapBps === undefined ? 200 : input.slippageCapBps,
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
     ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
+    ...(input.matchingHalt ? { matchingHalt: input.matchingHalt } : {}),
+    ...(input.operatorRisk ? { operatorRisk: input.operatorRisk } : {}),
   });
   return { app, submit, ledgerPost };
 }
@@ -865,5 +869,87 @@ describe('POST /api/v1/orders/preview: per-order slippage tolerance', () => {
     expect(res.orderable).toBe(false);
     expect(res.protectionPrice).toBeNull();
     expect(res.refusals.map((r: { code: string }) => r.code)).toContain('trade.slippage_cap_unset');
+  });
+});
+
+describe('POST /api/v1/orders/preview: an operator halt in matching (J-cex-spot-02 step 8)', () => {
+  const preview = async (matchingHalt: (marketId: string) => Promise<{ market: boolean; venue: boolean }>) => {
+    const { app, submit } = appWith({ matchingHalt });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    await app.close();
+    expect(submit).not.toHaveBeenCalled();
+    return response;
+  };
+
+  it('a halted market is refused before Confirm, with the halt named', async () => {
+    const asked: string[] = [];
+    const response = await preview(async (marketId) => {
+      asked.push(marketId);
+      return { market: true, venue: false };
+    });
+    expect(asked).toEqual([MARKET.id]);
+    expect(response.json()).toMatchObject({
+      orderable: false,
+      refusals: [expect.objectContaining({ code: 'trade.market_halted', field: 'symbol' })],
+    });
+  });
+
+  it('a venue-wide halt is refused as one', async () => {
+    const response = await preview(async () => ({ market: false, venue: true }));
+    expect(response.json().refusals.map((r: { code: string }) => r.code)).toEqual(['trade.venue_halted']);
+  });
+
+  it('an open book adds nothing, and a failed read adds nothing (place stays the authority)', async () => {
+    expect((await preview(async () => ({ market: false, venue: false }))).json()).toMatchObject({ orderable: true, refusals: [] });
+    const failed = await preview(async () => {
+      throw new Error('matching down');
+    });
+    expect(failed.statusCode).toBe(200);
+    expect(failed.json()).toMatchObject({ orderable: true, refusals: [] });
+  });
+});
+
+describe('POST /api/v1/orders/preview: the operator limits place enforces (J-cex-spot-04 steps 4 and 5)', () => {
+  const preview = async (payload: Record<string, unknown>, operatorRisk: SpotOrderPreviewRestDeps['operatorRisk']) => {
+    const { app, submit } = appWith({ operatorRisk });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload });
+    await app.close();
+    expect(submit).not.toHaveBeenCalled();
+    return response.json();
+  };
+
+  it('a price outside the band is refused before Confirm, with the edges', async () => {
+    const asked: Array<{ side: string; price: string | null; rests: boolean }> = [];
+    const body = await preview(limitBuy, async (market, _user, input) => {
+      asked.push({ side: input.side, price: input.price === null ? null : formatAmount(input.price), rests: input.rests });
+      throw new TradeError('order price is outside the price band 90 to 99', 'trade.price_band', { low: '90', high: '99', collar: '0.05' });
+    });
+    expect(asked).toEqual([{ side: 'buy', price: '100', rests: true }]);
+    expect(body).toMatchObject({
+      orderable: false,
+      refusals: [{ code: 'trade.price_band', field: 'price', data: { low: '90', high: '99', collar: '0.05' } }],
+    });
+  });
+
+  it('a full open-order cap is refused with the cap and the count; an IOC is asked as one that cannot rest', async () => {
+    const body = await preview(limitBuy, async () => {
+      throw new TradeError('2 orders are open', 'trade.operator_throttle', { cap: '2', open: '2' });
+    });
+    expect(body.refusals).toEqual([
+      expect.objectContaining({ code: 'trade.operator_throttle', field: 'symbol', data: { cap: '2', open: '2' } }),
+    ]);
+    const rests: boolean[] = [];
+    await preview({ ...limitBuy, timeInForce: 'IOC' }, async (_market, _user, input) => {
+      rests.push(input.rests);
+    });
+    expect(rests).toEqual([false]);
+  });
+
+  it('a limit whose price does not read is not sent to the gate', async () => {
+    let asked = false;
+    await preview({ ...limitBuy, price: 'abc' }, async () => {
+      asked = true;
+    });
+    expect(asked).toBe(false);
   });
 });

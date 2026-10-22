@@ -41,6 +41,7 @@ import {
   ACTION_APPROVAL_MISSING,
   assertFounderAudienceAttestation,
   matchingActionPayloadHash,
+  approvalEvidenceRef,
   readApprovalIds,
   unwiredApprovalConsumer,
   sameUser,
@@ -243,6 +244,15 @@ type MassQuoteEngine = MatchingEngine & {
 };
 
 /** Halt/resume/mode mutate. Typed confirm is attribution only. Consume identity approval. */
+/** What an emergency door hands the engine: the two operators, and the approval they used as its evidence. */
+function emergencyCmd(authz: {
+  readonly operatorId: string;
+  readonly confirmOperatorId: string;
+  readonly evidenceRefs: readonly string[];
+}) {
+  return { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId, evidenceRefs: authz.evidenceRefs };
+}
+
 const venueKillBodySchema = z.object({
   operatorId: z.string().min(1).max(128),
   confirmOperatorId: z.string().max(128).nullish(),
@@ -637,7 +647,13 @@ export function registerRoutes(
     fields: Record<string, string>,
     targetId: string,
   ): Promise<
-    | { readonly ok: true; readonly operatorId: string; readonly confirmOperatorId: string }
+    | {
+        readonly ok: true;
+        readonly operatorId: string;
+        readonly confirmOperatorId: string;
+        /** The consumed two-person approval, as the evidence an emergency action needs (rulebook-refuse.ts). */
+        readonly evidenceRefs: readonly string[];
+      }
     | {
         readonly ok: false;
         readonly status: 200;
@@ -698,7 +714,12 @@ export function registerRoutes(
       }
       // #4790 kept the founder-only audience for matching.* (protective brakes skip it).
       assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-matching', targetId });
-      return { ok: true, operatorId: consumed.requesterId, confirmOperatorId: approverId };
+      return {
+        ok: true,
+        operatorId: consumed.requesterId,
+        confirmOperatorId: approverId,
+        evidenceRefs: [approvalEvidenceRef(consumed.approvalId)],
+      };
     } catch (err) {
       if (err instanceof ActionApprovalConsumeError) {
         return { ok: false, status: 400, body: { code: err.code, message: err.message } };
@@ -949,7 +970,7 @@ export function registerRoutes(
       });
     }
 
-    const result = await engine.halt(marketId, { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId });
+    const result = await engine.halt(marketId, emergencyCmd(authz));
     return reply.code(200).send({
       accepted: result.accepted,
       marketId: result.marketId,
@@ -986,7 +1007,7 @@ export function registerRoutes(
       });
     }
 
-    const result = await engine.resume(marketId, { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId });
+    const result = await engine.resume(marketId, emergencyCmd(authz));
     return reply.code(200).send({
       accepted: result.accepted,
       marketId: result.marketId,
@@ -1021,7 +1042,7 @@ export function registerRoutes(
       });
     }
 
-    const result = await engine.haltAll({ operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId });
+    const result = await engine.haltAll(emergencyCmd(authz));
     return reply.code(200).send({
       accepted: result.accepted,
       halted: result.halted,
@@ -1055,7 +1076,7 @@ export function registerRoutes(
       });
     }
 
-    const result = await engine.resumeAll({ operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId });
+    const result = await engine.resumeAll(emergencyCmd(authz));
     return reply.code(200).send({
       accepted: result.accepted,
       halted: result.halted,
@@ -1345,7 +1366,7 @@ export function registerRoutes(
       });
     }
 
-    const result = await engine.expire(marketId, { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId });
+    const result = await engine.expire(marketId, emergencyCmd(authz));
     return reply.code(200).send({
       accepted: result.accepted,
       marketId: result.marketId,
@@ -1820,7 +1841,12 @@ export function registerRoutes(
       readonly needsMarket: boolean;
       readonly targetId: (marketId: string) => string;
       readonly fields: (marketId: string) => Record<string, string>;
-      readonly apply: (marketId: string, operatorId: string, confirmOperatorId: string) => Promise<Record<string, unknown>>;
+      readonly apply: (
+        marketId: string,
+        operatorId: string,
+        confirmOperatorId: string,
+        evidenceRefs: readonly string[],
+      ) => Promise<Record<string, unknown>>;
     },
   ) => {
     const auth = await founderPrincipal(req, 'admin:write');
@@ -1871,7 +1897,7 @@ export function registerRoutes(
         rejected: authz.rejected,
       });
     }
-    const applied = await spec.apply(marketId, authz.operatorId, authz.confirmOperatorId);
+    const applied = await spec.apply(marketId, authz.operatorId, authz.confirmOperatorId, authz.evidenceRefs);
     const value = { ...applied, rejected: applied.rejected ?? null };
     founderIdem.set(key.key, { fingerprint, value });
     return reply.code(200).send(value);
@@ -1883,8 +1909,8 @@ export function registerRoutes(
       needsMarket: true,
       targetId: (marketId) => `halt:${marketId}`,
       fields: (marketId) => ({ marketId }),
-      apply: async (marketId, operatorId, confirmOperatorId) => {
-        const result = await engine.halt(marketId, { operatorId, confirmOperatorId });
+      apply: async (marketId, operatorId, confirmOperatorId, evidenceRefs) => {
+        const result = await engine.halt(marketId, { operatorId, confirmOperatorId, evidenceRefs });
         return {
           accepted: result.accepted,
           marketId: result.marketId,
@@ -1903,8 +1929,8 @@ export function registerRoutes(
       needsMarket: true,
       targetId: (marketId) => `resume:${marketId}`,
       fields: (marketId) => ({ marketId }),
-      apply: async (marketId, operatorId, confirmOperatorId) => {
-        const result = await engine.resume(marketId, { operatorId, confirmOperatorId });
+      apply: async (marketId, operatorId, confirmOperatorId, evidenceRefs) => {
+        const result = await engine.resume(marketId, { operatorId, confirmOperatorId, evidenceRefs });
         return {
           accepted: result.accepted,
           marketId: result.marketId,
@@ -1923,8 +1949,8 @@ export function registerRoutes(
       needsMarket: false,
       targetId: () => 'halt_all',
       fields: () => ({}),
-      apply: async (_marketId, operatorId, confirmOperatorId) => {
-        const result = await engine.haltAll({ operatorId, confirmOperatorId });
+      apply: async (_marketId, operatorId, confirmOperatorId, evidenceRefs) => {
+        const result = await engine.haltAll({ operatorId, confirmOperatorId, evidenceRefs });
         return {
           accepted: result.accepted,
           halted: result.halted,
@@ -1942,8 +1968,8 @@ export function registerRoutes(
       needsMarket: false,
       targetId: () => 'resume_all',
       fields: () => ({}),
-      apply: async (_marketId, operatorId, confirmOperatorId) => {
-        const result = await engine.resumeAll({ operatorId, confirmOperatorId });
+      apply: async (_marketId, operatorId, confirmOperatorId, evidenceRefs) => {
+        const result = await engine.resumeAll({ operatorId, confirmOperatorId, evidenceRefs });
         return {
           accepted: result.accepted,
           halted: result.halted,

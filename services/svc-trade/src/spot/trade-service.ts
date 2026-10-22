@@ -7,6 +7,7 @@ import {
   type TradingAdmissionPort,
   type TradingOperationKind,
 } from '../controls/trading-controls.js';
+import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { businessPayload } from '../controls/business-payload.js';
 import type { Timeframe } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
@@ -70,7 +71,7 @@ import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { resolveFuturesFamily } from '../futures/contract-family.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
-import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
+import { assertOperatorRiskOnPlace, operatorSlippageCapBps, type Touch } from '../admin/risk.js';
 import { recordMarketStatusTransition } from '../admin/status-history.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
 import {
@@ -96,8 +97,11 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
+import { assertEmailProved, type EmailProofSource } from './email-proof.js';
 import {
+  MatchingNoBookError,
   type EngineAmendResult,
+  type EngineDepth,
   type EngineCancellation,
   type EngineFill,
   type EngineSubmitRequest,
@@ -296,6 +300,12 @@ export interface TradeServiceOptions {
    */
   algoMarkPolicy?: AlgoMarkPolicy;
   /**
+   * CB-bots-10 verification gate for every bot create. The boot passes `loadBotVerificationPolicy(process.env)` (required by
+   * default; a blank level refuses every bot). Omitted: fails closed as `{ mode: 'required', level: null }`, so every bot
+   * create refuses `trade.bots_verification_level_not_set`. Only an explicit `{ mode: 'off' }` turns the gate off.
+   */
+  botVerification?: BotVerificationPolicy;
+  /**
    * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
    * and refuses `trade.missing_mark`. Never a customer value.
    */
@@ -355,6 +365,11 @@ export interface TradeServiceOptions {
    * any supplied subAccountId is denied until a real client is injected).
    */
   subAccounts?: SubAccountOwnershipSource;
+  /**
+   * Identity email-proof read for new custodial orders (RC-identity-01).
+   * No default: unset refuses every new live order `trade.identity_unavailable`.
+   */
+  emailProof?: EmailProofSource;
   /** Override TWAP durable store (tests inject MemoryTwapParentStore). */
   algoStore?: TwapParentStore;
   /**
@@ -763,6 +778,7 @@ export class TradeService {
   private readonly futuresSettleAssets: readonly string[];
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
+  private readonly botVerification: BotVerificationPolicy;
   private readonly algoMarkPolicy: AlgoMarkPolicy;
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
@@ -776,6 +792,7 @@ export class TradeService {
   private readonly algoJobsIntervalMs: number | null;
   private readonly now: () => Date;
   private readonly subAccounts: SubAccountOwnershipSource;
+  private readonly emailProof: EmailProofSource | undefined;
   /** D-S-04 TWAP scheduler — parent holds no value; children go through placeOrder. */
   private readonly algo: TwapEngine;
   /** Durable TWAP schedules — survives process restart (in-memory alone was residual). */
@@ -819,6 +836,8 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
+    // Omitted = fail closed: required with no level set refuses every bot create.
+    this.botVerification = options.botVerification ?? { mode: 'required', level: null };
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
@@ -831,6 +850,7 @@ export class TradeService {
     this.algoJobsIntervalMs = options.algoJobsIntervalMs ?? null;
     this.now = options.now ?? (() => new Date());
     this.subAccounts = options.subAccounts ?? new NoSubAccounts();
+    this.emailProof = options.emailProof;
     this.algoStore = options.algoStore ?? new SqlTwapParentStore(sql);
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
@@ -1290,6 +1310,9 @@ export class TradeService {
           span.setAttribute('intafaced.fill_id', ids.fillId);
           return presentBoundConvertFill(stored.bound, { ...ids, settledAt: stored.settledAt });
         }
+        // A convert holds and swaps customer funds: same email-proof gate as an order (RC-identity-01),
+        // for the customer's accept and for a standing schedule alike. A settled replay returned above.
+        await assertEmailProved(this.emailProof, userId);
 
         if (input.symbol != null && input.symbol !== stored.quote.symbol) {
           throw new TradeError('convert accept must honour the quoted symbol', 'trade.convert_price_moved');
@@ -1646,6 +1669,9 @@ export class TradeService {
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
+    // An admitted original was granted only after the email-proof gate below passed.
+    // The decision was made at admission, so finishing it needs no second read even
+    // if the proof has lapsed since (an email change clears it).
     if (original) {
       const evidence = original.payload as Record<string, unknown>;
       if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');
@@ -1710,8 +1736,34 @@ export class TradeService {
     if (market.paper) {
       return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
     }
+    // RC-identity-01: a custodial order needs a proved email. Read per request,
+    // before any hold; retries of an existing clientOrderId returned above.
+    await assertEmailProved(this.emailProof, userId);
     assertQty(market, input.qty);
-    await assertOperatorRiskOnPlace(this.sql, market.id, principal.userId, { price: input.price ?? null, qty: input.qty });
+    // A bracket's exit for a filled entry is neither banded nor capped: refusing it would leave the position
+    // without its stop. A replacement takes the slot its original frees, and a reduce-only order only shrinks.
+    // The exit is the one sell placed after its entry stopped resting; nothing else borrows the exemption.
+    const protectiveExit =
+      input.side === 'sell' && (await this.isPendingBracketExit(principal.userId, input.clientOrderId, { entryDone: true }));
+    await assertOperatorRiskOnPlace(
+      this.sql,
+      market,
+      principal.userId,
+      {
+        side: input.side,
+        price: input.price ?? null,
+        qty: input.qty,
+        protective: protectiveExit,
+        rests:
+          orderType !== 'market' &&
+          tif !== 'IOC' &&
+          tif !== 'FOK' &&
+          input.replacementOf == null &&
+          !protectiveExit &&
+          (input as { reduceOnly?: boolean }).reduceOnly !== true,
+      },
+      () => this.touch(market.id),
+    );
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
     // market orders, force post-only so the engine refuses unfair crosses).
@@ -2584,6 +2636,8 @@ export class TradeService {
         // Ownership is checked before the original is cancelled. A replacement
         // must never cancel a live order and then discover its new label is foreign.
         if (input.subAccountId != null) await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
+        // Email proof before the cancel too: a refused replacement leaves the original live.
+        if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
         const orderType = requireSupportedType(input.type);
         assertTradable(market, {
           futuresEnabled: this.futuresEnabled,
@@ -4517,16 +4571,21 @@ export class TradeService {
    * The other half of the recovery path. Idempotent: `finalize` returns
    * immediately for an order already in a terminal state, and the release key
    * is fixed per order, so a redelivered `order.cancelled` cannot release
-   * twice.
+   * twice. The engine's reason rides along, as the inline outcome records
+   * it: an order the engine expired (a GTD/GTT at its expiry) ends `expired`,
+   * and a self-trade pull keeps its reason. Whichever path comes first decides
+   * the row, so both must write the same.
    */
-  async releaseOnCancelEvent(orderId: string, remainingQty: string): Promise<void> {
+  async releaseOnCancelEvent(orderId: string, remainingQty: string, reason?: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
       // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
       // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
       // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
       if (ocoLegParent(orderId) !== null) return;
       await this.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
-      await this.finalize(orderId, 'cancelled');
+      // A person's own cancel ('requested') is not an engine reason: its inline path writes none, so neither does this.
+      const engineReason = reason === 'requested' ? undefined : reason;
+      await this.finalize(orderId, engineReason === 'expired' ? 'expired' : 'cancelled', engineReason);
     });
   }
 
@@ -5195,9 +5254,21 @@ export class TradeService {
     if (input.subAccountId) {
       await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
     }
+    // Every child slice is a custodial order; refuse the schedule up front (RC-identity-01).
+    if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
 
     // Refuse at creation when mark feed is blank — never accept a schedule that cannot run.
-    const depth = await this.matching.depth(market.id, 1);
+    // Matching 404 (engine holds no book) is a named refusal, not a 500. Nothing
+    // is held or stored yet: the gate, admission and parent save all come later.
+    let depth: EngineDepth;
+    try {
+      depth = await this.matching.depth(market.id, 1);
+    } catch (err) {
+      if (err instanceof MatchingNoBookError) {
+        throw new TradeError(`${market.symbol}: matching holds no book — refusing algo at creation`, 'trade.no_book');
+      }
+      throw err;
+    }
     const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
     const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
     if (bid === null || ask === null) {
@@ -5260,6 +5331,7 @@ export class TradeService {
       input: createInput,
       bid,
       ask,
+      verification: { policy: this.botVerification, tier: principal.tier },
     });
 
     // A preview must not emit the store callback or expose an active parent
@@ -5507,16 +5579,7 @@ export class TradeService {
     const resolved = resolveOpenOrdersCap();
     if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code);
     if (resolved.cap == null) return;
-    // The exit of a bracket whose entry already filled is never capped: refusing it leaves a position with no
-    // stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
-    // stored bracket intent that has no exit yet.
-    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
-    if (exitOf) {
-      const pending = await this.sql`
-        SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
-      `;
-      if (pending.length > 0) return;
-    }
+    if (await this.isPendingBracketExit(userId, clientOrderId)) return;
     const [row] = await this.sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM trade.orders o
         JOIN trade.markets m ON m.id = o.market_id
@@ -5524,6 +5587,26 @@ export class TradeService {
     `;
     const refusal = checkMaxOpenOrders({ cap: resolved.cap, openCount: row?.n ?? 0 });
     if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+  }
+
+  /**
+   * The exit of a bracket whose entry already filled: no cap or band may refuse it, since that leaves a position with
+   * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
+   * stored bracket intent that has no exit yet.
+   */
+  private async isPendingBracketExit(userId: string, clientOrderId: string, opts: { entryDone?: boolean } = {}): Promise<boolean> {
+    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
+    if (!exitOf) return false;
+    const pending = opts.entryDone
+      ? await this.sql`
+          SELECT 1 FROM trade.order_bracket_intent i JOIN trade.orders o ON o.id = i.order_id
+           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.exit_order_id IS NULL
+             AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+        `
+      : await this.sql`
+          SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+        `;
+    return pending.length > 0;
   }
 
   /** Operator slippage cap when set; otherwise the existing service cap (which may be unset). */
@@ -5535,6 +5618,14 @@ export class TradeService {
     const depth = await this.matching.depth(marketId, 1);
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
+  }
+
+  /** Best bid and ask in one depth read, for the operator price band. */
+  private async touch(marketId: string): Promise<Touch> {
+    const depth = await this.matching.depth(marketId, 1);
+    const bid = depth.bids[0];
+    const ask = depth.asks[0];
+    return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
   }
 
   private async bestBid(marketId: string): Promise<Amount | null> {

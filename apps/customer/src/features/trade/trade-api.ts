@@ -66,7 +66,9 @@ export const previewSchema = z.object({
   feeBps: z.number().int().nonnegative().nullable(),
   feeRole: z.enum(['maker', 'taker']).nullable(),
   orderable: z.boolean(),
-  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+  refusals: z.array(
+    z.object({ code: z.string(), field: z.string(), message: z.string(), data: z.record(z.string(), z.string()).optional() }),
+  ),
   /** The fee each linked exit leg would post if it filled. Absent or null when the draft has no exit legs. */
   exitFees: z
     .object({
@@ -91,6 +93,13 @@ export const draftSchema = z
     /** The instant a good-till-date order ends, as a UTC ISO string. Only a GTD order carries one. */
     expireAt: z.string().datetime().optional(),
     clientOrderId: z.string().min(1).max(64),
+    /**
+     * What happens if the order meets one of the person's own resting orders. The engine has one way: the resting order
+     * is cancelled and this one carries on. The other modes are listed on the desk, disabled, and the service refuses them.
+     */
+    stpMode: z.literal('cancel_maker').optional(),
+    /** The person's own label for the order (1 to 16 characters). Shown on the order; never part of its identity. */
+    tag: z.string().min(1).max(16).optional(),
     /**
      * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
      * A buy OCO: the order above is a limit buy at the stop-loss limit (where its one hold is sized); `stopLoss` is the trigger.
@@ -144,8 +153,9 @@ export type Draft = z.infer<typeof draftSchema>;
  * The advisory preview: the order itself, plus its exit legs so the service can price their fees. The service
  * names a bracket's exit `bracket_exit`; the prices ride as the decimal strings the person entered.
  */
-export function previewBody(draft: Draft): Omit<Draft, 'exit'> & { exit?: Record<string, string> } {
-  const { exit, ...order } = draft;
+export function previewBody(draft: Draft): Omit<Draft, 'exit' | 'stpMode' | 'tag'> & { exit?: Record<string, string> } {
+  // The preview takes only what prices the order: a self-trade mode and a tag change neither, and it refuses unknown fields.
+  const { exit, stpMode: _stpMode, tag: _tag, ...order } = draft;
   if (!exit) return order;
   const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
   return {
