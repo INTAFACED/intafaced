@@ -1,7 +1,8 @@
 import { parseAmount } from '@intafaced/ledger-client';
+import type { LineTaxEffect } from '@intafaced/contracts';
 import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
-import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
+import { classify, classifyTaxEffect, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
 import type { ActivityAnnotation, ActivityRecordService } from './activity-records.js';
 
@@ -75,6 +76,8 @@ export interface ActivityItem {
    * no address says so by having none, and the address filter never matches it.
    */
   readonly address?: string;
+  /** RC-portfolio-02: the tax effect of this posting, from the ledger's own reason, or the unmapped code. */
+  readonly taxEffect: LineTaxEffect;
 }
 
 export interface ActivityPage {
@@ -185,20 +188,6 @@ export class ActivityTaxYearUnsetError extends Error {
   constructor() {
     super('The tax year start is not set. Filter by calendar year instead');
     this.name = 'ActivityTaxYearUnsetError';
-  }
-}
-
-/**
- * How each kind of line is taxed. The mapping is a tax call only the owner and counsel can make, so it is empty and
- * no line is ever given an effect.
- */
-export const TAX_EFFECT_BY_KIND: Readonly<Partial<Record<ActivityKind, string>>> = {};
-
-export class ActivityTaxEffectMapUnsetError extends Error {
-  readonly code = 'portfolio.tax_effect_map_unset' as const;
-  constructor() {
-    super('The tax effect of each kind of line is not set');
-    this.name = 'ActivityTaxEffectMapUnsetError';
   }
 }
 
@@ -780,6 +769,7 @@ export class ActivityService {
         spaceName: queue.owner.spaceName,
         ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
         ...(isPurchase(entry, dir) ? { purchase: true as const } : {}),
+        taxEffect: classifyTaxEffect({ module: entry.module, reason: entry.reason, direction: entry.direction }),
       };
     });
 

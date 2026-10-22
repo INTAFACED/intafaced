@@ -1,3 +1,5 @@
+import { TAX_EFFECT_UNMAPPED, type LineTaxEffect, type TaxEffectRow } from '@intafaced/contracts';
+
 /**
  * ACTIVITY KIND — which ledger `module`/`reason` is which thing a person calls it.
  *
@@ -209,3 +211,93 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   reward: 'Reward',
   other: 'Other',
 };
+
+/**
+ * TAX EFFECT (RC-portfolio-02). Labels only what the ledger's own `module/reason` records on a line the feed actually
+ * reads (the user's `available` pages). Rates, thresholds and country rules stay with PF-tax-01 and PF-cost-basis-05.
+ * A posting with no row is `portfolio.tax_effect_unmapped`: never shown as taxable, never as non-taxable.
+ * Uncertain is never taxable: a row the feed cannot place reliably is BLOCKED with its blocker named.
+ *
+ * Which line is an acquisition or income for tax is an owner and counsel call. No owner decision is recorded
+ * (lead DECISIONS.md, BRIEFS.md searched 2026-10-22), so EVERY row is BLOCKED and the feed labels nothing yet.
+ * The two rows with a known ledger source keep it, so an owner decision only has to clear the blocker:
+ *   p2p_purchase   BLOCKED (owner decision). Source would be `p2p/p2p.escrow.release`, the buyer's `available` debit.
+ *   staking_reward BLOCKED (owner decision). Source would be `token/token.yield.distributed` (rewardPay), a debit.
+ *   p2p_sale       BLOCKED. The disposal happens at `escrowRelease`, which credits the trade escrow account; the feed
+ *                  reads only `available`, where the seller sees the lock (which a refund can undo). svc-bank holds no
+ *                  P2P trade state to tell a released lock from a refunded one.
+ *   card_spend     BLOCKED. A spend is the capture (`withdraw.settled`), which draws on the withdrawal hold account,
+ *                  not `available`; the feed sees only the hold, which a void or reversal (`withdraw.reversed`) undoes.
+ *                  The ledger page also drops the card issuer rail (`none`/`card-sim` are not in svc-ledger
+ *                  `HISTORY_RAILS`), so a card hold is not told from a withdrawal by the page alone.
+ *   mining_payout  BLOCKED: no mining product posts a ledger reason yet.
+ */
+export const TAX_EFFECT_OWNER_DECISION_BLOCKER =
+  'Whether this line is taxable, and as what, is an owner and counsel decision that has not been recorded';
+
+export const TAX_EFFECT_MAP: ReadonlyArray<TaxEffectRow> = [
+  {
+    type: 'p2p_sale',
+    effect: 'disposal',
+    sourceEvent: null,
+    ledgerSide: null,
+    blocker:
+      'The sale happens at escrow release, which posts to the escrow account the activity feed does not read; the seller lock alone may be refunded',
+  },
+  {
+    type: 'p2p_purchase',
+    effect: 'acquisition',
+    sourceEvent: 'p2p/p2p.escrow.release',
+    ledgerSide: 'debit',
+    blocker: TAX_EFFECT_OWNER_DECISION_BLOCKER,
+  },
+  {
+    type: 'card_spend',
+    effect: 'disposal',
+    sourceEvent: null,
+    ledgerSide: null,
+    blocker:
+      'A card spend is the capture, which posts from the hold account the activity feed does not read; the hold alone may be voided or reversed',
+  },
+  {
+    type: 'mining_payout',
+    effect: 'income',
+    sourceEvent: null,
+    ledgerSide: null,
+    blocker: 'No mining product posts a ledger reason on this platform yet',
+  },
+  {
+    type: 'staking_reward',
+    effect: 'income',
+    sourceEvent: 'token/token.yield.distributed',
+    ledgerSide: 'debit',
+    blocker: TAX_EFFECT_OWNER_DECISION_BLOCKER,
+  },
+];
+
+export interface TaxEffectInput {
+  readonly module: string;
+  readonly reason: string;
+  readonly direction: EntryDirection;
+}
+
+const UNMAPPED: LineTaxEffect = { code: TAX_EFFECT_UNMAPPED };
+
+/**
+ * Pure: the same posting always gets the same answer. Only a live row (no blocker, a named source and side) can
+ * match, and only on the exact `module/reason` AND the user's leg side; anything else is unmapped, never a guess.
+ */
+export function classifyTaxEffectWith(map: ReadonlyArray<TaxEffectRow>, input: TaxEffectInput): LineTaxEffect {
+  const event = `${input.module}/${input.reason}`;
+  for (const row of map) {
+    if (row.blocker !== null || row.sourceEvent === null || row.ledgerSide === null) continue;
+    if (row.sourceEvent === event && row.ledgerSide === input.direction) {
+      return { type: row.type, effect: row.effect, sourceEvent: row.sourceEvent };
+    }
+  }
+  return UNMAPPED;
+}
+
+export function classifyTaxEffect(input: TaxEffectInput): LineTaxEffect {
+  return classifyTaxEffectWith(TAX_EFFECT_MAP, input);
+}
