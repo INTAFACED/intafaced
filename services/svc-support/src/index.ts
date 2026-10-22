@@ -7,6 +7,7 @@ import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.j
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
+import { SqlSurveyBook } from './survey-settings.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
@@ -81,6 +82,9 @@ await sql`SELECT uploaded_by FROM support.ticket_attachments LIMIT 1`.catch(() =
 await sql`SELECT 1 FROM support.attachment_settings_log LIMIT 1`.catch(() => {
   throw new Error('support.attachment_settings_log is missing — apply migration 0023 before starting svc-support');
 });
+await sql`SELECT 1 FROM support.survey_log LIMIT 1`.catch(() => {
+  throw new Error('support.survey_log is missing — apply migration 0027 before starting svc-support');
+});
 
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
@@ -151,7 +155,15 @@ const support = new SupportService(
   env.SUPPORT_BULK_CAP ?? null,
 );
 const loop = createTicketKbLoopObserver();
-const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql), attachmentSettings);
+const appRouter = createSupportRouter(
+  support,
+  loop,
+  env.INTERNAL_SERVICE_SECRET,
+  support,
+  new SqlContactBook(sql),
+  attachmentSettings,
+  new SqlSurveyBook(sql),
+);
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   ...edgeTrustFromEnv(env),
