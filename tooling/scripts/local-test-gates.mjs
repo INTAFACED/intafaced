@@ -44,11 +44,17 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
+import { FOUNDER_VAULT_NAME } from './local-test-founders.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
-const PSQL = '/opt/homebrew/bin/psql';
+const PSQL =
+  process.env.LOCAL_STACK_PG_BIN !== undefined
+    ? `${process.env.LOCAL_STACK_PG_BIN}/psql`
+    : fs.existsSync('/opt/homebrew/bin/psql')
+      ? '/opt/homebrew/bin/psql'
+      : '/usr/lib/postgresql/16/bin/psql';
 const DB_NAME = 'intafaced_local_test';
 
 export { GuardError };
@@ -264,6 +270,7 @@ function psqlRead(secrets, role, sql) {
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
     },
   );
+  if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
   return r.stdout
     .trim()
@@ -378,9 +385,30 @@ export async function makeContext({ home = os.homedir(), log = say } = {}) {
 
 // ── Operators ───────────────────────────────────────────────────────────────
 
+/**
+ * The stack's two enrolled founders (<state>/founders.json), when both have a confirmed second factor. Identity refuses
+ * founder-only action types (opening a book, approving verification) from anyone else (action_approval.founder_only), so
+ * when the founders exist they act as operators a and b. Their secrets stay in the founder vault and are never copied.
+ */
+function enrolledFounders(ctx) {
+  const vault = readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), {});
+  const list = (vault.founders ?? []).filter((f) => f?.userId && f.password && f.totpSecret && f.totpConfirmed === true);
+  return list.length >= 2 ? list.slice(0, 2) : null;
+}
+
 function loadOperators(ctx) {
   const file = readJson(ctx.paths.operators, {});
   const out = {};
+  const founders = enrolledFounders(ctx);
+  if (founders) {
+    ['a', 'b'].forEach((l, i) => {
+      const f = founders[i];
+      out[l] = { handle: f.handle, email: f.email, password: f.password, userId: f.userId, totpSecret: f.totpSecret };
+      out[l].founder = true;
+      out[l].lastStep = file.operators?.[l]?.founder ? Number(file.operators[l].lastStep ?? 0) : 0;
+    });
+    return out;
+  }
   for (const l of ['a', 'b']) {
     const id = operatorIdentity(l);
     const have = file.operators?.[l];
@@ -391,11 +419,19 @@ function loadOperators(ctx) {
   return out;
 }
 function saveOperators(ctx, ops) {
+  // Founder-backed operators keep only their id (matching reads it as an operator seat) and last TOTP step here; their
+  // credentials live in the founder vault.
+  const stored = Object.fromEntries(
+    Object.entries(ops).map(([l, op]) => [
+      l,
+      op.founder ? { handle: op.handle, userId: op.userId, founder: true, lastStep: op.lastStep } : op,
+    ]),
+  );
   writePrivate(ctx.paths.operators, {
     kind: 'intafaced-local-test-operators',
     label: MARKERS.label,
     note: 'Two labelled LOCAL TEST operator accounts. Not people. Never valid anywhere but this stack.',
-    operators: ops,
+    operators: stored,
   });
 }
 
