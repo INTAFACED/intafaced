@@ -7,7 +7,15 @@ import {
   BadgeMintNotSentError,
   claimBadge,
   resolveStuckBadgeMint,
+  BADGE_STUCK_AGE_UNSET,
+  BADGE_STUCK_APPROVAL_REFUSED,
+  BADGE_STUCK_APPROVAL_UNWIRED,
+  BADGE_STUCK_EVIDENCE_REQUIRED,
+  BADGE_STUCK_NOT_STALE,
   type BadgeDeps,
+  type BadgeRefusedError,
+  type BadgeStore,
+  type BadgeStuckMintEvidence,
 } from './founding-badge.js';
 import { memBadgeStore } from './founding-badge.test-store.js';
 
@@ -84,29 +92,105 @@ describe('founding badge single-flight mint (RC-more-catalogue-04)', () => {
     expect(store.rows.get(key)!.mintingSince).toBeInstanceOf(Date);
   });
 
-  it('operator clear "minted" stores the chain tx hash; the claim then reads claimed with no mint', async () => {
-    const { store, mints, claim } = setup(() => new Error('crash mid-mint'));
-    await expect(claim()).rejects.toThrow();
-    const cleared = await resolveStuckBadgeMint(store, ACCOUNT, { kind: 'minted', txHash: TX });
+  const LATER = new Date('2026-10-22T05:00:00Z');
+  const approvals = (approverId: string | null = 'ops:second', requesterId = 'ops:first') => ({
+    calls: [] as Array<Record<string, string>>,
+    async consume(input: Record<string, string>) {
+      this.calls.push(input);
+      return { status: 'CONSUMED', requesterId, approverId };
+    },
+  });
+  const resolveDeps = (store: BadgeStore, a: ReturnType<typeof approvals> | null = approvals(), age: number | null = 600) => ({
+    store,
+    approvals: a,
+    staleAfterSeconds: age ?? undefined,
+    now: () => LATER,
+  });
+  const input = (evidence: BadgeStuckMintEvidence, reason = 'rpc timeout during mint') => ({
+    accountId: ACCOUNT,
+    evidence,
+    reason,
+    actorId: 'ops:actor',
+    approvalId: 'appr-1',
+    operationId: 'op-1',
+  });
+  const stuck = async (s: ReturnType<typeof setup>) => {
+    await expect(s.claim()).rejects.toThrow();
+    const k = badgeClaimKey(ACCOUNT);
+    s.store.rows.set(k, { ...s.store.rows.get(k)!, mintingSince: new Date('2026-10-22T04:00:00Z') });
+  };
+
+  it('operator clear "minted" stores the chain tx hash with an audit row; the claim then reads claimed with no mint', async () => {
+    const s = setup(() => new Error('crash mid-mint'));
+    await stuck(s);
+    const a = approvals();
+    const cleared = await resolveStuckBadgeMint(resolveDeps(s.store, a), input({ kind: 'minted', txHash: TX }));
     expect(cleared).toMatchObject({ txHash: TX, mintingSince: null });
-    expect((await claim()).txHash).toBe(TX);
-    expect(mints).toHaveLength(0);
+    expect(a.calls[0]).toMatchObject({ targetService: 'svc-protocol', targetId: badgeClaimKey(ACCOUNT), approvalId: 'appr-1' });
+    expect(a.calls[0]!.payloadHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(s.store.audits).toEqual([
+      expect.objectContaining({
+        actorId: 'ops:actor',
+        requesterId: 'ops:first',
+        approverId: 'ops:second',
+        reason: 'rpc timeout during mint',
+      }),
+    ]);
+    expect((await s.claim()).txHash).toBe(TX);
+    expect(s.mints).toHaveLength(0);
   });
 
   it('operator clear "not_minted" frees the slot; a retry mints once', async () => {
     const s = setup(() => new Error('crash mid-mint'));
-    await expect(s.claim()).rejects.toThrow();
-    await resolveStuckBadgeMint(s.store, ACCOUNT, { kind: 'not_minted', attestedBy: 'ops:nino', checkedAt: new Date() });
+    await stuck(s);
+    await resolveStuckBadgeMint(resolveDeps(s.store), input({ kind: 'not_minted', attestedBy: 'ops:nino', checkedAt: LATER }));
+    expect(s.store.audits[0]).toMatchObject({ evidence: { kind: 'not_minted', attestedBy: 'ops:nino' } });
     expect((await s.claim()).txHash).not.toBeNull();
     expect(s.mints).toHaveLength(1);
   });
 
-  it('operator clear refuses blank evidence and is a no-op when nothing is stuck', async () => {
-    const s = setup();
-    await expect(resolveStuckBadgeMint(s.store, ACCOUNT, { kind: 'not_minted', attestedBy: ' ', checkedAt: new Date() })).rejects.toThrow(
-      /attester/,
+  it('operator clear refuses with typed codes and is a no-op when nothing is stuck', async () => {
+    const s = setup(() => new Error('crash mid-mint'));
+    const code = (p: Promise<unknown>) =>
+      p.then(
+        () => 'resolved',
+        (e: BadgeRefusedError) => e.code,
+      );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store), input({ kind: 'not_minted', attestedBy: ' ', checkedAt: LATER })))).toBe(
+      BADGE_STUCK_EVIDENCE_REQUIRED,
     );
-    await expect(resolveStuckBadgeMint(s.store, ACCOUNT, { kind: 'minted', txHash: '0x12' as Hex })).rejects.toThrow(/tx hash/);
-    expect(await resolveStuckBadgeMint(s.store, ACCOUNT, { kind: 'minted', txHash: TX })).toBeNull();
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store), input({ kind: 'minted', txHash: '0x12' as Hex })))).toBe(
+      BADGE_STUCK_EVIDENCE_REQUIRED,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store), input({ kind: 'minted', txHash: TX }, ' ')))).toBe(
+      BADGE_STUCK_EVIDENCE_REQUIRED,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, approvals(), null), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_AGE_UNSET,
+    );
+    expect(await resolveStuckBadgeMint(resolveDeps(s.store), input({ kind: 'minted', txHash: TX }))).toBeNull();
+
+    await stuck(s);
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, approvals(), 7200), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_NOT_STALE,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, null), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_APPROVAL_UNWIRED,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, approvals('ops:first')), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_APPROVAL_REFUSED,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, approvals('ops:actor')), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_APPROVAL_REFUSED,
+    );
+    expect(await code(resolveStuckBadgeMint(resolveDeps(s.store, approvals(null)), input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_APPROVAL_REFUSED,
+    );
+    const failing = { consume: async () => Promise.reject(new Error('action_approval.payload_mismatch')) };
+    expect(await code(resolveStuckBadgeMint({ ...resolveDeps(s.store), approvals: failing }, input({ kind: 'minted', txHash: TX })))).toBe(
+      BADGE_STUCK_APPROVAL_REFUSED,
+    );
+    expect(s.store.audits).toHaveLength(0);
+    expect(s.store.rows.get(badgeClaimKey(ACCOUNT))!.mintingSince).toBeInstanceOf(Date);
   });
 });

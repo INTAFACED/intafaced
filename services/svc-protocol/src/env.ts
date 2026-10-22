@@ -153,6 +153,18 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_BADGE_WINDOW_OPENS_AT: blankIsUnset(z.string().datetime().optional()),
     PROTOCOL_BADGE_WINDOW_CLOSES_AT: blankIsUnset(z.string().datetime().optional()),
+    /**
+     * Owner-set age (seconds) after which a founding-badge mint slot counts as stuck and an operator may clear it.
+     * No default: blank refuses the clear with `badge.stuck_age_unset`.
+     */
+    PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
+    /**
+     * svc-identity action approval (four-eyes) for the stuck-mint clear, shared-secret (dual) mode. Either blank:
+     * the clear refuses `badge.stuck_approval_unwired`. svc-protocol has no S2S key (service-keys.ts), so a
+     * keypair-only identity refuses this call: it fails closed.
+     */
+    IDENTITY_URL: blankIsUnset(z.string().url().optional()),
+    INTERNAL_SERVICE_SECRET: blankIsUnset(z.string().min(32).optional()),
 
     /**
      * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics

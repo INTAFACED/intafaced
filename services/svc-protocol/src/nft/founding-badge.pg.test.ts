@@ -135,7 +135,7 @@ describe.skipIf(!sql)('founding badge (Postgres + router)', () => {
     ).rejects.toThrow(/badge\.not_eligible/);
   });
 
-  it('crash after claim stored: retry mints once with the stored key; second claim returns the stored claim', async () => {
+  it('signer refused before sending (BadgeMintNotSentError): slot released, retry mints once with the stored key; second claim returns the stored claim', async () => {
     await expect(
       build({ failMint: true })
         .router.createCaller(signedAs(USER))

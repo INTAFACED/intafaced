@@ -1,4 +1,5 @@
 import { getAddress as toChecksum, hashMessage, isAddress, recoverAddress } from 'viem';
+import { createHash } from 'node:crypto';
 import type { Address, Hex } from 'viem';
 
 /**
@@ -28,8 +29,28 @@ export const BADGE_ALREADY_CLAIMED = 'badge.already_claimed' as const;
 export const AUDIT_EXTERNAL = 'audit.external' as const;
 export const RAIL_CRYPTO = 'rail.crypto' as const;
 
+/** Operator clear of a stuck mint slot: blank or malformed chain evidence, or a blank reason. */
+export const BADGE_STUCK_EVIDENCE_REQUIRED = 'badge.stuck_evidence_required' as const;
+/** The owner-set stale age (`PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS`) is blank; there is no default. */
+export const BADGE_STUCK_AGE_UNSET = 'badge.stuck_age_unset' as const;
+/** The slot was taken more recently than the stale age; the mint may still be in flight. */
+export const BADGE_STUCK_NOT_STALE = 'badge.stuck_not_stale' as const;
+/** IDENTITY_URL / INTERNAL_SERVICE_SECRET unset: no second person can be proven, so nothing is cleared. */
+export const BADGE_STUCK_APPROVAL_UNWIRED = 'badge.stuck_approval_unwired' as const;
+/** Identity refused the approval, or it is not a distinct-person (four-eyes) approval of this exact clear. */
+export const BADGE_STUCK_APPROVAL_REFUSED = 'badge.stuck_approval_refused' as const;
+
 export type BadgeRefusalCode =
-  typeof BADGE_WINDOW_UNSET | typeof BADGE_NOT_ELIGIBLE | typeof BADGE_ALREADY_CLAIMED | typeof AUDIT_EXTERNAL | typeof RAIL_CRYPTO;
+  | typeof BADGE_WINDOW_UNSET
+  | typeof BADGE_NOT_ELIGIBLE
+  | typeof BADGE_ALREADY_CLAIMED
+  | typeof AUDIT_EXTERNAL
+  | typeof RAIL_CRYPTO
+  | typeof BADGE_STUCK_EVIDENCE_REQUIRED
+  | typeof BADGE_STUCK_AGE_UNSET
+  | typeof BADGE_STUCK_NOT_STALE
+  | typeof BADGE_STUCK_APPROVAL_UNWIRED
+  | typeof BADGE_STUCK_APPROVAL_REFUSED;
 
 export class BadgeRefusedError extends Error {
   constructor(
@@ -79,10 +100,16 @@ export interface BadgeStore {
   /** Give the slot back after the signer threw before returning a tx hash, so a later retry can mint. */
   releaseMintSlot(key: string): Promise<void>;
   /**
-   * Operator clear of a stuck slot (tx hash null, slot set). `minted` stores the hash; `not_minted` frees the slot.
-   * Returns null when there is nothing stuck to clear.
+   * Operator clear of a stuck slot (tx hash null, slot taken at or before `staleBefore`). `minted` stores the hash;
+   * `not_minted` frees the slot. The audit row is written in the same transaction as the clear. Returns null (and
+   * writes nothing) when there is nothing stuck and stale to clear.
    */
-  clearStuckMint(key: string, evidence: BadgeStuckMintEvidence): Promise<BadgeClaimRecord | null>;
+  clearStuckMint(
+    key: string,
+    evidence: BadgeStuckMintEvidence,
+    audit: BadgeStuckMintAudit,
+    staleBefore: Date,
+  ): Promise<BadgeClaimRecord | null>;
   /** Stores the tx hash (first one wins) and clears the mint slot. */
   setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord>;
 }
@@ -110,6 +137,29 @@ export interface BadgeMinter {
 
 /** Chain evidence an operator must give to clear a stuck mint slot. */
 export type BadgeStuckMintEvidence = { kind: 'minted'; txHash: Hex } | { kind: 'not_minted'; attestedBy: string; checkedAt: Date };
+
+/** Who cleared a stuck slot, who approved it, and why. Stored with the clear (`protocol.founding_badge_mint_clears`). */
+export interface BadgeStuckMintAudit {
+  actorId: string;
+  requesterId: string;
+  approverId: string;
+  approvalId: string;
+  reason: string;
+}
+
+/** The identity action-approval consume port (`createIdentityApprovalClient`); null = unwired. */
+export interface BadgeApprovalConsumer {
+  consume(input: {
+    approvalId: string;
+    operationId: string;
+    payloadHash: string;
+    targetService: string;
+    targetId: string;
+    expectedVersion: string;
+  }): Promise<{ status: string; requesterId: string; approverId: string | null }>;
+}
+
+export const BADGE_CLEAR_STUCK_ACTION = 'protocol.badge.clear_stuck_mint' as const;
 
 export interface BadgeDeps {
   store: BadgeStore;
@@ -258,25 +308,106 @@ export async function claimBadge(
   return { ...done, label: 'TEST', audited: false };
 }
 
+/** Payload hash an approver signs off on for a stuck-mint clear (svc-pay `payActionPayloadHash` shape). */
+export function badgeClearPayloadHash(key: string, mintingSince: Date, evidence: BadgeStuckMintEvidence, reason: string): string {
+  const fields =
+    evidence.kind === 'minted'
+      ? { key, mintingSince: mintingSince.toISOString(), kind: 'minted', txHash: evidence.txHash.toLowerCase(), reason }
+      : {
+          key,
+          mintingSince: mintingSince.toISOString(),
+          kind: 'not_minted',
+          attestedBy: evidence.attestedBy.trim(),
+          checkedAt: evidence.checkedAt.toISOString(),
+          reason,
+        };
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ actionType: BADGE_CLEAR_STUCK_ACTION, ...fields }))
+    .digest('hex')}`;
+}
+
+export interface ResolveStuckMintDeps {
+  store: BadgeStore;
+  /** Null when IDENTITY_URL / INTERNAL_SERVICE_SECRET are unset: refuses `badge.stuck_approval_unwired`. */
+  approvals: BadgeApprovalConsumer | null;
+  /** Owner-set stale age in seconds; undefined refuses `badge.stuck_age_unset` (no default). */
+  staleAfterSeconds: number | undefined;
+  now: () => Date;
+}
+
+export interface ResolveStuckMintInput {
+  accountId: string;
+  evidence: BadgeStuckMintEvidence;
+  reason: string;
+  /** The operator principal calling the admin route. */
+  actorId: string;
+  approvalId: string;
+  operationId: string;
+}
+
 /**
- * Operator-only (not mounted on any customer route): clear a claim stuck pending after a crash mid-mint. Requires
- * chain evidence: the tx hash that did mint, or an explicit named "not minted" attestation. Refuses blank evidence.
+ * Operator clear (admin route `badge.resolveStuckMint`) of a claim stuck pending after a crash mid-mint. Requires
+ * chain evidence, a reason, a slot older than the owner-set stale age, and a four-eyes identity approval bound to the
+ * exact payload (key, slot time, evidence, reason). The approver must differ from the proposer and from the actor.
+ * Returns null when nothing is stuck (no approval is consumed).
  */
-export async function resolveStuckBadgeMint(
-  store: BadgeStore,
-  accountId: string,
-  evidence: BadgeStuckMintEvidence,
-): Promise<BadgeClaimRecord | null> {
-  if (evidence.kind === 'minted') {
-    if (!/^0x[0-9a-fA-F]{64}$/.test(evidence.txHash)) throw new Error('resolveStuckBadgeMint: minted needs a tx hash');
-  } else if (evidence.kind === 'not_minted') {
+export async function resolveStuckBadgeMint(deps: ResolveStuckMintDeps, input: ResolveStuckMintInput): Promise<BadgeClaimRecord | null> {
+  const { evidence } = input;
+  if (evidence?.kind === 'minted') {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(evidence.txHash)) throw new BadgeRefusedError(BADGE_STUCK_EVIDENCE_REQUIRED, 'minted needs a tx hash');
+  } else if (evidence?.kind === 'not_minted') {
     if (!evidence.attestedBy?.trim() || !(evidence.checkedAt instanceof Date) || Number.isNaN(evidence.checkedAt.getTime())) {
-      throw new Error('resolveStuckBadgeMint: not_minted needs a named attester and a check time');
+      throw new BadgeRefusedError(BADGE_STUCK_EVIDENCE_REQUIRED, 'not_minted needs a named attester and a check time');
     }
   } else {
-    throw new Error('resolveStuckBadgeMint: evidence is required');
+    throw new BadgeRefusedError(BADGE_STUCK_EVIDENCE_REQUIRED, 'chain evidence is required');
   }
-  return store.clearStuckMint(badgeClaimKey(accountId), evidence);
+  const reason = input.reason?.trim() ?? '';
+  if (!reason) throw new BadgeRefusedError(BADGE_STUCK_EVIDENCE_REQUIRED, 'a reason is required');
+  if (deps.staleAfterSeconds === undefined) {
+    throw new BadgeRefusedError(BADGE_STUCK_AGE_UNSET, 'PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS is unset; no default stale age');
+  }
+  const key = badgeClaimKey(input.accountId);
+  const claim = await deps.store.findClaim(key);
+  if (!claim || claim.txHash || !claim.mintingSince) return null;
+  const staleBefore = new Date(deps.now().getTime() - deps.staleAfterSeconds * 1000);
+  if (claim.mintingSince.getTime() > staleBefore.getTime()) {
+    throw new BadgeRefusedError(BADGE_STUCK_NOT_STALE, `mint slot taken at ${claim.mintingSince.toISOString()} is not stale yet`);
+  }
+  if (!deps.approvals) {
+    throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_UNWIRED, 'identity approval is not wired; a second person cannot be proven');
+  }
+  const approvalId = input.approvalId?.trim() ?? '';
+  const operationId = input.operationId?.trim() ?? '';
+  if (!approvalId || !operationId) throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_REFUSED, 'approvalId and operationId are required');
+  let consumed: { status: string; requesterId: string; approverId: string | null };
+  try {
+    consumed = await deps.approvals.consume({
+      approvalId,
+      operationId,
+      payloadHash: badgeClearPayloadHash(key, claim.mintingSince, evidence, reason),
+      targetService: 'svc-protocol',
+      targetId: key,
+      expectedVersion: claim.mintingSince.toISOString(),
+    });
+  } catch (err) {
+    if (err instanceof BadgeRefusedError) throw err;
+    throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_REFUSED, `identity refused the approval: ${(err as Error).message}`);
+  }
+  const approver = consumed.approverId?.trim() ?? '';
+  const requester = consumed.requesterId?.trim() ?? '';
+  if (consumed.status !== 'CONSUMED' || !approver || !requester) {
+    throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_REFUSED, 'identity did not return a consumed approval with an approver');
+  }
+  if (approver.toLowerCase() === requester.toLowerCase() || approver.toLowerCase() === input.actorId.trim().toLowerCase()) {
+    throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_REFUSED, 'the approver must be a second person, not the proposer or the actor');
+  }
+  return deps.store.clearStuckMint(
+    key,
+    evidence,
+    { actorId: input.actorId, requesterId: requester, approverId: approver, approvalId, reason },
+    staleBefore,
+  );
 }
 
 /** Founder setting to window; either side blank = null (`badge.window_unset`). */

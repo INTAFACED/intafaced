@@ -63,11 +63,17 @@ import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
 import { labelsOutput, serviceLabelEntries } from './ops/labels.js';
 import { buildMetrics } from './ops/metrics.js';
 import {
+  badgeClaimKey,
   badgeEligibility,
   BadgeRefusedError,
   claimBadge,
   BADGE_WINDOW_UNSET,
   RAIL_CRYPTO,
+  resolveStuckBadgeMint,
+  BADGE_STUCK_APPROVAL_REFUSED,
+  BADGE_STUCK_APPROVAL_UNWIRED,
+  BADGE_STUCK_NOT_STALE,
+  type BadgeApprovalConsumer,
   type BadgeMinter,
   type BadgeStore,
   type BadgeWindow,
@@ -235,7 +241,15 @@ function toTrpcError(err: unknown): TRPCError {
    */
   if (err instanceof TRPCError) return err;
   if (err instanceof BadgeRefusedError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    const code =
+      err.code === BADGE_STUCK_APPROVAL_REFUSED
+        ? 'FORBIDDEN'
+        : err.code === BADGE_STUCK_NOT_STALE
+          ? 'CONFLICT'
+          : err.code === BADGE_STUCK_APPROVAL_UNWIRED
+            ? 'PRECONDITION_FAILED'
+            : 'BAD_REQUEST';
+    return new TRPCError({ code, message: err.message, cause: err });
   }
   /**
    * The chain being absent is not this service failing.
@@ -335,7 +349,17 @@ export interface ProtocolRouterDeps {
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
    */
-  badge?: { store: BadgeStore; minter: BadgeMinter; window: () => BadgeWindow | null; mainnet: () => boolean; now?: () => Date };
+  badge?: {
+    store: BadgeStore;
+    minter: BadgeMinter;
+    window: () => BadgeWindow | null;
+    mainnet: () => boolean;
+    now?: () => Date;
+    /** Identity four-eyes approval for the operator stuck-mint clear; null/absent = `badge.stuck_approval_unwired`. */
+    approvals?: BadgeApprovalConsumer | null;
+    /** Owner-set stale age (seconds) for the stuck-mint clear; undefined = `badge.stuck_age_unset`. */
+    stuckMintAgeSeconds?: () => number | undefined;
+  };
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -927,6 +951,53 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               audited: r.audited,
               mintingSince: r.txHash ? null : (r.mintingSince?.toISOString() ?? null),
             };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      // Operator-only: clear a mint slot stuck after a crash mid-mint. `admin:write` on the protocol plane, plus a
+      // four-eyes svc-identity approval bound to the exact payload; the audit row is written with the clear.
+      resolveStuckMint: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
+        .input(
+          z
+            .object({
+              accountId: z.string().uuid(),
+              evidence: z.discriminatedUnion('kind', [
+                z.object({ kind: z.literal('minted'), txHash: hexSchema }).strict(),
+                z.object({ kind: z.literal('not_minted'), attestedBy: z.string().max(128), checkedAt: z.string().datetime() }).strict(),
+              ]),
+              reason: z.string().max(500),
+              approvalId: z.string().max(128),
+              operationId: z.string().max(128),
+            })
+            .strict(),
+        )
+        .output(z.object({ cleared: z.boolean(), key: z.string(), txHash: hexSchema.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_UNWIRED, 'founding badge is not wired on this service');
+            const evidence =
+              input.evidence.kind === 'minted'
+                ? { kind: 'minted' as const, txHash: input.evidence.txHash as `0x${string}` }
+                : { kind: 'not_minted' as const, attestedBy: input.evidence.attestedBy, checkedAt: new Date(input.evidence.checkedAt) };
+            const r = await resolveStuckBadgeMint(
+              {
+                store: b.store,
+                approvals: b.approvals ?? null,
+                staleAfterSeconds: b.stuckMintAgeSeconds?.(),
+                now: b.now ?? (() => new Date()),
+              },
+              {
+                accountId: input.accountId,
+                evidence,
+                reason: input.reason,
+                actorId: ctx.principal.userId,
+                approvalId: input.approvalId,
+                operationId: input.operationId,
+              },
+            );
+            return { cleared: r !== null, key: badgeClaimKey(input.accountId), txHash: r?.txHash ?? null };
           } catch (err) {
             throw toTrpcError(err);
           }

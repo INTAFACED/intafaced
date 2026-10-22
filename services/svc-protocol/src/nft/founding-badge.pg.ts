@@ -6,6 +6,7 @@ import {
   BadgeRefusedError,
   type BadgeClaimRecord,
   type BadgeStore,
+  type BadgeStuckMintAudit,
   type BadgeStuckMintEvidence,
 } from './founding-badge.js';
 
@@ -76,18 +77,28 @@ export class PostgresBadgeStore implements BadgeStore {
       WHERE key = ${key} AND tx_hash IS NULL`;
   }
 
-  async clearStuckMint(key: string, evidence: BadgeStuckMintEvidence): Promise<BadgeClaimRecord | null> {
-    const rows =
-      evidence.kind === 'minted'
-        ? await this.sql<Row[]>`
-            UPDATE protocol.founding_badge_claims SET tx_hash = ${evidence.txHash}, minting_at = NULL, updated_at = now()
-            WHERE key = ${key} AND tx_hash IS NULL AND minting_at IS NOT NULL
-            RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`
-        : await this.sql<Row[]>`
-            UPDATE protocol.founding_badge_claims SET minting_at = NULL, updated_at = now()
-            WHERE key = ${key} AND tx_hash IS NULL AND minting_at IS NOT NULL
-            RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`;
-    return rows[0] ? toRecord(rows[0]) : null;
+  async clearStuckMint(
+    key: string,
+    evidence: BadgeStuckMintEvidence,
+    audit: BadgeStuckMintAudit,
+    staleBefore: Date,
+  ): Promise<BadgeClaimRecord | null> {
+    // One transaction: the clear and its audit row (0002) land together or not at all.
+    return this.sql.begin(async (tx) => {
+      const txHash = evidence.kind === 'minted' ? evidence.txHash : null;
+      const rows = await tx<Row[]>`
+        UPDATE protocol.founding_badge_claims SET tx_hash = COALESCE(${txHash}, tx_hash), minting_at = NULL, updated_at = now()
+        WHERE key = ${key} AND tx_hash IS NULL AND minting_at IS NOT NULL AND minting_at <= ${staleBefore}
+        RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`;
+      if (!rows[0]) return null;
+      await tx`
+        INSERT INTO protocol.founding_badge_mint_clears
+          (key, evidence_kind, tx_hash, attested_by, checked_at, reason, actor_id, requester_id, approver_id, approval_id)
+        VALUES (${key}, ${evidence.kind}, ${txHash}, ${evidence.kind === 'not_minted' ? evidence.attestedBy.trim() : null},
+          ${evidence.kind === 'not_minted' ? evidence.checkedAt : null}, ${audit.reason}, ${audit.actorId}, ${audit.requesterId},
+          ${audit.approverId}, ${audit.approvalId})`;
+      return toRecord(rows[0]);
+    }) as Promise<BadgeClaimRecord | null>;
   }
 
   async setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord> {

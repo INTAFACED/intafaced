@@ -14,6 +14,7 @@ import {
   resolveStuckBadgeMint,
   type BadgeDeps,
   type BadgeMinter,
+  type BadgeStuckMintEvidence,
 } from './founding-badge.js';
 import { PostgresBadgeStore } from './founding-badge.pg.js';
 
@@ -24,6 +25,7 @@ import { PostgresBadgeStore } from './founding-badge.pg.js';
 const URL = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
 const migration = join(here, '..', '..', 'drizzle', '0001_protocol_founding_badges.sql');
+const clearsMigration = join(here, '..', '..', 'drizzle', '0002_protocol_founding_badge_mint_clears.sql');
 const available = URL ? await postgresAvailable(URL) : false;
 const sql: Sql | null = URL && available ? postgres(URL, { max: 6, onnotice: () => undefined }) : null;
 
@@ -31,7 +33,9 @@ const RACER = 'bad9e000-4444-4444-8444-444444444444';
 const ALPHA = 'bad9e000-5555-4555-8555-555555555555';
 const BETA = 'bad9e000-6666-4666-8666-666666666666';
 const STUCK = 'bad9e000-8888-4888-8888-888888888888';
-const IDS = [RACER, ALPHA, BETA, STUCK];
+const CRASH = 'bad9e000-9999-4999-8999-999999999999';
+const IDS = [RACER, ALPHA, BETA, STUCK, CRASH];
+const CRASH_ADDR = '0x00000000000000000000000000000000000000C4' as Address;
 const STUCK_ADDR = '0x00000000000000000000000000000000000000C3' as Address;
 const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
 const SHARED_ADDR = '0x00000000000000000000000000000000000000C2' as Address;
@@ -62,6 +66,7 @@ async function claimAs(deps: BadgeDeps, accountId: string, address: Address) {
 }
 
 async function cleanup() {
+  await sql!`DELETE FROM protocol.founding_badge_mint_clears WHERE key IN ${sql!(IDS.map(badgeClaimKey))}`;
   await sql!`DELETE FROM protocol.founding_badge_claims WHERE account_id IN ${sql!(IDS)}`;
   await sql!`DELETE FROM protocol.founding_badge_list WHERE account_id IN ${sql!(IDS)}`;
 }
@@ -71,8 +76,9 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     await assertTestDatabase(sql!, 'svc-protocol founding-badge.concurrency.pg.test');
     await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
     await sql!.unsafe(readFileSync(migration, 'utf8'));
+    await sql!.unsafe(readFileSync(clearsMigration, 'utf8'));
     await cleanup();
-    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK})`;
+    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK}), (${CRASH})`;
   });
   afterAll(async () => {
     await cleanup();
@@ -121,12 +127,67 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     expect(pending.mintingSince).toBeInstanceOf(Date);
     expect(ok.mints).toHaveLength(0);
 
-    // Operator clear needs chain evidence; "not_minted" frees the slot and the next claim mints once.
-    const store = new PostgresBadgeStore(sql!);
-    const cleared = await resolveStuckBadgeMint(store, STUCK, { kind: 'not_minted', attestedBy: 'ops:test', checkedAt: new Date() });
+    // Operator clear: stale slot + four-eyes approval + chain evidence; "not_minted" frees the slot and the next claim mints once.
+    await sql!`UPDATE protocol.founding_badge_claims SET minting_at = now() - interval '1 hour' WHERE key = ${key}`;
+    const rd = resolveDeps();
+    const cleared = await resolveStuckBadgeMint(
+      rd,
+      stuckInput(STUCK, { kind: 'not_minted', attestedBy: 'ops:test', checkedAt: new Date() }),
+    );
     expect(cleared).toMatchObject({ txHash: null, mintingSince: null });
     expect((await claimAs(ok.deps, STUCK, STUCK_ADDR)).txHash).not.toBeNull();
     expect(ok.mints).toHaveLength(1);
-    expect(await resolveStuckBadgeMint(store, STUCK, { kind: 'minted', txHash: `0x${'11'.repeat(32)}` as Hex })).toBeNull();
+    expect(await resolveStuckBadgeMint(rd, stuckInput(STUCK, { kind: 'minted', txHash: `0x${'11'.repeat(32)}` as Hex }))).toBeNull();
+  });
+
+  it('crash after mint submitted: retry does not mint again; after the audited operator clear the stored tx is reused', async () => {
+    const key = badgeClaimKey(CRASH);
+    const onChain = `0x${'77'.repeat(32)}` as Hex;
+    const sent: string[] = [];
+    // The signer broadcasts, then the process dies before the tx hash is stored (an untyped error).
+    const crashing: BadgeDeps = {
+      ...harness().deps,
+      minter: { signerFor: () => ({ mint: async (_to, k) => (sent.push(k), Promise.reject(new Error('process died after broadcast'))) }) },
+    };
+    await expect(claimAs(crashing, CRASH, CRASH_ADDR)).rejects.toThrow(/process died/);
+    expect(sent).toEqual([key]);
+
+    const retry = harness();
+    expect((await claimAs(retry.deps, CRASH, CRASH_ADDR)).txHash).toBeNull();
+    expect(retry.mints).toHaveLength(0);
+
+    await sql!`UPDATE protocol.founding_badge_claims SET minting_at = now() - interval '1 hour' WHERE key = ${key}`;
+    await resolveStuckBadgeMint(resolveDeps(), stuckInput(CRASH, { kind: 'minted', txHash: onChain }, 'appr-crash'));
+    const audit =
+      await sql!`SELECT evidence_kind, tx_hash, actor_id, requester_id, approver_id, reason FROM protocol.founding_badge_mint_clears WHERE key = ${key}`;
+    expect(audit).toEqual([
+      {
+        evidence_kind: 'minted',
+        tx_hash: onChain,
+        actor_id: 'ops:actor',
+        requester_id: 'ops:first',
+        approver_id: 'ops:second',
+        reason: 'crash mid-mint',
+      },
+    ]);
+
+    const reused = await claimAs(retry.deps, CRASH, CRASH_ADDR);
+    expect(reused.txHash).toBe(onChain);
+    expect(await claimAs(retry.deps, CRASH, CRASH_ADDR)).toEqual(reused);
+    expect(retry.mints).toHaveLength(0);
+    expect(sent).toHaveLength(1);
   });
 });
+
+function resolveDeps() {
+  return {
+    store: new PostgresBadgeStore(sql!),
+    approvals: { consume: async () => ({ status: 'CONSUMED', requesterId: 'ops:first', approverId: 'ops:second' }) },
+    staleAfterSeconds: 600,
+    now: () => new Date(),
+  };
+}
+
+function stuckInput(accountId: string, evidence: BadgeStuckMintEvidence, approvalId = `appr-${accountId}`) {
+  return { accountId, evidence, reason: 'crash mid-mint', actorId: 'ops:actor', approvalId, operationId: `op-${approvalId}` };
+}

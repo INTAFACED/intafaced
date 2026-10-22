@@ -19,6 +19,7 @@ import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter, type ProtocolRouter } from './router.js';
 import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
+import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
 import { loadNetworkRegistry } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -53,7 +54,7 @@ const db = createDb({ url: env.DATABASE_URL, schema: 'protocol', max: env.DATABA
 // The read model must exist before we claim to serve it — a missing table here
 // is a missed migration, and it should fail at boot rather than on a user's
 // first request.
-for (const tableName of ['smart_accounts', 'founding_badge_claims', 'founding_badge_list']) {
+for (const tableName of ['smart_accounts', 'founding_badge_claims', 'founding_badge_list', 'founding_badge_mint_clears']) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
       SELECT 1 FROM information_schema.tables
@@ -112,6 +113,8 @@ export const appRouter = createProtocolRouter({
     minter: noBadgeSigner,
     window: () => badgeWindowFromSetting(env.PROTOCOL_BADGE_WINDOW_OPENS_AT, env.PROTOCOL_BADGE_WINDOW_CLOSES_AT),
     mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworkRegistry()),
+    approvals: badgeApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+    stuckMintAgeSeconds: () => env.PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS,
   },
   peers: createPeers({
     indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },
