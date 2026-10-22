@@ -98,32 +98,29 @@ const WANT_ROWS = 10;
 /** ...and looks back at most this many extra pages by itself; after that the person presses "Load more". */
 const AUTO_PAGES = 4;
 
-const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Ledger'> = {
+const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Entries'> = {
   trades: 'Trades',
   orders: 'Orders',
   all: 'All',
   deposits: 'Deposits',
   transfers: 'Transfers',
   fees: 'Fees',
-  ledger: 'Ledger',
+  ledger: 'Entries',
 };
-const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No ledger lines yet'> = {
+const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No entries yet'> = {
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
   fees: 'No fees yet',
-  ledger: 'No ledger lines yet',
+  ledger: 'No entries yet',
 };
 const TAB_LATEST: Record<
   Exclude<LedgerTab, 'all'>,
-  | 'No deposits in the latest items'
-  | 'No transfers in the latest items'
-  | 'No fees in the latest items'
-  | 'No ledger lines in the latest items'
+  'No deposits in the latest items' | 'No transfers in the latest items' | 'No fees in the latest items' | 'No entries in the latest items'
 > = {
   deposits: 'No deposits in the latest items',
   transfers: 'No transfers in the latest items',
   fees: 'No fees in the latest items',
-  ledger: 'No ledger lines in the latest items',
+  ledger: 'No entries in the latest items',
 };
 
 /** The words a row shows as its title, so a search finds what the person reads. */
