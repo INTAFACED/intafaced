@@ -891,8 +891,9 @@ export function createAcademyRouter(
       .output(z.array(curriculumSummaryOut))
       .query(({ input }) =>
         guard(async () => {
+          const all = queryCatalogue(catalogueFilter(input));
           const limit = assertCurriculumPageLimit(input?.limit);
-          return queryCatalogue(catalogueFilter(input)).slice(0, limit);
+          return all.slice(0, limit);
         }),
       ),
 

@@ -46,7 +46,9 @@ describe('queryCatalogue (AC-catalogue-01)', () => {
     const word = first.title.split(' ')[0]!.toUpperCase();
     const out = queryCatalogue({ q: word });
     expect(out.length).toBeGreaterThan(0);
-    expect(out.every((i) => i.title.toLowerCase().includes(word.toLowerCase()) || i.summary.toLowerCase().includes(word.toLowerCase()))).toBe(true);
+    expect(
+      out.every((i) => i.title.toLowerCase().includes(word.toLowerCase()) || i.summary.toLowerCase().includes(word.toLowerCase())),
+    ).toBe(true);
   });
   it('no match is an honest empty list', () => {
     expect(queryCatalogue({ q: 'zzqqxx-no-such-text' })).toEqual([]);
@@ -103,10 +105,22 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-academy' });
 
 function signed(scopes: string[]) {
-  const p = { sub: USER, userId: USER, sid: '22222222-2222-4222-8222-222222222222', scopes, tier: 'none', mfa: false, expiresAt: new Date(Date.now() + 60_000) } as unknown as Principal;
+  const p = {
+    sub: USER,
+    userId: USER,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes,
+    tier: 'none',
+    mfa: false,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as unknown as Principal;
   const raw = encodePrincipal(p);
   return edge({
-    headers: { 'x-intafaced-principal': raw, 'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'), 'x-intafaced-region': 'DE' },
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
     id: 'req-cat',
   });
 }
@@ -132,8 +146,12 @@ describe('doors', () => {
     await expect(c.publicCatalogue({ limit: 3 })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
   });
   it('publicCatalogue refuses with no client address and with a blank page size', async () => {
-    await expect(publicCaller({ max: 5, windowSeconds: 60 }, null).publicCatalogue({ limit: 3 })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
-    await expect(publicCaller({ max: 5, windowSeconds: 60 }, '9.9.9.9').publicCatalogue({})).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    await expect(publicCaller({ max: 5, windowSeconds: 60 }, null).publicCatalogue({ limit: 3 })).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+    });
+    await expect(publicCaller({ max: 5, windowSeconds: 60 }, '9.9.9.9').publicCatalogue({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
   });
   it('search scopes to the caller enrolments and refuses a blank limit or empty query', async () => {
     const c = createAcademyRouter(academy).createCaller(signed(['academy:read']));
@@ -144,7 +162,13 @@ describe('doors', () => {
   });
   it('curriculum accepts q and sort; curriculumRelated works', async () => {
     const c = createAcademyRouter(academy).createCaller(signed(['academy:read']));
-    expect((await c.curriculum({ sort: 'name_asc', limit: 500 })).map((i) => i.title)).toEqual(queryCatalogue({ sort: 'name_asc' }).map((i) => i.title).slice(0, 500));
-    expect(await c.curriculumRelated({ slug: first.slug, limit: 2 })).toHaveLength(Math.min(2, listCurriculum({ path: first.path }).length - 1));
+    expect((await c.curriculum({ sort: 'name_asc', limit: 500 })).map((i) => i.title)).toEqual(
+      queryCatalogue({ sort: 'name_asc' })
+        .map((i) => i.title)
+        .slice(0, 500),
+    );
+    expect(await c.curriculumRelated({ slug: first.slug, limit: 2 })).toHaveLength(
+      Math.min(2, listCurriculum({ path: first.path }).length - 1),
+    );
   });
 });
