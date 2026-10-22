@@ -358,6 +358,8 @@ export interface PrivateRestDeps {
   }>;
   /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
   listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
+  /** D-margin-06: one owned position's liquidation rung timeline. Absent: the door answers 503 unwired. */
+  positionLiquidation?(principal: Principal, positionId: string): Promise<unknown>;
   /** The caller's futures profit payouts, newest first: paid, or owed while the clearing pot is short. */
   listFuturesPayouts?(principal: Principal): Promise<{ payouts: readonly FuturesPayout[] }>;
 }
@@ -1762,6 +1764,26 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const rows = await deps.listAdlDisclosureEvents(principal, limit);
       return reply.code(200).send(rows);
     } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/positions/:id/liquidation', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.positionLiquidation) {
+      return reply.code(503).send({
+        error: 'trade.liquidations_unwired',
+        message: 'the position liquidation timeline is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.positionLiquidation(principal, req.params.id));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
