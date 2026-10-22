@@ -60,7 +60,7 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
-import { createOrgRouter } from './org-router.js';
+import { createOrgRouter, enforceOrgSecurityPolicyOn } from './org-router.js';
 import { createOrgSecurityPolicyRouter } from './org-security-policy-router.js';
 import { OrgSecurityPolicyService } from './orgs/org-security-policy.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
@@ -477,6 +477,9 @@ installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
 
+// I-account-lifecycle-06: the org router built on this sql enforces each org's security policy.
+enforceOrgSecurityPolicyOn(sql);
+
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
@@ -530,7 +533,7 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
-  createOrgRouter(sql, dmaHierarchyLaw, { enforceSecurityPolicy: true }),
+  createOrgRouter(sql, dmaHierarchyLaw),
   createOrgSecurityPolicyRouter(
     new OrgSecurityPolicyService({ sql, approvals: actionApprovals, idleMaxSeconds: () => env.SESSION_IDLE_SECONDS }),
   ),

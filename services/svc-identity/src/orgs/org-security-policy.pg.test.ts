@@ -14,7 +14,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { createStepUpRouter } from '../step-up-router.js';
-import { createOrgRouter } from '../org-router.js';
+import { createOrgRouter, enforceOrgSecurityPolicyOn } from '../org-router.js';
 import { createOrgSecurityPolicyRouter } from '../org-security-policy-router.js';
 import { ActionApprovalService } from '../auth/action-approval-service.js';
 import { SqlActionApprovalStore } from '../auth/action-approval-store.js';
@@ -77,11 +77,8 @@ if (!(await postgresAvailable(DATABASE_URL))) {
   const stepUps = new CustomerStepUpService(db.sql, new SqlCustomerStepUpStore(db.sql), auth);
   let idleMax: number | undefined;
   const service = new OrgSecurityPolicyService({ sql: db.sql, approvals, idleMaxSeconds: () => idleMax });
-  const api = mergeRouters(
-    createOrgRouter(db.sql, undefined, { enforceSecurityPolicy: true }),
-    createOrgSecurityPolicyRouter(service),
-    createStepUpRouter(stepUps),
-  );
+  enforceOrgSecurityPolicyOn(db.sql);
+  const api = mergeRouters(createOrgRouter(db.sql), createOrgSecurityPolicyRouter(service), createStepUpRouter(stepUps));
 
   let n = 0;
   const unique = () => `op${process.pid}x${++n}`;
@@ -316,5 +313,13 @@ if (!(await postgresAvailable(DATABASE_URL))) {
     const refused = await refusal(stranger.assertOrgActor({ orgId }));
     expect(refused.code).not.toBe('identity.org_policy_2fa');
     expect((await refusal(stranger.orgSecurityPolicy.get({ orgId }))).code).toBe('org.membership_denied');
+
+    it('the service mount turns the policy gate on: index.ts enables it on its sql before building appRouter', () => {
+      const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
+      const enable = src.indexOf('enforceOrgSecurityPolicyOn(sql);');
+      expect(enable).toBeGreaterThan(-1);
+      expect(enable).toBeLessThan(src.indexOf('export const appRouter = mergeRouters('));
+      expect(src).toMatch(/createOrgRouter\(sql,\s*dmaHierarchyLaw\)/);
+    });
   });
 }
