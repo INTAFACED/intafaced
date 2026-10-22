@@ -2650,11 +2650,10 @@ export class PayService {
     }
 
     if (!offered) {
-      throw new PayError(
-        `Merchant ${merchantId} has no payout destination for rail ${railId}`,
-        'pay.payout_destination_missing',
-        { merchantId, railId },
-      );
+      throw new PayError(`Merchant ${merchantId} has no payout destination for rail ${railId}`, 'pay.payout_destination_missing', {
+        merchantId,
+        railId,
+      });
     }
     try {
       assertPayoutDestinationKind(railId, offered);
