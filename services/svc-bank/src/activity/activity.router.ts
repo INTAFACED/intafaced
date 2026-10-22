@@ -165,7 +165,7 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
       .input(z.object({}).strict())
       .output(taxEffectMapSchema)
       .query(() => ({
-        rows: TAX_EFFECT_MAP.map((row) => ({ ...row, rails: row.rails === null ? null : [...row.rails] })),
+        rows: TAX_EFFECT_MAP.map((row) => ({ ...row })),
         unmappedCode: TAX_EFFECT_UNMAPPED,
       })),
 

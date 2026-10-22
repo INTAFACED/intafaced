@@ -2,7 +2,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import type { LineTaxEffect } from '@intafaced/contracts';
 import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
-import { classify, classifyTaxEffect, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
+import { CARD_HOLD_EVENT, classify, classifyTaxEffect, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
 import type { ActivityAnnotation, ActivityRecordService } from './activity-records.js';
 
@@ -143,6 +143,11 @@ export interface ActivityTransferFacts {
   forTransfers(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>>;
 }
 
+/** Which ledger txs are holds svc-bank recorded on the user's own card authorisations (RC-portfolio-02). */
+export interface ActivityCardHolds {
+  holdTxIds(userId: string, txIds: readonly string[]): Promise<ReadonlySet<string>>;
+}
+
 export interface ActivityServiceOptions {
   /** Unset = every call refuses `ActivityUnavailableError`. Never an empty list. */
   pages?: LedgerHistoryPages;
@@ -152,6 +157,8 @@ export interface ActivityServiceOptions {
   /** Note, reference and the other party's handle for personal sends. */
   transferFacts?: ActivityTransferFacts;
   /** Space-transfer words, private notes and disputes. Unset = those fields stay absent. A failure never hides a line. */
+  /** Unset, or a failed read = a withdraw hold is never called a card spend (unmapped, not guessed). */
+  cardHolds?: ActivityCardHolds;
   records?: Pick<ActivityRecordService, 'forItems'> & Partial<Pick<ActivityRecordService, 'addressesFor'>>;
 }
 
@@ -742,6 +749,24 @@ export class ActivityService {
     return out;
   }
 
+  private async cardHoldTxIds(userId: string, taken: Taken[]): Promise<ReadonlySet<string>> {
+    const port = this.options.cardHolds;
+    const wanted = [
+      ...new Set(
+        taken
+          .filter(({ entry }) => `${entry.module}/${entry.reason}` === CARD_HOLD_EVENT && entry.direction === 'credit')
+          .map(({ entry }) => entry.txId),
+      ),
+    ];
+    if (port === undefined || wanted.length === 0) return new Set();
+    try {
+      return await port.holdTxIds(userId, wanted);
+    } catch {
+      // A tax label is never guessed: without the card fact the hold stays unmapped, and the line is still shown.
+      return new Set();
+    }
+  }
+
   private async toItems(userId: string, taken: Taken[], needAddress = false, needNotes = false): Promise<ActivityItem[]> {
     // A transfer with both halves among the user's own pots is a Space move, not a payment to anyone.
     const transferHalves = new Map<string, number>();
@@ -750,6 +775,7 @@ export class ActivityService {
         transferHalves.set(entry.txId, (transferHalves.get(entry.txId) ?? 0) + 1);
     }
 
+    const cardHolds = await this.cardHoldTxIds(userId, taken);
     const seen = new Map<string, number>();
     const items: ActivityItem[] = taken.map(({ entry, queue }) => {
       const dir = directionOf(entry.direction);
@@ -769,7 +795,12 @@ export class ActivityService {
         spaceName: queue.owner.spaceName,
         ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
         ...(isPurchase(entry, dir) ? { purchase: true as const } : {}),
-        taxEffect: classifyTaxEffect({ module: entry.module, reason: entry.reason, direction: entry.direction, rail: entry.rail }),
+        taxEffect: classifyTaxEffect({
+          module: entry.module,
+          reason: entry.reason,
+          direction: entry.direction,
+          cardAuthorizationHold: cardHolds.has(entry.txId),
+        }),
       };
     });
 
