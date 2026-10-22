@@ -36,6 +36,7 @@ import {
   type OfferLimitPolicy,
 } from './merchant-limits.js';
 import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
+import { DISPLAY_STATUSES, ORDER_TABS, displayStatus, tabOf } from './order-list.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
@@ -429,6 +430,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.cursor_invalid':
+      case 'p2p.filter_invalid':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
@@ -1045,6 +1048,50 @@ export function createP2pRouter(
         )
         .output(z.array(tradeOutput))
         .query(async ({ ctx, input }) => guard(async () => (await p2p.listTrades(ctx.principal.userId, input?.limit)).map(toTradeOut))),
+
+      /**
+       * P-trade-orders-13: the order list. Keyset paging newest first,
+       * filters {tab, asset, side, from, to, orderId prefix}, true per-tab
+       * counts from a count query, and a server-derived `displayStatus` so
+       * labels are never guessed on the client. Read-only.
+       */
+      page: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            /** Optional so omit reaches the named `p2p.trade_list_limit_unset` refusal. */
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(512).optional(),
+            tab: z.string().max(32).optional(),
+            asset: z.string().max(32).optional(),
+            side: z.string().max(8).optional(),
+            from: z.string().max(40).optional(),
+            to: z.string().max(40).optional(),
+            orderId: z.string().max(64).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            trades: z.array(tradeOutput.extend({ tab: z.enum(ORDER_TABS), displayStatus: z.enum(DISPLAY_STATUSES) })),
+            nextCursor: z.string().nullable(),
+            counts: z.object({
+              in_progress: z.number().int().nonnegative(),
+              in_dispute: z.number().int().nonnegative(),
+              completed: z.number().int().nonnegative(),
+              cancelled: z.number().int().nonnegative(),
+            }),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const { limit, cursor, ...filter } = input;
+            const out = await p2p.pageTrades({ userId: ctx.principal.userId, limit, cursor, filter });
+            return {
+              trades: out.trades.map((t) => ({ ...toTradeOut(t), tab: tabOf(t.status), displayStatus: displayStatus(t) })),
+              nextCursor: out.nextCursor,
+              counts: out.counts,
+            };
+          }),
+        ),
 
       /**
        * What a take would lock, before it locks anything. Exact decimals from
