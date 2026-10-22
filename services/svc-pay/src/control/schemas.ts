@@ -147,6 +147,15 @@ export const pricingQuoteSchema = z
     fee: payAmountStringSchema,
     spread: payAmountStringSchema.nullable(),
     net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+    /** M-money-out-06: fee / amount in basis points, four places, rounded down. Null for a zero amount. */
+    effectiveRateBps: z
+      .string()
+      .regex(/^\d+\.\d{4}$/)
+      .nullable(),
+    /** M-money-out-06: no payout fee exists, so paying out the net costs nothing extra. */
+    payoutFee: z.object({ status: z.literal('not_charged') }).strict(),
+    /** A preview is a quote; the fee booked at settlement is frozen on its pricing snapshot. */
+    kind: z.literal('quote'),
   })
   .strict();
 export type PricingQuoteView = z.infer<typeof pricingQuoteSchema>;

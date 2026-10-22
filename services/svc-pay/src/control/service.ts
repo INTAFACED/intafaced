@@ -45,6 +45,12 @@ import {
 } from './store.js';
 import type { MerchantRole } from '../merchant-ops/roles.js';
 import { readMerchantReserve, type MerchantReserveView } from '../merchant-pay-dev-out/reserve-read.js';
+import {
+  effectiveRateBps,
+  PAYOUT_FEE_NOT_CHARGED,
+  readFeeSchedule,
+  type MerchantFeeSchedule,
+} from '../merchant-pay-dev-out/fee-schedule.js';
 
 const fmt = formatAmount;
 
@@ -151,6 +157,12 @@ export class ControlService {
     return out;
   }
 
+  /** M-money-out-06: the processing fee schedule. Owner and finance see it in full; other viewers the headline rate. */
+  async feeSchedule(principal: Principal, merchantId: string): Promise<MerchantFeeSchedule> {
+    const role = await this.roleOnMerchant(principal, merchantId);
+    return readFeeSchedule(this.sql, merchantId, role, (id, tierId) => this.effectiveRules(id, tierId));
+  }
+
   /** Same engine as the live path; with no `monthlyVolume` it uses the merchant's real month to date. */
   async previewPricing(input: {
     merchantId: string;
@@ -197,6 +209,9 @@ export class ControlService {
       fee: fmt(quote.fee),
       spread: quote.spread === null ? null : fmt(quote.spread),
       net: fmt(quote.net),
+      effectiveRateBps: effectiveRateBps(quote.fee, parseAmount(input.amount)),
+      payoutFee: PAYOUT_FEE_NOT_CHARGED,
+      kind: 'quote',
     };
   }
 

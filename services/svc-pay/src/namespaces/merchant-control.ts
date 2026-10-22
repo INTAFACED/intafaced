@@ -35,6 +35,7 @@ import {
 import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
 import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { merchantFeeScheduleSchema } from '../merchant-pay-dev-out/fee-schedule.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -144,6 +145,16 @@ export function createMerchantControlRouter(control?: ControlService) {
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);
               return control.previewPricing(input);
+            }),
+          ),
+        /** M-money-out-06: fee schedule by asset (same for every channel) and the payout fee line. */
+        schedule: read
+          .input(merchantControlGetInputSchema)
+          .output(merchantFeeScheduleSchema)
+          .query(({ ctx, input }) =>
+            guarded(async () => {
+              await control.assertCanView(principalOf(ctx), input.merchantId);
+              return control.feeSchedule(principalOf(ctx), input.merchantId);
             }),
           ),
         history: read
