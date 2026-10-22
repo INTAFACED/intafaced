@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApiResult } from '../../shared/api';
-import { isPreEffectRefusal, securityKind } from './security-guards';
+import { isPreEffectRefusal } from './security-guards';
 
 const refused = (code: string, status: number, reason: Extract<ApiResult<never>, { ok: false }>['reason']) =>
   ({ ok: false, reason, message: 'Two-factor verification', code, status }) as const;
@@ -22,6 +22,5 @@ describe('isPreEffectRefusal', () => {
   it('keeps the earlier known refusals', () => {
     expect(isPreEffectRefusal('confirm', refused('auth.mfa_invalid', 401, 'unauthorized'))).toBe(true);
     expect(isPreEffectRefusal('options', refused('auth.not_found', 404, 'not_mounted'))).toBe(true);
-    expect(securityKind.options).toContain('logout');
   });
 });

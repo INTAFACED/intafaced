@@ -54,9 +54,9 @@ export type SecurityKind = z.infer<typeof securityKind>;
  * registerOptions/setup may change preparation state, but do not enroll a credential/enable MFA.
  * Registration invalidity precedes credential UPDATE; MFA invalidity/key checks precede account UPDATE.
  * Rank/dependency failures after those writes and global sign-out have no such refusal guarantee.
+ * `auth.mfa_required` 403 is the factor gate (svc-identity factor-gate.ts): it refuses a session that has not passed a
+ * second factor before any read-modify-write of the account's factors.
  */
-// `auth.mfa_required` 403 is the factor gate (svc-identity factor-gate.ts): it refuses a session that has not passed a
-// second factor before any read-modify-write of the account's factors.
 const preEffectRefusals: Readonly<Record<SecurityKind, Readonly<Record<string, number>>>> = {
   options: { 'auth.not_found': 404, 'auth.mfa_required': 403 },
   register: { 'auth.not_found': 404, 'auth.webauthn_invalid': 401, 'auth.mfa_required': 403 },

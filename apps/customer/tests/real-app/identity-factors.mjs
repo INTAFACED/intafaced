@@ -34,8 +34,13 @@ export async function addAuthenticator(page, totp) {
   await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
   await page.getByRole('button', { name: 'Show setup key' }).click();
   const secret = await page.getByLabel('Authenticator setup key').inputValue();
-  const step = Math.floor(Date.now() / 30_000);
-  await page.getByLabel('Six-digit authenticator code').fill(totp(secret));
+  // The code and its step from one 30-second window, so a later code is never this one again.
+  let step, code;
+  do {
+    step = Math.floor(Date.now() / 30_000);
+    code = totp(secret);
+  } while (Math.floor(Date.now() / 30_000) !== step);
+  await page.getByLabel('Six-digit authenticator code').fill(code);
   await page.getByRole('button', { name: 'Confirm authenticator' }).click();
   await expect(page.locator('.security__authenticator')).toContainText('accepted');
   return { secret, step };
@@ -43,8 +48,12 @@ export async function addAuthenticator(page, totp) {
 
 /** A code from a 30-second step after `step`: identity refuses a step it has already seen. */
 export async function nextCode(totp, secret, step) {
-  while (Math.floor(Date.now() / 30_000) <= step) await new Promise((resolve) => setTimeout(resolve, 1000));
-  return { code: totp(secret), step: Math.floor(Date.now() / 30_000) };
+  for (;;) {
+    while (Math.floor(Date.now() / 30_000) <= step) await new Promise((resolve) => setTimeout(resolve, 1000));
+    const now = Math.floor(Date.now() / 30_000);
+    const code = totp(secret);
+    if (Math.floor(Date.now() / 30_000) === now) return { code, step: now };
+  }
 }
 
 /** Ends this browser's sign-in without touching the passkey on its authenticator. */
