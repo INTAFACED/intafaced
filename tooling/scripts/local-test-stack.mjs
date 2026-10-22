@@ -13,7 +13,8 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
- *   static server + reverse proxy on http://127.0.0.1:3210
+ *   static server + reverse proxy on http://127.0.0.1:3210 · the founder console (apps/admin,
+ *   a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
@@ -38,6 +39,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
@@ -82,6 +84,8 @@ const P = {
   buildStamp: path.join(STATE, 'build-stamp.json'),
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  admin: path.join(REPO, 'apps', 'admin'),
+  adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
 };
 
 const PORTS = {
@@ -108,12 +112,14 @@ const PORTS = {
   execution: 14516,
   tax: 14517,
   customer: 3210,
+  admin: 3100,
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
+const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -237,6 +243,11 @@ function loadOrCreateSecrets() {
       s[n] = crypto.randomBytes(32).toString('hex'); // 64 chars, satisfies every >=32 rule
       changed = true;
     }
+  }
+  // The founder console wants exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
+  if (!/^[A-Za-z0-9_-]{43}$/.test(s.adminSession ?? '')) {
+    s.adminSession = crypto.randomBytes(32).toString('base64url');
+    changed = true;
   }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
@@ -518,10 +529,10 @@ function runPnpm(args, label, extraEnv = {}) {
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
 
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
-function sourceUnchangedSince(oldHead, head) {
+function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
   if (!oldHead) return false;
   if (oldHead === head) return true;
-  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...SOURCE_PATHS], { cwd: REPO });
+  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
   return r.status === 0;
 }
 
@@ -647,6 +658,19 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
+// The founder console has its own stamp, so a console-only change never rebuilds the services and the reverse.
+const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
+
+function ensureAdminBuilt(rebuild) {
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  if (!rebuild && fs.existsSync(P.adminBuildId) && sourceUnchangedSince(stamp.adminHead, head, ADMIN_SOURCE_PATHS)) return;
+  say('  build: founder console (apps/admin)…');
+  runPnpm(['--filter', '@intafaced/admin...', 'build'], 'build-admin');
+  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
+}
+
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
@@ -655,6 +679,7 @@ function ensureBuilt(rebuild) {
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
     if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
+    ensureAdminBuilt(rebuild);
     return;
   }
   if (backend === 'missing') {
@@ -663,6 +688,7 @@ function ensureBuilt(rebuild) {
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
     writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    ensureAdminBuilt(rebuild);
     return;
   }
   say('  build: backend packages and services (a few minutes on a cold tree)…');
@@ -671,7 +697,11 @@ function ensureBuilt(rebuild) {
     say('  build: customer app…');
     runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
   }
-  writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override }, null, 2));
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override, adminHead: stamp.adminHead }, null, 2),
+  );
+  ensureAdminBuilt(rebuild);
 }
 
 function migrate(secrets, schemas = SCHEMAS) {
@@ -1244,6 +1274,48 @@ async function startCustomer() {
   await waitHealthy('customer', url, pid, 20_000);
 }
 
+/** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
+function adminEnv(secrets) {
+  return {
+    ...baseEnv(),
+    NODE_ENV: 'production',
+    APP_ENV: 'dev', // local http origin is accepted only for dev/test (founder-session.ts); never prod posture
+    EDGE_URL: urlOf('edge'),
+    ADMIN_ORIGIN,
+    ADMIN_SESSION_SECRET: secrets.adminSession,
+  };
+}
+
+async function startAdmin(secrets) {
+  const procs = readProcs();
+  const url = `${ADMIN_ORIGIN}/login`;
+  // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
+  if (ownedAlive(procs.admin)) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+  if (await portOpen(PORTS.admin)) fail(`port ${PORTS.admin} (admin) is in use by a process this script did not start`);
+  if (!fs.existsSync(P.adminBuildId)) fail('founder console build missing; run with --rebuild');
+  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], adminEnv(secrets), P.admin);
+  await waitHealthy('admin', url, pid, 60_000);
+}
+
+/**
+ * The founder console's production build, served in this script's own process so the recorded command line stays
+ * what was started (the `next` CLI renames its process, which ownership checks would then refuse to stop).
+ */
+async function serveAdmin(port = PORTS.admin) {
+  const req = createRequire(path.join(P.admin, 'package.json'));
+  const next = (await import(pathToFileURL(req.resolve('next')).href)).default;
+  const app = next({ dev: false, dir: P.admin, hostname: HOST, port });
+  const exit = (what, err) => {
+    console.error(`admin: ${what}: ${err?.message ?? err}`);
+    process.exit(1);
+  };
+  await app.prepare().catch((err) => exit('the build in apps/admin/.next could not be loaded (pnpm local:stack --rebuild)', err));
+  const handle = app.getRequestHandler();
+  const server = http.createServer((rq, rs) => handle(rq, rs));
+  server.on('error', (err) => exit(`cannot listen on ${HOST}:${port}`, err));
+  server.listen(port, HOST);
+}
+
 /** Every Node service this script runs, in start order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
@@ -1281,6 +1353,8 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.customer?.pid ?? '-',
     cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
   ]);
+  const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
+  rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
@@ -1296,7 +1370,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'customer'];
+  const known = [...serviceNames(), 'customer', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1366,6 +1440,7 @@ async function cmdStart(flags) {
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
+  if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -1387,6 +1462,7 @@ async function cmdStart(flags) {
       : '  Founders: pair not pinned (identity and edge must both be up)',
   );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
+  say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
 }
@@ -1407,7 +1483,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['customer', ...serviceNames().reverse(), 'nats'];
+  const order = ['admin', 'customer', ...serviceNames().reverse(), 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1478,7 +1554,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'customer'];
+  const known = [...serviceNames(), 'customer', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1783,6 +1859,7 @@ async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

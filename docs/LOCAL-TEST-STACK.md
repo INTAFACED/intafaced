@@ -29,7 +29,7 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 ## Ports
 
-Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Customer 3210. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
+Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Customer 3210 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
 
 State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
 
@@ -83,6 +83,10 @@ node tooling/scripts/local-test-gates.mjs verify          # verifies those accou
 The first BTC/USDT trade, and so the first candle, follows within about a minute.
 
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
+
+## Founder console
+
+`pnpm local:stack` also builds the founder console (`apps/admin`, a production Next build, rebuilt only when `apps/admin`, `packages` or the lockfile change) and serves it on http://127.0.0.1:3100 against the stack's Edge, with `APP_ENV=dev` (a local http origin is accepted only in dev or test) and a session key generated once into `secrets.json` (`adminSession`). The local test founders sign in with their entries in `founders.json`; operator journeys use `apps/customer/tests/real-app/admin.mjs`, which reads `JOURNEY_ADMIN_URL` (default http://127.0.0.1:3100). `--only admin`, `restart admin` and `stop admin` work like the services. Log: `logs/admin.log`.
 
 ## Screening
 

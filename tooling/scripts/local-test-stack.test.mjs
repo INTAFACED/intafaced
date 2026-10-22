@@ -378,7 +378,15 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  assert.match(source, /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*ensureMarket\(\);/);
+  // The founder console starts after the Customer app and before the market check, and stops first.
+  assert.match(
+    source,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+  );
+  assert.match(source, /const order = \['admin', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
+  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
   assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
   console.log('local-test-stack: market supervision checks passed');
