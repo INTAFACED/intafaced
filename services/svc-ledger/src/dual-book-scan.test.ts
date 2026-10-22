@@ -33,6 +33,8 @@ const ONE_BOOK_TABLES = new Set([
   'ledger_posted_keys',
   // One row per reconciliation attempt (ok / mismatch / incomplete) with the tip it covered. Proof history, holds no balance.
   'reconcile_runs',
+  // One row per operator read of an owner's balances (actor, target, time). Append-only read audit, holds no balance.
+  'operator_access_log',
 ]);
 
 const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; readonly why: string }[] = [
