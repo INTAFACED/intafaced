@@ -31,6 +31,7 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
+import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
 import { createLoanProductProcedure } from './ops/loan-products.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
@@ -800,6 +801,8 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
+  loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
@@ -2013,6 +2016,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId };
         }),
       ),
+    // BK-loan-09: unsecured-loan servicing previews (typed Preview refusals) and the owner missed-payment policy.
+    ...loanServicingPreviewProcedures(options.loanMissedPaymentPolicy),
   });
 
   /**
