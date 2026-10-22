@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+  assetsGetInputSchema,
+  assetsListInputSchema,
+  assetsListOutputSchema,
+  registryAssetSchema,
+} from '@intafaced/contracts';
 import {
   formatAmount,
   parseAmount,
@@ -27,6 +37,7 @@ import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHisto
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
+import { AssetRegistryError } from './ledger/asset-registry.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import {
   operatorOwnerBalances,
@@ -49,6 +60,10 @@ import { userCopy } from './user-copy.js';
  */
 
 function toTrpcError(err: unknown): TRPCError {
+  // Registry refusals carry their typed code as the message (W-balances-05).
+  if (err instanceof AssetRegistryError) {
+    return new TRPCError({ code: err.code === 'ledger.asset_not_found' ? 'NOT_FOUND' : 'BAD_REQUEST', message: err.code, cause: err });
+  }
   if (err instanceof InsufficientFundsError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: userCopy(err.code), cause: err });
   }
@@ -529,6 +544,45 @@ export function createLedgerRouter(
           throw toTrpcError(err);
         }
       }),
+
+    /**
+     * One supported asset and network registry (W-balances-05). Reads are `ledger:read`, like balances. `applyEdit`
+     * is `admin:treasury` and applies once, only for an identity-approved `ledger.asset_edit` (founder pair, payload
+     * hash and revision bound); see `ledger/asset-registry.ts`.
+     */
+    assets: router({
+      list: scopedProcedure('ledger:read')
+        .input(assetsListInputSchema)
+        .output(assetsListOutputSchema)
+        .query(async ({ input }) => {
+          try {
+            return await ledger.assetRegistry().list(input);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      get: scopedProcedure('ledger:read')
+        .input(assetsGetInputSchema)
+        .output(registryAssetSchema)
+        .query(async ({ input }) => {
+          try {
+            return await ledger.assetRegistry().get(input);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      // Input is parsed inside so a blank precision refuses with its own typed code, not a generic parse error.
+      applyEdit: scopedProcedure('admin:treasury')
+        .input(z.unknown())
+        .output(registryAssetSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await ledger.assetRegistry().applyEdit(approvals, input, ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
 
     unfreeze: scopedProcedure('admin:treasury')
       .input(

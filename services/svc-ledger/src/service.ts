@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { AssetRegistry } from './ledger/asset-registry.js';
 import { recordOperatorAccess } from './ledger/operator-owner-balances.js';
 import { toWriteBlockError } from './ledger/write-block.js';
 import {
@@ -102,6 +103,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<Balance[]> {
     return this.engine.balances(ownerType, ownerId);
+  }
+
+  /** The asset and network registry on `ledger.assets` (W-balances-05, 0025). */
+  assetRegistry(): AssetRegistry {
+    return new AssetRegistry(this.sql);
   }
 
   /** Operator access row for the ledger desk (0024). Written before an operator reads an owner's detail. */
