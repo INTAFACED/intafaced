@@ -252,6 +252,7 @@ const messages = {
   'No entries for this coin': 'No entries for {asset}',
   'No entries for this coin body': 'Nothing has been posted to your spendable {asset} balance.',
   'See the entries': 'See the entries behind {asset}',
+  'Amount, see the entries': '{amount}. See the entries behind {asset}',
   'Loading entries': 'Loading entries',
   'Transaction not found': 'We couldn’t find this transaction',
   'Transaction not found body':

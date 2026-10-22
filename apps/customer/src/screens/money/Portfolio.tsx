@@ -279,7 +279,16 @@ function CoinRow({
       </td>
       <td className="money-num">
         {/* The amount itself opens the entries behind it, so the cell shows nothing but the figure. */}
-        <a className="money-num__entries" href={balanceEntriesHref(row.asset)} title={copy.t('See the entries', { asset: row.asset })}>
+        <a
+          className="money-num__entries"
+          href={balanceEntriesHref(row.asset)}
+          title={copy.t('See the entries', { asset: row.asset })}
+          aria-label={
+            hidden
+              ? copy.t('See the entries', { asset: row.asset })
+              : copy.t('Amount, see the entries', { amount: `${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`, asset: row.asset })
+          }
+        >
           <Amount value={`${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`} hidden={hidden} />
         </a>
         {/* On a phone the Value column folds under the Amount so the two never run into each other. */}

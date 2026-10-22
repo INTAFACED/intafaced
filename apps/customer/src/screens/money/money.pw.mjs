@@ -234,6 +234,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   // The amount opens the entries behind that balance (PF-balances-01), and the cell still reads as the figure alone.
   await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('href', '/money/balance/BTC');
   await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('title', 'See the entries behind BTC');
+  await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('aria-label', '0.1 BTC. See the entries behind BTC');
   // Rows are 64 px.
   expect(Math.round((await btc.boundingBox()).height)).toBe(64);
 
@@ -1214,6 +1215,14 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     expect(overflow, `${size.width}px, too wide: ${wide.join(' | ')}`).toBeLessThanOrEqual(0);
     await page.screenshot({ path: join(shots, `activity-${size.width}x${size.height}.png`) });
   }
+  // At 390 px the tab row scrolls on its own, and a link to the last tab opens with that tab in view.
+  await open(page, '/money/activity?tab=ledger');
+  const active = page.locator('[data-slot="tabs-tab"][data-active]');
+  await expect(active).toHaveText('Entries');
+  const [tabBox, rowBox] = [await active.boundingBox(), await page.locator('.money-tabs').boundingBox()];
+  // Within a pixel: the row scrolls by whole pixels and the tab edge can sit a fraction past it.
+  expect(tabBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  expect(tabBox.x + tabBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
   // The Trades and Orders tabs do not scroll sideways either.
   for (const tab of ['/money/activity?tab=trades', '/money/activity?tab=orders']) {
     await open(page, tab);

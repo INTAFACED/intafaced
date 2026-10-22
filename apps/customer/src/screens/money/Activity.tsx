@@ -659,11 +659,16 @@ export default function Activity({ search }: { search: string }) {
   const tab = tabFromSearch(search);
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
+  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one.
+  const tabList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabList.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
   return (
     <div className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
       <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
-        <TabsList divider aria-label={t('Activity filters')} className="money-tabs">
+        <TabsList ref={tabList} divider aria-label={t('Activity filters')} className="money-tabs">
           {TABS.map((id) => (
             <TabsTab key={id} value={id}>
               {t(TAB_LABEL[id])}
