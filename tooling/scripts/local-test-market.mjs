@@ -11,7 +11,7 @@
  *
  * What it does, every few seconds, for each published market it has a TEST PRICE for:
  *   1. moves a deterministic, seedable synthetic price (integer arithmetic, no float money);
- *   2. as the labelled test account `test_market_maker`, cancels and re-places a ladder of
+ *   2. as the labelled test account `test_market_maker`, re-places (new first, then cancels the old) a ladder of
  *      post-only bids and asks around that price;
  *   3. now and then, a second labelled account `test_taker` crosses the best level with a
  *      small immediate-or-cancel order, so trades (and therefore candles) exist.
@@ -37,7 +37,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack, processRecordMatches, readProcessIdentity } from './local-test-state.mjs';
+import {
+  localStackState,
+  assertActiveLocalStack,
+  processRecordMatches,
+  readProcessIdentity,
+  readLatestEmailConfirmToken,
+} from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -350,6 +356,37 @@ class EdgeClient {
     this.account.userId = data.userId;
     return 'created';
   }
+  /**
+   * New custodial orders need a proved email (RC-identity-01). Proves it the way a
+   * person does: auth.requestEmailConfirmation, then the link from the LOCAL-TEST
+   * outbox into auth.confirmEmail. Never writes email_verified_at itself.
+   */
+  async proveEmail(outboxPath, waitMs = 10_000) {
+    const me = await this.http('GET', '/api/identity/trpc/me');
+    if (me.json?.result?.data?.emailVerified === true) return 'already proved';
+    const readToken = () => {
+      try {
+        return readLatestEmailConfirmToken(fs.readFileSync(outboxPath, 'utf8'), this.account.email);
+      } catch {
+        return null;
+      }
+    };
+    const before = readToken();
+    const asked = await this.http('POST', '/api/identity/trpc/auth.requestEmailConfirmation', {});
+    if (asked.status !== 200)
+      throw new Error(`email proof request refused for ${this.account.handle} (${asked.status}): ${asked.text.slice(0, 200)}`);
+    const until = Date.now() + waitMs;
+    let token = readToken();
+    while (!token || token === before) {
+      if (Date.now() >= until) throw new Error(`no LOCAL-TEST confirm link reached ${this.account.email} in ${outboxPath}`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      token = readToken();
+    }
+    const confirmed = await this.http('POST', '/api/identity/trpc/auth.confirmEmail', { token }, { auth: false });
+    if (confirmed.status !== 200)
+      throw new Error(`email confirm refused for ${this.account.handle} (${confirmed.status}): ${confirmed.text.slice(0, 200)}`);
+    return 'proved';
+  }
 }
 
 function loadAccounts(p) {
@@ -495,6 +532,8 @@ async function runLoop(opts, home) {
   log(`${LABEL}. seed=${opts.seed}, requote every ${opts.seconds}s`);
   log(`maker ${await maker.ensureAccount()} (${accounts.maker.handle}); taker ${await taker.ensureAccount()} (${accounts.taker.handle})`);
   save(p, accounts);
+  const outbox = path.join(p.stateDir, 'email-outbox.log');
+  log(`maker email ${await maker.proveEmail(outbox)}; taker email ${await taker.proveEmail(outbox)}`);
 
   const wanted = opts.symbols ?? DEFAULT_SYMBOLS;
   const markets = await discoverMarkets(maker, wanted);
@@ -532,6 +571,8 @@ async function runLoop(opts, home) {
   let counter = 0;
   let cycle = 0;
   const crossings = new Map();
+  /** The maker's resting quote ids per market, from the cycle before. */
+  const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
     client.http('POST', '/api/v1/orders', {
       symbol: m.symbol,
@@ -560,14 +601,35 @@ async function runLoop(opts, home) {
         stepBps: 9n,
         levelNotional: toScaled(cfg.notional),
       });
-      await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
-      let rested = 0;
+      // The new ladder goes up before the old one comes down, so the book never stands empty between two quotes
+      // (failure it prevents: a person's market buy landing in that gap was refused for want of a reference price).
+      // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
+      // them first, as before.
+      let previous = quoted.get(m.symbol);
+      if (!previous) {
+        const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
+        const rows = Array.isArray(open.json) ? open.json : null;
+        if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
+        else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
+      }
+      const ids = [];
       let refused = null;
       for (const q of ladder) {
+        // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
+        // that level is quoted again next cycle.
         const r = await place(maker, m, q.side, q.price, q.amount, 'GTC');
-        if (r.status === 201) rested += 1;
+        if (r.status === 201 && r.json?.id) ids.push(r.json.id);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
+      // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
+      // 409 means it is already gone: filled or cancelled).
+      const stale = [];
+      for (const id of previous ?? []) {
+        const r = await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+        if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
+      }
+      quoted.set(m.symbol, [...ids, ...stale]);
+      const rested = ids.length;
       log(
         `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
       );

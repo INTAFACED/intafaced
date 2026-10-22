@@ -18,6 +18,7 @@ import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
+import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
@@ -86,6 +87,8 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
 import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
+import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
+import { presentPairRisk } from './spot/pair-rules.js';
 import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
@@ -192,6 +195,7 @@ const tradingControls = new TradingControls(
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const emailProof = createEmailProofClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -253,6 +257,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   seedPlaceEnabled: env.TRADE_MM_SEED_ENABLED,
   feeSchedule,
   subAccounts,
+  emailProof,
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
@@ -296,6 +301,7 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
+  emailProof,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
@@ -502,6 +508,7 @@ const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
+  emailProof,
   marks: futuresJobs.marks,
   profitSource,
   bus,
@@ -732,6 +739,14 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  pairRiskForMarkets: async (markets) => {
+    const risks = await currentRiskForMarkets(
+      sql,
+      markets.map((m) => m.id),
+    );
+    return new Map(markets.map((m) => [m.id, presentPairRisk(m, risks.get(m.id) ?? null, env.TRADE_MARKET_SLIPPAGE_CAP_BPS)]));
+  },
+  onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;
@@ -811,6 +826,10 @@ registerSpotOrderPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
   stopLimitEnabled: true,
+  matchingHalt: async (marketId) => {
+    const board = await matching.listMarkets();
+    return { market: board.halted?.includes(marketId) === true, venue: board.venueHalted === true };
+  },
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];
@@ -821,6 +840,13 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   },
+  operatorRisk: (market, userId, input) =>
+    assertOperatorRiskOnPlace(sql, market, userId, input, async () => {
+      const depth = await matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      const ask = depth.asks[0];
+      return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
+    }),
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,

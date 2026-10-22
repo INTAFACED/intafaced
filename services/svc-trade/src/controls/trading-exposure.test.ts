@@ -10,7 +10,14 @@ import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { PositionService } from '../futures/position-service.js';
 import { memoryMarkBook } from '../futures/mark-source.js';
 import { profitSourceFromConfig, recipeProfitFundingAccount, formatAccountRef } from '../futures/profit-source.js';
-import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import {
+  PUBLISHED_TEST_FEE_SCHEDULE,
+  READY_MARKET_LIFECYCLE,
+  StubEmailProof,
+  StubMatching,
+  StubPerks,
+  principalFor,
+} from '../spot/testing.js';
 import { TradingControls } from './trading-controls.js';
 import '../spot/qty-up-amend.js';
 import { CopyService } from '../copy/copy-service.js';
@@ -54,6 +61,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   };
   function build(admission = controls) {
     return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      emailProof: new StubEmailProof(),
       accountAdmission: admission,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       // CB-bots-10: the bot verification gate now fails closed when omitted; this suite tests other gates.
@@ -186,6 +194,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   });
   it('production class without an admission port refuses before any new order hold', async () => {
     const absent = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      emailProof: new StubEmailProof(),
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
     });
@@ -203,6 +212,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     const marks = memoryMarkBook();
     marks.set({ marketId, symbol, price: '100', quality: 'mid', asOfMs: now.getTime() });
     const positions = new PositionService(db.sql, ledger, {
+      emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marks: marks.source(),
       profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),

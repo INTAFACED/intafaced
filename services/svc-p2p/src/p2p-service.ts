@@ -39,6 +39,7 @@ import {
   type ChatMessage,
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
+import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
   OrderListError,
@@ -229,6 +230,9 @@ export type P2pErrorCode =
   | 'p2p.idempotency_in_progress'
   | 'p2p.offer_cursor_invalid'
   | 'p2p.blocked'
+  | 'p2p.appeal_used'
+  | 'p2p.appeal_not_eligible'
+  | 'p2p.reason_required'
   | 'p2p.cursor_invalid'
   | 'p2p.filter_invalid'
   | 'p2p.config_unset'
@@ -565,6 +569,8 @@ export interface P2pServiceOptions {
    * Absent = no ceiling, which is the behaviour before Stage 2 existed.
    */
   offerLimits?: OfferLimitPolicy;
+  /** P-trade-orders-21: hours support has to review a completion appeal. Unset → appeal refuses `p2p.config_unset`. */
+  appealReviewHours?: number;
   /** P-trade-orders-14 owner caps for capped exports and receipts. Unset → those paths refuse `p2p.config_unset`. */
   exportPolicy?: ExportPolicy;
   /**
@@ -855,6 +861,7 @@ export class P2pService {
   private readonly xpPolicy: XpPolicy;
   private readonly referencePrices: ReferencePriceSource | undefined;
   private readonly offerLimits: OfferLimitPolicy;
+  private readonly appealReviewHours: number | undefined;
   private readonly exportPolicy: ExportPolicy;
   private readonly merchantStatusOf: ((userId: string) => Promise<MerchantStatus | null>) | undefined;
   private readonly instruments: TradeInstrumentAttacher;
@@ -879,6 +886,7 @@ export class P2pService {
     this.tradingEnabled = options.tradingEnabled ?? true;
     this.referencePrices = options.referencePrices;
     this.offerLimits = options.offerLimits ?? NO_OFFER_LIMITS;
+    this.appealReviewHours = options.appealReviewHours;
     this.exportPolicy = options.exportPolicy ?? {};
     this.merchantStatusOf = options.merchantStatusOf;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
@@ -3245,6 +3253,56 @@ export class P2pService {
 
   async tradesInWindow(userId: string): Promise<number> {
     return tradesReleasedIn30Days(this.sql, userId);
+  }
+
+  /** P-trade-orders-21: 30-day and total completion rates, recomputed from trades. */
+  async completionRatesOf(userId: string): Promise<CompletionRates> {
+    return completionRates(this.sql, userId);
+  }
+
+  /** P-trade-orders-21: the caller's appeal, or null while it is still available. */
+  async myCompletionAppeal(userId: string): Promise<AppealRecord | null> {
+    const rows = await this.sql<AppealRow[]>`SELECT * FROM p2p.completion_appeals WHERE user_id = ${userId}`;
+    return rows[0] ? toAppeal(rows[0]) : null;
+  }
+
+  /**
+   * P-trade-orders-21: one appeal per user, ever, naming one escrowed,
+   * non-completed trade the user was a party to. Replaying the same trade
+   * returns the existing appeal (the business key is the user).
+   */
+  async submitCompletionAppeal(input: { userId: string; tradeId: string; reason: string }): Promise<AppealRecord> {
+    const hours = this.appealReviewHours;
+    if (hours === undefined || !Number.isInteger(hours) || hours < 1) {
+      throw new P2pError('p2p.config_unset: P2P_APPEAL_REVIEW_HOURS', 'p2p.config_unset');
+    }
+    const reason = input.reason.trim();
+    if (!reason) throw new P2pError('p2p.reason_required', 'p2p.reason_required');
+    const existing = await this.myCompletionAppeal(input.userId);
+    if (existing) {
+      if (existing.tradeId === input.tradeId && existing.reason === reason) return existing;
+      throw new P2pError('p2p.appeal_used', 'p2p.appeal_used');
+    }
+    const trade = await this.getTrade(input.tradeId);
+    if (trade.buyerId !== input.userId && trade.sellerId !== input.userId) throw unknownTrade(input.tradeId);
+    // Same set the denominator counts, minus completed: an escrowed order that
+    // ended cancelled or went to dispute.
+    if (trade.escrowedAt === null || (trade.status !== 'cancelled' && trade.status !== 'disputed')) {
+      throw new P2pError('p2p.appeal_not_eligible: only an escrowed order that was cancelled or disputed', 'p2p.appeal_not_eligible');
+    }
+    const inserted = await this.sql<AppealRow[]>`
+      INSERT INTO p2p.completion_appeals (user_id, trade_id, reason, review_due_at)
+      VALUES (${input.userId}, ${trade.id}, ${reason}, now() + make_interval(hours => ${hours}))
+      ON CONFLICT (user_id) DO NOTHING
+      RETURNING *
+    `;
+    if (!inserted[0]) {
+      // Lost a race to a concurrent submit: an identical one is a replay.
+      const winner = await this.myCompletionAppeal(input.userId);
+      if (winner && winner.tradeId === trade.id && winner.reason === reason) return winner;
+      throw new P2pError('p2p.appeal_used', 'p2p.appeal_used');
+    }
+    return toAppeal(inserted[0]);
   }
 
   /** P-ads-merchant-20: own performance, recomputed from trades. */

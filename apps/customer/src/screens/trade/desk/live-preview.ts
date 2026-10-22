@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Draft, Preview, TradeApi } from '../../../features/trade/trade-api';
 import type { RefusalContext } from '../../../data';
-import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
+import { failureOf, previewFailure, previewIsOrderable, type Failure } from './preview';
 
 /** What the server's preview said about the order as it stands in the form (advisory: Review asks again). */
 export type Live =
@@ -24,12 +24,14 @@ export function useLivePreview(
   key: string,
   context: RefusalContext,
   onRequest: () => void,
+  /** The market's tick, so a refusal that names prices reads them on it. */
+  tickSize?: string,
 ): { live: Live; retry: () => void } {
   const [live, setLive] = useState<Live>({ state: 'idle' });
   const [nonce, setNonce] = useState(0);
   const sequence = useRef(0);
-  const latest = useRef({ draft, context, onRequest, api });
-  latest.current = { draft, context, onRequest, api };
+  const latest = useRef({ draft, context, onRequest, api, tickSize });
+  latest.current = { draft, context, onRequest, api, tickSize };
 
   useEffect(() => {
     const current = latest.current;
@@ -40,7 +42,7 @@ export function useLivePreview(
     setLive({ state: 'checking' });
     const mine = ++sequence.current;
     const timer = setTimeout(async () => {
-      const { api: client, draft: asked, context: ctx, onRequest: count } = latest.current;
+      const { api: client, draft: asked, context: ctx, onRequest: count, tickSize: tick } = latest.current;
       if (!asked) return;
       count();
       const result = await client.preview(asked);
@@ -50,7 +52,7 @@ export function useLivePreview(
           result.reason === 'unauthorized' || result.code ? { state: 'blocked', failure: failureOf(result, ctx) } : { state: 'error' },
         );
       else if (previewIsOrderable(result.data)) setLive({ state: 'ok', preview: result.data });
-      else setLive({ state: 'blocked', failure: refusalFailure(previewRefusalCode(result.data), ctx) });
+      else setLive({ state: 'blocked', failure: previewFailure(result.data, ctx, tick) });
     }, LIVE_PREVIEW_DELAY_MS);
     return () => {
       sequence.current += 1;

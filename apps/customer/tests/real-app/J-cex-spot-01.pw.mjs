@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool } from './stack.mjs';
+import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
 // order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
@@ -11,14 +12,6 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 
-async function signIn(page, who) {
-  await page.goto('/login');
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
-  await expect(page).not.toHaveURL(/\/login/);
-}
-
 function account() {
   const who = run.read().account;
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
@@ -26,21 +19,7 @@ function account() {
 }
 
 async function desk(page) {
-  await signIn(page, account());
-  await page.goto(DESK);
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
-}
-
-/** The review sheet the desk shows before an order is sent ("Review your buy" / "Review your sell"). */
-const reviewSheet = (page) => page.locator('[role=dialog], [role=alertdialog]').filter({ hasText: /Review your (buy|sell)/ });
-
-const held = (balances, asset) => toUnits(balances[asset]?.used ?? '0');
-const free = (balances, asset) => toUnits(balances[asset]?.free ?? '0');
-
-async function openOrders(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/orders/open?symbol=BTC%2FUSDT&limit=100');
-  expect(status).toBe(200);
-  return Array.isArray(body) ? body : (body.orders ?? body.items ?? []);
+  await openDesk(page, account());
 }
 
 /** One cent above the best bid: the order rests (it does not cross the ask) and is first in line for a crossing sell. */
@@ -57,36 +36,6 @@ async function underBid() {
   const { bid } = await bestPrices();
   const cent = toUnits('0.01');
   return fromUnits(((toUnits(bid) * 99n) / 100n / cent) * cent);
-}
-
-/** Run `act` and wait for the desk's own order preview to answer, so Review is pressed on a checked order. */
-async function previewed(page, act) {
-  const answer = page.waitForResponse((r) => r.url().includes('/api/v1/orders/preview') && r.request().method() === 'POST');
-  await act();
-  expect((await answer).status()).toBe(200);
-}
-
-/** Fill the limit form on the buy (0) or sell (1) side, press Buy/Sell, return the review dialog. */
-async function reviewLimit(page, side, price, amount) {
-  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  const at = side === 'buy' ? 0 : 1;
-  await page.getByRole('textbox', { name: 'Price' }).nth(at).fill(price);
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(at).fill(amount));
-  await page.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
-  const review = reviewSheet(page);
-  await expect(review).toBeVisible();
-  return review;
-}
-
-/** Confirm a review; a requote asks again, so confirm until the dialog closes (at most three times). */
-async function confirm(page, side) {
-  for (let i = 0; i < 3; i++) {
-    const button = page.getByRole('button', { name: side === 'buy' ? 'Confirm buy' : 'Confirm sell' });
-    if (!(await button.count())) break;
-    await button.click();
-    await page.waitForTimeout(1500);
-  }
-  await expect(reviewSheet(page)).toHaveCount(0);
 }
 
 test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
@@ -253,8 +202,7 @@ test(`${J} #9 places a market buy: it fills inside its protection price and leav
 test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it again`, async ({ page }) => {
   const who = account();
   await desk(page);
-  const { bid } = await bestPrices();
-  const away = fromUnits(((toUnits(bid) * 9n) / 10n / toUnits('1')) * toUnits('1')); // 90% of the bid, whole USDT;
+  const away = await awayBid(90); // 90% of the bid, whole USDT
   await reviewLimit(page, 'buy', away, '0.001');
   await confirm(page, 'buy');
   const [order] = await openOrders(who);

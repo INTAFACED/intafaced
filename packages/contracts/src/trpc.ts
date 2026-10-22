@@ -96,16 +96,33 @@ function causeCode(cause: unknown): string | undefined {
   return undefined;
 }
 
+/** The refusals that carry the seconds to wait. No other error changes shape. */
+const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited']);
+
 /**
- * `retryAfterSeconds` of an `auth.too_many_attempts` refusal, so a client can show
- * "try again in N minutes". Only for that one code; no other error changes shape.
+ * `retryAfterSeconds` of an `auth.too_many_attempts` or `auth.email_confirm_rate_limited` refusal, so a client can
+ * show "try again in N minutes".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
-  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.too_many_attempts') return undefined;
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {
+    return undefined;
+  }
   const details = 'details' in cause ? cause.details : undefined;
   if (!details || typeof details !== 'object' || !('retryAfterSeconds' in details)) return undefined;
   const seconds = details.retryAfterSeconds;
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
+/**
+ * `accountState` of an `auth.account_frozen` refusal: `frozen` (staff can lift it) or `closed` (final). svc-identity
+ * sets it on sign-in only after the password verified. Any other value, or any other code, is dropped.
+ */
+export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.account_frozen') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('accountState' in details)) return undefined;
+  const state = details.accountState;
+  return state === 'frozen' || state === 'closed' ? state : undefined;
 }
 
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
@@ -232,6 +249,7 @@ const t = initTRPC.context<Context>().create({
     const allowance = withdrawalAllowanceOf(cause);
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
+    const accountState = accountStateOf(cause);
     return {
       ...shape,
       data: {
@@ -250,8 +268,10 @@ const t = initTRPC.context<Context>().create({
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts`.
+        // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
+        ...(accountState ? { accountState } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.

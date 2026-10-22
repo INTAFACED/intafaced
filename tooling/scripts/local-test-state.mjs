@@ -150,3 +150,34 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
   }
   return assertStackOwnership({ stateDir, marker, records, postgres, processes, listeners, services });
 }
+
+/** Same file the local stack's identity process writes. */
+export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
+  return path.join(localStackState(home, env), 'email-outbox.log');
+}
+
+/**
+ * Newest LOCAL-TEST confirm link for this address, or null.
+ * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirm-email?token=<encoded>` (the customer page; older lines used `confirmEmail`).
+ */
+export function readLatestEmailConfirmToken(text, email) {
+  const want = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  let token = null;
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
+    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
+    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
+    if (!emailMatch || !linkMatch) continue;
+    if (emailMatch[1].toLowerCase() !== want) continue;
+    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
+    if (!q?.[1]) continue;
+    try {
+      token = decodeURIComponent(q[1]);
+    } catch {
+      token = null;
+    }
+  }
+  return token;
+}

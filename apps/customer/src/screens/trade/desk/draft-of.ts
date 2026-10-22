@@ -15,10 +15,12 @@ export function draftOf(args: {
   tif: Tif;
   /** Carried only by a good-till-date pick. */
   expireAt?: string | null;
+  /** The person's own label, already trimmed; null or empty sends none. */
+  tag?: string | null;
   checked: Extract<Checked, { ok: true }>;
   clientOrderId: string;
 }): Draft {
-  const { market, side, type, tif, expireAt, checked, clientOrderId } = args;
+  const { market, side, type, tif, expireAt, tag, checked, clientOrderId } = args;
   const sent = serviceType(type, checked.price ?? '');
   // A bracket's market entry is already immediate; only fill-or-kill changes how it is sent.
   const sentTif: Tif = type === 'bracket' && sent === 'market' ? (tif === 'FOK' ? 'FOK' : 'GTC') : tif;
@@ -36,6 +38,9 @@ export function draftOf(args: {
     ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
     ...tifFields(sentTif, expireAt ?? undefined),
     ...(checked.exit && hasExits(type) ? { exit: { kind: type as 'oco' | 'bracket', ...checked.exit } } : {}),
+    // Said out loud on every order, so the person's choice on the ticket is what the service is asked to do.
+    stpMode: 'cancel_maker',
+    ...(tag ? { tag } : {}),
     clientOrderId,
   };
 }

@@ -330,6 +330,9 @@ export interface ReconcileReport {
  */
 export interface EngineMarketList {
   readonly markets: readonly string[];
+  /** Operator halts on matching's board: the whole venue, and the halted market ids. Older engines omit them. */
+  readonly venueHalted?: boolean;
+  readonly halted?: readonly string[];
 }
 
 export interface EngineMarkResult {

@@ -84,6 +84,9 @@ export function orderStatus(order: Order, t: ReturnType<typeof deskCopy.useCopy>
     return <StatusTag status="working" label={partly ? t('Order status partly') : t('Order status open')} />;
   }
   if (order.status === 'closed') return <StatusTag status="filled" label={t('Order status closed')} />;
+  // A resting order pulled because the person's own new order met it (the engine's self-trade rule) says so.
+  if (order.status === 'canceled' && order.rejectCode === 'self_trade_prevention')
+    return <StatusTag status="cancelled" label={t('Order status self trade')} />;
   if (order.status === 'canceled') return <StatusTag status="cancelled" label={t('Order status canceled')} />;
   if (order.status === 'expired') return <StatusTag status="cancelled" label={t('Order status expired')} />;
   return <StatusTag status="failed" label={t('Order status rejected')} />;
@@ -235,6 +238,11 @@ export function OrdersTable({
                         : order.type}
                 <OrderTag order={order} />
                 <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
+                {order.tag ? (
+                  <span className="dk-tag" title={t('Order tag label', { tag: order.tag })}>
+                    {order.tag}
+                  </span>
+                ) : null}
               </td>
               <td>
                 <Side side={order.side} />

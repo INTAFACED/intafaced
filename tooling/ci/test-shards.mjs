@@ -7,13 +7,14 @@
  * a new package lands in a shard without anyone editing a list. Nothing is skipped: the shards together are the
  * same set `pnpm test` runs.
  *
- *   node tooling/ci/test-shards.mjs --shard 2/4      the turbo filters for shard 2 of 4, one per line
+ *   node tooling/ci/test-shards.mjs --shard 2/8      the turbo filters for shard 2 of 8, one per line
  *   node tooling/ci/test-shards.mjs --plan 4         every shard with its weight (for reading, not for CI)
  *   node tooling/ci/test-shards.mjs --self-test
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SHARD_COUNT } from './ci-affected.mjs';
 
 const GROUPS = ['apps', 'services', 'packages', 'tooling'];
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
@@ -82,10 +83,15 @@ function selfTest() {
   // The real workspace: shards are disjoint and together equal the set `pnpm test` runs.
   const real = testPackages();
   assert(real.length > 0, 'the workspace has test packages');
-  const names = plan(real, 4).flatMap((s) => s.names);
+  const realShards = plan(real, SHARD_COUNT);
+  assert(
+    realShards.every((s) => s.names.length > 0),
+    'every shard CI runs has packages (an empty one would run everything)',
+  );
+  const names = realShards.flatMap((s) => s.names);
   assert(new Set(names).size === names.length, 'no package is in two shards');
   assert(names.length === real.length, 'the shards cover every package with a test script');
-  console.log(`✓ test-shards --self-test OK (${real.length} packages in 4 shards)`);
+  console.log(`✓ test-shards --self-test OK (${real.length} packages in ${SHARD_COUNT} shards)`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

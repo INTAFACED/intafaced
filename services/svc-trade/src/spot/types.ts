@@ -587,6 +587,10 @@ export type TradeErrorCode =
   | 'trade.sub_account_denied'
   /** Caller owns the id but it is soft-revoked */
   | 'trade.sub_account_revoked'
+  /** The user's email is not proved yet; a new custodial order waits for it (RC-identity-01) */
+  | 'trade.email_proof_required'
+  /** Identity could not answer the email-proof read in a form we trust — refuse, never guess */
+  | 'trade.identity_unavailable'
   /**
    * Two DIFFERENT matches claimed one `(market, sequence, role)`.
    *
@@ -675,9 +679,9 @@ export type TradeErrorCode =
   | 'trade.auth_attribution_missing'
   /** Operator fat-finger notional is set and this order is past it. */
   | 'trade.operator_fat_finger'
-  /** Operator collar (max price) is set and this order is past it. */
-  | 'trade.operator_collar'
-  /** Operator throttle is set and this account is already at it. */
+  /** Operator price band (collar, a fraction of the mid) is set and this order is priced outside it. */
+  | 'trade.price_band'
+  /** Operator open-order cap (throttle) is set and this account is already at it on this market. */
   | 'trade.operator_throttle'
   /** Operator circuit breaker is set and no reference mark is configured. */
   | 'trade.circuit_breaker_reference_unset'
