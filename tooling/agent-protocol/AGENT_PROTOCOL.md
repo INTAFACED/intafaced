@@ -16,14 +16,16 @@ If the task is ambiguous, ship refuse-closed: an unset price, limit, provider or
 
 ## 1 · Scope of a task
 
-**One service per task.** A PR touches one `services/*` directory plus, at most, its own tests and README.
+**One service per task.** A PR touches one `services/*` directory plus, at most, its own tests and README; a slice PR may also carry its contracts or events and that service's screen (below).
 
-Cross-service work is **two PRs, in order**:
+A slice is the one exception: its `packages/contracts` or `packages/events` change, one service and that service's screen land as one PR (owner decision 2026-10-22, AGENTS.md "Services and events" item 2).
+
+Any other cross-service work is **two PRs, in order**:
 
 1. A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own.
 2. The service PR that implements against it.
 
-Never the reverse. Never both at once. The contract is the design review.
+Never the reverse. The contract is the design review.
 
 ---
 

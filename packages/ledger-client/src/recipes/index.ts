@@ -17,6 +17,7 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
+import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
 import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
@@ -1264,6 +1265,7 @@ export * from './loans.js';
 export * from './chargeback.js';
 export * from './order-hold-amend.js';
 export * from './futures-order-margin.js';
+export * from './pay-received-hold.js';
 export * from './bank-transfer-reversal.js';
 export {
   marketPurchase,
@@ -1357,6 +1359,9 @@ export const recipes = {
   businessPayroll,
   // SPEC-SUBACCOUNTS — only legal cross-partition value path. See ./sub-accounts.ts.
   subAccountTransfer,
+  payReceivedHold,
+  payReceivedRelease,
+  payReceivedReturn,
   bankTransferReversal,
   // §8.7 market — purchase (live) + listing/premium fees (§13 unwired; D26-P1-M2).
   // Flagged shared-package. No existing recipe body was rewritten for the fee legs.

@@ -51,6 +51,7 @@ export const VERBS = [
   'disputed',
   'resolved',
   'requested',
+  'submitted',
   'confirmed',
   'reversed',
   'frozen',

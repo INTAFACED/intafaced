@@ -417,6 +417,51 @@ export class LoanService {
     return toProduct(rows[0]!);
   }
 
+  /**
+   * Operator product creation (BK-loan-02). The caller names the product id, so
+   * a retried request is the same product: a replay with the same terms returns
+   * the stored row, and the same id with any other term refuses
+   * `bank.loan_product_conflict`. Terms are checked before the insert and an
+   * incoherent set refuses `bank.loan_params_invalid`.
+   */
+  async createProductOnce(input: {
+    productId: string;
+    name: string;
+    debtAssetId: string;
+    collateralAssetId: string;
+    quoteAssetId: string;
+    aprBps: number;
+    maxLtvBps: number;
+    minPrincipal: Amount;
+    policy: LiquidationPolicy;
+  }): Promise<{ product: LoanProductRecord; replayed: boolean }> {
+    assertLoanParams(input);
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      INSERT INTO bank.loan_products (
+        id, name, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, max_ltv_bps,
+        margin_call_ltv_bps, liquidation_ltv_bps, insolvency_ltv_bps, target_ltv_bps,
+        penalty_bps, max_tranche_bps, grace_seconds, min_principal
+      ) VALUES (
+        ${input.productId}, ${input.name}, ${input.debtAssetId}, ${input.collateralAssetId}, ${input.quoteAssetId},
+        ${input.aprBps}, ${input.maxLtvBps}, ${input.policy.marginCallLtvBps}, ${input.policy.liquidationLtvBps},
+        ${input.policy.insolvencyLtvBps}, ${input.policy.targetLtvBps}, ${input.policy.penaltyBps},
+        ${input.policy.maxTrancheBps}, ${input.policy.graceSeconds},
+        ${formatAmount(input.minPrincipal)}::numeric
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *
+    `;
+    if (rows.length > 0) return { product: toProduct(rows[0]!), replayed: false };
+    const stored = await this.product(input.productId);
+    if (!sameProductTerms(stored, input)) {
+      throw new BankError(
+        `Loan product ${input.productId} already exists with different terms; use a new product id`,
+        'bank.loan_product_conflict',
+      );
+    }
+    return { product: stored, replayed: true };
+  }
+
   async listProducts(assetId?: string, limit?: number): Promise<LoanProductRecord[]> {
     const page = assertLoanProductsListLimit(limit);
     const rows = assetId
@@ -1068,6 +1113,61 @@ export class LoanService {
    * settled. Two overlapping releases cannot each pass a stale read. Curing is
    * still the next mark's job.
    */
+  /**
+   * How much collateral `releaseExcess` would let go of right now (BK-loan-05,
+   * redeem excess). The same numbers the release cap uses: collateral the ledger
+   * holds less pending releases, the full debt (principal and interest) valued
+   * up, the remaining collateral valued down, at marks that pass the marking
+   * guards; the ceiling is the product's max LTV. A missing mark refuses
+   * `bank.mark_missing`; nothing is assumed. Reads only; posts nothing.
+   */
+  async releasable(
+    loanId: string,
+    now: Date = new Date(),
+  ): Promise<{
+    held: Amount;
+    releasable: Amount;
+    maxLtvBps: number;
+    ltvBps: number;
+  }> {
+    const loan = await this.loan(loanId);
+    if (loan.status === 'repaid' || loan.status === 'liquidated') {
+      throw new BankError(`Loan ${loan.id} is ${loan.status}`, 'bank.loan_closed');
+    }
+    if (loan.status === 'pending') {
+      throw new BankError(`Loan ${loan.id} is pending; nothing is drawn, so nothing is releasable yet`, 'bank.loan_not_drawable');
+    }
+    const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+    const product = await this.product(loan.productId);
+    const pendingRows = await this.sql<Array<{ pending: string }>>`
+      SELECT COALESCE(SUM(amount), 0)::text AS pending
+        FROM bank.loan_collateral_events
+       WHERE loan_id = ${loan.id} AND direction = 'release' AND status = 'pending'
+    `;
+    const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
+    const ledgerHeld = await this.collateralOf(loan);
+    const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
+    const debt = await this.outstanding(loan.id);
+    const debtValue = quoteValue(debt.total, marks.get(loan.debtAssetId)!.price, 'ceil');
+    const collateralPrice = marks.get(loan.collateralAssetId)!.price;
+    const ltvAfter = (release: Amount) => ltvBps(debtValue, quoteValue(held - release, collateralPrice, 'floor'));
+
+    const ltvNow = ltvAfter(0n);
+    let releasable = 0n;
+    if (ltvNow <= product.maxLtvBps) {
+      // Largest release whose after-LTV is within the cap. LTV only rises as collateral leaves, so this is monotone.
+      let lo = 0n;
+      let hi = held;
+      while (lo < hi) {
+        const mid = (lo + hi + 1n) / 2n;
+        if (ltvAfter(mid) <= product.maxLtvBps) lo = mid;
+        else hi = mid - 1n;
+      }
+      releasable = lo;
+    }
+    return { held, releasable, maxLtvBps: product.maxLtvBps, ltvBps: ltvNow };
+  }
+
   async releaseExcess(input: {
     loanId: string;
     eventId: string;
@@ -3246,6 +3346,54 @@ export class LoanService {
 }
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
+
+/** Every term checked before a product row is written; the operator gets a 400, not a constraint name. */
+export function assertLoanParams(input: {
+  name: string;
+  debtAssetId: string;
+  collateralAssetId: string;
+  quoteAssetId: string;
+  aprBps: number;
+  maxLtvBps: number;
+  minPrincipal: Amount;
+  policy: LiquidationPolicy;
+}): void {
+  const refuse = (why: string): never => {
+    throw new BankError(`Loan product terms are invalid: ${why}`, 'bank.loan_params_invalid');
+  };
+  if (input.name.trim().length === 0) refuse('name is blank');
+  if (input.debtAssetId === input.collateralAssetId) refuse('debt and collateral are the same asset');
+  if (input.aprBps < 0 || input.aprBps > 10_000) refuse('aprBps must be within 0..10000');
+  if (input.maxLtvBps <= 0) refuse('maxLtvBps must be positive');
+  if (input.policy.targetLtvBps <= 0) refuse('targetLtvBps must be positive');
+  if (input.policy.penaltyBps < 0 || input.policy.penaltyBps >= 10_000) refuse('penaltyBps must be within 0..9999');
+  if (input.policy.insolvencyLtvBps > 10_000) refuse('insolvencyLtvBps cannot exceed 10000');
+  if (input.minPrincipal < 0n) refuse('minPrincipal cannot be negative');
+  try {
+    assertPolicyCoherent(input.policy, input.maxLtvBps);
+  } catch (err) {
+    refuse(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function sameProductTerms(stored: LoanProductRecord, input: Omit<LoanProductRecord, 'id' | 'status'> & { productId: string }): boolean {
+  return (
+    stored.name === input.name &&
+    stored.debtAssetId === input.debtAssetId &&
+    stored.collateralAssetId === input.collateralAssetId &&
+    stored.quoteAssetId === input.quoteAssetId &&
+    stored.aprBps === input.aprBps &&
+    stored.maxLtvBps === input.maxLtvBps &&
+    stored.minPrincipal === input.minPrincipal &&
+    stored.policy.marginCallLtvBps === input.policy.marginCallLtvBps &&
+    stored.policy.liquidationLtvBps === input.policy.liquidationLtvBps &&
+    stored.policy.insolvencyLtvBps === input.policy.insolvencyLtvBps &&
+    stored.policy.targetLtvBps === input.policy.targetLtvBps &&
+    stored.policy.penaltyBps === input.policy.penaltyBps &&
+    stored.policy.maxTrancheBps === input.policy.maxTrancheBps &&
+    stored.policy.graceSeconds === input.policy.graceSeconds
+  );
+}
 
 function toProduct(row: Record<string, unknown>): LoanProductRecord {
   return {

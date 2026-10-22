@@ -345,3 +345,75 @@ export async function readFuturesTickerFacts(sql: Sql, marketId: string, now: Da
     changeReason,
   };
 }
+
+/** One rung on a position's liquidation timeline (D-margin-06). A figure the rung did not record stays null. */
+export interface PositionLiquidationRungWire {
+  rungId: string;
+  liquidationId: string;
+  kind: string;
+  state: string;
+  time: string;
+  size: string | null;
+  mark: string | null;
+  marginTaken: string | null;
+  fromInsurance: string | null;
+  releaseShort: string | null;
+  fee: string | null;
+  feeReason: string | null;
+}
+
+export interface PositionLiquidationWire {
+  positionId: string;
+  /** A rung is planned or posted: the tick holds the position and edits refuse `trade.liquidation_in_progress`. */
+  live: boolean;
+  /** The latest rung was abandoned: the position is held for an operator and no new rung is planned. */
+  parked: boolean;
+  editsRefusedCode: 'trade.liquidation_in_progress' | null;
+  rungs: PositionLiquidationRungWire[];
+}
+
+interface PositionRungRow extends RungRow {
+  state: string;
+}
+
+export function presentPositionLiquidation(positionId: string, rows: readonly PositionRungRow[]): PositionLiquidationWire {
+  const rungs = rows.map((row) => {
+    const fee = recorded(row.plan, 'fee', LIQUIDATION_FEE_NOT_RECORDED);
+    return {
+      rungId: row.rung_id,
+      liquidationId: row.liquidation_id,
+      kind: row.kind,
+      state: row.state,
+      time: row.created_at.toISOString(),
+      size: recorded(row.plan, 'sizeClosed', LIQUIDATION_SIZE_NOT_RECORDED).value,
+      mark: recorded(row.plan, 'markPrice', LIQUIDATION_PRICE_NOT_RECORDED).value,
+      marginTaken: recorded(row.plan, 'marginTaken', 'not_recorded').value,
+      fromInsurance: recorded(row.plan, 'fromInsurance', 'not_recorded').value,
+      releaseShort: recorded(row.plan, 'releaseShort', 'not_recorded').value,
+      fee: fee.value,
+      feeReason: fee.reason,
+    };
+  });
+  const live = rows.some((row) => row.state === 'planned' || row.state === 'posted');
+  const last = rows[rows.length - 1];
+  const parked = !live && last !== undefined && last.state === 'abandoned';
+  return { positionId, live, parked, editsRefusedCode: live ? 'trade.liquidation_in_progress' : null, rungs };
+}
+
+/**
+ * The caller's own position liquidation timeline, every rung state included. A read: it never posts.
+ * Another account's position answers `trade.position_not_found` exactly like a missing one.
+ */
+export async function loadPositionLiquidation(sql: Sql, userId: string, positionId: string): Promise<PositionLiquidationWire> {
+  const owned = await sql<Array<{ id: string }>>`
+    SELECT id::text AS id FROM trade.positions WHERE id::text = ${positionId} AND user_id = ${userId}
+  `;
+  if (owned.length === 0) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+  const rows = await sql<PositionRungRow[]>`
+    SELECT rung_id::text AS rung_id, position_id, liquidation_id, kind, state, plan, created_at
+      FROM trade.liquidation_rungs
+     WHERE position_id = ${positionId}
+     ORDER BY created_at ASC, rung_id ASC
+  `;
+  return presentPositionLiquidation(positionId, rows);
+}

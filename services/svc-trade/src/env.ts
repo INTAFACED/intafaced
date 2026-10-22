@@ -642,6 +642,8 @@ const schema = serviceEnvSchema
        * Keys are OTC pair keys, not trade.markets UUIDs (those stay on TRADE_VENUE_MARK_SYMBOLS).
        */
       TRADE_OTC_VENUE_SYMBOLS: z.string().default(''),
+      /** CB-otc-12 owner amount bounds for one-click buy / convert at OTC pricing. Blank → both refuse. */
+      TRADE_OTC_CONVERT_BOUNDS: z.string().default(''),
 
       /**
        * Copy fee-share law (trade.copy / D-S-03 / D26-P0-02). JSON or empty.
