@@ -611,6 +611,8 @@ const schema = serviceEnvSchema
        * maxMidAgeSeconds is required when published — never invent mid freshness.
        */
       TRADE_OTC_DESK_LAW: z.string().default(''),
+      /** CB-otc-01 owner provider directory + selection cap. Blank → "No providers set". */
+      TRADE_OTC_MAKER_DIRECTORY: z.string().default(''),
 
       /**
        * OTC reference mids, ops-published: `BASE/QUOTE:mid,BASE/QUOTE:mid`.
@@ -642,6 +644,8 @@ const schema = serviceEnvSchema
        * Keys are OTC pair keys, not trade.markets UUIDs (those stay on TRADE_VENUE_MARK_SYMBOLS).
        */
       TRADE_OTC_VENUE_SYMBOLS: z.string().default(''),
+      /** CB-otc-12 owner amount bounds for one-click buy / convert at OTC pricing. Blank → both refuse. */
+      TRADE_OTC_CONVERT_BOUNDS: z.string().default(''),
 
       /**
        * Copy fee-share law (trade.copy / D-S-03 / D26-P0-02). JSON or empty.
