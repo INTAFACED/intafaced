@@ -95,9 +95,14 @@ async function gh(method, path, body, accept = 'application/vnd.github+json') {
       'content-type': 'application/json',
     },
     body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
   });
-  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   const text = await res.text();
+  // A re-run refused because the run is already running means someone re-ran it first: the caller handles that one.
+  const alreadyRunning = res.status === 403 && /already running/i.test(text);
+  if ((res.status === 403 && !alreadyRunning) || res.status === 429) {
+    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
+  }
   const json = accept.includes('json') && text ? JSON.parse(text) : null;
   return { status: res.status, json, text };
 }
@@ -135,6 +140,7 @@ async function postStatus(repo, sha, description) {
 const SEAL = 'CI merge seal';
 const SEAL_POLL_MS = 20_000;
 const SEAL_POLLS = 12; // 4 minutes, inside the job's timeout
+const RERUN_CONTEXT = 'Seal re-run';
 
 /**
  * What to do about the seal after a sign-off, from the seal's check runs on the head and the state of the CI run that
@@ -148,41 +154,55 @@ export function sealStep(checkRuns, runStatus) {
   if (seal.conclusion === 'success') return { act: 'done', msg: 'the seal is already green' };
   const runId = /\/actions\/runs\/(\d+)/.exec(seal.details_url ?? '')?.[1];
   if (!runId) return { act: 'fail', msg: `the red seal check run ${seal.id} names no workflow run` };
-  if (runStatus === undefined) return { act: 'run', runId };
+  if (runStatus === undefined) return { act: 'run', msg: `reading run ${runId}`, runId };
   if (runStatus !== 'completed') return { act: 'wait', msg: `run ${runId} is still finishing`, runId };
   return { act: 'rerun', runId };
 }
 
 /**
- * Re-run the CI merge seal if it already finished red on this head, so nobody re-runs it by hand. Anything that
- * stops it from finding or re-running a red seal fails this job, so the PR shows a red sign-off instead of staying
- * stuck in silence.
+ * Re-run the CI merge seal if it already finished red on this head, so nobody re-runs it by hand. Throws when it
+ * cannot find or re-run a red seal; `rerunSealOrFlag` turns that into a status on the PR.
  */
-async function rerunSeal(repo, sha, sleep = (ms) => new Promise((r) => setTimeout(r, ms))) {
+export async function rerunSeal(repo, sha, { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log } = {}) {
   for (let poll = 1; ; poll++) {
-    const c = await gh('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
+    const c = await api('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
     if (c.status !== 200) throw new Error(`could not read the seal's check runs: HTTP ${c.status}`);
     let step = sealStep(c.json?.check_runs, undefined);
     if (step.act === 'run') {
-      const r = await gh('GET', `/repos/${repo}/actions/runs/${step.runId}`);
+      const r = await api('GET', `/repos/${repo}/actions/runs/${step.runId}`);
       if (r.status !== 200) throw new Error(`could not read CI run ${step.runId}: HTTP ${r.status}`);
       step = sealStep(c.json.check_runs, r.json?.status);
     }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
-      const r = await gh('POST', `/repos/${repo}/actions/runs/${step.runId}/rerun-failed-jobs`);
+      const r = await api('POST', `/repos/${repo}/actions/runs/${step.runId}/rerun-failed-jobs`);
+      if (r.status === 403) return `run ${step.runId} is already re-running`;
       if (r.status !== 201) throw new Error(`could not re-run the failed jobs of run ${step.runId}: HTTP ${r.status}`);
       return `re-ran the failed jobs of run ${step.runId}`;
     }
     if (poll >= SEAL_POLLS)
       throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
-    console.log(`${step.msg}; checking again in ${SEAL_POLL_MS / 1000}s`);
+    log(`${step.msg}; checking again in ${SEAL_POLL_MS / 1000}s`);
     await sleep(SEAL_POLL_MS);
   }
 }
 
-function selfTest() {
+/** The sign-off status is already green when this runs, so a seal it could not re-run gets its own red status on the PR. */
+async function rerunSealOrFlag(repo, sha) {
+  try {
+    console.log(await rerunSeal(repo, sha));
+  } catch (e) {
+    await gh('POST', `/repos/${repo}/statuses/${sha}`, {
+      state: 'failure',
+      context: RERUN_CONTEXT,
+      description: `Review signed off, seal not re-run: ${e.message}. Re-run the seal's failed jobs.`.slice(0, 140),
+    }).catch(() => {});
+    throw e;
+  }
+}
+
+async function selfTest() {
   const assert = (cond, msg) => {
     if (!cond) throw new Error(msg);
   };
@@ -261,6 +281,57 @@ function selfTest() {
   );
   assert(sealStep([run({ name: 'Format' })], undefined).act === 'done', 'other checks are ignored');
 
+  // The loop, against a scripted API: each call takes the next answer for its path.
+  const fake = (answers) => {
+    const calls = [];
+    const api = async (method, path) => {
+      calls.push(`${method} ${path.replace(/\?.*/, '')}`);
+      const key = Object.keys(answers).find((k) => `${method} ${path}`.includes(k));
+      const a = answers[key];
+      return Array.isArray(a) ? a.shift() : a;
+    };
+    return { api, calls, opts: { api, sleep: async () => {}, log: () => {} } };
+  };
+  const cr = (...runs) => ({ status: 200, json: { check_runs: runs } });
+  const running = run({ status: 'in_progress', conclusion: null });
+  let f = fake({
+    'check-runs': [cr(running), cr(running), cr(run())],
+    'GET /repos/o/r/actions/runs/77': { status: 200, json: { status: 'completed' } },
+    'rerun-failed-jobs': { status: 201 },
+  });
+  assert((await rerunSeal('o/r', head, f.opts)) === 're-ran the failed jobs of run 77', 'waits out a running seal, then re-runs it red');
+  assert(f.calls.filter((c) => c.includes('rerun')).length === 1, 'one re-run');
+  f = fake({
+    'check-runs': cr(run()),
+    'GET /repos/o/r/actions/runs/77': { status: 200, json: { status: 'completed' } },
+    'rerun-failed-jobs': { status: 403 },
+  });
+  assert((await rerunSeal('o/r', head, f.opts)) === 'run 77 is already re-running', 'someone else re-ran it first');
+  const rejects = async (p, msg) => {
+    let threw = false;
+    await p.catch(() => (threw = true));
+    assert(threw, msg);
+  };
+  await rejects(rerunSeal('o/r', head, fake({ 'check-runs': cr(running) }).opts), 'a seal that never finishes fails the job');
+  await rejects(rerunSeal('o/r', head, fake({ 'check-runs': { status: 404, json: {} } }).opts), 'an unreadable check list fails the job');
+  await rejects(
+    rerunSeal(
+      'o/r',
+      head,
+      fake({
+        'check-runs': cr(run()),
+        'GET /repos/o/r/actions/runs/77': { status: 200, json: { status: 'completed' } },
+        'rerun-failed-jobs': { status: 500 },
+      }).opts,
+    ),
+    'a refused re-run fails the job',
+  );
+  f = fake({ 'check-runs': cr(run({ conclusion: 'success' })) });
+  assert(
+    (await rerunSeal('o/r', head, f.opts)) === 'the seal is already green' && f.calls.length === 1,
+    'a green seal: one read, nothing else',
+  );
+
   assert(readConfig().reviewers.length > 0, 'reviewers.json lists at least one reviewer');
   console.log('✓ review-signoff --self-test OK');
 }
@@ -279,7 +350,7 @@ async function main() {
     const pid = await currentPatchId(repo, n, verdict.sha);
     await postStatus(repo, verdict.sha, `PASS by ${verdict.reviewer}${pid ? `; patch ${pid.slice(0, 12)}` : ''}`);
     console.log(`signed off ${verdict.sha} for #${n} (${verdict.reviewer})`);
-    console.log(await rerunSeal(repo, verdict.sha));
+    await rerunSealOrFlag(repo, verdict.sha);
     return;
   }
 
@@ -297,14 +368,17 @@ async function main() {
           `${prev.description.split(';')[0]}; carried from ${payload.before.slice(0, 7)}; patch ${pid.slice(0, 12)}`,
         );
         console.log(`carried the sign-off from ${payload.before.slice(0, 7)} to ${pr.head.sha.slice(0, 7)} (same patch)`);
-        console.log(await rerunSeal(repo, pr.head.sha));
+        await rerunSealOrFlag(repo, pr.head.sha);
       } else console.log('no sign-off to carry (none, or the patch changed)');
     }
   }
 }
 
 if (process.argv.includes('--self-test')) {
-  selfTest();
+  selfTest().catch((e) => {
+    console.error(`✖ review-signoff --self-test: ${e.message}`);
+    process.exit(1);
+  });
 } else if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {
     console.error(`✖ review-signoff: ${e.message}`);
