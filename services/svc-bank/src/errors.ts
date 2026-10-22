@@ -552,6 +552,8 @@ export type BankErrorCode =
   | 'bank.step_up_unavailable'
   /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
   | 'bank.personal_transfer_terms_unset'
+  /** Published limits must be above zero, and the daily limit at least the per-transfer limit. Nothing is written. */
+  | 'bank.personal_transfer_terms_invalid'
   /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
   | 'bank.personal_transfer_fee_unwired'
   | 'bank.personal_transfer_limit_exceeded'

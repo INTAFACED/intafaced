@@ -18,6 +18,9 @@ import {
   lifecycleIsFresh,
   makeContext,
   matchingPayloadHash,
+  bankPayloadHash,
+  termsProposal,
+  TEST_TRANSFER_TERMS,
   needsFullTier,
   openProposal,
   openableMarkets,
@@ -34,6 +37,10 @@ const state = join(home, '.intafaced', 'local-test-stack');
 const ports = { edge: 14500, ledger: 14501, identity: 14502, trade: 14504, matching: 14505, customer: 3210 };
 const marker = (extra = {}) => JSON.stringify({ kind: 'intafaced-local-test-stack', ports, ...extra });
 const refuses = (fn, re) => assert.throws(fn, (e) => e instanceof GuardError && re.test(e.message));
+// The guards read the stack's folder from LOCAL_STACK_STATE when it is set (a cloud container sets it), which would
+// point them at the real stack instead of this test's empty home. These checks are about that home only.
+const shellState = process.env.LOCAL_STACK_STATE;
+delete process.env.LOCAL_STACK_STATE;
 try {
   // Guard 1: no state directory, no marker, wrong marker, unreadable marker.
   refuses(() => assertLocalTarget({ home }), /state directory .* not found/);
@@ -74,6 +81,7 @@ try {
   rmSync(nothing, { recursive: true, force: true });
 } finally {
   rmSync(home, { recursive: true, force: true });
+  if (shellState !== undefined) process.env.LOCAL_STACK_STATE = shellState;
 }
 console.log('local-test-gates: guard checks passed');
 
@@ -173,6 +181,27 @@ for (const action of ['halt', 'resume']) {
 assert.throws(() => bookProposal('delete', 'm-1'));
 const identityRouter = readFileSync(resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'router.ts'), 'utf8');
 assert.ok(identityRouter.includes("'kyc.approve', { recordId: input.recordId }"), 'kyc.approve recipe changed; update kycApproveProposal');
+
+// Bank ops: fields sorted by key, the same recipe as services/svc-bank/src/action-approval-consume.ts.
+assert.equal(
+  bankPayloadHash('bank.ops.publishTransferTerms', { fee: '0', assetId: 'USDT' }),
+  sha({ actionType: 'bank.ops.publishTransferTerms', fields: { assetId: 'USDT', fee: '0' } }),
+);
+const bankSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'action-approval-consume.ts'), 'utf8');
+assert.ok(bankSrc.includes('JSON.stringify({ actionType, fields: sortedCopy })'), 'bank hash recipe changed; update bankPayloadHash');
+const terms = termsProposal(TEST_TRANSFER_TERMS[0]);
+assert.deepEqual(
+  [terms.actionType, terms.targetService, terms.targetId, terms.expectedVersion, terms.policyVersion],
+  ['bank.ops.publishTransferTerms', 'svc-bank', 'bank.ops.publishTransferTerms', '1', 'local-test:v1'],
+);
+const termsSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'transfers', 'transfer-terms.ts'), 'utf8');
+assert.ok(
+  termsSrc.includes("PUBLISH_TRANSFER_TERMS_ACTION = 'bank.ops.publishTransferTerms'"),
+  'terms action renamed; update termsProposal',
+);
+// The TEST figures are canonical decimals, so the hash the stack signs is the one svc-bank recomputes.
+for (const t of TEST_TRANSFER_TERMS)
+  for (const v of [t.perTransferLimit, t.dailyLimit, t.fee]) assert.match(v, /^(0|[1-9]\d*)(\.\d*[1-9])?$/, `${t.assetId} ${v}`);
 
 // Operators are labelled and distinct.
 const a = operatorIdentity('a');
