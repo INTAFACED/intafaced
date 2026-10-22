@@ -11,6 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -831,6 +832,7 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  settings: SettingsEnv = {},
 ) {
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
@@ -1845,6 +1847,27 @@ export function createAcademyRouter(
      * success path that invents pool amounts. No amount fields on the output.
      * D26-P1-C3: unset start refuse is greppable on statusLine / blankStart.
      */
+    /**
+     * AC-order-02 — owner settings register: every class-a owner value with
+     * its state (set / not set) and the refusal shown while blank. State only:
+     * no value and no default ever leaves this read.
+     */
+    settingsStatus: scopedProcedure('admin:read', { module: 'academy' })
+      .output(
+        z.object({
+          rows: z.array(
+            z.object({
+              key: z.string(),
+              state: z.enum(['set', 'not_set']),
+              store: z.enum(['env', 'pending', 'refuse_closed']),
+              readOnly: z.boolean(),
+              refusalCode: z.string().nullable(),
+            }),
+          ),
+        }),
+      )
+      .query(() => ({ rows: [...settingsRegister(settings)] })),
+
     tournamentPrizePlane: scopedProcedure('admin:read', { module: 'academy' })
       .output(
         z.object({
