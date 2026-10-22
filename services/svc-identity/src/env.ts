@@ -254,11 +254,6 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(3600).optional()),
       /**
-       * Owner-published display currencies, comma-separated codes. Blank / unset →
-       * nothing is listed: an account can only keep "no choice" (USD is shown) and the
-       * display page says the list is not set. Malformed → fail boot.
-       */
-      /**
        * W-security-accounts-03. Owner-set wait, in seconds, from a self-freeze to when the owner may lift it.
        * Blank / unset → the lift refuses (`identity.self_freeze_lift_wait_unset`). Zero is a published "no wait".
        */
@@ -273,6 +268,11 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+      /**
+       * Owner-published display currencies, comma-separated codes. Blank / unset →
+       * nothing is listed: an account can only keep "no choice" (USD is shown) and the
+       * display page says the list is not set. Malformed → fail boot.
+       */
       IDENTITY_DISPLAY_CURRENCIES: z
         .string()
         .optional()
