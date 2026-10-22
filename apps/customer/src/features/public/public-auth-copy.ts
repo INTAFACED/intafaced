@@ -38,6 +38,9 @@ export const publicAuthCopy = defineCopy(
     retained: 'The response was received, but its browser reference could not be updated safely. Earlier attempts remain separate.',
     locked: 'Too many tries. You can try again in {minutes} min.',
     lockedPlain: 'Too many tries. Wait a few minutes, then try again.',
+    frozen: 'This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze, so contact them to ask why.',
+    closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
+    stateHelp: 'Contact support',
   } as const,
   {
     es: {
@@ -78,6 +81,10 @@ export const publicAuthCopy = defineCopy(
         'Se recibió la respuesta, pero no se pudo actualizar su referencia con seguridad. Los intentos anteriores siguen separados.',
       locked: 'Demasiados intentos. Puedes volver a intentarlo en {minutes} min.',
       lockedPlain: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
+      frozen:
+        'Esta cuenta está congelada. El acceso y las operaciones con dinero están en pausa. Solo el soporte puede levantar un congelamiento: contáctalo para saber el motivo.',
+      closed: 'Esta cuenta está cerrada. Una cuenta cerrada no se puede reabrir. Contacta con el soporte si tienes alguna pregunta.',
+      stateHelp: 'Contactar con el soporte',
     },
     fr: {
       after: 'Après la connexion',
@@ -119,6 +126,10 @@ export const publicAuthCopy = defineCopy(
         'La réponse a été reçue, mais sa référence n’a pas pu être mise à jour en sécurité. Les essais antérieurs restent distincts.',
       locked: 'Trop d’essais. Vous pourrez réessayer dans {minutes} min.',
       lockedPlain: 'Trop d’essais. Attendez quelques minutes, puis réessayez.',
+      frozen:
+        'Ce compte est gelé. La connexion et les opérations d’argent sont suspendues. Seul le support peut lever un gel : contactez-le pour en connaître la raison.',
+      closed: 'Ce compte est fermé. Un compte fermé ne peut pas être rouvert. Contactez le support si vous avez une question.',
+      stateHelp: 'Contacter le support',
     },
   },
 );

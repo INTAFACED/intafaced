@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -137,6 +138,36 @@ export async function api(who) {
       return body.balances;
     },
   };
+}
+
+/**
+ * A staff freeze of `who`'s account through identity's own compliance control, made by the stack's TEST founder (the
+ * only principal that control accepts), as an operator would. Returns the account's user id.
+ */
+export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: who.email, password: who.password }),
+  }).then(json);
+  const userId = login.body?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const freeze = (expectedVersion) =>
+    ctx.edge.mutate(
+      'identity',
+      'compliance.freezeIdentity',
+      { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restrict', reason, expectedVersion },
+      founders.a.token,
+    );
+  // A new account starts at version 0; one an earlier control changed answers `conflict` with its current version.
+  let res = await freeze('0');
+  const current = res.json?.result?.data?.outcome === 'conflict' ? res.json.result.data.current?.version : undefined;
+  if (current) res = await freeze(current);
+  if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff freeze refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return userId;
 }
 
 /** The other TEST trader of the journey: the stack's taker account, through the same front door. */

@@ -8,6 +8,7 @@ import {
   withdrawalAllowanceOf,
   publicProcedure,
   retryAfterSecondsOf,
+  accountStateOf,
   conflictProfile,
   router,
   type Context,
@@ -17,7 +18,7 @@ import {
 class FakeAuthError extends Error {
   constructor(
     readonly code: string,
-    readonly details?: { retryAfterSeconds?: number },
+    readonly details?: { retryAfterSeconds?: number; accountState?: unknown },
   ) {
     super('refused');
   }
@@ -37,6 +38,12 @@ const app = router({
       message: 'x',
       cause: new FakeAuthError('auth.invalid_credentials', { retryAfterSeconds: 5 }),
     });
+  }),
+  closedAccount: publicProcedure.query(() => {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: new FakeAuthError('auth.account_frozen', { accountState: 'closed' }) });
+  }),
+  frozenNoState: publicProcedure.query(() => {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: new FakeAuthError('auth.account_frozen') });
   }),
 });
 
@@ -106,6 +113,28 @@ describe('errorFormatter retryAfterSeconds', () => {
     const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
     expect(data.profile).toEqual({ displayName: 'Ada', locale: 'en', region: 'DE', version: 2 });
     expect(conflictProfile(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter accountState', () => {
+  it('reaches the client on auth.account_frozen, alongside the code', async () => {
+    const data = await wireData('closedAccount');
+    expect(data.accountState).toBe('closed');
+    expect(data.cause).toEqual({ code: 'auth.account_frozen' });
+    expect(data.httpStatus).toBe(403);
+  });
+
+  it('is absent when the refusal carries none, and on every other error', async () => {
+    expect(await wireData('frozenNoState')).not.toHaveProperty('accountState');
+    expect(await wireData('lockedOut')).not.toHaveProperty('accountState');
+  });
+
+  it('keeps only the two known states on the one code', () => {
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: 'frozen' }))).toBe('frozen');
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: 'active' }))).toBeUndefined();
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: { x: 1 } }))).toBeUndefined();
+    expect(accountStateOf(new FakeAuthError('auth.invalid_credentials', { accountState: 'closed' }))).toBeUndefined();
+    expect(accountStateOf(undefined)).toBeUndefined();
   });
 });
 

@@ -113,6 +113,18 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
+/**
+ * `accountState` of an `auth.account_frozen` refusal: `frozen` (staff can lift it) or `closed` (final). svc-identity
+ * sets it on sign-in only after the password verified. Any other value, or any other code, is dropped.
+ */
+export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.account_frozen') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('accountState' in details)) return undefined;
+  const state = details.accountState;
+  return state === 'frozen' || state === 'closed' ? state : undefined;
+}
+
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
 
 const ALGO_MONEY_CODES = new Set(['trade.algo_insufficient_balance', 'trade.algo_balance_unreadable']);
@@ -237,6 +249,7 @@ const t = initTRPC.context<Context>().create({
     const allowance = withdrawalAllowanceOf(cause);
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
+    const accountState = accountStateOf(cause);
     return {
       ...shape,
       data: {
@@ -257,6 +270,8 @@ const t = initTRPC.context<Context>().create({
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
         // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
+        ...(accountState ? { accountState } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.

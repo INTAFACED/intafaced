@@ -169,6 +169,54 @@ describe('passkey identifier at the rendered form', () => {
   });
 });
 
+describe('password sign-in refusals the service names (J-identity-02 #2, #7)', () => {
+  async function signInAnswered(status: number, data: Record<string, unknown>) {
+    const answer = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((url: string, init: RequestInit) =>
+      String(url).includes('auth.login')
+        ? Promise.resolve(new Response(JSON.stringify({ error: { message: 'You do not have access to this.', data } }), { status }))
+        : answer(url, init),
+    );
+    const set = (name: string, value: string) => {
+      const input = host.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    await act(async () => {
+      set('identifier', 'someone@example.invalid');
+      set('password', 'a long enough password');
+    });
+    const submit = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Sign in')!;
+    await act(async () => submit.click());
+    await act(async () => {
+      await vi.waitFor(() => expect(host.querySelector('.failure')).not.toBeNull());
+    });
+    return host.querySelector('.failure')!;
+  }
+
+  it('rounds the lockout up to whole minutes from the service’s own wait', async () => {
+    const alert = await signInAnswered(429, { intafacedCode: 'auth.too_many_attempts', retryAfterSeconds: 842 });
+    expect(alert.textContent).toBe('Too many tries. You can try again in 15 min.');
+  });
+
+  it('names a frozen account and points to support', async () => {
+    const alert = await signInAnswered(403, { intafacedCode: 'auth.account_frozen', accountState: 'frozen' });
+    expect(alert.textContent).toContain('This account is frozen.');
+    expect(alert.querySelector('a')!.getAttribute('href')).toBe('/help');
+  });
+
+  it('names a closed account as final', async () => {
+    const alert = await signInAnswered(403, { intafacedCode: 'auth.account_frozen', accountState: 'closed' });
+    expect(alert.textContent).toContain('A closed account cannot be reopened.');
+  });
+
+  it('falls back to the plain refusal when the service names no state', async () => {
+    const alert = await signInAnswered(403, { intafacedCode: 'auth.account_frozen' });
+    expect(alert.textContent).not.toContain('This account is');
+    expect(alert.textContent).toContain('You do not have access to this.');
+  });
+});
+
 describe('language switcher on the sign-in page (RC-home-ia-05)', () => {
   it('chooses Spanish before sign-in: kept in this browser, shown at once, and nothing is sent', async () => {
     const before = fetcher.mock.calls.length;
