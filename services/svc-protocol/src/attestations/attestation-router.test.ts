@@ -33,16 +33,18 @@ const input = { schemaId: SCHEMA, rank: '12', expiresAt: '4102444800', salt: SAL
 
 describe('attestation procedures (RC-identity-16)', () => {
   it('buildAttest returns an unsigned call and the four-field payload on the testnet', async () => {
-    const out = await caller(deps(84532, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false })).attestationBuildAttest(
-      input,
-    );
+    const out = await caller(
+      deps(84532, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false }),
+    ).attestationBuildAttest(input);
     expect(Object.keys(out.payload).sort()).toEqual(['commitment', 'expiresAt', 'rank', 'schemaId']);
     expect(out.call.to).toBe(REGISTRY);
   });
 
   it('refuses an extra (PII) field as BAD_REQUEST protocol.attestation_pii_field', async () => {
     await expect(
-      caller(deps(84532, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false })).attestationBuildAttest({
+      caller(
+        deps(84532, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false }),
+      ).attestationBuildAttest({
         ...input,
         email: 'a@b.c',
       }),
@@ -58,7 +60,9 @@ describe('attestation procedures (RC-identity-16)', () => {
       message: expect.stringContaining('protocol.attestation_registry_unset'),
     });
     await expect(
-      caller(deps(8453, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false })).attestationBuildRevoke({
+      caller(
+        deps(8453, { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => false }),
+      ).attestationBuildRevoke({
         commitment: keccak256(SALT),
       }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('audit.external') });
@@ -78,7 +82,11 @@ describe('attestation procedures (RC-identity-16)', () => {
   });
 
   it('verify returns live for an issued record', async () => {
-    const d = deps(84532, { registry: () => REGISTRY, read: async () => [12n, 1000n, 4102444800n, SCHEMA], readRevoked: async () => false });
+    const d = deps(84532, {
+      registry: () => REGISTRY,
+      read: async () => [12n, 1000n, 4102444800n, SCHEMA],
+      readRevoked: async () => false,
+    });
     await expect(caller(d).attestationVerify({ commitment: keccak256(SALT), issuer: ISSUER })).resolves.toMatchObject({
       status: 'live',
       rank: '12',
@@ -86,8 +94,14 @@ describe('attestation procedures (RC-identity-16)', () => {
   });
 
   it('verify returns revoked when the record is gone and a Revoked log exists; a log-read failure is an error', async () => {
-    const zero: ProtocolRouterDeps['rankAttestation'] = { registry: () => REGISTRY, read: async () => [0n, 0n, 0n, SCHEMA], readRevoked: async () => true };
-    await expect(caller(deps(84532, zero)).attestationVerify({ commitment: keccak256(SALT), issuer: ISSUER })).resolves.toEqual({ status: 'revoked' });
+    const zero: ProtocolRouterDeps['rankAttestation'] = {
+      registry: () => REGISTRY,
+      read: async () => [0n, 0n, 0n, SCHEMA],
+      readRevoked: async () => true,
+    };
+    await expect(caller(deps(84532, zero)).attestationVerify({ commitment: keccak256(SALT), issuer: ISSUER })).resolves.toEqual({
+      status: 'revoked',
+    });
     const broken: ProtocolRouterDeps['rankAttestation'] = {
       registry: () => REGISTRY,
       read: async () => [0n, 0n, 0n, SCHEMA],

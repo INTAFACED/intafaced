@@ -129,7 +129,9 @@ describe('buildRevoke and verify', () => {
 
   it('verify reports an attestation past its expiry as expired', async () => {
     const read: AttestationReader = async () => [12n, 1000n, 1500n, SCHEMA];
-    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, noRevoke, 2000n)).status).toBe('expired');
+    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, noRevoke, 2000n)).status).toBe(
+      'expired',
+    );
   });
 
   it('verify fails closed: a failed chain read propagates and is never reported as none', async () => {
@@ -146,13 +148,15 @@ describe('buildRevoke and verify', () => {
       return [0n, 0n, 0n, SCHEMA];
     };
     const c = keccak256(SALT);
-    expect(await refusalAsync(verifyAttestation({ registry: undefined, chainId: 84532 }, { commitment: c, issuer: ISSUER }, read, noRevoke))).toBe(
-      'protocol.attestation_registry_unset',
+    expect(
+      await refusalAsync(verifyAttestation({ registry: undefined, chainId: 84532 }, { commitment: c, issuer: ISSUER }, read, noRevoke)),
+    ).toBe('protocol.attestation_registry_unset');
+    expect(
+      await refusalAsync(verifyAttestation({ registry: REGISTRY, chainId: 1 }, { commitment: c, issuer: ISSUER }, read, noRevoke)),
+    ).toBe('audit.external');
+    expect(await refusalAsync(verifyAttestation(config, { commitment: c, issuer: 'nope' }, read, noRevoke))).toBe(
+      'protocol.attestation_input',
     );
-    expect(await refusalAsync(verifyAttestation({ registry: REGISTRY, chainId: 1 }, { commitment: c, issuer: ISSUER }, read, noRevoke))).toBe(
-      'audit.external',
-    );
-    expect(await refusalAsync(verifyAttestation(config, { commitment: c, issuer: 'nope' }, read, noRevoke))).toBe('protocol.attestation_input');
     expect(reads).toBe(0);
   });
 
@@ -161,7 +165,9 @@ describe('buildRevoke and verify', () => {
     const readRevoked: RevocationReader = async () => {
       throw new Error('log read failed');
     };
-    await expect(verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked)).rejects.toThrow('log read failed');
+    await expect(verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked)).rejects.toThrow(
+      'log read failed',
+    );
   });
 
   it('verify does not read logs for a live record', async () => {
@@ -171,7 +177,9 @@ describe('buildRevoke and verify', () => {
       logReads += 1;
       return true;
     };
-    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked, 2000n)).status).toBe('live');
+    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked, 2000n)).status).toBe(
+      'live',
+    );
     expect(logReads).toBe(0);
   });
 });

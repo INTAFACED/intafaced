@@ -154,8 +154,10 @@ export function buildRevoke(config: AttestationConfig, input: { commitment: unkn
 
 export type AttestationRecord = readonly [rank: bigint, issuedAt: bigint, expiresAt: bigint, schemaId: Hex];
 export type AttestationReader = (args: { address: Address; commitment: Hex; issuer: Address }) => Promise<AttestationRecord>;
+/** True when a `Revoked(commitment, issuer)` log exists on the registry. A failed log read throws. */
+export type RevocationReader = (args: { address: Address; commitment: Hex; issuer: Address }) => Promise<boolean>;
 export type AttestationStatus =
-  { status: 'none' } | { status: 'live' | 'expired'; rank: string; issuedAt: string; expiresAt: string; schemaId: Hex };
+  { status: 'none' | 'revoked' } | { status: 'live' | 'expired'; rank: string; issuedAt: string; expiresAt: string; schemaId: Hex };
 
 /**
  * Reads `attestations(commitment, issuer)`. Zero `issuedAt` means no live record: the contract deletes a

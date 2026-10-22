@@ -1,4 +1,4 @@
-import { rankAttestationAbi } from './attestations/attestation-build.js';
+import { rankAttestationAbi, type RevocationReader } from './attestations/attestation-build.js';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createDb } from '@intafaced/db';
@@ -106,7 +106,7 @@ export const appRouter = createProtocolRouter({
     registry: () => env.PROTOCOL_RANK_ATTESTATION_ADDRESS,
     read: ({ address, commitment, issuer }) =>
       chain.client.readContract({ address, abi: rankAttestationAbi, functionName: 'attestations', args: [commitment, issuer] }),
-    readRevoked: async ({ address, commitment, issuer }) => {
+    readRevoked: (async ({ address, commitment, issuer }) => {
       const logs = await chain.client.getContractEvents({
         address,
         abi: rankAttestationAbi,
@@ -116,7 +116,7 @@ export const appRouter = createProtocolRouter({
         strict: true,
       });
       return logs.length > 0;
-    },
+    }) satisfies RevocationReader,
   },
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
   peers: createPeers({
