@@ -200,6 +200,9 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
           AND NOT EXISTS (
             SELECT 1 FROM trade.futures_adl_pairs q
              WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
+          -- no matched fill still being recorded: it has posted into the pot ahead of the row (matched-orders.ts)
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

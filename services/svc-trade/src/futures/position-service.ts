@@ -76,6 +76,9 @@ import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
+import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { MatchingClient } from '../spot/matching-client.js';
+import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
 /**
  * How long one close waits for another close of the SAME position.
@@ -308,6 +311,17 @@ export interface PositionServiceDeps {
    * the equity-only gate (`planLiquidation`, equity <= 0) applies, as before.
    */
   ladder?: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
+  /**
+   * Futures orders through svc-matching (futures ADR slice 6). Absent or `enabled: false` refuses NEW matched
+   * orders; settling a fill already matched, and releasing a hold, run regardless. The band is the owner's
+   * number and stays null until it is named.
+   */
+  matchedOrders?: {
+    matching: MatchingClient | null;
+    enabled: boolean;
+    priceBand: Amount | null;
+    lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
+  };
 }
 
 /** Why a position is frozen waiting for a mark — futures-namespaced refuse codes. */
@@ -389,6 +403,7 @@ export class PositionService {
   private readonly maxLeverage: Amount | null;
   private readonly afterMarginLedgerPost: ((request: string) => Promise<void>) | null;
   private readonly now: () => Date;
+  private readonly matched: MatchedFuturesOrders;
 
   constructor(
     private readonly sql: Sql,
@@ -400,6 +415,22 @@ export class PositionService {
     this.maxLeverage = deps.maxLeverage ?? null;
     this.afterMarginLedgerPost = deps.afterMarginLedgerPost ?? null;
     this.now = deps.now ?? (() => new Date());
+    const matchedOrders = deps.matchedOrders;
+    this.matched = new MatchedFuturesOrders({
+      sql,
+      ledger,
+      matching: matchedOrders?.matching ?? null,
+      enabled: matchedOrders?.enabled ?? false,
+      priceBand: matchedOrders?.priceBand ?? null,
+      maxLeverage: this.maxLeverage,
+      now: this.now,
+      markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,
+      assertPositionIdle: (positionId) => this.sql.begin((tx) => this.assertLiquidationHold(tx, positionId, 'close')),
+      lifecycleProof: matchedOrders?.lifecycleProof ?? null,
+      assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
+      admission: deps.accountAdmission,
+      publishPosition: (positionId) => this.publishPositionById(positionId),
+    });
   }
 
   private requireLeverageCap(): Amount {
@@ -622,6 +653,18 @@ export class PositionService {
     positionId: string,
     operation: 'close' | 'reduce_margin' | 'set_leverage' | 'add_margin',
   ): Promise<void> {
+    // A matched fill that is still being recorded has posted into this position's pot without its row yet, so
+    // no change may run until its row has caught up. The fill itself is retried until it does.
+    const [pendingFill] = await tx<{ n: number }[]>`
+      SELECT 1 AS n FROM trade.futures_order_fills WHERE position_id = ${positionId} AND state = 'pending' LIMIT 1
+    `;
+    if (pendingFill) {
+      throw new FuturesError(
+        'a matched fill on this position is still being recorded — retry in a moment',
+        'trade.futures_fill_in_progress',
+        409,
+      );
+    }
     const [hold] = await tx<
       { live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean; adl_planned: boolean }[]
     >`
@@ -843,6 +886,56 @@ export class PositionService {
    * Active positions: `open` and `closing`. A frozen exit must remain visible
    * and must never render as a normal open (ADR 2026-08-07 done bar 7).
    */
+  /**
+   * Place a futures order through svc-matching (slice 6). Refused unless the switch is on, the band is named and
+   * the market is a futures market. See `matched-orders.ts`.
+   */
+  /** `context.region` is the request's edge region, read only by the derivatives gate (see `open`). */
+  async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.matched.place(principal, input, context);
+  }
+
+  /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */
+  async cancelMatchedOrder(principal: Principal, orderId: string) {
+    return this.matched.cancel(principal, orderId);
+  }
+
+  /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */
+  async retryWaitingMatchedFills(limit: number) {
+    return this.matched.retryWaitingFills(limit);
+  }
+
+  /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
+  async cancelMatchedOrdersOutsideBand() {
+    return this.matched.cancelOutsideBand();
+  }
+
+  /** The matched-order settlement, for the matching consumers. Fills and releases run whether or not the switch is on. */
+  get matchedFills(): {
+    settle(fill: MatchedFillEvent): Promise<void>;
+    releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+    ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
+  } {
+    return {
+      settle: async (fill) => {
+        await this.matched.settleFillOrWait(fill);
+      },
+      releaseCancelled: (orderId, remainingQty) => this.matched.releaseEngineCancellation(orderId, remainingQty),
+      ownsFill: (fill) => this.matched.ownsFill(fill),
+    };
+  }
+
+  /** The private positions update for one row, by id. Used after a matched fill commits. */
+  private async publishPositionById(positionId: string): Promise<void> {
+    const [row] = await this.sql<PositionRow[]>`
+      SELECT p.*, m.symbol, m.contract_size
+      FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id
+      WHERE p.id = ${positionId}
+    `;
+    if (row) await this.publishPositionUpdated(row);
+  }
+
   async listOpen(userId: string, symbol?: string, clientOpenId?: string): Promise<Position[]> {
     const openId = clientOpenId === undefined ? null : clientOpenId;
     const rows = symbol
@@ -951,6 +1044,22 @@ export class PositionService {
    * compared against, and a retry from another region must still find the original open.
    */
   async open(input: OpenPositionInput, principal?: Principal, context: { readonly region?: string | null } = {}): Promise<Position> {
+    /**
+     * WHILE MATCHED MODE IS ON, NO NEW AT-MARK POSITION.
+     *
+     * A matched fill opens its row under a slot id and inserts it when the first fill lands. An at-mark open that
+     * inserted an open row for the same (user, market, side) in between would make that insert violate the unique
+     * open index after the ledger had already posted the fill's margin. So while matching is on, new at-mark opens
+     * refuse. Closing an at-mark position stays allowed, and so does the reduce-only close path. Slice 6b retires
+     * the at-mark open for good; this refusal is the part of that needed for the switch to be safe.
+     */
+    if (this.matched.matchingEnabled && input.reduceOnly !== true) {
+      throw new FuturesError(
+        'opening at the mark is retired while futures orders go through the matching engine — place a matched order',
+        'trade.futures_open_at_mark_retired',
+        409,
+      );
+    }
     if (input.reduceOnly === true) return this.reduceOnlyOpen(input);
     /**
      * NO POT, NO NEW POSITIONS.
