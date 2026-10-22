@@ -8,8 +8,10 @@ import { supportTicketTypeSchema } from './support.js';
  * Email delivery is `vendor.email` (NotConnected); in-app is our own.
  */
 export const SUPPORT_SURVEY_CAP_UNSET = 'support.survey_cap_unset' as const;
+/** The owner-set survey cap is reached: a new survey is refused, never an old one silently replaced. */
+export const SUPPORT_SURVEY_CAP_REACHED = 'support.survey_cap_reached' as const;
 export const SUPPORT_SURVEY_SCALE_INVALID = 'support.survey_scale_invalid' as const;
-export const supportSurveyErrorCodeSchema = z.enum([SUPPORT_SURVEY_CAP_UNSET, SUPPORT_SURVEY_SCALE_INVALID]);
+export const supportSurveyErrorCodeSchema = z.enum([SUPPORT_SURVEY_CAP_UNSET, SUPPORT_SURVEY_CAP_REACHED, SUPPORT_SURVEY_SCALE_INVALID]);
 export type SupportSurveyErrorCode = z.infer<typeof supportSurveyErrorCodeSchema>;
 
 const id = z.string().uuid();

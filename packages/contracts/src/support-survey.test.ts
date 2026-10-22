@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SUPPORT_SURVEY_CAP_REACHED,
   SUPPORT_SURVEY_CAP_UNSET,
   supportSurveyConfigureInputSchema,
   supportSurveyErrorCodeSchema,
@@ -19,7 +20,15 @@ const input = { surveyId: null, expectedRevision: 0, config };
 
 describe('survey configuration (SP-csat-02)', () => {
   it('declares the new codes', () => {
-    expect(supportSurveyErrorCodeSchema.options).toEqual(['support.survey_cap_unset', 'support.survey_scale_invalid']);
+    expect(supportSurveyErrorCodeSchema.options).toEqual([
+      'support.survey_cap_unset',
+      'support.survey_cap_reached',
+      'support.survey_scale_invalid',
+    ]);
+  });
+  it('names the cap-reached refusal beside cap-unset', () => {
+    expect(SUPPORT_SURVEY_CAP_REACHED).toBe('support.survey_cap_reached');
+    expect(supportSurveyErrorCodeSchema.safeParse(SUPPORT_SURVEY_CAP_REACHED).success).toBe(true);
   });
   it('accepts a complete configuration', () => {
     expect(supportSurveyConfigureInputSchema.parse(input)).toEqual(input);
