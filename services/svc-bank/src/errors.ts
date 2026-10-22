@@ -652,7 +652,11 @@ export type BankErrorCode =
   /** Already decided, differently. */
   | 'bank.limit_request_decided'
   /** An approval named no granted limit; it is never defaulted to the requested one. */
-  | 'bank.limit_grant_unset';
+  | 'bank.limit_grant_unset'
+  /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
+  | 'bank.loan_params_invalid'
+  /** A product id was reused with different terms. */
+  | 'bank.loan_product_conflict';
 
 export class BankError extends Error {
   constructor(

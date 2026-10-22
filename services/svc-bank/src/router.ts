@@ -38,6 +38,7 @@ import {
   LimitRequestService,
   limitRequestQueueProcedure,
 } from './transfers/limit-requests.js';
+import { createLoanProductProcedure } from './ops/loan-products.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
@@ -422,6 +423,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
       case 'bank.limit_request_decided':
+      case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -501,6 +503,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_reason_too_short':
       case 'bank.limit_request_list_limit_unset':
       case 'bank.limit_grant_unset':
+      case 'bank.loan_params_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
@@ -3315,6 +3318,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
+    createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
