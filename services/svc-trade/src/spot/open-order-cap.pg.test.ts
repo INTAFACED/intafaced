@@ -318,6 +318,31 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     await expect(rest(alice, btc, 'band-other', { side: 'sell', price: amt('40') })).rejects.toMatchObject({ code: 'trade.price_band' });
   });
 
+  it('a replacement priced outside the band is refused before the original is cancelled', async () => {
+    // TEST FIXTURE: a 10% band around the stub book's middle (99.5): buys above 109.45 are outside it.
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 1, '0.1', NULL, NULL, '20', NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    const original = await rest(alice, btc, 'rb-original', { price: amt('95') });
+    const heldBefore = holds();
+    const replace = (price: string, key: string) =>
+      trade.replaceOrder(alice, original.id, {
+        marketId: btc.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt(price),
+        clientOrderId: key,
+      } as never);
+    const refused = await replace('150', 'rb-out');
+    expect(refused).toMatchObject({ accepted: false, code: 'LIMIT_REFUSED', reasonCode: 'trade.price_band', replacement: null });
+    const [still] = await db.sql<Array<{ status: string }>>`SELECT status FROM trade.orders WHERE id = ${original.id}`;
+    expect(still?.status).toBe('open');
+    expect(holds()).toBe(heldBefore);
+    expect((await replace('96', 'rb-in')).code).toBe('REPLACED');
+  });
+
   it('the production default: a pair with no band or cap published refuses with the missing rule named, before any hold', async () => {
     const strict = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,

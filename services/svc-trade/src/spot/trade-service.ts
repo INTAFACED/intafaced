@@ -2688,6 +2688,27 @@ export class TradeService {
           }
         }
 
+        // The operator's limits for this pair (fat finger, price band, published rules) BEFORE the cancel, the same gate
+        // place runs: a replacement priced outside the band is refused with the original still live. The replacement
+        // takes the original's slot, so the open-order cap does not count it.
+        if (!market.paper) {
+          try {
+            await assertOperatorRiskOnPlace(
+              this.sql,
+              market,
+              principal.userId,
+              { side: input.side, price: input.price ?? null, qty: input.qty, rests: false },
+              () => this.touch(market.id),
+              !this.allowUnpublishedPairRules,
+            );
+          } catch (err) {
+            if (err instanceof TradeError) {
+              return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
+            }
+            throw err;
+          }
+        }
+
         // Authority is required before cancel, so an unavailable PX-S01 source
         // cannot strand the caller by cancelling an order it cannot replace.
         try {
