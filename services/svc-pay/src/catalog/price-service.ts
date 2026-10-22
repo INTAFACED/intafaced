@@ -142,6 +142,37 @@ function normalize(input: PriceInput) {
   };
 }
 
+/**
+ * Owner value: the decimal places each asset allows, `PAY_CATALOG_ASSET_DECIMALS="USDT:6,BTC:8"`. Unset or garbled
+ * refuses `pay.catalog_asset_scale_unset`; an asset not listed refuses `pay.catalog_price_asset_unknown`. No default scale.
+ */
+export function assetDecimals(env: NodeJS.ProcessEnv = process.env): Map<string, number> | null {
+  const raw = env.PAY_CATALOG_ASSET_DECIMALS?.trim();
+  if (!raw) return null;
+  const out = new Map<string, number>();
+  for (const part of raw.split(',')) {
+    const m = /^([A-Za-z0-9._-]{1,16}):(\d{1,2})$/.exec(part.trim());
+    if (!m || Number(m[2]) > 18) return null;
+    out.set(m[1]!, Number(m[2]));
+  }
+  return out;
+}
+
+function decimalPlaces(v: string): number {
+  const i = v.indexOf('.');
+  return i < 0 ? 0 : v.length - i - 1;
+}
+
+/** Every amount on the price must fit the asset's scale. */
+function assertAssetScale(f: { assetId: string; unitAmount: string | null; tiers: NormalTier[] | null }, env: NodeJS.ProcessEnv) {
+  const scales = assetDecimals(env);
+  if (!scales) throw new MerchantOpsError('pay.catalog_asset_scale_unset', 'precondition');
+  const scale = scales.get(f.assetId);
+  if (scale === undefined) throw bad('pay.catalog_price_asset_unknown');
+  const amounts = [f.unitAmount, ...(f.tiers ?? []).flatMap((t) => [t.unitAmount, t.flatAmount])].filter((a): a is string => a !== null);
+  if (amounts.some((a) => decimalPlaces(a) > scale)) throw bad('pay.catalog_price_amount_scale');
+}
+
 /** The owner-set quote ceiling. Unset or not a positive whole number means quotes refuse rather than guess. */
 export function quoteQuantityMax(env: NodeJS.ProcessEnv = process.env): number | null {
   const raw = env.PAY_CATALOG_QUOTE_QUANTITY_MAX?.trim();
@@ -159,25 +190,28 @@ export class CatalogPriceService {
   async create(caller: MerchantCaller, input: PriceInput & { requestId: string }): Promise<PriceView> {
     assertCatalog(caller, 'catalog.write');
     const f = normalize(input);
+    assertAssetScale(f, this.env);
     const fp = fingerprint('create', f);
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'create', fp);
-    const id = await this.sql.begin(async (tx) => {
-      const product = await tx<Array<{ archived_at: Date | null }>>`
+    const id = await this.raceSafe(caller, input.requestId, 'create', fp, () =>
+      this.sql.begin(async (tx) => {
+        const product = await tx<Array<{ archived_at: Date | null }>>`
         SELECT archived_at FROM pay.catalog_products WHERE id = ${f.productId}::uuid AND merchant_id = ${caller.merchantId} FOR UPDATE`;
-      if (!product[0]) throw new MerchantOpsError('pay.catalog_product_not_found', 'not_found');
-      if (product[0].archived_at) throw new MerchantOpsError('pay.catalog_product_archived', 'conflict');
-      const [row] = await tx<Array<{ id: string }>>`
+        if (!product[0]) throw new MerchantOpsError('pay.catalog_product_not_found', 'not_found');
+        if (product[0].archived_at) throw new MerchantOpsError('pay.catalog_product_archived', 'conflict');
+        const [row] = await tx<Array<{ id: string }>>`
         INSERT INTO pay.catalog_prices (merchant_id, product_id, asset_id, model, unit_amount, tiers, recurring_unit,
                                         recurring_count, tax_behavior, description, created_by)
         VALUES (${caller.merchantId}, ${f.productId}::uuid, ${f.assetId}, ${f.model}, ${f.unitAmount},
                 ${f.tiers ? tx.json(f.tiers as never) : null}, ${f.recurring?.unit ?? null}, ${f.recurring?.count ?? null},
                 ${f.taxBehavior}, ${f.description}, ${caller.userId})
         RETURNING id`;
-      if (!row) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
-      await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, row.id, 'create', fp);
-      return row.id;
-    });
+        if (!row) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
+        await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, row.id, 'create', fp);
+        return row.id;
+      }),
+    );
     return this.get(caller, id);
   }
 
@@ -204,15 +238,18 @@ export class CatalogPriceService {
     const fp = fingerprint('set_default', { priceId: input.priceId });
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'set_default', fp);
-    await this.sql.begin(async (tx) => {
-      const [p] = await tx<Array<{ product_id: string; archived_at: Date | null }>>`
+    await this.raceSafe(caller, input.requestId, 'set_default', fp, () =>
+      this.sql.begin(async (tx) => {
+        const [p] = await tx<Array<{ product_id: string; archived_at: Date | null }>>`
         SELECT product_id, archived_at FROM pay.catalog_prices WHERE id = ${input.priceId}::uuid AND merchant_id = ${caller.merchantId} FOR UPDATE`;
-      if (!p) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
-      if (p.archived_at) throw new MerchantOpsError('pay.catalog_price_archived', 'conflict');
-      await tx`UPDATE pay.catalog_products SET default_price_id = ${input.priceId}::uuid, updated_at = now()
+        if (!p) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
+        if (p.archived_at) throw new MerchantOpsError('pay.catalog_price_archived', 'conflict');
+        await tx`UPDATE pay.catalog_products SET default_price_id = ${input.priceId}::uuid, updated_at = now()
                 WHERE id = ${p.product_id} AND default_price_id IS DISTINCT FROM ${input.priceId}::uuid`;
-      await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, input.priceId, 'set_default', fp);
-    });
+        await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, input.priceId, 'set_default', fp);
+        return input.priceId;
+      }),
+    );
     return this.get(caller, input.priceId);
   }
 
@@ -222,15 +259,18 @@ export class CatalogPriceService {
     const fp = fingerprint('archive', { priceId: input.priceId });
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'archive', fp);
-    await this.sql.begin(async (tx) => {
-      const [p] = await tx<Array<{ product_id: string }>>`
+    await this.raceSafe(caller, input.requestId, 'archive', fp, () =>
+      this.sql.begin(async (tx) => {
+        const [p] = await tx<Array<{ product_id: string }>>`
         UPDATE pay.catalog_prices SET archived_at = COALESCE(archived_at, now())
          WHERE id = ${input.priceId}::uuid AND merchant_id = ${caller.merchantId} RETURNING product_id`;
-      if (!p) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
-      await tx`UPDATE pay.catalog_products SET default_price_id = NULL, updated_at = now()
+        if (!p) throw new MerchantOpsError('pay.catalog_price_not_found', 'not_found');
+        await tx`UPDATE pay.catalog_products SET default_price_id = NULL, updated_at = now()
                 WHERE id = ${p.product_id} AND default_price_id = ${input.priceId}::uuid`;
-      await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, input.priceId, 'archive', fp);
-    });
+        await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, input.priceId, 'archive', fp);
+        return input.priceId;
+      }),
+    );
     return this.get(caller, input.priceId);
   }
 
@@ -246,6 +286,25 @@ export class CatalogPriceService {
     if (price.model === 'flat' && input.quantity !== 1) throw bad('pay.catalog_quote_quantity_invalid');
     const { lines, total } = priceQuantity(price.model, price.unitAmount, price.tiers, input.quantity);
     return { priceId: price.id, assetId: price.assetId, quantity: input.quantity, lines, total, taxBehavior: price.taxBehavior };
+  }
+
+  /** One write transaction; a concurrent call with the same requestId (23505 on the log) replays instead of a 500. */
+  private async raceSafe(
+    caller: MerchantCaller,
+    requestId: string,
+    action: string,
+    fp: string,
+    write: () => Promise<string>,
+  ): Promise<string> {
+    try {
+      return await write();
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== '23505') throw e;
+      const raced = await this.action(caller.merchantId, requestId);
+      if (!raced) throw e;
+      if (raced.action !== action || raced.fingerprint !== fp) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
+      return raced.price_id;
+    }
   }
 
   private async action(merchantId: string, requestId: string) {

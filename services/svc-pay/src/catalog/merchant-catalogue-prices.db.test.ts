@@ -11,6 +11,9 @@ import { RailRegistry } from '../rails/registry.js';
 import type { MerchantCaller, MerchantRole } from '../merchant-ops/roles.js';
 import { CatalogProductService } from './product-service.js';
 import { CatalogPriceService } from './price-service.js';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
+import { createMerchantOpsRouter, type MerchantOpsDeps } from '../merchant-ops/router.js';
 
 /** M-catalogue-02 prices, default price and quote against a real Postgres. */
 
@@ -55,7 +58,7 @@ describe('M-catalogue-02 prices (Postgres)', () => {
     sql = db.sql;
     pay = new PayService(sql, new MemoryLedger(), new RailRegistry([]), {});
     products = new CatalogProductService(sql);
-    prices = new CatalogPriceService(sql, { PAY_CATALOG_QUOTE_QUANTITY_MAX: '1000' });
+    prices = new CatalogPriceService(sql, { PAY_CATALOG_QUOTE_QUANTITY_MAX: '1000', PAY_CATALOG_ASSET_DECIMALS: 'USDC:18,USD:2' });
   }, 120_000);
 
   afterAll(async () => {
@@ -120,7 +123,7 @@ describe('M-catalogue-02 prices (Postgres)', () => {
     });
     expect((await prices.quote(c, { priceId: g.id, quantity: 12 })).total).toBe('15.000000000000000002');
     expect(await codeOf(prices.quote(c, { priceId: g.id, quantity: 1001 }))).toBe('pay.catalog_quote_quantity_invalid');
-    const unset = new CatalogPriceService(sql, {});
+    const unset = new CatalogPriceService(sql, { PAY_CATALOG_ASSET_DECIMALS: 'USDC:18' });
     expect(await codeOf(unset.quote(c, { priceId: g.id, quantity: 1 }))).toBe('pay.catalog_quote_quantity_max_unset');
   });
 
@@ -139,5 +142,84 @@ describe('M-catalogue-02 prices (Postgres)', () => {
     expect(await codeOf(prices.get(other.owner, p.id))).toBe('pay.catalog_price_not_found');
     await products.archive(owner, { requestId: randomUUID(), productId });
     expect(await codeOf(prices.create(owner, { ...seat, productId, requestId: randomUUID() }))).toBe('pay.catalog_product_archived');
+  });
+  it('refuses amounts with more decimals than the asset allows, unknown assets, and an unset scale table', async () => {
+    const { owner, productId } = await setup();
+    const usd = { ...seat, assetId: 'USD', productId };
+    expect(await codeOf(prices.create(owner, { ...usd, unitAmount: '1.005', requestId: randomUUID() }))).toBe(
+      'pay.catalog_price_amount_scale',
+    );
+    expect((await prices.create(owner, { ...usd, unitAmount: '1.05', requestId: randomUUID() })).unitAmount).toBe('1.05');
+    expect(
+      await codeOf(
+        prices.create(owner, {
+          productId,
+          requestId: randomUUID(),
+          assetId: 'USD',
+          model: 'volume',
+          tiers: [
+            { upTo: 5, unitAmount: '1' },
+            { upTo: null, unitAmount: '0.999' },
+          ],
+          taxBehavior: 'inclusive',
+        }),
+      ),
+    ).toBe('pay.catalog_price_amount_scale');
+    expect(await codeOf(prices.create(owner, { ...seat, assetId: 'FOO', productId, requestId: randomUUID() }))).toBe(
+      'pay.catalog_price_asset_unknown',
+    );
+    const noScale = new CatalogPriceService(sql, { PAY_CATALOG_QUOTE_QUANTITY_MAX: '10' });
+    expect(await codeOf(noScale.create(owner, { ...seat, productId, requestId: randomUUID() }))).toBe('pay.catalog_asset_scale_unset');
+  });
+
+  it('concurrent create / setDefault / archive with the same requestId replay one result, never a 500', async () => {
+    const { owner, productId } = await setup();
+    const requestId = randomUUID();
+    const made = await Promise.all([1, 2, 3].map(() => prices.create(owner, { ...seat, productId, requestId })));
+    expect(new Set(made.map((p) => p.id)).size).toBe(1);
+    const priceId = made[0]!.id;
+    const d = randomUUID();
+    const defs = await Promise.all([1, 2, 3].map(() => prices.setDefault(owner, { requestId: d, priceId })));
+    expect(defs.every((p) => p.isDefault)).toBe(true);
+    const a = randomUUID();
+    const arch = await Promise.all([1, 2, 3].map(() => prices.archive(owner, { requestId: a, priceId })));
+    expect(arch.every((p) => p.archived)).toBe(true);
+    expect(await prices.list(owner, { productId, includeArchived: true })).toHaveLength(1);
+  });
+
+  it('route: merchantOps.catalog.price create, setDefault and quote are wired', async () => {
+    const { owner, productId } = await setup();
+    const prev = { q: process.env.PAY_CATALOG_QUOTE_QUANTITY_MAX, a: process.env.PAY_CATALOG_ASSET_DECIMALS };
+    process.env.PAY_CATALOG_QUOTE_QUANTITY_MAX = '100';
+    process.env.PAY_CATALOG_ASSET_DECIMALS = 'USDC:6';
+    try {
+      const authConfig = {
+        secret: 'a-test-signing-secret-that-is-long-enough',
+        issuer: 'intafaced',
+        audience: 'intafaced.api',
+        accessTtlSeconds: 900,
+      };
+      const { token } = await issueAccessToken(
+        { userId: owner.userId, sessionId: randomUUID(), scopes: ['pay:read', 'pay:write'], tier: 'full', mfa: true },
+        authConfig,
+      );
+      const ctx = { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-price' } as Context;
+      const api = createMerchantOpsRouter({ sql } as unknown as MerchantOpsDeps).createCaller(ctx);
+      const p = await api.merchantOps.catalog.price.create({
+        requestId: randomUUID(),
+        productId,
+        assetId: 'USDC',
+        model: 'per_seat',
+        unitAmount: '2.5',
+        taxBehavior: 'exclusive',
+      });
+      expect((await api.merchantOps.catalog.price.setDefault({ requestId: randomUUID(), priceId: p.id })).isDefault).toBe(true);
+      expect((await api.merchantOps.catalog.price.quote({ priceId: p.id, quantity: 4 })).total).toBe('10');
+    } finally {
+      if (prev.q === undefined) delete process.env.PAY_CATALOG_QUOTE_QUANTITY_MAX;
+      else process.env.PAY_CATALOG_QUOTE_QUANTITY_MAX = prev.q;
+      if (prev.a === undefined) delete process.env.PAY_CATALOG_ASSET_DECIMALS;
+      else process.env.PAY_CATALOG_ASSET_DECIMALS = prev.a;
+    }
   });
 });
