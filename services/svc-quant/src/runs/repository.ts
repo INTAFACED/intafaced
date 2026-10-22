@@ -41,5 +41,7 @@ export interface RunRepository {
     readonly cursor: string | null;
   }): Promise<RunListPage>;
   counts(input: { readonly from: string; readonly to: string }): Promise<RunCounts>;
+  /** Whether this account has at least one finished run with outcome ok, per kind. Feeds the quick start ticks. */
+  okKinds(input: { readonly userId: string }): Promise<{ readonly backtest: boolean; readonly sandbox: boolean }>;
   claimOnce(input: ClaimInput): Promise<ClaimRow>;
 }

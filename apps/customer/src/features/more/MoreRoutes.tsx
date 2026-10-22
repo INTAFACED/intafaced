@@ -8,7 +8,7 @@ import { Campaigns } from './Campaigns';
 import { Launch, Mining } from './AvailabilityRooms';
 import { Market } from './Market';
 import { Prediction } from './Prediction';
-import { Quant } from './Quant';
+import { quantRoute } from '../quant/QuantRoutes';
 import { Support } from './Support';
 import { Token } from './Token';
 import { launchCopy } from './launch-copy';
@@ -90,21 +90,8 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
-  } else if (p === '/quant' || p === '/quant/studio' || p === '/quant/backtest') {
-    title =
-      p === '/quant'
-        ? copyText('moreroutes.quant.sandbox')
-        : p === '/quant/studio'
-          ? copyText('moreroutes.quant.studio')
-          : copyText('moreroutes.backtest');
-    description = copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence');
-    content = (
-      <Quant
-        key={`${p}:${userId}`}
-        paper={paper}
-        mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'}
-      />
-    );
+  } else if ((p === '/quant' || p.startsWith('/quant/')) && quantRoute(p, paper, userId ?? null)) {
+    ({ title, description, content } = quantRoute(p, paper, userId ?? null)!);
   } else if (p === '/support') {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');

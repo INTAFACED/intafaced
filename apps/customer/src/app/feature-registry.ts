@@ -374,6 +374,7 @@ export const features: readonly Feature[] = [
       '/academy/:slug',
       '/agents',
       '/quant',
+      '/quant/sandbox',
       '/quant/studio',
       '/quant/backtest',
       '/launch',

@@ -131,6 +131,11 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       };
     },
 
+    async okKinds(input) {
+      const ok = [...rows.values()].filter((row) => row.userId === input.userId && row.finished && row.outcome === 'ok');
+      return { backtest: ok.some((row) => row.kind === 'backtest'), sandbox: ok.some((row) => row.kind === 'sandbox') };
+    },
+
     async counts(input): Promise<RunCounts> {
       const matched = [...rows.values()].filter((row) => row.started >= input.from && row.started < input.to);
       const byOutcome = new Map<string, number>();

@@ -651,7 +651,7 @@ test('quant sandbox labels server output simulated and never offers live deploym
     }
     await route.fulfill({ json: { result: { data } } });
   });
-  await page.goto('/quant');
+  await page.goto('/quant/sandbox');
   await page.getByLabel('Simulated starting cash').fill('17.125', { timeout: 3000 });
   await page.getByLabel('Strategy source').fill('console.log("run");');
   await page.getByRole('button', { name: 'Review simulation' }).click();

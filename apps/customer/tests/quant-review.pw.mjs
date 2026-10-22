@@ -25,7 +25,7 @@ const strategy = {
   blocks: [{ side: 'buy', symbol: 'BTC/USDT', qty: '0.000000000000000001' }],
   risk: { maxDrawdown: '1', maxNotional: '2', kill: '3' },
 };
-const routes = { sandbox: '/quant', studio: '/quant/studio', backtest: '/quant/backtest' };
+const routes = { sandbox: '/quant/sandbox', studio: '/quant/studio', backtest: '/quant/backtest' };
 const reviewKeys = { sandbox: 'review.simulated.run', studio: 'review.strategy', backtest: 'review.historical.simulation' };
 const stageKeys = { sandbox: 'review.simulation', studio: 'review.strategy', backtest: 'review.backtest' };
 const confirmKeys = { sandbox: 'run.simulation', studio: 'save.strategy', backtest: 'run.backtest' };
@@ -261,7 +261,7 @@ for (const mode of ['sandbox', 'studio', 'backtest'])
     );
 test('unwired capability refuses simulation review without a write', async ({ page, context }) => {
   const calls = await network(context, 'sandbox', 'success', false);
-  await login(page, '/quant');
+  await login(page, '/quant/sandbox');
   await fill(page, 'sandbox');
   await expect(page.getByRole('button', { name: text('en', 'review.simulation'), exact: true })).toBeDisabled();
   await expect(page.getByText('quant.sandbox_unwired', { exact: false })).toHaveAttribute('lang', 'zxx');
@@ -275,7 +275,7 @@ test('legacy original marker remains a primitive original title with no new requ
     reference: 'original-reference',
   });
   await page.addInitScript(({ key, raw }) => localStorage.setItem(key, raw), { key: markerKey('sandbox'), raw });
-  await login(page, '/quant');
+  await login(page, '/quant/sandbox');
   await expect(page.getByText('Original legacy user/provider title <owner>', { exact: true })).toHaveAttribute('lang', 'und');
   await expect(page.getByText('original-reference', { exact: true })).toHaveAttribute('lang', 'zxx');
   await expect(page.getByRole('button', { name: text('en', 'review.simulation'), exact: true })).toBeDisabled();
@@ -287,7 +287,7 @@ test('scoped storage failure and missing Web Locks refuse before dispatch and th
   context,
 }) => {
   const calls = await network(context, 'sandbox', 'success');
-  await login(page, '/quant');
+  await login(page, '/quant/sandbox');
   await fill(page, 'sandbox');
   const view = await context.newPage();
   await login(view, '/view');
@@ -318,7 +318,7 @@ test('scoped storage failure and missing Web Locks refuse before dispatch and th
 });
 test('actual French phone review and long opaque refusal retain native focus targets without overflow', async ({ page, context }) => {
   const calls = await network(context, 'sandbox', 'refused');
-  await login(page, '/quant');
+  await login(page, '/quant/sandbox');
   await fill(page, 'sandbox');
   const view = await context.newPage();
   await login(view, '/view');
@@ -355,7 +355,7 @@ test('actual French phone review and long opaque refusal retain native focus tar
 });
 test('native second-tab lock and pending event keep a new simulation from dispatching', async ({ page, context }) => {
   const calls = await network(context, 'sandbox', 'success');
-  await login(page, '/quant');
+  await login(page, '/quant/sandbox');
   await fill(page, 'sandbox');
   const view = await context.newPage();
   await login(view, '/view');

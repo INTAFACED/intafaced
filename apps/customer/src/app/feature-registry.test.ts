@@ -175,6 +175,7 @@ describe('top-bar menus link rooms that open', () => {
       'Trading bots',
       'Quote desk',
       'Execution',
+      'Algo dev',
       'Orders',
     ]);
     expect(titles('Pay')).toEqual(['Send', 'Receive', 'Request', 'Bill pay', 'Send globally', 'Person-to-person', 'Merchant']);

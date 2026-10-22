@@ -297,6 +297,16 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
       };
     },
 
+    async okKinds(input) {
+      const rows = await query<{ kind: string }>(
+        sql,
+        `SELECT DISTINCT kind FROM ${runs} WHERE user_id = $1::uuid AND finished_at IS NOT NULL AND outcome_code = 'ok'`,
+        [input.userId],
+      );
+      const kinds = new Set(rows.map((row) => row.kind));
+      return { backtest: kinds.has('backtest'), sandbox: kinds.has('sandbox') };
+    },
+
     async counts(input) {
       const rows = await query<{ kind: string; outcome_code: string | null; n: string }>(
         sql,
