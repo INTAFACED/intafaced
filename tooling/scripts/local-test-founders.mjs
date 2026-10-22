@@ -291,6 +291,18 @@ export function foundersEnrolled(vault) {
   return Boolean(env.IDENTITY_FOUNDER_NITRO_USER_ID && env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
 }
 
+/** The vault's two founders once both have an account and a confirmed second factor, in a/b order; otherwise null. */
+export function enrolledFounderPair(vault) {
+  try {
+    assertVaultShape(vault);
+  } catch {
+    return null;
+  }
+  const ready = (f) => typeof f.userId === 'string' && f.userId && f.password && f.totpSecret && f.totpConfirmed === true;
+  const [a, b] = ['a', 'b'].map((k) => vault.founders.find((f) => f.key === k));
+  return a && b && ready(a) && ready(b) && a.userId !== b.userId ? [a, b] : null;
+}
+
 /**
  * Whether identity must be restarted so it is running the vault's invites (before
  * enrolment) or the two user ids (after). A matching stamp means the running
