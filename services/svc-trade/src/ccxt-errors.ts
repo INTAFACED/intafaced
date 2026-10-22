@@ -306,6 +306,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.sub_account_denied': { ccxt: 'PermissionDenied', status: 403 },
   /** Soft-revoked sub-account — create a new book; do not retry the same id. */
   'trade.sub_account_revoked': { ccxt: 'PermissionDenied', status: 403 },
+  /** Email not proved yet (RC-identity-01). Permanent until the user confirms the email. */
+  'trade.email_proof_required': { ccxt: 'PermissionDenied', status: 403 },
+  /** Identity email-proof read failed or was off-contract. Retryable; fails closed. */
+  'trade.identity_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
 
   // ── Order lifecycle ───────────────────────────────
   'trade.order_not_found': { ccxt: 'OrderNotFound', status: 404 },

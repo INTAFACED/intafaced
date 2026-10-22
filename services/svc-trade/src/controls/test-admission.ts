@@ -10,7 +10,7 @@ import {
 } from '../futures/position-service.js';
 import { CopyService as ProductionCopyService } from '../copy/copy-service.js';
 import { OtcDeskService as ProductionOtcDeskService } from '../otc/otc-service.js';
-import { principalFor } from '../spot/testing.js';
+import { StubEmailProof, principalFor } from '../spot/testing.js';
 import { canonicalPayload, type TradingAdmissionPort } from './trading-controls.js';
 import { createHash } from 'node:crypto';
 
@@ -55,7 +55,12 @@ function readyForSql(sql: object): TradingAdmissionPort {
 export class TradeService extends ProductionTradeService {
   constructor(...args: ConstructorParameters<typeof ProductionTradeService>) {
     const [sql, ledger, matching, perks, bus, options = {}] = args;
-    super(sql, ledger, matching, perks, bus, { ...options, accountAdmission: options.accountAdmission ?? readyForSql(sql) });
+    super(sql, ledger, matching, perks, bus, {
+      ...options,
+      accountAdmission: options.accountAdmission ?? readyForSql(sql),
+      // Legacy tests predate the email-proof gate (RC-identity-01): every test user is proved.
+      emailProof: options.emailProof ?? new StubEmailProof(),
+    });
   }
 }
 export class PositionService extends ProductionPositionService {

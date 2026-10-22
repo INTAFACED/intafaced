@@ -18,6 +18,7 @@ import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
+import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
@@ -194,6 +195,7 @@ const tradingControls = new TradingControls(
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const emailProof = createEmailProofClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -255,6 +257,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   seedPlaceEnabled: env.TRADE_MM_SEED_ENABLED,
   feeSchedule,
   subAccounts,
+  emailProof,
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
