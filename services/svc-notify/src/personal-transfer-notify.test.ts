@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus, personalTransferPosted } from '@intafaced/events';
 import { MemoryNotifyStore } from './store.js';
-import { NotifyService } from './notify-service.js';
+import { NotifyService, type CreateResult } from './notify-service.js';
 import { subscribeNotificationEvents } from './events.js';
 
 const SENDER = '11111111-1111-4111-8111-111111111111';
@@ -59,5 +59,44 @@ describe('personal transfer notices (PP-send-request-18)', () => {
 
     expect((await notify.list({ userId: RECIPIENT, limit: 10, unreadOnly: false })).items).toHaveLength(2);
     expect((await notify.list({ userId: SENDER, limit: 10, unreadOnly: false })).items).toHaveLength(2);
+  });
+
+  it("writes the sender's receipt even when the recipient's channel wants a retry, then asks for the retry", async () => {
+    const store = new MemoryNotifyStore();
+    // The recipient's out-of-app channel answers "try again"; the sender's is fine.
+    class RecipientChannelDown extends NotifyService {
+      override async create(input: Parameters<NotifyService['create']>[0]): Promise<CreateResult> {
+        const result = await super.create(input);
+        if (input.userId !== RECIPIENT) return result;
+        return {
+          ...result,
+          dispatch: {
+            notificationId: 'n-recipient',
+            retry: true,
+            outcomes: [{ channel: 'email', status: 'failed', code: null, detail: 'gateway 503', retryable: true }],
+          },
+        };
+      }
+    }
+    const notify = new RecipientChannelDown(store, { fanoutEnabled: true });
+    const bus = new MemoryEventBus('svc-bank');
+    await subscribeNotificationEvents(bus, notify);
+
+    await expect(bus.publish('personalTransferPosted', posted)).rejects.toThrow(/retry/);
+    expect((await notify.list({ userId: RECIPIENT, limit: 10, unreadOnly: false })).items).toHaveLength(1);
+    expect((await notify.list({ userId: SENDER, limit: 10, unreadOnly: false })).items).toMatchObject([{ kind: 'pay.transfer_sent' }]);
+  });
+
+  it('gives a send to oneself only the receipt, not a "money received" notice', async () => {
+    const store = new MemoryNotifyStore();
+    const notify = new NotifyService(store, { fanoutEnabled: true });
+    const bus = new MemoryEventBus('svc-bank');
+    await subscribeNotificationEvents(bus, notify);
+
+    await bus.publish('personalTransferPosted', { ...posted, recipientUserId: SENDER });
+
+    const mine = await notify.list({ userId: SENDER, limit: 10, unreadOnly: false });
+    expect(mine.items).toHaveLength(1);
+    expect(mine.items[0]).toMatchObject({ kind: 'pay.transfer_sent', sourceIdempotencyKey: posted.transferId });
   });
 });

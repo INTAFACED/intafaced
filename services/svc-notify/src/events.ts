@@ -716,7 +716,9 @@ export async function subscribeNotificationEvents(
   attachments.push(
     await attach(bus, 'personalTransferPosted', personalTransferPosted.subject, 'notify-personal-transfer-posted', async (payload) => {
       // One posted transfer, one notice each: the recipient learns money arrived, the sender keeps the receipt.
-      // Deduped per person on the transfer id, so a redelivered event writes nothing new.
+      // Deduped per person on the transfer id, so a redelivered event writes nothing new. Both rows are written
+      // before a retry is asked for, so one person's channel outage never holds back the other's notice. A send
+      // to oneself is only a receipt: the money never left the person.
       const common = {
         params: { amount: payload.amount, assetId: payload.assetId, transferId: payload.transferId, ledgerTxId: payload.ledgerTxId },
         href: '/money/activity?tab=transfers',
@@ -724,24 +726,24 @@ export async function subscribeNotificationEvents(
         sourceSubject: personalTransferPosted.subject,
         sourceIdempotencyKey: payload.transferId,
       };
-      nakIfRetryable(
-        await notify.create({
-          ...common,
-          userId: payload.recipientUserId,
-          kind: 'pay.transfer_received',
-          titleKey: 'notify.pay.transfer_received.title',
-          bodyKey: 'notify.pay.transfer_received.body',
-        }),
-      );
-      nakIfRetryable(
-        await notify.create({
-          ...common,
-          userId: payload.senderUserId,
-          kind: 'pay.transfer_sent',
-          titleKey: 'notify.pay.transfer_sent.title',
-          bodyKey: 'notify.pay.transfer_sent.body',
-        }),
-      );
+      const received =
+        payload.recipientUserId === payload.senderUserId
+          ? null
+          : await notify.create({
+              ...common,
+              userId: payload.recipientUserId,
+              kind: 'pay.transfer_received',
+              titleKey: 'notify.pay.transfer_received.title',
+              bodyKey: 'notify.pay.transfer_received.body',
+            });
+      const sent = await notify.create({
+        ...common,
+        userId: payload.senderUserId,
+        kind: 'pay.transfer_sent',
+        titleKey: 'notify.pay.transfer_sent.title',
+        bodyKey: 'notify.pay.transfer_sent.body',
+      });
+      nakIfRetryable(...(received ? [received, sent] : [sent]));
     }),
   );
 

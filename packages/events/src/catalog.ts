@@ -1016,9 +1016,10 @@ export const personalRequestSettled = defineEvent(
 );
 
 /**
- * PP-send-request-18. Receipts and mandatory notices. One fact per event: svc-notify writes
- * pay.transfer_sent for the sender and pay.transfer_received for the recipient from the same
- * posted transfer, so neither party can get a receipt the other does not. Published by svc-bank
+ * PP-send-request-18. Receipts. One fact per event: svc-notify writes pay.transfer_sent for the
+ * sender and pay.transfer_received for the recipient from the same posted transfer, so neither
+ * party can get a receipt the other does not. The in-app notice is always written; email and SMS
+ * copies follow each person's orders setting. Published by svc-bank
  * from its outbox: the posted row records the notice as owed in the same UPDATE that marks it
  * `posted`, and stays owed until the bus takes it; a lost consumer ack never changes money.
  */
