@@ -370,6 +370,11 @@ export interface TradeServiceOptions {
    * No default: unset refuses every new live order `trade.identity_unavailable`.
    */
   emailProof?: EmailProofSource;
+  /**
+   * Tests only: let an order through on a pair with no published price band or open-order cap. Production never sets
+   * it, so an unpublished band or cap refuses (`trade.price_band_unset`, `trade.open_orders_cap_unset`).
+   */
+  allowUnpublishedPairRules?: boolean;
   /** Override TWAP durable store (tests inject MemoryTwapParentStore). */
   algoStore?: TwapParentStore;
   /**
@@ -793,6 +798,7 @@ export class TradeService {
   private readonly now: () => Date;
   private readonly subAccounts: SubAccountOwnershipSource;
   private readonly emailProof: EmailProofSource | undefined;
+  private readonly allowUnpublishedPairRules: boolean;
   /** D-S-04 TWAP scheduler — parent holds no value; children go through placeOrder. */
   private readonly algo: TwapEngine;
   /** Durable TWAP schedules — survives process restart (in-memory alone was residual). */
@@ -851,6 +857,7 @@ export class TradeService {
     this.now = options.now ?? (() => new Date());
     this.subAccounts = options.subAccounts ?? new NoSubAccounts();
     this.emailProof = options.emailProof;
+    this.allowUnpublishedPairRules = options.allowUnpublishedPairRules === true;
     this.algoStore = options.algoStore ?? new SqlTwapParentStore(sql);
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
@@ -1763,6 +1770,7 @@ export class TradeService {
           (input as { reduceOnly?: boolean }).reduceOnly !== true,
       },
       () => this.touch(market.id),
+      !this.allowUnpublishedPairRules,
     );
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no

@@ -62,6 +62,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   function build(admission = controls) {
     return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
+      allowUnpublishedPairRules: true,
       accountAdmission: admission,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       // CB-bots-10: the bot verification gate now fails closed when omitted; this suite tests other gates.
@@ -195,6 +196,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
   it('production class without an admission port refuses before any new order hold', async () => {
     const absent = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       emailProof: new StubEmailProof(),
+      allowUnpublishedPairRules: true,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
     });

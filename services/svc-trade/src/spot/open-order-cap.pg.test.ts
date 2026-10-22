@@ -273,4 +273,68 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     expect((await exit()).clientOrderId).toBe(`bracket:${entry.id}:exit`);
     await expect(rest(alice, btc, 'ob-after')).rejects.toMatchObject({ code: 'trade.operator_throttle' });
   });
+
+  it("the operator band never refuses a bracket's stop below it once the entry stopped resting", async () => {
+    // TEST FIXTURE: a 10% band around the stub book's middle (99.5), so a sell below 89.55 is outside it.
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 1, '0.1', NULL, NULL, NULL, NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    const entry = await rest(alice, btc, 'band-entry');
+    const stop = () =>
+      trade.placeOrder(alice, {
+        marketId: btc.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('40'),
+        clientOrderId: `bracket:${entry.id}:exit`,
+      } as never);
+    await expect(stop()).rejects.toMatchObject({ code: 'trade.price_band', data: { low: '89.55', high: '109.45' } });
+    await db.sql`INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss) VALUES (${entry.id}, ${ALICE}, 120, 40)`;
+    // The intent alone is not enough while the entry still rests.
+    await expect(stop()).rejects.toMatchObject({ code: 'trade.price_band' });
+    await db.sql`UPDATE trade.orders SET status = 'filled' WHERE id = ${entry.id}`;
+    expect((await stop()).clientOrderId).toBe(`bracket:${entry.id}:exit`);
+    // Any other sell that far under the market is still refused.
+    await expect(rest(alice, btc, 'band-other', { side: 'sell', price: amt('40') })).rejects.toMatchObject({ code: 'trade.price_band' });
+  });
+
+  it('the production default: a pair with no band or cap published refuses with the missing rule named, before any hold', async () => {
+    const strict = new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+      marketLifecycle: READY_MARKET_LIFECYCLE,
+      spotEnabled: true,
+      marketSlippageCapBps: 200,
+      allowUnpublishedPairRules: false,
+    });
+    const place = (key: string, extra: Record<string, unknown> = {}) =>
+      strict.placeOrder(alice, {
+        marketId: btc.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('99'),
+        clientOrderId: key,
+        ...extra,
+      } as never);
+    const before = holds();
+    await expect(place('pub-1')).rejects.toMatchObject({ code: 'trade.price_band_unset', data: { rule: 'price band' } });
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 1, '0.1', NULL, NULL, NULL, NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    const caught = await place('pub-2').catch((e: unknown) => e);
+    expect(caught).toMatchObject({ code: 'trade.open_orders_cap_unset', data: { rule: 'open-order cap' } });
+    expect(toCcxtError(caught)?.status).toBe(503);
+    expect(holds()).toBe(before);
+    expect(await db.sql`SELECT id FROM trade.orders WHERE user_id = ${ALICE}`).toHaveLength(0);
+    // An order that cannot rest needs no cap.
+    await place('pub-ioc', { tif: 'IOC' });
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 2, '0.1', NULL, NULL, '20', NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    await place('pub-3');
+  });
 });
