@@ -6,7 +6,7 @@
  * silently: both live here.
  *
  * Rates go on the wire as decimal-string percents with two places ("95.24").
- * No history is "0.00", never "100.00".
+ * No counted order is null (no rate), never "0.00" or "100.00".
  */
 import type { Sql } from 'postgres';
 
@@ -16,11 +16,15 @@ export const COMPLETION_DEFINITION = {
     'Orders that reached escrow and have an outcome: completed, cancelled after escrow, or disputed. ' +
     'Orders still in progress, orders cancelled before escrow, and an order excluded by an accepted appeal do not count.',
   window30d: 'Orders created in the last 30 days.',
+  noHistory: 'No order has reached an outcome in this window, so there is no rate (shown as a dash, not 0%).',
 } as const;
 
-/** part/whole as a percent string with two decimals, computed in integers (no float). */
-export function percentString(part: number, whole: number): string {
-  if (whole <= 0) return '0.00';
+/**
+ * part/whole as a percent string with two decimals, computed in integers (no
+ * float). Null when nothing is counted: no finished order is not 0% completed.
+ */
+export function percentString(part: number, whole: number): string | null {
+  if (whole <= 0) return null;
   // basis points of a percent, rounded half up: part * 10000 / whole
   const bp = Math.floor((part * 10_000 * 2 + whole) / (whole * 2));
   const s = String(bp).padStart(3, '0');
@@ -28,8 +32,8 @@ export function percentString(part: number, whole: number): string {
 }
 
 export interface CompletionRates {
-  readonly completionRate30d: string;
-  readonly completionRateTotal: string;
+  readonly completionRate30d: string | null;
+  readonly completionRateTotal: string | null;
   readonly completed30d: number;
   readonly counted30d: number;
   readonly completedTotal: number;

@@ -173,8 +173,8 @@ function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
     releasedTradeCounts: async () => new Map<string, number>(),
     tradesInWindow: async () => 0,
     completionRatesOf: async () => ({
-      completionRate30d: '0.00',
-      completionRateTotal: '0.00',
+      completionRate30d: null,
+      completionRateTotal: null,
       completed30d: 0,
       counted30d: 0,
       completedTotal: 0,

@@ -160,7 +160,7 @@ describe('svc-p2p completion rates and appeal (P-trade-orders-21)', () => {
     return t;
   }
 
-  const pct = (part: number, whole: number) => (whole === 0 ? '0.00' : ((part * 100) / whole).toFixed(2));
+  const pct = (part: number, whole: number) => (whole === 0 ? null : ((part * 100) / whole).toFixed(2));
 
   it('both rates equal a recomputation from trades; definition is data', async () => {
     await fund(MAKER, '1000');
@@ -184,10 +184,11 @@ describe('svc-p2p completion rates and appeal (P-trade-orders-21)', () => {
     expect(card.completionDefinition.denominator).toContain('reached escrow');
   });
 
-  it('no history is 0.00, never 100.00', async () => {
+  it('no history is null (a dash), never 0.00 or 100.00', async () => {
     const card = await caller(OTHER, ['p2p:read']).reputation.get({ userId: TAKER });
-    expect(card.completionRate30d).toBe('0.00');
-    expect(card.completionRateTotal).toBe('0.00');
+    expect(card.completionRate30d).toBeNull();
+    expect(card.completionRateTotal).toBeNull();
+    expect(card.completionDefinition.noHistory).toContain('no rate');
   });
 
   it('one appeal per user: submit, replay returns it, a second is refused p2p.appeal_used', async () => {

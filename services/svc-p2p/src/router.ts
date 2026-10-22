@@ -277,10 +277,16 @@ const reputationOutput = z.object({
   }),
   /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
   trades30d: z.number().int().nonnegative(),
-  /** P-trade-orders-21: decimal-string percents ("95.24"); "0.00" with no history. Definition in `completionDefinition`. */
-  completionRate30d: z.string().regex(/^\d{1,3}\.\d{2}$/),
-  completionRateTotal: z.string().regex(/^\d{1,3}\.\d{2}$/),
-  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string() }),
+  /** P-trade-orders-21: decimal-string percents ("95.24"); null when nothing is counted. Definition in `completionDefinition`. */
+  completionRate30d: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionRateTotal: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() }),
   /**
    * Merchant standing, as a counterparty may see it (TRK-p2p.merchants Stage 2).
    *
