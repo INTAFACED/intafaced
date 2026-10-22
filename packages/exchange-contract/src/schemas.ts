@@ -231,9 +231,9 @@ export const marketSchema = z.object({
     cost: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
     leverage: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
   }),
-  /** SP-order-entry-03 pair rules; null when the mount has no risk reader, absent on older servers. */
+  /** SP-order-entry-03 pair rules; null when the mount has no risk reader or the read failed; null = unknown, never no limits. Absent on older servers. */
   pairRules: pairRulesSchema.nullable().optional(),
-  /** SP-order-entry-03 circuit-breaker state; null when the mount has no risk reader or the read failed. */
+  /** SP-order-entry-03 circuit-breaker state; null when the mount has no risk reader or the read failed; null = unknown, never not-halted. */
   pairHalt: pairHaltSchema.nullable().optional(),
 });
 export type Market = z.infer<typeof marketSchema>;
