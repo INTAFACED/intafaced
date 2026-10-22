@@ -244,6 +244,62 @@ export function moduleAccount(module: string, purpose: string, assetId: string):
 }
 
 /**
+ * POOLED STRATEGY ACCOUNTS (LG-pool-recipes-01, CB-copy-pro-share-04/07/08/09).
+ *
+ * A pool is not a person, so its money sits in `module` accounts owned by
+ * `trade`. Module accounts are hard non-negative, so a pool can never pay out
+ * more than it holds. Shares and FIFO lots are not ledger balances: svc-trade
+ * keeps them. The ledger holds money only.
+ *
+ * The pool id is one slug segment (no `:`), so it cannot forge a second
+ * segment and land in another pool's or another module's account.
+ */
+const POOL_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+function requirePoolId(poolId: string): string {
+  if (!poolId || !POOL_ID_PATTERN.test(poolId)) {
+    throw new Error(`poolId must be one slug segment ([A-Za-z0-9._-]+), got "${poolId}"`);
+  }
+  return poolId;
+}
+
+/** The pool's investable balance. Subscriptions and raises land here. */
+export function poolAvailable(poolId: string, assetId: string): AccountRef {
+  return moduleAccount('trade', `pool:${requirePoolId(poolId)}`, assetId);
+}
+
+/**
+ * What the pool owes ONE redemption between the request and the payment
+ * (CB-copy-pro-share-08). A hold on the pool's own owner, one per redemption,
+ * so paying redemption A can never spend what redemption B reserved, and a
+ * payment can never exceed what its own request reserved.
+ */
+export function poolRedeemPayable(poolId: string, assetId: string, redemptionId: string): AccountRef {
+  if (!redemptionId?.trim()) throw new Error('poolRedeemPayable requires a redemptionId');
+  return {
+    ownerType: 'module',
+    ownerId: `trade:pool:${requirePoolId(poolId)}`,
+    assetId,
+    kind: 'hold',
+    purpose: `redeem:${redemptionId.trim()}`,
+  };
+}
+
+/**
+ * The pool's own trading account: where its realised trading P&L is booked
+ * before `poolProfit` moves it into or out of `poolAvailable`.
+ *
+ * A `trade` module account, not a sub-account: a pool has no identity UUID
+ * (sub-accounts are UUID-owned), and not house or treasury, because pool
+ * profit is never platform revenue (pnlFeeForbidden) and must not be minted
+ * from the external boundary. Being non-negative, it cannot fund a gain it
+ * does not hold.
+ */
+export function poolTradingAccount(poolId: string, assetId: string): AccountRef {
+  return moduleAccount('trade', `pool-trading:${requirePoolId(poolId)}`, assetId);
+}
+
+/**
  * MERCHANT CLEARING (§6.1) — value captured from a payment rail that has not
  * yet been settled to the merchant.
  *

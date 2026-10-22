@@ -159,6 +159,30 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  poolSubscribe: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — LG-pool-recipes-01 pooled strategy subscribe (CB-copy-pro-share-04/07). svc-trade has no pool caller until 04/07 lands, so no svc-trade grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  poolRedeem: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — LG-pool-recipes-01 pooled strategy redeem request and pay (CB-copy-pro-share-08). svc-trade has no pool caller until 08 lands, so no svc-trade grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  poolProfit: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — LG-pool-recipes-01 pooled strategy realised P&L between the pool and its trading account (CB-copy-pro-share-04). svc-trade has no pool caller until 04 lands, so no svc-trade grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  poolRaise: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — LG-pool-recipes-01 pooled strategy master raise of share capacity (CB-copy-pro-share-09). svc-trade has no pool caller until 09 lands, so no svc-trade grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

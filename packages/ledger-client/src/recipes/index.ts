@@ -17,6 +17,7 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
+import { poolProfit, poolRaise, poolRedeem, poolSubscribe } from './pool.js';
 import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
 import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
@@ -53,6 +54,16 @@ import {
 
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
+export {
+  poolProfit,
+  poolRaise,
+  poolRedeem,
+  poolSubscribe,
+  type PoolProfitInput,
+  type PoolRaiseInput,
+  type PoolRedeemInput,
+  type PoolSubscribeInput,
+} from './pool.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
 
 /**
@@ -1363,6 +1374,11 @@ export const recipes = {
   payReceivedRelease,
   payReceivedReturn,
   bankTransferReversal,
+  // LG-pool-recipes-01 pooled strategies. Money only; NAV, fees and limits stay in svc-trade. See ./pool.ts.
+  poolSubscribe,
+  poolRedeem,
+  poolProfit,
+  poolRaise,
   // §8.7 market — purchase (live) + listing/premium fees (§13 unwired; D26-P1-M2).
   // Flagged shared-package. No existing recipe body was rewritten for the fee legs.
   marketPurchase,

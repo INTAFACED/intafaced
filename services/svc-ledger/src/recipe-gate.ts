@@ -756,6 +756,30 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'poolSubscribe',
+      post: recipes.poolSubscribe({ poolId: 'p1', userId: U, assetId: 'USDT', amount: AMT, subscriptionId: 'ps1' }),
+    },
+    {
+      name: 'poolRedeem',
+      post: recipes.poolRedeem({ poolId: 'p1', userId: U, assetId: 'USDT', amount: AMT, redemptionId: 'pr1', leg: 'request' }),
+    },
+    {
+      name: 'poolRedeem',
+      post: recipes.poolRedeem({ poolId: 'p1', userId: U, assetId: 'USDT', amount: AMT, redemptionId: 'pr1', leg: 'pay' }),
+    },
+    {
+      name: 'poolProfit',
+      post: recipes.poolProfit({ poolId: 'p1', assetId: 'USDT', amount: AMT, direction: 'gain', periodId: 'pp1' }),
+    },
+    {
+      name: 'poolProfit',
+      post: recipes.poolProfit({ poolId: 'p1', assetId: 'USDT', amount: AMT, direction: 'loss', periodId: 'pp1' }),
+    },
+    {
+      name: 'poolRaise',
+      post: recipes.poolRaise({ poolId: 'p1', masterUserId: U, assetId: 'USDT', amount: AMT, raiseId: 'pz1' }),
+    },
+    {
       name: 'marketPurchase',
       post: recipes.marketPurchase({
         purchaseId: 'mp1',

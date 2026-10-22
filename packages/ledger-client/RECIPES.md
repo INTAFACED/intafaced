@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**74 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**78 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -77,6 +77,10 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `payReceivedRelease`            | `bank`     | `pay.recv.released`                                              |
 | `payReceivedReturn`             | `bank`     | `pay.recv.returned`                                              |
 | `bankTransferReversal`          | `bank`     | `bank.transfer.reversed`                                         |
+| `poolSubscribe`                 | `trade`    | `trade.pool.subscribed`                                          |
+| `poolRedeem`                    | `trade`    | `trade.pool.redeem.requested → trade.pool.redeem.paid`           |
+| `poolProfit`                    | `trade`    | `trade.pool.pnl`                                                 |
+| `poolRaise`                     | `trade`    | `trade.pool.raised`                                              |
 | `marketPurchase`                | `market`   | `market.purchase`                                                |
 | `marketListingFee`              | `market`   | `market.listing_fee`                                             |
 | `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |
@@ -90,11 +94,14 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `src/recipes/bank.ts`             | transfer + earn + business dual-control holds + atomic payroll                                     |
 | `src/recipes/loans.ts`            | collateral / draw / repay / liquidate / bad debt / reserve                                         |
 | `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (live; posted from svc-pay chargeback-ledger.ts)     |
+| `src/recipes/pool.ts`             | pool subscribe / redeem (request, pay) / P&L / raise (§13 until svc-trade callers)                 |
 | `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                |
 | `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                  |
 | `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory |
 
 ## Sealed notes
+
+- **Pool recipes** (`poolSubscribe`, `poolRedeem`, `poolProfit`, `poolRaise`, LG-pool-recipes-01) are §13 until CB-copy-pro-share-04/07/08/09 add the svc-trade callers; no svc-trade grant yet. Pool money is in `trade` module accounts (`poolAvailable`, per-redemption `poolRedeemPayable` hold, `poolTradingAccount`). No fee, revenue or profit-share leg (pnlFeeForbidden). NAV, fees, limits and lock-ups are svc-trade owner values; amounts are caller-supplied.
 
 - **Chargeback** `chargebackOpen`, `chargebackShortfall`, `chargebackWon`, and `chargebackShortfallRecovered` are live in `src/recipes/live-path-inventory.ts`. All four are posted from `services/svc-pay/src/chargeback-ledger.ts`. No dispute fee is configured, so none is posted.
 - **Market listing / premium fees** are §13 unwired (D26-P1-M2): recipes exist so the vendor lifecycle can book owner-published fees without inventing magnitudes; no svc-market writer yet (VendorService moves no value; commerce wire is M1).
