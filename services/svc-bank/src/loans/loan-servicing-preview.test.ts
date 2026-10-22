@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import { PREVIEW_LABEL, PREVIEW_REFUSAL_CODE, isPreviewRefusal, router, type Context } from '@intafaced/contracts';
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import {
+  PREVIEW_LABEL,
+  PREVIEW_REFUSAL_CODE,
+  isPreviewRefusal,
+  previewRefusal,
+  previewRefusalOf,
+  router,
+  type Context,
+} from '@intafaced/contracts';
 import { loanServicingPreviewProcedures } from './loan-servicing-preview.js';
 import { createBankRouter } from '../router.js';
 
@@ -38,7 +47,7 @@ async function refusalOf(p: Promise<unknown>) {
   const err = (await p.then(
     () => null,
     (e: unknown) => e,
-  )) as { code: string; message: string; cause?: { refusal?: unknown; message?: string } } | null;
+  )) as { code: string; message: string; cause?: unknown } | null;
   expect(err).not.toBeNull();
   return err!;
 }
@@ -48,8 +57,8 @@ describe('loan servicing previews (BK-loan-09)', () => {
     const err = await refusalOf((await caller()).changeRepaymentDate({ loanId: LOAN, date: '2026-11-01' }));
     expect(err.code).toBe('PRECONDITION_FAILED');
     expect(err.message).toBe(`${PREVIEW_REFUSAL_CODE} — bank.loan_schedule:change_repayment_date`);
-    expect(isPreviewRefusal(err.cause?.refusal)).toBe(true);
-    expect(err.cause?.refusal).toMatchObject({
+    expect(isPreviewRefusal(previewRefusalOf(err.cause))).toBe(true);
+    expect(previewRefusalOf(err.cause)).toMatchObject({
       kind: 'preview',
       engine: 'bank.loan_schedule',
       action: 'change_repayment_date',
@@ -60,14 +69,14 @@ describe('loan servicing previews (BK-loan-09)', () => {
   it('paying extra returns the Preview refusal', async () => {
     const err = await refusalOf((await caller()).payExtra({ loanId: LOAN, amount: '10.5' }));
     expect(err.code).toBe('PRECONDITION_FAILED');
-    expect(err.cause?.refusal).toMatchObject({ engine: 'bank.loan_schedule', action: 'pay_extra' });
+    expect(previewRefusalOf(err.cause)).toMatchObject({ engine: 'bank.loan_schedule', action: 'pay_extra' });
   });
 
   it('repaying from an external bank returns the Preview refusal, not an allowlist code', async () => {
     const err = await refusalOf((await caller()).repayFromExternalBank({ loanId: LOAN }));
     expect(err.message).toContain(PREVIEW_REFUSAL_CODE);
     expect(err.message).not.toContain('rail.bank');
-    expect(err.cause?.refusal).toMatchObject({ engine: 'bank.loan_external_repay', action: 'repay_from_external_bank' });
+    expect(previewRefusalOf(err.cause)).toMatchObject({ engine: 'bank.loan_external_repay', action: 'repay_from_external_bank' });
   });
 
   it('refuses a caller without bank:write, and bad input, before the preview', async () => {
@@ -106,7 +115,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
     ]) {
       const err = await refusalOf(p);
       expect(err.code).toBe('UNAUTHORIZED');
-      expect(err.cause?.refusal).toBeUndefined();
+      expect(previewRefusalOf(err.cause)).toBeUndefined();
     }
   });
 
@@ -115,7 +124,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
     for (const p of [c.changeRepaymentDate({ loanId: LOAN, date: '2026-11-01' }), c.repayFromExternalBank({ loanId: LOAN })]) {
       const err = await refusalOf(p);
       expect(err.code).toBe('FORBIDDEN');
-      expect(err.cause?.refusal).toBeUndefined();
+      expect(previewRefusalOf(err.cause)).toBeUndefined();
     }
   });
 
@@ -140,8 +149,25 @@ describe('loan servicing previews (BK-loan-09)', () => {
     ]) {
       const err = await refusalOf(p);
       expect(err.code).toBe('PRECONDITION_FAILED');
-      expect(isPreviewRefusal(err.cause?.refusal)).toBe(true);
+      expect(isPreviewRefusal(previewRefusalOf(err.cause))).toBe(true);
     }
     expect(await c.loans.missedPaymentPolicy()).toEqual({ status: 'not_set' });
+  });
+
+  it('surfaces the refusal on error.data.preview through createBankRouter over the fetch adapter', async () => {
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/loans.payExtra', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ loanId: LOAN, amount: '10.5' }),
+      }),
+      router: createBankRouter(untouchable),
+      createContext: () => ctx(['bank:read', 'bank:write']),
+    });
+    expect(res.status).toBe(412);
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.preview).toEqual(previewRefusal('bank.loan_schedule', 'pay_extra'));
+    expect(data.cause).toEqual({ code: PREVIEW_REFUSAL_CODE });
   });
 });

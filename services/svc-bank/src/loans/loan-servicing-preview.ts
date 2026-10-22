@@ -29,7 +29,7 @@ export function throwPreviewRefusal(engine: string, action: string): never {
   throw new TRPCError({
     code: 'PRECONDITION_FAILED',
     message: `${PREVIEW_REFUSAL_CODE} — ${refusal.engine}:${refusal.action}`,
-    cause: Object.assign(new Error(refusal.label), { refusal }),
+    cause: Object.assign(new Error(refusal.label), refusal),
   });
 }
 
