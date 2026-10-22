@@ -1,11 +1,11 @@
 /** D-margin-07: the liquidation read says "fee not set" when the owner fraction is unset. TEST figures only. */
 import { parseAmount } from '@intafaced/ledger-client';
 import { describe, expect, it } from 'vitest';
-import { encodeRungPlan } from './liquidation-rungs.js';
+import { decodeRungPlan, encodeRungPlan } from './liquidation-rungs.js';
 import { presentLiquidationRung } from './futures-reads.js';
 import { LIQUIDATION_FEE_EXPLANATION, LIQUIDATION_FEE_UNSET } from './liquidation-fee.js';
 
-function row(fee: string | null) {
+function row(fee: string | null, feeState?: 'fee_unset' | 'ledger_job_pending', plannedFee?: string) {
   return {
     rung_id: 'r1',
     position_id: 'p1',
@@ -25,35 +25,41 @@ function row(fee: string | null) {
           fromInsurance: 0n,
           marginAsset: 'USDT',
           ...(fee == null ? {} : { fee: parseAmount(fee) }),
+          ...(feeState ? { feeState } : {}),
+          ...(plannedFee ? { plannedFee: parseAmount(plannedFee) } : {}),
         }),
       ),
     ),
   };
 }
 
-describe('liquidation read fee state (D-margin-07)', () => {
-  it('no recorded fee and the fraction unset → fee null, feeReason fee_unset, with the explanation', () => {
-    const wire = presentLiquidationRung(row(null), { feeFractionUnset: true });
+describe('liquidation read fee state comes from the rung (D-margin-07)', () => {
+  it('a rung that stored fee_unset → fee null, feeReason fee_unset, with the explanation', () => {
+    const wire = presentLiquidationRung(row(null, 'fee_unset'));
     expect(wire.fee).toBeNull();
     expect(wire.feeReason).toBe(LIQUIDATION_FEE_UNSET);
     expect(wire.feeExplanation).toBe(LIQUIDATION_FEE_EXPLANATION);
   });
 
-  it('no recorded fee and the fraction set → the existing not-recorded reason, no explanation', () => {
-    const wire = presentLiquidationRung(row(null), { feeFractionUnset: false });
+  it('a rung that stored ledger_job_pending → planned fee shown as planned, fee null (not charged)', () => {
+    const wire = presentLiquidationRung(row(null, 'ledger_job_pending', '2.5'));
+    expect(wire).toMatchObject({ fee: null, feeReason: 'ledger_job_pending', plannedFee: '2.5' });
+  });
+
+  it('a rung with no stored decision keeps the not-recorded reason, whatever the config is today', () => {
+    const wire = presentLiquidationRung(row(null));
     expect(wire.feeReason).toBe('liquidation_fee_not_recorded');
     expect(wire).not.toHaveProperty('feeExplanation');
   });
 
-  it('a recorded fee is shown as recorded whatever the fraction', () => {
-    const wire = presentLiquidationRung(row('1.5'), { feeFractionUnset: true });
+  it('a recorded fee wins over any stored decision', () => {
+    const wire = presentLiquidationRung(row('1.5', 'fee_unset'));
     expect(wire).toMatchObject({ fee: '1.5', feeReason: null });
     expect(wire).not.toHaveProperty('feeExplanation');
   });
 
-  it('no context (older callers) keeps the previous wire exactly', () => {
-    const wire = presentLiquidationRung(row(null));
-    expect(wire.feeReason).toBe('liquidation_fee_not_recorded');
-    expect(wire).not.toHaveProperty('feeExplanation');
+  it('the decision survives encode → decode of the rung plan', () => {
+    const plan = decodeRungPlan(row(null, 'ledger_job_pending', '2.5').plan);
+    expect(plan).toMatchObject({ feeState: 'ledger_job_pending', plannedFee: parseAmount('2.5') });
   });
 });

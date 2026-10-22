@@ -27,6 +27,9 @@ import {
 } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
+import { planLiquidationFee } from './liquidation-fee.js';
+
+const FEE_SCALE = 10n ** 18n;
 
 async function postGuarded(
   ledger: Pick<LedgerClient, 'post'>,
@@ -288,6 +291,12 @@ export interface LiquidationTickDeps {
   rungs?: LiquidationRungStore;
   /** Mints rung ids. Default `crypto.randomUUID`. */
   newRungId?: RungIdFactory;
+  /**
+   * D-margin-07: the owner liquidation fee fraction (scaled), `null` when unset. When provided (null
+   * included), each new rung records its fee decision (`feeState`, `plannedFee`) in its plan. Nothing is
+   * charged: no fee recipe exists until ledger owner job J-3. Omitted: no fee decision is recorded.
+   */
+  liquidationFeeFraction?: Amount | null;
   /**
    * Ignored. The tick no longer full-closes through the legacy planner; a
    * published `ladder.policy` is the only maintenance table.
@@ -901,6 +910,7 @@ async function planAndDrive(
         reason: decision.reason,
         fromInsurance: decision.fromInsurance,
         marginAsset: row.marginAsset,
+        ...rungFeeDecision(deps.liquidationFeeFraction, rungId, decision.sizeClosed, markPrice, decision.marginRemaining),
       },
     });
     if (begun.status === 'changed') {
@@ -1316,4 +1326,25 @@ export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
       done.add(id);
     },
   };
+}
+
+/**
+ * D-margin-07: the fee decision a new rung records. Charges nothing (no recipe until J-3); the plan's
+ * recipes are unchanged. `undefined` fraction (not wired) records nothing.
+ */
+export function rungFeeDecision(
+  fraction: Amount | null | undefined,
+  rungId: string,
+  sizeClosed: Amount,
+  markPrice: Amount,
+  leftoverCollateral: Amount,
+): { feeState?: 'fee_unset' | 'ledger_job_pending'; plannedFee?: Amount } {
+  if (fraction === undefined) return {};
+  const plan = planLiquidationFee({
+    rungId,
+    fraction,
+    notionalClosed: (sizeClosed * markPrice) / FEE_SCALE,
+    leftoverCollateral,
+  });
+  return plan.state === 'planned' ? { feeState: plan.chargeState, plannedFee: plan.fee } : { feeState: plan.state };
 }

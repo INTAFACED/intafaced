@@ -6,7 +6,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { FuturesError } from './position-service.js';
-import { LIQUIDATION_FEE_EXPLANATION, LIQUIDATION_FEE_UNSET } from './liquidation-fee.js';
+import { LIQUIDATION_FEE_EXPLANATION, LIQUIDATION_FEE_LEDGER_JOB_PENDING, LIQUIDATION_FEE_UNSET } from './liquidation-fee.js';
 import type { MarketRow } from '../spot/rows.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -196,14 +196,10 @@ export interface LiquidationRungWire {
   sizeReason: string | null;
   fee: string | null;
   feeReason: string | null;
-  /** D-margin-07: present only when no fee is recorded and the owner fee fraction is unset. */
+  /** D-margin-07: present when the rung recorded a fee decision (`feeReason` is `fee_unset` or `ledger_job_pending`). */
   feeExplanation?: string;
-}
-
-/** D-margin-07: what the read knows about the owner liquidation fee fraction. */
-export interface LiquidationFeeReadContext {
-  /** True when TRADE_FUTURES_LIQUIDATION_FEE_FRACTION is unset (loaded at boot, invalid fails boot). */
-  readonly feeFractionUnset: boolean;
+  /** D-margin-07: the planned, NOT charged, fee when `feeReason` is `ledger_job_pending`. */
+  plannedFee?: string;
 }
 
 export interface LiquidationEventWire {
@@ -238,12 +234,28 @@ function recorded(plan: unknown, key: string, missing: string): { value: string 
   return value == null ? { value: null, reason: missing } : { value, reason: null };
 }
 
+/** The fee decision the rung itself stored (D-margin-07); never inferred from current config. */
+function recordedFeeDecision(plan: unknown, recordedFee: string | null): Partial<LiquidationRungWire> {
+  if (recordedFee !== null || plan == null || typeof plan !== 'object') return {};
+  const p = plan as Record<string, unknown>;
+  if (p.feeState === LIQUIDATION_FEE_UNSET) return { feeReason: LIQUIDATION_FEE_UNSET, feeExplanation: LIQUIDATION_FEE_EXPLANATION };
+  if (p.feeState === LIQUIDATION_FEE_LEDGER_JOB_PENDING) {
+    const planned = scaledDecimal(p.plannedFee);
+    return {
+      feeReason: LIQUIDATION_FEE_LEDGER_JOB_PENDING,
+      feeExplanation: LIQUIDATION_FEE_EXPLANATION,
+      ...(planned !== null ? { plannedFee: planned } : {}),
+    };
+  }
+  return {};
+}
+
 /** No module computes an ADL queue rank. The field stays null with its reason. */
 export function publishedAdlRank(): { adlRank: null; adlRankReason: typeof ADL_RANK_NOT_PUBLISHED } {
   return { adlRank: null, adlRankReason: ADL_RANK_NOT_PUBLISHED };
 }
 
-export function presentLiquidationRung(row: RungRow, feeContext?: LiquidationFeeReadContext): LiquidationRungWire {
+export function presentLiquidationRung(row: RungRow): LiquidationRungWire {
   const price = recorded(row.plan, 'markPrice', LIQUIDATION_PRICE_NOT_RECORDED);
   const size = recorded(row.plan, 'sizeClosed', LIQUIDATION_SIZE_NOT_RECORDED);
   const fee = recorded(row.plan, 'fee', LIQUIDATION_FEE_NOT_RECORDED);
@@ -257,18 +269,12 @@ export function presentLiquidationRung(row: RungRow, feeContext?: LiquidationFee
     sizeReason: size.reason,
     fee: fee.value,
     feeReason: fee.reason,
-    ...(fee.value === null && feeContext?.feeFractionUnset === true
-      ? { feeReason: LIQUIDATION_FEE_UNSET, feeExplanation: LIQUIDATION_FEE_EXPLANATION }
-      : {}),
+    ...recordedFeeDecision(row.plan, fee.value),
   };
 }
 
 /** The caller's own applied liquidation rungs. Another account's rows are not selected. */
-export async function listCallerLiquidations(
-  sql: Sql,
-  userId: string,
-  feeContext?: LiquidationFeeReadContext,
-): Promise<{ events: LiquidationEventWire[] }> {
+export async function listCallerLiquidations(sql: Sql, userId: string): Promise<{ events: LiquidationEventWire[] }> {
   const rows = await sql<RungRow[]>`
     SELECT r.rung_id::text AS rung_id, r.position_id, r.liquidation_id, r.kind, r.plan, r.created_at
       FROM trade.liquidation_rungs r
@@ -291,7 +297,7 @@ export async function listCallerLiquidations(
       };
       byId.set(row.liquidation_id, event);
     }
-    event.rungs.push(presentLiquidationRung(row, feeContext));
+    event.rungs.push(presentLiquidationRung(row));
   }
   return { events: [...byId.values()] };
 }

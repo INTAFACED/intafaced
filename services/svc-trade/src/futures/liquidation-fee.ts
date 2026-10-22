@@ -108,6 +108,15 @@ export function presentLiquidationFeePlan(plan: LiquidationFeePlan): {
   };
 }
 
+/** Typed boot refusal for a malformed owner fee fraction. */
+export class LiquidationFeeConfigError extends Error {
+  readonly code = LIQUIDATION_FEE_FRACTION_INVALID;
+  constructor(message: string) {
+    super(`${LIQUIDATION_FEE_FRACTION_INVALID}: ${message}`);
+    this.name = 'LiquidationFeeConfigError';
+  }
+}
+
 export const LIQUIDATION_FEE_FRACTION_ENV = 'TRADE_FUTURES_LIQUIDATION_FEE_FRACTION' as const;
 
 /**
@@ -117,6 +126,6 @@ export const LIQUIDATION_FEE_FRACTION_ENV = 'TRADE_FUTURES_LIQUIDATION_FEE_FRACT
  */
 export function loadLiquidationFeeFraction(env: Readonly<Record<string, string | undefined>>): Amount | null {
   const parsed = parseLiquidationFeeFraction(env[LIQUIDATION_FEE_FRACTION_ENV]);
-  if (!parsed.ok) throw new Error(`${parsed.code}: ${LIQUIDATION_FEE_FRACTION_ENV} ${parsed.message}`);
+  if (!parsed.ok) throw new LiquidationFeeConfigError(`${LIQUIDATION_FEE_FRACTION_ENV} ${parsed.message}`);
   return parsed.fraction;
 }

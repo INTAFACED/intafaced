@@ -453,6 +453,7 @@ const futuresJobs = startFuturesJobs({
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    liquidationFeeFraction,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
     fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
@@ -1009,7 +1010,7 @@ registerPrivateRest(app, {
   ocoExits: (ids) => readOcoIntents(sql, ids),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
-  listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId, { feeFractionUnset: liquidationFeeFraction === null }),
+  listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
   listFuturesPayouts: async (principal) => ({ payouts: await listPayoutsForUser(sql, principal.userId) }),
 });
 await app.register(fastifyTRPCPlugin, {
