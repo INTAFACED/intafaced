@@ -1,3 +1,4 @@
+import { rankAttestationAbi } from './attestations/attestation-build.js';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createDb } from '@intafaced/db';
@@ -101,6 +102,11 @@ export const appRouter = createProtocolRouter({
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
+  rankAttestation: {
+    registry: () => env.PROTOCOL_RANK_ATTESTATION_ADDRESS,
+    read: ({ address, commitment, issuer }) =>
+      chain.client.readContract({ address, abi: rankAttestationAbi, functionName: 'attestations', args: [commitment, issuer] }),
+  },
   probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
   peers: createPeers({
     indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },

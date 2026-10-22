@@ -1,3 +1,10 @@
+import {
+  AttestationRefusedError,
+  buildAttest as buildAttestationAttest,
+  buildRevoke as buildAttestationRevoke,
+  verifyAttestation,
+  type AttestationReader,
+} from './attestations/attestation-build.js';
 import { z } from 'zod';
 import { getAddress as toChecksum, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
@@ -288,6 +295,11 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof TokenParamsError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
   }
+  if (err instanceof AttestationRefusedError) {
+    const code =
+      err.code === 'protocol.attestation_registry_unset' || err.code === 'audit.external' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof TokenAddressError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
   }
@@ -295,6 +307,11 @@ function toTrpcError(err: unknown): TRPCError {
 }
 
 export interface ProtocolRouterDeps {
+  /**
+   * RankAttestation registry (RC-identity-16). Absent or 0x0 refuses `protocol.attestation_registry_unset`.
+   * `read` is the chain read of `attestations(commitment, issuer)`; a failed read propagates, never "none".
+   */
+  rankAttestation?: { registry: () => string | undefined; read: AttestationReader };
   chain: ProtocolChain;
   registry: AccountRegistry;
   relay: SessionRelay;
@@ -320,6 +337,7 @@ export interface ProtocolRouterDeps {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const peers = deps.peers ?? noPeers;
+  const attestationConfig = () => ({ registry: deps.rankAttestation?.registry(), chainId: chain.config.chainId });
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -687,6 +705,46 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             specHash: call.specHash,
             validUntil: spec.validUntil,
           };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * RC-identity-16: unsigned `attest` for the holder's own wallet. Self-issued; the service holds no key,
+     * stores nothing and never sees the salt again. Input is strict: any other field is refused as possible PII.
+     */
+    attestationBuildAttest: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(z.record(z.unknown()))
+      .query(({ input }) => {
+        try {
+          return buildAttestationAttest(attestationConfig(), input);
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    attestationBuildRevoke: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(z.object({ commitment: z.string() }).strict())
+      .query(({ input }) => {
+        try {
+          return buildAttestationRevoke(attestationConfig(), input);
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /** Reads the registry by commitment and issuer. A chain failure is 503-shaped, never "none". */
+    attestationVerify: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(z.object({ commitment: z.string(), issuer: z.string() }).strict())
+      .query(async ({ input }) => {
+        const read: AttestationReader =
+          deps.rankAttestation?.read ??
+          (async () => {
+            throw new AttestationRefusedError('protocol.attestation_registry_unset', 'PROTOCOL_RANK_ATTESTATION_ADDRESS is unset');
+          });
+        try {
+          return await verifyAttestation(attestationConfig(), input, read);
         } catch (err) {
           throw toTrpcError(err);
         }
