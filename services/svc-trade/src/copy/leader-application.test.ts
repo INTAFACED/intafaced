@@ -11,6 +11,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { createTradeRouter } from '../router.js';
 import type { TradeService } from '../spot/trade-service.js';
 import { CopyError } from './errors.js';
+import { createIdentityTierReader } from './identity-tier.js';
 import { BLANK_COPY_LEAD_LAW, parseCopyLeadLawJson, type CopyLeadLaw } from './lead-law.js';
 import {
   LeaderApplicationService,
@@ -46,7 +47,7 @@ function ports(over: Partial<LeaderEligibilityPorts> = {}): LeaderEligibilityPor
   return {
     activeFollowCount: async () => 0,
     copyAccountCount: async () => 0,
-    verificationLevel: async () => 'full',
+    readIdentityTier: async () => 'full',
     freeBalance: async () => parseAmount('1500'),
     ...over,
   };
@@ -112,14 +113,78 @@ describe('CB-copy-12 lead application eligibility', () => {
       LAW,
     );
     expect(await code(unwired.apply(USER, INPUT))).toBe('trade.copy_lead_verification_unavailable');
-    const failing = svc({ ports: { verificationLevel: async () => Promise.reject(new Error('identity down')) } });
+    const failing = svc({ ports: { readIdentityTier: async () => Promise.reject(new Error('identity down')) } });
     expect(await code(failing.service.apply(USER, INPUT))).toBe('trade.copy_lead_verification_unavailable');
-    expect(await code(svc({ ports: { verificationLevel: async () => 'basic' } }).service.apply(USER, INPUT))).toBe(
+    expect(await code(svc({ ports: { readIdentityTier: async () => 'basic' } }).service.apply(USER, INPUT))).toBe(
       'trade.copy_lead_verification_insufficient',
     );
-    expect(await code(svc({ ports: { verificationLevel: async () => 'mystery' } }).service.apply(USER, INPUT))).toBe(
+    expect(await code(svc({ ports: { readIdentityTier: async () => 'mystery' as Principal['tier'] } }).service.apply(USER, INPUT))).toBe(
       'trade.copy_lead_verification_insufficient',
     );
+  });
+});
+
+describe('CB-copy-12 every eligibility refusal writes nothing', () => {
+  const refusals: Array<[string, { law?: CopyLeadLaw; ports?: Partial<LeaderEligibilityPorts> }, LeaderApplyInput, string]> = [
+    ['blank market list', {}, { ...INPUT, mode: 'futures' }, 'trade.copy_lead_markets_not_set'],
+    ['market not permitted', {}, { ...INPUT, markets: ['DOGE/USDT'] }, 'trade.copy_lead_market_not_permitted'],
+    ['follows a master', { ports: { activeFollowCount: async () => 1 } }, INPUT, 'trade.copy_lead_follows_master'],
+    ['has a copy account', { ports: { copyAccountCount: async () => 1 } }, INPUT, 'trade.copy_lead_has_copy_account'],
+    ['blank verification level', { law: { ...LAW, verificationLevel: null } }, INPUT, 'trade.copy_lead_verification_not_set'],
+    ['identity read unwired', { ports: { readIdentityTier: undefined } }, INPUT, 'trade.copy_lead_verification_unavailable'],
+    [
+      'identity read fails',
+      { ports: { readIdentityTier: async () => Promise.reject(new Error('down')) } },
+      INPUT,
+      'trade.copy_lead_verification_unavailable',
+    ],
+    ['tier below owner level', { ports: { readIdentityTier: async () => 'basic' } }, INPUT, 'trade.copy_lead_verification_insufficient'],
+    ['tier none', { ports: { readIdentityTier: async () => 'none' } }, INPUT, 'trade.copy_lead_verification_insufficient'],
+    ['blank threshold', { law: { ...LAW, balanceThreshold: null } }, INPUT, 'trade.copy_lead_threshold_not_set'],
+    ['blank balance asset', { law: { ...LAW, balanceAsset: null } }, INPUT, 'trade.copy_lead_threshold_not_set'],
+    [
+      'balance below threshold',
+      { ports: { freeBalance: async () => parseAmount('999.999999') } },
+      INPUT,
+      'trade.copy_lead_balance_below_threshold',
+    ],
+  ];
+  for (const [name, opts, input, expected] of refusals) {
+    it(`${name} refuses ${expected} and the store stays empty`, async () => {
+      const { service, store } = svc(opts);
+      expect(await code(service.apply(USER, input))).toBe(expected);
+      expect(await store.listByUser(USER)).toEqual([]);
+      expect(await store.withKey(leaderApplyKey(USER, input.mode), (tx) => tx.get())).toBeNull();
+    });
+  }
+});
+
+describe('CB-copy-12 journey step 1 from the backend (CB-copy-03 identity reader wired)', () => {
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  function wired(fetcher: () => Promise<Response>) {
+    const read = createIdentityTierReader(
+      { url: 'http://identity.test', serviceSecret: 's'.repeat(32) },
+      fetcher as unknown as typeof fetch,
+    );
+    if (!read) throw new Error('reader not built');
+    return svc({ ports: { readIdentityTier: read } });
+  }
+
+  it('a full-tier user with enough balance applies through the real tier reader and gets a submitted row', async () => {
+    const { service, store } = wired(async () => ok({ userId: USER, status: 'active', kycTier: 'full' }));
+    const row = await service.apply(USER, INPUT);
+    expect(row.state).toBe('submitted');
+    expect(row.idempotencyKey).toBe(leaderApplyKey(USER, 'spot'));
+    expect(await store.listByUser(USER)).toHaveLength(1);
+  });
+
+  it('identity answers basic -> insufficient; identity 503 -> unavailable; nothing written', async () => {
+    const low = wired(async () => ok({ userId: USER, status: 'active', kycTier: 'basic' }));
+    expect(await code(low.service.apply(USER, INPUT))).toBe('trade.copy_lead_verification_insufficient');
+    expect(await low.store.listByUser(USER)).toEqual([]);
+    const down = wired(async () => new Response('no', { status: 503 }));
+    expect(await code(down.service.apply(USER, INPUT))).toBe('trade.copy_lead_verification_unavailable');
+    expect(await down.store.listByUser(USER)).toEqual([]);
   });
 });
 
@@ -232,6 +297,17 @@ describe('CB-copy-12 owner law parsing', () => {
     expect(() => parseCopyLeadLawJson('{"balanceThreshold":1000}')).toThrow(/string/);
     expect(() => parseCopyLeadLawJson('{"resubmitDays":1.5}')).toThrow(/days/);
     expect(parseCopyLeadLawJson(JSON.stringify(LAW))).toEqual(LAW);
+  });
+
+  it('verificationLevel must be basic|full|institutional; anything else fails boot', () => {
+    for (const lv of ['basic', 'full', 'institutional']) {
+      expect(parseCopyLeadLawJson(JSON.stringify({ verificationLevel: lv })).verificationLevel).toBe(lv);
+    }
+    for (const bad of ['Full', 'none', 'kyc2', 'FULL']) {
+      expect(() => parseCopyLeadLawJson(JSON.stringify({ verificationLevel: bad }))).toThrow(/basic\|full\|institutional/);
+    }
+    expect(() => parseCopyLeadLawJson('{"verificationLevel":2}')).toThrow(/string/);
+    expect(parseCopyLeadLawJson('{"verificationLevel":"  "}').verificationLevel).toBeNull();
   });
 });
 

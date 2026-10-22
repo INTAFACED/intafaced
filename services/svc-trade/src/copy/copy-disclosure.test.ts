@@ -87,6 +87,7 @@ function leaderLookup(): LookupLeaderFillPort {
 
 function service(opts: { disclosureLaw?: CopyDisclosureLaw; store?: MemoryCopyFollowStore | SqlCopyFollowStore; places?: { n: number } }) {
   return new CopyService(new MemoryLedger(), {
+    followTier: 'off',
     accountAdmission: readyTestAdmission(),
     feeShareLaw: publishedFee,
     jurisdictionLaw: publishedJur,

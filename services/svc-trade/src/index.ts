@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
+import { createIdentityTierReader } from './copy/identity-tier.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
@@ -135,7 +136,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { parseCopyLeadLawJson } from './copy/lead-law.js';
 import { LeaderApplicationService, SqlLeaderApplicationStore, ledgerFreeBalance, sqlFollowEligibility } from './copy/leader-application.js';
-import { CopyService } from './copy/copy-service.js';
+import { CopyService, parseCopyFollowTier } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -308,6 +309,12 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
+const copyFollowTier = parseCopyFollowTier(env.TRADE_COPY_FOLLOW_TIER);
+const copyIdentityTier = createIdentityTierReader({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, s2s: outS2s });
+if (!copyIdentityTier) {
+  // Bad IDENTITY_URL or INTERNAL_SERVICE_SECRET: every copy follow refuses trade.identity_unavailable.
+  process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.copy.identity_tier_reader_unconfigured' })}\n`);
+}
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -332,6 +339,8 @@ const copy = new CopyService(ledger, {
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
+  followTier: copyFollowTier,
+  readIdentityTier: copyIdentityTier,
   store: copyStore,
   directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
@@ -415,12 +424,15 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
-  // CB-copy-12: the identity verification read is not wired here yet (it lands with
-  // CB-copy-03's svc-identity account read), so apply refuses
-  // trade.copy_lead_verification_unavailable until it is.
+  // CB-copy-12: verification uses CB-copy-03's svc-identity tier reader. Unconfigured
+  // (undefined) or any read failure refuses trade.copy_lead_verification_unavailable.
   new LeaderApplicationService(
     new SqlLeaderApplicationStore(sql),
-    { ...sqlFollowEligibility(sql), freeBalance: ledgerFreeBalance(ledger) },
+    {
+      ...sqlFollowEligibility(sql),
+      ...(copyIdentityTier ? { readIdentityTier: copyIdentityTier } : {}),
+      freeBalance: ledgerFreeBalance(ledger),
+    },
     parseCopyLeadLawJson(env.TRADE_COPY_LEAD_LAW),
   ),
 );

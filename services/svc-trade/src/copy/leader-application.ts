@@ -23,7 +23,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, userAvailable, type LedgerClient } from '@intafaced/ledger-client';
+import { TIER_ORDER } from '@intafaced/auth';
 import { CopyError } from './errors.js';
+import type { ReadIdentityTierPort } from './identity-tier.js';
 import type { CopyLeadLaw } from './lead-law.js';
 
 export const COPY_LEAD_MODES = ['spot', 'futures'] as const;
@@ -31,9 +33,6 @@ export type CopyLeadMode = (typeof COPY_LEAD_MODES)[number];
 
 export const COPY_LEADER_APPLICATION_STATES = ['submitted', 'under_review', 'approved', 'disapproved'] as const;
 export type CopyLeaderApplicationState = (typeof COPY_LEADER_APPLICATION_STATES)[number];
-
-/** Identity verification ladder, lowest first. A level not on it never qualifies. */
-export const COPY_LEAD_VERIFICATION_LADDER = ['none', 'basic', 'full', 'institutional'] as const;
 
 export function leaderApplyKey(userId: string, mode: CopyLeadMode): string {
   return `copy.leader_apply:${userId}:${mode}`;
@@ -83,8 +82,11 @@ export interface LeaderEligibilityPorts {
   activeFollowCount(userId: string): Promise<number>;
   /** Any follow row where the user is the follower, in any state. */
   copyAccountCount(userId: string): Promise<number>;
-  /** Identity verification level, or null when the identity read is not wired / failed. */
-  verificationLevel?: (userId: string) => Promise<string | null>;
+  /**
+   * CB-copy-03 svc-identity tier read (createIdentityTierReader). Absent (unconfigured)
+   * or any failure refuses trade.copy_lead_verification_unavailable.
+   */
+  readIdentityTier?: ReadIdentityTierPort;
   /** Free (available) balance in the owner asset. */
   freeBalance(userId: string, assetId: string): Promise<bigint>;
 }
@@ -251,14 +253,13 @@ export class LeaderApplicationService {
     if (required === null) {
       throw new CopyError('lead verification level is not set by the platform', 'trade.copy_lead_verification_not_set');
     }
-    const level = this.ports.verificationLevel ? await this.ports.verificationLevel(userId).catch(() => null) : null;
+    const read = this.ports.readIdentityTier;
+    const level = read ? await read(userId).catch(() => null) : null;
     if (level === null) {
       throw new CopyError('identity verification could not be read', 'trade.copy_lead_verification_unavailable');
     }
-    const ladder: readonly string[] = COPY_LEAD_VERIFICATION_LADDER;
-    const need = ladder.indexOf(required);
-    const have = ladder.indexOf(level);
-    if (need < 0 || have < 0 || have < need) {
+    const have: number | undefined = (TIER_ORDER as Record<string, number>)[level];
+    if (have === undefined || have < TIER_ORDER[required]) {
       throw new CopyError('verification is below the platform level for lead traders', 'trade.copy_lead_verification_insufficient');
     }
     const threshold = this.law.balanceThreshold;

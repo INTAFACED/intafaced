@@ -12,10 +12,14 @@
 
 import { parseAmount } from '@intafaced/ledger-client';
 
+/** Levels an owner may require (`@intafaced/auth` tiers above none). */
+export const COPY_LEAD_VERIFICATION_LEVELS = ['basic', 'full', 'institutional'] as const;
+export type CopyLeadVerificationLevel = (typeof COPY_LEAD_VERIFICATION_LEVELS)[number];
+
 export type CopyLeadLaw = {
   readonly spotMarkets: readonly string[] | null;
   readonly futuresMarkets: readonly string[] | null;
-  readonly verificationLevel: string | null;
+  readonly verificationLevel: CopyLeadVerificationLevel | null;
   readonly balanceAsset: string | null;
   readonly balanceThreshold: string | null;
   readonly resubmitDays: number | null;
@@ -39,6 +43,15 @@ function text(v: unknown, key: string): string | null {
   if (typeof v !== 'string') throw new Error(`TRADE_COPY_LEAD_LAW.${key} must be a string`);
   const t = v.trim();
   return t ? t : null;
+}
+
+function level(v: unknown): CopyLeadVerificationLevel | null {
+  const t = text(v, 'verificationLevel');
+  if (t === null) return null;
+  if (!(COPY_LEAD_VERIFICATION_LEVELS as readonly string[]).includes(t)) {
+    throw new Error(`TRADE_COPY_LEAD_LAW.verificationLevel must be one of ${COPY_LEAD_VERIFICATION_LEVELS.join('|')}`);
+  }
+  return t as CopyLeadVerificationLevel;
 }
 
 function amount(v: unknown, key: string): string | null {
@@ -73,7 +86,7 @@ export function parseCopyLeadLawJson(raw: string | undefined | null): CopyLeadLa
   return {
     spotMarkets: markets(o.spotMarkets, 'spotMarkets'),
     futuresMarkets: markets(o.futuresMarkets, 'futuresMarkets'),
-    verificationLevel: text(o.verificationLevel, 'verificationLevel'),
+    verificationLevel: level(o.verificationLevel),
     balanceAsset: text(o.balanceAsset, 'balanceAsset'),
     balanceThreshold: amount(o.balanceThreshold, 'balanceThreshold'),
     resubmitDays: days(o.resubmitDays, 'resubmitDays'),

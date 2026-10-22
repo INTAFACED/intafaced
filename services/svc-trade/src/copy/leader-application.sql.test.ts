@@ -57,7 +57,7 @@ describe('CB-copy-12 SqlLeaderApplicationStore', () => {
     const sql = db!.sql;
     return new LeaderApplicationService(
       new SqlLeaderApplicationStore(sql),
-      { ...sqlFollowEligibility(sql), verificationLevel: async () => 'full', freeBalance: ledgerFreeBalance(new MemoryLedger()) },
+      { ...sqlFollowEligibility(sql), readIdentityTier: async () => 'full', freeBalance: ledgerFreeBalance(new MemoryLedger()) },
       LAW,
     );
   }

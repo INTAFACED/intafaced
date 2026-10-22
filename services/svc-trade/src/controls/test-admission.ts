@@ -79,6 +79,8 @@ export class CopyService extends ProductionCopyService {
       // Legacy mirror tests predate the disclosure gate. A published TEST law
       // lets them reach their own assertions. Production boot never uses this.
       disclosureLaw: options.disclosureLaw ?? { published: true, version: 'TEST', text: 'TEST' },
+      // Legacy follow tests predate CB-copy-03. Explicit `off` switch; production boot never uses this.
+      followTier: 'followTier' in options ? options.followTier : 'off',
     });
   }
 
