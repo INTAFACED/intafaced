@@ -127,7 +127,7 @@ export class SqlSurveyBook implements SurveyBook {
   async configure(input: SurveyConfigure): Promise<SupportSurvey> {
     return this.sql.begin(async (tx) => {
       // Serialise every configure: one active survey is decided under this lock.
-      await tx`SELECT pg_advisory_xact_lock(hashtext('support.surveys'))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtext('svc-support'), hashtext('surveys'))`;
       let prior: SupportSurvey | undefined;
       if (input.surveyId !== null) {
         const [row] = await tx<

@@ -35,12 +35,12 @@ async function ctx(userId: string | null, scopes: string[]): Promise<Context> {
   return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-survey' };
 }
 
-async function desk() {
+async function desk(cap: number | null = null) {
   const staff = new MemoryStaffBook();
   await staff.appoint({ userId: LEAD, role: 'lead', by: LEAD, at: AT });
   await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at: AT });
   const support = new SupportService(new MemorySupportStore(), undefined, undefined, staff);
-  const router = createSupportRouter(support, undefined, undefined, support, undefined, undefined, new MemorySurveyBook());
+  const router = createSupportRouter(support, undefined, undefined, support, undefined, undefined, new MemorySurveyBook(undefined, cap));
   return async (userId: string | null, scopes = ['support:ops', 'support:read']) => router.createCaller(await ctx(userId, scopes));
 }
 
@@ -69,7 +69,20 @@ describe('survey doors (SP-csat-02)', () => {
     await expect(lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'support.survey_cap_unset',
+      cause: { code: 'support.survey_cap_unset' },
     });
+  });
+
+  it('with cap N, the door fills to N and then refuses PRECONDITION_FAILED with cause.code support.survey_cap_reached', async () => {
+    const N = 2;
+    const lead = await (await desk(N))(LEAD);
+    for (let i = 0; i < N; i++) await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
+    await expect(lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'support.survey_cap_reached',
+      cause: { code: 'support.survey_cap_reached' },
+    });
+    expect((await lead.surveys()).surveys).toHaveLength(N);
   });
 
   it('stale revision is CONFLICT, unknown survey NOT_FOUND, bad scale BAD_REQUEST', async () => {
