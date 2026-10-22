@@ -40,6 +40,16 @@ import {
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
 import {
+  ORDER_TABS,
+  OrderListError,
+  TAB_STATUSES,
+  decodeTradeCursor,
+  encodeTradeCursor,
+  parseOrderListFilter,
+  type OrderTab,
+  type RawOrderListFilter,
+} from './order-list.js';
+import {
   ExportPolicyError,
   assertFormatBuilt,
   assertRangeWithinCap,
@@ -219,6 +229,8 @@ export type P2pErrorCode =
   | 'p2p.idempotency_in_progress'
   | 'p2p.offer_cursor_invalid'
   | 'p2p.blocked'
+  | 'p2p.cursor_invalid'
+  | 'p2p.filter_invalid'
   | 'p2p.config_unset'
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
@@ -2860,6 +2872,70 @@ export class P2pService {
        LIMIT ${lim}
     `;
     return rows.map(toTrade);
+  }
+
+  /**
+   * P-trade-orders-13: one keyset page of the caller's orders, newest first,
+   * with tab counts from a count query over the same filters (not the page).
+   * Read-only. Page size uses the same owner rule as listTrades.
+   */
+  async pageTrades(input: {
+    userId: string;
+    limit?: number;
+    cursor?: string;
+    filter?: RawOrderListFilter;
+  }): Promise<{ trades: TradeRecord[]; nextCursor: string | null; counts: Record<OrderTab, number> }> {
+    const lim = assertTradeListLimit(input.limit);
+    let filter;
+    let after;
+    try {
+      filter = parseOrderListFilter(input.filter);
+      after = input.cursor === undefined ? undefined : decodeTradeCursor(input.cursor);
+    } catch (err) {
+      if (err instanceof OrderListError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+    const sql = this.sql;
+    const me = input.userId;
+    const common = sql`
+      (seller_id = ${me} OR buyer_id = ${me})
+      ${filter.asset ? sql`AND asset = ${filter.asset}` : sql``}
+      ${filter.side === 'buy' ? sql`AND buyer_id = ${me}` : filter.side === 'sell' ? sql`AND seller_id = ${me}` : sql``}
+      ${filter.from ? sql`AND created_at >= ${filter.from}` : sql``}
+      ${filter.to ? sql`AND created_at <= ${filter.to}` : sql``}
+      ${
+        // Unescaped LIKE is safe only because parseOrderListFilter admits
+        // ^[0-9a-f-]{1,36}$: no '%', '_' or backslash can reach the pattern.
+        filter.orderId ? sql`AND id::text LIKE ${filter.orderId + '%'}` : sql``
+      }
+    `;
+    const tabStatuses = filter.tab ? [...TAB_STATUSES[filter.tab]] : null;
+    const rows = await sql<Array<TradeRow & { created_us: string }>>`
+      SELECT *, (floor(extract(epoch FROM created_at) * 1000000))::bigint::text AS created_us
+        FROM p2p.p2p_trades
+       WHERE ${common}
+         ${tabStatuses ? sql`AND status::text IN ${sql(tabStatuses)}` : sql``}
+         ${
+           after
+             ? // created_at stays bare so an index on (created_at, id) can serve the keyset;
+               // the cursor's microseconds are rebuilt into an exact timestamptz.
+               sql`AND (created_at, id) < (timestamptz 'epoch' + ${after.createdAtMicros}::bigint * interval '1 microsecond', ${after.id}::uuid)`
+             : sql``
+         }
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${lim + 1}
+    `;
+    const page = rows.slice(0, lim);
+    const last = page[page.length - 1];
+    const nextCursor = rows.length > lim && last ? encodeTradeCursor(last.created_us, last.id) : null;
+    const countRows = await sql<Array<{ status: string; n: number }>>`
+      SELECT status::text AS status, count(*)::int AS n FROM p2p.p2p_trades WHERE ${common} GROUP BY status
+    `;
+    const counts = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as Record<OrderTab, number>;
+    for (const r of countRows) {
+      for (const t of ORDER_TABS) if ((TAB_STATUSES[t] as readonly string[]).includes(r.status)) counts[t] += Number(r.n);
+    }
+    return { trades: page.map(toTrade), nextCursor, counts };
   }
 
   async getDispute(tradeId: string): Promise<DisputeRecord> {

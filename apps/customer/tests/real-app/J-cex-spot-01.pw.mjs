@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool } from './stack.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
 // order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
@@ -93,11 +93,8 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   const handle = `jt${Date.now().toString(36)}`;
   // A fresh TEST password per run, kept only in the run file (mode 600).
   const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
-  await page.goto('/register');
-  await page.fill('input[name=handle]', handle);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: 'Create account' }).click();
+  // Sign-up is J-identity-01's own journey: details, then the code the stack mails to its outbox file.
+  await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
   // Signed in, and the way to Verify is shown.
@@ -161,7 +158,8 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   await desk(page);
   await expect(page.getByText('BTC/USDT').first()).toBeVisible();
   await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
-  await expect(page.locator('canvas').first()).toBeVisible();
+  // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Last trades' })).toBeVisible();
   await expect(page.getByText(/Listed: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
   await expect(page.getByText(/trading mode/i).first()).toBeVisible();

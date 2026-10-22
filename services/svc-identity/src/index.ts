@@ -49,9 +49,10 @@ import { createFounderControlsRouter } from './controls/founder-controls-router.
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { createMembershipRouter } from './membership/membership-router.js';
 import { OAuthService } from './oauth/oauth.js';
 import { createOAuthRouter } from './oauth/oauth-router.js';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
 import { createAuthKeysRouter } from './auth-keys-router.js';
@@ -348,6 +349,16 @@ auth.useEmailConfirmation({
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
 });
+// Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
+auth.useSignUpPolicy({
+  minAgeYears: env.IDENTITY_SIGNUP_MIN_AGE_YEARS,
+  codeTtlSeconds: env.IDENTITY_SIGNUP_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_SIGNUP_RESEND_SECONDS,
+  requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
+  closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -483,6 +494,8 @@ enforceOrgSecurityPolicyOn(sql);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // The code-less register door is for the dev and test stacks' own tools only.
+    directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
@@ -526,6 +539,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),

@@ -5,6 +5,7 @@ import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
+import { parseExplorerListLimit } from './explorer/blocks.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -136,6 +137,12 @@ export const appRouter = createIndexerRouter({
   venue: evmSource ? env.INDEXER_VENUE_ADDRESS : null,
   rpcUrl: env.INDEXER_RPC_URL || null,
   claimLiveClob: env.APP_ENV === 'prod',
+  explorer: {
+    listLimit: parseExplorerListLimit(env.INDEXER_EXPLORER_LIST_LIMIT),
+    blocks: (q) => store.explorerBlocks(q),
+    atHeight: (h) => store.explorerAtHeight(h),
+    block: (q) => store.explorerBlock(q),
+  },
 });
 export type AppRouter = typeof appRouter;
 

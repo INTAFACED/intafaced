@@ -68,6 +68,22 @@ Not started because the Customer app never calls them: Protocol, DEX, Indexer, O
 
 Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` and `LOCAL_TEST_KMS_DIR` to `<state>/p2p-kms`. The first boot writes `p2p-instrument.local-test.key` there, mode 0600, and seals new instrument details as `{"_sealed":"local-test:v1:..."}`. Health keeps `instrumentKmsConfigured: false` and adds `instrumentKeyProvider: "local-test"`. This is not owner KMS. `P2P_FEE_BPS=0` is an explicit LOCAL TEST free cut, the same kind of published zero as `MARKET_HOUSE_COMMISSION_BPS=0` in `.env.example`: `trades.take` posts a 0 bps cut, so the buyer receives the whole amount, instead of refusing `p2p.fee_bps_unset`. Undo: unset `LOCAL_TEST_KMS` and `LOCAL_TEST_KMS_DIR`, then `pnpm local:stack:restart p2p`. After that restart a sealed row refuses with `p2p.instrument_kms_required` and is not returned as account details. No other service gets either variable.
 
+## A fresh stack, or a cloud container (root)
+
+A wiped state folder trades only after five steps, in this order (the journeys workflow runs the same):
+
+```sh
+pnpm local:stack                                         # services up; the founders enrol
+node tooling/scripts/local-test-stack.mjs restart matching # matching reads its operator seats at start
+node tooling/scripts/local-test-gates.mjs apply           # lifecycle publication, then the markets open
+pnpm local:market                                        # refuses closed markets; creates its two TEST accounts
+node tooling/scripts/local-test-gates.mjs verify          # verifies those accounts, so their quotes are accepted
+```
+
+The first BTC/USDT trade, and so the first candle, follows within about a minute.
+
+As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
+
 ## Screening
 
 Edge refuses **every** `/api/*` call, including sign-up and sign-in, with `edge.screening_unset` (HTTP 503) until a sanctions screening list is set. This script never sets or invents one. It passes `INTAFACED_SANCTIONS_REGIONS` and `INTAFACED_SANCTIONS_LIST_SOURCE` to Edge from the shell environment, or else from the machine-local file `~/.intafaced/local-test-stack/screening.local.json` (`{"regions": "...", "source": "..."}`), which is never committed. Without either, it prints a warning and every call returns 503. See `services/svc-edge/src/geo-block.ts` and `packages/config/src/screening.ts`.
