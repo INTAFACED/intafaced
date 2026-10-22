@@ -2336,7 +2336,7 @@ export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
 
 /**
  * Newest LOCAL-TEST confirm link for this address, or null.
- * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
+ * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirm-email?token=<encoded>` (the customer page; older lines used `confirmEmail`).
  */
 export function readLatestEmailConfirmToken(text, email) {
   const want = String(email ?? '')

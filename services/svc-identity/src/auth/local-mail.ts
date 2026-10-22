@@ -66,7 +66,7 @@ export function localMailLine(message: {
   }
   const link =
     purpose === 'email-confirm'
-      ? `confirmEmail?token=${encodeURIComponent(message.code)}`
+      ? `confirm-email?token=${encodeURIComponent(message.code)}`
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
         : `completePasswordReset?code=${encodeURIComponent(message.code)}`;
