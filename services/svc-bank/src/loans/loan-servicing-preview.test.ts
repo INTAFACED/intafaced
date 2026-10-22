@@ -91,4 +91,57 @@ describe('loan servicing previews (BK-loan-09)', () => {
     expect(err.message).toContain(PREVIEW_REFUSAL_CODE);
     expect(await c.loans.missedPaymentPolicy()).toEqual({ status: 'not_set' });
   });
+  it('refuses an anonymous caller UNAUTHORIZED before the preview', async () => {
+    const anon = router(loanServicingPreviewProcedures(null)).createCaller({
+      principal: null,
+      service: null,
+      region: 'DE',
+      requestId: 'req-anon',
+    } as Context);
+    for (const p of [
+      anon.changeRepaymentDate({ loanId: LOAN, date: '2026-11-01' }),
+      anon.payExtra({ loanId: LOAN, amount: '1' }),
+      anon.repayFromExternalBank({ loanId: LOAN }),
+      anon.missedPaymentPolicy(),
+    ]) {
+      const err = await refusalOf(p);
+      expect(err.code).toBe('UNAUTHORIZED');
+      expect(err.cause?.refusal).toBeUndefined();
+    }
+  });
+
+  it('refuses missing bank:write FORBIDDEN on changeRepaymentDate and repayFromExternalBank before the preview', async () => {
+    const c = await caller(['bank:read']);
+    for (const p of [c.changeRepaymentDate({ loanId: LOAN, date: '2026-11-01' }), c.repayFromExternalBank({ loanId: LOAN })]) {
+      const err = await refusalOf(p);
+      expect(err.code).toBe('FORBIDDEN');
+      expect(err.cause?.refusal).toBeUndefined();
+    }
+  });
+
+  it('refuses missing bank:read FORBIDDEN on missedPaymentPolicy', async () => {
+    const err = await refusalOf((await caller(['bank:write'])).missedPaymentPolicy());
+    expect(err.code).toBe('FORBIDDEN');
+  });
+
+  it('runs all four procedures against the throwing services proxy', async () => {
+    const c = createBankRouter(untouchable).createCaller(await ctx(['bank:read', 'bank:write'])) as unknown as {
+      loans: {
+        changeRepaymentDate(i: { loanId: string; date: string }): Promise<unknown>;
+        payExtra(i: { loanId: string; amount: string }): Promise<unknown>;
+        repayFromExternalBank(i: { loanId: string }): Promise<unknown>;
+        missedPaymentPolicy(): Promise<unknown>;
+      };
+    };
+    for (const p of [
+      c.loans.changeRepaymentDate({ loanId: LOAN, date: '2026-11-01' }),
+      c.loans.payExtra({ loanId: LOAN, amount: '1' }),
+      c.loans.repayFromExternalBank({ loanId: LOAN }),
+    ]) {
+      const err = await refusalOf(p);
+      expect(err.code).toBe('PRECONDITION_FAILED');
+      expect(isPreviewRefusal(err.cause?.refusal)).toBe(true);
+    }
+    expect(await c.loans.missedPaymentPolicy()).toEqual({ status: 'not_set' });
+  });
 });
