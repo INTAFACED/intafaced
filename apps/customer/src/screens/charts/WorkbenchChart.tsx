@@ -55,6 +55,8 @@ export interface WorkbenchChartProps {
   focus?: { index: number; nonce: number } | null;
   /** Add-ons drawn on top of the chart (studies, drawings), given the host once the chart exists. */
   children?: (host: ChartHost | null) => ReactNode;
+  /** Told the host whenever it changes (null when the chart goes), so a grid can link charts. */
+  onHost?: (host: ChartHost | null) => void;
 }
 
 const PAN_BARS = 10;
@@ -71,6 +73,7 @@ export function WorkbenchChart({
   onReachStart,
   focus,
   children,
+  onHost,
 }: WorkbenchChartProps) {
   const { language, upColor } = usePreferences();
   const element = useRef<HTMLDivElement>(null);
@@ -186,6 +189,13 @@ export function WorkbenchChart({
     }
     shown.current = candles;
   }, [candles, style, scheme, host, resetKey]);
+
+  const report = useRef(onHost);
+  report.current = onHost;
+  useEffect(() => {
+    report.current?.(host);
+  }, [host]);
+  useEffect(() => () => report.current?.(null), []);
 
   // Go to date: centre the asked bar, keeping the current zoom.
   useEffect(() => {

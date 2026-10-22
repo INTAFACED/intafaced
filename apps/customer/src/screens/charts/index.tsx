@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
@@ -8,8 +8,9 @@ import { findMarket, pairOf, type DeskMarket } from '../trade/desk/market';
 import '../trade/chart/chart.css';
 import './charts.css';
 import { chartsCopy } from './copy';
-import { Button, defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateBlock } from './deps';
-import { MarketChartWidget, type WidgetProps } from './MarketChartWidget';
+import { defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateBlock } from './deps';
+import { ChartGrid } from './ChartGrid';
+import type { WidgetProps } from './MarketChartWidget';
 import {
   DEFAULT_SETTING,
   chartsHref,
@@ -23,24 +24,6 @@ import {
   type WorkbenchSetting,
 } from './workbench';
 import type { ColourScheme } from './chart-style';
-
-/** The one store every widget on the page reads: the market (from the address) and the interval and style (kept per workbench). */
-interface Workbench {
-  id: string;
-  market: DeskMarket;
-  markets: readonly DeskMarket[];
-  setting: WorkbenchSetting;
-  setInterval: (interval: ChartInterval) => void;
-  setMode: (mode: ChartMode) => void;
-  setScheme: (scheme: ColourScheme) => void;
-  chooseMarket: (symbol: string) => void;
-}
-const WorkbenchContext = createContext<Workbench | null>(null);
-const useWorkbench = (): Workbench => {
-  const value = useContext(WorkbenchContext);
-  if (!value) throw new Error('useWorkbench needs a workbench');
-  return value;
-};
 
 function MarketSelect({
   label,
@@ -67,53 +50,6 @@ function MarketSelect({
   );
 }
 
-/** The second chart: it follows the workbench, or it is set free with a market and interval of its own. */
-function SecondChart({ openSocket }: Pick<WidgetProps, 'openSocket'>) {
-  const { t } = chartsCopy.useCopy();
-  const bench = useWorkbench();
-  const [linked, setLinked] = useState(true);
-  const [own, setOwn] = useState<{ symbol: string; setting: WorkbenchSetting }>({ symbol: bench.market.symbol, setting: bench.setting });
-  const market = linked ? bench.market : (findMarket(bench.markets as DeskMarket[], own.symbol) ?? bench.market);
-  const setting = linked ? bench.setting : own.setting;
-  return (
-    <div className="cw-second">
-      <div className="cw-second-bar">
-        <label className="cw-check">
-          <input
-            type="checkbox"
-            checked={linked}
-            onChange={(event) => {
-              const next = event.target.checked;
-              if (!next) setOwn({ symbol: bench.market.symbol, setting: bench.setting });
-              setLinked(next);
-            }}
-          />
-          <span>{t('Follow the first chart')}</span>
-        </label>
-        {!linked && (
-          <MarketSelect
-            label={t('Second chart market')}
-            value={market.symbol}
-            markets={bench.markets}
-            onChoose={(symbol) => setOwn((now) => ({ ...now, symbol }))}
-          />
-        )}
-      </div>
-      <MarketChartWidget
-        market={market}
-        interval={setting.interval}
-        mode={setting.mode}
-        onInterval={(interval) =>
-          linked ? bench.setInterval(interval) : setOwn((now) => ({ ...now, setting: { ...now.setting, interval } }))
-        }
-        onMode={(mode) => (linked ? bench.setMode(mode) : setOwn((now) => ({ ...now, setting: { ...now.setting, mode } })))}
-        scheme={setting.scheme ?? 'standard'}
-        openSocket={openSocket}
-      />
-    </div>
-  );
-}
-
 function Page({
   market,
   markets,
@@ -129,7 +65,6 @@ function Page({
   const { userId } = useSession();
   const id = workbenchId(search);
   const [setting, setSetting] = useDeviceSetting<WorkbenchSetting>(settingKey(userId, id), DEFAULT_SETTING, isWorkbenchSetting);
-  const [second, setSecond] = useState(false);
   // An interval in the address opens the workbench at that interval, once; after that the person's choice stands.
   const fromAddress = useRef(intervalFromSearch(search));
   useEffect(() => {
@@ -143,49 +78,37 @@ function Page({
   const setScheme = useCallback((scheme: ColourScheme) => setSetting((now) => ({ ...now, scheme })), [setSetting]);
   const unoffered = useMemo(() => unofferedInterval(search), [search]);
   const chooseMarket = useCallback((symbol: string) => navigate(chartsHref(pairOf(symbol), { workbench: id })), [id]);
-  const bench = useMemo<Workbench>(
-    () => ({ id, market, markets, setting, setInterval, setMode, setScheme, chooseMarket }),
-    [id, market, markets, setting, setInterval, setMode, setScheme, chooseMarket],
-  );
   return (
-    <WorkbenchContext.Provider value={bench}>
-      <div className="cw-page" data-market={market.symbol} data-workbench={id}>
-        <header className="cw-head">
-          <div>
-            <h1>{t('Charts')}</h1>
-            <p>{t('Charts lead')}</p>
-          </div>
-          <div className="cw-head-actions">
-            <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
-            <a className="cw-link" href={`/trade/spot/${pairOf(market.symbol)}`}>
-              {t('Trade this market')}
-            </a>
-          </div>
-        </header>
-        {unoffered && (
-          <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
-            <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
-            {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
-          </div>
-        )}
-        <MarketChartWidget
-          market={market}
-          interval={setting.interval}
-          mode={setting.mode}
-          onInterval={setInterval}
-          onMode={setMode}
-          scheme={setting.scheme ?? 'standard'}
-          onScheme={setScheme}
-          openSocket={openSocket}
-        />
-        <div className="cw-more-charts">
-          <Button type="button" variant="secondary" onClick={() => setSecond((now) => !now)}>
-            {second ? t('Remove the second chart') : t('Add a linked chart')}
-          </Button>
+    <div className="cw-page" data-market={market.symbol} data-workbench={id}>
+      <header className="cw-head">
+        <div>
+          <h1>{t('Charts')}</h1>
+          <p>{t('Charts lead')}</p>
         </div>
-        {second && <SecondChart openSocket={openSocket} />}
-      </div>
-    </WorkbenchContext.Provider>
+        <div className="cw-head-actions">
+          <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
+          <a className="cw-link" href={`/trade/spot/${pairOf(market.symbol)}`}>
+            {t('Trade this market')}
+          </a>
+        </div>
+      </header>
+      {unoffered && (
+        <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
+          <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
+          {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
+        </div>
+      )}
+      <ChartGrid
+        market={market}
+        markets={markets}
+        workbench={id}
+        setting={setting}
+        setInterval={setInterval}
+        setMode={setMode}
+        setScheme={setScheme}
+        openSocket={openSocket}
+      />
+    </div>
   );
 }
 

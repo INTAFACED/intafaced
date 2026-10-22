@@ -11,6 +11,7 @@ const world = vi.hoisted(() => ({
   candles: { status: 'ready', data: [], asOf: 0 } as unknown,
   asked: [] as string[],
   history: { status: 'idle' } as unknown,
+  owner: {} as Record<string, unknown>,
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -33,6 +34,10 @@ vi.mock('./WorkbenchChart', () => ({
 vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
   useChartHistory: () => ({ state: world.history, load: async () => world.history, oldestReachable: 0 }),
+}));
+vi.mock('./owner-values', async (original) => ({
+  ...(await original<typeof import('./owner-values')>()),
+  useChartOwnerValues: () => ({ status: 'ready', data: world.owner, asOf: 0 }),
 }));
 import ChartsScreen from './index';
 
@@ -71,6 +76,12 @@ async function open(pathname = '/charts/BTC-USDT', search = '', socket?: () => S
 const pressed = (scope: ParentNode = host) =>
   [...scope.querySelectorAll('[aria-label="Chart intervals"] button[aria-pressed="true"]')].map((node) => node.textContent);
 const click = (node: Element | null | undefined) => act(async () => node?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+const choose = (label: string, value: string) =>
+  act(async () => {
+    const select = [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('select')!;
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 const button = (label: string) => [...host.querySelectorAll('button')].find((node) => node.textContent === label);
 
 beforeEach(() => {
@@ -81,6 +92,15 @@ beforeEach(() => {
   world.candles = ready([bar(0, '1'), bar(60_000, '2')]);
   world.asked = [];
   world.history = { status: 'idle' };
+  // TEST owner values, not published ones.
+  world.owner = {
+    compareCap: 3,
+    chartCountLimit: 4,
+    drawingCap: 50,
+    brushPointCap: 2000,
+    delayedBoundarySeconds: 30,
+    dataClass: 'real_time',
+  };
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -116,29 +136,57 @@ describe('chart workbench', () => {
     expect(host.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('shares the interval and style with a second chart that follows the first', async () => {
+  it('refuses a layout of more than one chart while the owner limit is not set', async () => {
+    world.owner = { ...world.owner, chartCountLimit: null };
     await open();
-    await click(button('Add a second chart'));
-    const charts = host.querySelectorAll('section.cw');
-    expect(charts).toHaveLength(2);
-    await click(charts[0]!.querySelector('[aria-label="Chart intervals"] button:nth-child(5)'));
-    expect(pressed(charts[0]!)).toEqual(['4h']);
-    expect(pressed(host.querySelectorAll('section.cw')[1]!)).toEqual(['4h']);
-    await click([...charts[1]!.querySelectorAll('button')].find((node) => node.textContent === 'Line'));
+    await choose('Layout', 'grid');
+    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('isn’t set yet');
+  });
+
+  it('opens four charts that follow the first one’s market and interval in their group', async () => {
+    await open();
+    await choose('Layout', 'grid');
+    const charts = () => host.querySelectorAll('section.cw');
+    expect(charts()).toHaveLength(4);
+    // The fourth leaves the group, so it no longer follows.
+    await act(async () => {
+      const group = host.querySelectorAll<HTMLSelectElement>('[data-cell="3"] .cg-cell-bar select')[0]!;
+      group.value = 'none';
+      group.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click(charts()[0]!.querySelector('[aria-label="Chart intervals"] button:nth-child(5)'));
+    expect([0, 1, 2].map((i) => pressed(charts()[i]!))).toEqual([['4h'], ['4h'], ['4h']]);
+    expect(pressed(charts()[3]!)).toEqual(['15m']);
+    await click([...charts()[1]!.querySelectorAll('button')].find((node) => node.textContent === 'Line'));
     expect([...host.querySelectorAll('[data-testid="price-chart"]')].map((node) => node.getAttribute('data-mode'))).toEqual([
+      'candles',
       'line',
-      'line',
+      'candles',
+      'candles',
     ]);
   });
 
-  it('lets the second chart go its own way once it stops following', async () => {
+  it('refuses a layout past the owner limit and names both numbers', async () => {
+    world.owner = { ...world.owner, chartCountLimit: 2 };
     await open();
-    await click(button('Add a second chart'));
-    await click(host.querySelector('.cw-check input'));
-    const second = () => host.querySelectorAll('section.cw')[1]!;
-    await click([...second().querySelectorAll('button')].find((node) => node.textContent === '1m'));
-    expect(pressed(second())).toEqual(['1m']);
-    expect(pressed(host.querySelectorAll('section.cw')[0]!)).toEqual(['15m']);
+    await choose('Layout', 'grid');
+    expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('4 charts; the limit is 2');
+    await choose('Layout', 'two-across');
+    expect(host.querySelectorAll('section.cw')).toHaveLength(2);
+  });
+
+  it('maximises the chart in focus on Alt+Enter and brings the others back on the same key', async () => {
+    await open();
+    await choose('Layout', 'two-across');
+    const cell = host.querySelector<HTMLElement>('[data-cell="1"]')!;
+    const key = (init: KeyboardEventInit) =>
+      act(async () => cell.querySelector('section')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init })));
+    await key({ key: 'Enter', altKey: true });
+    expect(host.querySelector('.cg-area')?.getAttribute('data-maximised')).toBe('1');
+    expect(host.querySelector<HTMLElement>('[data-cell="0"]')!.style.display).toBe('none');
+    await key({ key: 'Enter', altKey: true });
+    expect(host.querySelector('.cg-area')?.getAttribute('data-maximised')).toBe('');
   });
 
   it('says which way the chart is fed: read every 10 seconds, then live once a frame arrives', async () => {
