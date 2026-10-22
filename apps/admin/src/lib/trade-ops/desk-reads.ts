@@ -82,6 +82,8 @@ export interface RiskSetInput {
   readonly expectedVersion: string;
   readonly reason: string;
   readonly approvalId: string;
+  /** The approval's own operation id, read from identity: the consume refuses any other. */
+  readonly operationId: string;
 }
 
 /**

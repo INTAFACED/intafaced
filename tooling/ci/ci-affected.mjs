@@ -113,7 +113,7 @@ export function affectedFilters(files, edges = readEdges(), base = 'origin/main'
   return filters;
 }
 
-export const SHARD_COUNT = 4;
+export const SHARD_COUNT = 8;
 
 /**
  * The test job's matrix. A run-everything run is split SHARD_COUNT ways (tooling/ci/test-shards.mjs); an affected run is
@@ -239,7 +239,7 @@ function selfTest() {
   );
   assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
-  assert(same(shardMatrix({ full: true }), ['1/4', '2/4', '3/4', '4/4']), 'a full run is split four ways');
+  assert(same(shardMatrix({ full: true }), ['1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8']), 'a full run is split eight ways');
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
   console.log('✓ ci-affected --self-test OK (' + (cases.length + 14) + ' fixtures)');
 }

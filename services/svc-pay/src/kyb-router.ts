@@ -7,6 +7,10 @@ import {
   kybApplicationStartInputSchema,
   kybApplicationSubmitInputSchema,
   kybApplicationViewSchema,
+  kybDocumentChecklistViewSchema,
+  kybDocumentsChecklistInputSchema,
+  kybDocumentsUploadInputSchema,
+  kybDocumentsUploadResultSchema,
   kybDecisionBindingSchema,
   kybEntityTypesViewSchema,
   kybRequirementsReadInputSchema,
@@ -28,6 +32,7 @@ import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
 import type { KybApplicationService } from './kyb-application.js';
+import type { KybDocumentService } from './kyb-documents.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
@@ -101,7 +106,9 @@ function toTrpcError(err: unknown): unknown {
     if (
       err.code === 'pay.kyb_history_limit_unset' ||
       err.code === 'pay.psp_pricing_history_limit_unset' ||
-      err.code === 'pay.kyb_requirements_unset'
+      err.code === 'pay.kyb_requirements_unset' ||
+      err.code === 'pay.kyb_upload_rules_unset' ||
+      err.code === 'pay.kyb_doc_key_unset'
     ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
@@ -141,10 +148,15 @@ export function createKybPspRouter(
   },
   /** Unwired means no application can be kept: every call refuses. */
   applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'submit'>,
+  documents?: Pick<KybDocumentService, 'checklist' | 'upload'>,
 ) {
   const applicationService = () => {
     if (!applications) throw new KybError('Business applications are not wired in this build', 'pay.kyb_application_unwired');
     return applications;
+  };
+  const documentService = () => {
+    if (!documents) throw new KybError('Business documents are not wired in this build', 'pay.kyb_application_unwired');
+    return documents;
   };
   /** The caller must own the merchant the application belongs to. An unknown id and someone else's refuse alike. */
   const ownedApplication = async (userId: string, applicationId: string): Promise<{ merchantId: string }> => {
@@ -228,6 +240,30 @@ export function createKybPspRouter(
             wrap(async () => {
               const { merchantId } = await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().submit({ applicationId: input.applicationId, merchantId, actorId: ctx.principal.userId });
+            }),
+          ),
+      }),
+
+      documents: router({
+        /** What the application's type requires, each document's state, the owner's upload rules, and the automatic check (`vendor.kyc`, not connected). */
+        checklist: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybDocumentsChecklistInputSchema)
+          .output(kybDocumentChecklistViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return documentService().checklist(input.applicationId);
+            }),
+          ),
+
+        /** Upload one required document to an open draft. Refuses without published upload rules or an encryption key, a wrong type, or an oversize file. */
+        upload: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybDocumentsUploadInputSchema)
+          .output(kybDocumentsUploadResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return { row: await documentService().upload({ ...input, actorId: ctx.principal.userId }) };
             }),
           ),
       }),

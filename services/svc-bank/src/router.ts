@@ -22,6 +22,14 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { BankError } from './errors.js';
+import {
+  FRAUD_BLOCK_STANCES,
+  FRAUD_PREVIEW_ACTIONS,
+  FRAUD_RISK_BANDS,
+  FRAUD_SIGNALS,
+  fraudPreview,
+  refuseFraudPreviewAction,
+} from './cards/fraud-preview.js';
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
@@ -31,16 +39,28 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
+import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
+import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import {
+  createLimitsRouter,
+  decideLimitRequestProcedure,
+  LimitRequestService,
+  limitRequestQueueProcedure,
+} from './transfers/limit-requests.js';
+import { createLoanProductProcedure } from './ops/loan-products.js';
+import { publishTransferTermsProcedure } from './transfers/transfer-terms.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from './ops/customer-balances.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
+import { authorizationGetProcedure } from './ops/authorization-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -297,12 +317,15 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_product_not_found':
       case 'bank.personal_transfer_not_found':
       case 'bank.ops_transfer_not_found':
+      case 'bank.ops_authorization_not_found':
       case 'bank.personal_request_not_found':
       case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.insufficient_funds':
+        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       case 'bank.not_owner':
       case 'bank.personal_request_not_payer':
       case 'bank.personal_request_not_payee':
@@ -413,6 +436,13 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'bank.asset_paused':
+      case 'bank.ops_revision_conflict':
+      case 'bank.activity_filter_conflict':
+      case 'bank.limit_request_open':
+      case 'bank.limit_request_conflict':
+      case 'bank.limit_request_decided':
+      case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -489,7 +519,20 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.activity_filter_name_invalid':
+      case 'bank.activity_filter_empty':
+      case 'bank.activity_filter_limit_unset':
+      case 'bank.limit_request_reason_too_short':
+      case 'bank.limit_request_list_limit_unset':
+      case 'bank.limit_grant_unset':
+      case 'bank.loan_params_invalid':
+      case 'bank.personal_transfer_terms_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+
+      case 'bank.limit_request_not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.limit_request_self_decision':
+        return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
       // Same shape and the same reason as `bank.no_liquidation_counterparty`.
@@ -549,6 +592,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.personal_transfer_terms_unset':
       case 'bank.personal_transfer_fee_unwired':
       case 'bank.pay_request_notify_unwired':
+      case 'bank.transfer_notify_unwired':
       case 'bank.party_handles_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
@@ -583,6 +627,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.statement_unavailable':
       case 'bank.ops_audit_unavailable':
       case 'bank.account_details_unavailable':
+      // The pause read failed; the new borrow or deposit was refused rather than assumed open.
+      case 'bank.asset_pause_unreadable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -797,6 +843,8 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
+  loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
@@ -823,6 +871,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvestEnabled = options.autoInvestEnabled ?? true;
   const autoInvestConvertWired = options.autoInvestConvertWired ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  // Same connection as the transfer reads; built lazily so mounts with a partial fake never touch it.
+  let limitRequestService: LimitRequestService | undefined;
+  const limitRequests = () => (limitRequestService ??= new LimitRequestService(bank.transferOps.sql));
   const stepUp = options.stepUp ?? stepUpOff;
   const stepUpEnforced = stepUp.mode === 'required';
 
@@ -1103,8 +1154,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               note: input.note ?? null,
               reference: input.reference ?? null,
             })
-            .catch((err: unknown) => {
-              throw gate.mayDescribe ? err : hideDestinationDetail(err);
+            .catch(async (err: unknown) => {
+              const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
+              // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
+              throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
             });
           return { ledgerTxId: result.ledgerTxId, amount: result.amount };
         }),
@@ -1542,6 +1595,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // The desk supply pause is checked inside earn.deposit, so every caller respects it.
           const position = await bank.earn.deposit({
             poolId: input.poolId,
             userId: ctx.principal.userId,
@@ -1816,6 +1870,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // Pre-flight: a desk pause on either asset of the product refuses before collateral is locked.
+          const product = await bank.loans.product(input.productId);
+          await bank.assetPauses.assertBorrowOpen([product.debtAssetId, product.collateralAssetId]);
           const result = await bank.loans.open({
             loanId: input.loanId,
             productId: input.productId,
@@ -1951,6 +2008,36 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * one release. Overlapping releases share the loan row lock, so they cannot
      * each pass the product cap.
      */
+    /**
+     * Redeem-excess read (BK-loan-05): the most collateral `releaseExcess` would
+     * release now under the product's max LTV. Self-only. Posts nothing.
+     */
+    releasable: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ loanId: z.string().uuid() }))
+      .output(
+        z.object({
+          loanId: z.string(),
+          held: amountString,
+          releasable: amountString,
+          maxLtvBps: z.number().int(),
+          ltvBps: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const loan = await bank.loans.loan(input.loanId);
+          assertSelf(ctx.principal.userId, loan.userId);
+          const read = await bank.loans.releasable(input.loanId);
+          return {
+            loanId: input.loanId,
+            held: formatAmount(read.held),
+            releasable: formatAmount(read.releasable),
+            maxLtvBps: read.maxLtvBps,
+            ltvBps: read.ltvBps,
+          };
+        }),
+      ),
+
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
@@ -2010,6 +2097,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId };
         }),
       ),
+    // BK-loan-09: unsecured-loan servicing previews (typed Preview refusals) and the owner missed-payment policy.
+    ...loanServicingPreviewProcedures(options.loanMissedPaymentPolicy),
   });
 
   /**
@@ -2587,6 +2676,40 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * not this door. Bank maker-checker is not this door.
    */
   const ops = router({
+    /**
+     * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
+     * and blurred; no authorisation carries a score until an engine exists.
+     */
+    fraudPreview: scopedProcedure('admin:treasury')
+      .output(
+        z.object({
+          label: z.literal('Preview · sample data'),
+          engine: z.string(),
+          preview: z.literal(true),
+          blurred: z.literal(true),
+          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
+          automaticBlocking: z.literal('unavailable'),
+          rows: z.array(
+            z.object({
+              testAuthorisationRef: z.string().startsWith('TEST-'),
+              test: z.literal(true),
+              band: z.enum(FRAUD_RISK_BANDS),
+              signals: z.array(z.enum(FRAUD_SIGNALS)),
+            }),
+          ),
+        }),
+      )
+      .query(() => {
+        const view = fraudPreview();
+        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
+      }),
+    /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
+    fraudPreviewAction: scopedProcedure('admin:treasury')
+      .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
+      .output(
+        z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
+      )
+      .mutation(({ input }) => refuseFraudPreviewAction(input.action)),
     runDueTransfers: jobProcedure
       .input(z.object({ limit: z.number().int().min(1).max(10_000).optional() }))
       .output(
@@ -3293,12 +3416,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
+    setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
+    limitRequests: limitRequestQueueProcedure(limitRequests, guard),
+    decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
+    createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
+    publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
+    /** BK-cops-01: one card authorisation for a compliance operator. Read-only. */
+    authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
@@ -4608,6 +4739,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
     spaces,
     transfers,
+    /**
+     * PP-money-balance-04: the published personal-send fee schedule. No rows → `published: false`
+     * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
+     */
+    fees: router({
+      schedule: router({
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({
+              published: z.boolean(),
+              entries: z.array(
+                z.object({
+                  assetId: z.string(),
+                  fee: amountString,
+                  free: z.boolean(),
+                  feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
+                  publishedAt: z.string(),
+                }),
+              ),
+            }),
+          )
+          .query(() => guard(() => bank.personalPay.feeSchedule())),
+      }),
+    }),
     earn,
     loans,
     cards,
@@ -4707,9 +4862,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
+    /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
+    creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),
+    limits: createLimitsRouter(limitRequests, guard),
     ops,
   });
 }

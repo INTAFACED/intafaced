@@ -20,6 +20,12 @@ export interface RefusalContext {
   pair?: string;
   /** Pass the Help route only when Help is live (registry); adds "Contact support". */
   helpHref?: string;
+  /** A price band's edges, already formatted for display. */
+  low?: string;
+  high?: string;
+  /** An open-order cap and how many orders are open now. */
+  cap?: string;
+  open?: string;
 }
 
 type Words = { title: string; body: string; action?: { label: string; href: string } };
@@ -32,6 +38,16 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'You need a verified account to do this.',
     action: { label: 'Verify now', href: '/verification' },
   },
+  emailProof: {
+    title: 'Confirm your email first',
+    body: 'New orders wait until you confirm the email on this account. Nothing was held, and your open orders stay.',
+    action: { label: 'Confirm email', href: '/uc/account' },
+  },
+  signInMismatch: {
+    title: 'Those details did not work',
+    body: 'Check what you typed and try again.',
+  },
+  tooManyTries: { title: 'Too many tries', body: 'New tries are paused for a while. Wait, then try again.' },
   mfaRequired: {
     title: 'Confirm it is you',
     body: 'Sign in again with your passkey or authenticator code to change this.',
@@ -39,6 +55,18 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   pricesDown: { title: "Prices can't be loaded", body: "Prices can't be loaded right now. Try again in a minute." },
   slippageCapUnset: { title: 'Market orders are paused', body: 'Use a limit order instead.' },
+  priceBandUnset: {
+    title: 'No price band is published',
+    body: 'This market takes no priced orders until it publishes the range of prices it accepts. Nothing was sent.',
+  },
+  openOrdersCapUnset: {
+    title: 'No open-order limit is published',
+    body: 'Orders that wait on the book are paused here until this market publishes how many you may have open. Nothing was sent.',
+  },
+  protectionUnset: {
+    title: 'Price protection isn’t set',
+    body: 'A market order needs a price limit it may not pass, and none is published for this market. Use a limit order instead.',
+  },
   noBook: { title: 'No one is trading this market right now', body: 'Prices will show when the first orders arrive.' },
   insufficientDepth: {
     title: 'Not enough for sale right now',
@@ -46,6 +74,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   quoteFailed: { title: "Couldn't get a price", body: "Couldn't get a price, try again." },
   marketNotOpen: { title: "This market isn't open", body: "You can't trade it right now." },
+  marketHalted: {
+    title: 'Trading is halted',
+    body: 'An operator has paused new orders. Your open orders stay, and you can still cancel them.',
+  },
   destMissing: { title: "We couldn't find that account", body: 'Check the handle and try again.' },
   signedOut: { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.', action: { label: 'Sign in', href: '/login' } },
   stepUp: {
@@ -241,6 +273,28 @@ function words(kind: RefusalKind, context: RefusalContext): Words {
       return {
         title: asset ? `${who} can't receive ${asset}` : `${who} can't receive this`,
         body: 'Ask them to open INTAFACED once, then try again.',
+      };
+    }
+    case 'priceBand': {
+      const low = context.low?.trim();
+      const high = context.high?.trim();
+      return {
+        title: 'Price is outside the allowed range',
+        body:
+          low && high
+            ? `This market takes buy prices up to ${high} and sell prices down to ${low} right now. Change the price and try again.`
+            : 'This market only takes prices near the middle of its book. Change the price and try again.',
+      };
+    }
+    case 'openOrdersCap': {
+      const cap = context.cap?.trim();
+      const open = context.open?.trim();
+      return {
+        title: 'Too many open orders',
+        body:
+          cap && open
+            ? `You have ${open} open orders here and this market allows ${cap}. Cancel one to place another.`
+            : 'You have as many open orders as this market allows. Cancel one to place another.',
       };
     }
     default:

@@ -1,0 +1,40 @@
+import { defineCopy } from '../../shared/i18n';
+
+// English source only (UI-SPEC §4.4); other languages fall back to English. Curly apostrophes on purpose.
+const messages = {
+  Charts: 'Charts',
+  'Charts lead': 'One market and one interval, read by every chart on this page.',
+  'Choose a market': 'Market',
+  'Chart intervals': 'Chart intervals',
+  'More intervals': 'More',
+  'Chart style': 'Chart style',
+  Candles: 'Candles',
+  Line: 'Line',
+  'Chart of {pair}': 'Price chart of {pair}',
+  'Side buy': 'Buy',
+  'Side sell': 'Sell',
+  O: 'O',
+  H: 'H',
+  L: 'L',
+  C: 'C',
+  Change: 'Change',
+  'No trades in this period': 'No trades in this period.',
+  'Couldn’t load the chart': 'Couldn’t load the chart.',
+  'Couldn’t load this market': 'Couldn’t load this market.',
+  'Try again': 'Try again',
+  'Market not found title': 'We couldn’t find that market',
+  'Market not found body': 'Check the pair in the address, or pick a market from the list.',
+  'See all markets': 'See all markets',
+  'Trade this market': 'Trade this market',
+  'Feed stream': 'Live: the open bar updates as trades happen.',
+  'Feed poll': 'Read from the service every 10 seconds.',
+  'Feed poll interval': 'This interval is read from the service every 10 seconds.',
+  'Feed age': 'Last read {seconds} s ago',
+  'Add a linked chart': 'Add a second chart',
+  'Remove the second chart': 'Remove the second chart',
+  'Second chart': 'Second chart',
+  'Follow the first chart': 'Follow the first chart’s market and interval',
+  'Second chart market': 'Second chart market',
+} as const;
+
+export const chartsCopy = defineCopy('charts.workbench', messages);

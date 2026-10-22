@@ -30,7 +30,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack, localStackState } from './local-test-state.mjs';
+import {
+  assertActiveLocalStack,
+  localEmailOutboxPath,
+  localPgBin,
+  localStackState,
+  readLatestEmailConfirmToken,
+} from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -41,7 +47,7 @@ const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
 const EDGE = `http://${LOCAL_HOST}:14500`;
 const CUSTOMER_ORIGIN = `http://${LOCAL_HOST}:3210`;
-const PSQL = '/opt/homebrew/bin/psql';
+const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
 const POLL_MS = 5000;
 
@@ -254,6 +260,7 @@ function psql(secrets, role, sql) {
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
     },
   );
+  if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
   return r.stdout
     .trim()
@@ -2328,36 +2335,8 @@ const MERCHANT_MONEY = new Set([
  * because that scope is withheld from every session (the same local stand-in
  * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
-/** Same file the local stack's identity process writes. */
-export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
-  return path.join(localStackState(home, env), 'email-outbox.log');
-}
-
-/**
- * Newest LOCAL-TEST confirm link for this address, or null.
- * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
- */
-export function readLatestEmailConfirmToken(text, email) {
-  const want = String(email ?? '')
-    .trim()
-    .toLowerCase();
-  let token = null;
-  for (const line of String(text ?? '').split('\n')) {
-    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
-    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
-    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
-    if (!emailMatch || !linkMatch) continue;
-    if (emailMatch[1].toLowerCase() !== want) continue;
-    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
-    if (!q?.[1]) continue;
-    try {
-      token = decodeURIComponent(q[1]);
-    } catch {
-      token = null;
-    }
-  }
-  return token;
-}
+// Shared with local-test-market, which proves its accounts' emails the same way.
+export { localEmailOutboxPath, readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 /** What the merchant step does with a session and an outbox. No database write. */
 export function planEmailConfirm({ emailVerified, outboxText, email }) {
@@ -3560,7 +3539,7 @@ async function signInLocalFounders(gctx, gates, founders) {
   for (const founder of founders) {
     let code;
     try {
-      code = gctx.totp.totp(founder.totpSecret);
+      code = await gates.founderTotp(gctx, founder.key ?? founder.handle, founder.totpSecret);
     } catch (err) {
       return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (${oneLine(err.message)})` };
     }

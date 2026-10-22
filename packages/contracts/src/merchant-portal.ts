@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { payAmountStringSchema, payAssetCodeSchema, payBpsSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
+import { merchantStatementDescriptorSchema } from './merchant-descriptor.js';
 import { payListCursorSchema } from './pay-merchant-reads.js';
 
 /**
@@ -142,7 +143,11 @@ export const merchantBusinessProfileSubmitInputSchema = z
     website: profileField,
     supportEmail: profileField,
     supportPhone: profileField,
-    statementDescriptor: profileField,
+    /** '' or null clears the descriptor; any other value must pass the shared descriptor validator. */
+    statementDescriptor: z
+      .union([z.literal(''), merchantStatementDescriptorSchema])
+      .nullable()
+      .optional(),
     industry: profileField,
   })
   .strict();

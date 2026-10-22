@@ -6,10 +6,13 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
-import { consumeApproval, payloadHash, type ApprovalBook } from '../admin/common.js';
+import { payloadHash, type ApprovalBook, type AuditWrite } from '../admin/common.js';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';
 import type { FundingHistoryRow } from './funding-history.js';
+
+export const FUNDING_PUBLISH_TWO_APPROVALS_REQUIRED = 'trade.funding_publish_two_approvals_required' as const;
+export const FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT = 'trade.funding_publish_approvers_not_distinct' as const;
 
 /** Clock-skew allowance on a publisher's `asOfMs`. Anything beyond is refused. */
 const FUTURE_SKEW_MS = 60_000;
@@ -37,6 +40,11 @@ export interface InternalFundingRateDeps {
    */
   approvals: ApprovalBook | null;
   /**
+   * Operator audit (`trade.operator_audit`), one row per stored publish carrying both approver ids.
+   * Absent in isolated tests only; production wires `writeOperatorAudit`.
+   */
+  writeAudit?: (row: AuditWrite) => Promise<unknown>;
+  /**
    * Isolated tests install retention. Production index already called
    * `retainRawBody` on the same Fastify instance.
    */
@@ -45,8 +53,10 @@ export interface InternalFundingRateDeps {
 
 /**
  * POST /internal/futures/funding-rate
- * Body: { marketId, rate, periodId?, asOfMs?, approvalId? }
- * Auth: service headers (INTERNAL_SERVICE_SECRET), then a consumed four-eyes approval.
+ * Body: { marketId, rate, periodId?, asOfMs?, approvals: [{ approvalId, operationId }, { approvalId, operationId }] }
+ * (each slot carries its approval row and the operationId identity minted for that row, so they can never mispair)
+ * Auth: service headers (INTERNAL_SERVICE_SECRET), then TWO consumed four-eyes approvals by two distinct
+ * approvers, neither of whom requested either approval (RC-derivatives-01).
  */
 function publishKey(marketId: string, periodId: string, rate: string): string {
   return `${marketId}\n${periodId}\n${rate}`;
@@ -58,7 +68,7 @@ function positiveDecimal(value: string): boolean {
 
 export function registerInternalFundingRate(app: FastifyInstance, deps: InternalFundingRateDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
-  const published = new Map<string, { entry: FundingRateEntry; markPrice: string | null }>();
+  const published = new Map<string, { entry: FundingRateEntry; markPrice: string | null; approverIds: readonly string[] }>();
 
   app.post<{
     Body: {
@@ -68,7 +78,7 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       asOfMs?: number;
       periodStartIso?: string;
       periodEndIso?: string;
-      approvalId?: string;
+      approvals?: unknown;
       markPrice?: string;
     };
   }>('/internal/futures/funding-rate', async (req, reply) => {
@@ -239,46 +249,98 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
         periodId,
         rate,
         asOfMs: already.entry.asOfMs,
+        approverIds: already.approverIds,
         ...(already.entry.periodEndIso ? { periodEndIso: already.entry.periodEndIso } : {}),
       });
     }
 
     // The service secret authenticates the caller. It is not an approval.
-    // A missing book refuses. A blank approval id refuses. consumeApproval throws
-    // for a missing row, a reused row, a payload that does not match, and a
-    // requester who is also the approver.
-    const approvalId = req.body?.approvalId?.trim() ?? '';
-    if (deps.approvals === null || approvalId.length === 0) {
+    // RC-derivatives-01: a rate that moves every open perpetual's funding legs needs TWO consumed approvals
+    // from the existing identity ApprovalBook, bound to the same payload hash. The single `approvalId` form
+    // is gone: a body that only carries it is refused like a body with none. Bound and ceiling checks above
+    // already ran, so a refused rate burns no approval.
+    const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+    const pairs = (raw: unknown): Array<{ approvalId: string; operationId: string }> | null => {
+      if (!Array.isArray(raw) || raw.length !== 2) return null;
+      const out: Array<{ approvalId: string; operationId: string }> = [];
+      for (const slot of raw) {
+        if (typeof slot !== 'object' || slot === null || Array.isArray(slot)) return null;
+        const keys = Object.keys(slot);
+        if (keys.length !== 2 || !keys.includes('approvalId') || !keys.includes('operationId')) return null;
+        const { approvalId, operationId } = slot as { approvalId: unknown; operationId: unknown };
+        if (!nonBlank(approvalId) || !nonBlank(operationId)) return null;
+        out.push({ approvalId: approvalId.trim(), operationId: operationId.trim() });
+      }
+      return out;
+    };
+    const approvals = pairs(req.body?.approvals);
+    if (deps.approvals === null || approvals === null) {
       return reply.code(403).send({
-        error: 'trade.funding_rate_publish_invalid',
-        message: 'a service secret is not an approval — funding rate publish needs a consumed four-eyes approval',
+        error: FUNDING_PUBLISH_TWO_APPROVALS_REQUIRED,
+        message:
+          'a service secret is not an approval — funding rate publish needs exactly two four-eyes approvals, each as { approvalId, operationId } with the operationId identity minted for it',
       });
     }
-    let approverId: string;
-    try {
-      const consumed = await consumeApproval(deps.approvals, {
-        approvalId,
+    const approvalIds = approvals.map((a) => a.approvalId);
+    if (approvalIds[0] === approvalIds[1] || approvals[0]!.operationId === approvals[1]!.operationId) {
+      return reply.code(403).send({
+        error: FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT,
+        message: 'the two approvals must be two different approval rows with two different operationIds — nothing was consumed',
+      });
+    }
+    const consumeInput = {
+      actionType: 'trade.funding_rate.publish',
+      targetId: marketId,
+      expectedVersion: periodId,
+      payloadHash: payloadHash({
         actionType: 'trade.funding_rate.publish',
-        targetId: marketId,
-        expectedVersion: periodId,
-        payloadHash: payloadHash({
-          actionType: 'trade.funding_rate.publish',
-          marketId,
-          periodId,
-          rate,
-          markPrice,
-        }),
-        operationId: `funding:${marketId}:${periodId}`,
-      });
-      approverId = consumed.approverId;
-    } catch {
+        marketId,
+        periodId,
+        rate,
+        markPrice,
+      }),
+    };
+    // Fails closed: both are consumed before any write, and any refused consume returns 403 with nothing
+    // stored. A consume that succeeded stays consumed (single use) even when the other fails; the operators
+    // request again and the rate is never half stored.
+    // The approver of a row is only known once identity consumes it, so the distinct-approver check below
+    // runs after both consumes: a refused pair leaves BOTH approvals spent, and the operators request again.
+    const consumed: Array<{ approverId: string; requesterId: string }> = [];
+    for (const { approvalId, operationId } of approvals) {
+      const result = await deps.approvals.consume({ ...consumeInput, approvalId, operationId });
+      if (!result.ok) {
+        return reply.code(403).send({
+          error: 'trade.funding_rate_publish_invalid',
+          approvalCode: result.code,
+          message: 'an approval is missing, reused, or does not match this market, period, rate and mark — nothing was stored',
+        });
+      }
+      consumed.push({ approverId: result.approverId, requesterId: result.requesterId });
+    }
+    const norm = (id: string) => id.trim().toLowerCase();
+    const approvers = consumed.map((c) => norm(c.approverId));
+    const requesters = new Set(consumed.map((c) => norm(c.requesterId)));
+    if (approvers[0] === approvers[1] || approvers.some((a) => requesters.has(a))) {
       return reply.code(403).send({
-        error: 'trade.funding_rate_publish_invalid',
-        message: 'the approval is missing, reused, or does not match this market, period, rate and mark',
+        error: FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT,
+        message:
+          'the two approvers must differ from each other and from both requesters — the approvals stay consumed and nothing was stored',
       });
     }
+    const approverIds = consumed.map((c) => c.approverId);
 
-    published.set(key, { entry, markPrice });
+    // The audit row is written first: a publish that cannot be audited is not stored.
+    await deps.writeAudit?.({
+      id: `funding.publish:${marketId}:${periodId}:${rate}`,
+      kind: 'futures.funding_rate.publish',
+      operatorId: consumed[0]!.requesterId,
+      accountId: null,
+      objectId: periodId,
+      approverId: approverIds.join(','),
+      reason: null,
+      detail: { marketId, periodId, rate, markPrice, approvals, approverIds, requesterIds: consumed.map((c) => c.requesterId) },
+    });
+    published.set(key, { entry, markPrice, approverIds });
     deps.publishFundingRate(entry);
     deps.recordFundingHistory?.({
       marketId,
@@ -286,7 +348,8 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       periodTimestamp: asOfMs,
       fundingRate: rate,
       markPrice,
+      approverIds,
     });
-    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, approverId, ...(periodEndIso ? { periodEndIso } : {}) });
+    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, approverIds, ...(periodEndIso ? { periodEndIso } : {}) });
   });
 }

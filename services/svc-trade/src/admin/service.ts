@@ -287,7 +287,7 @@ export class TradeOpsAdmin {
 
   async riskSet(
     principal: Principal,
-    input: { market: string; limits: RiskLimits; expectedVersion: string; reason: string; approvalId: string },
+    input: { market: string; limits: RiskLimits; expectedVersion: string; reason: string; approvalId: string; operationId: string },
   ): Promise<RiskVersion> {
     requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
@@ -304,7 +304,7 @@ export class TradeOpsAdmin {
       targetId: input.market,
       expectedVersion: input.expectedVersion,
       payloadHash: payloadHash(body),
-      operationId: input.approvalId,
+      operationId: input.operationId,
     });
     const next = (BigInt(version) + 1n).toString();
     const id = randomUUID();

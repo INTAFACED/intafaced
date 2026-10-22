@@ -552,6 +552,8 @@ export type BankErrorCode =
   | 'bank.step_up_unavailable'
   /** No operator row publishes a per-transfer limit, a daily limit, and a fee for this asset. */
   | 'bank.personal_transfer_terms_unset'
+  /** Published limits must be above zero, and the daily limit at least the per-transfer limit. Nothing is written. */
+  | 'bank.personal_transfer_terms_invalid'
   /** A positive fee is published and bankTransfer has no fee leg. Nothing is posted. */
   | 'bank.personal_transfer_fee_unwired'
   | 'bank.personal_transfer_limit_exceeded'
@@ -576,6 +578,8 @@ export type BankErrorCode =
   | 'bank.personal_request_list_limit_unset'
   | 'bank.personal_request_payer_unknown'
   | 'bank.pay_request_notify_unwired'
+  /** No notices port for posted sends: the send stands, its notice stays owed. */
+  | 'bank.transfer_notify_unwired'
   /** IDENTITY_URL is unset, so a request cannot name either person. */
   | 'bank.party_handles_unset'
   /** Identity did not answer a handle lookup. Nothing was created. */
@@ -608,6 +612,8 @@ export type BankErrorCode =
    * so the shape of the id is not an existence oracle.
    */
   | 'bank.ops_transfer_not_found'
+  /** Operator authorisation read (BK-cops-01): unknown or malformed id. */
+  | 'bank.ops_authorization_not_found'
   /** Operator business-approval page size unpublished. Blank is not 50. */
   | 'bank.ops_business_approvals_limit_unset'
   /** A transfer id was reused with a different note or reference. */
@@ -637,7 +643,42 @@ export type BankErrorCode =
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
-  | 'bank.ops_audit_unavailable';
+  | 'bank.ops_audit_unavailable'
+  /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */
+  | 'bank.asset_paused'
+  /** The asset pause state could not be read, so a new borrow or deposit was refused rather than assumed open. */
+  | 'bank.asset_pause_unreadable'
+  /** An asset pause change named a revision that is no longer current, or reused a revision with different terms. */
+  | 'bank.ops_revision_conflict'
+  /** A saved activity filter name is blank or longer than 60 characters. */
+  | 'bank.activity_filter_name_invalid'
+  /** A saved activity filter carries no filter at all. */
+  | 'bank.activity_filter_empty'
+  /** That saved filter name already holds a different filter. */
+  | 'bank.activity_filter_conflict'
+  /** Saved filter page size unpublished. Blank is not 50. */
+  | 'bank.activity_filter_limit_unset'
+  /** A limit-increase request reason is shorter than 10 characters (BK-acct-04). */
+  | 'bank.limit_request_reason_too_short'
+  /** A request of that kind for that asset is already open. */
+  | 'bank.limit_request_open'
+  /** A request id was reused for a different request. */
+  | 'bank.limit_request_conflict'
+  /** Limit request page size unpublished. Blank is not 50. */
+  | 'bank.limit_request_list_limit_unset'
+  | 'bank.limit_request_not_found'
+  /** The decider is the customer who asked. */
+  | 'bank.limit_request_self_decision'
+  /** Already decided, differently. */
+  | 'bank.limit_request_decided'
+  /** An approval named no granted limit; it is never defaulted to the requested one. */
+  | 'bank.limit_grant_unset'
+  /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
+  | 'bank.loan_params_invalid'
+  /** A product id was reused with different terms. */
+  | 'bank.loan_product_conflict'
+  /** A spend door was refused for funds; carries available/onHold/inEarn figures when they could be read (RC-wallet-09). */
+  | 'bank.insufficient_funds';
 
 export class BankError extends Error {
   constructor(

@@ -26,6 +26,7 @@ import {
 } from './subaccount-guards';
 import './subaccount.css';
 import { RankPerks } from './RankPerks';
+import { VerifyEmail } from './VerifyEmail';
 import { EligibilityStatement } from '../money/Eligibility';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useIdentity } from '../../screens/pay/identity-state';
@@ -316,6 +317,7 @@ export function Account() {
   return (
     <div className="subaccounts" lang={languageFor('title')}>
       <Page title={t('title')} description={t('description')}>
+        <VerifyEmail />
         {identity.status === 'handles' && (
           <section className="subaccounts__identity" aria-label={t('handle')}>
             <div>

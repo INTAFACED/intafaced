@@ -420,3 +420,15 @@
     white-space: normal;
   }
 }
+.security__check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.security__check input {
+  flex: none;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+}

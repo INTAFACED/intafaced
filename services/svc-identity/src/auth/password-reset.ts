@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 import {
   assertPasswordShape,
+  assertPasswordNotIdentity,
   dummyPasswordHash,
   generateToken,
   hashPassword,
@@ -53,7 +54,7 @@ export interface PasswordResetMail {
   }): Promise<void>;
 }
 
-/** What a mail is for. The last four are the recovery flows; their `code` is empty when they carry none. */
+/** What a mail is for. The recovery and sign-up notices carry no code; their `code` is empty. */
 export type MailPurpose =
   | 'password-reset'
   | 'email-confirm'
@@ -61,7 +62,9 @@ export type MailPurpose =
   | 'email-change-notice'
   | 'reset-no-account'
   | 'handle-recovery'
-  | 'handle-recovery-no-account';
+  | 'handle-recovery-no-account'
+  | 'signup-code'
+  | 'signup-existing';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -303,14 +306,15 @@ export async function completePasswordReset(
     return rejectInvalidProof(input.newPassword);
   }
 
-  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string }>>`
-    SELECT id, password_hash, status FROM users WHERE id = ${flow.user_id}
+  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string; handle: string; email: string }>>`
+    SELECT id, password_hash, status, handle, email FROM users WHERE id = ${flow.user_id}
   `;
   const user = users[0];
   if (!user || user.status !== 'active') return rejectInvalidProof(input.newPassword);
 
   try {
     assertPasswordShape(input.newPassword);
+    assertPasswordNotIdentity(input.newPassword, user);
   } catch (err) {
     if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
     throw err;

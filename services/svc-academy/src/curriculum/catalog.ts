@@ -34,6 +34,7 @@
  */
 
 import { AcademyError } from '../errors.js';
+import { assertNoReservedSlugs } from './reserved-slugs.js';
 import { CURRICULUM_BODIES, CURRICULUM_TEACHING, readingMinutes } from './content.js';
 import type { CurriculumKeyTerm, CurriculumTeaching } from './content.js';
 
@@ -330,6 +331,9 @@ const SPINE: readonly CurriculumItem[] = SPINE_SEED.map((seed) => ({
   ...teachingFor(seed.slug),
   estimatedMinutes: readingMinutes(seed.body),
 }));
+
+// AC-articles-02: a shipped slug equal to a reserved tab slug stops the service at load, naming the slug.
+assertNoReservedSlugs(SPINE.map((item) => item.slug));
 
 const BY_SLUG = new Map(SPINE.map((item) => [item.slug, item]));
 

@@ -6,12 +6,22 @@
 import type { ApiResult } from '../../../shared/api';
 import type { Preview } from '../../../features/trade/trade-api';
 import { parseAmount } from '../../../shared/money';
-import { refusalCopy } from '../../../data';
+import { fmtPrice, refusalCopy } from '../../../data';
 import type { RefusalContext } from '../../../data';
 import type { RefusalCopy } from '../../../data/types';
 
 /** What the person is told when a call failed. `network` means we do not know the outcome of what was sent. */
 export type Failure = { kind: 'refusal'; copy: RefusalCopy } | { kind: 'network' };
+
+/** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
+ * original frees (the service never caps it), so an edit reads the check without them. */
+const OPEN_ORDER_CAPS = new Set(['trade.operator_throttle', 'trade.limit_max_open_orders', 'trade.open_orders_cap_unset']);
+
+/** The order check for an edit: the same answer without the open-order cap refusals. */
+export function asReplacement(preview: Preview): Preview {
+  const refusals = preview.refusals.filter((refusal) => !OPEN_ORDER_CAPS.has(refusal.code));
+  return refusals.length === preview.refusals.length ? preview : { ...preview, refusals, orderable: refusals.length === 0 };
+}
 
 /** Can this preview be reviewed and sent? Orderable, no refusals, and the hold, fee and fee asset are all known. */
 export function previewIsOrderable(preview: Preview): boolean {
@@ -27,6 +37,24 @@ export function previewIsOrderable(preview: Preview): boolean {
 /** The first refusal code the preview carries, or null when it has none. */
 export function previewRefusalCode(preview: Preview): string | null {
   return preview.refusals[0]?.code ?? null;
+}
+
+/**
+ * The preview's first refusal as words, with the numbers it names (a price band's edges, an open-order cap and count)
+ * filled in. Prices read on the market's tick.
+ */
+export function previewFailure(preview: Preview, context: RefusalContext, tickSize?: string): Failure {
+  const first = preview.refusals[0];
+  const data = first?.data ?? {};
+  const price = (value: string | undefined) => (value === undefined ? undefined : tickSize ? fmtPrice(value, tickSize) : value);
+  const named: RefusalContext = {
+    ...context,
+    ...(data.low !== undefined ? { low: price(data.low) } : {}),
+    ...(data.high !== undefined ? { high: price(data.high) } : {}),
+    ...(data.cap !== undefined ? { cap: data.cap } : {}),
+    ...(data.open !== undefined ? { open: data.open } : {}),
+  };
+  return refusalFailure(first?.code ?? null, named);
 }
 
 export function refusalFailure(code: string | null | undefined, context: RefusalContext): Failure {

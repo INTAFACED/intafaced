@@ -1,3 +1,4 @@
+import { loadSweepStaleAfterSeconds } from './custody/sweeps/service.js';
 import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
@@ -57,6 +58,8 @@ import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
 import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
+import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
@@ -96,6 +99,7 @@ import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
 import { KybApplicationService } from './kyb-application.js';
+import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -577,7 +581,15 @@ export const appRouter = mergeRouters(
       await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
     }),
   ),
-  createKybPspRouter(kyb, pspMode, actionApprovals, pay, kybEntityTypes, new KybApplicationService(sql, kyb, kybEntityTypes)),
+  createKybPspRouter(
+    kyb,
+    pspMode,
+    actionApprovals,
+    pay,
+    kybEntityTypes,
+    new KybApplicationService(sql, kyb, kybEntityTypes),
+    new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV])),
+  ),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any
@@ -596,7 +608,12 @@ export const appRouter = mergeRouters(
     sql,
     depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
-    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
+    custody: {
+      sql,
+      sweepStaleAfterSeconds: loadSweepStaleAfterSeconds(process.env),
+      withdrawalCanceller: userMoney,
+      droppedReverser: custodyDroppedReverser,
+    },
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
@@ -605,6 +622,7 @@ export const appRouter = mergeRouters(
     allowlist: { service: allowlist },
     starterFee: merchantStarterFee,
     ledger,
+    disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     teamEmailInvite,
@@ -741,6 +759,14 @@ registerPayStepUpGrantRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+/** svc-identity's sign-in read of the owner's team-wide require-MFA rule (M-plat-org-06). */
+registerMerchantMfaRuleRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  read: (userId) => mfaRuleForUser(sql, userId),
 });
 
 registerRestoreWatermarkRoute(app, {
