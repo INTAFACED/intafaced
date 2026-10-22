@@ -309,7 +309,7 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     { name: 'futuresInsuranceTopup', post: recipes.futuresInsuranceTopup({ topupId: 'tu1', assetId: 'USDT', amount: AMT }) },
     { name: 'escrowLock', post: recipes.escrowLock(escrow) },
-    { name: 'escrowRelease', post: recipes.escrowRelease(escrow) },
+    { name: 'escrowRelease', post: recipes.escrowRelease({ ...escrow, feeBps: 0 }) },
     { name: 'escrowRelease', post: recipes.escrowRelease({ ...escrow, feeBps: 50 }) },
     { name: 'escrowRefund', post: recipes.escrowRefund(escrow) },
     { name: 'paymentCapture', post: recipes.paymentCapture(capture) },

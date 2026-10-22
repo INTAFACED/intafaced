@@ -767,10 +767,16 @@ export function escrowLock(input: EscrowInput): PostRequest {
  * stays `p2p.escrow.release:<tradeId>` so svc-p2p can adopt attribution without
  * a key migration.
  */
-export function escrowRelease(input: EscrowInput & { feeBps?: number; ruling?: EscrowDisputeRuling }): PostRequest {
+export function escrowRelease(input: EscrowInput & { feeBps: number; ruling?: EscrowDisputeRuling }): PostRequest {
   requirePositive('escrow amount', input.amount);
   assertEscrowDisputeRuling(input.ruling, 'escrowRelease');
-  const feeBps = input.feeBps ?? 0;
+  // A blank fee is not a zero fee: the caller passes the trade's own feeBps
+  // (0 explicitly when the trade carries none). Defaulting to 0 would pay the
+  // buyer the house's fee on any caller that forgot it.
+  const feeBps = input.feeBps;
+  if (feeBps === undefined || feeBps === null) {
+    throw new InvalidEntryError('escrow feeBps is required; pass 0 explicitly for a fee-free release');
+  }
   // Same class as tradeFill: an unbound feeBps at 10000 gives the buyer nothing;
   // above that the buyer leg goes negative and is refused four layers down with a
   // message that says nothing about fees (STOP §4.2b #2). Refuse here, clearly.
