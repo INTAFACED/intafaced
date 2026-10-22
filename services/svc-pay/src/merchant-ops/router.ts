@@ -1,6 +1,6 @@
 import { CatalogPriceService, RECURRING_UNITS, TAX_BEHAVIORS } from '../catalog/price-service.js';
 import { CATALOG_PRICE_MODELS, TIERS_MAX } from '../catalog/pricing.js';
-import { CATALOG_PRODUCT_TYPES, CatalogProductService } from '../catalog/product-service.js';
+import { CATALOG_PRODUCT_TYPES, CatalogProductService, STATEMENT_DESCRIPTOR_MAX } from '../catalog/product-service.js';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
@@ -130,7 +130,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
     description: z.string().max(2000).nullish(),
     imageRef: z.string().max(500).nullish(),
     taxCode: z.string().max(64).nullish(),
-    statementDescriptor: z.string().max(200).nullish(),
+    statementDescriptor: z.string().max(STATEMENT_DESCRIPTOR_MAX).nullish(),
     unitLabel: z.string().max(32).nullish(),
     type: z.enum(CATALOG_PRODUCT_TYPES),
     typeFields: z.record(z.string().max(64), z.string().max(500)).optional(),

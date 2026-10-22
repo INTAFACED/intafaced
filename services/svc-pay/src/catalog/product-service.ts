@@ -219,7 +219,16 @@ export class CatalogProductService {
       } catch {
         throw new MerchantOpsError('pay.catalog_cursor_invalid', 'bad_request');
       }
-      if (!after || typeof after.at !== 'string' || typeof after.id !== 'string')
+      // Round-trip: only a cursor this service minted (Date#toISOString of a real instant) is accepted.
+      const at = after && typeof after.at === 'string' ? new Date(after.at) : null;
+      if (
+        !after ||
+        typeof after.id !== 'string' ||
+        !at ||
+        Number.isNaN(at.getTime()) ||
+        at.toISOString() !== after.at ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(after.id)
+      )
         throw new MerchantOpsError('pay.catalog_cursor_invalid', 'bad_request');
     }
     const archived = input.archived ?? false;
@@ -243,7 +252,18 @@ export class CatalogProductService {
     const fp = fingerprint('update', { productId: input.productId, ...f });
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'update', fp);
-    const row = await this.sql.begin(async (tx) => {
+    const row = await this.raceSafe(caller, input.requestId, 'update', fp, (tx) => this.updateRow(tx, caller, input, f, fp));
+    return view(row);
+  }
+
+  private async updateRow(
+    tx: Sql,
+    caller: MerchantCaller,
+    input: { requestId: string; productId: string },
+    f: ReturnType<typeof normalize>,
+    fp: string,
+  ) {
+    {
       const rows = await tx<Row[]>`
         UPDATE pay.catalog_products SET
           name = ${f.name}, description = ${f.description}, image_ref = ${f.imageRef}, tax_code = ${f.taxCode},
@@ -252,10 +272,31 @@ export class CatalogProductService {
         WHERE id = ${input.productId} AND merchant_id = ${caller.merchantId}
         RETURNING ${tx.unsafe(COLS)}`;
       if (!rows[0]) throw new MerchantOpsError('pay.catalog_product_not_found', 'not_found');
-      await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, rows[0].id, 'update', fp);
+      await this.record(tx, caller.merchantId, input.requestId, rows[0].id, 'update', fp);
       return rows[0];
-    });
-    return view(row);
+    }
+  }
+
+  /** Runs a write in one transaction; a concurrent call with the same requestId (23505 on the log) replays instead of a 500. */
+  private async raceSafe(
+    caller: MerchantCaller,
+    requestId: string,
+    action: string,
+    fp: string,
+    write: (tx: Sql) => Promise<Row>,
+  ): Promise<Row> {
+    try {
+      return await this.sql.begin((tx) => write(tx as unknown as Sql));
+    } catch (e) {
+      if (!uniqueViolation(e)) throw e;
+      const raced = await this.action(caller.merchantId, requestId);
+      if (!raced) throw e;
+      if (raced.action !== action || raced.fingerprint !== fp) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
+      const rows = await this.sql<Row[]>`
+        SELECT ${this.sql.unsafe(COLS)} FROM pay.catalog_products WHERE id = ${raced.product_id} AND merchant_id = ${caller.merchantId}`;
+      if (!rows[0]) throw new MerchantOpsError('pay.catalog_product_not_found', 'not_found');
+      return rows[0];
+    }
   }
 
   archive(caller: MerchantCaller, input: { requestId: string; productId: string }): Promise<ProductView> {
@@ -277,7 +318,7 @@ export class CatalogProductService {
     const fp = fingerprint(action, { productId: input.productId });
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, action, fp);
-    const row = await this.sql.begin(async (tx) => {
+    const row = await this.raceSafe(caller, input.requestId, action, fp, async (tx) => {
       const rows = await tx<Row[]>`
         UPDATE pay.catalog_products
            SET archived_at = CASE WHEN ${archived} THEN COALESCE(archived_at, now()) ELSE NULL END,
@@ -285,7 +326,7 @@ export class CatalogProductService {
          WHERE id = ${input.productId} AND merchant_id = ${caller.merchantId}
          RETURNING ${tx.unsafe(COLS)}`;
       if (!rows[0]) throw new MerchantOpsError('pay.catalog_product_not_found', 'not_found');
-      await this.record(tx as unknown as Sql, caller.merchantId, input.requestId, rows[0].id, action, fp);
+      await this.record(tx, caller.merchantId, input.requestId, rows[0].id, action, fp);
       return rows[0];
     });
     return view(row);
