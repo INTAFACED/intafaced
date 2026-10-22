@@ -222,4 +222,30 @@ describe('M-catalogue-02 prices (Postgres)', () => {
       else process.env.PAY_CATALOG_ASSET_DECIMALS = prev.a;
     }
   });
+  it('quote and setDefault re-check the asset scale: unset, malformed, duplicate, removed or lowered all refuse', async () => {
+    const { owner, productId } = await setup();
+    const p = await prices.create(owner, { ...seat, assetId: 'USD', unitAmount: '1.05', productId, requestId: randomUUID() });
+    const withTable = (t: string | undefined) =>
+      new CatalogPriceService(sql, { PAY_CATALOG_QUOTE_QUANTITY_MAX: '10', ...(t === undefined ? {} : { PAY_CATALOG_ASSET_DECIMALS: t }) });
+    for (const [table, code] of [
+      [undefined, 'pay.catalog_asset_scale_unset'],
+      ['USD:x', 'pay.catalog_asset_scale_unset'],
+      ['USD:2,USD:2', 'pay.catalog_asset_scale_unset'],
+      ['USDC:18', 'pay.catalog_price_asset_unknown'],
+      ['USD:1', 'pay.catalog_price_amount_scale'],
+    ] as const) {
+      const svc = withTable(table);
+      expect(await codeOf(svc.quote(owner, { priceId: p.id, quantity: 1 }))).toBe(code);
+      expect(await codeOf(svc.setDefault(owner, { requestId: randomUUID(), priceId: p.id }))).toBe(code);
+    }
+    expect((await withTable(' USD:2 , USDC:6 ').quote(owner, { priceId: p.id, quantity: 2 })).total).toBe('2.1');
+  });
+
+  it('a create retried after the scale table changed replays the first result (replay before the scale check)', async () => {
+    const { owner, productId } = await setup();
+    const requestId = randomUUID();
+    const first = await prices.create(owner, { ...seat, assetId: 'USD', unitAmount: '1.05', productId, requestId });
+    const lowered = new CatalogPriceService(sql, { PAY_CATALOG_ASSET_DECIMALS: 'USD:1' });
+    expect(await lowered.create(owner, { ...seat, assetId: 'USD', unitAmount: '1.05', productId, requestId })).toEqual(first);
+  });
 });

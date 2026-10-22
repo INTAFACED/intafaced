@@ -143,7 +143,9 @@ function normalize(input: PriceInput) {
 }
 
 /**
- * Owner value: the decimal places each asset allows, `PAY_CATALOG_ASSET_DECIMALS="USDT:6,BTC:8"`. Unset or garbled
+ * Owner value: the decimal places each asset allows, `PAY_CATALOG_ASSET_DECIMALS="USDT:6,BTC:8"`. Whitespace around
+ * the whole value and around each `ASSET:N` part is trimmed; anything else that does not match, or a repeated asset,
+ * makes the table malformed (= unset). Unset or garbled
  * refuses `pay.catalog_asset_scale_unset`; an asset not listed refuses `pay.catalog_price_asset_unknown`. No default scale.
  */
 export function assetDecimals(env: NodeJS.ProcessEnv = process.env): Map<string, number> | null {
@@ -152,7 +154,8 @@ export function assetDecimals(env: NodeJS.ProcessEnv = process.env): Map<string,
   const out = new Map<string, number>();
   for (const part of raw.split(',')) {
     const m = /^([A-Za-z0-9._-]{1,16}):(\d{1,2})$/.exec(part.trim());
-    if (!m || Number(m[2]) > 18) return null;
+    // A duplicate asset is malformed (no last-wins): the whole table refuses.
+    if (!m || Number(m[2]) > 18 || out.has(m[1]!)) return null;
     out.set(m[1]!, Number(m[2]));
   }
   return out;
@@ -190,10 +193,10 @@ export class CatalogPriceService {
   async create(caller: MerchantCaller, input: PriceInput & { requestId: string }): Promise<PriceView> {
     assertCatalog(caller, 'catalog.write');
     const f = normalize(input);
-    assertAssetScale(f, this.env);
     const fp = fingerprint('create', f);
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'create', fp);
+    assertAssetScale(f, this.env);
     const id = await this.raceSafe(caller, input.requestId, 'create', fp, () =>
       this.sql.begin(async (tx) => {
         const product = await tx<Array<{ archived_at: Date | null }>>`
@@ -238,6 +241,8 @@ export class CatalogPriceService {
     const fp = fingerprint('set_default', { priceId: input.priceId });
     const prior = await this.action(caller.merchantId, input.requestId);
     if (prior) return this.replay(caller, prior, 'set_default', fp);
+    // A price whose asset was removed from, or lowered in, the scale table is not offered as the default.
+    assertAssetScale(await this.get(caller, input.priceId), this.env);
     await this.raceSafe(caller, input.requestId, 'set_default', fp, () =>
       this.sql.begin(async (tx) => {
         const [p] = await tx<Array<{ product_id: string; archived_at: Date | null }>>`
@@ -283,6 +288,8 @@ export class CatalogPriceService {
       throw bad('pay.catalog_quote_quantity_invalid');
     }
     if (price.archived) throw new MerchantOpsError('pay.catalog_price_archived', 'conflict');
+    // Re-checked at quote time: an unset/malformed table, or an asset since removed or lowered, refuses.
+    assertAssetScale(price, this.env);
     if (price.model === 'flat' && input.quantity !== 1) throw bad('pay.catalog_quote_quantity_invalid');
     const { lines, total } = priceQuantity(price.model, price.unitAmount, price.tiers, input.quantity);
     return { priceId: price.id, assetId: price.assetId, quantity: input.quantity, lines, total, taxBehavior: price.taxBehavior };
