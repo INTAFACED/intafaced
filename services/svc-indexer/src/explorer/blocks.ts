@@ -72,3 +72,12 @@ export function listBlocks(
   const nextCursor = heights.length > limit ? page[page.length - 1]! : null;
   return { rows, nextCursor };
 }
+
+export const INDEXER_EXPLORER_UNWIRED = 'indexer.explorer_unwired' as const;
+export const PROTOCOL_NOT_FOUND = 'protocol.not_found' as const;
+
+/** What the router needs to serve explorer blocks. Absent => `indexer.explorer_unwired`. */
+export interface ExplorerBlocksSource {
+  readonly listLimit: ListLimit;
+  readonly blockFacts: (chainId: number) => Promise<readonly ExplorerBlockFact[]>;
+}
