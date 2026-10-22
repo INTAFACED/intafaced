@@ -21,6 +21,7 @@ import { AuthService, type SessionTokens } from '../auth/auth-service.js';
 import { CustomerStepUpService } from '../auth/customer-step-up.js';
 import { SqlCustomerStepUpStore } from '../auth/customer-step-up-store.js';
 import { totp } from '../auth/totp.js';
+import { FounderControls } from '../controls/founder-controls.js';
 import { SubAccountSwitchService } from './sub-account-switch.js';
 
 void _unused;
@@ -259,6 +260,31 @@ if (!available) {
     const { id: other } = await auth.createSubAccount(user.userId, 'desk2', undefined);
     await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${user.userId}`;
     expect((await refusal(caller.subAccounts.switchTo({ subAccountId: other }))).code).toBe('auth.account_frozen');
+  });
+
+  it("the edge's per-request authority read refuses a switch token once its sub-account is frozen or revoked", async () => {
+    const user = await register();
+    const caller = await callerOf(user);
+    const controls = new FounderControls(db.sql, null);
+    const authorityOf = async (token: string) => {
+      const p = await verifyAccessToken(token, tokenConfig);
+      return controls.currentAuthority({
+        userId: p.userId,
+        credential: { kind: 'session', sessionId: p.sid },
+        ...(p.sub_account ? { subAccountId: p.sub_account } : {}),
+      });
+    };
+    const { id } = await auth.createSubAccount(user.userId, 'desk', undefined);
+    const { id: other } = await auth.createSubAccount(user.userId, 'desk2', undefined);
+    const a = (await caller.subAccounts.switchTo({ subAccountId: id })).accessToken;
+    const b = (await caller.subAccounts.switchTo({ subAccountId: other })).accessToken;
+    expect(await authorityOf(a)).toMatchObject({ status: 'eligible' });
+    await db.sql`UPDATE sub_accounts SET frozen = 1 WHERE id = ${id}`;
+    expect(await authorityOf(a)).toMatchObject({ status: 'denied', code: 'auth.sub_account_denied' });
+    await auth.revokeSubAccount(user.userId, other);
+    expect(await authorityOf(b)).toMatchObject({ status: 'denied', code: 'auth.sub_account_denied' });
+    // The main session is untouched.
+    expect(await authorityOf(user.accessToken)).toMatchObject({ status: 'eligible' });
   });
 
   it("applies the owner's minimum interval only when it is set", async () => {
