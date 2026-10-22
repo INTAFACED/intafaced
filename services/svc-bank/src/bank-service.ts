@@ -21,6 +21,7 @@ import { AccountDetailsService, type AccountDetailsOptions } from './account-det
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
+import type { PersonalTransferNotices } from './transfers/transfer-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
@@ -150,6 +151,8 @@ export interface BankServiceOptions {
   handles?: PartyHandlePort;
   /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
   requestNotices?: PersonalRequestNotices;
+  /** Inbox events for a posted personal send (both people). Unset = no notice; the send is unaffected. */
+  transferNotices?: PersonalTransferNotices;
   /**
    * Public handles and exact recipient lookup. Unset refuses team, approval
    * history and recipient-space reads. It does not invent a handle.
@@ -183,6 +186,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,
+    transferNotices: options.transferNotices,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.

@@ -27,6 +27,7 @@ import { PersonalPayService } from './personal-pay.js';
 import type { LedgerHistoryPages } from '../activity/activity-service.js';
 import { memoryPartyHandles } from './party-handles.js';
 import { eventPersonalRequestNotices, type RequestCreatedNotice } from './request-notices.js';
+import { eventPersonalTransferNotices, type TransferPostedNotice } from './transfer-notices.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -93,6 +94,8 @@ describe('personal send and request (Postgres)', () => {
   let bank: BankServices;
   let router: ReturnType<typeof createBankRouter>;
   let created: RequestCreatedNotice[];
+  let postedNotices: TransferPostedNotice[];
+  let postedFails: boolean;
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'bank', url: adminUrl(), migrations });
@@ -110,8 +113,11 @@ describe('personal send and request (Postgres)', () => {
     `;
     ledger = new MemoryLedger();
     created = [];
+    postedNotices = [];
+    postedFails = false;
     const bus = new MemoryEventBus('svc-bank');
     const inner = eventPersonalRequestNotices(bus);
+    const transferBus = eventPersonalTransferNotices(bus);
     bank = createBankServices(db.sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
@@ -122,6 +128,13 @@ describe('personal send and request (Postgres)', () => {
           await inner.created(input);
         },
         paid: (input) => inner.paid(input),
+      },
+      transferNotices: {
+        posted: async (input) => {
+          if (postedFails) throw new Error('bus down');
+          postedNotices.push(input);
+          await transferBus.posted(input);
+        },
       },
       activity: { pages: pagesFrom(ledger), cursorSecret: tokenConfig.secret },
     });
@@ -214,6 +227,39 @@ describe('personal send and request (Postgres)', () => {
       code: 'NOT_FOUND',
       message: expect.stringContaining('bank.personal_transfer_not_found'),
     });
+  });
+
+  it('tells both people a send posted, with the facts of the posting, and a lost publish never fails the send', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const sent = await ada.transfers.toUser({ transferId: 'send-notice-1', fromSpaceId: from.id, toUserId: BOB, amount: '12.50' });
+    expect(postedNotices).toEqual([
+      {
+        transferId: 'send-notice-1',
+        senderUserId: ADA,
+        recipientUserId: BOB,
+        amount: '12.5',
+        assetId: 'USDT',
+        ledgerTxId: sent.ledgerTxId,
+        postedAt: expect.any(String),
+      },
+    ]);
+    // The payload is the declared event: the bus validates it against the catalog on publish.
+    expect(() => new Date(postedNotices[0]!.postedAt).toISOString()).not.toThrow();
+
+    // A refused send announces nothing.
+    await expect(
+      ada.transfers.toUser({ transferId: 'send-notice-2', fromSpaceId: from.id, toUserId: BOB, amount: '1000' }),
+    ).rejects.toBeTruthy();
+    expect(postedNotices).toHaveLength(1);
+
+    // The bus is down: the money still moves and the send still answers.
+    postedFails = true;
+    const quiet = await ada.transfers.toUser({ transferId: 'send-notice-3', fromSpaceId: from.id, toUserId: BOB, amount: '1' });
+    expect(quiet.ledgerTxId).toEqual(expect.any(String));
+    expect(await available(BOB)).toBe('13.5');
+    expect(postedNotices).toHaveLength(1);
   });
 
   it('refuses a control-character note and posts nothing', async () => {

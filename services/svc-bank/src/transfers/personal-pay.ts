@@ -25,6 +25,7 @@ import type { TransferService } from './transfer-service.js';
 import { BookedTransferConflict } from './booked-transfer.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
+import type { PersonalTransferNotices } from './transfer-notices.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
@@ -205,6 +206,8 @@ export class PersonalPayService {
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
+      /** Unset = no inbox notice for a posted send (tests); the send itself never depends on it. */
+      transferNotices?: PersonalTransferNotices;
       now?: () => Date;
     } = {},
   ) {}
@@ -328,7 +331,38 @@ export class PersonalPayService {
     `;
     const row = posted[0] ?? (await this.mustTransfer(input.transferId));
     if (requestId) await this.finishRequest(requestId, input.transferId, ledgerTxId, now);
+    if (row.status === 'posted') await this.announcePosted(row, ledgerTxId, now);
     return this.toTransferView(row);
+  }
+
+  /**
+   * Both people hear about a posted send. Redelivery is safe (business key here, dedupe per person in svc-notify), so a
+   * retried send may announce again. The money has moved by now: a failed publish is logged, never thrown.
+   */
+  private async announcePosted(row: TransferRow, ledgerTxId: string, now: Date): Promise<void> {
+    const notices = this.options.transferNotices;
+    if (!notices) return;
+    try {
+      await notices.posted({
+        transferId: row.transfer_id,
+        senderUserId: row.from_user_id,
+        recipientUserId: row.to_user_id,
+        amount: formatAmount(parseAmount(row.amount)),
+        assetId: row.asset_id,
+        ledgerTxId,
+        postedAt: now.toISOString(),
+      });
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-bank',
+          event: 'bank.transfer_notice_failed',
+          transferId: row.transfer_id,
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
   }
 
   async get(actorUserId: string, ledgerTxId: string): Promise<PersonalTransferView> {

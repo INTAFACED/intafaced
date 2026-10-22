@@ -25,6 +25,7 @@ import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
+import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
 import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
@@ -123,6 +124,7 @@ const bank = createBankServices(sql, ledger, history, {
     : unconfiguredRecipientState(),
   handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s) : undefined,
   requestNotices: eventPersonalRequestNotices(bus),
+  transferNotices: eventPersonalTransferNotices(bus),
   // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
   // with bank.business_directory_unset. A 404 from identity is the same refusal:
   // the directory route is not published. No invented handle.
