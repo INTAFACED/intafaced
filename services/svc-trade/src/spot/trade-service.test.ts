@@ -602,7 +602,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
 
       // A redelivered `intafaced.matching.order.cancelled` takes the same path
       // and must also be a no-op — at-least-once is the only delivery there is.
-      await trade.releaseOnCancelEvent(order.id);
+      await trade.releaseOnCancelEvent(order.id, '2');
 
       expect(await avail(ALICE, 'USDT')).toBe('1000');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
@@ -1071,8 +1071,8 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       const order = await rest(ALICE, btcusdt, 'buy', '10', '100', 'alice-1');
 
       await trade.cancelOrder(principalFor(ALICE), order.id);
-      await trade.releaseOnCancelEvent(order.id);
-      await trade.releaseOnCancelEvent(order.id);
+      await trade.releaseOnCancelEvent(order.id, '6');
+      await trade.releaseOnCancelEvent(order.id, '6');
 
       expect(await avail(ALICE, 'USDT')).toBe('1600');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
@@ -1099,6 +1099,63 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(formatAmount(order.filledQty)).toBe('4');
       expect(await avail(ALICE, 'USDT')).toBe('1600');
       expect(await held(ALICE, 'USDT')).toBe('0');
+      expect(postsWithReason('order.hold.released')).toHaveLength(1);
+    });
+
+    it('a cancel event that arrives before its fill keeps the hold, and the fill still settles', async () => {
+      // Seen in the running app (J-cex-spot-01 step 8): an IOC sell partly filled a resting buy. The engine
+      // published the fill and the remainder's cancel together; the cancel consumer released the whole sell
+      // hold first, the fill's tradeFill then found an empty hold, and the buyer's order stayed open with
+      // its USDT held and no BTC. Both orders rest here (the stub does not match), and the two engine
+      // events are delivered by hand in the order that broke.
+      await fund(ALICE, 'USDT', '1000');
+      await fund(BOB, 'BTC', '10');
+      const buy = await rest(ALICE, btcusdt, 'buy', '4', '100', 'alice-bid');
+      const sell = await rest(BOB, btcusdt, 'sell', '10', '100', 'bob-sell');
+      expect(await heldFor(BOB, 'BTC', sell.id)).toBe('10');
+
+      // The engine matched 4 and cancelled the other 6; the cancel is delivered first.
+      await expect(trade.releaseOnCancelEvent(sell.id, '6')).rejects.toMatchObject({ code: 'trade.cancel_ahead_of_fill' });
+      expect(await heldFor(BOB, 'BTC', sell.id)).toBe('10');
+      expect(postsWithReason('order.hold.released')).toHaveLength(0);
+
+      await trade.settleFillEvent({
+        marketId: btcusdt.id,
+        makerOrderId: buy.id,
+        takerOrderId: sell.id,
+        price: '100',
+        qty: '4',
+        sequence: 1,
+        makerAccountId: ALICE,
+        takerAccountId: BOB,
+      });
+      // The redelivered cancel now releases only what did not fill.
+      await trade.releaseOnCancelEvent(sell.id, '6');
+
+      expect(await heldFor(BOB, 'BTC', sell.id)).toBe('0');
+      expect(await avail(BOB, 'BTC')).toBe('6');
+      expect(await held(ALICE, 'USDT')).toBe('0');
+      expect(await avail(ALICE, 'USDT')).toBe('600');
+      expect(postsWithReason('trade.fill')).toHaveLength(1);
+      expect((await trade.getOrder(principalFor(BOB, ['trade:read']), sell.id)).status).toBe('cancelled');
+      expect((await trade.getOrder(principalFor(ALICE, ['trade:read']), buy.id)).status).toBe('filled');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a cancel event ahead of its fill also keeps the hold of an order waiting on recovery', async () => {
+      await fund(BOB, 'BTC', '10');
+      const sell = await rest(BOB, btcusdt, 'sell', '10', '100', 'bob-recovery');
+      await sql`UPDATE trade.orders SET status = 'recovery_required', recovery_reason = 'SUBMIT_UNKNOWN', reconciliation_key = ${'reconcile:' + sell.id} WHERE id = ${sell.id}`;
+      await expect(trade.releaseOnCancelEvent(sell.id, '6')).rejects.toMatchObject({ code: 'trade.cancel_ahead_of_fill' });
+      expect(await heldFor(BOB, 'BTC', sell.id)).toBe('10');
+      expect(postsWithReason('order.hold.released')).toHaveLength(0);
+    });
+
+    it('a cancel event with nothing filled releases the whole hold, as before', async () => {
+      await fund(BOB, 'BTC', '10');
+      const sell = await rest(BOB, btcusdt, 'sell', '10', '100', 'bob-sell');
+      await trade.releaseOnCancelEvent(sell.id, '10');
+      expect(await avail(BOB, 'BTC')).toBe('10');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
     });
 
@@ -1284,7 +1341,7 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(cancelled.filledQty).toBe(0n);
       expect(cancelled.holdAmount).toBe(0n);
 
-      await trade.releaseOnCancelEvent(taker.id);
+      await trade.releaseOnCancelEvent(taker.id, '1');
       const takerAfter = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
       expect(takerAfter.status).toBe('cancelled');
       expect(takerAfter.filledQty).toBe(0n);
