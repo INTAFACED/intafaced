@@ -1175,7 +1175,9 @@ export function createP2pRouter(
        * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
        * `p2p.config_unset`), one audit row per export, totals as decimal
        * strings over released trades only; optional `totalsByRole` splits them
-       * by the caller's side. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       * by the caller's side. CSV rows (and `rows`) include trades of every
+       * status in range; totals count released trades only, so they need not
+       * sum over every row. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
        */
       export: merchantApiProcedure('p2p:read')
         .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))

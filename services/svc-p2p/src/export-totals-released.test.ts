@@ -3,15 +3,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, formatAmount, parseAmount, recipes } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
 import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
-import { P2pService, P2pError } from './p2p-service.js';
+import { P2pService } from './p2p-service.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { createP2pRouter } from './router.js';
-import { csvCell } from './customer-depth.js';
 
 /**
  * P-trade-orders-14: export totals count released trades only; totalsByRole splits by side.
@@ -26,7 +25,6 @@ const migrations = readdirSync(join(here, '..', 'drizzle'))
 
 const MAKER = '11111111-1111-4111-8111-111111111111';
 const TAKER = '22222222-2222-4222-8222-222222222222';
-const OTHER = '33333333-3333-4333-8333-333333333333';
 const MODERATOR = '44444444-4444-4444-8444-444444444444';
 const ASSET = 'USDT';
 
@@ -69,7 +67,7 @@ describe('svc-p2p export totals over released trades (P-trade-orders-14)', () =>
         fields: [{ key: 'account_reference', label: 'Account reference', required: true }],
       });
     }
-    for (const ownerId of [MAKER, TAKER, OTHER]) {
+    for (const ownerId of [MAKER, TAKER]) {
       for (const methodId of ['sepa', 'wire']) {
         await instruments.createInstrument({
           ownerId,
@@ -163,10 +161,6 @@ describe('svc-p2p export totals over released trades (P-trade-orders-14)', () =>
     return t;
   }
 
-  function cause(code: string) {
-    return { cause: expect.objectContaining({ code }) };
-  }
-
   // `policy` is read in beforeEach; tests that need caps rebuild the service.
   function rebuild(next: typeof policy) {
     policy = next;
@@ -182,6 +176,22 @@ describe('svc-p2p export totals over released trades (P-trade-orders-14)', () =>
         escalationRecheckSeconds: 3_600,
       },
     });
+  }
+
+  async function taken(amount: string) {
+    const offer = await sell();
+    return p2p.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount(amount),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+    });
+  }
+
+  async function statusOf(tradeId: string) {
+    const [row] = await sql<Array<{ status: string }>>`SELECT status FROM p2p.p2p_trades WHERE id = ${tradeId}`;
+    return row?.status;
   }
 
   async function cancelled(amount: string) {
@@ -249,5 +259,52 @@ describe('svc-p2p export totals over released trades (P-trade-orders-14)', () =>
       { role: 'buyer', asset: ASSET, fiatCurrency: 'USD', amount: '15', fiatAmount: '15' },
       { role: 'seller', asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' },
     ]);
+  });
+
+  it('open (escrowed, fiat_sent) and disputed trades are excluded from totals', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    await fund(TAKER, '1000');
+    await released('20');
+    const escrowed = await taken('11');
+    const paid = await taken('12');
+    await p2p.markFiatSent(paid.id, TAKER);
+    const disputed = await taken('13');
+    await p2p.markFiatSent(disputed.id, TAKER);
+    await p2p.openDispute({ tradeId: disputed.id, openedBy: TAKER, reason: 'paid, not released' });
+    expect(await statusOf(escrowed.id)).toBe('escrowed');
+    expect(await statusOf(paid.id)).toBe('fiat_sent');
+    expect(await statusOf(disputed.id)).toBe('disputed');
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(out.rows).toBe(4);
+    expect(out.totals).toEqual([{ asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' }]);
+    expect(out.totalsByRole).toEqual([{ role: 'buyer', asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' }]);
+  });
+
+  it('a trade expired by the deadline sweep is excluded from totals', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    await fund(TAKER, '1000');
+    await released('20');
+    const stale = await taken('40');
+    const sweep = await p2p.sweepDeadlines(new Date(Date.now() + 86_400_000), 100);
+    expect(sweep.failed).toBe(0);
+    expect(await statusOf(stale.id)).toBe('cancelled');
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(out.rows).toBe(2);
+    expect(out.totals).toEqual([{ asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' }]);
+  });
+
+  it('a disputed trade ruled for release is counted', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    await fund(TAKER, '1000');
+    const t = await taken('17');
+    await p2p.markFiatSent(t.id, TAKER);
+    await p2p.openDispute({ tradeId: t.id, openedBy: TAKER, reason: 'paid, not released' });
+    await p2p.resolveDispute({ tradeId: t.id, moderatorId: MODERATOR, resolution: 'release' });
+    expect(await statusOf(t.id)).toBe('released');
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(out.totals).toEqual([{ asset: ASSET, fiatCurrency: 'USD', amount: '17', fiatAmount: '17' }]);
   });
 });
