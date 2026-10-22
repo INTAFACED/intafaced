@@ -16,7 +16,7 @@ const config = {
   channels: ['in_app'],
   requestTypes: ['question', 'problem'],
 };
-const input = { surveyId: null, expectedRevision: 0, config };
+const input = { surveyId: null, expectedRevision: 0, reason: 'launch survey', config };
 
 describe('survey configuration (SP-csat-02)', () => {
   it('declares the new codes', () => {
@@ -29,6 +29,13 @@ describe('survey configuration (SP-csat-02)', () => {
   it('names the cap-reached refusal beside cap-unset', () => {
     expect(SUPPORT_SURVEY_CAP_REACHED).toBe('support.survey_cap_reached');
     expect(supportSurveyErrorCodeSchema.safeParse(SUPPORT_SURVEY_CAP_REACHED).success).toBe(true);
+  });
+  it('requires a non-blank reason within the limit', () => {
+    const { reason: _omit, ...noReason } = input;
+    expect(supportSurveyConfigureInputSchema.safeParse(noReason).success).toBe(false);
+    expect(supportSurveyConfigureInputSchema.safeParse({ ...input, reason: '   ' }).success).toBe(false);
+    expect(supportSurveyConfigureInputSchema.safeParse({ ...input, reason: 'x'.repeat(501) }).success).toBe(false);
+    expect(supportSurveyConfigureInputSchema.parse({ ...input, reason: ' why ' }).reason).toBe('why');
   });
   it('accepts a complete configuration', () => {
     expect(supportSurveyConfigureInputSchema.parse(input)).toEqual(input);

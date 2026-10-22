@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SUPPORT_ATTACHMENT_REASON_MAX } from './support-attachments.js';
 import { supportTicketTypeSchema } from './support.js';
 
 /**
@@ -57,9 +58,14 @@ export const supportSurveyConfigSchema = z
   });
 export type SupportSurveyConfig = z.infer<typeof supportSurveyConfigSchema>;
 
-/** Configure carries the revision read; a stale one is refused by the service. */
+/** Configure carries the revision read (a stale one is refused by the service) and an audit reason. */
 export const supportSurveyConfigureInputSchema = z
-  .object({ surveyId: id.nullable(), expectedRevision: z.number().int().nonnegative().safe(), config: supportSurveyConfigSchema })
+  .object({
+    surveyId: id.nullable(),
+    expectedRevision: z.number().int().nonnegative().safe(),
+    reason: z.string().trim().min(1).max(SUPPORT_ATTACHMENT_REASON_MAX),
+    config: supportSurveyConfigSchema,
+  })
   .strict();
 export type SupportSurveyConfigureInput = z.infer<typeof supportSurveyConfigureInputSchema>;
 
