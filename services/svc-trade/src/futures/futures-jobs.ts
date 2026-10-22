@@ -207,6 +207,8 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       ledger: deps.ledger,
       now: deps.now,
       notifyMarginCall,
+      // ADL omitted: owner policy unset. Tick defaults policy null →
+      // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
     });
   });
 

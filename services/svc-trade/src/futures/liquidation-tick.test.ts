@@ -12,7 +12,7 @@ import {
 } from './liquidation-tick.js';
 import { DEFAULT_FUTURES_MARK_POLICY, type FuturesQuotedMark } from './mark-policy.js';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
-import { INSURANCE_UNDERFUNDED } from './insurance-bound.js';
+import { ADL_UNCONFIGURED } from './adl-last-resort.js';
 import { type FuturesLadderPolicy } from './maintenance-ladder.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -330,7 +330,7 @@ describe('runLiquidationTick', () => {
     });
     expect(result.liquidated).toBe(0);
     expect(result.items[0]!.outcome).toBe('skipped_insurance_underfunded');
-    expect(result.items[0]!.reason).toBe(INSURANCE_UNDERFUNDED);
+    expect(result.items[0]!.reason).toBe(ADL_UNCONFIGURED);
     expect(result.items[0]!.summary).toMatch(/refusing rather than overdrawing/);
     expect(posts).toHaveLength(0);
     expect(closed).toHaveLength(0);

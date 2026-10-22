@@ -31,6 +31,8 @@ import {
 import { DEFAULT_FUTURES_MARK_POLICY, acceptableForLiquidation, type FuturesQuotedMark, type MarkPolicy } from './mark-policy.js';
 import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
+import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
+export type { LiquidationAdlDeps } from './liquidation-adl-gate.js';
 
 /**
  * WHAT A CALLER ASKS A MARK SOURCE FOR — AND WHAT THE ANSWER IS FOR.
@@ -261,6 +263,12 @@ export interface LiquidationTickDeps {
    * margin_call as grace-expired seizure while grace is unimplemented.
    */
   notifyMarginCall?: MarginCallNotifier;
+  /**
+   * Last-resort ADL after insurance cannot cover a bankrupt rung.
+   * Omitted / policy null → runAdlLastResort refuses `trade.adl_unconfigured`
+   * and the reducer never runs. Owner maxReduceBps is never invented here.
+   */
+  adl?: LiquidationAdlDeps;
 }
 
 export interface LiquidationTickItemResult {
@@ -423,12 +431,15 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
       balance: (ref) => deps.ledger.balance(ref),
     });
     if (!insurance.ok) {
-      items.push({
-        positionId: row.positionId,
-        outcome: 'skipped_insurance_underfunded',
-        reason: INSURANCE_UNDERFUNDED,
-        summary: insurance.reason,
-      });
+      items.push(
+        await parkUnderfundedWithAdl({
+          adl: deps.adl,
+          row,
+          fromInsurance: decision.fromInsurance,
+          insuranceReason: insurance.reason ?? INSURANCE_UNDERFUNDED,
+          at,
+        }),
+      );
       continue;
     }
 
@@ -603,12 +614,13 @@ async function runLadderRung(
     balance: (ref) => deps.ledger.balance(ref),
   });
   if (!insurance.ok) {
-    return {
-      positionId: row.positionId,
-      outcome: 'skipped_insurance_underfunded',
-      reason: INSURANCE_UNDERFUNDED,
-      summary: insurance.reason,
-    };
+    return parkUnderfundedWithAdl({
+      adl: deps.adl,
+      row,
+      fromInsurance: decision.fromInsurance,
+      insuranceReason: insurance.reason ?? INSURANCE_UNDERFUNDED,
+      at: (deps.now ?? (() => new Date()))(),
+    });
   }
 
   /**
