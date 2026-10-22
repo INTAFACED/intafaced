@@ -24,6 +24,8 @@ export interface FundingHistoryRow {
   readonly periodTimestamp: number;
   readonly fundingRate: string;
   readonly markPrice: string | null;
+  /** The two approvers of the publish (RC-derivatives-01), kept for audit. Absent on rows from before it. */
+  readonly approverIds?: readonly string[];
 }
 
 export interface FundingHistoryStore {
