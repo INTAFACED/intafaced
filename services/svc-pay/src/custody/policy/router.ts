@@ -6,7 +6,6 @@ import {
   policyDecisionViewSchema,
   policyDraftInputSchema,
   policyListInputSchema,
-  policyPublishInputSchema,
   policySimulateInputSchema,
   policyValidateInputSchema,
   policyValidationViewSchema,
@@ -22,7 +21,10 @@ async function wrap<T>(fn: () => Promise<T> | T): Promise<T> {
   }
 }
 
-/** `founderAdmin.custody.policy.*` (W-custody-ops-07). Founder-only: built from the custody router's founder procedure. */
+/**
+ * `founderAdmin.custody.policy.*` (W-custody-ops-07). Founder-only: built from the custody router's founder procedure.
+ * Publishing is not here: it is a custody `config` task with scope `policy` (see CustodyPolicyService).
+ */
 export function createCustodyPolicyRouters(
   founder: ReturnType<typeof founderProcedure>,
   service: CustodyPolicyService,
@@ -46,10 +48,6 @@ export function createCustodyPolicyRouters(
         .input(policyDraftInputSchema)
         .output(policyVersionViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.saveDraft(actorOf(ctx), input))),
-      publish: founder
-        .input(policyPublishInputSchema)
-        .output(policyVersionViewSchema)
-        .mutation(({ ctx, input }) => wrap(() => service.publish(actorOf(ctx), input.version))),
       simulate: founder
         .input(policySimulateInputSchema)
         .output(policyDecisionViewSchema)

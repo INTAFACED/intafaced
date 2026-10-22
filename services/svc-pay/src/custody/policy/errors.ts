@@ -4,7 +4,6 @@ export type CustodyPolicyErrorCode =
   | 'custody_policy.draft_invalid'
   | 'custody_policy.no_draft'
   | 'custody_policy.draft_differs'
-  | 'custody_policy.same_founder'
   | 'custody_policy.version_not_found'
   | 'custody_policy.unset';
 
@@ -12,7 +11,6 @@ const KIND: Record<CustodyPolicyErrorCode, TRPCError['code']> = {
   'custody_policy.draft_invalid': 'BAD_REQUEST',
   'custody_policy.no_draft': 'NOT_FOUND',
   'custody_policy.draft_differs': 'CONFLICT',
-  'custody_policy.same_founder': 'FORBIDDEN',
   'custody_policy.version_not_found': 'NOT_FOUND',
   'custody_policy.unset': 'PRECONDITION_FAILED',
 };

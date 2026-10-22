@@ -80,6 +80,7 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
  */
 export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
+  const policyService = new CustodyPolicyService({ sql: deps.sql });
   const service = new CustodyService({ sql: deps.sql });
   const feeRouters = createCustodyFeesRouters(founder, new CustodyFeesService({ sql: deps.sql, estimator: deps.feeEstimator }), actorOf);
   const utxoRouters = createCustodyUtxoRouters(
@@ -87,7 +88,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     new CustodyUtxoService({ sql: deps.sql, node: deps.utxoNode, estimator: deps.feeEstimator }),
     actorOf,
   );
-  const policyRouters = createCustodyPolicyRouters(founder, new CustodyPolicyService({ sql: deps.sql }), actorOf);
+  const policyRouters = createCustodyPolicyRouters(founder, policyService, actorOf);
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
   const stuckRouters = createCustodyStuckRouters(
     founder,
@@ -102,7 +103,11 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
   );
   const approvalRouters = createCustodyApprovalRouters(
     founder,
-    new CustodyApprovalService({ sql: deps.sql, transactionExecutor: deps.transactionExecutor, configAppliers: deps.configAppliers }),
+    new CustodyApprovalService({
+      sql: deps.sql,
+      transactionExecutor: deps.transactionExecutor,
+      configAppliers: { policy: policyService.publishApplier, ...deps.configAppliers },
+    }),
     actorOf,
   );
   return router({

@@ -111,15 +111,34 @@ describe('custody transaction policy (real Postgres)', () => {
     await db.sql.unsafe(`DELETE FROM pay.custody_policy_versions`);
     await db.sql.unsafe(`ALTER TABLE pay.custody_policy_versions ENABLE TRIGGER custody_policy_immutable_trg`);
     await truncatePayForTest(db.sql, 'pay', `TRUNCATE pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`);
+    // The existing custody approval quorum (W-custody-ops-06): one registered approver other than the initiator. TEST values.
+    founder = 'owner';
+    await db.sql.unsafe(`TRUNCATE pay.custody_task_quorum_events, pay.custody_approver_events RESTART IDENTITY CASCADE`);
+    await api.founderAdmin.custody.approvalSettings.setQuorum({ kind: 'config', requiredApprovals: 1, expirySeconds: 600 });
+    await api.founderAdmin.custody.approvers.register({ userId: 'founder-b', label: 'TEST approver', role: 'founder' });
+    founder = 'founder-a';
   }, 30_000);
 
+  const config = () => api.founderAdmin.custody.config;
+  /** Propose as founder-a, approve as founder-b: the task runs the policy applier. */
+  async function proposeAndApprove(payload: Record<string, unknown>) {
+    founder = 'founder-a';
+    const task = await config().propose({ scope: 'policy', title: 'TEST publish policy', payload, clientRef: `policy-${randomUUID()}` });
+    founder = 'founder-b';
+    const out = await config()
+      .approve({ taskId: task.id, payloadHash: task.payloadHash })
+      .then(
+        (t: unknown) => t,
+        (e: unknown) => e,
+      );
+    founder = 'founder-a';
+    return { task, out };
+  }
   async function publish(rules: PolicyRule[]) {
     founder = 'founder-a';
     const draft = await policy().draft({ rules, note: 'TEST policy', expectedDraftVersion: null });
-    founder = 'founder-b';
-    const out = await policy().publish({ version: draft.version });
-    founder = 'founder-a';
-    return out;
+    await proposeAndApprove({ version: draft.version, rulesHash: draft.rulesHash });
+    return policy().current();
   }
 
   it('is off by default and refuses boot on a mode that is not off or required', () => {
@@ -155,20 +174,44 @@ describe('custody transaction policy (real Postgres)', () => {
     expect(await policy().list({})).toEqual([]);
   });
 
-  it('draft edits need the expected version; the editor cannot publish; a second founder can, twice is idempotent', async () => {
+  it('draft edits need the expected version; publishing is an approved policy config task, never the initiator alone', async () => {
     const d1 = await policy().draft({ rules: [allowAll], note: 'TEST v1', expectedDraftVersion: null });
-    expect(d1).toMatchObject({ version: 1, status: 'draft', editedBy: 'founder-a', publishedBy: null });
+    expect(d1).toMatchObject({ version: 1, status: 'draft', editedBy: 'founder-a', publishedBy: null, approvalTaskId: null });
     expect((await refused(policy().draft({ rules: [allowAll], note: 'TEST', expectedDraftVersion: null }))).message).toMatch(
       /draft_differs/,
     );
     const d1b = await policy().draft({ rules: [denyBad, allowAll], note: 'TEST v1 edited', expectedDraftVersion: 1 });
     expect(d1b).toMatchObject({ version: 1, note: 'TEST v1 edited' });
-    expect((await refused(policy().publish({ version: 1 }))).message).toMatch(/custody_policy\.same_founder/);
-    expect((await refused(policy().publish({ version: 9 }))).message).toMatch(/version_not_found/);
-    founder = 'founder-b';
-    const p1 = await policy().publish({ version: 1 });
-    expect(p1).toMatchObject({ version: 1, status: 'published', editedBy: 'founder-a', publishedBy: 'founder-b' });
-    expect(await policy().publish({ version: 1 })).toEqual(p1);
+    expect(d1b.rulesHash).not.toBe(d1.rulesHash);
+
+    // The initiator cannot approve their own task (existing quorum rule).
+    founder = 'founder-a';
+    const own = await config().propose({
+      scope: 'policy',
+      title: 'TEST',
+      payload: { version: 1, rulesHash: d1b.rulesHash },
+      clientRef: `own-${randomUUID()}`,
+    });
+    expect(await refused(config().approve({ taskId: own.id, payloadHash: own.payloadHash }))).toBeTruthy();
+    expect((await policy().list({}))[0].status).toBe('draft');
+
+    // A task naming the old rules hash fails and publishes nothing.
+    const stale = await proposeAndApprove({ version: 1, rulesHash: d1.rulesHash });
+    expect(stale.out).toBeTruthy();
+    expect((await policy().list({}))[0].status).toBe('draft');
+
+    const ok = await proposeAndApprove({ version: 1, rulesHash: d1b.rulesHash });
+    const p1 = await policy().current();
+    expect(p1).toMatchObject({
+      version: 1,
+      status: 'published',
+      editedBy: 'founder-a',
+      publishedBy: 'founder-a',
+      approvalTaskId: ok.task.id,
+    });
+
+    // Publishing it again through another task refuses: it is no longer the open draft.
+    await proposeAndApprove({ version: 1, rulesHash: d1b.rulesHash });
     expect(await policy().current()).toEqual(p1);
   });
 

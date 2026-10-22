@@ -52,7 +52,6 @@ export const policyDraftInputSchema = z
   .strict();
 export type PolicyDraftInput = z.infer<typeof policyDraftInputSchema>;
 
-export const policyPublishInputSchema = z.object({ version: z.number().int().positive() }).strict();
 export const policyValidateInputSchema = z.object({ rules: policyRulesSchema }).strict();
 export const policyListInputSchema = z.object({ limit: z.number().int().min(1).max(200).default(50) }).strict();
 
@@ -83,6 +82,10 @@ export const policyVersionViewSchema = z.object({
   editedAt: z.string(),
   publishedBy: z.string().nullable(),
   publishedAt: z.string().nullable(),
+  /** The approved custody config task (scope `policy`) that published this version. */
+  approvalTaskId: z.string().nullable(),
+  /** Put this with `version` in the `policy` config task payload. */
+  rulesHash: z.string(),
 });
 export type PolicyVersionView = z.infer<typeof policyVersionViewSchema>;
 

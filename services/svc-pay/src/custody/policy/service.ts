@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { WITHDRAWAL_STATES_NOT_COUNTED } from '../../limits/allowance.js';
+import { CustodyTaskExecutionError } from '../approvals/errors.js';
+import type { TaskExecutor } from '../approvals/service.js';
 import { evaluatePolicy, validateRules, type PolicyProblem, type PolicyTx, type UsedInWindow } from './engine.js';
 import { CustodyPolicyError } from './errors.js';
 import type { PolicyDecisionView, PolicyDraftInput, PolicyRule, PolicySimulateInput, PolicyVersionView } from './schemas.js';
@@ -15,9 +18,15 @@ interface Row {
   edited_at: Date;
   published_by: string | null;
   published_at: Date | null;
+  approval_task_id: string | null;
 }
 
 const LOCK = 'pay.custody_policy';
+
+/** The digest a `policy` config task names, so an approval can never publish rules edited after it was proposed. */
+export function rulesHashOf(rules: readonly PolicyRule[]): string {
+  return createHash('sha256').update(JSON.stringify(rules)).digest('hex');
+}
 
 function view(r: Row): PolicyVersionView {
   return {
@@ -29,6 +38,8 @@ function view(r: Row): PolicyVersionView {
     editedAt: r.edited_at.toISOString(),
     publishedBy: r.published_by,
     publishedAt: r.published_at?.toISOString() ?? null,
+    approvalTaskId: r.approval_task_id,
+    rulesHash: rulesHashOf(r.rules),
   };
 }
 
@@ -59,11 +70,15 @@ export function withdrawalsUsedInWindow(q: Sql, exceptClientRef = ''): UsedInWin
 }
 
 /**
- * Custody transaction policy (W-custody-ops-07): draft, validate, publish (four eyes), list and simulate.
+ * Custody transaction policy (W-custody-ops-07): draft, validate, list, simulate, and publish through the existing
+ * custody approval tasks (W-custody-ops-06).
  *
  * One open draft at a time; a published version is immutable (database trigger), so a change is a new draft and a
- * new version. The founder who publishes must not be the one who last edited the draft. Publishing a version that is
- * already published returns it unchanged. Simulate reads only.
+ * new version. There is no direct publish: a founder proposes `founderAdmin.custody.config.propose` with scope
+ * `policy` and payload `{ version, rulesHash }` (both from `list`/`draft`), the owner-set quorum of registered approvers
+ * (never the initiator) approves it, and the task runs `publishApplier`. The applier refuses a version that is not the
+ * open draft or whose rules no longer hash to what was approved. Running it again for a version already published by
+ * the same task does nothing. Simulate reads only.
  */
 export class CustodyPolicyService {
   constructor(private readonly deps: { readonly sql: Sql }) {}
@@ -110,25 +125,32 @@ export class CustodyPolicyService {
     });
   }
 
-  async publish(actor: string, version: number): Promise<PolicyVersionView> {
-    return transaction(this.deps.sql, async (tx) => {
+  /** The `policy` config-task applier. Wired into the custody approval service by the custody router. */
+  readonly publishApplier: TaskExecutor = async (task) => {
+    const version = task.payload.version;
+    const hash = task.payload.rulesHash;
+    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1 || typeof hash !== 'string') {
+      throw new CustodyTaskExecutionError('custody_policy.task_payload_invalid', 'a policy task needs { version, rulesHash }');
+    }
+    await transaction(this.deps.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK}))`;
       const [row] = await tx<Row[]>`SELECT * FROM pay.custody_policy_versions WHERE version = ${version}`;
-      if (!row) throw new CustodyPolicyError('custody_policy.version_not_found', `no policy version ${version}`);
-      if (row.status !== 'draft') return view(row);
-      if (row.edited_by === actor) {
-        throw new CustodyPolicyError('custody_policy.same_founder', 'a second founder must publish a draft; you edited it last');
+      if (!row) throw new CustodyTaskExecutionError('custody_policy.version_not_found', `no policy version ${version}`);
+      if (row.status !== 'draft') {
+        if (row.approval_task_id === task.taskId) return; // a re-run of the task that published it
+        throw new CustodyTaskExecutionError('custody_policy.not_draft', `policy version ${version} is ${row.status}, not the open draft`);
+      }
+      if (rulesHashOf(row.rules) !== hash) {
+        throw new CustodyTaskExecutionError('custody_policy.draft_differs', 'the draft changed after the task was proposed');
       }
       const problems = validateRules(row.rules);
-      if (problems.length > 0) throw new CustodyPolicyError('custody_policy.draft_invalid', 'the draft has invalid rules', problems);
+      if (problems.length > 0) throw new CustodyTaskExecutionError('custody_policy.draft_invalid', 'the draft has invalid rules');
       await tx`UPDATE pay.custody_policy_versions SET status = 'superseded' WHERE status = 'published'`;
-      const [done] = await tx<
-        Row[]
-      >`UPDATE pay.custody_policy_versions SET status = 'published', published_by = ${actor}, published_at = now()
-                                     WHERE version = ${version} RETURNING *`;
-      return view(done!);
+      await tx`UPDATE pay.custody_policy_versions
+                  SET status = 'published', published_by = ${task.initiator}, published_at = now(), approval_task_id = ${task.taskId}
+                WHERE version = ${version}`;
     });
-  }
+  };
 
   /** How a version (default: the published one) would decide a transaction. Writes nothing. */
   async simulate(input: PolicySimulateInput): Promise<PolicyDecisionView> {
