@@ -85,6 +85,20 @@ export function parseOtcMakerDirectoryJson(raw: string | null | undefined): OtcM
   return { published: true, makers, selectCap: cap };
 }
 
+/**
+ * Boot loader: a malformed directory must not stop all of svc-trade. It is
+ * logged and the OTC provider routes stay in the refusing empty state.
+ */
+export function loadOtcMakerDirectory(raw: string | null | undefined, onInvalid: (message: string) => void): OtcMakerDirectory {
+  try {
+    return parseOtcMakerDirectoryJson(raw);
+  } catch (err) {
+    if (!(err instanceof OtcError)) throw err;
+    onInvalid(err.message);
+    return UNPUBLISHED_OTC_MAKER_DIRECTORY;
+  }
+}
+
 /** `trade.otc.makers.list`: blank list is an honest empty state, never a sample provider. */
 export function listOtcMakers(directory: OtcMakerDirectory) {
   if (!directory.published) {

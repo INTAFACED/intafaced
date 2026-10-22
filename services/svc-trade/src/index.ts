@@ -126,7 +126,7 @@ import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
-import { parseOtcMakerDirectoryJson } from './otc/maker-directory.js';
+import { loadOtcMakerDirectory } from './otc/maker-directory.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
@@ -292,7 +292,9 @@ const otc = new OtcDeskService(ledger, otcStakes, {
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
   store: new SqlOtcQuoteStore(sql),
-  makerDirectory: parseOtcMakerDirectoryJson(env.TRADE_OTC_MAKER_DIRECTORY),
+  makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
+    process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),
+  ),
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);

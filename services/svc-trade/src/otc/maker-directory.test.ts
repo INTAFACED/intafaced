@@ -9,6 +9,7 @@ import { OtcError, type OtcErrorCode } from './errors.js';
 import { FixedOtcStake } from './stake-source.js';
 import {
   listOtcMakers,
+  loadOtcMakerDirectory,
   OTC_MAKERS_UNSET_RESIDUAL,
   parseOtcMakerDirectoryJson,
   selectOtcMakers,
@@ -159,5 +160,21 @@ describe('OtcDeskService provider directory', () => {
       selectCap: 3,
     });
     expect(codeOf(() => svc.selectMakers(['test-lp-a', 'test-lp-b', 'test-lp-c', 'test-lp-d']))).toBe('trade.otc_provider_cap');
+  });
+});
+
+describe('loadOtcMakerDirectory', () => {
+  it('a malformed directory is logged and leaves the refusing empty state instead of stopping boot', () => {
+    const logged: string[] = [];
+    const dir = loadOtcMakerDirectory('{', (m) => logged.push(m));
+    expect(dir).toEqual({ published: false });
+    expect(logged).toHaveLength(1);
+    expect(codeOf(() => selectOtcMakers(dir, ['test-lp-a']))).toBe('trade.otc_makers_unset');
+  });
+
+  it('a valid directory loads without logging', () => {
+    const logged: string[] = [];
+    expect(loadOtcMakerDirectory(TEST_DIRECTORY_JSON, (m) => logged.push(m)).published).toBe(true);
+    expect(logged).toEqual([]);
   });
 });
