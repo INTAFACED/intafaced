@@ -58,6 +58,12 @@ export interface PublicRestDeps {
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
   /** SP-order-entry-03: pair rules with blanks as "not set". Absent means `pairRules: null` on the wire. */
   pairRulesForMarket?(market: Market): Promise<PairRules>;
+  /**
+   * SP-order-entry-03: batched reader, one query for the whole list. Preferred
+   * over `pairRulesForMarket` when both are mounted. A market missing from the
+   * map gets `pairRules: null`.
+   */
+  pairRulesForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRules>>;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -695,13 +701,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     const markets = (await deps.markets(limit)).filter((m) => visibleOnPublicBoard(m, deps.futuresTestSeed === true));
     const ts = now();
     const futuresOrderable = deps.futures?.orderableEnabled === true;
+    const batchedRules = deps.pairRulesForMarkets ? await deps.pairRulesForMarkets(markets) : null;
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
-          pairRules: deps.pairRulesForMarket ? await deps.pairRulesForMarket(m) : null,
+          pairRules: batchedRules ? (batchedRules.get(m.id) ?? null) : deps.pairRulesForMarket ? await deps.pairRulesForMarket(m) : null,
         }),
       ),
     );

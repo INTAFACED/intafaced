@@ -85,7 +85,7 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
 import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
-import { currentRisk } from './admin/risk.js';
+import { currentRiskForMarkets } from './admin/risk.js';
 import { presentPairRules } from './spot/pair-rules.js';
 import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
@@ -727,7 +727,13 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
-  pairRulesForMarket: async (market) => presentPairRules(market, await currentRisk(sql, market.id)),
+  pairRulesForMarkets: async (markets) => {
+    const risks = await currentRiskForMarkets(
+      sql,
+      markets.map((m) => m.id),
+    );
+    return new Map(markets.map((m) => [m.id, presentPairRules(m, risks.get(m.id) ?? null, env.TRADE_MARKET_SLIPPAGE_CAP_BPS)]));
+  },
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;

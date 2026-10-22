@@ -23,7 +23,11 @@ export interface PairRules {
     readonly collar: PairRuleValue;
     /** Largest accepted order value (operator fat-finger limit). */
     readonly fatFinger: PairRuleValue;
-    /** Market-order slippage cap in basis points. */
+    /**
+     * EFFECTIVE market-order slippage cap in basis points: the operator cap when
+     * it is an integer, else the owner env `TRADE_MARKET_SLIPPAGE_CAP_BPS`, else
+     * "not set" — the same precedence the order path enforces.
+     */
     readonly slippageCapBps: PairRuleValue;
     /** Open orders one account may hold on this market. */
     readonly openOrdersPerMarket: PairRuleValue;
@@ -36,7 +40,16 @@ function orNotSet(value: string | null): PairRuleValue {
   return value == null ? PAIR_RULE_NOT_SET : value;
 }
 
-export function presentPairRules(market: Market, risk: RiskVersion | null): PairRules {
+/** Mirrors `operatorSlippageCapBps(...) ?? marketSlippageCapBps` in the order path. */
+export function effectiveSlippageCapBps(risk: RiskVersion | null, envCapBps: number | null): PairRuleValue {
+  if (risk?.slippageCap != null) {
+    const bps = Number(risk.slippageCap);
+    if (Number.isInteger(bps)) return String(bps);
+  }
+  return envCapBps == null ? PAIR_RULE_NOT_SET : String(envCapBps);
+}
+
+export function presentPairRules(market: Market, risk: RiskVersion | null, envSlippageCapBps: number | null = null): PairRules {
   return {
     tick: formatAmount(market.tickSize),
     lot: formatAmount(market.lotSize),
@@ -46,7 +59,7 @@ export function presentPairRules(market: Market, risk: RiskVersion | null): Pair
     protection: {
       collar: orNotSet(risk?.collar ?? null),
       fatFinger: orNotSet(risk?.fatFinger ?? null),
-      slippageCapBps: orNotSet(risk?.slippageCap ?? null),
+      slippageCapBps: effectiveSlippageCapBps(risk, envSlippageCapBps),
       openOrdersPerMarket: orNotSet(risk?.throttle ?? null),
     },
     riskVersion: risk?.version ?? '0',
