@@ -36,7 +36,7 @@ import {
   refuseFuturesRestingLimit,
   startConditionalOrderJobs,
 } from './futures/conditional-orders/index.js';
-import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -99,6 +99,7 @@ import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
 import { writeOperatorAudit } from './admin/common.js';
+import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
@@ -127,6 +128,7 @@ import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
+import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
@@ -291,6 +293,15 @@ const otc = new OtcDeskService(ledger, otcStakes, {
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
+  convertBounds: (() => {
+    try {
+      return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
+    } catch (err) {
+      // A malformed setting must not stop all trading: log it and leave both flows refusing.
+      process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
+      return undefined;
+    }
+  })(),
   store: new SqlOtcQuoteStore(sql),
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
@@ -434,6 +445,8 @@ if (env.TRADE_VENUE_MARK_VENUE.trim() && !venueMarkConfigured) {
   );
 }
 const fundingMarketIds = parseFundingMarketIds(env.TRADE_FUTURES_FUNDING_MARKET_IDS);
+// D-margin-07: invalid owner fee fraction fails boot; blank is fee unset (nothing is charged, J-3).
+const liquidationFeeFraction = loadLiquidationFeeFraction(process.env);
 const fundingMaxAbsRate = resolveFundingMaxAbsRateForBoot({ fundingMarketIds, maxAbsRateRaw: env.TRADE_FUTURES_FUNDING_MAX_ABS_RATE });
 if (fundingMaxAbsRate) {
   app.log.info({ fundingMaxAbsRate }, 'futures funding |rate| bound is configured');
@@ -451,6 +464,7 @@ const futuresJobs = startFuturesJobs({
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    liquidationFeeFraction,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
     fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
@@ -1009,6 +1023,7 @@ registerPrivateRest(app, {
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
+  positionLiquidation: (principal, positionId) => loadPositionLiquidation(sql, principal.userId, positionId),
   listFuturesPayouts: async (principal) => ({ payouts: await listPayoutsForUser(sql, principal.userId) }),
 });
 await app.register(fastifyTRPCPlugin, {

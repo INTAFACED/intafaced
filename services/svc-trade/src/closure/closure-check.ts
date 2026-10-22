@@ -1,5 +1,6 @@
 /**
- * Read-only account-closure check. Trade answers for open orders and positions.
+ * Read-only account-closure check. Trade answers for open orders, positions and bound convert quotes
+ * (a convert hold: accepted, filled, not yet settled).
  * A failed read is 503, never an empty blocker list.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -90,11 +91,24 @@ export async function runTradeClosureCheck(sql: Sql, input: ClosureCheckBody): P
           WHERE status IN ('open', 'closing')
             AND (user_id = ${input.userId} OR user_id = ANY(${subs}::text[]))
         `;
+  // A bound convert quote is accepted and filled but not yet settled: value is in flight, so closing waits (RC-identity-15).
+  const convertRows =
+    input.scope === 'sub_accounts'
+      ? await sql<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM trade.convert_quotes
+          WHERE lifecycle = 'bound' AND user_id = ANY(${subs}::text[])
+        `
+      : await sql<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM trade.convert_quotes
+          WHERE lifecycle = 'bound' AND (user_id = ${input.userId} OR user_id = ANY(${subs}::text[]))
+        `;
   const blockers: ClosureBlocker[] = [];
+  const converts = convertRows[0]?.n ?? 0;
   const orders = orderRows[0]?.n ?? 0;
   const positions = positionRows[0]?.n ?? 0;
   if (orders > 0) blockers.push({ code: 'open_order', count: orders });
   if (positions > 0) blockers.push({ code: 'open_position', count: positions });
+  if (converts > 0) blockers.push({ code: 'convert_hold', count: converts });
   return { asOf: new Date().toISOString(), blockers };
 }
 
