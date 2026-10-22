@@ -75,6 +75,7 @@ export const EVENT_BUS_MATRIX = {
   xpEarned: { kind: 'live' },
   rankUpdated: { kind: 'live' },
   userCreated: { kind: 'socket', socketClass: 'A' },
+  apiKeyExposureCreated: { kind: 'socket', socketClass: 'A' },
   kycApproved: { kind: 'live' },
   ledgerTxPosted: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationFailed: { kind: 'socket', socketClass: 'A' },

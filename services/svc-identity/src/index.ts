@@ -47,6 +47,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createExposedApiKeyRouter } from './ops/exposed-api-keys-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { OAuthService } from './oauth/oauth.js';
@@ -515,6 +516,7 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
+  createExposedApiKeyRouter(sql, bus),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),

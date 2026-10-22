@@ -933,6 +933,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     xpEarned: { userId: uid(), sourceModule: 'trade', action: 'order.filled', xpDelta: 1 },
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
+    apiKeyExposureCreated: { reportId: uid(), keyId: uid(), userId: uid(), reportedAt: ts() },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
     ledgerTxPosted: {
       txId: uid(),

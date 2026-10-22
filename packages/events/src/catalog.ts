@@ -105,6 +105,25 @@ export const userCreated = defineEvent(
   'A sovereign account exists.',
 );
 
+/**
+ * DV-keys-05 (keys-012). An operator reported a live API key as exposed and svc-identity revoked it at once.
+ * The owner is told (svc-notify, later PR). Carries ids only: never the key string, its prefix or its hash.
+ * Published after commit from the report row; a lost publish is retried on the same report id.
+ */
+export const apiKeyExposureCreated = defineEvent(
+  'identity',
+  'api_key_exposure',
+  'created',
+  1,
+  z.object({
+    reportId: z.string().uuid(),
+    keyId: z.string().uuid(),
+    userId: userIdSchema,
+    reportedAt: z.string().datetime({ offset: true }),
+  }),
+  'An exposed API key was reported and revoked. Business key identity.api_key_exposure:<reportId>; the owner gets a notice with a one-step replacement.',
+);
+
 export const kycApproved = defineEvent(
   'identity',
   'kyc',
@@ -1057,6 +1076,7 @@ export const EVENT_CATALOG = {
   xpEarned,
   rankUpdated,
   userCreated,
+  apiKeyExposureCreated,
   kycApproved,
   ledgerTxPosted,
   ledgerReconciliationFailed,
@@ -1264,6 +1284,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "svc-identity announces that a sovereign account exists; no service reacts to the announcement today. Every module that needs a user resolves it through packages/contracts under the caller's own authority instead, so nothing is missing a fact it needs — the stream is a durable record ahead of its first reader.",
+  },
+  {
+    event: 'apiKeyExposureCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the owner notice in its own PR (DV-keys-05). The revoke itself is done in svc-identity in the same transaction as the report, so the key is dead whether or not anyone reads the event; the report row keeps the event for replay.',
   },
   {
     event: 'ledgerTxPosted',
