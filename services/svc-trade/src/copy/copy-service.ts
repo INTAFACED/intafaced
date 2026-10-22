@@ -141,6 +141,14 @@ export type LeaderFill = {
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
 export type LookupLeaderFillPort = (fillId: string) => Promise<LeaderFill | null>;
 
+const COPY_FOLLOW_TIER_RESIDUAL = 'Copy trading is not available yet: the verification level for copying is not set.';
+
+/** TRADE_COPY_FOLLOW_TIER → tier, or null when blank, unset or not a known tier (refuse-closed). */
+export function parseCopyFollowTier(raw: string | undefined): Principal['tier'] | null {
+  const v = raw?.trim();
+  return v && Object.prototype.hasOwnProperty.call(TIER_ORDER, v) ? (v as Principal['tier']) : null;
+}
+
 /**
  * Who may follow (CB-copy-03): a sub-account never follows, and the principal's
  * verification tier must reach the compliance-set copy tier. Runs before any write.
@@ -149,7 +157,10 @@ export function assertCopyFollowEligible(principal: Principal, followTier: Princ
   if (principal.sub_account) {
     throw new CopyError('A sub-account cannot follow a leader', 'trade.copy_subaccount_refused');
   }
-  if (followTier && TIER_ORDER[principal.tier ?? 'none'] < TIER_ORDER[followTier]) {
+  if (!followTier) {
+    throw new CopyError('Copy follow tier is not set', 'trade.copy_follow_tier_unset', COPY_FOLLOW_TIER_RESIDUAL);
+  }
+  if (TIER_ORDER[principal.tier ?? 'none'] < TIER_ORDER[followTier]) {
     throw new CopyError('Verification tier is below the copy tier', 'trade.tier_insufficient');
   }
 }
@@ -160,10 +171,10 @@ export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
   /**
    * Minimum verification tier to follow a leader (CB-copy-03), set by compliance.
-   * Read from the principal's token tier, never from identity tables. Absent → no
-   * tier floor beyond the trade router's own scope guard (left for later: env wiring).
+   * Read from the principal's token tier, never from identity tables. Absent → reads
+   * TRADE_COPY_FOLLOW_TIER. Blank, unset or unknown → every follow refuses.
    */
-  followTier?: Principal['tier'];
+  followTier?: Principal['tier'] | null;
   jurisdictionLaw?: CopyJurisdictionLaw;
   /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
   disclosureLaw?: CopyDisclosureLaw;
@@ -311,7 +322,7 @@ export class CopyService {
     this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
-    this.followTier = options.followTier ?? null;
+    this.followTier = options.followTier !== undefined ? options.followTier : parseCopyFollowTier(process.env.TRADE_COPY_FOLLOW_TIER);
     this.disclosureLaw = options.disclosureLaw ?? UNPUBLISHED_COPY_DISCLOSURE_LAW;
     this.now = options.now ?? (() => new Date());
     this.store = options.store ?? new MemoryCopyFollowStore();

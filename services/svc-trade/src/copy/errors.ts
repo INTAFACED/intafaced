@@ -15,6 +15,7 @@ export type CopyErrorCode =
   | 'trade.copy_self_follow'
   | 'trade.tier_insufficient'
   | 'trade.copy_subaccount_refused'
+  | 'trade.copy_follow_tier_unset'
   | 'trade.copy_already_following'
   | 'trade.copy_not_following'
   | 'trade.copy_envelope_invalid'

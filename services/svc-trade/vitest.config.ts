@@ -21,6 +21,8 @@ export default defineConfig({
       // Suites that store a parent assume the scheduler is on. The acceptance
       // test sets this back to false.
       TRADE_ALGO_JOBS_ENABLED: 'true',
+      // CB-copy-03: blank refuses every follow; fixtures follow with tier none.
+      TRADE_COPY_FOLLOW_TIER: 'none',
       APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
       DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade_test',

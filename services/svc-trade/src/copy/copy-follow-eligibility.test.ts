@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { CopyService } from '../controls/test-admission.js';
+import { parseCopyFollowTier } from './copy-service.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
@@ -61,5 +62,30 @@ describe('CB-copy-03 who may follow', () => {
     const p = { userId: FOLLOWER, tier: 'basic' } as Principal;
     await svc(store).follow(p, input);
     expect(await store.listFollowsByFollower(FOLLOWER)).toHaveLength(1);
+  });
+
+  describe('TRADE_COPY_FOLLOW_TIER refuse-closed', () => {
+    afterEach(() => vi.unstubAllEnvs());
+    for (const raw of ['', '   ', 'gold']) {
+      it(`env ${JSON.stringify(raw)} refuses every follow trade.copy_follow_tier_unset, no write`, async () => {
+        vi.stubEnv('TRADE_COPY_FOLLOW_TIER', raw);
+        const store = new MemoryCopyFollowStore();
+        const s = new CopyService(new MemoryLedger(), { feeShareLaw: publishedFee, jurisdictionLaw: publishedJur, store });
+        const p = { userId: FOLLOWER, tier: 'institutional' } as Principal;
+        await expect(s.follow(p, input)).rejects.toMatchObject({ code: 'trade.copy_follow_tier_unset' });
+        expect(await store.listFollowsByFollower(FOLLOWER)).toEqual([]);
+      });
+    }
+    it('unset env refuses', () => {
+      expect(parseCopyFollowTier(undefined)).toBeNull();
+    });
+    it('env full is read and gates a basic principal', async () => {
+      vi.stubEnv('TRADE_COPY_FOLLOW_TIER', 'full');
+      const store = new MemoryCopyFollowStore();
+      const s = new CopyService(new MemoryLedger(), { feeShareLaw: publishedFee, jurisdictionLaw: publishedJur, store });
+      await expect(s.follow({ userId: FOLLOWER, tier: 'basic' } as Principal, input)).rejects.toMatchObject({
+        code: 'trade.tier_insufficient',
+      });
+    });
   });
 });
