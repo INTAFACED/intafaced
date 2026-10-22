@@ -134,11 +134,11 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await page.goto('/uc/safe');
   const checklist = page.locator('.security__checklist');
   const item = (name) => checklist.locator('.security__row').filter({ has: page.getByText(name, { exact: true }) });
-  await expect(item('A second step at sign-in')).toContainText('Not yet');
+  await expect(item('A second step at sign-in')).toContainText('To do');
   await expect(item('A second step at sign-in')).toContainText('anyone who learns it can sign in');
-  await expect(item('A passkey')).toContainText('Not yet');
-  await expect(item('An authenticator app')).toContainText('Not yet');
-  await expect(item('Recovery codes saved')).toContainText('Not yet');
+  await expect(item('A passkey')).toContainText('To do');
+  await expect(item('An authenticator app')).toContainText('To do');
+  await expect(item('Recovery codes saved')).toContainText('To do');
   // No owner policy is set on this stack: the floor actions still carry "Required", and nothing else does.
   await expect(checklist.getByText('Required', { exact: true })).toHaveCount(2);
   await expect(item('Moving money out')).toContainText('Required');
@@ -151,7 +151,7 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('An authenticator app')).toContainText('Done');
   await expect(item('A second step at sign-in')).toContainText('Done');
   await expect(item('Recovery codes saved')).toContainText('Done');
-  await expect(item('A passkey')).toContainText('Not yet');
+  await expect(item('A passkey')).toContainText('To do');
   await expect(checklist).toContainText('Always needs a second step');
 
   // A passkey after "Confirm it is you" with the code ticks the last one.
@@ -165,5 +165,5 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(sheet).toBeHidden();
   await expect(item('A passkey')).toContainText('Done');
   await expect(item('A passkey')).toContainText('1 on this account');
-  await expect(checklist.getByText('Not yet', { exact: true })).toHaveCount(0);
+  await expect(checklist.getByText('To do', { exact: true })).toHaveCount(0);
 });

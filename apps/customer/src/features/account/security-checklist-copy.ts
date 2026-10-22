@@ -6,7 +6,7 @@ export const securityChecklistCopy = defineCopy(
     title: 'Security checklist',
     body: 'Each sign-in method, whether it is on, and why the ones still open matter. Several methods can be on at once.',
     done: 'Done',
-    pending: 'Not yet',
+    pending: 'To do',
     second_factor: 'A second step at sign-in',
     second_factorWhy: 'With only a password, anyone who learns it can sign in. A passkey or an authenticator app stops that.',
     passkey: 'A passkey',
@@ -31,7 +31,7 @@ export const securityChecklistCopy = defineCopy(
       title: 'Lista de seguridad',
       body: 'Cada método de inicio de sesión, si está activo y por qué importan los que faltan. Puedes tener varios a la vez.',
       done: 'Hecho',
-      pending: 'Aún no',
+      pending: 'Pendiente',
       second_factor: 'Un segundo paso al iniciar sesión',
       second_factorWhy:
         'Con solo una contraseña, cualquiera que la conozca puede entrar. Una clave de acceso o una app de autenticación lo impide.',
@@ -48,7 +48,7 @@ export const securityChecklistCopy = defineCopy(
       requiredTitle: 'Siempre necesita un segundo paso',
       requiredTitleNoFactor: 'Necesita un segundo paso cuando tengas uno',
       noFactorYet:
-        'Hasta que actives una clave de acceso o una app de autenticación, tu contraseña sola puede cambiar cómo inicias sesión y no se puede sacar dinero.',
+        'Sin una clave de acceso ni una app de autenticación activas, tu contraseña sola puede cambiar cómo inicias sesión y no se puede sacar dinero.',
       money_out: 'Sacar dinero',
       security_change: 'Cambiar cómo inicias sesión o proteges tu cuenta',
       policyUnset: 'El propietario no ha fijado más acciones que necesiten un segundo paso, así que estas dos son la lista completa.',
@@ -57,7 +57,7 @@ export const securityChecklistCopy = defineCopy(
       title: 'Liste de sécurité',
       body: 'Chaque méthode de connexion, si elle est active, et pourquoi celles qui manquent comptent. Plusieurs peuvent être actives à la fois.',
       done: 'Fait',
-      pending: 'Pas encore',
+      pending: 'À faire',
       second_factor: 'Une deuxième étape à la connexion',
       second_factorWhy:
         'Avec un simple mot de passe, quiconque le connaît peut se connecter. Une clé d’accès ou une app d’authentification l’empêche.',

@@ -63,7 +63,7 @@ describe('Security checklist', () => {
     await show({ ok: true, data: passwordOnly });
     const list = rows();
     expect(list[0]).toContain('A second step at sign-in');
-    expect(list[0]).toContain('Not yet');
+    expect(list[0]).toContain('To do');
     expect(list[0]).toContain('anyone who learns it can sign in');
     expect(list[3]).toContain('a recovery code is how you get back in');
     expect(host.textContent).not.toMatch(/\d+ ?%|score/i);
@@ -95,7 +95,7 @@ describe('Security checklist', () => {
       },
     });
     const list = rows();
-    expect(list.slice(0, 4).every((row) => row.includes('Done') && !row.includes('Not yet'))).toBe(true);
+    expect(list.slice(0, 4).every((row) => row.includes('Done') && !row.includes('To do'))).toBe(true);
     expect(list[1]).toContain('2 on this account');
     expect(list[2]).toContain('Phone app');
     expect(list[3]).toContain('8 left');
@@ -106,7 +106,7 @@ describe('Security checklist', () => {
 
   it('a failed read is an error with a retry, never "off"', async () => {
     await show({ ok: false, reason: 'error', message: 'down' });
-    expect(host.textContent).not.toContain('Not yet');
+    expect(host.textContent).not.toContain('To do');
     expect(host.querySelector('button')).not.toBeNull();
   });
 });
