@@ -11,6 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { AcademyCourseStore, COURSE_SETTING_KEYS, type CourseRecord } from './courses/store.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -198,6 +199,20 @@ const curriculumDepthOut = z.object({
   totalBodyChars: z.number().int(),
   allDeep: z.boolean(),
 });
+
+const courseOut = z.object({
+  id: z.string(),
+  slug: z.string(),
+  title: z.string(),
+  category: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  priceChoice: z.enum(['free', 'paid']),
+  price: z.string().nullable(),
+  state: z.enum(['draft', 'published', 'concluded', 'archived', 'deleted']),
+  listed: z.boolean(),
+  revision: z.number().int(),
+  deletedAt: z.date().nullable(),
+}) satisfies z.ZodType<CourseRecord>;
 
 const curriculumInventoryOut = z.object({
   contentSource: z.enum(['platform-native-expansion', 'licensed-import-pending']),
@@ -762,6 +777,17 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.course_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+    case 'academy.slug_reserved':
+    case 'academy.course_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    case 'academy.item_transition_illegal':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    case 'academy.price_unset':
+    case 'academy.undelete_window_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
 }
 
@@ -831,7 +857,12 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  courseStore: AcademyCourseStore | null = null,
 ) {
+  const courses = (): AcademyCourseStore => {
+    if (!courseStore) throw new Error('course store is not wired');
+    return courseStore;
+  };
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
   const verifyLimiter = new VerifyRateLimiter();
@@ -2416,6 +2447,61 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      // ── AC-course-structure-01: course records, lifecycle and owner settings ──
+      course: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ courseId: z.string().uuid() }))
+        .output(courseOut)
+        .query(({ input }) => guard(() => courses().get(input.courseId))),
+
+      createCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            slug: z.string().min(1).max(96),
+            title: z.string().min(1).max(200),
+            category: z.string().min(1).max(96).nullish(),
+            thumbnailUrl: z.string().url().max(2048).nullish(),
+            priceChoice: z.enum(['free', 'paid']),
+            price: z.string().max(64).nullish(),
+          }),
+        )
+        .output(courseOut)
+        .mutation(({ input, ctx }) => guard(() => courses().create({ ...input, actor: ctx.principal.userId }))),
+
+      setCoursePrice: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ courseId: z.string().uuid(), price: z.string().min(1).max(64), reason: z.string().max(500) }))
+        .output(courseOut)
+        .mutation(({ input, ctx }) => guard(() => courses().setPrice(input.courseId, input.price, ctx.principal.userId, input.reason))),
+
+      setCourseLifecycle: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            courseId: z.string().uuid(),
+            move: z.enum(['publish', 'conclude', 'archive', 'delete', 'undelete']),
+            revision: z.number().int().min(0),
+            reason: z.string().max(500),
+          }),
+        )
+        .output(courseOut)
+        .mutation(({ input, ctx }) => guard(() => courses().move({ ...input, actor: ctx.principal.userId }))),
+
+      courseSettings: scopedProcedure('admin:read', { module: 'academy' })
+        .output(
+          z.object({
+            rows: z.array(z.object({ key: z.enum(COURSE_SETTING_KEYS), state: z.enum(['set', 'not_set']), value: z.string().nullable() })),
+          }),
+        )
+        .query(() => guard(async () => ({ rows: await courses().settings() }))),
+
+      setCourseSetting: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ key: z.enum(COURSE_SETTING_KEYS), value: z.string().min(1).max(16) }))
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            await courses().setSetting(input.key, input.value, ctx.principal.userId);
+            return { ok: true as const };
+          }),
+        ),
+
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
           z.object({
