@@ -34,20 +34,20 @@ function adminUrl(): string {
   return url.toString();
 }
 
-function principal(userId: string): Principal {
+function principal(userId: string, scopes: string[] = ['trade:read', 'trade:write']): Principal {
   return {
     sub: userId,
     userId,
     sid: '44444444-4444-4444-8444-444444444444',
-    scopes: ['trade:read', 'trade:write'],
+    scopes,
     tier: 'basic',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal;
 }
 
-function signed(userId: string): Record<string, string> {
-  const raw = encodePrincipal(principal(userId));
+function signed(userId: string, scopes?: string[]): Record<string, string> {
+  const raw = encodePrincipal(principal(userId, scopes));
   return {
     'x-intafaced-principal': raw,
     'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
@@ -231,6 +231,16 @@ describe('position liquidation timeline (D-margin-06)', () => {
     await loadPositionLiquidation(sql, ALICE, id);
     const rows = await sql<Array<{ state: string }>>`SELECT state FROM trade.liquidation_rungs WHERE position_id = ${id}`;
     expect(rows.map((r) => r.state)).toEqual(['planned']);
+  });
+
+  it('a principal without trade:read is refused and no rung is read', async () => {
+    const id = await position(ALICE);
+    await rung(id, 'posted', '2026-10-03T00:00:00.000Z');
+    const a = app();
+    const res = await a.inject({ method: 'GET', url: `/api/v1/positions/${id}/liquidation`, headers: signed(ALICE, ['trade:write']) });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.stringify(res.json())).not.toContain('liq-');
+    await a.close();
   });
 
   it('unwired door answers 503; unsigned answers 401', async () => {
