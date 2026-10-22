@@ -30,6 +30,7 @@ jobs:
       contents: read
       statuses: write # the `Independent review` status
       actions: write # re-run the failed seal job
+      checks: read # find the seal's check run on the head
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

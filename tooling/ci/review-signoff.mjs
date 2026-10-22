@@ -132,15 +132,54 @@ async function postStatus(repo, sha, description) {
   if (r.status !== 201) throw new Error(`could not post the status: HTTP ${r.status}`);
 }
 
-/** Re-run the CI merge seal if this head's CI already finished red, so nobody re-runs it by hand. */
-async function rerunSeal(repo, sha) {
-  const { json } = await gh('GET', `/repos/${repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=20`);
-  const run = (json?.workflow_runs ?? []).filter((r) => r.name === 'CI').sort((a, b) => b.run_number - a.run_number)[0];
-  if (!run) return 'no CI run for this head yet; the seal will read the status itself';
-  if (run.status !== 'completed') return 'CI is still running; the seal will read the status itself';
-  if (run.conclusion === 'success') return 'CI is already green';
-  const r = await gh('POST', `/repos/${repo}/actions/runs/${run.id}/rerun-failed-jobs`);
-  return `re-ran the failed jobs of run ${run.id} (HTTP ${r.status})`;
+const SEAL = 'CI merge seal';
+const SEAL_POLL_MS = 20_000;
+const SEAL_POLLS = 12; // 4 minutes, inside the job's timeout
+
+/**
+ * What to do about the seal after a sign-off, from the seal's check runs on the head and the state of the CI run that
+ * holds the newest one. Pure, so the table is testable. The check runs of a commit are read directly; the filtered
+ * runs listing this used before can come back empty for a run that exists, which stranded #5889 without a word.
+ */
+export function sealStep(checkRuns, runStatus) {
+  const seal = (checkRuns ?? []).filter((c) => c.name === SEAL).sort((a, b) => b.id - a.id)[0];
+  if (!seal || seal.status === 'queued') return { act: 'done', msg: 'the seal has not started; it will read the review itself' };
+  if (seal.status !== 'completed') return { act: 'wait', msg: 'the seal is running and may have read the head before the review' };
+  if (seal.conclusion === 'success') return { act: 'done', msg: 'the seal is already green' };
+  const runId = /\/actions\/runs\/(\d+)/.exec(seal.details_url ?? '')?.[1];
+  if (!runId) return { act: 'fail', msg: `the red seal check run ${seal.id} names no workflow run` };
+  if (runStatus === undefined) return { act: 'run', runId };
+  if (runStatus !== 'completed') return { act: 'wait', msg: `run ${runId} is still finishing`, runId };
+  return { act: 'rerun', runId };
+}
+
+/**
+ * Re-run the CI merge seal if it already finished red on this head, so nobody re-runs it by hand. Anything that
+ * stops it from finding or re-running a red seal fails this job, so the PR shows a red sign-off instead of staying
+ * stuck in silence.
+ */
+async function rerunSeal(repo, sha, sleep = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  for (let poll = 1; ; poll++) {
+    const c = await gh('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
+    if (c.status !== 200) throw new Error(`could not read the seal's check runs: HTTP ${c.status}`);
+    let step = sealStep(c.json?.check_runs, undefined);
+    if (step.act === 'run') {
+      const r = await gh('GET', `/repos/${repo}/actions/runs/${step.runId}`);
+      if (r.status !== 200) throw new Error(`could not read CI run ${step.runId}: HTTP ${r.status}`);
+      step = sealStep(c.json.check_runs, r.json?.status);
+    }
+    if (step.act === 'done') return step.msg;
+    if (step.act === 'fail') throw new Error(step.msg);
+    if (step.act === 'rerun') {
+      const r = await gh('POST', `/repos/${repo}/actions/runs/${step.runId}/rerun-failed-jobs`);
+      if (r.status !== 201) throw new Error(`could not re-run the failed jobs of run ${step.runId}: HTTP ${r.status}`);
+      return `re-ran the failed jobs of run ${step.runId}`;
+    }
+    if (poll >= SEAL_POLLS)
+      throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
+    console.log(`${step.msg}; checking again in ${SEAL_POLL_MS / 1000}s`);
+    await sleep(SEAL_POLL_MS);
+  }
 }
 
 function selfTest() {
@@ -195,6 +234,32 @@ function selfTest() {
   assert(carryFrom([prev], patchId(d3)) === null, 'changed patch does not carry');
   assert(carryFrom([{ ...prev, state: 'failure' }], patchId(d2)) === null, 'only a success carries');
   assert(carryFrom([], patchId(d2)) === null, 'nothing to carry');
+
+  const run = (over) => ({
+    id: 2,
+    name: SEAL,
+    status: 'completed',
+    conclusion: 'failure',
+    details_url: 'https://github.com/o/r/actions/runs/77/job/2',
+    ...over,
+  });
+  assert(sealStep([], undefined).act === 'done', 'no seal yet: it will read the review itself');
+  assert(sealStep([run({ status: 'queued', conclusion: null })], undefined).act === 'done', 'a queued seal reads the review itself');
+  assert(
+    sealStep([run({ status: 'in_progress', conclusion: null })], undefined).act === 'wait',
+    'a running seal may have read too early: wait',
+  );
+  assert(sealStep([run({ conclusion: 'success' })], undefined).act === 'done', 'a green seal needs nothing');
+  assert(sealStep([run()], undefined).act === 'run' && sealStep([run()], undefined).runId === '77', 'a red seal names its run');
+  assert(sealStep([run()], 'in_progress').act === 'wait', 'a red seal whose run is still finishing: wait');
+  assert(sealStep([run()], 'completed').act === 'rerun', 'a red seal in a finished run is re-run');
+  assert(sealStep([run({ details_url: '' })], 'completed').act === 'fail', 'a red seal without a run is an error, not silence');
+  assert(
+    sealStep([run({ id: 1, conclusion: 'success' }), run({ id: 3 })], 'completed').act === 'rerun' &&
+      sealStep([run({ id: 3, conclusion: 'success' }), run({ id: 1 })], 'completed').act === 'done',
+    'the newest seal check run decides',
+  );
+  assert(sealStep([run({ name: 'Format' })], undefined).act === 'done', 'other checks are ignored');
 
   assert(readConfig().reviewers.length > 0, 'reviewers.json lists at least one reviewer');
   console.log('✓ review-signoff --self-test OK');
