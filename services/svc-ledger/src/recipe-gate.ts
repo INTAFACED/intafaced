@@ -733,11 +733,13 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     {
       name: 'bankTransferReversal',
       post: recipes.bankTransferReversal({
+        originalKeySpace: 'p2p',
         transferId: 'tr1',
         occurrence: 0,
         consentId: 'c1',
         originalFrom: fromAvail,
         originalTo: toAvail,
+        originalAmount: AMT,
         amount: AMT,
       }),
     },

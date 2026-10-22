@@ -79,11 +79,13 @@ describe('consented reversal on the real ledger', () => {
   const to = userAvailable(RECIPIENT, 'USDT');
   const reversal = (transferId: string, amount: string) =>
     recipes.bankTransferReversal({
+      originalKeySpace: 'p2p',
       transferId,
       occurrence: 0,
       consentId: `c-${transferId}`,
       originalFrom: from,
       originalTo: to,
+      originalAmount: amt(amount),
       amount: amt(amount),
     });
 
@@ -104,8 +106,12 @@ describe('consented reversal on the real ledger', () => {
     await engine.post(
       recipes.bankTransfer({ transferId: 't2', occurrence: 0, from, to, amount: amt('50'), kind: 'manual', keySpace: 'p2p' }),
     );
-    await expect(engine.post(reversal('t2', '60'))).rejects.toBeInstanceOf(InsufficientFundsError);
-    expect(await bal(from)).toBe('950');
-    expect(await bal(to)).toBe('50');
+    // The recipient spends 30 of it, so the whole 50 can no longer come back.
+    await engine.post(
+      recipes.bankTransfer({ transferId: 't3', occurrence: 0, from: to, to: from, amount: amt('30'), kind: 'manual', keySpace: 'p2p' }),
+    );
+    await expect(engine.post(reversal('t2', '50'))).rejects.toBeInstanceOf(InsufficientFundsError);
+    expect(await bal(from)).toBe('980');
+    expect(await bal(to)).toBe('20');
   });
 });
