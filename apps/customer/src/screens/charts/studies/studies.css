@@ -1,0 +1,202 @@
+/*
+ * Studies bar and dialogs (/charts/:symbol). Only --if-* tokens: no colour values live here. In `@layer components`, with
+ * the layer order declared again so it holds in any bundle order (the same pattern as charts.css).
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .st {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--if-line);
+    min-width: 0;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .st-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .st-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .st-chip,
+  .st-toggle {
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 12px/16px var(--if-font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .st-chip[data-hidden-here] {
+    color: var(--if-fg-2);
+    border-style: dashed;
+  }
+  .st-toggle[aria-pressed='true'] {
+    background: var(--if-field);
+  }
+  .st-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .st-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .st-legend:empty {
+    display: none;
+  }
+  .st-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+  .st-row-name {
+    color: var(--if-fg);
+    font-weight: 600;
+  }
+  .st-row-values,
+  .st-value {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .st-value-text {
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .st-row-note,
+  .st-note {
+    color: var(--if-fg-2);
+  }
+  .st-fact {
+    color: var(--if-fg-2);
+  }
+  .st-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  .st-table th,
+  .st-table td {
+    padding: 2px 6px;
+    text-align: right;
+    border-bottom: 1px solid var(--if-line);
+  }
+  .st-table tr[data-poc] td {
+    color: var(--if-fg);
+    font-weight: 600;
+  }
+  .st-window {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .st-ohlc {
+    display: grid;
+    grid-template-columns: auto auto auto auto;
+    gap: 2px 10px;
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .st-ohlc dt {
+    color: var(--if-fg-2);
+  }
+  .st-ohlc dd {
+    margin: 0;
+    color: var(--if-fg);
+  }
+  .st-window-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .st-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .st-search,
+  .st-field input,
+  .st-field select {
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .st-field input[aria-invalid='true'] {
+    border-color: var(--if-down);
+  }
+  .st-group h3 {
+    margin: 8px 0 4px;
+    font: 600 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .st-group ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .st-group li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--if-fg);
+  }
+  .st-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .st-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .st-shown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .st-shown legend {
+    width: 100%;
+    margin-bottom: 4px;
+  }
+  .st-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+}
