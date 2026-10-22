@@ -58,6 +58,8 @@ import { createAuthKeysRouter } from './auth-keys-router.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
+import { BrokerClientService } from './orgs/broker-clients.js';
+import { createBrokerRouter } from './orgs/broker-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
@@ -524,6 +526,7 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
+  createBrokerRouter(new BrokerClientService(sql, dmaHierarchyLaw)),
   createEnrollPasskeyRouter(
     sql,
     {

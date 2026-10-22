@@ -118,7 +118,7 @@ describe('DMA hierarchy products (M01/M20)', () => {
     expect(sql.writes).toBe(0);
   });
 
-  it('published law still refuses persist — no invented tree', async () => {
+  it('published law answers the product on the org and persists nothing (RC-identity-09 removed tree_unbuilt)', async () => {
     const sql = store([A], [{ id: ORG_A, name: 'A', created_by: A }], [{ org_id: ORG_A, user_id: A, role: 'admin' }]);
     await expect(
       createDmaHierarchyProduct({
@@ -128,7 +128,7 @@ describe('DMA hierarchy products (M01/M20)', () => {
         kind: 'desk',
         law: { published: true },
       }),
-    ).rejects.toMatchObject({ code: 'identity.dma.tree_unbuilt' });
+    ).resolves.toEqual({ orgId: ORG_A, kind: 'desk' });
     expect(sql.writes).toBe(0);
   });
 

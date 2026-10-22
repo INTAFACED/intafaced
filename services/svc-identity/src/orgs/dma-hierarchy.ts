@@ -125,12 +125,14 @@ export type CreateDmaHierarchyProductInput = {
 
 /**
  * Create a named DMA product on an existing org.
- * Unpublished law → typed refuse. Published law still refuses persist —
- * this service does not mint a broker tree.
+ * Unpublished law → typed refuse. With the law published the org acts as that product; broker client links,
+ * schedules and allocations live in `broker-clients.ts` (RC-identity-09). Nothing is persisted here.
  */
-export async function createDmaHierarchyProduct(input: CreateDmaHierarchyProductInput): Promise<never> {
+export async function createDmaHierarchyProduct(
+  input: CreateDmaHierarchyProductInput,
+): Promise<{ orgId: string; kind: DmaHierarchyProduct }> {
   const kind = requireDmaHierarchyProduct(input.kind);
-  await assertOrgActor(input.sql, input.actorUserId, input.orgId);
+  const seat = await assertOrgActor(input.sql, input.actorUserId, input.orgId);
   if (!input.law.published) {
     throw new DmaHierarchyRefuseError(
       `Creating ${kind} is refuse-closed until owner-set DMA hierarchy law exists`,
@@ -138,9 +140,5 @@ export async function createDmaHierarchyProduct(input: CreateDmaHierarchyProduct
       DMA_HIERARCHY_LAW_RESIDUAL,
     );
   }
-  throw new DmaHierarchyRefuseError(
-    `Creating ${kind} refuses — owner law is published but this service does not mint a broker tree`,
-    'identity.dma.tree_unbuilt',
-    DMA_HIERARCHY_LAW_RESIDUAL,
-  );
+  return { orgId: seat.orgId, kind };
 }
