@@ -13,8 +13,11 @@
  * what it is and is marked TEST instead of carrying a sampled figure.
  */
 
-export const CREDIT_CARD_PREVIEW_LABEL = 'Preview · sample data' as const;
-export const CREDIT_CARD_PREVIEW_ENGINE = 'Credit card' as const;
+import { PREVIEW_LABEL, previewRefusal, type PreviewRefusal } from '@intafaced/contracts';
+
+export const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;
+/** Engine id for the typed Preview refusal (`<module>.<engine>`). */
+export const CREDIT_CARD_PREVIEW_ENGINE = 'bank.credit_card' as const;
 
 export const CREDIT_CARD_TABS = ['application', 'limit', 'repayment', 'usage_rules', 'statements'] as const;
 export type CreditCardTab = (typeof CREDIT_CARD_TABS)[number];
@@ -22,6 +25,7 @@ export type CreditCardTab = (typeof CREDIT_CARD_TABS)[number];
 export const CREDIT_CARD_VARIANTS = ['credit_card', 'charge_card'] as const;
 export const CREDIT_CARD_REPAYMENT_OPTIONS = ['pay_in_full', 'pay_early', 'pay_extra', 'choose_date'] as const;
 export const CREDIT_CARD_RESTRICTIONS = ['cash_withdrawal', 'gambling', 'crypto', 'balance_transfer', 'money_transfer'] as const;
+export const CREDIT_CARD_REPAYMENT_VARIANTS = ['daily', 'thirty_day'] as const;
 export const CREDIT_CARD_FEES = ['foreign_transaction'] as const;
 
 export interface CreditCardPreviewRow {
@@ -48,7 +52,7 @@ function rows(tab: CreditCardTab, items: readonly string[]): CreditCardPreviewRo
 const TEST_ROWS: readonly CreditCardPreviewRow[] = Object.freeze([
   ...rows('application', ['soft_eligibility_check', 'personalised_rate', 'representative_apr', ...CREDIT_CARD_VARIANTS]),
   ...rows('limit', ['credit_limit', 'change_limit']),
-  ...rows('repayment', CREDIT_CARD_REPAYMENT_OPTIONS),
+  ...rows('repayment', [...CREDIT_CARD_REPAYMENT_OPTIONS, ...CREDIT_CARD_REPAYMENT_VARIANTS.map((v) => `variant:${v}`)]),
   ...rows('usage_rules', [...CREDIT_CARD_FEES.map((f) => `fee:${f}`), ...CREDIT_CARD_RESTRICTIONS.map((r) => `restricted:${r}`)]),
   ...rows('statements', ['statement', 'dispute_entry', 'zero_liability_notice']),
 ]);
@@ -72,19 +76,12 @@ export const CREDIT_CARD_PREVIEW_ACTIONS = [
   'repay_extra',
   'set_payment_date',
   'set_usage_rule',
+  'read_statements',
   'open_dispute',
 ] as const;
 export type CreditCardPreviewAction = (typeof CREDIT_CARD_PREVIEW_ACTIONS)[number];
 
-/** The typed Preview refusal: `kind: 'preview'`, never a NotLiveCard and never an allowlist code. */
-export interface CreditCardPreviewRefusal {
-  readonly kind: 'preview';
-  readonly engine: typeof CREDIT_CARD_PREVIEW_ENGINE;
-  readonly action: CreditCardPreviewAction;
-  readonly changed: false;
-}
-
-/** Every engine action refuses. Nothing is read or written. */
-export function refuseCreditCardAction(action: CreditCardPreviewAction): CreditCardPreviewRefusal {
-  return { kind: 'preview', engine: CREDIT_CARD_PREVIEW_ENGINE, action, changed: false };
+/** The typed Preview refusal from contracts (`kind: 'preview'`, `preview.engine_not_built`). Nothing is read or written. */
+export function refuseCreditCardAction(action: CreditCardPreviewAction): PreviewRefusal {
+  return previewRefusal(CREDIT_CARD_PREVIEW_ENGINE, action);
 }
