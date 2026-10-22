@@ -13,7 +13,7 @@ import { FakeIdentityApprovals, FOUNDER } from './survey-approval.fixture.js';
 import { SURVEY_CONFIGURE_ACTION, surveyConfigurePayloadHash } from './survey-router.js';
 import { SqlSurveyBook } from './survey-settings.js';
 
-/** SP-csat-02 Security row :58 (D101) on Postgres: founder approval consumed, audit row with reason and approver; refusals write nothing. */
+/** SP-csat-02 Security row :58 on Postgres: founder approval consumed, audit row with reason and approver; refusals write nothing. */
 const ADMIN_URL = process.env.TEST_DATABASE_URL_SUPPORT_ADMIN ?? 'postgres://127.0.0.1:5432/postgres';
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(here, '..', 'drizzle');

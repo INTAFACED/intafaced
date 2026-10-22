@@ -10,7 +10,7 @@ import { MemorySurveyBook } from './survey-settings.js';
 import { FakeIdentityApprovals, FOUNDER } from './survey-approval.fixture.js';
 import { SURVEY_CONFIGURE_ACTION, surveyConfigurePayloadHash } from './survey-router.js';
 
-/** SP-csat-02 Security row :58 (D101): configureSurvey consumes a founder action approval bound to the action and payload. */
+/** SP-csat-02 Security row :58: configureSurvey consumes a founder action approval bound to the action and payload. */
 
 const authConfig = {
   secret: 'a-support-survey-router-test-secret-long-enough',
@@ -53,7 +53,7 @@ const input: SupportSurveyConfigureInput = { surveyId: null, expectedRevision: 0
 const approve = (identity: FakeIdentityApprovals, approverId: string, payload = input, targetId: string = SURVEY_CONFIGURE_ACTION) =>
   identity.issue({ requesterId: LEAD, approverId, targetId, payloadHash: surveyConfigurePayloadHash(payload) });
 
-describe('configureSurvey dual control (SP-csat-02, D101)', () => {
+describe('configureSurvey dual control (SP-csat-02)', () => {
   it('refuses without an approval, and writes nothing', async () => {
     const { as, book } = await desk();
     const err = await (await as(LEAD)).configureSurvey(input).catch((e: unknown) => e);

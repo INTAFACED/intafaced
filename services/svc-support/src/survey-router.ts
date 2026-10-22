@@ -38,7 +38,7 @@ export function surveyConfigurePayloadHash(input: SupportSurveyConfigureInput): 
 }
 
 /**
- * Dual control (spec Security row :58, owner decision D101): `configureSurvey` consumes an identity-issued action
+ * Dual control (spec Security row :58, owner decision: founder approval): `configureSurvey` consumes an identity-issued action
  * approval bound to this action and payload. svc-support is not an operator target in identity, so the approver is a
  * founder. The approver must not be the caller; the approver and approval id are written to the audit row with the reason.
  */
