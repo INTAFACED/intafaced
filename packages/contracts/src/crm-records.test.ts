@@ -53,6 +53,8 @@ describe('custom field definitions', () => {
     ['bad date default', { type: 'date', options: undefined, defaultValue: '22/10/2026' }],
     ['multi-select default not options', { type: 'multi_select', defaultValue: ['bronze'] }],
     ['text default not text', { type: 'text', options: undefined, defaultValue: true }],
+    ['email default not an email', { type: 'email', options: undefined, defaultValue: 'nobody' }],
+    ['url default not a URL', { type: 'url', options: undefined, defaultValue: 'not a url' }],
   ])('refuses %s', (_l, patch) => {
     expect(checkCrmFieldDefinition({ ...field, ...patch } as CrmFieldDefinitionInput).ok).toBe(false);
   });
@@ -60,6 +62,11 @@ describe('custom field definitions', () => {
   it('accepts a decimal-string number default and a null default', () => {
     expect(checkCrmFieldDefinition({ ...field, type: 'number', options: undefined, defaultValue: '12.50' })).toEqual({ ok: true });
     expect(checkCrmFieldDefinition({ ...field, type: 'text', options: undefined, defaultValue: null })).toEqual({ ok: true });
+    expect(checkCrmFieldDefinition({ ...field, type: 'number', options: undefined, defaultValue: '-5' })).toEqual({ ok: true });
+    expect(checkCrmFieldDefinition({ ...field, type: 'email', options: undefined, defaultValue: 'a@example.test' })).toEqual({ ok: true });
+    expect(checkCrmFieldDefinition({ ...field, type: 'url', options: undefined, defaultValue: 'https://example.test' })).toEqual({
+      ok: true,
+    });
   });
 });
 

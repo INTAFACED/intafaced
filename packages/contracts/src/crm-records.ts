@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * General CRM records, custom fields, relations, record page layout and global search (OPS-crm-01), owned by svc-ops.
+ * CRM custom field definitions, relation definitions, record page layout and global search (OPS-crm-01, first contracts
+ * PR), owned by svc-ops. Record write/read envelopes, relation instances and custom field values are the next contracts PR.
  *
  * Extends the enquiry CRM with record types. Contacts hold personal data: field access follows staff roles and every
  * export is audited by the service. Writes are idempotent on a client business key and carry a revision token (the
@@ -31,6 +32,8 @@ const businessKey = z.string().min(1).max(256);
 const revision = z.string().min(1).max(128);
 const id = z.string().uuid();
 const decimal = z.string().regex(/^(0|[1-9]\d{0,29})(\.\d{1,18})?$/, 'amounts are decimal strings');
+/** Custom number fields are not money: they may be negative. Still a decimal string, never a JS number. */
+const signedDecimal = z.string().regex(/^-?(0|[1-9]\d{0,29})(\.\d{1,18})?$/, 'numbers are decimal strings');
 
 // ── Custom fields ────────────────────────────────────────────────────────────
 
@@ -82,13 +85,17 @@ export function checkCrmFieldDefinition(def: CrmFieldDefinitionInput): CrmFieldC
     case 'boolean':
       return typeof d === 'boolean' ? { ok: true } : bad('boolean default must be true or false');
     case 'number':
-      return typeof d === 'string' && decimal.safeParse(d).success ? { ok: true } : bad('number default must be a decimal string');
+      return typeof d === 'string' && signedDecimal.safeParse(d).success ? { ok: true } : bad('number default must be a decimal string');
     case 'select':
       return typeof d === 'string' && values.has(d) ? { ok: true } : bad('default must be one of the options');
     case 'multi_select':
       return Array.isArray(d) && d.every((v) => values.has(v)) ? { ok: true } : bad('defaults must be options');
     case 'date':
       return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? { ok: true } : bad('date default must be YYYY-MM-DD');
+    case 'email':
+      return typeof d === 'string' && z.string().email().safeParse(d).success ? { ok: true } : bad('default must be an email address');
+    case 'url':
+      return typeof d === 'string' && z.string().url().safeParse(d).success ? { ok: true } : bad('default must be a URL');
     default:
       return typeof d === 'string' ? { ok: true } : bad('default must be text');
   }
@@ -207,7 +214,7 @@ export const crmSearchHitSchema = z
   .object({ type: crmSearchableTypeSchema, recordId: id, title: z.string().max(200), subtitle: z.string().max(200).nullable() })
   .strict();
 
-/** `total` comes from the service, never counted in the browser. */
+/** `total` and `nextCursor` come from the service (which owns their consistency), never computed in the browser. */
 export const crmSearchOutputSchema = z
   .object({ hits: z.array(crmSearchHitSchema).max(200), total: z.number().int().min(0), nextCursor: z.string().nullable() })
   .strict();
