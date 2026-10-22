@@ -72,6 +72,8 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketSlippageCapBps: 100,
+      // CB-bots-10 (#5831) gates bot creates first; this file is about the no-book refusal, so the gate is off here.
+      botVerification: { mode: 'off' },
       now: () => NOW,
     });
   }
