@@ -1612,15 +1612,6 @@ if (!available) {
       });
     });
 
-    /**
-     * The projection svc-support reads to ground a ticket (`accountStateSchema`).
-     *
-     * `users.status` was read by nine call sites in this service and returned by
-     * none — so the support desk had no way to know an account was frozen, and
-     * the only alternative was for it to keep its own copy. These hold the two
-     * halves that matter: the fact is now reachable, and it is the ONLY thing
-     * that is.
-     */
     describe('email proof for the order gate (RC-identity-01)', () => {
       it('an unknown or malformed user is null, never proved', async () => {
         expect(await auth.emailProof('00000000-0000-4000-8000-000000000000')).toBeNull();
@@ -1637,6 +1628,15 @@ if (!available) {
       });
     });
 
+    /**
+     * The projection svc-support reads to ground a ticket (`accountStateSchema`).
+     *
+     * `users.status` was read by nine call sites in this service and returned by
+     * none — so the support desk had no way to know an account was frozen, and
+     * the only alternative was for it to keep its own copy. These hold the two
+     * halves that matter: the fact is now reachable, and it is the ONLY thing
+     * that is.
+     */
     describe('account state for another service to read', () => {
       it('an unknown user is null, never an account in good standing', async () => {
         // If this ever answers `{status:'active'}` for an id that does not exist,
