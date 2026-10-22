@@ -59,3 +59,28 @@ it('freeze then unfreeze leaves a closed account closed', async () => {
   const [u] = await db.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${s.userId}`;
   expect(u!.status).toBe('closed');
 });
+
+describe('sign-in names the account state only after the password verified (J-identity-02 #7)', () => {
+  const PASSWORD = 'correct horse battery staple';
+  it.each(['frozen', 'closed'] as const)('a %s account answers auth.account_frozen with that state', async (state) => {
+    const s = await register();
+    await db.sql`UPDATE users SET status = ${state} WHERE id = ${s.userId}`;
+    const [u] = await db.sql<Array<{ email: string }>>`SELECT email::text AS email FROM users WHERE id = ${s.userId}`;
+    await expect(auth.login({ identifier: u!.email, password: PASSWORD })).rejects.toMatchObject({
+      code: 'auth.account_frozen',
+      details: { accountState: state },
+    });
+  });
+
+  it('a wrong password on a frozen or closed account names nothing', async () => {
+    for (const state of ['frozen', 'closed'] as const) {
+      const s = await register();
+      await db.sql`UPDATE users SET status = ${state} WHERE id = ${s.userId}`;
+      const err = await auth
+        .login({ identifier: `t${process.pid}${counter}`, password: 'wrong horse battery staple' })
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: 'auth.invalid_credentials' });
+      expect((err as { details?: unknown }).details).toBeUndefined();
+    }
+  });
+});

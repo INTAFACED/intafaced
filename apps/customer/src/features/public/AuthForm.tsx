@@ -545,6 +545,14 @@ export function AuthForm({ register }: { register: boolean }) {
                     ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                     : t('lockedPlain')}
                 </p>
+              ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
+                // Sent only after the password verified: name the state and the one way forward.
+                <div className="failure" role="alert">
+                  <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
+                  <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
+                    {t('stateHelp')}
+                  </a>
+                </div>
               ) : (
                 <Failure result={result} />
               )}

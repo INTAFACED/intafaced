@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { signUpInBrowser } from './stack.mjs';
+import { signUpInBrowser, staffFreeze } from './stack.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
 // build serves, titled "J-identity-02 #<n>". Every person here is a TEST person on the local stack, signed up through
@@ -79,4 +79,25 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
   // Even the right password waits out the pause, and the page says how long.
   await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min\./);
   await expect(page).toHaveURL(/\/login/);
+});
+
+test(`${J} #7 a frozen account is named after the right password, with the way to support; a wrong password names nothing`, async ({
+  page,
+  browser,
+}) => {
+  const who = await account(browser);
+  await staffFreeze(who);
+  await page.goto('/login');
+  const refusal = page.locator('.failure');
+  // A wrong password learns nothing about the account's state.
+  await fillSignIn(page, who.email, `${who.password}-wrong`);
+  await expect(refusal).toContainText('Those details did not work');
+  await expect(refusal).not.toContainText('frozen');
+  await page.reload();
+  await fillSignIn(page, who.email, who.password);
+  await expect(page.getByRole('alert')).toContainText('This account is frozen.');
+  await expect(page.getByRole('alert')).toContainText('Only support can lift a freeze');
+  await expect(page).toHaveURL(/\/login/);
+  await page.getByRole('alert').getByRole('link', { name: 'Contact support' }).click();
+  await expect(page).toHaveURL(/\/help/);
 });

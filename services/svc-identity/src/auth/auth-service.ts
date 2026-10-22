@@ -163,8 +163,11 @@ export class AuthError extends Error {
       | 'auth.step_up_required'
       | 'auth.step_up_expired'
       | 'pay.role_not_allowed',
-    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`. */
-    readonly details?: { readonly retryAfterSeconds?: number },
+    /**
+     * Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
+     * `accountState`: set by sign-in's `auth.account_frozen`, only after the password verified.
+     */
+    readonly details?: { readonly retryAfterSeconds?: number; readonly accountState?: 'frozen' | 'closed' },
   ) {
     super(message);
     this.name = 'AuthError';
@@ -991,7 +994,12 @@ export class AuthService {
     const passwordOk = await verifyPassword(storedHash, input.password);
     if (locked) throw locked;
     if (!user || !passwordOk) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // Named only to someone who just proved the password, so the state is never a probe. A closed
+    // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
+    if (user.status !== 'active')
+      throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', {
+        accountState: user.status === 'closed' ? 'closed' : 'frozen',
+      });
     // The password verified: it is no longer a guess. Clear its counter NOW, before the
     // two-step TOTP flow (password first, code second), so a correct password is never
     // left counting against the owner. The mfa counter is separate and stays.
