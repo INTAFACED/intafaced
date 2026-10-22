@@ -1,20 +1,3 @@
-import type { ExplorerBlockFact } from '../explorer/blocks.js';
-
-interface ExplorerFactRow {
-  height: string;
-  hash: string;
-  gas_used: string;
-  gas_limit: string;
-  base_fee_per_gas: string | null;
-  miner: string;
-  tx_count: number;
-  size: number;
-  block_time: Date;
-  status: string;
-}
-const EXPLORER_COLS =
-  'b.height, b.hash, f.gas_used::text AS gas_used, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
-const EXPLORER_FROM = 'FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash';
 import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
@@ -37,6 +20,23 @@ import {
   type StoredBlock,
   type UnwindOutcome,
 } from './store.js';
+import type { ExplorerBlockFact } from '../explorer/blocks.js';
+
+interface ExplorerFactRow {
+  height: string;
+  hash: string;
+  gas_used: string;
+  gas_limit: string;
+  base_fee_per_gas: string | null;
+  miner: string;
+  tx_count: number;
+  size: number;
+  block_time: Date;
+  status: string;
+}
+const EXPLORER_COLS =
+  'b.height, b.hash, f.gas_used::text AS gas_used, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
+const EXPLORER_FROM = 'FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash';
 
 /**
  * Postgres-backed `ProjectionStore`.
@@ -100,6 +100,16 @@ export class PostgresProjectionStore implements ProjectionStore {
       WHERE f.chain_id = ${this.chainId} ${q.cursor === undefined ? this.sql`` : this.sql`AND b.height < ${q.cursor}`}
       ORDER BY b.height DESC, (b.status = 'orphaned') ASC, b.hash ASC
       LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => this.#fact(r));
+  }
+
+  /** Every row at one height, canonical first. */
+  async explorerAtHeight(height: number): Promise<ExplorerBlockFact[]> {
+    const rows = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} AND b.height = ${height}
+      ORDER BY (b.status = 'orphaned') ASC, b.hash ASC
     `;
     return rows.map((r) => this.#fact(r));
   }

@@ -140,6 +140,7 @@ export const appRouter = createIndexerRouter({
   explorer: {
     listLimit: parseExplorerListLimit(env.INDEXER_EXPLORER_LIST_LIMIT),
     blocks: (q) => store.explorerBlocks(q),
+    atHeight: (h) => store.explorerAtHeight(h),
     block: (q) => store.explorerBlock(q),
   },
 });

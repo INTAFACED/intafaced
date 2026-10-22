@@ -19,7 +19,7 @@ import {
   INDEXER_EXPLORER_LIST_LIMIT_UNSET,
   INDEXER_EXPLORER_UNWIRED,
   PROTOCOL_NOT_FOUND,
-  pageRows,
+  listPage,
   toRow,
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
@@ -276,8 +276,8 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
               }
               // Owner limit bounds the window: a larger caller limit is clamped, not refused.
               const limit = Math.min(input.limit ?? owner.limit, owner.limit);
-              const fetched = input.chainId === deps.chainId ? await explorer.blocks({ cursor: input.cursor, limit }) : [];
-              const paged = pageRows(fetched, limit);
+              const paged =
+                input.chainId === deps.chainId ? await listPage(explorer, { cursor: input.cursor, limit }) : { rows: [], nextCursor: null };
               const page = { rows: paged.rows.map(toRow), nextCursor: paged.nextCursor };
               return { ...page, asOf: new Date().toISOString() };
             } catch (err) {

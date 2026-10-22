@@ -12,6 +12,7 @@
  * 6. RED: module absent.
  */
 import { describe, expect, it } from 'vitest';
+import { listPage, memoryExplorerSource, parseExplorerListLimit as parseLimit } from './blocks.js';
 import { INDEXER_EXPLORER_LIST_LIMIT_UNSET, parseExplorerListLimit, utilisation, listBlocks, type ExplorerBlockFact } from './blocks.js';
 
 const fact = (height: number, over: Partial<ExplorerBlockFact> = {}): ExplorerBlockFact => ({
@@ -65,5 +66,25 @@ describe('listBlocks', () => {
     const orphan = rows.find((r) => r.hash === '0xdead');
     expect(orphan?.orphaned).toEqual({ reason: 'reorg at 2' });
     expect(rows.find((r) => r.height === 2 && !r.orphaned)?.utilisation).toBe('0.5');
+  });
+});
+
+describe('listPage at limit 1 (canonical + orphan at one height)', () => {
+  it('walks every page and lists both blocks at the shared height', async () => {
+    const facts = [fact(1), fact(2), fact(2, { hash: '0xbeef', orphaned: { reason: 'reorg' } })];
+    const source = memoryExplorerSource(parseLimit('1'), facts);
+    const seen: Array<[number, string | null]> = [];
+    let cursor: number | undefined;
+    for (let i = 0; i < 10; i++) {
+      const page = await listPage(source, { cursor, limit: 1 });
+      seen.push(...page.rows.map((r): [number, string | null] => [r.height, r.orphaned?.reason ?? null]));
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    expect(seen).toEqual([
+      [2, null],
+      [2, 'reorg'],
+      [1, null],
+    ]);
   });
 });
