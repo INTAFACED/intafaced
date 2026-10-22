@@ -1,3 +1,4 @@
+import { botPresets } from './algo/bots-verification.js';
 import { z } from 'zod';
 import {
   JurisdictionError,
@@ -1224,6 +1225,10 @@ export function createTradeRouter(
      * TWAP algo (D-S-04 / trade.algo) — schedule emits child orders.
      * Parent holds no value; progress is sum of child fills only.
      */
+    /** CB-bots-10: bot presets. `not_set` until the owner publishes a backtest source; no APR is ever invented. */
+    bots: router({
+      presets: scopedProcedure('trade:read', { module: 'trade' }).query(() => botPresets()),
+    }),
     algo: router({
       policy: publicProcedure.query(() => describeAlgoPolicy()),
       ...algoDeskProcedures(trade),

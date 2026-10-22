@@ -1,3 +1,4 @@
+import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -233,6 +234,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
+  botVerification: loadBotVerificationPolicy(process.env),
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
