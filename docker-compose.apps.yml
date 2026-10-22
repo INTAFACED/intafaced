@@ -248,6 +248,9 @@ services:
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
       # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
+      # #1806 KYC document vault. Pass-through only — no compose default, no invented key.
+      # Host sets IDENTITY_KYC_DOC_KEY → vault boots. Blank stays refuse-closed.
+      IDENTITY_KYC_DOC_KEY: ${IDENTITY_KYC_DOC_KEY:-}
       # ops.affiliates: payout posts sweepFeesToRewards + rewardPay. Without this,
       # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
       # and undefaulted — unset is still a legible refuse, not a localhost invent).
