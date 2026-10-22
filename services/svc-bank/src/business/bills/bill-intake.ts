@@ -202,8 +202,8 @@ function looksLikeMarkup(bytes: Buffer): boolean {
 /**
  * The type the server stores and serves, from the bytes, not the client's word. Bytes with a known signature are stored
  * as that type, and a declared type that disagrees refuses. Markup that a browser would render (SVG, HTML, XML, script)
- * refuses whatever is declared, even if the owner allow-lists it. Bytes with no known signature keep the declared,
- * allow-listed type.
+ * refuses whatever is declared, even if the owner allow-lists it. Fail-closed: bytes with no known signature (or an
+ * unknown one) refuse, so only a known signature that matches the declared type passes.
  */
 export function sniffBillType(declared: string, bytes: Buffer): string {
   const type = declared.trim().toLowerCase();
@@ -216,5 +216,7 @@ export function sniffBillType(declared: string, bytes: Buffer): string {
   if (!sniffed && looksLikeMarkup(bytes)) {
     throw new BankError('That file type is not accepted for bills.', 'bank.bill_file_type');
   }
-  return sniffed?.type ?? type;
+  // Fail-closed: no known signature means no proof of type, so refuse rather than trust the declared type.
+  if (!sniffed) throw new BankError('That file type is not accepted for bills.', 'bank.bill_file_type');
+  return sniffed.type;
 }

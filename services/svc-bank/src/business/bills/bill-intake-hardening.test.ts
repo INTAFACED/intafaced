@@ -45,6 +45,16 @@ describe('BK-bill-01 hardening (unit)', () => {
     expect(() => sniffBillType('image/png', Buffer.from('  <?xml version="1.0"?><svg/>'))).toThrow(
       expect.objectContaining({ code: 'bank.bill_file_type' }),
     );
-    expect(sniffBillType(' Application/PDF ', Buffer.from('TEST no signature'))).toBe('application/pdf');
+    expect(sniffBillType(' Application/PDF ', Buffer.from('%PDF-1.4\n%%EOF\n'))).toBe('application/pdf');
+    expect(sniffBillType('image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]))).toBe('image/png');
+  });
+
+  it('sniffBillType is fail-closed: bytes with no known signature refuse whatever allowed type is declared', () => {
+    const refused = expect.objectContaining({ code: 'bank.bill_file_type' });
+    expect(() => sniffBillType(' Application/PDF ', Buffer.from('TEST no signature'))).toThrow(refused);
+    expect(() => sniffBillType('image/png', Buffer.from('TEST no signature'))).toThrow(refused);
+    expect(() => sniffBillType('image/jpeg', Buffer.from([0xff, 0xd8]))).toThrow(refused);
+    expect(() => sniffBillType('application/pdf', Buffer.alloc(0))).toThrow(refused);
+    expect(() => sniffBillType('application/pdf', Buffer.from([0x50, 0x4b, 0x03, 0x04]))).toThrow(refused);
   });
 });

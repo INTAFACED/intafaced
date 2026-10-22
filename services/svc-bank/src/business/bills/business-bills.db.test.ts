@@ -32,7 +32,11 @@ const SID = '77777777-7777-4777-8777-777777777777';
 
 // TEST values only. The owner publishes the real limits; nothing here is a default.
 const TEST_LIMITS = JSON.stringify({ allowedTypes: ['application/pdf', 'image/png'], maxBytes: 64 });
-const b64 = (text: string) => Buffer.from(text).toString('base64');
+/** A real minimal PDF (signature, comment body, EOF); `text` keeps each file's bytes distinct. */
+const b64 = (text: string) => Buffer.from(`%PDF-1.4\n%${text}\n%%EOF\n`).toString('base64');
+/** A real PNG signature followed by `text`, so the sniff sees image/png. */
+const pngB64 = (text: string) =>
+  Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(text)]).toString('base64');
 
 function principal(userId: string): Principal {
   return {
@@ -265,7 +269,12 @@ describe('BK-bill-01 business bill inbox', () => {
       contentBase64: b64('TEST a'),
     });
     await editor.business.bills.review({ accountId, billId: first.id, ...review });
-    const second = await editor.business.bills.inbox.upload({ accountId, name: 'b.png', type: 'image/png', contentBase64: b64('TEST b') });
+    const second = await editor.business.bills.inbox.upload({
+      accountId,
+      name: 'b.png',
+      type: 'image/png',
+      contentBase64: pngB64('TEST b'),
+    });
     expect(second.possibleDuplicateOf).toEqual([]);
     const reviewed = await editor.business.bills.review({
       accountId,

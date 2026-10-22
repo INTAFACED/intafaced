@@ -32,7 +32,8 @@ const SID = '77777777-7777-4777-8777-777777777777';
 
 // TEST values only. The owner publishes the real limits; nothing here is a default.
 const TEST_LIMITS = JSON.stringify({ allowedTypes: ['application/pdf', 'image/png'], maxBytes: 64 });
-const b64 = (text: string) => Buffer.from(text).toString('base64');
+/** A real minimal PDF (signature, comment body, EOF); `text` keeps each file's bytes distinct. */
+const b64 = (text: string) => Buffer.from(`%PDF-1.4\n%${text}\n%%EOF\n`).toString('base64');
 
 function principal(userId: string): Principal {
   return {
@@ -177,6 +178,8 @@ describe('BK-bill-01 business bill hardening', () => {
     await expect(upload('application/pdf', Buffer.from('<html>TEST</html>'))).rejects.toMatchObject({
       cause: { code: 'bank.bill_file_type' },
     });
+    await expect(upload('application/pdf', Buffer.from('TEST plain'))).rejects.toMatchObject({ cause: { code: 'bank.bill_file_type' } });
+    await expect(upload('image/png', Buffer.from('TEST plain'))).rejects.toMatchObject({ cause: { code: 'bank.bill_file_type' } });
     await expect(upload('text/html', Buffer.from('TEST plain'))).rejects.toMatchObject({ cause: { code: 'bank.bill_file_type' } });
     expect(await sql`SELECT id FROM bank.business_bills`).toHaveLength(0);
     expect((await upload('image/png', PNG)).fileType).toBe('image/png');
