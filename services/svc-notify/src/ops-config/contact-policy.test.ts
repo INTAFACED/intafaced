@@ -101,6 +101,8 @@ async function refusal(p: Promise<unknown>): Promise<string> {
 const publishInput = (n: number, extra: Partial<ContactPolicyInput> = {}) => ({
   ...POLICY,
   ...extra,
+  officialDomains: [...((extra.officialDomains ?? POLICY.officialDomains) as readonly string[])],
+  contactChannels: [...((extra.contactChannels ?? POLICY.contactChannels) as readonly string[])],
   clientRequestId: `cp-${n}`,
   approvalId: `cp-appr-${n}`,
   operationId: `cp-op-${n}`,

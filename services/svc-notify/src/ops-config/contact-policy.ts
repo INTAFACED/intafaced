@@ -45,7 +45,16 @@ export type ContactPolicyInput = {
 
 export type ContactPolicyWire =
   | { readonly status: 'not_published' }
-  | (ContactPolicyCopy & { readonly status: 'published'; readonly version: number; readonly publishedAt: string });
+  | {
+      readonly status: 'published';
+      readonly version: number;
+      readonly publishedAt: string;
+      readonly officialDomains: string[];
+      readonly neverAskStatement: string;
+      readonly contactChannels: ContactChannel[];
+      readonly smsCarriesLinks: boolean;
+      readonly phishingReport: string;
+    };
 
 export interface ContactPolicyStore {
   latest(): Promise<ContactPolicyRow | null>;
