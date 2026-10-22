@@ -18,14 +18,13 @@ import {
 } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, type AccountRef } from '@intafaced/ledger-client';
+import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { TradingControls } from '../controls/trading-controls.js';
 import { createTradeRouter, type TradeRouter } from '../router.js';
-import { type OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import { TradeService } from '../spot/trade-service.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 import { TradeError } from '../spot/types.js';
-import { MatchingNoBookError, type EngineDepth } from '../spot/matching-client.js';
+import { MatchingNoBookError, MatchingUnavailableError, type EngineDepth } from '../spot/matching-client.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 
 const ALICE = 'a1111111-1111-4111-8111-111111111111';
@@ -34,23 +33,17 @@ const EDGE_SECRET = 'a-trade-algo-create-gate-edge-secret-32';
 
 class NoBookMatching extends StubMatching {
   noBook = false;
+  depthError: Error | null = null;
   override async depth(marketId?: string): Promise<EngineDepth> {
+    if (this.depthError) throw this.depthError;
     if (this.noBook) throw new MatchingNoBookError(marketId ?? '');
     return super.depth();
   }
 }
 
-class FlakyLedger extends MemoryLedger {
-  failBalance = false;
-  override async balance(ref: AccountRef) {
-    if (this.failBalance) throw new Error('balance unread');
-    return super.balance(ref);
-  }
-}
-
 describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
   let db: TestDatabase;
-  let ledger: FlakyLedger;
+  let ledger: MemoryLedger;
   let matching: NoBookMatching;
   let perks: StubPerks;
   let trade: TradeService;
@@ -58,7 +51,7 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
   let seq = 0;
   const edgeContext = createEdgeContext({ secret: EDGE_SECRET, serviceName: 'svc-trade' });
 
-  function build(options: { feeSchedule?: OwnerFeeSchedule; algoMarkPolicy?: { maxAgeSeconds: number } } = {}) {
+  function build() {
     const identityRows = new Map<string, IdentityOperationDecision>();
     const identity: IdentityOperationDecisionPort = {
       async decide({ mode, intent }) {
@@ -77,9 +70,8 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
     return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,
-      feeSchedule: options.feeSchedule === undefined ? PUBLISHED_TEST_FEE_SCHEDULE : options.feeSchedule,
+      feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       marketSlippageCapBps: 100,
-      algoMarkPolicy: options.algoMarkPolicy,
       now: () => NOW,
     });
   }
@@ -100,7 +92,7 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
   beforeEach(async () => {
     // order_events refuses TRUNCATE. Same reset as the copy SQL suites.
     await truncateTradeExceptOrderEvents(db.sql);
-    ledger = new FlakyLedger();
+    ledger = new MemoryLedger();
     matching = new NoBookMatching();
     perks = new StubPerks();
     matching.bids = [['59990', '10']];
@@ -161,7 +153,19 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
     expect(parent.status).toBe('active');
   });
 
-  it('reaches the wire as a named refusal, not a 500', async () => {
+  it('rethrows any other depth error unchanged and still holds nothing', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const unavailable = new MatchingUnavailableError('matching down');
+    matching.depthError = unavailable;
+    const thrown = await trade.createTwap(principalFor(ALICE), schedule('down')).catch((err: unknown) => err);
+    // Only no-book becomes trade.no_book; anything else surfaces as the same object.
+    expect(thrown).toBe(unavailable);
+    expect(thrown).not.toBeInstanceOf(TradeError);
+    expect(await available(ALICE, 'USDT')).toBe('1000');
+    expect(await counts()).toEqual({ parents: '0', intents: '0' });
+  });
+
+  it('reaches the wire as a named refusal (400), not a 500', async () => {
     await fund(ALICE, 'USDT', '1000');
     matching.noBook = true;
     const router = createTradeRouter(trade);
@@ -194,7 +198,9 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
         clientAlgoId: 'wire-no-book',
       },
     });
-    expect(res.statusCode).not.toBe(500);
+    // tRPC has no specific case for trade.no_book, so it takes the default BAD_REQUEST.
+    // CCXT REST maps the same code to 404 (ccxt-errors.ts). Pinned so a change is deliberate.
+    expect(res.statusCode).toBe(400);
     const body = res.json() as { error?: { data?: { cause?: { code?: string } } } };
     expect(body.error?.data?.cause?.code).toBe('trade.no_book');
     expect(await counts()).toEqual({ parents: '0', intents: '0' });
