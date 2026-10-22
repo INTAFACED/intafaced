@@ -15,6 +15,7 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
@@ -55,6 +56,26 @@ export interface PublicRestDeps {
   marketBySymbol(symbol: string): Promise<Market | null>;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /**
+   * SP-order-entry-03: TEST-ONLY per-market reader (one read per market — the
+   * N+1 the batched readers replace). Production must not mount it; kept for
+   * existing tests only. Absent means `pairRules: null` on the wire.
+   */
+  pairRulesForMarket?(market: Market): Promise<PairRules>;
+  /**
+   * SP-order-entry-03: batched reader, one query for the whole list. Preferred
+   * over `pairRulesForMarket` when both are mounted. A market missing from the
+   * map gets `pairRules: null`.
+   */
+  pairRulesForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRules>>;
+  /**
+   * SP-order-entry-03 review fix: batched rules AND circuit-breaker state from
+   * one operator-risk read. Preferred over both readers above when mounted
+   * (production mounts this one). A missing market gets `pairRules`/`pairHalt` null.
+   */
+  pairRiskForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRisk>>;
+  /** Warn sink for a failed pair-rules read (the listing degrades, never fails). Defaults to console.warn. */
+  onPairRulesReadError?(err: unknown): void;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -338,6 +359,8 @@ export function presentCcxtMarket(
     readonly futuresOrderable?: boolean;
     readonly futuresMaxLeverage?: string | null;
     readonly lifecycle?: MarketStateSnapshot | null;
+    readonly pairRules?: PairRules | null;
+    readonly pairHalt?: PairHalt | null;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -435,6 +458,10 @@ export function presentCcxtMarket(
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
     lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
+    /** SP-order-entry-03 pair rules in words; null when this mount has no risk reader. */
+    pairRules: flags.pairRules ?? null,
+    /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
+    pairHalt: flags.pairHalt ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),
     contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
@@ -689,12 +716,41 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     const markets = (await deps.markets(limit)).filter((m) => visibleOnPublicBoard(m, deps.futuresTestSeed === true));
     const ts = now();
     const futuresOrderable = deps.futures?.orderableEnabled === true;
+    // Pair rules are additive: a failed risk read degrades to null for the
+    // affected markets (logged), never fails the listing.
+    let rulesFailed = false;
+    const failRules = (err: unknown) => {
+      rulesFailed = true;
+      (deps.onPairRulesReadError ?? ((e) => req.log.warn({ err: e }, 'pair rules read failed; pairRules null')))(err);
+    };
+    let batchedRisk: ReadonlyMap<string, PairRisk> | null = null;
+    let batchedRules: ReadonlyMap<string, PairRules> | null = null;
+    try {
+      if (deps.pairRiskForMarkets) batchedRisk = await deps.pairRiskForMarkets(markets);
+      else if (deps.pairRulesForMarkets) batchedRules = await deps.pairRulesForMarkets(markets);
+    } catch (err) {
+      failRules(err);
+    }
+    const rulesFor = async (m: Market): Promise<PairRules | null> => {
+      if (rulesFailed) return null;
+      if (batchedRisk) return batchedRisk.get(m.id)?.rules ?? null;
+      if (batchedRules) return batchedRules.get(m.id) ?? null;
+      if (!deps.pairRulesForMarket) return null;
+      try {
+        return await deps.pairRulesForMarket(m);
+      } catch (err) {
+        failRules(err);
+        return null;
+      }
+    };
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
+          pairRules: await rulesFor(m),
+          pairHalt: !rulesFailed && batchedRisk ? (batchedRisk.get(m.id)?.halt ?? null) : null,
         }),
       ),
     );
