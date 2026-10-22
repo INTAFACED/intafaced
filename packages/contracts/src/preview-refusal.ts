@@ -1,42 +1,47 @@
 import { z } from 'zod';
 
 /**
- * Typed Preview refusal (IA-SPEC 3.3), first used by BK-loan-09 in svc-bank.
+ * Typed Preview refusal (IA-SPEC 3.3), first used by BK-loan-09 in svc-bank; reusable by BK-cops-09, BK-bill-01 and other
+ * "Preview · sample data" rows.
  *
- * A preview page sits at its final route with sample data labelled TEST; any engine action on it is refused server-side
- * with this shape. It is never a NotConnected card and never carries an allowlist code: the engine does not exist yet,
- * no outside dependency is missing. Nothing is created by a refused call.
+ * A preview page sits at its final route with TEST-labelled sample data; every engine action on it is refused server-side
+ * with this shape and nothing is written. It is deliberately NOT a NotConnected (see `kyb-documents.ts`): the engine does
+ * not exist yet, no outside dependency is missing, so it never carries an allowlist code.
+ *
+ * Reads return it as one member of their output union; mutations throw PRECONDITION_FAILED with the message prefix
+ * `preview.engine_not_built — <engine>:<action>` and the parsed refusal as the cause, like other typed codes.
  */
-export const PREVIEW_REFUSAL_COPY_SUFFIX = 'This is a preview with sample data.' as const;
+export const PREVIEW_REFUSAL_CODE = 'preview.engine_not_built' as const;
 
-const engineKey = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/, 'engine keys are lower-case snake case');
+/** The banner text every preview page and refusal carries. */
+export const PREVIEW_LABEL = 'Preview · sample data' as const;
+
+/** Engine id `<module>.<engine>`, e.g. `bank.loan_schedule`. Names the missing engine, never a vendor. */
+export const previewEngineIdSchema = z
+  .string()
+  .max(80)
+  .regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/, 'engine ids are <module>.<engine> in lower-case snake case');
 
 export const previewRefusalSchema = z
   .object({
     kind: z.literal('preview'),
-    /** The engine that does not exist yet (as named on the preview list). */
-    engine: engineKey,
-    /** The action the caller attempted, for the screen and the audit trail. */
-    action: z.string().min(1).max(120),
-    message: z.string().min(1).max(300),
+    code: z.literal(PREVIEW_REFUSAL_CODE),
+    engine: previewEngineIdSchema,
+    /** The refused action, e.g. `change_repayment_date`. */
+    action: z
+      .string()
+      .max(64)
+      .regex(/^[a-z][a-z0-9_]*$/, 'actions are lower-case snake case'),
+    label: z.literal(PREVIEW_LABEL),
   })
   .strict();
 export type PreviewRefusal = z.infer<typeof previewRefusalSchema>;
 
+/** Build the refusal a service returns or throws. Throws on a malformed engine id or action. */
 export function previewRefusal(engine: string, action: string): PreviewRefusal {
-  return previewRefusalSchema.parse({
-    kind: 'preview',
-    engine,
-    action,
-    message: `${action} is not built yet. ${PREVIEW_REFUSAL_COPY_SUFFIX}`,
-  });
+  return previewRefusalSchema.parse({ kind: 'preview', code: PREVIEW_REFUSAL_CODE, engine, action, label: PREVIEW_LABEL });
 }
 
 export function isPreviewRefusal(value: unknown): value is PreviewRefusal {
   return previewRefusalSchema.safeParse(value).success;
 }
-
-/** BK-loan-09 preview engines: the crypto-backed loan has no schedule, external repay or missed-payment engine. */
-export const BANK_LOAN_PREVIEW_ENGINES = ['loan_schedule', 'loan_external_repay', 'loan_missed_payment'] as const;
-export const bankLoanPreviewEngineSchema = z.enum(BANK_LOAN_PREVIEW_ENGINES);
-export type BankLoanPreviewEngine = z.infer<typeof bankLoanPreviewEngineSchema>;
