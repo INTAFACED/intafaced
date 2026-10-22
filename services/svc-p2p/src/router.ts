@@ -1097,7 +1097,6 @@ export function createP2pRouter(
           }),
         ),
 
-      /** The caller's own trades in a time range, as CSV. No other person's rows. */
       /**
        * P-trade-orders-14: export under owner range and row caps
        * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
