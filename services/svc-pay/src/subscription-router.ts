@@ -5,6 +5,7 @@ import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } fro
 import { PayError, type PayService } from './payment-service.js';
 import type { SubscriptionService } from './subscriptions/subscription-service.js';
 import type { Cadence } from './subscriptions/schedule.js';
+import { COLLECTION_METHODS, collectionMethodOf } from './subscriptions/merchant-disp-bill-rep-collection-method.js';
 import {
   CARD_MANDATE_CHARGE_SOCKET,
   MANDATE_PATH_MATRIX,
@@ -587,6 +588,23 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const sub = await subscriptions.cancelSubscription(input.subscriptionId);
             return toSubOut(sub);
+          }),
+        ),
+
+      /**
+       * M-bill-01: collection method. `send_invoice` is the live crypto-invoice
+       * path; `charge_automatically` refuses `pay.mandate_rail_absent` and the
+       * method stays as it was.
+       */
+      setCollectionMethod: scopedProcedure('pay:write', { module: 'pay' })
+        .input(z.object({ subscriptionId: z.string().uuid(), method: z.enum(COLLECTION_METHODS) }))
+        .output(z.object({ subscription: subscriptionView, collectionMethod: z.enum(COLLECTION_METHODS) }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const existing = await subscriptions.getSubscription(input.subscriptionId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
+            const sub = await subscriptions.setCollectionMethod(input.subscriptionId, input.method);
+            return { subscription: toSubOut(sub), collectionMethod: collectionMethodOf(sub.path) };
           }),
         ),
 

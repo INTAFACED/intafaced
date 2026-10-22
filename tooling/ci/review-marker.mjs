@@ -15,7 +15,16 @@
  * default branch (never the pull request's copy). The sign-off workflow can wait 30 minutes for a runner when the
  * free plan's 20 concurrent jobs are taken, while this job already holds one; reading the comment here keeps the review
  * off that queue. The meaning is unchanged: a listed reviewer, the exact head, the same line format.
+ *
+ * Only money, security and gate-file changes need it (owner decision 2026-10-22). Every other pull request is sealed
+ * on its checks alone; the automated code review AGENTS.md asks for before a pull request opens is not checked here.
+ * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
+ * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
  */
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+
 /** The comment line the sign-off workflow accepts, on its own line. */
 export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 
@@ -39,6 +48,62 @@ export function hasCommentSignoff({ comments, sha, reviewers, requireDistinctFro
     if (!m || m[1].toLowerCase() !== want || !reviewers.includes(login)) return false;
     return !(requireDistinctFromAuthor && login === String(author ?? '').toLowerCase());
   });
+}
+
+/**
+ * Security code by path: the services AGENTS.md names, ledger-client and auth, config (freeze authority, sanctions
+ * screening, the money kill switch, production posture) and db (columns, migrations), the workflows, what changes the
+ * dependency tree or the registry, the images and compose files, the shared compiler settings and the infra config.
+ */
+export const SECURITY_PATHS = [
+  /^services\/svc-(edge|ops|protocol|fix)\//,
+  /^packages\/(ledger-client|auth|config|db)\//,
+  /^\.github\//,
+  /^pnpm-lock\.yaml$/,
+  /^pnpm-workspace\.yaml$/,
+  /(^|\/)\.npmrc$/,
+  /(^|\/)Dockerfile[^/]*$/,
+  /(^|\/)\.dockerignore$/,
+  /(^|\/)docker-compose[^/]*\.ya?ml$/,
+  /^tsconfig\.base\.json$/,
+  /^tooling\/infra\//,
+];
+
+const LEDGER_CLIENT = '@intafaced/ledger-client';
+
+/**
+ * The folder a file's money check reads package.json from (`services/svc-pay`, `tooling/pay-sim`), or null for a file
+ * at the top of the repo or of tooling/. A tooling folder with no package.json (tooling/scripts runs the local stack
+ * and its ledger recipes) fails closed in reviewReason.
+ */
+export function packageRootOf(file) {
+  const m = /^(apps|services|packages|tooling)\/([^/]+)\//.exec(file);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+export function dependsOnLedgerClient(manifest) {
+  return ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some(
+    (k) => manifest?.[k] && Object.hasOwn(manifest[k], LEDGER_CLIENT),
+  );
+}
+
+/**
+ * Why this change needs the independent review, or null when it does not. Money code is ledger-client and every
+ * package that depends on it directly, on the default branch or on the head. `manifests` maps a package root to the
+ * package.json objects read for it; a root with none counts as money (fail closed), and so does an empty file list.
+ */
+export function reviewReason(files, manifests) {
+  if (files.length === 0) return 'no changed files could be read for this head';
+  const security = files.find((f) => SECURITY_PATHS.some((re) => re.test(f)));
+  if (security) return `security: ${security}`;
+  const gate = gateFilesTouched(files);
+  if (gate.length > 0) return `gate file: ${gate[0].file}`;
+  for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
+    const found = manifests.get(root) ?? [];
+    if (found.length === 0) return `money: no package.json could be read for ${root}`;
+    if (found.some(dependsOnLedgerClient)) return `money: ${root} depends on ${LEDGER_CLIENT}`;
+  }
+  return null;
 }
 
 function selfTest() {
@@ -98,6 +163,46 @@ function selfTest() {
       process.exit(1);
     }
   }
+  const money = { dependencies: { [LEDGER_CLIENT]: 'workspace:*' } };
+  const plain = { dependencies: { react: '19' } };
+  const manifests = new Map([
+    ['services/svc-pay', [money]],
+    ['services/svc-support', [plain]],
+    ['apps/admin', [plain, money]],
+    ['services/svc-new', []],
+    ['tooling/pay-sim', [money]],
+  ]);
+  const reasonCases = [
+    [['docs/x.md'], false],
+    [['services/svc-support/src/a.ts', 'docs/x.md'], false],
+    [['services/svc-pay/src/a.ts'], true],
+    [['apps/admin/src/a.tsx'], true], // depends on the head or on the default branch
+    [['services/svc-edge/src/a.ts'], true],
+    [['packages/ledger-client/src/a.ts'], true],
+    [['packages/config/src/freeze-authority.ts'], true],
+    [['packages/db/src/migrate.ts'], true],
+    [['.github/CODEOWNERS'], true],
+    [['pnpm-lock.yaml'], true],
+    [['tooling/ci/dependency-audit.mjs'], true],
+    [['AGENTS.md'], true],
+    [['services/svc-support/CLAUDE.md'], true],
+    [['services/svc-new/src/a.ts'], true],
+    [['services/svc-unread/src/a.ts'], true],
+    [['tooling/scripts/local-test-gates.mjs'], true],
+    [['tooling/pay-sim/src/cli.ts'], true],
+    [['tooling/coverage.yaml'], false],
+    [['.npmrc'], true],
+    [['apps/customer/Dockerfile'], true],
+    [['docker-compose.apps.yml'], true],
+    [['tsconfig.base.json'], true],
+    [[], true],
+  ];
+  for (const [files, want] of reasonCases) {
+    if ((reviewReason(files, manifests) !== null) !== want) {
+      console.error('review-marker review-reason self-test failed for', JSON.stringify(files));
+      process.exit(1);
+    }
+  }
   console.log('review-marker self-test ok');
 }
 
@@ -112,15 +217,49 @@ async function readStatuses(repo, sha, token) {
   return res.json();
 }
 
-async function api(path, token) {
+/** GET a GitHub API path; any failure ends the seal (fail closed), except a 404 when `missingOk` (then null). */
+async function api(path, token, { missingOk = false } = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
+  if (missingOk && res.status === 404) return null;
   if (!res.ok) {
     console.error(`::error::could not read ${path} (HTTP ${res.status}); sealing fails closed`);
     process.exit(1);
   }
   return res.json();
+}
+
+/**
+ * Every path the pull request touches, both sides of a rename. More than GitHub lists returns [] (fail closed). The
+ * files endpoint shows the pull request's current head, so the list counts only when that head is HEAD_SHA before and
+ * after the read; otherwise [] (fail closed), and the newer head gets its own seal run.
+ */
+async function readChangedFiles(repo, number, sha, token) {
+  const headIs = async () => (await api(`/repos/${repo}/pulls/${number}`, token)).head?.sha === sha;
+  if (!(await headIs())) return [];
+  const files = [];
+  for (let page = 1; page <= 30; page++) {
+    const batch = await api(`/repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`, token);
+    for (const f of batch) files.push(f.filename, ...(f.previous_filename ? [f.previous_filename] : []));
+    if (batch.length < 100) return (await headIs()) ? files : [];
+  }
+  return [];
+}
+
+/** package.json of each touched package, on the default branch and on the head. */
+async function readManifests(repo, files, refs, token) {
+  const out = new Map();
+  for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
+    const found = [];
+    for (const ref of refs) {
+      const path = `/repos/${repo}/contents/${root}/package.json?ref=${encodeURIComponent(ref)}`;
+      const file = await api(path, token, { missingOk: true });
+      if (file?.content) found.push(JSON.parse(Buffer.from(file.content, 'base64').toString('utf8')));
+    }
+    out.set(root, found);
+  }
+  return out;
 }
 
 /** The reviewer list comes from the default branch, so a pull request cannot add itself to it. */
@@ -151,6 +290,17 @@ async function main() {
     console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
     process.exit(1);
   }
+  let reason = 'not a pull request';
+  if (PR_NUMBER) {
+    const { default_branch: base } = await api(`/repos/${REPO}`, GH_TOKEN);
+    const files = await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
+    reason = reviewReason(files, await readManifests(REPO, files, [base, HEAD_SHA], GH_TOKEN));
+    if (reason === null) {
+      console.log('independent review not required: no money, security or gate file changed (owner decision 2026-10-22)');
+      return;
+    }
+    console.log(`independent review required (${reason})`);
+  }
   for (let attempt = 1; attempt <= 4; attempt++) {
     if (hasSignoff(await readStatuses(REPO, HEAD_SHA, GH_TOKEN))) {
       console.log(`review sign-off found for ${HEAD_SHA}`);
@@ -167,9 +317,9 @@ async function main() {
     if (attempt < 4) await new Promise((r) => setTimeout(r, 20_000));
   }
   console.error(
-    `::error title=Review sign-off missing::No success status "${STATUS_CONTEXT}" on ${HEAD_SHA}. Get an independent review of this exact head; a listed reviewer comments "Independent review: PASS ${HEAD_SHA}" and the status follows (see AGENTS.md).`,
+    `::error title=Review sign-off missing::No success status "${STATUS_CONTEXT}" on ${HEAD_SHA}. This change needs one (${reason}). Get an independent review of this exact head; a listed reviewer comments "Independent review: PASS ${HEAD_SHA}" and the status follows (see AGENTS.md).`,
   );
   process.exit(1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

@@ -19,6 +19,7 @@ import {
 import type { NoticeBoard } from './notices/board.js';
 import type { ChannelSettings } from './ops-config/channel-settings.js';
 import type { MessageTemplates } from './ops-config/templates.js';
+import type { ContactPolicy } from './ops-config/contact-policy.js';
 import { TargetRateLimiter, type TargetRateLimiterPort } from './target-rate-limit.js';
 import {
   QUARANTINE_THRESHOLD_UNSET,
@@ -202,6 +203,8 @@ export interface NotifyServiceDeps {
   readonly notices?: NoticeBoard;
   readonly channelSettings?: ChannelSettings;
   readonly templates?: MessageTemplates;
+  /** Genuine-communication contact policy. Absent: the public read and the publish refuse `notify.contact_policy_unavailable`. */
+  readonly contactPolicy?: ContactPolicy;
   /** Recipient health and quarantine. Absent: the operator list is empty and a release refuses. */
   readonly recipientHealth?: RecipientHealthStore;
   /** Owner-set count of consecutive terminal failures that quarantines an address. Null = never. */
@@ -559,6 +562,10 @@ export class NotifyService {
 
   get templates(): MessageTemplates | null {
     return this.deps?.templates ?? null;
+  }
+
+  get contactPolicy(): ContactPolicy | null {
+    return this.deps?.contactPolicy ?? null;
   }
 
   /**

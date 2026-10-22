@@ -172,6 +172,8 @@ function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
     listOfferBoard: async () => ({ offers: [], nextCursor: null }),
     releasedTradeCounts: async () => new Map<string, number>(),
     tradesInWindow: async () => 0,
+    assertNotBlocked: async () => undefined,
+    payTimingOf: async () => ({ avgPaySecs: null, paySamples: 0 }),
     ...overrides,
   } as unknown as P2pService;
 }
