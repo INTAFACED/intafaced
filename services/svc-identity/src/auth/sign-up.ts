@@ -404,40 +404,33 @@ export async function confirmSignUp(
 ): Promise<{ userId: string; draft: SignUpDraft }> {
   const budget = requireBudget(deps);
   const now = deps.now();
-  const flow = await readFlow(deps.sql, input.flowId);
-  if (flow && (flow.consumed_at || flow.status === 'consumed')) {
-    throw new SignUpError('That code was already used. Sign in instead.', 'identity.signup_code_used');
-  }
-  if (!flow || new Date(flow.expires_at) <= now) throw new SignUpError(EXPIRED, 'identity.signup_expired');
-  const lockedFor = () => secondsUntil(new Date(flow.expires_at), now);
-  if (flow.status === 'locked' || flow.attempts >= budget.maxAttempts) {
-    throw new SignUpError('Too many wrong codes. Start again later.', 'auth.too_many_attempts', { retryAfterSeconds: lockedFor() });
-  }
-  const presented = Buffer.from(codeHash(budget.subjectKey, flow.id, input.code.trim()), 'hex');
-  const stored = Buffer.from(flow.code_hash, 'hex');
-  const right = presented.length === stored.length && timingSafeEqual(presented, stored) && flow.status === 'code_sent';
-  if (!right) {
-    const counted = await deps.sql<Array<{ attempts: number }>>`
-      UPDATE auth_flows
-      SET attempts = attempts + 1, status = CASE WHEN attempts + 1 >= ${budget.maxAttempts} THEN 'locked' ELSE status END
-      WHERE id = ${flow.id} AND consumed_at IS NULL
-      RETURNING attempts
-    `;
-    if ((counted[0]?.attempts ?? 0) >= budget.maxAttempts) {
-      await deps.sql`DELETE FROM signup_drafts WHERE flow_id = ${flow.id}`;
-      throw new SignUpError('Too many wrong codes. Start again later.', 'auth.too_many_attempts', { retryAfterSeconds: lockedFor() });
-    }
-    throw new SignUpError('That code is not right. Check the email and try again.', 'identity.signup_code_invalid');
-  }
-
-  return transaction(
+  // One locked read decides everything: the count, the compare and the account. Guesses on the same sign-up queue on
+  // the row, so a burst of codes is checked one at a time against the count, never against a stale read.
+  const outcome = await transaction(
     deps.sql,
-    async (tx) => {
-      const locked = await tx<Array<{ status: string; consumed_at: Date | null }>>`
-        SELECT status, consumed_at FROM auth_flows WHERE id = ${flow.id} FOR UPDATE
-      `;
-      if (!locked[0] || locked[0].consumed_at || locked[0].status !== 'code_sent') {
-        throw new SignUpError('That code was already used. Sign in instead.', 'identity.signup_code_used');
+    async (tx): Promise<{ userId: string; draft: SignUpDraft } | SignUpError> => {
+      const flow = await readFlow(tx, input.flowId, true);
+      if (flow && (flow.consumed_at || flow.status === 'consumed')) {
+        return new SignUpError('That code was already used. Sign in instead.', 'identity.signup_code_used');
+      }
+      if (!flow || new Date(flow.expires_at) <= now) return new SignUpError(EXPIRED, 'identity.signup_expired');
+      const tooMany = () =>
+        new SignUpError('Too many wrong codes. Start again later.', 'auth.too_many_attempts', {
+          retryAfterSeconds: secondsUntil(new Date(flow.expires_at), now),
+        });
+      if (flow.status === 'locked' || flow.attempts >= budget.maxAttempts) return tooMany();
+      const presented = Buffer.from(codeHash(budget.subjectKey, flow.id, input.code.trim()), 'hex');
+      const stored = Buffer.from(flow.code_hash, 'hex');
+      const right = presented.length === stored.length && timingSafeEqual(presented, stored) && flow.status === 'code_sent';
+      if (!right) {
+        const attempts = flow.attempts + 1;
+        const lock = attempts >= budget.maxAttempts;
+        await tx`UPDATE auth_flows SET attempts = ${attempts}, status = ${lock ? 'locked' : flow.status} WHERE id = ${flow.id}`;
+        if (lock) {
+          await tx`DELETE FROM signup_drafts WHERE flow_id = ${flow.id}`;
+          return tooMany();
+        }
+        return new SignUpError('That code is not right. Check the email and try again.', 'identity.signup_code_invalid');
       }
       const rows = await tx<
         Array<{
@@ -450,7 +443,7 @@ export async function confirmSignUp(
         }>
       >`SELECT handle, email, password_hash, country, account_type, referrer_id FROM signup_drafts WHERE flow_id = ${flow.id}`;
       const row = rows[0];
-      if (!row) throw new SignUpError(EXPIRED, 'identity.signup_expired');
+      if (!row) return new SignUpError(EXPIRED, 'identity.signup_expired');
       const draft: SignUpDraft = {
         flowId: flow.id,
         handle: row.handle,
@@ -469,4 +462,6 @@ export async function confirmSignUp(
     },
     { isolation: 'read committed' },
   );
+  if (outcome instanceof SignUpError) throw outcome;
+  return outcome;
 }

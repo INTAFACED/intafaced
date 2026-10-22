@@ -242,6 +242,21 @@ if (!available) {
       expect(await count('users')).toBe(1);
     });
 
+    it('weighs a burst of wrong guesses one at a time: only the count is checked, then the right code is refused', async () => {
+      const answer = await anon().auth.signUpStart(form());
+      const code = sent[0]!.code;
+      const guesses = Array.from({ length: 20 }, (_, i) => String((Number(code) + 1 + i) % 1_000_000).padStart(6, '0'));
+      const answers = await Promise.all(guesses.map((c) => refusal(anon().auth.signUpConfirm({ flowId: answer.flowId, code: c }))));
+
+      expect(answers.filter((a) => a.code === 'identity.signup_code_invalid')).toHaveLength(POLICY.maxAttempts - 1);
+      expect(answers.filter((a) => a.code === 'auth.too_many_attempts')).toHaveLength(guesses.length - POLICY.maxAttempts + 1);
+      expect(await db.sql`SELECT attempts, status FROM auth_flows WHERE id = ${answer.flowId}`).toEqual([
+        { attempts: POLICY.maxAttempts, status: 'locked' },
+      ]);
+      expect((await refusal(anon().auth.signUpConfirm({ flowId: answer.flowId, code }))).code).toBe('auth.too_many_attempts');
+      expect(await count('users')).toBe(0);
+    });
+
     it('resends only after the interval, with the seconds left, and the new code replaces the old one', async () => {
       const answer = await anon().auth.signUpStart(form());
       const early = await refusal(anon().auth.signUpResend({ flowId: answer.flowId }));
