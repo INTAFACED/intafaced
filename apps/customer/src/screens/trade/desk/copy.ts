@@ -440,6 +440,8 @@ const messages = {
   Type: 'Type',
   Side: 'Side',
   Filled: 'Filled',
+  Held: 'Held',
+  'Held unknown label': 'Not stated: the service did not say what this order holds',
   Status: 'Status',
   Action: 'Action',
   Fee: 'Fee',

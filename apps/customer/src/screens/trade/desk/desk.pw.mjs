@@ -293,6 +293,9 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(table.locator('tbody tr').first()).toContainText('BTC/USDT');
   await expect(table.locator('tbody tr').first()).toContainText('63,999.90');
   await expect(table.locator('tbody tr').first()).toContainText('Limit');
+  // What the order holds, from the service's wire (J-cex-spot-05 step 1).
+  await expect(table.locator('thead')).toContainText('Held');
+  await expect(table.locator('tbody tr').first()).toContainText('6.399990 USDT');
   await shotBoth(page, 'desk-open-order', { full: true });
 
   await table.getByRole('button', { name: /Cancel buy order/ }).click();

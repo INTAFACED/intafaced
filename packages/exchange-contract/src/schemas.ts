@@ -389,6 +389,12 @@ export const orderSchema = z.object({
   exit: orderExitSchema.nullable().optional(),
   /** The caller's own label from the create body. Null when none was sent. Absent on wires from before this field. */
   tag: z.string().nullable().optional(),
+  /**
+   * What a live order still holds: the hold placed with it, less what its fills spent and what an amend released (quote
+   * for a buy, base for a sell). Null on a closed or unresolved order (nothing stated). Absent on wires from before this
+   * field.
+   */
+  hold: z.object({ asset: z.string(), amount: decimal }).nullable().optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 

@@ -473,7 +473,14 @@ export class Exchange {
       }
     }
     if (draft.type === 'limit' && !(tif === 'IOC' || tif === 'FOK')) {
-      const order = this.wireOrder(draft, {});
+      // A resting order says what it holds, as the service does: a buy its price x amount in quote, a sell its amount.
+      const [base, quote] = draft.symbol.split('/');
+      const order = this.wireOrder(draft, {
+        hold:
+          draft.side === 'buy'
+            ? { asset: quote, amount: plain(mulFloor(scaled(draft.price), scaled(draft.amount))) }
+            : { asset: base, amount: draft.amount },
+      });
       this.open.unshift(order);
       if (draft.side === 'buy') {
         const hold = mulFloor(scaled(draft.price), scaled(draft.amount));

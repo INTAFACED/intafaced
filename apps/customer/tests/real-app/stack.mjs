@@ -130,6 +130,7 @@ export async function api(who) {
   return {
     get: (route) => call('GET', route),
     post: (route, body) => call('POST', route, body),
+    patch: (route, body) => call('PATCH', route, body),
     delete: (route) => call('DELETE', route),
     /** { asset: { free, used, total } } from the ledger, as decimal strings. */
     async balances() {
