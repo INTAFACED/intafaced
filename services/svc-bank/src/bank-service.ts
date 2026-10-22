@@ -1,3 +1,4 @@
+import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
@@ -54,6 +55,8 @@ export interface BankServices {
   readonly statements: StatementService;
   readonly accountDetails: AccountDetailsService;
   readonly loans: LoanService;
+  /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
+  readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
   readonly ramps: RampService;
   readonly deposits: DepositService;
@@ -181,7 +184,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     handles: options.handles,
     notices: options.requestNotices,
   });
-  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
+  const assetPauses = new AssetPauseService(sql);
+  // The supply pause lives in the deposit path so auto-invest cannot go around it.
+  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC', supplyGate: assetPauses });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
   const activityRecords = new ActivityRecordService(sql);
@@ -242,6 +247,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activityRecords,
     statements,
     accountDetails,
+    assetPauses,
     loans,
     cards,
     ramps,
