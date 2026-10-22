@@ -131,7 +131,9 @@ export class OtcDeskService {
     // CB-otc-01: in maker mode the maker comes from the owner provider list, not
     // free text. A blank list, an unknown provider or an outside provider refuses
     // the request before any stake read or price lookup.
-    if (law.counterparty === 'maker' && (input.makerId ?? '').trim() !== '') {
+    // A blank makerId is not skipped: it goes through the same selection, so a
+    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
+    if (law.counterparty === 'maker') {
       selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
     }
 

@@ -204,6 +204,15 @@ describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
     await expect(svc('').quote(principal, req('test-lp-a'))).rejects.toMatchObject({ code: 'trade.otc_makers_unset' });
   });
 
+  it('a blank makerId with a blank provider list refuses otc_makers_unset', async () => {
+    await expect(svc('').quote(principal, req(''))).rejects.toMatchObject({ code: 'trade.otc_makers_unset' });
+    await expect(svc('').quote(principal, req('   '))).rejects.toMatchObject({ code: 'trade.otc_makers_unset' });
+  });
+
+  it('a blank makerId with a published list refuses otc_provider_required', async () => {
+    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req(''))).rejects.toMatchObject({ code: 'trade.otc_provider_required' });
+  });
+
   it('a free-text maker not on the list refuses', async () => {
     await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('anyone'))).rejects.toMatchObject({ code: 'trade.otc_provider_unknown' });
   });
