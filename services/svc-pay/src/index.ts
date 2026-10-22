@@ -614,6 +614,7 @@ export const appRouter = mergeRouters(
     allowlist: { service: allowlist },
     starterFee: merchantStarterFee,
     ledger,
+    disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     teamEmailInvite,
