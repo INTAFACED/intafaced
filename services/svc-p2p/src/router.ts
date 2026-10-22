@@ -249,8 +249,8 @@ const ownStatsOutput = z.object({
   completed: z.number().int().nonnegative(),
   cancelled: z.number().int().nonnegative(),
   disputed: z.number().int().nonnegative(),
-  completionRate: z.number().min(0).max(1),
-  cancelRate: z.number().min(0).max(1),
+  completionRate: z.number().min(0).max(1).nullable(),
+  cancelRate: z.number().min(0).max(1).nullable(),
   avgReleaseSecs: z.number().int().nonnegative().nullable(),
   avgPaySecs: z.number().int().nonnegative().nullable(),
   volume: z.array(
