@@ -460,6 +460,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.otc_stake_unavailable':
       case 'trade.otc_no_reference_price':
       case 'trade.otc_bad_spread':
+      case 'trade.convert_bounds_not_set':
       case 'trade.rfq_allocation_refused':
       case 'trade.rfq_give_up_refused':
       case 'trade.rfq_missing_price':
@@ -1129,6 +1130,31 @@ export function createTradeRouter(
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.settle(ctx.principal, { quoteId: input.quoteId });
+          }),
+        ),
+
+      /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
+      convertBounds: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
+        otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null },
+      ),
+
+      /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
+      convertQuote: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z
+            .object({
+              flow: z.enum(['convert', 'oneClickBuy']),
+              side: orderSideSchema,
+              baseAsset: z.string().min(1).max(32),
+              quoteAsset: z.string().min(1).max(32),
+              qty: decimal,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
+            return otc.convertQuote(ctx.principal, input);
           }),
         ),
     }),
