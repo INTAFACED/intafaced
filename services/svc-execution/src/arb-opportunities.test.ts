@@ -123,6 +123,26 @@ describe('readArbOpportunities (CB-execution-06)', () => {
     expect(spread.refused.map((r) => r.code)).toContain('stale_quote');
   });
 
+  it('names a blank owner freshness window with its own typed code on every row, before stale_quote', async () => {
+    const out = await readArbOpportunities({
+      feed: feedOf(testRead(NOW, { maxQuoteAgeMs: null, fundingRate: '0.0001' })),
+      symbol: 'BTC/USDT',
+      amount: '1',
+      nowMs: NOW,
+    });
+    if (out.status !== 'ok') throw new Error('expected ok');
+    for (const row of out.rows) {
+      expect(row.opportunities).toEqual([]);
+      expect(row.refused[0]).toEqual({ code: 'freshness_window_unset', label: 'Price freshness window not set' });
+    }
+  });
+
+  it('does not report the window as unset when the owner set it', async () => {
+    const out = await readArbOpportunities({ feed: feedOf(testRead(NOW)), symbol: 'BTC/USDT', amount: '1', nowMs: NOW });
+    if (out.status !== 'ok') throw new Error('expected ok');
+    for (const row of out.rows) expect(row.refused.map((r) => r.code)).not.toContain('freshness_window_unset');
+  });
+
   it('never sends staff fields: no venue ids, cost bps, all-in prices or scanner text', async () => {
     const out = await readArbOpportunities({
       feed: feedOf(testRead(NOW, { fundingRate: '0.0001' })),
