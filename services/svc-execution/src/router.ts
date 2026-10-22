@@ -74,6 +74,7 @@ import {
   UnattendedListLimitUnsetError,
 } from './ems-list-limit.js';
 import { scanOmsExternalArb } from './oms-arbitrage.js';
+import { readArbOpportunities, type ArbOpportunityFeed } from './arb-opportunities.js';
 import { planOmsArbAtomicLegs } from './oms-arb-plan-legs.js';
 import { executeOmsArbAtomicLegs } from './oms-arb-execute-legs.js';
 import { describeExecutionSpine } from './oms-spine.js';
@@ -381,6 +382,8 @@ export function createExecutionRouter(
   fetchImpl: typeof fetch | undefined = undefined,
   operatorApprovals?: { consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> },
   matchingS2s?: OmsMatchingS2s,
+  /** CB-execution-06: market inputs for the customer opportunity read. None wired: NotConnected `feed.market`. */
+  arbOpportunityFeed?: ArbOpportunityFeed,
 ) {
   const haltIdem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskFail = (err: unknown): never => {
@@ -1687,6 +1690,17 @@ export function createExecutionRouter(
       spine: scopedProcedure('admin:read', { module: 'execution' }).query(() => describeExecutionSpine()),
 
       arb: router({
+        /**
+         * CB-execution-06: customer read of funding and spread opportunities. Read only: places no order.
+         * No feed attached answers NotConnected `feed.market`; blanks come back as refused rows.
+         */
+        opportunities: scopedProcedure('trade:read')
+          .input(z.object({ symbol: z.string().min(1).max(64), amount: decimalString }).strict())
+          .query(async ({ input }) =>
+            withExecutionSpan('execution.arb.opportunities', input.symbol, async () =>
+              readArbOpportunities({ feed: arbOpportunityFeed, symbol: input.symbol, amount: input.amount, nowMs: Date.now() }),
+            ),
+          ),
         scan: omsWriteProcedure.input(omsArbScanInput).mutation(async ({ input }) => {
           return withExecutionSpan('execution.arb.scan', input.symbol, async () => scanOmsExternalArb(input));
         }),
