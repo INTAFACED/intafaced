@@ -28,6 +28,20 @@ export const sendInput = z.object({
   fromSpaceId: id,
   toUserId: z.string().min(1).max(64),
   amount: positiveAmount,
+  /** Shown to the recipient as well as the sender. Omitted means no note. */
+  note: z.string().min(1).max(140).optional(),
+});
+/** `bank.transfers.quote`: the published limits and fee for one personal send, and how much of today is used. */
+export const transferQuoteSchema = z.object({
+  assetId: asset,
+  amount,
+  perTransferLimit: amount,
+  dailyLimit: amount,
+  spentToday: amount,
+  fee: amount,
+  feeBlocker: z.string().nullable(),
+  withinPerTransfer: z.boolean(),
+  withinDaily: z.boolean(),
 });
 export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
 export const offerSchema = z.object({

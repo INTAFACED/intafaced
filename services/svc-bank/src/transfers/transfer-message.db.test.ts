@@ -180,6 +180,7 @@ describe('transfer notes on Postgres', () => {
 
   it('transfers.toUser with a note writes no bank.transfer_messages row', async () => {
     const { from } = await fundedSpaces();
+    await sql`INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) VALUES ('USDT', 1000, 10000, 0) ON CONFLICT DO NOTHING`;
     const sent = await caller(ALICE).transfers.toUser({
       transferId: 'touser-note-01',
       fromSpaceId: from.id,

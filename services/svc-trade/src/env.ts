@@ -12,6 +12,11 @@ const schema = serviceEnvSchema
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-trade'),
+
+      /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
+      TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
+      /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */
+      TRADE_BOTS_VERIFICATION_LEVEL: z.string().default(''),
       HTTP_PORT: z.coerce.number().int().default(4004),
 
       /** svc-ledger's internal address. All value movement goes through it. */
@@ -611,6 +616,8 @@ const schema = serviceEnvSchema
        * maxMidAgeSeconds is required when published — never invent mid freshness.
        */
       TRADE_OTC_DESK_LAW: z.string().default(''),
+      /** CB-otc-01 owner provider directory + selection cap. Blank → "No providers set". */
+      TRADE_OTC_MAKER_DIRECTORY: z.string().default(''),
 
       /**
        * OTC reference mids, ops-published: `BASE/QUOTE:mid,BASE/QUOTE:mid`.

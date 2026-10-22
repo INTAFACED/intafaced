@@ -7,12 +7,19 @@
  *   node tooling/scripts/local-test-gates.mjs lifecycle  publish the market lifecycle (the "owner" stand-in)
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
+ *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
  * What this stands in for, and nothing else:
  *   1. the owner who publishes a market lifecycle (opens markets),
  *   2. the compliance officer who accepts the local test sanctions list (the stack env, not this file),
- *   3. the operator who verifies test accounts.
+ *   3. the operator who verifies test accounts,
+ *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
+ *   5. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -44,14 +51,13 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
-import { FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
+import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
 const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
-const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 
 export { GuardError };
 
@@ -184,16 +190,20 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-export function openProposal(marketId) {
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+export function bookProposal(action, marketId) {
+  if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
-    actionType: 'matching.open',
+    actionType: `matching.${action}`,
     targetService: 'svc-matching',
-    targetId: `open:${marketId}`,
+    targetId: `${action}:${marketId}`,
     expectedVersion: '1',
-    payloadHash: matchingPayloadHash('matching.open', { marketId }),
+    payloadHash: matchingPayloadHash(`matching.${action}`, { marketId }),
     policyVersion: MARKERS.policyVersion,
   };
 }
+
+export const openProposal = (marketId) => bookProposal('open', marketId);
 
 export function kycApproveProposal(recordId) {
   return {
@@ -460,9 +470,9 @@ export async function ensureOperators(ctx) {
 }
 
 /** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
-async function mintOperatorToken(ctx, op) {
+async function mintOperatorToken(ctx, op, scopes = ['admin:compliance']) {
   const minted = await ctx.tokens.issueAccessToken(
-    { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
+    { userId: op.userId, sessionId: op.sessionId, scopes, tier: 'none', mfa: true },
     { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
   );
   return minted.token;
@@ -528,6 +538,10 @@ async function signInPair(ctx, ops, saveSteps) {
        */
       async approvalToken() {
         return mintOperatorToken(ctx, op);
+      },
+      /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
+      async tradeOpsToken() {
+        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
     };
   }
@@ -599,6 +613,40 @@ export async function publishLifecycles(ctx) {
   return out;
 }
 
+/** Same hash services/svc-bank/src/action-approval-consume.ts computes for a bank ops action (fields sorted by key). */
+export function bankPayloadHash(actionType, fields) {
+  const sorted = Object.fromEntries(
+    Object.keys(fields)
+      .sort()
+      .map((k) => [k, fields[k]]),
+  );
+  return `sha256:${crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ actionType, fields: sorted }))
+    .digest('hex')}`;
+}
+
+/**
+ * LOCAL TEST personal transfer limits, per asset: not owner values. Without a published row svc-bank refuses every
+ * personal send with bank.personal_transfer_terms_unset, so the stack publishes these through compliance's own door.
+ */
+export const TEST_TRANSFER_TERMS = [
+  { assetId: 'USDT', perTransferLimit: '1000', dailyLimit: '5000', fee: '0' },
+  { assetId: 'USDC', perTransferLimit: '1000', dailyLimit: '5000', fee: '0' },
+];
+export const PUBLISH_TERMS_ACTION = 'bank.ops.publishTransferTerms';
+
+export function termsProposal(terms) {
+  return {
+    actionType: PUBLISH_TERMS_ACTION,
+    targetService: 'svc-bank',
+    targetId: PUBLISH_TERMS_ACTION,
+    expectedVersion: '1',
+    payloadHash: bankPayloadHash(PUBLISH_TERMS_ACTION, terms),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
 // ── 2. Open the books in matching (two-person approval) ─────────────────────
 
 export async function openBooks(ctx) {
@@ -639,6 +687,133 @@ export async function openBooks(ctx) {
       `matching open ${m.symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label}); approval ${ids.approvalId}`,
     );
   }
+  return out;
+}
+
+// ── 2b. Personal transfer limits (two-person approval) ──────────────────────
+
+/** One founder proposes, the other approves (identity keeps bank ops founder-only), the first publishes through svc-bank ops.publishTransferTerms. */
+export async function publishTransferTerms(ctx) {
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const terms of TEST_TRANSFER_TERMS) {
+    const ids = await twoPerson(ctx, sessions, termsProposal(terms));
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate('bank', 'ops.publishTransferTerms', { ...terms, ...ids }, await sessions.a.complianceToken());
+    const row = data(res);
+    if (!row?.publishedAt)
+      throw new Error(`bank ops.publishTransferTerms for ${terms.assetId} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ ...terms, approvedBy: row.approvedBy, approvalId: ids.approvalId });
+    ctx.log(
+      `terms ${terms.assetId}: ${terms.perTransferLimit} per payment, ${terms.dailyLimit} a day, fee ${terms.fee} (${MARKERS.label}); approval ${ids.approvalId}`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Halt (or resume) one book, through the door an operator uses: operator A proposes, operator B approves, and the
+ * call is signed as svc-trade (the only caller matching accepts on this route). Resting orders stay; matching refuses
+ * new submits on a halted book with `market_halted`, and cancels still work.
+ */
+export async function setBookHalt(ctx, symbol, halted) {
+  const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`no market ${symbol}`);
+  const action = halted ? 'halt' : 'resume';
+  const sessions = await approverSessions(ctx);
+  const ids = await twoPerson(ctx, sessions, bookProposal(action, market.id));
+  const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await fetch(`${ctx.url('matching')}/markets/${encodeURIComponent(market.id)}/${action}`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status !== 200 || body.accepted !== true || body.halted !== halted)
+    throw new Error(`matching ${action} for ${symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  ctx.log(`matching ${action} ${symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label})`);
+  return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
+}
+
+// ── 2d. Pair price band and open-order cap (two-person approval) ────────────
+
+/**
+ * LOCAL TEST operator limits for every openable market: not owner values. A price band of 10% around the middle of
+ * the book, and 20 open orders per account per market (the TEST market maker's ladder re-places at most 12). Written
+ * through svc-trade's own door (admin.risk.set) with a second operator's approval, as a new version on top of what is
+ * there; the other limits on the row are kept as they are.
+ */
+export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
+export const RISK_SET_ACTION = 'trade.risk_set';
+
+/** Keys sorted, no spaces, null for an unset value: the form svc-trade hashes (services/svc-trade/src/admin/common.ts). */
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+}
+
+/** The hash svc-trade recomputes when it consumes a trade.risk_set approval. */
+export function riskSetPayloadHash({ market, limits, expectedVersion, reason }) {
+  const body = { actionType: RISK_SET_ACTION, market, limits, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+export function riskSetProposal(body) {
+  return {
+    actionType: RISK_SET_ACTION,
+    targetService: 'svc-trade',
+    targetId: body.market,
+    expectedVersion: body.expectedVersion,
+    payloadHash: riskSetPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * Write one new version of a market's operator limits: `changes` replaces only the fields it names (null clears one).
+ * Returns the written row. Nothing is written when the row already says the same.
+ */
+export async function setPairRisk(ctx, symbol, changes, sessions = null) {
+  const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`no market ${symbol}`);
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', 'admin.risk.get', { market: market.id }, await pair.a.tradeOpsToken()));
+  if (!current?.version) throw new Error(`trade admin.risk.get for ${symbol} gave no version`);
+  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const limits = Object.fromEntries(fields.map((f) => [f, f in changes ? changes[f] : (current[f] ?? null)]));
+  if (fields.every((f) => limits[f] === (current[f] ?? null)))
+    return { symbol, marketId: market.id, version: current.version, changed: false, limits };
+  const body = { market: market.id, limits, expectedVersion: current.version, reason: `${MARKERS.label}: TEST pair limits` };
+  const ids = await twoPerson(ctx, pair, riskSetProposal(body));
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'trade',
+    'admin.risk.set',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(
+    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'} (${MARKERS.label}); approval ${ids.approvalId}`,
+  );
+  return { symbol, marketId: market.id, version: row.version, changed: true, limits };
+}
+
+/** Publish the TEST band and cap on every openable market that does not carry them yet. */
+export async function publishPairRisk(ctx) {
+  const markets = openableMarkets(await listMarkets(ctx));
+  if (markets.length === 0) return [];
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const m of markets) out.push(await setPairRisk(ctx, m.symbol, TEST_RISK_LIMITS, sessions));
   return out;
 }
 
@@ -791,17 +966,47 @@ async function main() {
         say(
           `  still without a verified tier (must submit the request themselves, e.g. tap Verify in the app): ${r.stillWithoutFull.join(', ')}`,
         );
+    } else if (cmd === 'terms') {
+      for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
     } else if (cmd === 'apply') {
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
+      for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
+      for (const r of await publishPairRisk(ctx))
+        say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+    } else if (cmd === 'halt' || cmd === 'resume') {
+      const symbol = process.argv[3];
+      if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
+      const r = await setBookHalt(ctx, symbol, cmd === 'halt');
+      say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'limits') {
+      for (const r of await publishPairRisk(ctx))
+        say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
+    } else if (cmd === 'risk') {
+      // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
+      const symbol = process.argv[3];
+      const pairs = process.argv.slice(4);
+      if (!symbol || pairs.length === 0) die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset ...', 2);
+      const changes = {};
+      for (const p of pairs) {
+        const [k, v] = p.split('=');
+        if (!['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'].includes(k) || v === undefined)
+          die(`not a limit: ${p}`, 2);
+        changes[k] = v === 'unset' ? null : v;
+      }
+      const r = await setPairRisk(ctx, symbol, changes);
+      say(`  ${r.symbol} limits ${r.changed ? `now version ${r.version}` : 'unchanged'}: ${JSON.stringify(r.limits)}`);
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die('usage: local-test-gates.mjs apply | operators | lifecycle | open | verify | status', 2);
+      die(
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        2,
+      );
     }
   } catch (err) {
     die(String(err.message ?? err));

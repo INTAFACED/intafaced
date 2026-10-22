@@ -247,4 +247,30 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     // Once the exit is placed the intent no longer exempts anything.
     await expect(rest(alice, btc, 'br-after')).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
   });
+
+  it("the operator's open-order cap exempts a stored bracket exit the same way, and a reduce-only order", async () => {
+    // TEST FIXTURE: an operator cap of 1 on BTC, as an approved row (the owner cap stays unset).
+    await db.sql`
+      INSERT INTO trade.operator_risk_limits
+        (id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, operator_id, approver_id, reason, approval_id)
+      VALUES (gen_random_uuid(), ${btc.id}, 1, NULL, NULL, NULL, '1', NULL, 'op', 'ap', 'test', gen_random_uuid())`;
+    const entry = await rest(alice, btc, 'ob-entry');
+    const exit = () =>
+      trade.placeOrder(alice, {
+        marketId: btc.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('60'),
+        clientOrderId: `bracket:${entry.id}:exit`,
+      } as never);
+    await expect(exit()).rejects.toMatchObject({ code: 'trade.operator_throttle', data: { cap: '1', open: '1' } });
+    await expect(rest(alice, btc, 'ob-reduce', { reduceOnly: true })).resolves.toBeTruthy();
+    await db.sql`INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss) VALUES (${entry.id}, ${ALICE}, 60, 40)`;
+    // The entry still rests: the stored intent alone does not exempt its exit from the operator cap.
+    await expect(exit()).rejects.toMatchObject({ code: 'trade.operator_throttle' });
+    await db.sql`UPDATE trade.orders SET status = 'filled' WHERE id = ${entry.id}`;
+    expect((await exit()).clientOrderId).toBe(`bracket:${entry.id}:exit`);
+    await expect(rest(alice, btc, 'ob-after')).rejects.toMatchObject({ code: 'trade.operator_throttle' });
+  });
 });

@@ -92,6 +92,8 @@ export interface StoredApproval {
   readonly payloadHash: string;
   readonly requesterId: string;
   readonly approverId: string;
+  /** When set, a consume must send this exact operationId, as svc-identity enforces. */
+  readonly operationId?: string;
 }
 
 /** In-process book the acceptance tests use. Production uses the identity client. */
@@ -112,6 +114,7 @@ export class MemoryApprovalBook implements ApprovalBook {
       row.targetId === input.targetId &&
       row.expectedVersion === input.expectedVersion &&
       row.payloadHash === input.payloadHash &&
+      (row.operationId === undefined || row.operationId === input.operationId) &&
       row.approverId.trim().toLowerCase() !== row.requesterId.trim().toLowerCase();
     if (!bound) return { ok: false, code: 'approval_mismatch' };
     this.rows.set(row.approvalId, { ...row, status: 'CONSUMED' });

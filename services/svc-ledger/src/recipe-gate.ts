@@ -9,6 +9,7 @@ import {
   LedgerError,
   marketMaker,
   parseAmount,
+  railBoundary,
   recipes,
   rewardsEngine,
   subAccountAvailable,
@@ -309,7 +310,7 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     { name: 'futuresInsuranceTopup', post: recipes.futuresInsuranceTopup({ topupId: 'tu1', assetId: 'USDT', amount: AMT }) },
     { name: 'escrowLock', post: recipes.escrowLock(escrow) },
-    { name: 'escrowRelease', post: recipes.escrowRelease(escrow) },
+    { name: 'escrowRelease', post: recipes.escrowRelease({ ...escrow, feeBps: 0 }) },
     { name: 'escrowRelease', post: recipes.escrowRelease({ ...escrow, feeBps: 50 }) },
     { name: 'escrowRefund', post: recipes.escrowRefund(escrow) },
     { name: 'paymentCapture', post: recipes.paymentCapture(capture) },
@@ -731,6 +732,31 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.subAccountTransfer({ transferId: 'st1', fromSubAccountId: S1, toSubAccountId: S2, assetId: 'USDT', amount: AMT }),
     },
     {
+      name: 'payReceivedHold',
+      post: recipes.payReceivedHold({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'payReceivedRelease',
+      post: recipes.payReceivedRelease({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
+    },
+    {
+      name: 'payReceivedReturn',
+      post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
+    },
+    {
+      name: 'bankTransferReversal',
+      post: recipes.bankTransferReversal({
+        originalKeySpace: 'p2p',
+        transferId: 'tr1',
+        occurrence: 0,
+        consentId: 'c1',
+        originalFrom: fromAvail,
+        originalTo: toAvail,
+        originalAmount: AMT,
+        amount: AMT,
+      }),
+    },
+    {
       name: 'marketPurchase',
       post: recipes.marketPurchase({
         purchaseId: 'mp1',
@@ -1020,6 +1046,41 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         });
       }
     }
+  }
+
+  // Rail sends (personal and business bill pay, global send): svc-bank posts
+  // `bankTransfer` from a space to the treasury rail boundary and back on a
+  // return (services/svc-bank/src/personal-pay/post.ts). A business space is a
+  // sub-account (D-149), so both sources are registered. Without these shapes
+  // the gate refused every rail send svc-bank builds.
+  const railTo = railBoundary('bank-rail', 'USDT');
+  for (const space of [userFrom, subFrom]) {
+    posts.push(
+      {
+        name: 'bankTransfer',
+        post: recipes.bankTransfer({
+          transferId: 'tr-rail',
+          occurrence: 0,
+          from: space,
+          to: railTo,
+          amount: AMT,
+          kind: 'manual',
+          keySpace: 'rail',
+        }),
+      },
+      {
+        name: 'bankTransfer',
+        post: recipes.bankTransfer({
+          transferId: 'tr-rail',
+          occurrence: 1,
+          from: railTo,
+          to: space,
+          amount: AMT,
+          kind: 'manual',
+          keySpace: 'rail',
+        }),
+      },
+    );
   }
 
   for (const from of [userFrom, subFrom]) {

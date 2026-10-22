@@ -63,6 +63,7 @@ function cancelledEvent(marketId: MarketId, cancellation: CancelledRef) {
       marketId,
       remainingQty: formatAmount(cancellation.remainingQty),
       sequence: cancellation.sequence,
+      reason: cancellation.reason,
     },
     key: `matching.order.cancelled:${marketId}:${cancellation.sequence}`,
   };

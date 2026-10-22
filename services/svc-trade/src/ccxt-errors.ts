@@ -306,6 +306,10 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.sub_account_denied': { ccxt: 'PermissionDenied', status: 403 },
   /** Soft-revoked sub-account — create a new book; do not retry the same id. */
   'trade.sub_account_revoked': { ccxt: 'PermissionDenied', status: 403 },
+  /** Email not proved yet (RC-identity-01). Permanent until the user confirms the email. */
+  'trade.email_proof_required': { ccxt: 'PermissionDenied', status: 403 },
+  /** Identity email-proof read failed or was off-contract. Retryable; fails closed. */
+  'trade.identity_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
 
   // ── Order lifecycle ───────────────────────────────
   'trade.order_not_found': { ccxt: 'OrderNotFound', status: 404 },
@@ -378,6 +382,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.paper_fill_refused': { ccxt: 'NotSupported', status: 403 },
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
+  /** Raised on the bus cancel path only, never on a request: the fill settles first, then the cancel is redelivered. */
+  'trade.cancel_ahead_of_fill': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
    * Not retryable by the caller — operator break, not a bot backoff loop.
@@ -477,6 +483,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_mark_invalid': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_mark_policy_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_insufficient_balance': { ccxt: 'InsufficientFunds', status: 400 },
+  'trade.bots_verification_level_not_set': { ccxt: 'PermissionDenied', status: 403 },
+  'trade.bots_verification_insufficient': { ccxt: 'PermissionDenied', status: 403 },
   'trade.algo_balance_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   /**
@@ -494,8 +502,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
   /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
-  /** Operator price collar. Not retryable at the same price. */
-  'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator price band. Not retryable at the same price. */
+  'trade.price_band': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
   'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
   /**

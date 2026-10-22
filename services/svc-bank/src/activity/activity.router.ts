@@ -58,6 +58,15 @@ const activityListInput = z
   })
   .strict();
 
+/** The filters of `activity.list`, without the page and cursor: what a saved filter holds. */
+const savedFilterBody = activityListInput.omit({ limit: true, cursor: true });
+
+const savedFilterOutput = z.object({
+  name: z.string(),
+  filter: savedFilterBody,
+  createdAt: z.string().datetime(),
+});
+
 const activityItem = z.object({
   id: z.string(),
   kind: z.enum(ACTIVITY_KINDS),
@@ -133,7 +142,44 @@ export function assetPageOf(lines: ReadonlyArray<{ purchase?: true; asset: strin
 }
 
 export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'>) {
+  const savedFilters = () => bank.activityRecords.savedFilters;
   return router({
+    /** Named sets of `activity.list` filters, self-only (BK-acct-07). */
+    savedFilters: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).strict())
+        .output(z.array(savedFilterOutput))
+        .query(async ({ ctx, input }) => {
+          try {
+            const rows = await savedFilters().list(ctx.principal.userId, input.limit);
+            return rows.map((row) => ({ ...row, filter: savedFilterBody.parse(row.filter) }));
+          } catch (err) {
+            activityFailure(err);
+          }
+        }),
+      save: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ name: plainWords.pipe(z.string().max(60)), filter: savedFilterBody }).strict())
+        .output(savedFilterOutput.extend({ replayed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const saved = await savedFilters().save(ctx.principal.userId, input.name, input.filter);
+            return { ...saved, filter: savedFilterBody.parse(saved.filter) };
+          } catch (err) {
+            activityFailure(err);
+          }
+        }),
+      remove: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ name: z.string().min(1).max(60) }).strict())
+        .output(z.object({ deleted: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await savedFilters().remove(ctx.principal.userId, input.name);
+          } catch (err) {
+            activityFailure(err);
+          }
+        }),
+    }),
+
     list: scopedProcedure('bank:read', { module: 'bank' })
       .input(activityListInput)
       .output(activityListOutput)

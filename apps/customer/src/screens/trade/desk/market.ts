@@ -8,6 +8,11 @@ import { listingSchema } from '../../../features/trade/trade-api';
 /** `/markets` row as the desk reads it: the existing trade schema plus the market state the data layer also reads. */
 export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
+  // The operator limits as published for the pair; "not set" where the owner published none.
+  pairRules: z
+    .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
+    .passthrough()
+    .nullish(),
 });
 export type DeskListing = z.infer<typeof deskListingSchema>;
 
@@ -24,7 +29,16 @@ export interface DeskMarket {
   minCost: string | null;
   /** Can be traded right now (listed, orderable, session open, state OPEN). */
   open: boolean;
+  /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
+  state: string | null;
+  /** Price band as a fraction around the middle of the book ("0.1" is 10%); null when none is published. */
+  band?: string | null;
+  /** How many orders one account may have open here; null when none is published. */
+  openOrderCap?: string | null;
 }
+
+/** A published operator value, or null for "not set" (or no rules read at all): never a default. */
+const published = (value: string | undefined): string | null => (value && value !== 'not set' ? value : null);
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
   const stateOpen = listing.lifecycle ? listing.lifecycle.state === 'OPEN' : true;
@@ -37,7 +51,28 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minAmount: listing.limits.amount.min,
     minCost: listing.limits.cost.min,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
+    state: listing.lifecycle?.state?.trim() || null,
+    band: published(listing.pairRules?.protection.collar),
+    openOrderCap: published(listing.pairRules?.protection.openOrdersPerMarket),
   };
+}
+
+export const NAMED_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED'] as const;
+export type NamedMode = (typeof NAMED_MODES)[number];
+
+/**
+ * What the ticker says about trading here. 'open' only when the desk takes orders (market.open), so the strip never
+ * reads Open while the form refuses. A named state the desk does not trade in (POST_ONLY, HALTED ...) is named, with
+ * no new orders; any other state is 'closed' (never shown raw); a listing with no state is 'unlisted'.
+ */
+export type TradingMode =
+  { kind: 'open' } | { kind: 'named'; mode: Exclude<NamedMode, 'OPEN'> } | { kind: 'closed' } | { kind: 'unlisted' };
+export function tradingMode(market: Pick<DeskMarket, 'open' | 'state'>): TradingMode {
+  if (market.open) return { kind: 'open' };
+  if (market.state === null) return { kind: 'unlisted' };
+  if (market.state !== 'OPEN' && (NAMED_MODES as readonly string[]).includes(market.state))
+    return { kind: 'named', mode: market.state as Exclude<NamedMode, 'OPEN'> };
+  return { kind: 'closed' };
 }
 
 /** Real spot markets only (no paper markets). */

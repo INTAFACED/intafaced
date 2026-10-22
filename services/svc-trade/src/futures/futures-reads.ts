@@ -6,6 +6,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { FuturesError } from './position-service.js';
+import { LIQUIDATION_FEE_EXPLANATION, LIQUIDATION_FEE_LEDGER_JOB_PENDING, LIQUIDATION_FEE_UNSET } from './liquidation-fee.js';
 import type { MarketRow } from '../spot/rows.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -195,6 +196,10 @@ export interface LiquidationRungWire {
   sizeReason: string | null;
   fee: string | null;
   feeReason: string | null;
+  /** D-margin-07: present when the rung recorded a fee decision (`feeReason` is `fee_unset` or `ledger_job_pending`). */
+  feeExplanation?: string;
+  /** D-margin-07: the planned, NOT charged, fee when `feeReason` is `ledger_job_pending`. */
+  plannedFee?: string;
 }
 
 export interface LiquidationEventWire {
@@ -229,6 +234,22 @@ function recorded(plan: unknown, key: string, missing: string): { value: string 
   return value == null ? { value: null, reason: missing } : { value, reason: null };
 }
 
+/** The fee decision the rung itself stored (D-margin-07); never inferred from current config. */
+function recordedFeeDecision(plan: unknown, recordedFee: string | null): Partial<LiquidationRungWire> {
+  if (recordedFee !== null || plan == null || typeof plan !== 'object') return {};
+  const p = plan as Record<string, unknown>;
+  if (p.feeState === LIQUIDATION_FEE_UNSET) return { feeReason: LIQUIDATION_FEE_UNSET, feeExplanation: LIQUIDATION_FEE_EXPLANATION };
+  if (p.feeState === LIQUIDATION_FEE_LEDGER_JOB_PENDING) {
+    const planned = scaledDecimal(p.plannedFee);
+    return {
+      feeReason: LIQUIDATION_FEE_LEDGER_JOB_PENDING,
+      feeExplanation: LIQUIDATION_FEE_EXPLANATION,
+      ...(planned !== null ? { plannedFee: planned } : {}),
+    };
+  }
+  return {};
+}
+
 /** No module computes an ADL queue rank. The field stays null with its reason. */
 export function publishedAdlRank(): { adlRank: null; adlRankReason: typeof ADL_RANK_NOT_PUBLISHED } {
   return { adlRank: null, adlRankReason: ADL_RANK_NOT_PUBLISHED };
@@ -248,6 +269,7 @@ export function presentLiquidationRung(row: RungRow): LiquidationRungWire {
     sizeReason: size.reason,
     fee: fee.value,
     feeReason: fee.reason,
+    ...recordedFeeDecision(row.plan, fee.value),
   };
 }
 
@@ -344,4 +366,76 @@ export async function readFuturesTickerFacts(sql: Sql, marketId: string, now: Da
     change24h,
     changeReason,
   };
+}
+
+/** One rung on a position's liquidation timeline (D-margin-06). A figure the rung did not record stays null. */
+export interface PositionLiquidationRungWire {
+  rungId: string;
+  liquidationId: string;
+  kind: string;
+  state: string;
+  time: string;
+  size: string | null;
+  mark: string | null;
+  marginTaken: string | null;
+  fromInsurance: string | null;
+  releaseShort: string | null;
+  fee: string | null;
+  feeReason: string | null;
+}
+
+export interface PositionLiquidationWire {
+  positionId: string;
+  /** A rung is planned or posted: the tick holds the position and edits refuse `trade.liquidation_in_progress`. */
+  live: boolean;
+  /** The latest rung was abandoned: the position is held for an operator and no new rung is planned. */
+  parked: boolean;
+  editsRefusedCode: 'trade.liquidation_in_progress' | null;
+  rungs: PositionLiquidationRungWire[];
+}
+
+interface PositionRungRow extends RungRow {
+  state: string;
+}
+
+export function presentPositionLiquidation(positionId: string, rows: readonly PositionRungRow[]): PositionLiquidationWire {
+  const rungs = rows.map((row) => {
+    const fee = recorded(row.plan, 'fee', LIQUIDATION_FEE_NOT_RECORDED);
+    return {
+      rungId: row.rung_id,
+      liquidationId: row.liquidation_id,
+      kind: row.kind,
+      state: row.state,
+      time: row.created_at.toISOString(),
+      size: recorded(row.plan, 'sizeClosed', LIQUIDATION_SIZE_NOT_RECORDED).value,
+      mark: recorded(row.plan, 'markPrice', LIQUIDATION_PRICE_NOT_RECORDED).value,
+      marginTaken: recorded(row.plan, 'marginTaken', 'not_recorded').value,
+      fromInsurance: recorded(row.plan, 'fromInsurance', 'not_recorded').value,
+      releaseShort: recorded(row.plan, 'releaseShort', 'not_recorded').value,
+      fee: fee.value,
+      feeReason: fee.reason,
+    };
+  });
+  const live = rows.some((row) => row.state === 'planned' || row.state === 'posted');
+  const last = rows[rows.length - 1];
+  const parked = !live && last !== undefined && last.state === 'abandoned';
+  return { positionId, live, parked, editsRefusedCode: live ? 'trade.liquidation_in_progress' : null, rungs };
+}
+
+/**
+ * The caller's own position liquidation timeline, every rung state included. A read: it never posts.
+ * Another account's position answers `trade.position_not_found` exactly like a missing one.
+ */
+export async function loadPositionLiquidation(sql: Sql, userId: string, positionId: string): Promise<PositionLiquidationWire> {
+  const owned = await sql<Array<{ id: string }>>`
+    SELECT id::text AS id FROM trade.positions WHERE id::text = ${positionId} AND user_id = ${userId}
+  `;
+  if (owned.length === 0) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+  const rows = await sql<PositionRungRow[]>`
+    SELECT rung_id::text AS rung_id, position_id, liquidation_id, kind, state, plan, created_at
+      FROM trade.liquidation_rungs
+     WHERE position_id = ${positionId}
+     ORDER BY created_at ASC, rung_id ASC
+  `;
+  return presentPositionLiquidation(positionId, rows);
 }
