@@ -101,15 +101,25 @@ function share(amount: Amount, part: Amount, whole: Amount): Amount {
   return (amount * part) / whole;
 }
 
-/** Nothing else is moving this position (`p`): no live or abandoned rung, no old claim, no planned pair. */
-function holdFree(db: Sql | TransactionSql) {
+/**
+ * Nothing else is moving this position (`p`): no live or abandoned rung, no old claim, no planned pair.
+ *
+ * `ownBookDone` is for the BANKRUPT side of a pair only: its own liquidation rung of kind `matched` that has reached
+ * `posted` does not count. That rung is the one handing its remainder to ADL (`matched-liquidation.ts`), and `posted`
+ * means every fill of its IOC has settled into the row, so the row is what the pair should be planned from. A matched
+ * rung still in the book (`planned`), any other kind of rung, and every rung on a candidate still hold.
+ */
+function holdFree(db: Sql | TransactionSql, ownBookDone = false) {
   return db`
-    NOT EXISTS (SELECT 1 FROM trade.liquidation_rungs r WHERE r.position_id = p.id::text AND r.state IN ('planned', 'posted'))
+    NOT EXISTS (SELECT 1 FROM trade.liquidation_rungs r WHERE r.position_id = p.id::text AND r.state IN ('planned', 'posted')
+                   AND NOT (${ownBookDone}::boolean AND r.kind = 'matched' AND r.state = 'posted'))
     AND COALESCE((SELECT r.state FROM trade.liquidation_rungs r WHERE r.position_id = p.id::text
                   ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') <> 'abandoned'
     AND NOT EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = 'liq:' || p.id::text)
     AND NOT EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
                      WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
+    -- a matched fill still being recorded has posted into the pot ahead of the row (matched-orders.ts)
+    AND NOT EXISTS (SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
   `;
 }
 
@@ -127,6 +137,8 @@ interface PositionRow {
   margin_adjust_seq: number;
   margin_adjust_request: string | null;
   hold_free: boolean;
+  /** `hold_free`, letting through the position's own matched rung once its book is done (the bankrupt side only). */
+  hold_free_bankrupt?: boolean;
 }
 
 interface PairRow {
@@ -203,7 +215,8 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
     const rows = await tx<PositionRow[]>`
       SELECT p.id, p.user_id, p.market_id, p.side, p.status, p.size, p.entry_price, p.margin_current, p.margin_initial,
              p.margin_asset, p.margin_adjust_seq, p.margin_adjust_request,
-             (${holdFree(tx)}) AS hold_free
+             (${holdFree(tx)}) AS hold_free,
+             (${holdFree(tx, true)}) AS hold_free_bankrupt
         FROM trade.positions p
        WHERE p.id IN (${a}, ${b})
     `;
@@ -217,7 +230,7 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
       const b = rows.get(input.bankruptPositionId);
       const c = rows.get(input.candidatePositionId);
       if (!b || !c) return null;
-      if (b.status !== 'open' || c.status !== 'open' || !b.hold_free || !c.hold_free) return null;
+      if (b.status !== 'open' || c.status !== 'open' || !b.hold_free_bankrupt || !c.hold_free) return null;
       if (b.margin_adjust_request != null || c.margin_adjust_request != null) return null;
       if (b.market_id !== c.market_id || b.margin_asset !== c.margin_asset || b.side === c.side || b.user_id === c.user_id) return null;
 

@@ -441,6 +441,25 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_MAX_LEVERAGE: z.string().default(''),
 
       /**
+       * FUTURES ORDERS THROUGH svc-matching (docs/adr/2026-10-20-futures-matched-traders.md slice 6). OFF by default,
+       * so main keeps today's futures behaviour until slice 6b retires open and close at mark.
+       *
+       * Off refuses NEW matched futures orders only. Settling a fill the engine has already matched, and releasing a
+       * hold, keep running: a kill switch that traps margin is not a safety control.
+       */
+      TRADE_FUTURES_MATCHING_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
+       * The futures price band (slice 6): a decimal fraction of the mark, for example 0.05 for five per cent either
+       * side. EMPTY BY DEFAULT — and empty refuses a matched futures order with `trade.futures_price_band_unset`.
+       * The number is the owner's; a value that is not a fraction strictly between 0 and 1 fails boot.
+       */
+      TRADE_FUTURES_PRICE_BAND: z.string().default(''),
+
+      /**
        * Market-maker seed job (trade.mm-bot residual).
        * Default OFF — ops must enable + fund pot + set markets + mids.
        * Never invents mid or market list.
