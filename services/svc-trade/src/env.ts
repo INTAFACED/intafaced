@@ -678,6 +678,14 @@ const schema = serviceEnvSchema
       TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
 
       /**
+       * Lead trader owner values (CB-copy-12). JSON or empty. Empty (default) =
+       * every value blank: apply refuses typed (markets / verification /
+       * threshold not set) and missions report `not_set_by_platform`.
+       * Shape: see src/copy/lead-law.ts.
+       */
+      TRADE_COPY_LEAD_LAW: z.string().default(''),
+
+      /**
        * Spot maker/taker fee/rebate schedule (PTX-M21). JSON or empty.
        *
        * Empty (default) = unpublished → preview and place/fill refuse.

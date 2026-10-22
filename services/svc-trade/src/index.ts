@@ -133,6 +133,8 @@ import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
+import { parseCopyLeadLawJson } from './copy/lead-law.js';
+import { LeaderApplicationService, SqlLeaderApplicationStore, ledgerFreeBalance, sqlFollowEligibility } from './copy/leader-application.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
@@ -413,6 +415,14 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  // CB-copy-12: the identity verification read is not wired here yet (it lands with
+  // CB-copy-03's svc-identity account read), so apply refuses
+  // trade.copy_lead_verification_unavailable until it is.
+  new LeaderApplicationService(
+    new SqlLeaderApplicationStore(sql),
+    { ...sqlFollowEligibility(sql), freeBalance: ledgerFreeBalance(ledger) },
+    parseCopyLeadLawJson(env.TRADE_COPY_LEAD_LAW),
+  ),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

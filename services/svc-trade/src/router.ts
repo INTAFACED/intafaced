@@ -43,6 +43,12 @@ import { COPY_DISCLOSURE_LAW_KEY, UNPUBLISHED_COPY_DISCLOSURE_VIEW } from './cop
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
+import {
+  COPY_LEAD_MODES,
+  COPY_LEADER_APPLICATION_STATES,
+  type CopyLeaderApplication,
+  type LeaderApplicationService,
+} from './copy/leader-application.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { isPremarket } from './futures/premarket.js';
@@ -119,6 +125,52 @@ const copyResultOutput = z
     unrealisedPnl: copySignedDecimal.nullable(),
     unrealisedPnlReason: z.string().nullable(),
     assets: z.array(copyResultAssetOutput),
+  })
+  .strict();
+
+const leaderApplicationOutput = z
+  .object({
+    id: z.string(),
+    mode: z.enum(COPY_LEAD_MODES),
+    nickname: z.string(),
+    tradingStyle: z.string(),
+    markets: z.array(z.string()),
+    state: z.enum(COPY_LEADER_APPLICATION_STATES),
+    decisionReason: z.string().nullable(),
+    decidedAt: z.string().datetime().nullable(),
+    submittedAt: z.string().datetime(),
+  })
+  .strict();
+
+function leaderApplicationWire(a: CopyLeaderApplication): z.infer<typeof leaderApplicationOutput> {
+  return {
+    id: a.id,
+    mode: a.mode,
+    nickname: a.nickname,
+    tradingStyle: a.tradingStyle,
+    markets: [...a.markets],
+    state: a.state,
+    decisionReason: a.decisionReason,
+    decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null,
+    submittedAt: a.submittedAt.toISOString(),
+  };
+}
+
+const leaderMissionsOutput = z
+  .object({
+    mode: z.enum(COPY_LEAD_MODES),
+    applicationState: z.enum(COPY_LEADER_APPLICATION_STATES).nullable(),
+    steps: z.array(
+      z
+        .object({
+          key: z.enum(['apply', 'approval', 'transfer_minimum', 'days_to_list']),
+          state: z.enum(['done', 'pending', 'blocked']),
+          value: z.string().nullable(),
+          reason: z.enum(['not_set_by_platform', 'not_applied', 'awaiting_review', 'disapproved']).nullable(),
+        })
+        .strict(),
+    ),
+    listingStep: z.object({ state: z.enum(['blocked', 'pending']), reason: z.enum(['not_set_by_platform', 'awaiting_steps']) }).strict(),
   })
   .strict();
 
@@ -483,6 +535,7 @@ function toTrpcError(err: unknown): TRPCError {
     switch (err.code) {
       case 'trade.copy_not_following':
       case 'trade.copy_leader_not_found':
+      case 'trade.copy_lead_application_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.copy_jurisdiction_blocked':
       case 'trade.copy_self_follow':
@@ -490,6 +543,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_pnl_fee_forbidden':
       case 'trade.copy_ranking_forbidden':
       case 'trade.copy_leader_resume_forbidden':
+      case 'trade.copy_lead_follows_master':
+      case 'trade.copy_lead_has_copy_account':
+      case 'trade.copy_lead_market_not_permitted':
+      case 'trade.copy_lead_verification_insufficient':
+      case 'trade.copy_lead_balance_below_threshold':
+      case 'trade.copy_lead_resubmit_too_early':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.copy_fee_share_blank':
       case 'trade.copy_jurisdiction_blank':
@@ -514,6 +573,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_suspended':
       case 'trade.copy_leader_delisted':
       case 'trade.copy_leader_capacity_full':
+      case 'trade.copy_lead_markets_not_set':
+      case 'trade.copy_lead_verification_not_set':
+      case 'trade.copy_lead_verification_unavailable':
+      case 'trade.copy_lead_threshold_not_set':
+      case 'trade.copy_lead_resubmit_not_set':
+      case 'trade.copy_lead_state_invalid':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -785,6 +850,7 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  leaderApplications?: LeaderApplicationService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
@@ -1414,6 +1480,51 @@ export function createTradeRouter(
      */
     copy: router({
       policy: publicProcedure.query(() => describeCopyPolicy()),
+
+      /**
+       * Lead trader application and missions (CB-copy-12). Customer plane.
+       * Spec name `trade.copy.leader.apply` is mounted as `copy.leaderApply`: tRPC reserves `apply` as a key.
+       * Review (approve / disapprove) and the listing it creates are the founder queue's (CB-ops-01).
+       */
+      leaderApply: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z
+            .object({
+              mode: z.enum(COPY_LEAD_MODES),
+              nickname: z.string().trim().min(1).max(40),
+              contact: z.string().trim().min(1).max(200),
+              tradingStyle: z.string().trim().min(1).max(500),
+              markets: z.array(z.string().min(1).max(64)).min(1).max(64),
+            })
+            .strict(),
+        )
+        .output(leaderApplicationOutput)
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!leaderApplications) throw new CopyError('lead applications are not mounted', 'trade.copy_unavailable');
+            return leaderApplicationWire(await leaderApplications.apply(ctx.principal.userId, input));
+          }),
+        ),
+
+      leaderApplications: scopedProcedure('trade:read', { module: 'trade' })
+        .output(z.object({ applications: z.array(leaderApplicationOutput) }).strict())
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!leaderApplications) throw new CopyError('lead applications are not mounted', 'trade.copy_unavailable');
+            return { applications: (await leaderApplications.mine(ctx.principal.userId)).map(leaderApplicationWire) };
+          }),
+        ),
+
+      leaderMissions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ mode: z.enum(COPY_LEAD_MODES) }).strict())
+        .output(leaderMissionsOutput)
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!leaderApplications) throw new CopyError('lead applications are not mounted', 'trade.copy_unavailable');
+            const m = await leaderApplications.missions(ctx.principal.userId, input.mode);
+            return { ...m, steps: m.steps.map((step) => ({ ...step })), listingStep: { ...m.listingStep } };
+          }),
+        ),
 
       deskStatus: scopedProcedure('trade:read', { module: 'trade' })
         .output(copyDeskStatusOutput)

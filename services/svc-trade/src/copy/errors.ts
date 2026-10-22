@@ -66,7 +66,20 @@ export type CopyErrorCode =
   | 'trade.copy_leader_request_mismatch'
   | 'trade.copy_leader_record_blank'
   | 'trade.copy_leader_state_invalid'
-  | 'trade.copy_leader_state_reason_unset';
+  | 'trade.copy_leader_state_reason_unset'
+  | 'trade.copy_lead_markets_not_set'
+  | 'trade.copy_lead_market_not_permitted'
+  | 'trade.copy_lead_follows_master'
+  | 'trade.copy_lead_has_copy_account'
+  | 'trade.copy_lead_verification_not_set'
+  | 'trade.copy_lead_verification_unavailable'
+  | 'trade.copy_lead_verification_insufficient'
+  | 'trade.copy_lead_threshold_not_set'
+  | 'trade.copy_lead_balance_below_threshold'
+  | 'trade.copy_lead_resubmit_not_set'
+  | 'trade.copy_lead_resubmit_too_early'
+  | 'trade.copy_lead_application_not_found'
+  | 'trade.copy_lead_state_invalid';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
