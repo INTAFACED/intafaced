@@ -195,6 +195,8 @@ export function moduleForPage(pathname: string): ModuleId | null {
     return 'merchants';
   if (under(path, '/compliance')) return 'jurisdiction';
   if (under(path, '/restore')) return 'ledger';
+  // The module health board sits with the module board (kill switches): both are the whole-platform view.
+  if (under(path, '/health')) return 'killswitches';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }
