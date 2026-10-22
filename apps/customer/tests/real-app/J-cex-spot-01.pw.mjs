@@ -161,7 +161,8 @@ test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode
   await desk(page);
   await expect(page.getByText('BTC/USDT').first()).toBeVisible();
   await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
-  await expect(page.locator('canvas').first()).toBeVisible();
+  // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('[role=tab]', { hasText: 'Last trades' })).toBeVisible();
   await expect(page.getByText(/Listed: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
   await expect(page.getByText(/trading mode/i).first()).toBeVisible();
