@@ -453,6 +453,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_sla_unset':
       case 'p2p.dispute_escalation_recheck_unset':
       case 'p2p.sweep_interval_unset':
+      case 'p2p.verification_limits_unset':
+      case 'p2p.verification_limits_invalid':
+      case 'p2p.verification_level_unwired':
+      case 'p2p.security_change_lock_unset':
+      case 'p2p.invalid_security_change_lock':
+      case 'p2p.security_change_lock_unwired':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -497,6 +503,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
       case 'p2p.offer_method_unsupported':
+      case 'p2p.verification_limit_currency':
+      case 'p2p.verification_order_min':
+      case 'p2p.verification_order_max':
+      case 'p2p.verification_daily_limit':
+      case 'p2p.verification_lifetime_limit':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -1032,6 +1043,40 @@ export function createP2pRouter(
         ),
     }),
 
+    /**
+     * P-disputes-security-15. The caller's own verification cap, and whether a
+     * security-change sell lock is published. Neither invents a number.
+     */
+    limits: router({
+      verification: merchantApiProcedure('p2p:read')
+        .output(
+          z.object({
+            tier: z.enum(['none', 'basic', 'full', 'institutional']),
+            currency: z.string().length(3),
+            orderMin: amountString,
+            orderMax: amountString,
+            dailyMax: amountString,
+            lifetimeMax: amountString,
+            dailyUsed: amountString,
+            lifetimeUsed: amountString,
+            dailyRemaining: amountString,
+            lifetimeRemaining: amountString,
+          }),
+        )
+        .query(async ({ ctx }) =>
+          guard(async () => p2p.verificationAllowance({ buyerId: ctx.principal.userId, tier: ctx.principal.tier })),
+        ),
+
+      /**
+       * Unpublished → `p2p.security_change_lock_unset`. Published → the same
+       * unwired refusal as a sell, because the change time is not on this
+       * principal. There is no `locked: false`.
+       */
+      securityChange: merchantApiProcedure('p2p:read')
+        .output(z.object({ seconds: z.number().int().positive() }))
+        .query(async () => guard(async () => p2p.securityChangeLock())),
+    }),
+
     trades: router({
       /** Take an offer → `escrowLock`. The first money path in this router. */
       take: merchantApiProcedure('p2p:write')
@@ -1053,6 +1098,7 @@ export function createP2pRouter(
                 amount: parseAmount(input.amount),
                 tradeId: input.tradeId,
                 method: input.method,
+                tier: ctx.principal.tier,
               }),
             ),
           ),
@@ -1184,6 +1230,7 @@ export function createP2pRouter(
               takerId: ctx.principal.userId,
               amount: parseAmount(input.amount),
               method: input.method,
+              tier: ctx.principal.tier,
             });
             return {
               amount: formatAmount(quoted.amount),
