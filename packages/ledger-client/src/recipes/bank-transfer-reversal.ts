@@ -2,7 +2,7 @@ import type { Amount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
 import { accountKey } from '../client.js';
-import { BANK_TRANSFER_KEY_SPACES, type BankTransferKeySpace } from './bank.js';
+import type { BankTransferKeySpace } from './bank.js';
 
 /**
  * CONSENTED REVERSAL OF A POSTED INTERNAL SEND (bank-transfers BK-xfer-09, transfers-payments-068).
@@ -47,8 +47,13 @@ function requirePositive(name: string, value: unknown): asserts value is Amount 
   if (typeof value !== 'bigint' || value <= 0n) throw new InvalidEntryError(`${name} must be a positive amount`);
 }
 
-/** Internal sends only: a rail send is reversed by the rail, not by consent. */
-export type BankTransferReversalKeySpace = Exclude<BankTransferKeySpace, 'rail'>;
+/**
+ * Internal sends only, named explicitly: a rail send is reversed by the rail, not by consent, and `cashback-rev` and
+ * `recovery` are themselves corrective movements with their own slices, never a consented reversal. A new key space is
+ * NOT reversible until it is added here on purpose.
+ */
+export const BANK_TRANSFER_REVERSAL_KEY_SPACES = ['own', 'p2p', 'sched'] as const satisfies readonly BankTransferKeySpace[];
+export type BankTransferReversalKeySpace = (typeof BANK_TRANSFER_REVERSAL_KEY_SPACES)[number];
 
 export interface BankTransferReversalInput {
   /** The original send's key space, from the stored row. */
@@ -70,7 +75,7 @@ export interface BankTransferReversalInput {
 }
 
 export function bankTransferReversalKey(space: BankTransferReversalKeySpace, transferId: string, occurrence: number): string {
-  if (space === ('rail' as string) || !BANK_TRANSFER_KEY_SPACES.includes(space)) {
+  if (!(BANK_TRANSFER_REVERSAL_KEY_SPACES as readonly string[]).includes(space)) {
     throw new InvalidEntryError(`A consented reversal is for an internal send; key space ${String(space)} is not one`);
   }
   if (typeof transferId !== 'string' || transferId.trim() === '') throw new InvalidEntryError('A reversal needs the original transfer id');
