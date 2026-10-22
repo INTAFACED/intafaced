@@ -166,9 +166,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     expect(preview.payloadHash).toMatch(/^sha256:/);
     expect((await sweeps().policy.preview({ ...plain, treasuryAddress: '0xTESTother' })).payloadHash).not.toBe(preview.payloadHash);
     expect((await refused(apiNoRail.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(/IDENTITY_URL/);
-    expect((await refused(apiSelfApproved.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(
-      /distinct/,
-    );
+    expect((await refused(apiSelfApproved.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(/distinct/);
     expect((await refused(sweeps().policy.set(policyBody({ approvalId: null, operationId: null })))).code).toBe('PRECONDITION_FAILED');
     expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
   });
