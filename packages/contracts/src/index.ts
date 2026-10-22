@@ -74,4 +74,5 @@ export * from './merchant-descriptor.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';
 export * from './bank-card-funds.js';
+export * from './bank-rails.js';
 export * from './asset-registry.js';
