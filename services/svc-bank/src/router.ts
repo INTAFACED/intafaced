@@ -286,7 +286,7 @@ function publicDoorWireMessage(err: BankError): string {
   return facing;
 }
 
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   // An answer that has already been decided. Ownership refusals are thrown as
   // TRPCError from inside `guard`, and without this line every one of them was
   // re-wrapped as INTERNAL_SERVER_ERROR — a 500 that tells the caller to retry
@@ -381,6 +381,8 @@ function toTrpcError(err: unknown): TRPCError {
       // rules is 400.
       case 'bank.space_archived':
       case 'bank.space_locked':
+      // The caller's own space name collides with another of their spaces in that asset; rename and retry.
+      case 'bank.space_name_taken':
       case 'bank.schedule_inactive':
       case 'bank.pool_closed':
       case 'bank.position_closed':
