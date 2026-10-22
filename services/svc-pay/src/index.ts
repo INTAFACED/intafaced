@@ -40,6 +40,7 @@ import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
+import { loadCustodyPolicyMode } from './custody/policy/guards.js';
 import { buildPayGuards } from './seams/registry.js';
 import { loadScreeningReleaseTtl } from './screening/desk-config.js';
 import { createScreeningRouter } from './screening/desk-router.js';
@@ -295,7 +296,14 @@ const kycTierSource = env.IDENTITY_URL
   ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
   : undefined;
 const limitSource = createSqlLimitSource();
-const payGuards = buildPayGuards({ sql, ledger, kycTierOf: kycTierSource, limitSource });
+// W-custody-ops-07: fail closed by default; a bad value stops the boot.
+const payGuards = buildPayGuards({
+  sql,
+  ledger,
+  kycTierOf: kycTierSource,
+  limitSource,
+  custodyPolicyMode: loadCustodyPolicyMode(process.env),
+});
 const conversion = new ConversionService({
   sql,
   ledger,

@@ -19,6 +19,7 @@ interface Row {
   published_by: string | null;
   published_at: Date | null;
   approval_task_id: string | null;
+  approved_by: string[] | null;
 }
 
 const LOCK = 'pay.custody_policy';
@@ -39,6 +40,7 @@ function view(r: Row): PolicyVersionView {
     publishedBy: r.published_by,
     publishedAt: r.published_at?.toISOString() ?? null,
     approvalTaskId: r.approval_task_id,
+    approvedBy: r.approved_by ?? [],
     rulesHash: rulesHashOf(r.rules),
   };
 }
@@ -53,7 +55,7 @@ export async function loadPublishedPolicy(q: Sql): Promise<{ version: number; ru
 /**
  * What a customer has moved of one asset in the last `windowSeconds`, for cumulative rules. Same deny-list as the
  * D-148 allowance (limits/allowance.ts): every withdrawal that can still move value counts, including pending and held
- * ones; the claim being retried is excluded.
+ * ones; the claim being retried is excluded. The window runs on `created_at` (when the withdrawal was asked for).
  */
 export function withdrawalsUsedInWindow(q: Sql, exceptClientRef = ''): UsedInWindow {
   return async ({ initiator, assetId, windowSeconds }): Promise<Amount> => {
@@ -62,7 +64,7 @@ export function withdrawalsUsedInWindow(q: Sql, exceptClientRef = ''): UsedInWin
         FROM pay.withdrawals
        WHERE user_id = ${initiator} AND asset_id = ${assetId}
          AND status::text NOT IN ${q([...WITHDRAWAL_STATES_NOT_COUNTED])}
-         AND updated_at > now() - make_interval(secs => ${windowSeconds})
+         AND created_at > now() - make_interval(secs => ${windowSeconds})
          AND client_ref <> ${exceptClientRef}
     `;
     return parseAmount(rows[0]?.used ?? '0');
@@ -145,9 +147,18 @@ export class CustodyPolicyService {
       }
       const problems = validateRules(row.rules);
       if (problems.length > 0) throw new CustodyTaskExecutionError('custody_policy.draft_invalid', 'the draft has invalid rules');
+      // Dual control on record: the approvers whose decisions carried this task (never the initiator; the quorum enforces it).
+      const approvers = await tx<Array<{ approver_id: string }>>`
+        SELECT approver_id FROM pay.custody_task_decisions
+         WHERE task_id = ${task.taskId} AND decision = 'approve' AND payload_hash = ${task.payloadHash}
+         ORDER BY decided_at, approver_id`;
+      if (approvers.length === 0) {
+        throw new CustodyTaskExecutionError('custody_policy.approvers_missing', 'the task carries no recorded approval');
+      }
       await tx`UPDATE pay.custody_policy_versions SET status = 'superseded' WHERE status = 'published'`;
       await tx`UPDATE pay.custody_policy_versions
-                  SET status = 'published', published_by = ${task.initiator}, published_at = now(), approval_task_id = ${task.taskId}
+                  SET status = 'published', published_by = ${task.initiator}, published_at = now(), approval_task_id = ${task.taskId},
+                      approved_by = ${approvers.map((a) => a.approver_id)}
                 WHERE version = ${version}`;
     });
   };

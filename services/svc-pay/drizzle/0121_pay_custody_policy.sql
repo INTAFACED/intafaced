@@ -12,14 +12,17 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_policy_versions" (
   "published_by" text,
   "published_at" timestamptz,
   "approval_task_id" uuid,
+  -- The registered approvers whose decisions on that task carried it (dual control); the proposer is `published_by`.
+  "approved_by" text[],
   "note" text NOT NULL,
   CONSTRAINT "custody_policy_versions_version_ck" CHECK ("version" > 0),
   CONSTRAINT "custody_policy_versions_status_ck" CHECK ("status" IN ('draft', 'published', 'superseded')),
   CONSTRAINT "custody_policy_versions_rules_ck" CHECK (jsonb_typeof("rules") = 'array'),
   CONSTRAINT "custody_policy_versions_text_ck" CHECK (length(btrim("edited_by")) > 0 AND length(btrim("note")) > 0),
   CONSTRAINT "custody_policy_versions_published_ck" CHECK (
-    ("status" = 'draft' AND "published_by" IS NULL AND "published_at" IS NULL AND "approval_task_id" IS NULL)
-    OR ("status" <> 'draft' AND "published_by" IS NOT NULL AND "published_at" IS NOT NULL AND "approval_task_id" IS NOT NULL)
+    ("status" = 'draft' AND "published_by" IS NULL AND "published_at" IS NULL AND "approval_task_id" IS NULL AND "approved_by" IS NULL)
+    OR ("status" <> 'draft' AND "published_by" IS NOT NULL AND "published_at" IS NOT NULL AND "approval_task_id" IS NOT NULL
+        AND cardinality("approved_by") > 0 AND NOT ("published_by" = ANY ("approved_by")))
   )
 );
 -- At most one open draft and at most one version in force.
@@ -36,7 +39,7 @@ BEGIN
   IF OLD."status" <> 'draft' THEN
     IF NEW."rules" IS DISTINCT FROM OLD."rules" OR NEW."edited_by" IS DISTINCT FROM OLD."edited_by"
        OR NEW."published_by" IS DISTINCT FROM OLD."published_by" OR NEW."published_at" IS DISTINCT FROM OLD."published_at"
-       OR NEW."approval_task_id" IS DISTINCT FROM OLD."approval_task_id"
+       OR NEW."approval_task_id" IS DISTINCT FROM OLD."approval_task_id" OR NEW."approved_by" IS DISTINCT FROM OLD."approved_by"
        OR NEW."note" IS DISTINCT FROM OLD."note" OR NOT (OLD."status" = 'published' AND NEW."status" = 'superseded') THEN
       RAISE EXCEPTION 'custody policy version % is published and immutable', OLD."version";
     END IF;

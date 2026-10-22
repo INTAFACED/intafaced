@@ -141,8 +141,9 @@ describe('custody transaction policy (real Postgres)', () => {
     return policy().current();
   }
 
-  it('is off by default and refuses boot on a mode that is not off or required', () => {
-    expect(loadCustodyPolicyMode({})).toBe('off');
+  it('is required by default (fail closed); off must be explicit; anything else refuses boot', () => {
+    expect(loadCustodyPolicyMode({})).toBe('required');
+    expect(loadCustodyPolicyMode({ PAY_CUSTODY_POLICY: 'off' })).toBe('off');
     expect(loadCustodyPolicyMode({ PAY_CUSTODY_POLICY: 'required' })).toBe('required');
     expect(() => loadCustodyPolicyMode({ PAY_CUSTODY_POLICY: '' })).toThrow(/off.*required/);
     expect(() => loadCustodyPolicyMode({ PAY_CUSTODY_POLICY: 'on' })).toThrow(/off.*required/);
@@ -176,7 +177,14 @@ describe('custody transaction policy (real Postgres)', () => {
 
   it('draft edits need the expected version; publishing is an approved policy config task, never the initiator alone', async () => {
     const d1 = await policy().draft({ rules: [allowAll], note: 'TEST v1', expectedDraftVersion: null });
-    expect(d1).toMatchObject({ version: 1, status: 'draft', editedBy: 'founder-a', publishedBy: null, approvalTaskId: null });
+    expect(d1).toMatchObject({
+      version: 1,
+      status: 'draft',
+      editedBy: 'founder-a',
+      publishedBy: null,
+      approvalTaskId: null,
+      approvedBy: [],
+    });
     expect((await refused(policy().draft({ rules: [allowAll], note: 'TEST', expectedDraftVersion: null }))).message).toMatch(
       /draft_differs/,
     );
@@ -326,6 +334,30 @@ describe('custody transaction policy (real Postgres)', () => {
       expect(await refusal(service.withdraw(request('6', 'b')))).toBe('pay.guard_custody_policy_blocked');
       expect((await service.withdraw(request('5', 'c'))).status).toBe('sent');
       expect((await service.withdraw(request('10', 'a'))).status).toBe('sent');
+    });
+
+    it('the cumulative window runs on created_at: a withdrawal asked for before the window does not count', async () => {
+      await publish([cumulative, allowAll]);
+      const service = await funded('required');
+      expect((await service.withdraw(request('10', 'old'))).status).toBe('sent');
+      await db.sql`UPDATE pay.withdrawals SET created_at = now() - interval '2 days', updated_at = now() WHERE client_ref = 'old'`;
+      expect((await service.withdraw(request('10', 'new'))).status).toBe('sent');
+    });
+
+    it('the boot default mode refuses a withdrawal while nothing is published', async () => {
+      const service = new UserMoneyService(db.sql, new MemoryLedger(), rails(), {
+        operatorCreditRails: ['card-sandbox'],
+        guards: composeGuards(createCustodyPolicyGuards({ sql: db.sql, mode: loadCustodyPolicyMode({}) })),
+      });
+      await service.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('5'),
+        rail: 'card-sandbox',
+        railRef: `seed-${randomUUID()}`,
+        creditedBy: '99999999-9999-4999-8999-999999999999',
+      });
+      expect(await refusal(service.withdraw(request('1', 'boot')))).toBe('pay.guard_custody_policy_unset');
     });
 
     it('two parallel claims that together cross a cumulative rule: exactly one passes', async () => {

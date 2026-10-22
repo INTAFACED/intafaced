@@ -84,6 +84,8 @@ export const policyVersionViewSchema = z.object({
   publishedAt: z.string().nullable(),
   /** The approved custody config task (scope `policy`) that published this version. */
   approvalTaskId: z.string().nullable(),
+  /** The approvers whose decisions on that task published it; `publishedBy` is the proposer. */
+  approvedBy: z.array(z.string()),
   /** Put this with `version` in the `policy` config task payload. */
   rulesHash: z.string(),
 });

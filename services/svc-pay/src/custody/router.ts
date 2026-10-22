@@ -106,7 +106,8 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     new CustodyApprovalService({
       sql: deps.sql,
       transactionExecutor: deps.transactionExecutor,
-      configAppliers: { policy: policyService.publishApplier, ...deps.configAppliers },
+      // The policy applier comes last so a mount cannot replace it.
+      configAppliers: { ...deps.configAppliers, policy: policyService.publishApplier },
     }),
     actorOf,
   );

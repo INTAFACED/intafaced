@@ -13,7 +13,9 @@ import { loadPublishedPolicy, withdrawalsUsedInWindow } from './service.js';
  * customer withdrawal into an approval group is not built in this slice, and letting it through would skip the
  * approvers. Replays and recoveries are never refused: their hold is booked and refusing would strand it.
  *
- * `PAY_CUSTODY_POLICY=off|required`, default `off`; any other value fails boot so a typo never turns it off.
+ * `PAY_CUSTODY_POLICY=off|required`, default `required` (fail closed: with nothing published every withdrawal refuses);
+ * `off` must be set explicitly, and any other value fails boot so a typo never turns it off. The boot (index.ts) resolves
+ * the mode from the environment and passes it to `buildPayGuards`.
  */
 export const PAY_CUSTODY_POLICY_MODE_ENV = 'PAY_CUSTODY_POLICY';
 export const GUARD_CUSTODY_POLICY_UNSET = 'pay.guard_custody_policy_unset' as const;
@@ -25,17 +27,13 @@ export type CustodyPolicyMode = 'off' | 'required';
 
 export function loadCustodyPolicyMode(env: Record<string, string | undefined>): CustodyPolicyMode {
   const raw = env[PAY_CUSTODY_POLICY_MODE_ENV];
-  if (raw === undefined) return 'off';
+  if (raw === undefined) return 'required';
   if (raw === 'off' || raw === 'required') return raw;
   throw new Error(`${PAY_CUSTODY_POLICY_MODE_ENV} must be "off" or "required" (got ${JSON.stringify(raw)}); refusing to boot`);
 }
 
-export function createCustodyPolicyGuards(deps: {
-  readonly sql: Sql;
-  readonly env?: Record<string, string | undefined>;
-  readonly mode?: CustodyPolicyMode;
-}): PartialPayGuards {
-  const mode = deps.mode ?? loadCustodyPolicyMode(deps.env ?? process.env);
+export function createCustodyPolicyGuards(deps: { readonly sql: Sql; readonly mode: CustodyPolicyMode }): PartialPayGuards {
+  const mode = deps.mode;
   if (mode === 'off') return {};
   return {
     beforeUserMoneyWithdrawal: async (ctx) => {

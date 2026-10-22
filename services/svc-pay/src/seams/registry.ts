@@ -3,7 +3,7 @@ import type { Sql } from 'postgres';
 import { createConversionInventory } from '../conversion/inventory.js';
 import type { MerchantControlsMode } from '../control/mode.js';
 import { composeGuards, type PayGuards } from './guards.js';
-import { createCustodyPolicyGuards } from '../custody/policy/guards.js';
+import { createCustodyPolicyGuards, type CustodyPolicyMode } from '../custody/policy/guards.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from '../limits/guards.js';
 import type { LimitSource } from '../limits/source.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
@@ -31,6 +31,11 @@ export function buildPayGuards(deps: {
   kycTierOf?: KycTierOf;
   /** Where the owner-set withdrawal figures live. Omitted: the retired environment source (tests). */
   limitSource?: LimitSource;
+  /**
+   * W-custody-ops-07 policy guard. The boot passes `loadCustodyPolicyMode(process.env)`, which defaults to `required`.
+   * Omitted only by in-process tests that build guards without a policy table in play; they get no policy guard.
+   */
+  custodyPolicyMode?: CustodyPolicyMode;
 }): PayGuards {
   return composeGuards(
     createW5HaltsGuards({
@@ -40,7 +45,7 @@ export function buildPayGuards(deps: {
     }),
     createW9ScreeningGuards(deps),
     createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, source: deps.limitSource }),
-    createCustodyPolicyGuards({ sql: deps.sql }),
+    createCustodyPolicyGuards({ sql: deps.sql, mode: deps.custodyPolicyMode ?? 'off' }),
     createW1ControlGuards(deps),
     createW6ConversionGuards(deps),
     createW10B2bRampGuards(deps),
