@@ -37,9 +37,10 @@ describe('upgrade clock reset (qualify, drop, re-qualify)', () => {
     expect(run(rec({ qualifiedSince: 10 }), bronze, 1_000_000)).toEqual({ kind: 'reset_upgrade_clock' });
   });
 
-  it('losing every rank with a clock set resets the clock first', () => {
-    expect(run(rec({ qualifiedSince: 10 }), { completedTrades: 0, completionBps: null }, 50)).toEqual({ kind: 'reset_upgrade_clock' });
-    expect(run(rec(), { completedTrades: 0, completionBps: null }, 51)).toEqual({ kind: 'start_assessment', endsAt: 5051 });
+  it('losing every rank with a clock set starts the assessment in the same sweep and clears the clock', () => {
+    const move = run(rec({ qualifiedSince: 10 }), { completedTrades: 0, completionBps: null }, 50);
+    expect(move).toEqual({ kind: 'start_assessment', endsAt: 5050 });
+    expect(applyUpgradeClock(rec({ qualifiedSince: 10 }), move).qualifiedSince).toBeNull();
   });
 
   it('a stale clock left after an upgrade is reset, not reused for the next rank', () => {
@@ -87,5 +88,18 @@ describe('applied upgrade clears the clock', () => {
     expect(applyUpgradeClock(rec(), { kind: 'start_upgrade_clock', at: 7 }).qualifiedSince).toBe(7);
     const r = rec({ qualifiedSince: 7 });
     expect(applyUpgradeClock(r, { kind: 'none' })).toBe(r);
+  });
+});
+
+describe('blank ladder resets the upgrade clock before the no-policy exit', () => {
+  it('a clock survives no blank-and-restore of the ladder', () => {
+    const blank = (record: MerchantTierRecord) => reassess({ policy: null, status: 'approved', record, metrics: silver, now: 50 });
+    expect(blank(rec({ qualifiedSince: 10 }))).toEqual({ kind: 'reset_upgrade_clock' });
+    expect(blank(rec())).toEqual({ kind: 'none' });
+    // ladder restored: a fresh clock, never an instant upgrade
+    expect(run(applyUpgradeClock(rec({ qualifiedSince: 10 }), { kind: 'reset_upgrade_clock' }), silver, 1_000_000)).toEqual({
+      kind: 'start_upgrade_clock',
+      at: 1_000_000,
+    });
   });
 });

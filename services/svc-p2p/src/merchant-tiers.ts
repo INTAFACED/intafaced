@@ -185,7 +185,9 @@ export function reassess(input: {
   now: number;
 }): TierMove {
   const { policy, record, metrics, now } = input;
-  if (policy === null) return { kind: 'none' };
+  // Blank ladder: a running clock is reset FIRST, so a blank-and-restore of
+  // the ladder never honours a clock started under the old ladder.
+  if (policy === null) return record.qualifiedSince !== null ? { kind: 'reset_upgrade_clock' } : { kind: 'none' };
   const eligible = input.status === 'approved' && record.state !== 'revoked' && record.state !== 'downgrade_requested';
   const target = qualifyingRank(policy.ladder, metrics);
   const current = record.rank;
@@ -194,6 +196,13 @@ export function reassess(input: {
   // Dropping back, a suspension (any non-approved standing), a revoke or a
   // requested step-down all reset it BEFORE the early exits, so a reinstated
   // or re-qualifying merchant waits the full owner delay again.
+  // Falling below the current rank starts the assessment in the SAME sweep
+  // (the applier clears the clock on start_assessment), so a merchant who
+  // loses every rank gets no extra cycle of benefits.
+  const fellBelow = current !== null && (target === null || target < current);
+  if (eligible && record.state !== 'assessment' && fellBelow) {
+    return { kind: 'start_assessment', endsAt: now + policy.assessmentPeriodMs };
+  }
   if (record.qualifiedSince !== null && (!eligible || !(target !== null && (current === null || target > current)))) {
     return { kind: 'reset_upgrade_clock' };
   }
@@ -219,7 +228,7 @@ export function reassess(input: {
 
 /**
  * Clock bookkeeping for the applier (no I/O). `upgrade` sets the new rank and
- * CLEARS `qualifiedSince`; `reset_upgrade_clock` clears it; `start_upgrade_clock`
+ * CLEARS `qualifiedSince`; `reset_upgrade_clock` and `start_assessment` clear it; `start_upgrade_clock`
  * sets it. State moves (assessment, downgrade) are the applier's, untouched here.
  */
 export function applyUpgradeClock(record: MerchantTierRecord, move: TierMove): MerchantTierRecord {
@@ -227,6 +236,7 @@ export function applyUpgradeClock(record: MerchantTierRecord, move: TierMove): M
     case 'start_upgrade_clock':
       return { ...record, qualifiedSince: move.at };
     case 'reset_upgrade_clock':
+    case 'start_assessment':
       return { ...record, qualifiedSince: null };
     case 'upgrade':
       return { ...record, rank: move.to, qualifiedSince: null };
