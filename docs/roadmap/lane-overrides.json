@@ -36,6 +36,7 @@
     "W-security-accounts-06": "svc-identity",
     "W-withdraw-13": "svc-pay wallet",
     "RC-home-ia-02": "customer shell",
-    "RC-home-ia-04": "customer shell"
+    "RC-home-ia-04": "customer shell",
+    "PH-ops-console-02": "ci gate"
   }
 }

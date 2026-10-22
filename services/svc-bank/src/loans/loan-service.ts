@@ -1113,6 +1113,61 @@ export class LoanService {
    * settled. Two overlapping releases cannot each pass a stale read. Curing is
    * still the next mark's job.
    */
+  /**
+   * How much collateral `releaseExcess` would let go of right now (BK-loan-05,
+   * redeem excess). The same numbers the release cap uses: collateral the ledger
+   * holds less pending releases, the full debt (principal and interest) valued
+   * up, the remaining collateral valued down, at marks that pass the marking
+   * guards; the ceiling is the product's max LTV. A missing mark refuses
+   * `bank.mark_missing`; nothing is assumed. Reads only; posts nothing.
+   */
+  async releasable(
+    loanId: string,
+    now: Date = new Date(),
+  ): Promise<{
+    held: Amount;
+    releasable: Amount;
+    maxLtvBps: number;
+    ltvBps: number;
+  }> {
+    const loan = await this.loan(loanId);
+    if (loan.status === 'repaid' || loan.status === 'liquidated') {
+      throw new BankError(`Loan ${loan.id} is ${loan.status}`, 'bank.loan_closed');
+    }
+    if (loan.status === 'pending') {
+      throw new BankError(`Loan ${loan.id} is pending; nothing is drawn, so nothing is releasable yet`, 'bank.loan_not_drawable');
+    }
+    const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+    const product = await this.product(loan.productId);
+    const pendingRows = await this.sql<Array<{ pending: string }>>`
+      SELECT COALESCE(SUM(amount), 0)::text AS pending
+        FROM bank.loan_collateral_events
+       WHERE loan_id = ${loan.id} AND direction = 'release' AND status = 'pending'
+    `;
+    const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
+    const ledgerHeld = await this.collateralOf(loan);
+    const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
+    const debt = await this.outstanding(loan.id);
+    const debtValue = quoteValue(debt.total, marks.get(loan.debtAssetId)!.price, 'ceil');
+    const collateralPrice = marks.get(loan.collateralAssetId)!.price;
+    const ltvAfter = (release: Amount) => ltvBps(debtValue, quoteValue(held - release, collateralPrice, 'floor'));
+
+    const ltvNow = ltvAfter(0n);
+    let releasable = 0n;
+    if (ltvNow <= product.maxLtvBps) {
+      // Largest release whose after-LTV is within the cap. LTV only rises as collateral leaves, so this is monotone.
+      let lo = 0n;
+      let hi = held;
+      while (lo < hi) {
+        const mid = (lo + hi + 1n) / 2n;
+        if (ltvAfter(mid) <= product.maxLtvBps) lo = mid;
+        else hi = mid - 1n;
+      }
+      releasable = lo;
+    }
+    return { held, releasable, maxLtvBps: product.maxLtvBps, ltvBps: ltvNow };
+  }
+
   async releaseExcess(input: {
     loanId: string;
     eventId: string;
