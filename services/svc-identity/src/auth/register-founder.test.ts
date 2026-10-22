@@ -116,6 +116,19 @@ if (!available) {
       expect(used).toEqual([{ hash: invites.hashes[0], user_id: session.userId }]);
     });
 
+    it('refuses a too-short password with the typed auth.password_policy (not a raw WeakPasswordError) and spends nothing', async () => {
+      const handle = unique();
+      for (const password of ['x'.repeat(3)]) {
+        await expect(
+          auth.registerFounder({ invite: invites.codes[0]!, handle, email: `${handle}@example.com`, password }, config, clock),
+        ).rejects.toMatchObject({ code: 'auth.password_policy' });
+      }
+      expect(await db.sql`SELECT count(*)::int AS n FROM users`).toEqual([{ n: 0 }]);
+      expect(await db.sql`SELECT count(*)::int AS n FROM founder_invites_used`).toEqual([{ n: 0 }]);
+      // The invite is still good for a valid password.
+      await expect(enrol(invites.codes[0]!)).resolves.toMatchObject({ userId: expect.any(String) });
+    });
+
     it('accepts the code however it is typed', async () => {
       const lower = invites.codes[0]!.toLowerCase().replaceAll('-', ' ');
       await expect(enrol(lower)).resolves.toMatchObject({ userId: expect.any(String) });

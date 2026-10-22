@@ -137,6 +137,14 @@ if (!available) {
       );
     });
 
+    it('refuses a too-short password at register with the typed auth.password_policy, not a raw WeakPasswordError', async () => {
+      const handle = `short${Date.now()}`;
+      await expect(auth.register({ handle, email: `${handle}@example.com`, password: 'abc', region: 'DE' })).rejects.toMatchObject({
+        code: 'auth.password_policy',
+      });
+      expect(await db.sql`SELECT count(*)::int AS n FROM users WHERE handle = ${handle}`).toEqual([{ n: 0 }]);
+    });
+
     it('refuses a change to the email address and keeps the old password', async () => {
       const user = await register();
       const before = await hashOf(user.userId);
