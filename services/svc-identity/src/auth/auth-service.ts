@@ -628,9 +628,7 @@ export class AuthService {
     return { id: rows[0]!.id, key, prefix, mode };
   }
 
-  async verifyApiKey(
-    key: string,
-  ): Promise<{
+  async verifyApiKey(key: string): Promise<{
     userId: string;
     scopes: string[];
     keyId: string;
