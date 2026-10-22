@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import { previewRefusal } from './preview-refusal.js';
 import {
   algoRefusalDetails,
+  previewRefusalOf,
   withdrawalAllowanceOf,
   publicProcedure,
   retryAfterSecondsOf,
@@ -185,5 +187,33 @@ describe('errorFormatter withdrawal allowance', () => {
     expect(withdrawalAllowanceOf(exceeded(undefined))).toBeUndefined();
     expect(withdrawalAllowanceOf({ code: 'pay.guard_withdrawal_limit_unset', remaining: { perTx: '1', rolling24h: '1' } })).toBeUndefined();
     expect(withdrawalAllowanceOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter preview refusals', () => {
+  it('surfaces kind, code, engine, action and label on data.preview', async () => {
+    const refusal = previewRefusal('bank.loan_schedule', 'change_repayment_date');
+    const refused = router({
+      preview: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: refusal.label, cause: refusal });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/preview'),
+      router: refused,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: refusal.code });
+    expect(data.preview).toEqual(refusal);
+  });
+
+  it('ignores anything that is not a full preview refusal', () => {
+    expect(previewRefusalOf(undefined)).toBeUndefined();
+    expect(previewRefusalOf({ code: 'preview.engine_not_built' })).toBeUndefined();
+    expect(previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), kind: 'live' })).toBeUndefined();
+    const extra = previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), secret: 'x' });
+    expect(extra).toEqual(previewRefusal('bank.loan_schedule', 'repay'));
   });
 });
