@@ -656,7 +656,9 @@ export type BankErrorCode =
   /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
   | 'bank.loan_params_invalid'
   /** A product id was reused with different terms. */
-  | 'bank.loan_product_conflict';
+  | 'bank.loan_product_conflict'
+  /** A spend door was refused for funds; carries available/onHold/inEarn figures when they could be read (RC-wallet-09). */
+  | 'bank.insufficient_funds';
 
 export class BankError extends Error {
   constructor(
