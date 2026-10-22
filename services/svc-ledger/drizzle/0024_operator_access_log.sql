@@ -1,3 +1,4 @@
+-- intafaced:destructive TRUNCATE appears only in the BEFORE TRUNCATE guard trigger that refuses truncation; nothing is dropped or deleted
 -- svc-ledger · operator_access_log: one row per operator read of an owner's account detail (OPS-ledger-desk-01)
 -- Reversal: 0024_operator_access_log.down.sql
 --
