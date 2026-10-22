@@ -23,12 +23,13 @@
  *
  * It is a declaration check, not an access control. An agent can still write `ci:` on a PR that loosens a gate; the
  * point is that it now has to say so out loud, and the title is what a reviewer or the weekly audit reads. The workflow
- * (the Gate-file guard job in .github/workflows/pr-checks.yml) runs the copy of this script from the PR's BASE commit, so a PR cannot
+ * (.github/workflows/gate-file-guard.yml) runs the copy of this script from the PR's BASE commit, so a PR cannot
  * weaken the rule inside the PR it is judged on.
  *
- * KNOWN LIMIT: a PR can still edit or delete the workflow file pr-checks.yml itself, and GitHub runs the PR's copy of
+ * KNOWN LIMIT: a PR can still edit or delete the workflow file gate-file-guard.yml itself, and GitHub runs the PR's copy of
  * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
- * the independent review of the exact head, which the CI merge seal requires, and the full test run a gate-file PR always gets.
+ * the independent review of the exact head, which the CI merge seal requires for every workflow and gate-file change,
+ * and the full test run a gate-file PR always gets.
  *
  * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
  * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.

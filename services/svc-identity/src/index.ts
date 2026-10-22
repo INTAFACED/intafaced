@@ -96,7 +96,11 @@ import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+<<<<<<< HEAD
 import { SubAccountSwitchService } from './sub-accounts/sub-account-switch.js';
+=======
+import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+>>>>>>> origin/main
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -453,12 +457,16 @@ const tradeClosureCheck = httpClosureChecker({
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
+<<<<<<< HEAD
 const subAccountSwitch = new SubAccountSwitchService({
   sql,
   approvals: actionApprovals,
   issue: (input) => auth.issueSubAccountSwitchToken(input),
   minSwitchSeconds: () => env.SUBACCOUNT_SWITCH_MIN_SECONDS,
 });
+=======
+const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
+>>>>>>> origin/main
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -504,7 +512,11 @@ export const appRouter = mergeRouters(
     closure,
     subAccountDelete,
     subAccountFeatures,
+<<<<<<< HEAD
     subAccountSwitch,
+=======
+    subAccountEdit,
+>>>>>>> origin/main
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),

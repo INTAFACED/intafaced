@@ -142,6 +142,10 @@ describe('subscription merchant surface', () => {
         calls.push('listSubscriptions');
         return { items: [subRecord()], nextCursor: null };
       },
+      setCollectionMethod: async () => {
+        calls.push('setCollectionMethod');
+        return subRecord();
+      },
     } as unknown as SubscriptionService;
 
     router = createSubscriptionRouter(subs, pay, null);
@@ -262,6 +266,68 @@ describe('subscription merchant surface', () => {
     const api = fenced.createCaller(await ctx(['pay:write'], USER));
     await expect(api.subscription.cancel({ subscriptionId: SUB })).rejects.toThrow(/submerchant_permission_denied|FORBIDDEN/i);
     expect(calls).not.toContain('cancelSubscription');
+  });
+
+  it('owner can set the collection method to send invoice (M-bill-01)', async () => {
+    const api = await caller(['pay:write']);
+    const out = await api.subscription.setCollectionMethod({ subscriptionId: SUB, method: 'send_invoice' });
+    expect(out.collectionMethod).toBe('send_invoice');
+    expect(out.subscription.id).toBe(SUB);
+    expect(calls).toContain('setCollectionMethod');
+  });
+
+  it('stranger cannot set the collection method: reads as not found (ownership fence)', async () => {
+    owner = OTHER;
+    const api = await caller(['pay:write'], USER);
+    await expect(api.subscription.setCollectionMethod({ subscriptionId: SUB, method: 'send_invoice' })).rejects.toThrow(
+      /subscription_not_found/,
+    );
+    expect(calls).not.toContain('setCollectionMethod');
+  });
+
+  it('parent without payment area cannot set the collection method (PayFac fence)', async () => {
+    const trees = {
+      async assertHolds() {
+        throw new SubMerchantError('no', 'pay.submerchant_permission_denied', { area: 'payment' });
+      },
+    };
+    owner = OTHER;
+    const parentPay = {
+      getMerchant: async () => ({ id: MERCHANT, userId: OTHER }) as never,
+      getMerchantByUserId: async (userId: string) => {
+        if (userId === USER) return { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } as never;
+        return null;
+      },
+    } as unknown as PayService;
+    const api = createSubscriptionRouter(subs, parentPay, trees).createCaller(await ctx(['pay:write'], USER));
+    await expect(api.subscription.setCollectionMethod({ subscriptionId: SUB, method: 'send_invoice' })).rejects.toThrow(
+      /submerchant_permission_denied|FORBIDDEN/i,
+    );
+    expect(calls).not.toContain('setCollectionMethod');
+  });
+
+  it('a read-only token cannot set the collection method (scope refusal)', async () => {
+    const api = await caller(['pay:read']);
+    await expect(api.subscription.setCollectionMethod({ subscriptionId: SUB, method: 'send_invoice' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(calls).not.toContain('setCollectionMethod');
+  });
+
+  it('charge automatically refuses NotLiveCard rail.card and the method is not written', async () => {
+    subs.setCollectionMethod = async (_id: string, method: string) => {
+      calls.push('setCollectionMethod');
+      const { assertCollectionMethodAvailable } = await import('./subscriptions/merchant-disp-bill-rep-collection-method.js');
+      assertCollectionMethodAvailable(method as 'charge_automatically');
+      return subRecord() as never;
+    };
+    const api = await caller(['pay:write']);
+    const err = await api.subscription.setCollectionMethod({ subscriptionId: SUB, method: 'charge_automatically' }).then(
+      () => null,
+      (e: unknown) => e as { message: string; cause?: { code?: string; blockers?: unknown } },
+    );
+    expect(err?.message).toMatch(/pay\.mandate_rail_absent/);
+    expect(err?.cause?.blockers).toEqual([{ code: 'rail.card' }]);
   });
 
   it('forwards Idempotency-Key to createSubscription', async () => {
