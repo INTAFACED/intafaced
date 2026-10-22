@@ -469,6 +469,7 @@ export type PayErrorCode =
   | 'pay.subscription_retry_policy_unset'
   | 'pay.subscription_retry_policy_invalid'
   | 'pay.subscription_retry_policy_conflict'
+  | 'pay.subscription_retry_attempt_not_found'
   | 'pay.mandate_inactive'
   | 'pay.subscription_invalid'
   | 'pay.subscription_driver_absent'

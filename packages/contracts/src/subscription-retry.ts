@@ -78,20 +78,34 @@ export const subscriptionRetryPolicySetInputSchema = z
 export type SubscriptionRetryPolicySetInput = z.infer<typeof subscriptionRetryPolicySetInputSchema>;
 
 /** Manual retry of one failed cycle attempt (an execution row). */
-export const subscriptionRetryNowInputSchema = z.object({ executionId: uuid }).strict();
+export const subscriptionRetryNowInputSchema = z
+  .object({
+    executionId: uuid,
+    /** The attempt number being asked for: the attempt count the caller saw, plus one. A repeat returns the first. */
+    attempt: z
+      .number()
+      .int()
+      .min(2)
+      .max(SUBSCRIPTION_RETRY_ATTEMPTS_MAX + 1),
+  })
+  .strict();
 
 /**
  * - `reissued`: a new attempt re-issued the invoice link and notified.
  * - `already_attempted`: a second call for the same attempt returns the first attempt's result.
  * - `already_paid`: the invoice is paid; nothing was done.
  * - `checking`: the previous attempt's result is unknown; this call waits and does nothing.
+ * - `rejected`: the new attempt ran the charge path and failed again.
+ * - `final_action_applied`: the policy's attempts are spent; the final action was applied (once per cycle).
  */
 export const subscriptionRetryNowResultSchema = z
   .object({
     executionId: uuid,
-    outcome: z.enum(['reissued', 'already_attempted', 'already_paid', 'checking']),
+    outcome: z.enum(['reissued', 'rejected', 'already_attempted', 'already_paid', 'checking', 'final_action_applied']),
     attempt: z.number().int().min(1),
     paymentId: uuid.nullable(),
+    /** Set when the policy's attempts are spent: the final action recorded for this cycle (applied once). */
+    finalAction: z.enum(SUBSCRIPTION_RETRY_FINAL_ACTIONS).nullable(),
   })
   .strict();
 export type SubscriptionRetryNowResult = z.infer<typeof subscriptionRetryNowResultSchema>;

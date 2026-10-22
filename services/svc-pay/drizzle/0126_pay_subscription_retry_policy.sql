@@ -28,3 +28,15 @@ CREATE TABLE IF NOT EXISTS "pay"."subscription_retry_policy_events" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   UNIQUE ("merchant_id", "version")
 );
+
+-- The final action is applied once per subscription and cycle: this primary key is the once.
+CREATE TABLE IF NOT EXISTS "pay"."subscription_retry_final_actions" (
+  "subscription_id" uuid NOT NULL REFERENCES "pay"."subscriptions"("id"),
+  "occurrence" integer NOT NULL,
+  "execution_id" uuid NOT NULL REFERENCES "pay"."subscription_executions"("id"),
+  "final_action" text NOT NULL CHECK ("final_action" IN ('cancel', 'mark_unpaid', 'leave_past_due')),
+  "policy_version" integer NOT NULL,
+  "actor_id" text NOT NULL,
+  "applied_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("subscription_id", "occurrence")
+);

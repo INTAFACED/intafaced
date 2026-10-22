@@ -1497,7 +1497,8 @@ export class SubscriptionService {
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  private frameOf(sub: SubscriptionRecord, mandate: MandateRecord): CycleFrame {
+  /** The schedule frame for a pair; M-bill-04 retryNow reuses it to run the same charge path. */
+  frameOf(sub: SubscriptionRecord, mandate: MandateRecord): CycleFrame {
     return {
       cadence: mandate.cadence,
       mandateStartsAt: mandate.startsAt,

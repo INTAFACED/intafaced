@@ -5,10 +5,14 @@ import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } fro
 import { PayError, type PayService } from './payment-service.js';
 import type { SubscriptionService } from './subscriptions/subscription-service.js';
 import type { SubscriptionRetryPolicyService } from './subscriptions/retry-policy.js';
+import type { SubscriptionRetryNow } from './subscriptions/retry-now.js';
 import {
   subscriptionRetryPolicyGetInputSchema,
   subscriptionRetryPolicySetInputSchema,
   subscriptionRetryPolicyViewSchema,
+  subscriptionRetryNowInputSchema,
+  subscriptionRetryNowResultSchema,
+  SUBSCRIPTION_EVENT_TYPES,
 } from '@intafaced/contracts';
 import type { Cadence } from './subscriptions/schedule.js';
 import { COLLECTION_METHODS, collectionMethodOf } from './subscriptions/merchant-disp-bill-rep-collection-method.js';
@@ -200,6 +204,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.merchant_not_found':
       case 'pay.mandate_not_found':
       case 'pay.subscription_not_found':
+      case 'pay.subscription_retry_attempt_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.merchant_forbidden':
       case 'pay.submerchant_permission_denied':
@@ -248,6 +253,7 @@ export function createSubscriptionRouter(
   pay: PayService,
   trees: MerchantAreaFence | null = null,
   retryPolicy: SubscriptionRetryPolicyService | null = null,
+  retryNow: SubscriptionRetryNow | null = null,
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -425,6 +431,25 @@ export function createSubscriptionRouter(
               return requireRetryPolicy().set(input, ctx.principal!.userId);
             }),
           ),
+        /** Manual retry of one failed cycle attempt through the same charge path. */
+        retryNow: scopedProcedure('pay:write', { module: 'pay' })
+          .input(subscriptionRetryNowInputSchema)
+          .output(subscriptionRetryNowResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              if (!retryNow) throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'pay.not_built: subscription retryNow is not wired' });
+              const merchantId = await retryNow.merchantOf(input.executionId);
+              await refuseAsMissing(
+                assertPaymentArea(ctx.principal?.userId, merchantId),
+                () => new PayError('Execution not found', 'pay.subscription_retry_attempt_not_found'),
+              );
+              return retryNow.retryNow(input, ctx.principal!.userId);
+            }),
+          ),
+        /** The subscription event catalogue a webhook setup can offer. Selection per endpoint is not built yet. */
+        eventTypes: scopedProcedure('pay:read', { module: 'pay' })
+          .output(z.array(z.enum(SUBSCRIPTION_EVENT_TYPES)))
+          .query(() => [...SUBSCRIPTION_EVENT_TYPES]),
       }),
       /**
        * Product Ready / honesty surface (D26-P1-P6 Done bar).
