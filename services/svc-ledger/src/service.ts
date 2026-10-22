@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { recordOperatorAccess } from './ledger/operator-owner-balances.js';
 import { toWriteBlockError } from './ledger/write-block.js';
 import {
   LedgerError,
@@ -101,6 +102,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<Balance[]> {
     return this.engine.balances(ownerType, ownerId);
+  }
+
+  /** Operator access row for the ledger desk (0024). Written before an operator reads an owner's detail. */
+  recordOperatorAccess(entry: { actorId: string; ownerType: string; ownerId: string; requestId: string | null }): Promise<void> {
+    return recordOperatorAccess(this.sql, entry);
   }
 
   /**
