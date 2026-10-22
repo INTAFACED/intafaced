@@ -12,8 +12,13 @@
  * it as IM refuses `unsupported_collateral_class`.
  *
  * Mode is set at open. A live switch with open risk and no migration preview
- * refuses (PTX-M08-R02). `POST /positions/margin-mode` stays 501.
+ * refuses (PTX-M08-R02). `POST /positions/margin-mode` stays 501. Attempts
+ * (including refuses) are audited. Aggregate reads name isolated books and
+ * never silently net them as one cross book (PTX-M08-R08). Live rewrite of
+ * collateral is ORE — this mill refuses and records; it does not switch.
  */
+
+import type { Sql } from 'postgres';
 
 export const NAMED_MARGIN_MODES = ['cash', 'isolated', 'cross', 'portfolio'] as const;
 export type NamedMarginMode = (typeof NAMED_MARGIN_MODES)[number];
@@ -231,4 +236,195 @@ export function checkMarginModeSwitch(input: MarginModeSwitchInput): MarginModeC
   if (to.mode === 'cross') return refuseCross();
   if (to.mode === 'cash') return refuseCashOnFutures();
   return refusePortfolio();
+}
+
+export interface MarginModeSwitchAttemptInput extends MarginModeSwitchInput {
+  readonly now?: Date;
+  readonly positionId?: string | null;
+  readonly userId?: string | null;
+}
+
+export interface MarginModeSwitchAuditRecord {
+  readonly at: string;
+  readonly fromMode: string | null;
+  readonly toMode: string | null;
+  readonly hasOpenRisk: boolean;
+  readonly eligible: boolean;
+  readonly migrationPreviewId: string | null;
+  readonly outcome: 'admitted' | 'refused';
+  readonly code: MarginModeRefuseCode | null;
+  readonly reason: string | null;
+  readonly positionId: string | null;
+  readonly userId: string | null;
+}
+
+export interface MarginModeSwitchAudit {
+  record(row: MarginModeSwitchAuditRecord): Promise<void>;
+  list(): Promise<readonly MarginModeSwitchAuditRecord[]>;
+}
+
+/** Append-only in-memory mill event log. Never posts ledger; never rewrites rows. */
+export function memoryMarginModeSwitchAudit(): MarginModeSwitchAudit {
+  const rows: MarginModeSwitchAuditRecord[] = [];
+  return {
+    async record(row) {
+      rows.push(row);
+    },
+    async list() {
+      return rows.slice();
+    },
+  };
+}
+
+export const MARGIN_MODE_SWITCH_AUDIT_DDL = `
+CREATE TABLE IF NOT EXISTS trade.margin_mode_switch_audit (
+  id bigserial PRIMARY KEY,
+  recorded_at timestamptz NOT NULL,
+  from_mode text,
+  to_mode text,
+  has_open_risk boolean NOT NULL,
+  eligible boolean NOT NULL,
+  migration_preview_id text,
+  outcome text NOT NULL,
+  code text,
+  reason text,
+  position_id text,
+  user_id text
+)
+`.trim();
+
+export async function ensureMarginModeSwitchAuditTable(sql: Sql): Promise<void> {
+  await sql.unsafe(MARGIN_MODE_SWITCH_AUDIT_DDL);
+}
+
+function isoAt(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  return String(value ?? '');
+}
+
+export function sqlMarginModeSwitchAudit(sql: Sql): MarginModeSwitchAudit {
+  return {
+    async record(row) {
+      await ensureMarginModeSwitchAuditTable(sql);
+      await sql`
+        INSERT INTO trade.margin_mode_switch_audit (
+          recorded_at, from_mode, to_mode, has_open_risk, eligible,
+          migration_preview_id, outcome, code, reason, position_id, user_id
+        ) VALUES (
+          ${row.at}, ${row.fromMode}, ${row.toMode}, ${row.hasOpenRisk}, ${row.eligible},
+          ${row.migrationPreviewId}, ${row.outcome}, ${row.code}, ${row.reason}, ${row.positionId}, ${row.userId}
+        )
+      `;
+    },
+    async list() {
+      await ensureMarginModeSwitchAuditTable(sql);
+      const rows = await sql<
+        {
+          recorded_at: Date | string;
+          from_mode: string | null;
+          to_mode: string | null;
+          has_open_risk: boolean;
+          eligible: boolean;
+          migration_preview_id: string | null;
+          outcome: 'admitted' | 'refused';
+          code: MarginModeRefuseCode | null;
+          reason: string | null;
+          position_id: string | null;
+          user_id: string | null;
+        }[]
+      >`
+        SELECT recorded_at, from_mode, to_mode, has_open_risk, eligible,
+               migration_preview_id, outcome, code, reason, position_id, user_id
+        FROM trade.margin_mode_switch_audit
+        ORDER BY id ASC
+      `;
+      return rows.map((r) => ({
+        at: isoAt(r.recorded_at),
+        fromMode: r.from_mode,
+        toMode: r.to_mode,
+        hasOpenRisk: r.has_open_risk,
+        eligible: r.eligible,
+        migrationPreviewId: r.migration_preview_id,
+        outcome: r.outcome,
+        code: r.code,
+        reason: r.reason,
+        positionId: r.position_id,
+        userId: r.user_id,
+      }));
+    },
+  };
+}
+
+export async function auditSwitchAttempt(audit: MarginModeSwitchAudit, row: MarginModeSwitchAuditRecord): Promise<void> {
+  await audit.record(row);
+}
+
+/**
+ * Check then always audit. Refuses still write a row — no silent fail.
+ * Does not post ledger, does not UPDATE position.margin_mode. Live switch is ORE.
+ */
+export async function attemptMarginModeSwitch(input: MarginModeSwitchAttemptInput, audit: MarginModeSwitchAudit): Promise<MarginModeCheck> {
+  const check = checkMarginModeSwitch(input);
+  const from = parseNamedMarginMode(input.from);
+  const to = parseNamedMarginMode(input.to);
+  const preview = typeof input.migrationPreviewId === 'string' ? input.migrationPreviewId.trim() : '';
+  await auditSwitchAttempt(audit, {
+    at: (input.now ?? new Date()).toISOString(),
+    fromMode: from.ok ? from.mode : null,
+    toMode: to.ok ? to.mode : null,
+    hasOpenRisk: input.hasOpenRisk,
+    eligible: input.eligible === true,
+    migrationPreviewId: preview === '' ? null : preview,
+    outcome: check.ok ? 'admitted' : 'refused',
+    code: check.ok ? null : check.code,
+    reason: check.ok ? null : check.reason,
+    positionId: input.positionId ?? null,
+    userId: input.userId ?? null,
+  });
+  return check;
+}
+
+export interface IsolatedPositionMarginRow {
+  readonly id: string;
+  readonly marginMode: unknown;
+  /** Caller-supplied residual/open IM string — mill echoes, never invents or nets. */
+  readonly initialMargin: string;
+}
+
+export type IsolatedMarginAggregation =
+  | {
+      readonly ok: true;
+      readonly book: 'isolated';
+      readonly crossBook: false;
+      readonly sharedInitialMargin: null;
+      readonly positions: ReadonlyArray<{
+        readonly id: string;
+        readonly marginMode: 'isolated';
+        readonly initialMargin: string;
+      }>;
+    }
+  | { readonly ok: false; readonly code: MarginModeRefuseCode; readonly reason: string };
+
+/**
+ * PTX-M08-R08 — aggregate reads that would imply cross must name isolated
+ * (or refuse). Two isolated rows stay two books. IM is never summed as shared.
+ */
+export function readIsolatedMarginAggregation(rows: readonly IsolatedPositionMarginRow[]): IsolatedMarginAggregation {
+  const positions: Array<{ id: string; marginMode: 'isolated'; initialMargin: string }> = [];
+  for (const row of rows) {
+    const parsed = parseNamedMarginMode(row.marginMode);
+    if (!parsed.ok) return parsed;
+    if (parsed.mode === 'cross') return refuseCross();
+    if (parsed.mode === 'cash') return refuseCashOnFutures();
+    if (parsed.mode === 'portfolio') return refusePortfolio();
+    positions.push({ id: row.id, marginMode: 'isolated', initialMargin: row.initialMargin });
+  }
+  return {
+    ok: true,
+    book: 'isolated',
+    crossBook: false,
+    sharedInitialMargin: null,
+    positions,
+  };
 }
