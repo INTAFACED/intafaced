@@ -931,6 +931,58 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+// ── core-ops: on-call alert groups (OPS-oncall-01) ───────────────────────────
+
+/** An alert group id as svc-ops stores it. Acknowledge, resolve and silence are idempotent on ops:alert-group:<group>:<action>:<n>. */
+const alertGroupIdSchema = z.string().min(1).max(128);
+
+export const coreOpsAlertGroupOpened = defineEvent(
+  'core-ops',
+  'alert_group',
+  'opened',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    /** The escalation chain that starts for this group; null when none is attached (the group still shows as firing). */
+    chainId: z.string().min(1).max(128).nullable(),
+    labels: z.array(z.string().min(1).max(128)),
+    openedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group started firing. Its escalation chain, if any, starts now.',
+);
+
+export const coreOpsAlertGroupUpdated = defineEvent(
+  'core-ops',
+  'alert_group',
+  'updated',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    action: z.enum(['acknowledged', 'silenced', 'unsilenced', 'restarted', 'escalated']),
+    /** The per-group action counter n of the business key ops:alert-group:<group>:<action>:<n>. */
+    sequence: z.number().int().min(1),
+    /** The signed operator, or the chain step id for an escalation. */
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group was acknowledged, silenced, unsilenced, restarted or escalated a step. An acknowledgement stops the chain.',
+);
+
+export const coreOpsAlertGroupResolved = defineEvent(
+  'core-ops',
+  'alert_group',
+  'resolved',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    sequence: z.number().int().min(1),
+    /** The signed operator, or `auto` when every alert in the group returned to normal. */
+    actor: z.string().min(1),
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group was resolved. Its chain stops; a new firing opens a new group.',
+);
+
 // ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
 
 export const coreOpsComplianceCaseCreated = defineEvent(
@@ -1065,6 +1117,9 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsAlertGroupOpened,
+  coreOpsAlertGroupUpdated,
+  coreOpsAlertGroupResolved,
   coreOpsComplianceCaseCreated,
   coreOpsComplianceInboxUpdated,
   coreOpsRestoreStarted,
@@ -1337,6 +1392,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupOpened',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
+  },
+  {
+    event: 'coreOpsAlertGroupUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
+  },
+  {
+    event: 'coreOpsAlertGroupResolved',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupResolved',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
     event: 'coreOpsComplianceCaseCreated',
