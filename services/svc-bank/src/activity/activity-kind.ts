@@ -1,3 +1,5 @@
+import { TAX_EFFECT_UNMAPPED, type LineTaxEffect, type TaxEffectRow } from '@intafaced/contracts';
+
 /**
  * ACTIVITY KIND — which ledger `module`/`reason` is which thing a person calls it.
  *
@@ -209,3 +211,64 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   reward: 'Reward',
   other: 'Other',
 };
+
+/**
+ * TAX EFFECT (RC-portfolio-02). Labels only what the ledger's own `module/reason` (and, for a card spend, the rail)
+ * records. Rates, thresholds and country rules stay with PF-tax-01 and PF-cost-basis-05. A posting with no row is
+ * `portfolio.tax_effect_unmapped`: never shown as taxable, never as non-taxable.
+ *
+ * SOURCES (packages/ledger-client/src/recipes/index.ts):
+ *   p2p_sale / p2p_purchase  `p2p/p2p.escrow.release` (escrowRelease): the seller's escrow leg is credited (value out,
+ *                            the disposal); the buyer's available leg is debited (value in, the acquisition). Lock and
+ *                            refund move the seller's own value and are not mapped.
+ *   card_spend               `ledger/withdraw.held` on a card issuer rail (card-service commitHold posts withdrawHold
+ *                            with rail = issuer). The same reason on another rail is a withdrawal and is not mapped.
+ *   staking_reward           `token/token.yield.distributed` (rewardPay from svc-token), received as a debit.
+ *   mining_payout            BLOCKED: no mining product posts a ledger reason yet; listed, classifies nothing.
+ */
+export const CARD_SPEND_RAILS: ReadonlyArray<string> = ['card-sandbox'];
+
+export const TAX_EFFECT_MAP: ReadonlyArray<TaxEffectRow> = [
+  { type: 'p2p_sale', effect: 'disposal', sourceEvent: 'p2p/p2p.escrow.release', direction: 'credit', rails: null, blocker: null },
+  { type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release', direction: 'debit', rails: null, blocker: null },
+  {
+    type: 'card_spend',
+    effect: 'disposal',
+    sourceEvent: 'ledger/withdraw.held',
+    direction: 'credit',
+    rails: [...CARD_SPEND_RAILS],
+    blocker: null,
+  },
+  {
+    type: 'mining_payout',
+    effect: 'income',
+    sourceEvent: null,
+    direction: null,
+    rails: null,
+    blocker: 'No mining product posts a ledger reason on this platform yet',
+  },
+  {
+    type: 'staking_reward',
+    effect: 'income',
+    sourceEvent: 'token/token.yield.distributed',
+    direction: 'debit',
+    rails: null,
+    blocker: null,
+  },
+];
+
+const UNMAPPED: LineTaxEffect = { code: TAX_EFFECT_UNMAPPED };
+
+/** Pure: the same posting always gets the same answer. An unknown posting is unmapped, never a guess. */
+export function classifyTaxEffect(input: ClassifyInput): LineTaxEffect {
+  const event = `${input.module}/${input.reason}`;
+  const row = TAX_EFFECT_MAP.find(
+    (candidate) =>
+      candidate.blocker === null &&
+      candidate.sourceEvent === event &&
+      candidate.direction === input.direction &&
+      (candidate.rails === null || (input.rail != null && candidate.rails.includes(input.rail))),
+  );
+  if (row === undefined || row.sourceEvent === null) return UNMAPPED;
+  return { type: row.type, effect: row.effect, sourceEvent: row.sourceEvent };
+}

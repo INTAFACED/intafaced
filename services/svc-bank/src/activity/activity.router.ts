@@ -1,11 +1,10 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { lineTaxEffectSchema, router, scopedProcedure, taxEffectMapSchema, TAX_EFFECT_UNMAPPED, TRPCError } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { throwBankProcedure } from '../bank-procedure.js';
 import { BankError } from '../errors.js';
 import { ActivityCursorInvalidError } from './activity-cursor.js';
-import { ACTIVITY_KINDS } from './activity-kind.js';
-import { TAX_EFFECT_MAP, TAX_EFFECT_TYPES, TAX_EFFECTS } from './activity-tax-effect.js';
+import { ACTIVITY_KINDS, TAX_EFFECT_MAP } from './activity-kind.js';
 import {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
@@ -14,9 +13,7 @@ import {
   ActivityNotFoundError,
   ActivityRangeError,
   ActivitySortBoundedError,
-  ActivityTaxEffectMapUnsetError,
   ActivityTaxYearUnsetError,
-  TAX_EFFECT_BY_KIND,
   ActivityUnavailableError,
 } from './activity-service.js';
 
@@ -84,6 +81,8 @@ const activityItem = z.object({
   dispute: z.object({ id: z.string().uuid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
+  /** RC-portfolio-02: the posting's tax effect, or `portfolio.tax_effect_unmapped`. */
+  taxEffect: lineTaxEffectSchema,
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
@@ -92,11 +91,7 @@ export function activityFailure(err: unknown): never {
   if (err instanceof ActivityCursorInvalidError || err instanceof ActivityRangeError) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
-  if (
-    err instanceof ActivityTaxYearUnsetError ||
-    err instanceof ActivityTaxEffectMapUnsetError ||
-    err instanceof ActivitySortBoundedError
-  ) {
+  if (err instanceof ActivityTaxYearUnsetError || err instanceof ActivitySortBoundedError) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} (${err.code})`, cause: err });
   }
   if (err instanceof ActivityAccountUnknownError)
@@ -162,43 +157,16 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
         }
       }),
 
-    /** Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind. */
+    /**
+     * RC-portfolio-02: the tax-effect map. Which ledger posting is a P2P sale or purchase, a card spend, a mining
+     * payout or a staking reward, and its effect. Labels only; each feed line carries its own `taxEffect`.
+     */
     taxEffects: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({}).strict())
-      .output(z.object({ effects: z.record(z.string(), z.string()) }))
-      .query(() => {
-        try {
-          if (Object.keys(TAX_EFFECT_BY_KIND).length === 0) throw new ActivityTaxEffectMapUnsetError();
-          return { effects: { ...TAX_EFFECT_BY_KIND } as Record<string, string> };
-        } catch (err) {
-          activityFailure(err);
-        }
-      }),
-
-    /**
-     * RC-portfolio-02: which ledger posting is a P2P sale or purchase, a card spend, a mining payout or a staking
-     * reward, and its effect. Labels only, read from the ledger's own reasons; no rates, no amounts, no user data.
-     */
-    taxEffectMap: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({}).strict())
-      .output(
-        z.object({
-          rows: z.array(
-            z.object({
-              type: z.enum(TAX_EFFECT_TYPES),
-              effect: z.enum(TAX_EFFECTS),
-              sourceEvent: z.string().nullable(),
-              direction: z.enum(['debit', 'credit']).nullable(),
-              rails: z.array(z.string()).nullable(),
-              blocker: z.string().nullable(),
-            }),
-          ),
-          unmappedCode: z.literal('portfolio.tax_effect_unmapped'),
-        }),
-      )
+      .output(taxEffectMapSchema)
       .query(() => ({
         rows: TAX_EFFECT_MAP.map((row) => ({ ...row, rails: row.rails === null ? null : [...row.rails] })),
-        unmappedCode: 'portfolio.tax_effect_unmapped' as const,
+        unmappedCode: TAX_EFFECT_UNMAPPED,
       })),
 
     note: router({
