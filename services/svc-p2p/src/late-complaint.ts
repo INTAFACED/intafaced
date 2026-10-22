@@ -8,12 +8,22 @@
  * that request only. Not wired: svc-support does not have the `p2p` category or
  * the trade reference yet (contracts PR, then the svc-support lane), and the
  * agent queue is P-disputes-security-05. No cross-service call is made here.
+ *
+ * A resolved dispute is covered: a ruling moves the trade `disputed ->
+ * released | cancelled` (state.ts EDGES), and the spec (p2p-disputes-security.md:24)
+ * offers the finished-order report for any released or cancelled order, so a
+ * party can still report a problem after a resolved dispute. While the dispute
+ * is open (`disputed`) the dispute itself is the channel, so the route is `none`.
  */
 
 import { DISPUTE_OPENABLE } from './dispute-open-policy.js';
 import { TERMINAL_STATUSES, type TradeStatus } from './state.js';
 
-export type LateComplaintCode = 'p2p.dispute_not_allowed' | 'p2p.late_complaint_not_allowed' | 'p2p.description_required';
+export type LateComplaintCode =
+  'p2p.dispute_not_allowed' | 'p2p.late_complaint_not_allowed' | 'p2p.description_required' | 'p2p.description_too_long';
+
+/** Upper bound on the complaint text this builder will emit (characters, after trim). */
+export const LATE_COMPLAINT_MAX_DESCRIPTION = 2000;
 
 export class LateComplaintError extends Error {
   constructor(
@@ -59,6 +69,9 @@ export function buildLateComplaint(input: {
   }
   const description = input.description.trim();
   if (!description) throw new LateComplaintError('Describe the problem.', 'p2p.description_required');
+  if ([...description].length > LATE_COMPLAINT_MAX_DESCRIPTION) {
+    throw new LateComplaintError(`Keep the description to ${LATE_COMPLAINT_MAX_DESCRIPTION} characters.`, 'p2p.description_too_long');
+  }
   return {
     category: 'p2p',
     tradeId: trade.id,
