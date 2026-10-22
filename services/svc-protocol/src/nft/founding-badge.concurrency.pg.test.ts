@@ -1,0 +1,98 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import postgres, { type Sql } from 'postgres';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Address, Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { badgeClaimKey, badgeClaimMessage, claimBadge, type BadgeDeps, type BadgeMinter } from './founding-badge.js';
+import { PostgresBadgeStore } from './founding-badge.pg.js';
+
+/**
+ * RC-more-catalogue-04 review blocker: concurrent claims and retries during a mint must mint once, on a real
+ * database. Applies 0001 (idempotent DDL) and deletes only this file's rows.
+ */
+const URL = process.env.TEST_DATABASE_URL;
+const here = dirname(fileURLToPath(import.meta.url));
+const migration = join(here, '..', '..', 'drizzle', '0001_protocol_founding_badges.sql');
+const available = URL ? await postgresAvailable(URL) : false;
+const sql: Sql | null = URL && available ? postgres(URL, { max: 6, onnotice: () => undefined }) : null;
+
+const RACER = 'bad9e000-4444-4444-8444-444444444444';
+const ALPHA = 'bad9e000-5555-4555-8555-555555555555';
+const BETA = 'bad9e000-6666-4666-8666-666666666666';
+const IDS = [RACER, ALPHA, BETA];
+const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
+const SHARED_ADDR = '0x00000000000000000000000000000000000000C2' as Address;
+const CHAIN_ID = 31337;
+const NET = { chainId: CHAIN_ID, mainnet: false };
+const OWNER_KEY = privateKeyToAccount(`0x${'44'.repeat(32)}`);
+const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
+
+function harness(mintDelayMs = 25) {
+  const mints: Array<{ to: Address; key: string }> = [];
+  const minter: BadgeMinter = {
+    signerFor: () => ({
+      mint: async (to, key) => {
+        mints.push({ to, key });
+        await new Promise((r) => setTimeout(r, mintDelayMs)); // a mint in flight
+        return `0x${'cd'.repeat(31)}${String(mints.length).padStart(2, '0')}` as Hex;
+      },
+    }),
+  };
+  const deps: BadgeDeps = { store: new PostgresBadgeStore(sql!), minter, window: WINDOW, now: () => new Date('2026-10-22T04:00:00Z') };
+  return { deps, mints };
+}
+
+async function claimAs(deps: BadgeDeps, accountId: string, address: Address) {
+  const signature = await OWNER_KEY.signMessage({ message: badgeClaimMessage({ accountId, chainId: CHAIN_ID, address }) });
+  return claimBadge(deps, accountId, { address, owner: OWNER_KEY.address }, NET, signature);
+}
+
+async function cleanup() {
+  await sql!`DELETE FROM protocol.founding_badge_claims WHERE account_id IN ${sql!(IDS)}`;
+  await sql!`DELETE FROM protocol.founding_badge_list WHERE account_id IN ${sql!(IDS)}`;
+}
+
+describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
+  beforeAll(async () => {
+    await assertTestDatabase(sql!, 'svc-protocol founding-badge.concurrency.pg.test');
+    await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
+    await sql!.unsafe(readFileSync(migration, 'utf8'));
+    await cleanup();
+    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA})`;
+  });
+  afterAll(async () => {
+    await cleanup();
+    await sql!.end();
+  });
+
+  it('two concurrent claims from one account produce exactly one mint and one stored tx', async () => {
+    const { deps, mints } = harness();
+    const results = await Promise.all([claimAs(deps, RACER, RACER_ADDR), claimAs(deps, RACER, RACER_ADDR)]);
+    expect(mints).toEqual([{ to: RACER_ADDR, key: badgeClaimKey(RACER) }]);
+    const rows = await sql!`SELECT tx_hash, minting_at FROM protocol.founding_badge_claims WHERE key = ${badgeClaimKey(RACER)}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.tx_hash).not.toBeNull();
+    expect(rows[0]!.minting_at).toBeNull();
+    for (const r of results) expect([null, rows[0]!.tx_hash]).toContain(r.txHash);
+
+    // A later retry returns the stored tx and still does not mint.
+    const again = await claimAs(deps, RACER, RACER_ADDR);
+    expect(again.txHash).toBe(rows[0]!.tx_hash);
+    expect(mints).toHaveLength(1);
+  });
+
+  it('two accounts racing to one address: one claim, the other badge.already_claimed (not a 500)', async () => {
+    const { deps, mints } = harness();
+    const settled = await Promise.allSettled([claimAs(deps, ALPHA, SHARED_ADDR), claimAs(deps, BETA, SHARED_ADDR)]);
+    const ok = settled.filter((s) => s.status === 'fulfilled');
+    const refused = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
+    expect(ok).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect(String(refused[0]!.reason)).toMatch(/badge\.already_claimed/);
+    expect(mints).toHaveLength(1);
+    expect(await sql!`SELECT 1 FROM protocol.founding_badge_claims WHERE account_id IN ${sql!([ALPHA, BETA])}`).toHaveLength(1);
+  });
+});

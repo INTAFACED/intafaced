@@ -69,6 +69,14 @@ export interface BadgeStore {
   findClaimByAddress(chainId: number, to: Address): Promise<BadgeClaimRecord | null>;
   /** Insert-if-absent on `key`; returns the stored row either way. */
   putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord>;
+  /**
+   * Atomically take the mint slot for `key`: true for exactly one caller while the claim has no tx hash and no mint
+   * in flight. Only the winner calls the signer, so two concurrent claims (or a retry during a mint) mint once.
+   */
+  claimMintSlot(key: string): Promise<boolean>;
+  /** Give the slot back after the signer threw before returning a tx hash, so a later retry can mint. */
+  releaseMintSlot(key: string): Promise<void>;
+  /** Stores the tx hash (first one wins) and clears the mint slot. */
   setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord>;
 }
 
@@ -205,7 +213,19 @@ export async function claimBadge(
   const stored =
     existing ?? (await deps.store.putClaim({ key, accountId, chainId: network.chainId, to: toChecksum(ownAddress), txHash: null }));
   if (stored.txHash) return { ...stored, label: 'TEST', audited: false };
-  const txHash = await signer.mint(stored.to, key);
+  // Single flight: only the caller that wins the slot mints. A loser returns the stored claim; a null txHash means
+  // the winner's mint is still pending.
+  if (!(await deps.store.claimMintSlot(key))) {
+    const current = (await deps.store.findClaim(key)) ?? stored;
+    return { ...current, label: 'TEST', audited: false };
+  }
+  let txHash: Hex;
+  try {
+    txHash = await signer.mint(stored.to, key);
+  } catch (err) {
+    await deps.store.releaseMintSlot(key);
+    throw err;
+  }
   const done = await deps.store.setTxHash(key, txHash);
   return { ...done, label: 'TEST', audited: false };
 }

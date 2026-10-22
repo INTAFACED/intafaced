@@ -43,6 +43,7 @@ async function claim(
 
 function memStore(listed: string[]): BadgeStore & { rows: Map<string, BadgeClaimRecord> } {
   const rows = new Map<string, BadgeClaimRecord>();
+  const minting = new Set<string>();
   return {
     rows,
     isListed: async (id) => listed.includes(id),
@@ -52,7 +53,17 @@ function memStore(listed: string[]): BadgeStore & { rows: Map<string, BadgeClaim
       if (!rows.has(r.key)) rows.set(r.key, r);
       return rows.get(r.key)!;
     },
+    claimMintSlot: async (k) => {
+      const r = rows.get(k);
+      if (!r || r.txHash || minting.has(k)) return false;
+      minting.add(k);
+      return true;
+    },
+    releaseMintSlot: async (k) => {
+      minting.delete(k);
+    },
     setTxHash: async (k, tx) => {
+      minting.delete(k);
       const r = { ...rows.get(k)!, txHash: tx };
       rows.set(k, r);
       return r;
@@ -238,5 +249,34 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     const m = badgeClaimMessage({ accountId: ACCOUNT, chainId: 84532, address: ADDR as Address });
     expect(m).toContain(`badge:claim:${ACCOUNT}`);
     expect(m).toContain('84532');
+  });
+
+  it('two concurrent claims from one account mint exactly once (single-flight mint slot)', async () => {
+    const { d, mints, store } = deps();
+    const [a, b] = await Promise.all([claim(d, ACCOUNT, ADDR, TESTNET), claim(d, ACCOUNT, ADDR, TESTNET)]);
+    expect(mints).toHaveLength(1);
+    expect(store.rows.size).toBe(1);
+    // The loser returns the stored claim: the winner's hash, or null while that mint is still pending.
+    const hashes = [a.txHash, b.txHash].filter((h) => h !== null);
+    expect(hashes.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(hashes).size).toBe(1);
+    const after = await claim(d, ACCOUNT, ADDR, TESTNET);
+    expect(after.txHash).toBe(store.rows.get(badgeClaimKey(ACCOUNT))!.txHash);
+    expect(mints).toHaveLength(1);
+  });
+
+  it('a retry while the mint is in flight does not mint again', async () => {
+    const { d, mints, store } = deps();
+    store.rows.set(badgeClaimKey(ACCOUNT), {
+      key: badgeClaimKey(ACCOUNT),
+      accountId: ACCOUNT,
+      chainId: 84532,
+      to: ADDR as Address,
+      txHash: null,
+    });
+    expect(await store.claimMintSlot(badgeClaimKey(ACCOUNT))).toBe(true); // first request is mid-mint
+    const retry = await claim(d, ACCOUNT, ADDR, TESTNET);
+    expect(retry.txHash).toBeNull();
+    expect(mints).toHaveLength(0);
   });
 });

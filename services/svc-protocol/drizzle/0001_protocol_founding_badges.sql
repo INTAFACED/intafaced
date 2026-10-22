@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS "protocol"."founding_badge_claims" (
   "to_address" text NOT NULL,
   -- Null between "claim stored" and "mint submitted"; a retry reuses it once set.
   "tx_hash"    text,
+  -- Set by the one caller that wins the mint slot, before it calls the signer; a concurrent
+  -- claim or a retry while that mint is in flight sees it and does not mint again.
+  "minting_at" timestamptz,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
@@ -25,3 +28,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS "founding_badge_claims_account_idx"
   ON "protocol"."founding_badge_claims" ("account_id");
 CREATE UNIQUE INDEX IF NOT EXISTS "founding_badge_claims_chain_address_idx"
   ON "protocol"."founding_badge_claims" ("chain_id", "to_address");
+-- Pre-existing tables from an earlier apply of this unmerged file gain the slot column.
+ALTER TABLE "protocol"."founding_badge_claims" ADD COLUMN IF NOT EXISTS "minting_at" timestamptz;
