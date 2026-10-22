@@ -611,6 +611,8 @@ const schema = serviceEnvSchema
        * maxMidAgeSeconds is required when published — never invent mid freshness.
        */
       TRADE_OTC_DESK_LAW: z.string().default(''),
+      /** CB-otc-01 owner provider directory + selection cap. Blank → "No providers set". */
+      TRADE_OTC_MAKER_DIRECTORY: z.string().default(''),
 
       /**
        * OTC reference mids, ops-published: `BASE/QUOTE:mid,BASE/QUOTE:mid`.

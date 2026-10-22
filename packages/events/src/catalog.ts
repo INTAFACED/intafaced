@@ -932,6 +932,69 @@ export const personalRequestSettled = defineEvent(
   'A personal request was paid by transfers.toUser. svc-notify writes pay.request_paid for the payee.',
 );
 
+/**
+ * PP-send-request-18. Receipts and mandatory notices. One fact per event: svc-notify writes
+ * pay.transfer_sent for the sender and pay.transfer_received for the recipient from the same
+ * posted transfer, so neither party can get a receipt the other does not. Published by svc-bank
+ * through its outbox in the same transaction as `posted`; a lost consumer ack never changes money.
+ */
+export const personalTransferPosted = defineEvent(
+  'bank',
+  'personal_transfer',
+  'posted',
+  1,
+  z.object({
+    transferId: z.string().min(1).max(128),
+    senderUserId: userIdSchema,
+    recipientUserId: userIdSchema,
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    ledgerTxId: z.string().min(1).max(128),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',
+);
+
+export const personalRefundPosted = defineEvent(
+  'bank',
+  'personal_refund',
+  'posted',
+  1,
+  z.object({
+    refundId: z.string().min(1).max(128),
+    /** The transfer being refunded; the refund ledger key is refund:<origTransferId>:<refundId>. */
+    origTransferId: z.string().min(1).max(128),
+    /** Who sends the money back (the original recipient) and who gets it (the original sender). */
+    refunderUserId: userIdSchema,
+    refundeeUserId: userIdSchema,
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    ledgerTxId: z.string().min(1).max(128),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal refund posted. svc-notify writes pay.refund_posted for both parties.',
+);
+
+export const personalDisputeUpdated = defineEvent(
+  'bank',
+  'personal_dispute',
+  'updated',
+  1,
+  z.object({
+    disputeId: z.string().min(1).max(128),
+    activityId: z.string().min(1).max(128),
+    userId: userIdSchema,
+    /** Null when the counterparty is not a platform user (for example an unclaimed link). */
+    counterpartyUserId: userIdSchema.nullable(),
+    /** svc-bank's dispute state after the change, as svc-bank names it. Opaque to consumers. */
+    status: z.string().min(1).max(32),
+    /** Monotonic per dispute; consumers dedupe on (disputeId, sequence) as well as the event id. */
+    sequence: z.number().int().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal Pay dispute changed state. svc-notify writes pay.dispute_changed for the opener and the counterparty.',
+);
+
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
 
 const alertRuleIdSchema = z.string().uuid();
@@ -1190,6 +1253,9 @@ export const EVENT_CATALOG = {
   supportTicketResolved,
   personalRequestCreated,
   personalRequestSettled,
+  personalTransferPosted,
+  personalRefundPosted,
+  personalDisputeUpdated,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,
@@ -1782,6 +1848,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'personalTransferPosted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalTransferPosted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the sent and received receipts in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'personalRefundPosted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalRefundPosted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the refund notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'personalDisputeUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalDisputeUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
   },
   {
     event: 'payCustodyAuditCreated',

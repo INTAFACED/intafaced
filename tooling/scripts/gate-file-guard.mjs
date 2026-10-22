@@ -28,7 +28,8 @@
  *
  * KNOWN LIMIT: a PR can still edit or delete the workflow file pr-checks.yml itself, and GitHub runs the PR's copy of
  * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
- * the independent review of the exact head, which the CI merge seal requires, and the full test run a gate-file PR always gets.
+ * the independent review of the exact head, which the CI merge seal requires for every workflow and gate-file change,
+ * and the full test run a gate-file PR always gets.
  *
  * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
  * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.
