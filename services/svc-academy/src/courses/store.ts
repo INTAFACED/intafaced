@@ -125,23 +125,35 @@ export class AcademyCourseStore {
     return toRecord(rows[0]);
   }
 
-  async setPrice(courseId: string, price: string, actor: string, reason: string): Promise<CourseRecord> {
-    const why = assertReason(reason);
+  /**
+   * Set the one-time price of a draft course. Keyed `price:<courseId>:<revision>`
+   * with the revision the operator read: a repeat returns the stored row and
+   * writes nothing; a stale revision refuses.
+   */
+  async setPrice(input: { courseId: string; price: string; revision: number; actor: string; reason: string }): Promise<CourseRecord> {
+    const why = assertReason(input.reason);
+    const key = `price:${input.courseId}:${input.revision}`;
     return transaction(this.sql, async (tx) => {
-      const rows = await tx<CourseSql[]>`SELECT * FROM academy.courses WHERE id = ${courseId} FOR UPDATE`;
+      const rows = await tx<CourseSql[]>`SELECT * FROM academy.courses WHERE id = ${input.courseId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new AcademyError('course not found', 'academy.course_not_found');
+      const done = await tx<Array<{ idempotency_key: string }>>`
+        SELECT idempotency_key FROM academy.course_events WHERE idempotency_key = ${key}`;
+      if (done[0]) return toRecord(row);
+      if (row.revision !== input.revision) {
+        throw new AcademyError('course changed since it was read; re-read it', 'academy.item_transition_illegal');
+      }
       if (row.state !== 'draft') {
         throw new AcademyError('price is fixed once a course is published', 'academy.item_transition_illegal');
       }
-      const amount = parseCoursePrice(row.price_choice, price);
+      const amount = parseCoursePrice(row.price_choice, input.price);
       if (amount === null) throw new AcademyError('price is required', 'academy.course_invalid');
       const updated = await tx<CourseSql[]>`
         UPDATE academy.courses SET price = ${formatAmount(amount)}, revision = revision + 1, updated_at = now()
-        WHERE id = ${courseId} RETURNING *`;
+        WHERE id = ${input.courseId} RETURNING *`;
       await tx`
         INSERT INTO academy.course_events (idempotency_key, course_id, from_state, to_state, revision, actor, reason)
-        VALUES (${`price:${courseId}:${row.revision}`}, ${courseId}, 'draft', 'draft', ${row.revision + 1}, ${actor}, ${why})`;
+        VALUES (${key}, ${input.courseId}, 'draft', 'draft', ${input.revision + 1}, ${input.actor}, ${why})`;
       return toRecord(updated[0] as CourseSql);
     });
   }
@@ -152,6 +164,9 @@ export class AcademyCourseStore {
       throw new AcademyError(`${key} must be a positive whole number`, 'academy.course_invalid');
     }
     await transaction(this.sql, async (tx) => {
+      const cur = await tx<Array<{ value: string }>>`SELECT value FROM academy.course_settings WHERE key = ${key} FOR UPDATE`;
+      // A repeat with the same value is a no-op: no overwrite, no second history row.
+      if (cur[0]?.value === value) return;
       await tx`
         INSERT INTO academy.course_settings (key, value, set_by) VALUES (${key}, ${value}, ${actor})
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_by = EXCLUDED.set_by, set_at = now()`;

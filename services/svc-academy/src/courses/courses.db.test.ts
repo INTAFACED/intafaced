@@ -94,11 +94,13 @@ describe('AcademyCourseStore (AC-course-structure-01)', () => {
     await expect(store().move({ courseId: c.id, move: 'publish', revision: 0, actor: ACTOR, reason: 'go' })).rejects.toMatchObject({
       code: 'academy.price_unset',
     });
-    const priced = await store().setPrice(c.id, '9', ACTOR, 'priced');
+    const priced = await store().setPrice({ courseId: c.id, price: '9', revision: 0, actor: ACTOR, reason: 'priced' });
     expect(priced.revision).toBe(1);
     const p = await store().move({ courseId: c.id, move: 'publish', revision: 1, actor: ACTOR, reason: 'go' });
     expect(p).toMatchObject({ state: 'published', listed: true, revision: 2 });
-    await expect(store().setPrice(c.id, '10', ACTOR, 'later')).rejects.toMatchObject({ code: 'academy.item_transition_illegal' });
+    await expect(store().setPrice({ courseId: c.id, price: '10', revision: 2, actor: ACTOR, reason: 'later' })).rejects.toMatchObject({
+      code: 'academy.item_transition_illegal',
+    });
   });
 
   it('a repeated move returns the stored result and moves once', async () => {
@@ -170,16 +172,25 @@ describe('AcademyCourseStore (AC-course-structure-01)', () => {
 describe('audit rows (review fix)', () => {
   it('setPrice writes a course event with actor and reason and bumps the revision', async () => {
     const c = await create({ priceChoice: 'paid' });
-    await store().setPrice(c.id, '9', ACTOR, 'TEST price reason');
+    const m = { courseId: c.id, price: '9', revision: 0, actor: ACTOR, reason: 'TEST price reason' };
+    const first = await store().setPrice(m);
+    const again = await store().setPrice(m);
+    expect(again).toEqual(first);
     const rows = await sql<Array<{ idempotency_key: string; actor: string; reason: string; revision: number }>>`
       SELECT idempotency_key, actor, reason, revision FROM academy.course_events WHERE course_id = ${c.id} AND idempotency_key LIKE 'price:%'`;
     expect(rows).toEqual([{ idempotency_key: `price:${c.id}:0`, actor: ACTOR, reason: 'TEST price reason', revision: 1 }]);
-    await expect(store().setPrice(c.id, '10', ACTOR, ' ')).rejects.toMatchObject({ code: 'academy.course_invalid' });
+    await expect(store().setPrice({ ...m, revision: 1, reason: ' ' })).rejects.toMatchObject({ code: 'academy.course_invalid' });
+    await expect(store().setPrice({ ...m, price: '11', reason: 'stale' })).resolves.toEqual(first);
+    await expect(store().setPrice({ ...m, revision: 5, reason: 'stale' })).rejects.toMatchObject({
+      code: 'academy.item_transition_illegal',
+    });
+    expect((await store().get(c.id)).revision).toBe(1);
   });
 
   it('setSetting needs a reason and appends one history row per change', async () => {
     await expect(store().setSetting('undelete_window_seconds', '60', ACTOR, ' ')).rejects.toMatchObject({ code: 'academy.course_invalid' });
     await store().setSetting('undelete_window_seconds', '60', ACTOR, 'TEST first');
+    await store().setSetting('undelete_window_seconds', '60', ACTOR, 'TEST repeat');
     await store().setSetting('undelete_window_seconds', '90', ACTOR, 'TEST second');
     const rows = await sql<Array<{ value: string; actor: string; reason: string }>>`
       SELECT value, actor, reason FROM academy.course_settings_events ORDER BY id`;
@@ -200,6 +211,23 @@ describe('admin course doors', () => {
       code: 'BAD_REQUEST',
     });
     expect((await caller(['admin:read']).admin.course({ courseId: c.id })).slug).toBe('door');
+  });
+
+  it('blank reason refuses at the door with academy.course_invalid', async () => {
+    const w = caller(['admin:read', 'admin:write']);
+    const c = await w.admin.createCourse({ slug: 'reasons', title: 'TEST', priceChoice: 'paid' });
+    const cause = async (p: Promise<unknown>) => {
+      try {
+        await p;
+      } catch (err) {
+        return (err as { cause?: { code?: string } }).cause?.code;
+      }
+      return undefined;
+    };
+    expect(await cause(w.admin.setCoursePrice({ courseId: c.id, price: '9', revision: 0, reason: ' ' }))).toBe('academy.course_invalid');
+    expect(await cause(w.admin.setCourseSetting({ key: 'undelete_window_seconds', value: '60', reason: ' ' }))).toBe(
+      'academy.course_invalid',
+    );
   });
 
   it('a learner session is refused', async () => {

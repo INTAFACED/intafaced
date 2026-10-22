@@ -2468,9 +2468,16 @@ export function createAcademyRouter(
         .mutation(({ input, ctx }) => guard(() => courses().create({ ...input, actor: ctx.principal.userId }))),
 
       setCoursePrice: scopedProcedure('admin:write', { module: 'academy' })
-        .input(z.object({ courseId: z.string().uuid(), price: z.string().min(1).max(64), reason: z.string().max(500) }))
+        .input(
+          z.object({
+            courseId: z.string().uuid(),
+            price: z.string().min(1).max(64),
+            revision: z.number().int().min(0),
+            reason: z.string().max(500),
+          }),
+        )
         .output(courseOut)
-        .mutation(({ input, ctx }) => guard(() => courses().setPrice(input.courseId, input.price, ctx.principal.userId, input.reason))),
+        .mutation(({ input, ctx }) => guard(() => courses().setPrice({ ...input, actor: ctx.principal.userId }))),
 
       setCourseLifecycle: scopedProcedure('admin:write', { module: 'academy' })
         .input(
