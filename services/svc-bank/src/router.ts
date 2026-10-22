@@ -39,6 +39,7 @@ import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
+import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
 import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
 import {
@@ -434,6 +435,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'bank.asset_paused':
+      case 'bank.ops_revision_conflict':
       case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
@@ -621,6 +624,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.statement_unavailable':
       case 'bank.ops_audit_unavailable':
       case 'bank.account_details_unavailable':
+      // The pause read failed; the new borrow or deposit was refused rather than assumed open.
+      case 'bank.asset_pause_unreadable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -1587,6 +1592,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // The desk supply pause is checked inside earn.deposit, so every caller respects it.
           const position = await bank.earn.deposit({
             poolId: input.poolId,
             userId: ctx.principal.userId,
@@ -1861,6 +1867,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // Pre-flight: a desk pause on either asset of the product refuses before collateral is locked.
+          const product = await bank.loans.product(input.productId);
+          await bank.assetPauses.assertBorrowOpen([product.debtAssetId, product.collateralAssetId]);
           const result = await bank.loans.open({
             loanId: input.loanId,
             productId: input.productId,
@@ -3404,6 +3413,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
+    setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
