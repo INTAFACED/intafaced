@@ -1644,19 +1644,20 @@ export class CardService {
   }
 
   /** One authorisation by id, for the operator read (BK-cops-01). Null when there is none; never writes. */
-  async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string }) | null> {
-    const rows = await this.sql<Array<AuthorizationRow & { user_id: string }>>`
+  async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string; assetId: string }) | null> {
+    const rows = await this.sql<Array<AuthorizationRow & { user_id: string; card_asset_id: string }>>`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
-             k.user_id
+             k.user_id, k.asset_id AS card_asset_id
         FROM bank.card_authorizations a
         JOIN bank.cards k ON k.id = a.card_id
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
        WHERE a.id = ${authorizationId}
     `;
     const row = rows[0];
-    return row ? { ...toAuthorization(row), userId: row.user_id } : null;
+    // `amount` is in the card's funding asset (see `AuthorizationRecord.amount`), which is `bank.cards.asset_id`.
+    return row ? { ...toAuthorization(row), userId: row.user_id, assetId: row.card_asset_id } : null;
   }
 
   async cashbackFor(authorizationId: string): Promise<{ amount: Amount; status: string; rejectionCode: string | null } | null> {

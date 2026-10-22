@@ -3305,7 +3305,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
-    /** BK-cops-01: one card authorisation for the support agent. Read-only. */
+    /** BK-cops-01: one card authorisation for a compliance operator. Read-only. */
     authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
