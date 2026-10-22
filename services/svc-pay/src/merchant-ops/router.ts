@@ -22,6 +22,7 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
 import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
 import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
@@ -253,6 +254,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         send: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.send(await callerOf(ctx), input))),
+        /** M-bill-07: copy a draft into a new draft (same lines, no link, payer email not copied). */
+        duplicate: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.duplicate(await callerOf(ctx), input))),
         void: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
@@ -357,6 +362,16 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           wrapOps(async () => {
             await callerOf(ctx);
             return refuseBuiltInRoleEdit();
+          }),
+        ),
+      }),
+
+      /** M-disp-05: the default risk rules in plain words, from fraud-policy.ts. Read only; enforces nothing. */
+      risk: router({
+        policy: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return merchantRiskPolicy();
           }),
         ),
       }),
