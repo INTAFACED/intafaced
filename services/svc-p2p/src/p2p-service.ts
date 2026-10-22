@@ -39,6 +39,18 @@ import {
   type ChatMessage,
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
+import {
+  ExportPolicyError,
+  assertFormatBuilt,
+  assertRangeWithinCap,
+  assertRowsWithinCap,
+  nextUtcMidnight,
+  requireSetting,
+  startOfUtcDay,
+  RECEIPT_QUOTA_LOCK_CLASS,
+  type ExportFormat,
+  type ExportPolicy,
+} from './export-receipt.js';
 import { ownStats, payTiming, type OwnStats } from './user-center.js';
 import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
 import {
@@ -207,6 +219,12 @@ export type P2pErrorCode =
   | 'p2p.idempotency_in_progress'
   | 'p2p.offer_cursor_invalid'
   | 'p2p.blocked'
+  | 'p2p.config_unset'
+  | 'p2p.export_format_unbuilt'
+  | 'p2p.export_range_too_large'
+  | 'p2p.export_too_many_rows'
+  | 'p2p.receipt_quota_reached'
+  | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
   | 'p2p.offer_update_empty'
   | 'p2p.chat_attachment_unwired'
@@ -535,6 +553,8 @@ export interface P2pServiceOptions {
    * Absent = no ceiling, which is the behaviour before Stage 2 existed.
    */
   offerLimits?: OfferLimitPolicy;
+  /** P-trade-orders-14 owner caps for capped exports and receipts. Unset → those paths refuse `p2p.config_unset`. */
+  exportPolicy?: ExportPolicy;
   /**
    * This maker's merchant standing, or `null` when they are not in the programme.
    *
@@ -823,6 +843,7 @@ export class P2pService {
   private readonly xpPolicy: XpPolicy;
   private readonly referencePrices: ReferencePriceSource | undefined;
   private readonly offerLimits: OfferLimitPolicy;
+  private readonly exportPolicy: ExportPolicy;
   private readonly merchantStatusOf: ((userId: string) => Promise<MerchantStatus | null>) | undefined;
   private readonly instruments: TradeInstrumentAttacher;
   private readonly affiliateAccrue: AffiliateAccruePort;
@@ -846,6 +867,7 @@ export class P2pService {
     this.tradingEnabled = options.tradingEnabled ?? true;
     this.referencePrices = options.referencePrices;
     this.offerLimits = options.offerLimits ?? NO_OFFER_LIMITS;
+    this.exportPolicy = options.exportPolicy ?? {};
     this.merchantStatusOf = options.merchantStatusOf;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
@@ -3259,7 +3281,158 @@ export class P2pService {
     return { disputes, nextCursor: disputes.length === limit && last ? last.id : null };
   }
 
-  async exportTrades(input: { userId: string; from: string; to: string }): Promise<{ csv: string; rows: number }> {
+  /**
+   * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   */
+  async exportTrades(input: {
+    userId: string;
+    from: string;
+    to: string;
+    /** Omitted means csv, the format this endpoint has always served. */
+    format?: ExportFormat;
+  }): Promise<{
+    csv: string;
+    rows: number;
+    format: 'csv';
+    totals: Array<{ asset: string; fiatCurrency: string; amount: string; fiatAmount: string }>;
+  }> {
+    try {
+      const format = assertFormatBuilt(input.format ?? 'csv');
+      const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
+      const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const from = new Date(input.from);
+      const to = new Date(input.to);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
+        throw new P2pError('p2p.export_range_invalid', 'p2p.export_range_invalid');
+      }
+      assertRangeWithinCap(from, to, maxRangeDays);
+      const counted = await this.sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM p2p.p2p_trades
+         WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
+           AND created_at >= ${from} AND created_at <= ${to}
+      `;
+      assertRowsWithinCap(Number(counted[0]?.n ?? 0), maxRows);
+      const file = await this.renderTradesCsv({ userId: input.userId, from: input.from, to: input.to });
+      // Rows can land between the count and the file query; the cap holds on what is served.
+      assertRowsWithinCap(file.rows, maxRows);
+      const totals = await this.sql<Array<{ asset: string; fiat_currency: string; amount: string; fiat_amount: string }>>`
+        SELECT asset, fiat_currency, sum(amount)::text AS amount, sum(fiat_amount)::text AS fiat_amount
+          FROM p2p.p2p_trades
+         WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
+           AND created_at >= ${from} AND created_at <= ${to}
+         GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
+      `;
+      await this.sql`
+        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
+        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
+      `;
+      return {
+        ...file,
+        format,
+        totals: totals.map((t) => ({
+          asset: t.asset,
+          fiatCurrency: t.fiat_currency,
+          amount: formatAmount(parseAmount(t.amount)),
+          fiatAmount: formatAmount(parseAmount(t.fiat_amount)),
+        })),
+      };
+    } catch (err) {
+      if (err instanceof ExportPolicyError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
+  /**
+   * P-trade-orders-14: receipt for one completed trade, as data (PDF left for
+   * later). Party only; no counterparty identity. Daily and per-trade quotas
+   * are owner values; each download writes the audit row that is the counter.
+   */
+  async tradeReceipt(input: { userId: string; tradeId: string; now?: Date }): Promise<{
+    receipt: {
+      tradeId: string;
+      offerId: string;
+      role: 'buyer' | 'seller';
+      asset: string;
+      amount: string;
+      fiatCurrency: string;
+      fiatAmount: string;
+      price: string;
+      feeBps: number;
+      method: string;
+      createdAt: string;
+      escrowedAt: string | null;
+      fiatSentAt: string | null;
+      resolvedAt: string | null;
+    };
+    dailyRemaining: number;
+    tradeRemaining: number;
+  }> {
+    const now = input.now ?? new Date();
+    try {
+      const daily = requireSetting(this.exportPolicy.receiptDailyQuota, 'P2P_RECEIPT_DAILY_QUOTA');
+      const perTrade = requireSetting(this.exportPolicy.receiptPerTradeQuota, 'P2P_RECEIPT_PER_TRADE_QUOTA');
+      const trade = await this.getTrade(input.tradeId);
+      if (trade.buyerId !== input.userId && trade.sellerId !== input.userId) throw unknownTrade(input.tradeId);
+      if (trade.status !== 'released') {
+        throw new ExportPolicyError(`p2p.receipt_not_available: trade is ${trade.status}`, 'p2p.receipt_not_available');
+      }
+      return await transaction(this.sql, async (tx) => {
+        // One user's downloads serialise, so two parallel clicks cannot both
+        // take the last unit of quota.
+        await tx`SELECT pg_advisory_xact_lock(${RECEIPT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = await tx<Array<{ today: number; this_trade: number }>>`
+          SELECT count(*) FILTER (WHERE created_at >= ${startOfUtcDay(now)})::int AS today,
+                 count(*) FILTER (WHERE trade_id = ${trade.id})::int AS this_trade
+            FROM p2p.export_audit WHERE user_id = ${input.userId} AND kind = 'receipt'
+        `;
+        const today = Number(used[0]?.today ?? 0);
+        const thisTrade = Number(used[0]?.this_trade ?? 0);
+        if (today >= daily) {
+          throw new P2pError(
+            `p2p.receipt_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.receipt_quota_reached',
+          );
+        }
+        if (thisTrade >= perTrade) {
+          throw new P2pError(
+            `p2p.receipt_quota_reached: ${perTrade} downloads of this receipt used; does not reset`,
+            'p2p.receipt_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, trade_id, created_at)
+          VALUES (${input.userId}, 'receipt', 'data', ${trade.id}, ${now})
+        `;
+        return {
+          receipt: {
+            tradeId: trade.id,
+            offerId: trade.offerId,
+            role: trade.sellerId === input.userId ? ('seller' as const) : ('buyer' as const),
+            asset: trade.asset,
+            amount: formatAmount(trade.amount),
+            fiatCurrency: trade.fiatCurrency,
+            fiatAmount: formatAmount(trade.fiatAmount),
+            price: formatAmount(trade.price),
+            feeBps: trade.feeBps,
+            method: trade.method,
+            createdAt: trade.createdAt.toISOString(),
+            escrowedAt: trade.escrowedAt?.toISOString() ?? null,
+            fiatSentAt: trade.fiatSentAt?.toISOString() ?? null,
+            resolvedAt: trade.resolvedAt?.toISOString() ?? null,
+          },
+          dailyRemaining: daily - today - 1,
+          tradeRemaining: perTrade - thisTrade - 1,
+        };
+      });
+    } catch (err) {
+      if (err instanceof ExportPolicyError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
+  /** The CSV file itself. Callers go through `exportTrades`, which applies the owner caps and audits. */
+  private async renderTradesCsv(input: { userId: string; from: string; to: string }): Promise<{ csv: string; rows: number }> {
     const from = new Date(input.from);
     const to = new Date(input.to);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
