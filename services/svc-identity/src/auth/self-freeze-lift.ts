@@ -39,11 +39,22 @@ export function assertLiftWaitSet(waitSeconds: number | undefined): asserts wait
   if (waitSeconds === undefined) throw new SelfFreezeLiftError('identity.self_freeze_lift_wait_unset');
 }
 
+type WarnLog = { warn(obj: Record<string, unknown>, msg: string): void };
+
 export class SelfFreezeLift {
+  /** Structured warn sink, as AuthService: one JSON line on stderr until index.ts swaps in the Fastify logger. */
+  private log: WarnLog = {
+    warn: (obj, msg) => process.stderr.write(`${JSON.stringify({ level: 'warn', ...obj, msg })}\n`),
+  };
+
   constructor(
     private readonly sql: Sql,
     private readonly waitSeconds: number | undefined,
   ) {}
+
+  useLogger(log: WarnLog): void {
+    this.log = log;
+  }
 
   /** The wait must be published before the router spends a step-up on a lift that cannot happen. */
   assertConfigured(): void {
@@ -53,7 +64,7 @@ export class SelfFreezeLift {
   async lift(userId: string): Promise<SelfFreezeLiftResult> {
     const wait = this.waitSeconds;
     assertLiftWaitSet(wait);
-    return transaction(this.sql, async (tx) => {
+    const result = await transaction(this.sql, async (tx): Promise<SelfFreezeLiftResult> => {
       await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       const open = await tx<Array<{ id: string; available_at: Date; due: boolean }>>`
         SELECT id,
@@ -68,5 +79,8 @@ export class SelfFreezeLift {
         UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE id = ${row.id} RETURNING lifted_at`;
       return { frozen: false as const, changed: true, liftedAt: lifted[0]!.lifted_at };
     });
+    // Logged after commit, as `auth.self_frozen` is: a lift that rolled back is never reported.
+    if (result.changed) this.log.warn({ userId, liftedAt: result.liftedAt?.toISOString() ?? null }, 'auth.self_freeze_lifted');
+    return result;
   }
 }
