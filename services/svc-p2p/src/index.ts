@@ -135,6 +135,12 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
   appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
+  exportPolicy: {
+    maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
+    maxRows: env.P2P_EXPORT_MAX_ROWS,
+    receiptDailyQuota: env.P2P_RECEIPT_DAILY_QUOTA,
+    receiptPerTradeQuota: env.P2P_RECEIPT_PER_TRADE_QUOTA,
+  },
   /**
    * Resolved per call, not at construction. `merchants` is built FROM `p2p`
    * below, so the two cannot both exist at the same instant; this closure only
