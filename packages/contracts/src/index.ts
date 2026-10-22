@@ -70,4 +70,5 @@ export * from './support-contact.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './merchant-descriptor.js';
+export * from './academy-articles.js';
 export * from './bank-card-funds.js';
