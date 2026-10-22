@@ -259,6 +259,15 @@ const schema = serviceEnvSchema
        * display page says the list is not set. Malformed → fail boot.
        */
       /**
+       * Owner maximum idle time, in seconds (signin-sessions slice 06). Blank / unset → no maximum is published, so an
+       * organisation cannot set an idle sign-out (`identity.org_policy_idle_unset`). Malformed → fail boot.
+       */
+      SESSION_IDLE_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(31_536_000).optional()),
+      /**
        * W-security-accounts-03. Owner-set wait, in seconds, from a self-freeze to when the owner may lift it.
        * Blank / unset → the lift refuses (`identity.self_freeze_lift_wait_unset`). Zero is a published "no wait".
        */

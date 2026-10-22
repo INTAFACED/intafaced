@@ -61,6 +61,8 @@ import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
+import { createOrgSecurityPolicyRouter } from './org-security-policy-router.js';
+import { OrgSecurityPolicyService } from './orgs/org-security-policy.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
@@ -529,6 +531,9 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
+  createOrgSecurityPolicyRouter(
+    new OrgSecurityPolicyService({ sql, approvals: actionApprovals, idleMaxSeconds: () => env.SESSION_IDLE_SECONDS }),
+  ),
   createEnrollPasskeyRouter(
     sql,
     {

@@ -9,11 +9,14 @@ import {
   type DmaHierarchyLaw,
 } from './orgs/dma-hierarchy.js';
 import { getOrg, listOrgs, OrgAdminError, removeOrgMember, renameOrg } from './orgs/org-admin.js';
+import { enforceOrgSecurityPolicy, OrgSecurityPolicyError } from './orgs/org-security-policy.js';
+import { orgSecurityPolicyToTrpc } from './org-security-policy-router.js';
 
 const orgRoleSchema = z.enum(['admin', 'trader', 'auditor', 'risk-manager']);
 const dmaProductSchema = z.enum(['dma-broker', 'desk', 'shift']);
 
 function toOrgTrpc(err: unknown): never {
+  if (err instanceof OrgSecurityPolicyError) orgSecurityPolicyToTrpc(err);
   if (err instanceof OrgAdminError) {
     throw new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
   }
@@ -58,6 +61,9 @@ function toOrgTrpc(err: unknown): never {
  * DMA broker / desk / shift create refuses until owner hierarchy law exists.
  */
 export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNPUBLISHED_DMA_HIERARCHY_LAW) {
+  /** The org's security policy (I-account-lifecycle-06) gates every org action. No policy: nothing required. */
+  const policy = (principal: { userId: string; sid: string; kid?: string | null }, orgId: string) =>
+    enforceOrgSecurityPolicy(sql, { userId: principal.userId, orgId, sessionId: principal.kid ? null : principal.sid });
   return router({
     createOrg: scopedProcedure('identity:write')
       .input(z.object({ name: z.string().min(1).max(128) }))
@@ -87,6 +93,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await addOrgMember(sql, ctx.principal.userId, input.orgId, input.memberId, input.role, input.secondApproverId);
         } catch (err) {
           toOrgTrpc(err);
@@ -110,6 +117,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await grantOrgRole(sql, ctx.principal.userId, input.orgId, input.memberId, input.role, input.secondApproverId);
         } catch (err) {
           toOrgTrpc(err);
@@ -126,6 +134,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await assertOrgActor(sql, ctx.principal.userId, input.orgId);
         } catch (err) {
           toOrgTrpc(err);
@@ -142,6 +151,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await assertOrgPlace(sql, ctx.principal.userId, input.orgId);
         } catch (err) {
           toOrgTrpc(err);
@@ -158,6 +168,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await assertOrgRisk(sql, ctx.principal.userId, input.orgId);
         } catch (err) {
           toOrgTrpc(err);
@@ -172,6 +183,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       .output(z.object({ orgId: z.string().uuid(), kind: dmaProductSchema }))
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await createDmaHierarchyProduct({
             sql,
             actorUserId: ctx.principal.userId,
@@ -220,6 +232,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       .output(z.object({ orgId: z.string().uuid(), userId: z.string().uuid(), removed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await removeOrgMember(sql, ctx.principal.userId, input.orgId, input.memberId);
         } catch (err) {
           toOrgTrpc(err);
@@ -230,6 +243,7 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
       .output(z.object({ id: z.string().uuid(), name: z.string(), changed: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         try {
+          await policy(ctx.principal, input.orgId);
           return await renameOrg(sql, ctx.principal.userId, input.orgId, input.name);
         } catch (err) {
           toOrgTrpc(err);

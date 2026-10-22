@@ -84,6 +84,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.sub_account_delete',
   // Edit the label and purpose of one of the caller's own sub-accounts (RC-identity-14). Identity mints and consumes it.
   'identity.step_up.sub_account_edit',
+  // Set an organisation's member second-factor and idle sign-out policy (I-account-lifecycle-06). Org owner only.
+  'identity.step_up.org_security_policy',
 ] as const;
 
 /**

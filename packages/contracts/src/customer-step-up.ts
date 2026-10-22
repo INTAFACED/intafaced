@@ -465,6 +465,17 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: [],
     fixed: {},
   },
+  {
+    scope: 'identity.step_up.org_security_policy',
+    purpose: 'org.securityPolicy.set',
+    // idleSignOutSeconds '' = no idle sign-out.
+    clientFields: ['orgId', 'memberSecondFactor', 'idleSignOutSeconds', 'clientRequestId'],
+    targetField: 'orgId',
+    targetRequired: true,
+    emptyOk: ['idleSignOutSeconds'],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {
