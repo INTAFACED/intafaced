@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweep_policy_events" (
   "network_id" text NOT NULL,
   "asset_id" text NOT NULL,
   "trigger" text NOT NULL,
-  "threshold_amount" text,
+  "threshold_amount" numeric(38,18),
   "threshold_count" integer,
   "schedule_minutes" integer,
   "treasury_address" text NOT NULL,
@@ -25,8 +25,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweep_policy_events" (
     OR ("trigger" = 'count' AND "threshold_count" >= 1 AND "threshold_amount" IS NULL AND "schedule_minutes" IS NULL)
     OR ("trigger" = 'schedule' AND "schedule_minutes" >= 1 AND "threshold_amount" IS NULL AND "threshold_count" IS NULL)
   ),
-  CONSTRAINT "custody_sweep_policy_amount_ck" CHECK ("threshold_amount" IS NULL
-    OR ("threshold_amount" ~ '^(0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$' AND "threshold_amount"::numeric > 0)),
+  CONSTRAINT "custody_sweep_policy_amount_ck" CHECK ("threshold_amount" IS NULL OR "threshold_amount" > 0),
   CONSTRAINT "custody_sweep_policy_text_ck" CHECK (length(btrim("network_id")) > 0 AND length(btrim("asset_id")) > 0
     AND length(btrim("treasury_address")) > 0 AND "treasury_address" !~ '\s' AND length(btrim("reason")) > 0 AND length(btrim("set_by")) > 0)
 );
@@ -44,7 +43,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   "asset_id" text NOT NULL,
   "from_address" text NOT NULL,
   "to_address" text NOT NULL,
-  "amount" text NOT NULL,
+  "amount" numeric(38,18) NOT NULL,
   "status" text NOT NULL DEFAULT 'pending',
   "tx_hash" text,
   "attempts" integer NOT NULL DEFAULT 0,
@@ -57,7 +56,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   CONSTRAINT "custody_sweeps_tier_ck" CHECK ("tier" IN ('treasury')),
   CONSTRAINT "custody_sweeps_status_ck" CHECK ("status" IN ('pending', 'broadcasting', 'unknown', 'failed', 'broadcast')),
   CONSTRAINT "custody_sweeps_tx_ck" CHECK (("status" = 'broadcast') = ("tx_hash" IS NOT NULL)),
-  CONSTRAINT "custody_sweeps_amount_ck" CHECK ("amount" ~ '^(0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$' AND "amount"::numeric > 0)
+  CONSTRAINT "custody_sweeps_amount_ck" CHECK ("amount" > 0)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "custody_sweeps_key_uq" ON "pay"."custody_sweeps" ("idempotency_key");
 CREATE INDEX IF NOT EXISTS "custody_sweeps_pair_idx" ON "pay"."custody_sweeps" ("network_id", "asset_id", "created_at" DESC);

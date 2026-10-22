@@ -94,7 +94,7 @@ const policyView = (r: PolicyRow): SweepPolicyView => ({
   networkId: r.network_id,
   assetId: r.asset_id,
   trigger: r.trigger,
-  thresholdAmount: r.threshold_amount,
+  thresholdAmount: r.threshold_amount === null ? null : decimal(r.threshold_amount),
   thresholdCount: r.threshold_count,
   scheduleMinutes: r.schedule_minutes,
   treasuryAddress: r.treasury_address,
@@ -114,7 +114,7 @@ const sweepView = (r: SweepRow): SweepView => ({
   assetId: r.asset_id,
   fromAddress: r.from_address,
   toAddress: r.to_address,
-  amount: r.amount,
+  amount: decimal(r.amount),
   status: r.status,
   txHash: r.tx_hash,
   attempts: r.attempts,
@@ -124,6 +124,11 @@ const sweepView = (r: SweepRow): SweepView => ({
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
+
+/** numeric(38,18) comes back as a decimal string with trailing zeros; parse to bigint and print the canonical form. */
+function decimal(v: string): string {
+  return formatAmount(parseAmount(String(v)));
+}
 
 function invalid(message: string): never {
   throw new CustodySweepError('custody_sweep.policy_invalid', message);
@@ -363,7 +368,7 @@ export class CustodySweepService {
         assetId: claimed.asset_id,
         fromAddress: claimed.from_address,
         toAddress: claimed.to_address,
-        amount: claimed.amount,
+        amount: decimal(claimed.amount),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
