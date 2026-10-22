@@ -94,6 +94,8 @@ export function Security() {
     controller = useRef<AbortController | null>(null);
   const setupHeading = useRef<HTMLHeadingElement | null>(null);
   const [stepUp, setStepUp] = useState<Response | null>(null);
+  /** Counts passkeys added or removed here, so the passkey names below load again. */
+  const [passkeyRevision, setPasskeyRevision] = useState(0);
   const setupFocus = useRef<{
     intent: Original;
     origin: Element | null;
@@ -112,6 +114,10 @@ export function Security() {
         : Promise.resolve({ ok: true as const, data: [] }),
     `security-credentials:${userId}:${clientVersion.current.value}:${limit}`,
   );
+  const passkeysChanged = () => {
+    reload();
+    setPasskeyRevision((value) => value + 1);
+  };
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -330,7 +336,7 @@ export function Security() {
       return;
     }
     known(intent, registration, answer, answer.ok ? 'registered' : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function removePasskey(intent: Original) {
     if (!intent.credential) return;
@@ -349,7 +355,7 @@ export function Security() {
     }
     if (!fresh.data.some((row) => row.credentialId === intent.credential!.credentialId && row.createdAt === intent.credential!.createdAt)) {
       setProblem('keyChanged');
-      reload();
+      passkeysChanged();
       return;
     }
     const record = makeRecord(intent, 'remove', intent.credential.credentialId);
@@ -366,7 +372,7 @@ export function Security() {
       return;
     }
     known(intent, record, answer, answer.ok ? (answer.data.removed ? 'removed' : 'notRemoved') : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function startSetup(intent: Original) {
     const record = makeRecord(intent, 'setup');
@@ -746,7 +752,7 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
-          <PasskeyNames />
+          <PasskeyNames revision={passkeyRevision} />
           <Authenticator />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <FreezeAccount />
