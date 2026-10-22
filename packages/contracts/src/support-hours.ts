@@ -23,6 +23,13 @@ export const SUPPORT_HOURS_ERROR_CODES = [
 ] as const;
 export type SupportHoursErrorCode = (typeof SUPPORT_HOURS_ERROR_CODES)[number];
 
+/**
+ * RESERVED author id of the desk's automatic out-of-hours reply. Not a person and never a user, staff member or
+ * session: identity issues random v4 ids and no input takes a comment author, so nobody can post as it. Screens
+ * show a comment by this author as "Automatic reply", not as an operator. It is never a first response for the SLA.
+ */
+export const SUPPORT_AUTO_REPLY_AUTHOR_ID = '00000000-0000-4000-8000-000000000029';
+
 /** ISO weekday order, Monday first. */
 export const SUPPORT_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 export type SupportWeekday = (typeof SUPPORT_WEEKDAYS)[number];

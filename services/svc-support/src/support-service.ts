@@ -87,7 +87,7 @@ import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './de
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 
-import type { SupportHours, SupportHoursSetInput } from '@intafaced/contracts';
+import { SUPPORT_AUTO_REPLY_AUTHOR_ID, type SupportHours, type SupportHoursSetInput } from '@intafaced/contracts';
 import {
   MemoryHoursBook,
   MemoryOutOfHoursReplyBook,
@@ -97,11 +97,8 @@ import {
   type OutOfHoursReplyBook,
 } from './support-hours.js';
 
-/**
- * Who the out-of-hours reply is written as. Not a person: the desk itself. A fixed, reserved UUID because a comment's
- * author is a UUID in the contract (`supportCommentSchema.authorId`), so a non-UUID author would fail every read of the thread.
- */
-export const OUT_OF_HOURS_AUTHOR = '00000000-0000-4000-8000-000000000029';
+/** Who the out-of-hours reply is written as: the reserved desk id from contracts (see SUPPORT_AUTO_REPLY_AUTHOR_ID). */
+export const OUT_OF_HOURS_AUTHOR = SUPPORT_AUTO_REPLY_AUTHOR_ID;
 type HoursChangeInput = SupportHoursSetInput;
 
 const INVALID = Symbol('invalid');
@@ -327,8 +324,22 @@ export class SupportService implements SupportContract {
       const text = outOfHoursReplyFor(hours, new Date(ticket.createdAt));
       if (text === null) return;
       if (!(await this.outOfHoursReplies.claim(ticket.id, this.now().toISOString()))) return;
-      await this.store.addComment({ ticketId: ticket.id, authorId: OUT_OF_HOURS_AUTHOR, authorRole: 'operator', body: text });
-    } catch {
+      // Written straight to the store on purpose: not through addComment, so it never marks the first public reply
+      // (the first-response SLA) and never changes who the request is waiting on.
+      const written = await this.store.addComment({
+        ticketId: ticket.id,
+        authorId: OUT_OF_HOURS_AUTHOR,
+        authorRole: 'operator',
+        body: text,
+      });
+      if (written.status !== 'ok') {
+        console.warn('svc-support: out-of-hours reply not sent', { ticketId: ticket.id, error: `refused: ${written.reason}` });
+      }
+    } catch (err) {
+      console.warn('svc-support: out-of-hours reply not sent', {
+        ticketId: ticket.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
       // The request stands. The reply is at most once: a claim is taken before the message is written, so a failed
       // write leaves the request without the reply rather than risking it twice.
     }
