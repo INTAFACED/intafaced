@@ -465,6 +465,10 @@ export type PayErrorCode =
   | 'pay.mandate_not_found'
   | 'pay.subscription_reconsent_required'
   | 'pay.subscription_inactive'
+  /** M-bill-04 retry policy (subscriptions/retry-policy.ts). */
+  | 'pay.subscription_retry_policy_unset'
+  | 'pay.subscription_retry_policy_invalid'
+  | 'pay.subscription_retry_policy_conflict'
   | 'pay.mandate_inactive'
   | 'pay.subscription_invalid'
   | 'pay.subscription_driver_absent'

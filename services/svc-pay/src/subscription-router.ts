@@ -4,6 +4,12 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { PayError, type PayService } from './payment-service.js';
 import type { SubscriptionService } from './subscriptions/subscription-service.js';
+import type { SubscriptionRetryPolicyService } from './subscriptions/retry-policy.js';
+import {
+  subscriptionRetryPolicyGetInputSchema,
+  subscriptionRetryPolicySetInputSchema,
+  subscriptionRetryPolicyViewSchema,
+} from '@intafaced/contracts';
 import type { Cadence } from './subscriptions/schedule.js';
 import { COLLECTION_METHODS, collectionMethodOf } from './subscriptions/merchant-disp-bill-rep-collection-method.js';
 import {
@@ -214,6 +220,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_exceeds_mandate':
       case 'pay.subscription_mandate_open':
       case 'pay.idempotency_conflict':
+      case 'pay.subscription_retry_policy_conflict':
         return 'CONFLICT' as const;
       /*
        * The merchant cannot fix an unpublished platform fee rate, so this is not
@@ -227,6 +234,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.subscription_list_limit_unset':
       case 'pay.subscription_execution_list_limit_unset':
       case 'pay.subscription_cycle_list_limit_unset':
+      case 'pay.subscription_retry_policy_unset':
         return 'PRECONDITION_FAILED' as const;
       default:
         return 'BAD_REQUEST' as const;
@@ -235,7 +243,12 @@ function toTrpcError(err: unknown): unknown {
   return new TRPCError({ code, message: `${err.code}: ${err.message}`, cause: err });
 }
 
-export function createSubscriptionRouter(subscriptions: SubscriptionService, pay: PayService, trees: MerchantAreaFence | null = null) {
+export function createSubscriptionRouter(
+  subscriptions: SubscriptionService,
+  pay: PayService,
+  trees: MerchantAreaFence | null = null,
+  retryPolicy: SubscriptionRetryPolicyService | null = null,
+) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -254,6 +267,11 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       assertPaymentArea(userId, merchantId),
       () => new PayError(`Subscription ${subscriptionId} not found`, 'pay.subscription_not_found'),
     );
+
+  const requireRetryPolicy = (): SubscriptionRetryPolicyService => {
+    if (!retryPolicy) throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'pay.not_built: subscription retry policy is not wired' });
+    return retryPolicy;
+  };
 
   return router({
     mandate: router({
@@ -384,6 +402,30 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
     }),
 
     subscription: router({
+      /**
+       * M-bill-04: per-merchant retry policy. Owner values (attempts, spacing, final action) have no default; enabling
+       * auto-retry on an unset policy refuses `pay.subscription_retry_policy_unset`. Not wired -> `pay.not_built`.
+       */
+      retryPolicy: router({
+        get: scopedProcedure('pay:read', { module: 'pay' })
+          .input(subscriptionRetryPolicyGetInputSchema)
+          .output(subscriptionRetryPolicyViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertPaymentArea(ctx.principal?.userId, input.merchantId);
+              return requireRetryPolicy().get(input.merchantId);
+            }),
+          ),
+        set: scopedProcedure('pay:write', { module: 'pay' })
+          .input(subscriptionRetryPolicySetInputSchema)
+          .output(subscriptionRetryPolicyViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertPaymentArea(ctx.principal?.userId, input.merchantId);
+              return requireRetryPolicy().set(input, ctx.principal!.userId);
+            }),
+          ),
+      }),
       /**
        * Product Ready / honesty surface (D26-P1-P6 Done bar).
        * Crypto invoice-and-watch is product-complete; card refuse + pre-charge

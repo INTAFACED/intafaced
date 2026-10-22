@@ -101,6 +101,7 @@ import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-docum
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
+import { SubscriptionRetryPolicyService } from './subscriptions/retry-policy.js';
 import { registerCheckoutRoutes } from './checkout-page.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscriptions/index.js';
@@ -593,7 +594,7 @@ export const appRouter = mergeRouters(
   // taken from a request body would let any merchant claim to be acting as any
   // other and the subtree fence would be measuring the wrong actor.
   createSubMerchantRouter(subMerchants, pay, sql),
-  createSubscriptionRouter(subscriptions, pay, subMerchants),
+  createSubscriptionRouter(subscriptions, pay, subMerchants, new SubscriptionRetryPolicyService(sql)),
   // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
   // A namespace with no service still refuses `pay.not_built`.
   // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
