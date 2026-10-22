@@ -40,6 +40,12 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
  * `auth.mfa_required` already aliases a catalog row.
  */
 const LOCAL_COPY: Readonly<Record<string, string>> = {
+  'identity.privacy_retention_unset':
+    'The retention period is not set. Enter the period the owner published before publishing this section.',
+  'identity.privacy_body_unset': 'This section has no text. Add the published text before publishing.',
+  'identity.privacy_approval_required': 'Publishing a privacy section needs an approval from a second operator for exactly this text.',
+  'identity.privacy_version_conflict': 'This version was already published or is not the next version. Reload and try again.',
+  'identity.privacy_section_required': 'Choose a section to read an earlier version.',
   'auth.password_unchanged': 'Choose a new password that is different from your current one.',
   'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
   'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',

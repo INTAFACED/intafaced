@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { userCopy } from '../user-copy.js';
 import type { Sql } from 'postgres';
 import {
   PRIVACY_APPROVAL_REQUIRED,
+  PRIVACY_SECTION_REQUIRED,
   PRIVACY_SECTIONS,
   PRIVACY_VERSION_CONFLICT,
   PrivacyRegisterError,
@@ -40,7 +42,7 @@ function privacyError(error: unknown): never {
   if (error instanceof PrivacyRegisterError) {
     const code =
       error.code === PRIVACY_VERSION_CONFLICT ? 'CONFLICT' : error.code === PRIVACY_APPROVAL_REQUIRED ? 'FORBIDDEN' : 'PRECONDITION_FAILED';
-    throw new TRPCError({ code, message: error.code, cause: error });
+    throw new TRPCError({ code, message: `${userCopy(error.code)} [${error.code}]`, cause: error });
   }
   throw error;
 }
@@ -60,7 +62,7 @@ export function createPrivacyRegisterRouter(sql: Sql) {
           .output(z.array(entry))
           .query(async ({ input }) => {
             if (input?.version !== undefined && input.section === undefined) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: 'identity.privacy_section_required' });
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${userCopy(PRIVACY_SECTION_REQUIRED)} [${PRIVACY_SECTION_REQUIRED}]` });
             }
             const at =
               input?.section !== undefined && input.version !== undefined ? { section: input.section, version: input.version } : undefined;
@@ -76,13 +78,14 @@ export function createPrivacyRegisterRouter(sql: Sql) {
                 bodyRef: z.string().max(2048),
                 retentionPeriod: z.string().max(256).nullable().optional(),
                 approvalId: z.string().min(1).max(128),
+                clientRequestId: z.string().min(1).max(128),
               })
               .strict(),
           )
           .output(publishedEntry)
           .mutation(async ({ ctx, input }) => {
             try {
-              return await publishSection(sql, actor(ctx), { ...input, requestId: ctx.requestId });
+              return await publishSection(sql, actor(ctx), input);
             } catch (error) {
               privacyError(error);
             }

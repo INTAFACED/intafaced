@@ -71,10 +71,13 @@ describe('privacy register (Postgres)', () => {
     return router.createCaller(ctx);
   }
 
+  type Bind = { actionType?: string; targetId?: string; expectedVersion?: string; expiresIn?: string; requesterId?: string };
+
   async function approval(
     p: { section: PrivacySection; version: number; bodyRef: string; retentionPeriod?: string | null },
     approverId: string = OPS_B,
     status = 'APPROVED',
+    bind: Bind = {},
   ): Promise<string> {
     const approvalId = `apr-${randomUUID()}`;
     const pending = status === 'PENDING';
@@ -89,16 +92,17 @@ describe('privacy register (Postgres)', () => {
         approval_id, action_type, target_service, target_id, expected_version, payload_hash,
         requester_id, approver_id, policy_version, operation_id, status, created_at, expires_at, approved_at
       ) VALUES (
-        ${approvalId}, 'identity.privacy_publish', 'svc-identity', ${p.section}, ${String(p.version)}, ${hash},
-        ${OPS_A}, ${pending ? null : approverId}, '1', ${randomUUID()}, ${status}, now(), now() + interval '1 hour',
-        ${pending ? null : new Date()}
+        ${approvalId}, ${bind.actionType ?? 'identity.privacy_publish'}, 'svc-identity', ${bind.targetId ?? p.section},
+        ${bind.expectedVersion ?? String(p.version)}, ${hash}, ${bind.requesterId ?? OPS_A}, ${pending ? null : approverId}, '1',
+        ${randomUUID()}, ${status}, now() - interval '2 hours', now() + (${bind.expiresIn ?? '1 hour'})::interval,
+        ${pending ? null : new Date(Date.now() - 60_000)}
       )`;
     return approvalId;
   }
 
   async function publish(p: { section: PrivacySection; version: number; bodyRef: string; retentionPeriod?: string | null }) {
     const ops = await caller(OPS_A, ['admin:write']);
-    return ops.privacy.register.publish({ ...p, approvalId: await approval(p) });
+    return ops.privacy.register.publish({ ...p, approvalId: await approval(p), clientRequestId: `cr-${randomUUID()}` });
   }
 
   async function rows(): Promise<number> {
@@ -120,13 +124,13 @@ describe('privacy register (Postgres)', () => {
     );
   });
 
-  it('refuses publish without a second approver (pending, wrong payload, or missing; self-approval is refused by action_approvals_distinct_ck) and writes nothing', async () => {
+  it('refuses publish without a second approver (pending, wrong payload, or missing) and writes nothing', async () => {
     const ops = await caller(OPS_A, ['admin:write']);
     const p = { section: 'export' as const, version: 1, bodyRef: 'docs/privacy/export-v1.md' };
     for (const approvalId of [await approval(p, OPS_B, 'PENDING'), await approval({ ...p, bodyRef: 'other' }), 'apr-missing']) {
-      await expect(ops.privacy.register.publish({ ...p, approvalId })).rejects.toMatchObject({
+      await expect(ops.privacy.register.publish({ ...p, approvalId, clientRequestId: 'cr-1' })).rejects.toMatchObject({
         code: 'FORBIDDEN',
-        message: 'identity.privacy_approval_required',
+        message: expect.stringContaining('[identity.privacy_approval_required]'),
       });
     }
     expect(await rows()).toBe(0);
@@ -136,13 +140,20 @@ describe('privacy register (Postgres)', () => {
     const ops = await caller(OPS_A, ['admin:write']);
     for (const retentionPeriod of [undefined, null, '   ']) {
       await expect(
-        ops.privacy.register.publish({ section: 'retention', version: 1, bodyRef: 'r-v1', retentionPeriod, approvalId: 'apr-x' }),
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: 'identity.privacy_retention_unset' });
+        ops.privacy.register.publish({
+          section: 'retention',
+          version: 1,
+          bodyRef: 'r-v1',
+          retentionPeriod,
+          approvalId: 'apr-x',
+          clientRequestId: 'cr-1',
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining('[identity.privacy_retention_unset]') });
     }
     await expect(
-      ops.privacy.register.publish({ section: 'deletion', version: 1, bodyRef: '  ', approvalId: 'apr-x' }),
+      ops.privacy.register.publish({ section: 'deletion', version: 1, bodyRef: '  ', approvalId: 'apr-x', clientRequestId: 'cr-1' }),
     ).rejects.toMatchObject({
-      message: 'identity.privacy_body_unset',
+      message: expect.stringContaining('[identity.privacy_body_unset]'),
     });
     expect(await rows()).toBe(0);
   });
@@ -162,13 +173,17 @@ describe('privacy register (Postgres)', () => {
     const ops = await caller(OPS_A, ['admin:write']);
     const p = { section: 'residency' as const, version: 1, bodyRef: 'res-v1' };
     const approvalId = await approval(p);
-    const first = await ops.privacy.register.publish({ ...p, approvalId });
-    expect(await ops.privacy.register.publish({ ...p, approvalId })).toEqual(first);
-    await expect(ops.privacy.register.publish({ ...p, bodyRef: 'other', approvalId })).rejects.toMatchObject({ code: 'CONFLICT' });
+    const first = await ops.privacy.register.publish({ ...p, approvalId, clientRequestId: 'cr-1' });
+    expect(await ops.privacy.register.publish({ ...p, approvalId, clientRequestId: 'cr-1' })).toEqual(first);
+    await expect(ops.privacy.register.publish({ ...p, bodyRef: 'other', approvalId, clientRequestId: 'cr-1' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
     const skip = { section: 'residency' as const, version: 3, bodyRef: 'res-v3' };
-    await expect(ops.privacy.register.publish({ ...skip, approvalId: await approval(skip) })).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(
+      ops.privacy.register.publish({ ...skip, approvalId: await approval(skip), clientRequestId: 'cr-2' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
     const v2 = { section: 'residency' as const, version: 2, bodyRef: 'res-v2' };
-    await expect(ops.privacy.register.publish({ ...v2, approvalId })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(ops.privacy.register.publish({ ...v2, approvalId, clientRequestId: 'cr-1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const [consumed] = await db.sql<{ status: string }[]>`SELECT status FROM action_approvals WHERE approval_id = ${approvalId}`;
     expect(consumed?.status).toBe('CONSUMED');
     expect(await rows()).toBe(1);
@@ -177,8 +192,57 @@ describe('privacy register (Postgres)', () => {
   it('refuses a customer token on publish and a version read without a section', async () => {
     const customer = await caller(ADA, ['identity:read']);
     await expect(
-      customer.privacy.register.publish({ section: 'deletion', version: 1, bodyRef: 'x', approvalId: 'apr-x' }),
+      customer.privacy.register.publish({ section: 'deletion', version: 1, bodyRef: 'x', approvalId: 'apr-x', clientRequestId: 'cr-1' }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(customer.privacy.register.get({ version: 1 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
+  it('refuses each unbound approval: wrong action, wrong section, wrong version, expired, approver as requester', async () => {
+    const ops = await caller(OPS_A, ['admin:write']);
+    const p = { section: 'access' as const, version: 1, bodyRef: 'docs/privacy/access-v1.md' };
+    const unbound = [
+      await approval(p, OPS_B, 'APPROVED', { actionType: 'identity.revoke_sessions' }),
+      await approval(p, OPS_B, 'APPROVED', { targetId: 'deletion' }),
+      await approval(p, OPS_B, 'APPROVED', { expectedVersion: '2' }),
+      await approval(p, OPS_B, 'APPROVED', { expiresIn: '-1 minute' }),
+    ];
+    for (const approvalId of unbound) {
+      await expect(ops.privacy.register.publish({ ...p, approvalId, clientRequestId: `cr-${approvalId}` })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: expect.stringContaining('[identity.privacy_approval_required]'),
+      });
+    }
+    // Approver as requester cannot even be stored: action_approvals_distinct_ck refuses the row.
+    await expect(approval(p, OPS_A)).rejects.toMatchObject({ constraint_name: 'action_approvals_distinct_ck' });
+    expect(await rows()).toBe(0);
+  });
+
+  it('two concurrent publishes of one version: one row, the other refused; one approval consumed once', async () => {
+    const ops = await caller(OPS_A, ['admin:write']);
+    const a = { section: 'minimisation' as const, version: 1, bodyRef: 'min-a' };
+    const b = { section: 'minimisation' as const, version: 1, bodyRef: 'min-b' };
+    const [ra, rb] = [await approval(a), await approval(b)];
+    const results = await Promise.allSettled([
+      ops.privacy.register.publish({ ...a, approvalId: ra, clientRequestId: 'cr-a' }),
+      ops.privacy.register.publish({ ...b, approvalId: rb, clientRequestId: 'cr-b' }),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.reason).toMatchObject({ code: 'CONFLICT' });
+    expect(await rows()).toBe(1);
+
+    const c = { section: 'collection' as const, version: 1, bodyRef: 'col-1' };
+    const rc = await approval(c);
+    const same = await Promise.allSettled([
+      ops.privacy.register.publish({ ...c, approvalId: rc, clientRequestId: 'cr-c1' }),
+      ops.privacy.register.publish({ ...c, version: 2, approvalId: rc, clientRequestId: 'cr-c2' }),
+    ]);
+    expect(same.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const [consumed] = await db.sql<
+      { n: number }[]
+    >`SELECT count(*)::int AS n FROM action_approvals WHERE approval_id = ${rc} AND status = 'CONSUMED'`;
+    expect(consumed?.n).toBe(1);
+    expect(await rows()).toBe(2);
   });
 });

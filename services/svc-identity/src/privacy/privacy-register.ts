@@ -30,6 +30,7 @@ export const PRIVACY_RETENTION_UNSET = 'identity.privacy_retention_unset' as con
 export const PRIVACY_BODY_UNSET = 'identity.privacy_body_unset' as const;
 export const PRIVACY_APPROVAL_REQUIRED = 'identity.privacy_approval_required' as const;
 export const PRIVACY_VERSION_CONFLICT = 'identity.privacy_version_conflict' as const;
+export const PRIVACY_SECTION_REQUIRED = 'identity.privacy_section_required' as const;
 
 export type PrivacyErrorCode =
   typeof PRIVACY_RETENTION_UNSET | typeof PRIVACY_BODY_UNSET | typeof PRIVACY_APPROVAL_REQUIRED | typeof PRIVACY_VERSION_CONFLICT;
@@ -117,7 +118,7 @@ function normalise(input: PublishInput): { section: PrivacySection; version: num
 export async function publishSection(
   sql: Sql,
   actorId: string,
-  input: PublishInput & { approvalId: string; requestId: string },
+  input: PublishInput & { approvalId: string; clientRequestId: string },
 ): Promise<PublishResult> {
   const payload = normalise(input);
   const approvalId = input.approvalId.trim();
@@ -162,10 +163,11 @@ export async function publishSection(
       targetId: approval.targetId,
       expectedVersion: approval.expectedVersion,
       now: new Date(),
-      requestId: input.requestId,
+      requestId: input.clientRequestId,
       consumedByService: PRIVACY_PUBLISH_SERVICE,
       consumedByPrincipal: actorId,
     });
+    // Defensive: the advisory lock and FOR UPDATE above serialise publishers, so a lost CAS is not expected.
     if (!consumed) throw new PrivacyRegisterError(PRIVACY_APPROVAL_REQUIRED);
     const [row] = await tx<Row[]>`
       INSERT INTO identity.privacy_register (section, version, body_ref, retention_period, approval_id, published_by)
