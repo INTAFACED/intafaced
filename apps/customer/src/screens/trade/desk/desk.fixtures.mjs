@@ -173,6 +173,24 @@ export const candles = (timeframe = '15m', count = 200) => {
 
 const entry = (total, used = '0') => ({ free: plain(scaled(total) - scaled(used)), used, total });
 
+/** The fields svc-trade's order preview accepts (spot/order-preview-rest.ts ALLOWED_FIELDS). */
+const PREVIEW_FIELDS = new Set([
+  'symbol',
+  'side',
+  'type',
+  'amount',
+  'price',
+  'stopPrice',
+  'exit',
+  'maxSlippageBps',
+  'timeInForce',
+  'expireAt',
+  'postOnly',
+  'reduceOnly',
+  'clientOrderId',
+  'subAccountId',
+]);
+
 /** A small stateful stand-in for the exchange REST API (the /api/v1 paths the desk calls). */
 export class Exchange {
   constructor() {
@@ -222,6 +240,7 @@ export class Exchange {
       recoveryRequired: false,
       recoveryReason: null,
       reconciliationKey: null,
+      tag: draft.tag ?? null,
       ...extra,
     };
   }
@@ -235,10 +254,9 @@ export class Exchange {
     const protection = draft.side === 'buy' ? (ask * 101n) / 100n : (bid * 99n) / 100n;
     const price = limit ? scaled(draft.price) : protection;
     // Like the real service: the fee rate comes from the owner schedule (10 bps, not the /markets listing), a buy holds
-    // price x amount and pays its fee in the base asset, and a market sell has no fee estimate at all.
+    // price x amount and pays its fee in the base asset, and a market sell holds its amount and is valued at its floor.
     const rate = ((this.opts.feeBps ?? 10n) * SCALE) / 10000n;
     const value = mulFloor(price, amount);
-    const marketSell = !limit && draft.side === 'sell';
     const fee = draft.side === 'buy' ? mulFloor(amount, rate) : mulFloor(value, rate);
     const refused = this.opts.refusal;
     return {
@@ -251,8 +269,8 @@ export class Exchange {
       holdAsset: draft.side === 'buy' ? market.quote : market.base,
       holdAmount: draft.side === 'buy' ? plain(value) : plain(amount),
       protectionPrice: limit ? null : plain(protection),
-      estimatedFee: marketSell ? null : plain(fee),
-      feeAsset: marketSell ? null : draft.side === 'buy' ? market.base : market.quote,
+      estimatedFee: plain(fee),
+      feeAsset: draft.side === 'buy' ? market.base : market.quote,
       feeBps: Number((rate * 10000n) / SCALE),
       feeRole: draft.postOnly ? 'maker' : 'taker',
       orderable: !refused,
@@ -289,6 +307,13 @@ export class Exchange {
       );
     if (path === 'orders/preview' && method === 'POST') {
       if (this.opts.previewError) return json({ error: { message: 'down' } }, 503);
+      // Like the real service: the preview takes only the fields that price an order, and refuses any other.
+      const unknown = Object.keys(body ?? {}).filter((key) => !PREVIEW_FIELDS.has(key));
+      if (unknown.length > 0)
+        return json(
+          { code: 'BadRequest', message: `unsupported fields: ${unknown}`, intafacedCode: 'trade.order_preview_server_values_only' },
+          400,
+        );
       return json(this.preview(body));
     }
     if (path === 'orders' && method === 'POST') {

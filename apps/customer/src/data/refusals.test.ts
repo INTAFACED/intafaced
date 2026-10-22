@@ -93,6 +93,10 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('market orders paused', () => {
     expect(refusalCopy('trade.slippage_cap_unset')).toEqual({ title: 'Market orders are paused', body: 'Use a limit order instead.' });
   });
+  it('price protection not set', () => {
+    expect(refusalCopy('trade.protection_unset').title).toBe('Price protection isn’t set');
+    expect(refusalCopy('trade.protection_unset').body).toContain('Use a limit order instead.');
+  });
   it('no book', () => {
     expect(refusalCopy('trade.no_book').title).toBe('No one is trading this market right now');
     expect(refusalCopy('trade.no_book').body).toBe('Prices will show when the first orders arrive.');

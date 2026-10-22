@@ -608,6 +608,40 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
     });
 
+    it('a cancel event the engine says was an expiry ends the order expired, and releases once', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const order = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-expired');
+      expect(await held(ALICE, 'USDT')).toBe('200');
+
+      // The bus can carry the expiry before the inline outcome of the order that triggered it: same status either way.
+      await trade.releaseOnCancelEvent(order.id, '2', 'expired');
+      await trade.releaseOnCancelEvent(order.id, '2', 'expired');
+
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${order.id}`).toEqual([{ status: 'expired' }]);
+      expect(await avail(ALICE, 'USDT')).toBe('1000');
+      expect(postsWithReason('order.hold.released')).toHaveLength(1);
+    });
+
+    it('a cancel event with no reason, or another reason, stays a cancel and keeps the reason it was given', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const plain = await rest(ALICE, btcusdt, 'buy', '1', '100', 'alice-plain');
+      const pulled = await rest(ALICE, btcusdt, 'buy', '1', '99', 'alice-stp');
+      await trade.releaseOnCancelEvent(plain.id, '1');
+      await trade.releaseOnCancelEvent(pulled.id, '1', 'self_trade_prevention');
+      const asked = await rest(ALICE, btcusdt, 'buy', '1', '98', 'alice-asked');
+      await trade.releaseOnCancelEvent(asked.id, '1', 'requested');
+      expect(await sql`SELECT status, reject_code FROM trade.orders WHERE id = ${asked.id}`).toEqual([
+        { status: 'cancelled', reject_code: null },
+      ]);
+      expect(await sql`SELECT status, reject_code FROM trade.orders WHERE id = ${plain.id}`).toEqual([
+        { status: 'cancelled', reject_code: null },
+      ]);
+      expect(await sql`SELECT status, reject_code FROM trade.orders WHERE id = ${pulled.id}`).toEqual([
+        { status: 'cancelled', reject_code: 'self_trade_prevention' },
+      ]);
+      expect(await avail(ALICE, 'USDT')).toBe('1000');
+    });
+
     it("will not let one user cancel another user's order", async () => {
       await fund(ALICE, 'USDT', '1000');
       const order = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-1');

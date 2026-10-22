@@ -558,19 +558,41 @@ test('a lost order that never arrived: the person sends the SAME order again, on
   expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
 });
 
-test('market sell is off with a true reason; limit sell stays on', async ({ page }) => {
+test('market sell: the review shows the floor and the fee; it sends no price and fills', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
   await page.getByRole('tab', { name: 'Market' }).click();
+  await expect(sellForm(page).getByRole('textbox', { name: 'Price' })).toBeDisabled();
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
-  await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
-  await expect(sellForm(page)).toContainText('Market sells are off. Use a limit order.');
+  const sell = sellForm(page).getByRole('button', { name: 'Sell BTC' });
+  await expect(sell).toBeEnabled();
+  await expect(sellForm(page)).toContainText('Fee 0.10% · taker');
   await expect(page.locator('body')).not.toContainText('This can’t be done right now');
-  await shotBoth(page, 'desk-market-sell-off');
-  await page.getByRole('tab', { name: 'Limit' }).click();
-  await sellForm(page).getByRole('textbox', { name: 'Price' }).fill('66000');
+  await sell.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('Price protection');
+  await expect(dialog).toContainText(/You won’t sell for less than [\d,.]+ USDT per BTC/);
+  await expect(dialog).toContainText('Fee');
+  await shotBoth(page, 'desk-review-market-sell');
+  await dialog.getByRole('button', { name: 'Confirm sell' }).click();
+  await expect(sellForm(page)).toContainText('Your sell order filled: 0.0001 BTC');
+  const sent = m.requests('POST', 'orders')[0].body;
+  expect(sent).toMatchObject({ side: 'sell', type: 'market' });
+  expect('price' in sent).toBe(false);
+  expect(m.errors).toEqual([]);
+});
+
+test('a market sell the service refuses (no protection published) says so in words, and nothing is sent', async ({ page }) => {
+  const exchange = new Exchange();
+  exchange.opts.refusal = { code: 'trade.protection_unset', message: 'raw words from the service' };
+  const m = await mount(page, exchange);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
-  await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeEnabled();
+  await expect(sellForm(page).locator('.dk-note--bad')).toContainText('Price protection isn’t set');
+  await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
+  await expect(sellForm(page)).not.toContainText('trade.protection_unset');
+  await expect(sellForm(page)).not.toContainText('raw words from the service');
   expect(m.requests('POST', 'orders')).toHaveLength(0);
 });
 
@@ -743,10 +765,54 @@ test('time in force: post only, IOC and FOK are what the order sends; a market o
   await page.getByRole('combobox', { name: 'Time in force' }).click();
   await expect(page.getByRole('option')).toHaveText(['Standard', 'Fill or kill']);
   await page.keyboard.press('Escape');
-  await page.getByRole('tab', { name: 'Limit' }).click();
+  await page.getByRole('tab', { name: 'Limit', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Post only');
   expect(m.errors).toEqual([]);
   await shotBoth(page, 'desk-tif-post-only', { full: true });
+});
+
+test('self-trade: the one mode the engine has is picked and sent; the others are listed, disabled, with why', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  const stp = page.getByRole('combobox', { name: 'If it meets my own order' });
+  await expect(stp).toContainText('Cancel my resting order');
+  await stp.click();
+  await expect(page.getByRole('option', { name: 'Cancel this order' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('option', { name: 'Cancel both orders' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByText('the matching engine only cancels the resting order')).toBeVisible();
+  await shotBoth(page, 'desk-self-trade');
+  await page.keyboard.press('Escape');
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await openReview(page);
+  await expect(page.getByRole('alertdialog')).toContainText('If it meets your own order');
+  await expect(page.getByRole('alertdialog')).toContainText('Cancel my resting order');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Your buy order is in');
+  expect(m.requests('POST', 'orders')[0].body).toMatchObject({ stpMode: 'cancel_maker' });
+  expect(m.errors).toEqual([]);
+});
+
+test('a tag: typed once, shown in the review, sent with the order and shown on it; blank sends none', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  const tag = page.getByRole('textbox', { name: 'Tag' });
+  await expect(tag).toHaveAttribute('maxlength', '16');
+  await tag.fill('  grid-1  ');
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await openReview(page);
+  await expect(page.getByRole('alertdialog')).toContainText('grid-1');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Your buy order is in');
+  expect(m.requests('POST', 'orders')[0].body).toMatchObject({ tag: 'grid-1' });
+  await expect(openTable(page).locator('tbody tr').first()).toContainText('grid-1');
+
+  await tag.fill('');
+  await fillBuy(page, { price: '63999.8', amount: '0.0001' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Your buy order is in');
+  expect('tag' in m.requests('POST', 'orders')[1].body).toBe(false);
+  expect(m.errors).toEqual([]);
 });
 
 test('good till date: pick an expiry, the review shows it, the order sends it; a past time sends nothing', async ({ page }) => {
@@ -826,7 +892,7 @@ test('trailing stop is listed, disabled, with one reason; nothing is sent', asyn
   for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
   await shotBoth(page, 'desk-order-kinds-disabled');
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('tab', { name: 'Limit' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Limit', exact: true })).toHaveAttribute('aria-selected', 'true');
   expect(m.requests('POST', 'orders')).toHaveLength(0);
 });
 

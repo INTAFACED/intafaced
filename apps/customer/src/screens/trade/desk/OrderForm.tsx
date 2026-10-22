@@ -31,7 +31,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
-import { MoreOrderTypes, TifSelect } from './OrderOptions';
+import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -65,7 +65,7 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
@@ -155,6 +155,8 @@ interface SideProps {
   tif: Tif;
   /** The expiry a good-till-date pick carries (UTC ISO), or null while none valid is picked. Unused by other picks. */
   expireAt: string | null;
+  /** The person's own label for the order, trimmed; null when none. */
+  tag: string | null;
   onPlaced: () => void;
 }
 
@@ -173,6 +175,7 @@ function SideForm({
   autoFocus,
   tif,
   expireAt,
+  tag,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -264,14 +267,14 @@ function SideForm({
   const priced = isPriced(type);
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
-  const sellOff = marketSellOff(side, type);
   const exitOff = exitSideOff(side, type);
   const held = blocked || exitRetry !== null;
-  const tradable = signedIn && market.open && !held && !sellOff && !exitOff;
+  const tradable = signedIn && market.open && !held && !exitOff;
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
+    // The tag does not price the order: it joins only the reviewed and sent draft, so typing it never re-checks.
     return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
   }, [
     tradable,
@@ -358,7 +361,7 @@ function SideForm({
     setFailure(null);
     setStatus(null);
     // The number is given once per draft: a repeat review of the same order keeps it, so a send that was lost cannot become a second order.
-    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: '' });
+    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, tag, checked, clientOrderId: '' });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
@@ -724,15 +727,13 @@ function SideForm({
       </dl>
       <p className="dk-fees if-num">
         <span>
-          {sellOff
-            ? t('Fee at fill')
-            : live.state === 'ok' && feeRate(live.preview) !== null
-              ? live.preview.feeRole === 'maker'
-                ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-                : priced && tif === 'GTC'
-                  ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-                  : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-              : t('Fee unknown')}
+          {live.state === 'ok' && feeRate(live.preview) !== null
+            ? live.preview.feeRole === 'maker'
+              ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+              : priced && tif === 'GTC'
+                ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+            : t('Fee unknown')}
         </span>
         {listed ? (
           <span className="dk-fees-listed" title={t('Fee listed title')}>
@@ -761,7 +762,6 @@ function SideForm({
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
-        {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
         {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
@@ -956,6 +956,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           </dd>
         </div>
       ) : null}
+      {draft.stpMode ? (
+        <div>
+          <dt>{t('Review self trade')}</dt>
+          <dd>{t('Self trade cancel maker')}</dd>
+        </div>
+      ) : null}
+      {draft.tag ? (
+        <div>
+          <dt>{t('Review tag')}</dt>
+          <dd>{draft.tag}</dd>
+        </div>
+      ) : null}
       <div>
         <dt>{t('Review client id')}</dt>
         <dd>
@@ -1029,6 +1041,9 @@ export const OrderPanel = memo(function OrderPanel({
   // A good-till-date pick carries the expiry the trader types (local time); it is sent only once it names a future instant.
   const [expiry, setExpiry] = useState('');
   const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
+  // The person's own label, kept for the next orders until they clear it; blank sends none.
+  const [tagText, setTagText] = useState('');
+  const tag = tagText.trim() === '' ? null : tagText.trim();
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1153,6 +1168,7 @@ export const OrderPanel = memo(function OrderPanel({
     type,
     tif,
     expireAt,
+    tag,
   } as const;
   return (
     <Tabs
@@ -1193,6 +1209,12 @@ export const OrderPanel = memo(function OrderPanel({
           </label>
         ) : null}
       </div>
+      {market.open ? (
+        <div className="dk-order-opts">
+          <SelfTradeSelect />
+          <TagField value={tagText} onChange={setTagText} />
+        </div>
+      ) : null}
       {!market.open ? (
         <div className="dk-order-body">
           <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />

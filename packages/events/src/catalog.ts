@@ -467,7 +467,15 @@ export const orderCancelled = defineEvent(
   'order',
   'cancelled',
   1,
-  z.object({ orderId: engineOrderIdSchema, marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
+  z.object({
+    orderId: engineOrderIdSchema,
+    marketId: z.string(),
+    remainingQty: amountSchema,
+    sequence: z.number().int(),
+    // Why it left: the engine's cancel reason (`expired` for a GTD/GTT at its expiry). Absent from older producers;
+    // a consumer reads absent as a plain cancel.
+    reason: z.string().min(1).optional(),
+  }),
   'Order left the book — svc-trade releases the ledger hold.',
 );
 

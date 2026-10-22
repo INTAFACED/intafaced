@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
 
 const ready = {
   signedIn: true,
@@ -34,11 +34,9 @@ describe('gateSubmit', () => {
     expect(gateSubmit({ ...ready, busy: true })).toEqual({ canSend: false, reason: null });
   });
 
-  it('keeps market sells off, with a true reason, and leaves limit sells on', () => {
-    expect(marketSellOff('sell', 'market')).toBe(true);
-    expect(marketSellOff('sell', 'limit')).toBe(false);
-    expect(marketSellOff('buy', 'market')).toBe(false);
-    expect(gateSubmit({ ...ready, side: 'sell', type: 'market' })).toEqual({ canSend: false, reason: 'marketSell' });
+  it('opens market sells like market buys: the service preview carries their floor and fee, or refuses', () => {
+    expect(gateSubmit({ ...ready, side: 'sell', type: 'market' })).toEqual({ canSend: true, reason: null });
+    expect(gateSubmit({ ...ready, side: 'sell', type: 'market', live: 'blocked' })).toEqual({ canSend: false, reason: 'refused' });
     // An OCO works on both sides; a bracket is buy-only, so its sell side never opens.
     expect(gateSubmit({ ...ready, side: 'buy', type: 'oco' })).toEqual({ canSend: true, reason: null });
     expect(gateSubmit({ ...ready, side: 'sell', type: 'bracket' })).toEqual({ canSend: false, reason: 'exitSide' });
