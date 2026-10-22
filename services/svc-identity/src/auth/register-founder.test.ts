@@ -116,6 +116,19 @@ if (!available) {
       expect(used).toEqual([{ hash: invites.hashes[0], user_id: session.userId }]);
     });
 
+    it('refuses a password equal to the handle, the email or its local part with auth.password_policy and spends nothing', async () => {
+      const handle = unique();
+      for (const password of [handle, `${handle}@example.com`, handle.toUpperCase()]) {
+        await expect(
+          auth.registerFounder({ invite: invites.codes[0]!, handle, email: `${handle}@example.com`, password }, config, clock),
+        ).rejects.toMatchObject({ code: 'auth.password_policy' });
+      }
+      expect(await db.sql`SELECT count(*)::int AS n FROM users`).toEqual([{ n: 0 }]);
+      expect(await db.sql`SELECT count(*)::int AS n FROM founder_invites_used`).toEqual([{ n: 0 }]);
+      // The invite is still good for a valid password.
+      await expect(enrol(invites.codes[0]!)).resolves.toMatchObject({ userId: expect.any(String) });
+    });
+
     it('accepts the code however it is typed', async () => {
       const lower = invites.codes[0]!.toLowerCase().replaceAll('-', ' ');
       await expect(enrol(lower)).resolves.toMatchObject({ userId: expect.any(String) });
