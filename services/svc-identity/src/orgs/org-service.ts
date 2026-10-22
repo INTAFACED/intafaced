@@ -10,6 +10,7 @@
  * No balance. No ledger. Does not place an order. No approval-workflow UI.
  */
 import { randomUUID } from 'node:crypto';
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 
 export const ORG_ROLES = ['admin', 'trader', 'auditor', 'risk-manager'] as const;
@@ -65,7 +66,9 @@ export class OrgError extends Error {
       | 'org.second_approver_required'
       | 'org.self_approval'
       | 'org.second_approver_not_admin'
-      | 'org.invalid',
+      | 'org.invalid'
+      /** The change would leave the organization with no admin. */
+      | 'org.last_admin',
   ) {
     super(message);
     this.name = 'OrgError';
@@ -231,6 +234,7 @@ export async function addOrgMember(
 
 /**
  * Change an existing member's role. Granting admin needs a second distinct admin.
+ * Demoting the organization's last admin refuses with `org.last_admin`.
  */
 export async function grantOrgRole(
   sql: Sql,
@@ -259,6 +263,22 @@ export async function grantOrgRole(
 
   if (grant === 'admin') {
     await requireDistinctAdminApprover(sql, org, actor, secondApproverId);
+  }
+
+  if (existing[0].role === 'admin' && grant !== 'admin') {
+    // Demoting an admin must never leave the organization without one. Lock every
+    // admin seat (as removeOrgMember does) so a concurrent demotion or removal
+    // cannot slip past the count, then write inside the same transaction.
+    return transaction(sql, async (tx) => {
+      const admins = await tx<Array<{ user_id: string }>>`
+        SELECT user_id FROM organization_members WHERE org_id = ${org} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
+      if (!admins.some((a) => a.user_id === member)) throw new OrgError('Member not found', 'org.member_not_found');
+      if (admins.length <= 1) throw new OrgError('An organization must keep at least one admin', 'org.last_admin');
+      await tx`
+        UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
+      `;
+      return { orgId: org, userId: member, role: grant };
+    });
   }
 
   await sql`
