@@ -44,6 +44,7 @@ import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { loadMatchingVenueIncident } from './matching-venue-incident.js';
 import { presentVenueIncident } from './venue-incident-truth.js';
+import { configureChannelsPolicy } from './channels-policy.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -316,6 +317,8 @@ const edgeContext = createGuestIngressContext({
   opsSecret: env.NOTIFY_OPS_SERVICE_SECRET,
   ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
 });
+
+configureChannelsPolicy(env);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);

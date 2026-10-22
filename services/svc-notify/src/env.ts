@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { DEFAULT_SMS_MAX_CHARS, GATEWAY_ENV, parseRequiredChannels } from './channels/registry.js';
 import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
+import { isPushPublicKey, PUSH_PUBLIC_KEY_INVALID } from './push-public-key.js';
 
 /**
  * svc-notify environment.
@@ -125,10 +126,12 @@ const schema = serviceEnvSchema
       /**
        * The push gateway's PUBLIC application key (HM-notifications-02), handed to
        * devices on the signed-out channels policy read so they can subscribe.
-       * Owner value, no default. Blank means not configured: the read returns
-       * null and the device prompt shows the vendor.push notice. Never the token.
+       * NO DEFAULT: owner value. Blank means not configured: the read returns
+       * null and the device prompt shows the vendor.push notice. When set it must
+       * be an unpadded base64url uncompressed P-256 public key (65 bytes, 0x04),
+       * or the boot refuses with notify.push_public_key_invalid. Never the token.
        */
-      NOTIFY_PUSH_PUBLIC_KEY: blankAsAbsent(z.string().min(16).max(512).optional()),
+      NOTIFY_PUSH_PUBLIC_KEY: blankAsAbsent(z.string().trim().optional()),
 
       /** SMS gateway. */
       NOTIFY_SMS_GATEWAY_URL: blankAsAbsent(z.string().url().optional()),
@@ -289,6 +292,11 @@ const schema = serviceEnvSchema
     }),
   )
   .superRefine((parsed, ctx) => {
+    // Published to signed-out callers, so a private key or any other mis-set
+    // value must stop the boot rather than go out on the wire.
+    if (parsed.NOTIFY_PUSH_PUBLIC_KEY !== undefined && !isPushPublicKey(parsed.NOTIFY_PUSH_PUBLIC_KEY)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['NOTIFY_PUSH_PUBLIC_KEY'], message: PUSH_PUBLIC_KEY_INVALID });
+    }
     // A gateway URL with no credential is an open relay for anything that can
     // reach it. Refusing to boot is the correct response: the alternative is a
     // service that looks configured and posts unauthenticated notifications at
