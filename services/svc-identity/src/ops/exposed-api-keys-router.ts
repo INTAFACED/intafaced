@@ -19,7 +19,9 @@ export function createExposedApiKeyRouter(sql: Sql, bus: Pick<EventBus, 'publish
     apiKeyExposure: router({
       report: scopedProcedure('admin:write')
         .input(z.object({ key: z.string().min(1).max(512), clientRequestId: z.string().max(128) }).strict())
-        .output(z.object({ reportId: z.string().uuid(), received: z.literal(true), reportedAt: z.string().datetime({ offset: true }) }).strict())
+        .output(
+          z.object({ reportId: z.string().uuid(), received: z.literal(true), reportedAt: z.string().datetime({ offset: true }) }).strict(),
+        )
         .mutation(async ({ ctx, input }) => {
           try {
             return await reportExposedApiKey(sql, bus, ctx, input);
