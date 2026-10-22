@@ -1938,13 +1938,6 @@ export const WIRING_SOCKETS = [
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
   },
   {
-    event: 'personalTransferPosted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-bank publishes it for every posted send and keeps it owed until the bus takes it. svc-notify writes the sent and received receipts in the PP-send-request-18 svc-notify PR (next), idempotent per person. No screen promises a receipt from this event today.',
-  },
-  {
     event: 'personalRefundPosted',
     missing: 'publisher',
     class: 'A',
