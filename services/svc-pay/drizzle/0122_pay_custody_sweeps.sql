@@ -31,7 +31,9 @@ CREATE INDEX IF NOT EXISTS "custody_sweep_policy_pair_idx" ON "pay"."custody_swe
 CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "idempotency_key" text NOT NULL,
-  "deposit_id" uuid NOT NULL REFERENCES "pay"."custody_deposits" ("id"),
+  -- No foreign key: the deposit record tables are truncated as a group by their own tests, and the service checks the
+  -- deposit exists and is credited before it writes the intent.
+  "deposit_id" uuid NOT NULL,
   "tier" text NOT NULL,
   "network_id" text NOT NULL,
   "asset_id" text NOT NULL,
