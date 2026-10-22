@@ -201,13 +201,13 @@ describe('password sign-in refusals the service names (J-identity-02 #2, #7)', (
 
   it('asks for the second step after a right password, in words for this page', async () => {
     const alert = await signInAnswered(401, { intafacedCode: 'auth.mfa_required' });
-    expect(alert.textContent).toContain('enter the six-digit code from your authenticator app');
+    expect(alert.textContent).toContain('Enter it again with the six-digit code from your authenticator app');
     expect(alert.querySelector('a')).toBeNull();
   });
 
   it('refuses a wrong or used code the same way, without sending the person away', async () => {
     const alert = await signInAnswered(401, { intafacedCode: 'auth.mfa_invalid' });
-    expect(alert.textContent).toContain('That code did not work. Each code works once');
+    expect(alert.textContent).toContain('That code did not work. Every code works only once');
   });
 
   it('names a frozen account and points to support', async () => {

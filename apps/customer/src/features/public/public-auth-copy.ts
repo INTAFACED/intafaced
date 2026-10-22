@@ -41,9 +41,9 @@ export const publicAuthCopy = defineCopy(
     frozen: 'This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze, so contact them to ask why.',
     closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
     stateHelp: 'Contact support',
-    needCode: 'Your password is right. Now enter the six-digit code from your authenticator app, or one of your recovery codes.',
+    needCode: 'Your password is right. Enter it again with the six-digit code from your authenticator app, or with a recovery code.',
     codeMismatch:
-      'That code did not work. Each code works once and changes every 30 seconds. Enter a new code from your app, or a recovery code.',
+      'That code did not work. Every code works only once, and an app code changes every 30 seconds. Enter your password again with a new code.',
   } as const,
   {
     es: {
@@ -89,9 +89,9 @@ export const publicAuthCopy = defineCopy(
       closed: 'Esta cuenta está cerrada. Una cuenta cerrada no se puede reabrir. Contacta con el soporte si tienes alguna pregunta.',
       stateHelp: 'Contactar con el soporte',
       needCode:
-        'Tu contraseña es correcta. Ahora introduce el código de seis dígitos de tu aplicación de autenticación o uno de tus códigos de recuperación.',
+        'Tu contraseña es correcta. Introdúcela de nuevo con el código de seis dígitos de tu aplicación de autenticación o con un código de recuperación.',
       codeMismatch:
-        'Ese código no funcionó. Cada código sirve una sola vez y cambia cada 30 segundos. Introduce un código nuevo de tu aplicación o un código de recuperación.',
+        'Ese código no funcionó. Cada código sirve una sola vez y el de la aplicación cambia cada 30 segundos. Introduce de nuevo tu contraseña con un código nuevo.',
     },
     fr: {
       after: 'Après la connexion',
@@ -138,9 +138,9 @@ export const publicAuthCopy = defineCopy(
       closed: 'Ce compte est fermé. Un compte fermé ne peut pas être rouvert. Contactez le support si vous avez une question.',
       stateHelp: 'Contacter le support',
       needCode:
-        'Votre mot de passe est correct. Saisissez maintenant le code à six chiffres de votre application d’authentification, ou l’un de vos codes de récupération.',
+        'Votre mot de passe est correct. Saisissez-le à nouveau avec le code à six chiffres de votre application d’authentification, ou avec un code de récupération.',
       codeMismatch:
-        'Ce code n’a pas fonctionné. Chaque code ne sert qu’une fois et change toutes les 30 secondes. Saisissez un nouveau code de votre application, ou un code de récupération.',
+        'Ce code n’a pas fonctionné. Chaque code ne sert qu’une fois, et celui de l’application change toutes les 30 secondes. Saisissez à nouveau votre mot de passe avec un nouveau code.',
     },
   },
 );

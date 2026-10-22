@@ -215,7 +215,7 @@ test.describe('passkeys', () => {
     await other.goto('/login');
     await fillSignIn(other, who.email, who.password);
     // The right password alone asks for the second step, on this page.
-    await expect(other.getByRole('alert')).toContainText('Now enter the six-digit code from your authenticator app');
+    await expect(other.getByRole('alert')).toContainText('Enter it again with the six-digit code from your authenticator app');
     await expect(other).toHaveURL(/\/login/);
     let used;
     ({ code: used, step } = await nextCode(totp, secret, step));
@@ -230,7 +230,7 @@ test.describe('passkeys', () => {
     await third.goto('/login');
     await third.fill('input[name=totp]', used);
     await fillSignIn(third, who.email, who.password);
-    await expect(third.getByRole('alert')).toContainText('That code did not work. Each code works once');
+    await expect(third.getByRole('alert')).toContainText('That code did not work. Every code works only once');
     await expect(third).toHaveURL(/\/login/);
     await again.close();
 
