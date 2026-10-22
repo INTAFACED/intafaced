@@ -641,7 +641,16 @@ export type BankErrorCode =
   /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
   | 'bank.loan_params_invalid'
   /** A product id was reused with different terms. */
-  | 'bank.loan_product_conflict';
+  | 'bank.loan_product_conflict'
+  // ── Business bills (BK-bill-01) ──
+  | 'bank.bill_input_invalid'
+  /** Owner upload size cap is blank: refuse, never the reference product's value. */
+  | 'bank.bill_upload_limit_unset'
+  | 'bank.bill_file_type'
+  | 'bank.bill_file_too_large'
+  | 'bank.bill_not_approved'
+  | 'bank.bill_already_paid'
+  | 'bank.bill_possible_duplicate';
 
 export class BankError extends Error {
   constructor(
