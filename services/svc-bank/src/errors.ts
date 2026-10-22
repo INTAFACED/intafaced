@@ -637,7 +637,15 @@ export type BankErrorCode =
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
-  | 'bank.ops_audit_unavailable';
+  | 'bank.ops_audit_unavailable'
+  /** A saved activity filter name is blank or longer than 60 characters. */
+  | 'bank.activity_filter_name_invalid'
+  /** A saved activity filter carries no filter at all. */
+  | 'bank.activity_filter_empty'
+  /** That saved filter name already holds a different filter. */
+  | 'bank.activity_filter_conflict'
+  /** Saved filter page size unpublished. Blank is not 50. */
+  | 'bank.activity_filter_limit_unset';
 
 export class BankError extends Error {
   constructor(
