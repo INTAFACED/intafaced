@@ -758,6 +758,8 @@ export class SubscriptionService {
    * subscription onto the live crypto-invoice path; on one already there it
    * returns the record unchanged (setting it twice gives the same answer).
    * A cancelled or completed subscription refuses `pay.subscription_inactive`.
+   * Moving a card subscription refuses an inactive or KYB-blocked merchant
+   * (`pay.merchant_inactive` / the KYB gate code) before any write.
    */
   async setCollectionMethod(subscriptionId: string, method: CollectionMethod): Promise<SubscriptionRecord> {
     assertCollectionMethodAvailable(method);
@@ -766,6 +768,9 @@ export class SubscriptionService {
       throw new PayError(`Subscription ${subscriptionId} is ${existing.status}`, 'pay.subscription_inactive');
     }
     if (collectionMethodOf(existing.path) === method) return existing;
+    // Moving onto crypto_invoice opens money on the next cycle (openInvoice has no merchant check):
+    // the same status + KYB cut-off as creating a mandate or subscription.
+    this.assertMerchantMayOpenMoney(await this.requireMerchant(existing.merchantId));
     const at = this.now();
     const rows = await this.sql<SubRow[]>`
       UPDATE pay.subscriptions
