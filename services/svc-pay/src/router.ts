@@ -19,7 +19,9 @@ import {
   payLinkListPageSchema,
   payMerchantFailureSchema,
   payPageSchema,
+  payPaymentAttemptSchema,
   payPaymentListInputSchema,
+  payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
@@ -1070,23 +1072,25 @@ export function createPayRouter(
 
       get: scopedProcedure('pay:read', { module: 'pay' })
         .input(z.object({ paymentId: z.string().uuid() }))
-        .output(paymentView)
+        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
             // learn which merchant it belongs to — so what the check protects
             // is the RESPONSE, and it must come before the return, not after
-            // the caller has the object.
+            // the caller has the object. Attempts are read only after that.
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            return paymentOut(payment, audience, false);
+            const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const body = await paymentOut(payment, audience, false);
+            return { ...body, attempts };
           }),
         ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
       list: scopedProcedure('pay:read', { module: 'pay' })
         .input(payPaymentListInputSchema)
-        .output(payPageSchema(paymentView))
+        .output(payPageSchema(paymentView).extend({ summary: payPaymentListSummarySchema }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
@@ -1098,6 +1102,7 @@ export function createPayRouter(
                 failure: item.failure,
               })),
               nextCursor: page.nextCursor,
+              summary: page.summary,
             };
           }),
         ),

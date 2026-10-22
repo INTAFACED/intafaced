@@ -403,7 +403,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               requestId: id,
               kind: z.enum(EXPORT_KINDS),
               filters: z
-                .object({ from: iso.optional(), to: iso.optional(), status: z.string().max(32).optional(), assetId: assetIdIn.optional() })
+                .object({
+                  from: iso.optional(),
+                  to: iso.optional(),
+                  status: z.string().max(32).optional(),
+                  assetId: assetIdIn.optional(),
+                  amountMin: z.string().optional(),
+                  amountMax: z.string().optional(),
+                })
                 .strict()
                 .default({}),
               columns: z

@@ -34,6 +34,41 @@ export const payPaymentListInputSchema = z
      * belongs to another merchant is an empty page, not an error.
      */
     linkId: z.string().uuid().optional(),
+    /**
+     * Inclusive amount bounds, decimal strings. Omitted means no bound.
+     * A blank string is not "no bound": the service refuses it.
+     */
+    amountMin: z.string().optional(),
+    amountMax: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * Totals for the filter, not the loaded page. Counts are decimal integer
+ * strings. `successRate` is a whole percent, half up, or null when nothing
+ * in the filter has finished.
+ */
+export const payPaymentListSummarySchema = z
+  .object({
+    matchedCount: z.string().regex(/^(?:0|[1-9]\d*)$/),
+    succeededCount: z.string().regex(/^(?:0|[1-9]\d*)$/),
+    failedCount: z.string().regex(/^(?:0|[1-9]\d*)$/),
+    finishedCount: z.string().regex(/^(?:0|[1-9]\d*)$/),
+    successRate: z
+      .string()
+      .regex(/^(?:100|[1-9]?\d)$/)
+      .nullable(),
+  })
+  .strict();
+
+/** One rail try on a payment. `mapsTo` is the status that try means before capture. */
+export const payPaymentAttemptSchema = z
+  .object({
+    id: z.string().uuid(),
+    at: payTimestampSchema,
+    status: z.enum(['pending', 'authorized', 'failed']),
+    railRef: z.string().nullable(),
+    mapsTo: z.enum(['created', 'authorized', 'failed']),
   })
   .strict();
 

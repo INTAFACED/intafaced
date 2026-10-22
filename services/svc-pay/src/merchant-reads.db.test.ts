@@ -16,6 +16,7 @@ import { teamReadFromSql } from './merchant-team-read.js';
 import { createPayHaltsRouter } from './namespaces/pay-halts.js';
 import { PayService } from './payment-service.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
+import { ExportService } from './merchant-ops/exports.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { RailRegistry } from './rails/registry.js';
 import { createPayRouter } from './router.js';
@@ -264,6 +265,112 @@ describe('merchant team reads, list pages, and stored detail', () => {
       (await owner.settlement.list({ merchantId: mine.id, limit: 10, search: 'payout-ref-w2c' })).items.map((item) => item.id),
     ).toEqual([pending!.id]);
     expect((await owner.settlement.list({ merchantId: mine.id, limit: 10, search: '2099-01-01' })).items).toHaveLength(1);
+  });
+
+  it('counts the filter, searches the merchant reference only, and lists each rail try', async () => {
+    const mine = await merchant(OWNER);
+    const named = await pay.createPayment({
+      merchantId: mine.id,
+      amount: parseAmount('10'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: 'tok_ok' },
+      metadata: { reference: 'ord-77', name: 'Alice', email: 'alice@example.com' },
+    });
+    const other = await pay.createPayment({
+      merchantId: mine.id,
+      amount: parseAmount('25'),
+      assetId: 'USDT',
+      method: 'card',
+      railAdapter: 'card-sandbox',
+      instrument: { kind: 'card', token: 'tok_ok' },
+      customerRef: 'cust-beta',
+    });
+    const failed = await payment(mine.id, 'USDT');
+    await pay.authorize(named.id);
+    await pay.authorize(other.id);
+    await sql`UPDATE pay.payments SET status = 'captured'::pay.payment_status WHERE id IN (${named.id}, ${other.id})`;
+    await sql`UPDATE pay.payments SET status = 'failed'::pay.payment_status WHERE id = ${failed.id}`;
+
+    const owner = router.createCaller(await ctx(['pay:read', 'pay:write'], OWNER));
+    const page = await owner.payment.list({ merchantId: mine.id, limit: 1 });
+    expect(page.items).toHaveLength(1);
+    expect(page.summary).toEqual({
+      matchedCount: '3',
+      succeededCount: '2',
+      failedCount: '1',
+      finishedCount: '3',
+      successRate: '67',
+    });
+    expect(JSON.stringify(page)).not.toContain('alice@example.com');
+    expect(JSON.stringify(page)).not.toContain('Alice');
+
+    expect((await owner.payment.list({ merchantId: mine.id, limit: 10, search: 'ord-77' })).items.map((item) => item.id)).toEqual([
+      named.id,
+    ]);
+    expect((await owner.payment.list({ merchantId: mine.id, limit: 10, search: 'Alice' })).items).toHaveLength(0);
+    expect((await owner.payment.list({ merchantId: mine.id, limit: 10, search: 'alice@example.com' })).items).toHaveLength(0);
+    expect(
+      (await owner.payment.list({ merchantId: mine.id, limit: 10, amountMin: '20', amountMax: '30' })).items.map((item) => item.id),
+    ).toEqual([other.id]);
+    await expect(owner.payment.list({ merchantId: mine.id, limit: 10, amountMin: '' })).rejects.toMatchObject({
+      message: expect.stringContaining('pay.list_amount_invalid'),
+    });
+    await expect(owner.payment.list({ merchantId: mine.id, limit: 10, amountMin: '30', amountMax: '20' })).rejects.toMatchObject({
+      message: expect.stringContaining('pay.list_amount_range_invalid'),
+    });
+    await expect(pay.listPayments({ merchantId: mine.id, limit: 10, amountMin: ' 10' })).rejects.toMatchObject({
+      code: 'pay.list_amount_invalid',
+    });
+
+    const detail = await owner.payment.get({ paymentId: named.id });
+    expect(detail.railRef).toEqual(expect.any(String));
+    expect(detail.attempts).toHaveLength(1);
+    expect(detail.attempts[0]).toMatchObject({ status: 'authorized', mapsTo: 'authorized' });
+    await sql`
+      INSERT INTO pay.payment_events (payment_id, event, payload)
+      VALUES (
+        ${named.id},
+        'rail.authorize',
+        ${sql.json({
+          ok: false,
+          status: 'failed',
+          railRef: 'rail-try-2',
+          amount: '10',
+          assetId: 'USDT',
+          at: '2026-04-02T00:00:00.000Z',
+          failureCode: 'card.declined',
+          failureReason: null,
+        })}
+      )`;
+    const both = await owner.payment.get({ paymentId: named.id });
+    expect(both.attempts.map((attempt) => attempt.status)).toEqual(['authorized', 'failed']);
+    expect(both.attempts[1]).toMatchObject({ railRef: 'rail-try-2', mapsTo: 'failed' });
+    expect(both.status).toBe('captured');
+
+    const exports = new ExportService(sql);
+    const caller = { userId: OWNER, merchantId: mine.id, role: 'owner' as const };
+    await expect(
+      exports.create(caller, { requestId: randomUUID(), kind: 'payments', filters: { amountMin: '' }, columns: ['payment_id', 'amount'] }),
+    ).rejects.toMatchObject({ code: 'pay.export_filter_invalid' });
+    const job = await exports.create(caller, {
+      requestId: randomUUID(),
+      kind: 'payments',
+      filters: { status: 'failed', amountMin: '5', amountMax: '15' },
+      columns: ['payment_id', 'amount'],
+    });
+    expect(await exports.process(job.job.jobId)).toBe(true);
+    const file = await exports.download(caller, job.job.jobId);
+    expect(file.rowCount).toBe(1);
+    expect(file.fileName).toMatch(/\.csv$/);
+    const lines = file.content.split('\r\n').filter((line) => line.length > 0);
+    expect(lines[0]).toBe('payment_id,amount');
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain(failed.id);
+    expect(lines[1]).toContain(formatAmount(parseAmount('10')));
+    expect(file.content).not.toContain(named.id);
+    expect(file.content).not.toContain('alice@example.com');
   });
 
   it('returns the stored fee, settlement timestamps, payment lines, and a safe failure', async () => {
@@ -527,8 +634,13 @@ describe('merchant team reads, list pages, and stored detail', () => {
       cursor: open.nextCursor!,
     });
     const missing = await owner.payment.list({ merchantId: mine.id, limit: 10, linkId: randomUUID() });
-    expect(foreign).toEqual({ items: [], nextCursor: null });
-    expect(missing).toEqual(foreign);
+    const empty = {
+      items: [],
+      nextCursor: null,
+      summary: { matchedCount: '0', succeededCount: '0', failedCount: '0', finishedCount: '0', successRate: null },
+    };
+    expect(foreign).toEqual(empty);
+    expect(missing).toEqual(empty);
     await expect(owner.payment.list({ merchantId: mine.id, limit: 10, linkId: 'not-a-link' })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
