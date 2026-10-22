@@ -70,12 +70,14 @@ interface GridProps {
   setMode: (mode: ChartStyle) => void;
   setScheme: (scheme: ColourScheme) => void;
   openSocket?: WidgetProps['openSocket'];
+  /** Add-ons on the first chart only (the workbench's drawings): the chart's host and the bars it draws. */
+  mainAddons?: WidgetProps['addons'];
 }
 
 const inField = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-export function ChartGrid({ market, markets, workbench, setting, setInterval, setMode, setScheme, openSocket }: GridProps) {
+export function ChartGrid({ market, markets, workbench, setting, setInterval, setMode, setScheme, openSocket, mainAddons }: GridProps) {
   const { t } = chartsCopy.useCopy();
   const { userId } = useSession();
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
@@ -403,6 +405,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   onScheme={i === 0 ? setScheme : undefined}
                   openSocket={openSocket}
                   onHost={(host) => onHost(i, host)}
+                  addons={i === 0 ? mainAddons : undefined}
                   command={commands[i] ?? null}
                   markets={markets}
                 />
