@@ -34,6 +34,7 @@ import {
 } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
+import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -74,6 +75,10 @@ export function createMerchantControlRouter(control?: ControlService) {
           .input(merchantControlGetInputSchema)
           .output(merchantControlProfileSchema)
           .query(() => notBuilt('merchantControl.get')),
+        reserve: read
+          .input(merchantControlGetInputSchema)
+          .output(merchantReserveViewSchema)
+          .query(() => notBuilt('merchantControl.reserve')),
         approvals: router({
           list: read
             .input(merchantControlApprovalListInputSchema)
@@ -99,6 +104,16 @@ export function createMerchantControlRouter(control?: ControlService) {
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
             return control.profile(input.merchantId);
+          }),
+        ),
+      /** M-money-out-01: reserve rule and recorded amounts, labelled recorded and not withheld. */
+      reserve: read
+        .input(merchantControlGetInputSchema)
+        .output(merchantReserveViewSchema)
+        .query(({ ctx, input }) =>
+          guarded(async () => {
+            await control.assertCanView(principalOf(ctx), input.merchantId);
+            return control.reserve(input.merchantId);
           }),
         ),
       usage: read

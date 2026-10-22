@@ -44,6 +44,7 @@ import {
   toTier,
 } from './store.js';
 import type { MerchantRole } from '../merchant-ops/roles.js';
+import { readMerchantReserve, type MerchantReserveView } from '../merchant-pay-dev-out/reserve-read.js';
 
 const fmt = formatAmount;
 
@@ -127,6 +128,11 @@ export class ControlService {
       version: (control.profile?.version ?? 0n).toString(),
       updatedAt: control.profile?.updatedAt ? control.profile.updatedAt.toISOString() : null,
     };
+  }
+
+  /** M-money-out-01: reserve rule and recorded (not withheld) amounts. Read only. */
+  reserve(merchantId: string): Promise<MerchantReserveView> {
+    return readMerchantReserve(this.sql, merchantId, this.now());
   }
 
   /** One rule per asset: the most specific layer wins. */

@@ -22,6 +22,14 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { BankError } from './errors.js';
+import {
+  FRAUD_BLOCK_STANCES,
+  FRAUD_PREVIEW_ACTIONS,
+  FRAUD_RISK_BANDS,
+  FRAUD_SIGNALS,
+  fraudPreview,
+  refuseFraudPreviewAction,
+} from './cards/fraud-preview.js';
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
@@ -1957,6 +1965,36 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * one release. Overlapping releases share the loan row lock, so they cannot
      * each pass the product cap.
      */
+    /**
+     * Redeem-excess read (BK-loan-05): the most collateral `releaseExcess` would
+     * release now under the product's max LTV. Self-only. Posts nothing.
+     */
+    releasable: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ loanId: z.string().uuid() }))
+      .output(
+        z.object({
+          loanId: z.string(),
+          held: amountString,
+          releasable: amountString,
+          maxLtvBps: z.number().int(),
+          ltvBps: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const loan = await bank.loans.loan(input.loanId);
+          assertSelf(ctx.principal.userId, loan.userId);
+          const read = await bank.loans.releasable(input.loanId);
+          return {
+            loanId: input.loanId,
+            held: formatAmount(read.held),
+            releasable: formatAmount(read.releasable),
+            maxLtvBps: read.maxLtvBps,
+            ltvBps: read.ltvBps,
+          };
+        }),
+      ),
+
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
@@ -2595,6 +2633,40 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * not this door. Bank maker-checker is not this door.
    */
   const ops = router({
+    /**
+     * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
+     * and blurred; no authorisation carries a score until an engine exists.
+     */
+    fraudPreview: scopedProcedure('admin:treasury')
+      .output(
+        z.object({
+          label: z.literal('Preview · sample data'),
+          engine: z.string(),
+          preview: z.literal(true),
+          blurred: z.literal(true),
+          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
+          automaticBlocking: z.literal('unavailable'),
+          rows: z.array(
+            z.object({
+              testAuthorisationRef: z.string().startsWith('TEST-'),
+              test: z.literal(true),
+              band: z.enum(FRAUD_RISK_BANDS),
+              signals: z.array(z.enum(FRAUD_SIGNALS)),
+            }),
+          ),
+        }),
+      )
+      .query(() => {
+        const view = fraudPreview();
+        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
+      }),
+    /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
+    fraudPreviewAction: scopedProcedure('admin:treasury')
+      .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
+      .output(
+        z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
+      )
+      .mutation(({ input }) => refuseFraudPreviewAction(input.action)),
     runDueTransfers: jobProcedure
       .input(z.object({ limit: z.number().int().min(1).max(10_000).optional() }))
       .output(

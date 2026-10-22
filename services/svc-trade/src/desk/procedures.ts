@@ -40,6 +40,7 @@ export function algoDeskProcedures(trade: TradeService) {
       .input(
         z.object({
           status: z.string().optional(),
+          kind: z.string().optional(),
           from: z.string().optional(),
           limit: z.number().int().optional(),
           cursor: z.string().optional(),
