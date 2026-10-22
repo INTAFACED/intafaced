@@ -195,12 +195,72 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     expect(out.csv.trim().split('\n')).toHaveLength(trades.length + 1);
     const sum = trades.reduce((a, t) => a + t.amount, 0n);
     const fiat = trades.reduce((a, t) => a + t.fiatAmount, 0n);
-    expect(out.totals).toEqual([{ asset: ASSET, fiatCurrency: 'USD', amount: formatAmount(sum), fiatAmount: formatAmount(fiat) }]);
+    expect(out.totals).toEqual([
+      { role: 'buyer', asset: ASSET, fiatCurrency: 'USD', amount: formatAmount(sum), fiatAmount: formatAmount(fiat) },
+    ]);
     expect(out.totals[0]?.amount).toBe('32.5');
     const audit = await sql<
       Array<{ kind: string; row_count: number; format: string }>
     >`SELECT kind, row_count, format FROM p2p.export_audit`;
     expect(audit).toEqual([{ kind: 'export', row_count: 2, format: 'csv' }]);
+  });
+
+  it('totals count released trades only and split buys from sells', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    await fund(TAKER, '1000');
+    // TAKER buys 20 (released) from MAKER's sell offer.
+    await released('20');
+    // TAKER buys 30 but the trade is cancelled: excluded from totals.
+    const offer = await sell();
+    const dropped = await p2p.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount('30'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+    });
+    await p2p.cancelTrade(dropped.id, TAKER);
+    // TAKER sells 15 (released) into MAKER's buy offer.
+    const buyOffer = await sell({ side: 'buy' });
+    const sold = await p2p.takeOffer({
+      offerId: buyOffer.id,
+      takerId: TAKER,
+      amount: parseAmount('15'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+    });
+    await p2p.markFiatSent(sold.id, MAKER);
+    await p2p.confirmFiatReceived(sold.id, TAKER);
+
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(out.rows).toBe(3);
+    expect(out.totals).toEqual([
+      { role: 'buyer', asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' },
+      { role: 'seller', asset: ASSET, fiatCurrency: 'USD', amount: '15', fiatAmount: '15' },
+    ]);
+    const maker = await caller(MAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(maker.totals).toEqual([
+      { role: 'buyer', asset: ASSET, fiatCurrency: 'USD', amount: '15', fiatAmount: '15' },
+      { role: 'seller', asset: ASSET, fiatCurrency: 'USD', amount: '20', fiatAmount: '20' },
+    ]);
+  });
+
+  it('a range with only cancelled trades has no totals', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    const offer = await sell();
+    const t = await p2p.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount('25'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+    });
+    await p2p.cancelTrade(t.id, TAKER);
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    expect(out.rows).toBe(1);
+    expect(out.totals).toEqual([]);
   });
 
   it('every new or changed procedure refuses without p2p:read', async () => {

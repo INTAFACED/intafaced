@@ -1101,7 +1101,8 @@ export function createP2pRouter(
        * P-trade-orders-14: export under owner range and row caps
        * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
        * `p2p.config_unset`), one audit row per export, totals as decimal
-       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       * strings over released trades only, one row per caller side
+       * (`buyer` / `seller`) per asset and fiat. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
        */
       export: merchantApiProcedure('p2p:read')
         .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))
@@ -1110,7 +1111,15 @@ export function createP2pRouter(
             csv: z.string(),
             rows: z.number().int().nonnegative(),
             format: z.literal('csv'),
-            totals: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
+            totals: z.array(
+              z.object({
+                role: z.enum(['buyer', 'seller']),
+                asset: z.string(),
+                fiatCurrency: z.string(),
+                amount: amountString,
+                fiatAmount: amountString,
+              }),
+            ),
           }),
         )
         .query(async ({ ctx, input }) =>
