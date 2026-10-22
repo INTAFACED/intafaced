@@ -139,7 +139,8 @@ export const appRouter = createIndexerRouter({
   claimLiveClob: env.APP_ENV === 'prod',
   explorer: {
     listLimit: parseExplorerListLimit(env.INDEXER_EXPLORER_LIST_LIMIT),
-    blockFacts: async () => store.explorerBlockFacts(),
+    blocks: (q) => store.explorerBlocks(q),
+    block: (q) => store.explorerBlock(q),
   },
 });
 export type AppRouter = typeof appRouter;

@@ -165,48 +165,55 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       expect(row).toMatchObject({ data_type: 'numeric', numeric_precision: 38, numeric_scale: 18 });
     });
 
+    it('D-explorer-01: header facts stored with the block; DB paging and lookup; FK holds', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const hash = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(32)}`;
+      const header = { gasUsed: 21_000n, gasLimit: 30_000_000n, baseFeePerGas: null, miner: `0x${'ab'.repeat(20)}`, txCount: 1, size: 612 };
+      let parent = `0x${'00'.repeat(32)}`;
+      for (let h = 0; h < 4; h++) {
+        await store.applyBlock({
+          chainId: CHAIN_ID,
+          height: h,
+          hash: hash(0x50 + h),
+          parentHash: parent,
+          timestamp: 1_700_000_000 + h,
+          events: [],
+          ...(h === 3 ? {} : { header }),
+        });
+        parent = hash(0x50 + h);
+      }
+      // Height 3 has no header: never stored as a partial fact row.
+      const first = await store.explorerBlocks({ limit: 2 });
+      expect(first.map((f) => f.height)).toEqual([2, 1, 0]);
+      expect(first[0]).toEqual({
+        chainId: CHAIN_ID,
+        height: 2,
+        hash: hash(0x52),
+        gasUsed: 21_000n,
+        gasLimit: 30_000_000n,
+        baseFeePerGas: null,
+        miner: header.miner,
+        txCount: 1,
+        size: 612,
+        timestamp: 1_700_000_002,
+        orphaned: null,
+      });
+      expect((await store.explorerBlocks({ cursor: 1, limit: 2 })).map((f) => f.height)).toEqual([0]);
+      expect((await store.explorerBlock({ height: 1 }))?.hash).toBe(hash(0x51));
+      expect((await store.explorerBlock({ hash: hash(0x50) }))?.height).toBe(0);
+      expect(await store.explorerBlock({ height: 3 })).toBeNull();
+      expect(await store.explorerBlock({ height: 999_999_999 })).toBeNull();
+      await expect(
+        db.sql`INSERT INTO explorer_block_facts (chain_id, hash, gas_used, gas_limit, miner, tx_count, size) VALUES (${CHAIN_ID}, ${hash(0x99)}, 1, 1, ${header.miner}, 0, 0)`,
+      ).rejects.toThrow(/foreign key/);
+    });
+
     /**
      * Parent-link / height-gap parity with MemoryProjectionStore (memory #1420).
      * The store is the last line of defence if a second writer or corrupt apply
      * tries to plant an unlinked height.
      */
-    it('D-explorer-01: stores header facts with the block, reads them back, absent header stores none', async () => {
-      await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
-      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
-      const H0 = `0x${'51'.repeat(32)}`;
-      const H1 = `0x${'52'.repeat(32)}`;
-      const header = { gasUsed: 21_000n, gasLimit: 30_000_000n, baseFeePerGas: null, miner: `0x${'ab'.repeat(20)}`, txCount: 1, size: 612 };
-      await store.applyBlock({
-        chainId: CHAIN_ID,
-        height: 0,
-        hash: H0,
-        parentHash: `0x${'00'.repeat(32)}`,
-        timestamp: 1_700_000_000,
-        events: [],
-        header,
-      });
-      await store.applyBlock({ chainId: CHAIN_ID, height: 1, hash: H1, parentHash: H0, timestamp: 1_700_000_001, events: [] });
-      const facts = await store.explorerBlockFacts();
-      expect(facts).toEqual([
-        {
-          chainId: CHAIN_ID,
-          height: 0,
-          hash: H0,
-          gasUsed: 21_000n,
-          gasLimit: 30_000_000n,
-          baseFeePerGas: null,
-          miner: header.miner,
-          txCount: 1,
-          size: 612,
-          timestamp: 1_700_000_000,
-          orphaned: null,
-        },
-      ]);
-      await expect(
-        db.sql`INSERT INTO explorer_block_facts (chain_id, hash, gas_used, gas_limit, miner, tx_count, size) VALUES (${CHAIN_ID}, ${`0x${'99'.repeat(32)}`}, 1, 1, ${header.miner}, 0, 0)`,
-      ).rejects.toThrow(/foreign key/);
-    });
-
     it('refuses parent mismatch and height gaps without moving head', async () => {
       await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
       const store = new PostgresProjectionStore(db.sql, CHAIN_ID);

@@ -76,8 +76,32 @@ export function listBlocks(
 export const INDEXER_EXPLORER_UNWIRED = 'indexer.explorer_unwired' as const;
 export const PROTOCOL_NOT_FOUND = 'protocol.not_found' as const;
 
+/** Rows ordered height DESC (canonical first), fetched with LIMIT limit+1. */
+export function pageRows(rows: readonly ExplorerBlockFact[], limit: number): { rows: ExplorerBlockFact[]; nextCursor: number | null } {
+  if (rows.length <= limit) return { rows: [...rows], nextCursor: null };
+  const cut = rows[limit]!.height;
+  // Never split one height across pages: drop the cut height, the next page
+  // (height < cut + 1) starts with it. Keep it only when it fills the page alone.
+  const kept = rows.slice(0, limit).filter((r) => r.height !== cut);
+  if (kept.length === 0) return { rows: rows.slice(0, limit), nextCursor: cut };
+  return { rows: kept, nextCursor: cut + 1 };
+}
+
 /** What the router needs to serve explorer blocks. Absent => `indexer.explorer_unwired`. */
 export interface ExplorerBlocksSource {
   readonly listLimit: ListLimit;
-  readonly blockFacts: (chainId: number) => Promise<readonly ExplorerBlockFact[]>;
+  /** WHERE height < cursor ORDER BY height DESC LIMIT limit + 1, for `pageRows`. */
+  readonly blocks: (q: { cursor?: number; limit: number }) => Promise<readonly ExplorerBlockFact[]>;
+  /** By height (canonical first) or hash; null when not stored. */
+  readonly block: (q: { height: number } | { hash: string }) => Promise<ExplorerBlockFact | null>;
+}
+
+/** In-memory source over a fact list (tests, memory store). */
+export function memoryExplorerSource(listLimit: ListLimit, facts: readonly ExplorerBlockFact[]): ExplorerBlocksSource {
+  const ordered = [...facts].sort((a, b) => b.height - a.height || Number(a.orphaned !== null) - Number(b.orphaned !== null));
+  return {
+    listLimit,
+    blocks: async ({ cursor, limit }) => ordered.filter((f) => cursor === undefined || f.height < cursor).slice(0, limit + 1),
+    block: async (q) => ('hash' in q ? ordered.find((f) => f.hash === q.hash) : ordered.find((f) => f.height === q.height)) ?? null,
+  };
 }

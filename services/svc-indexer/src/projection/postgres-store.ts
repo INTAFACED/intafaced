@@ -1,4 +1,20 @@
 import type { ExplorerBlockFact } from '../explorer/blocks.js';
+
+interface ExplorerFactRow {
+  height: string;
+  hash: string;
+  gas_used: string;
+  gas_limit: string;
+  base_fee_per_gas: string | null;
+  miner: string;
+  tx_count: number;
+  size: number;
+  block_time: Date;
+  status: string;
+}
+const EXPLORER_COLS =
+  'b.height, b.hash, f.gas_used::text AS gas_used, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
+const EXPLORER_FROM = 'FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash';
 import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
@@ -75,34 +91,33 @@ export class PostgresProjectionStore implements ProjectionStore {
 
   // ── Projection ────────────────────────────────────────────────────────────
 
-  /**
-   * One transaction for the block record and every event it carries.
-   *
-   * Read-committed plus a transaction-scoped lock for this schema and chain.
-   * The normal ingest loop is one writer; the lock also serializes competing
-   * writers and reorg repairs so identity checks see the preceding commit.
-   */
-  /** D-explorer-01: every block with header facts, canonical and orphaned. */
-  async explorerBlockFacts(): Promise<ExplorerBlockFact[]> {
-    const rows = await this.sql<
-      Array<{
-        height: string;
-        hash: string;
-        gas_used: string;
-        gas_limit: string;
-        base_fee_per_gas: string | null;
-        miner: string;
-        tx_count: number;
-        size: number;
-        block_time: Date;
-        status: string;
-      }>
-    >`
-      SELECT b.height, b.hash, f.gas_used, f.gas_limit, f.base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status
-      FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash
-      WHERE f.chain_id = ${this.chainId}
+  // ── Explorer (D-explorer-01) ─────────────────────────────────────────────
+
+  /** WHERE height < cursor ORDER BY height DESC LIMIT limit + 1 (canonical first). */
+  async explorerBlocks(q: { cursor?: number; limit: number }): Promise<ExplorerBlockFact[]> {
+    const rows = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} ${q.cursor === undefined ? this.sql`` : this.sql`AND b.height < ${q.cursor}`}
+      ORDER BY b.height DESC, (b.status = 'orphaned') ASC, b.hash ASC
+      LIMIT ${q.limit + 1}
     `;
-    return rows.map((r) => ({
+    return rows.map((r) => this.#fact(r));
+  }
+
+  /** By hash, or by height (canonical first). null when not stored. */
+  async explorerBlock(q: { height: number } | { hash: string }): Promise<ExplorerBlockFact | null> {
+    const where = 'hash' in q ? this.sql`AND b.hash = ${q.hash}` : this.sql`AND b.height = ${q.height}`;
+    const [row] = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} ${where}
+      ORDER BY (b.status = 'orphaned') ASC
+      LIMIT 1
+    `;
+    return row ? this.#fact(row) : null;
+  }
+
+  #fact(r: ExplorerFactRow): ExplorerBlockFact {
+    return {
       chainId: this.chainId,
       height: Number(r.height),
       hash: r.hash,
@@ -113,10 +128,18 @@ export class PostgresProjectionStore implements ProjectionStore {
       txCount: r.tx_count,
       size: r.size,
       timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+      // LEFT: the real orphan reason is not stored yet (see PR "Still left").
       orphaned: r.status === 'orphaned' ? { reason: 'reorg' } : null,
-    }));
+    };
   }
 
+  /**
+   * One transaction for the block record and every event it carries.
+   *
+   * Read-committed plus a transaction-scoped lock for this schema and chain.
+   * The normal ingest loop is one writer; the lock also serializes competing
+   * writers and reorg repairs so identity checks see the preceding commit.
+   */
   async applyBlock(block: ChainBlock): Promise<ApplyOutcome> {
     assertValidBlock(block);
 

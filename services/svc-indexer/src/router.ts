@@ -19,7 +19,7 @@ import {
   INDEXER_EXPLORER_LIST_LIMIT_UNSET,
   INDEXER_EXPLORER_UNWIRED,
   PROTOCOL_NOT_FOUND,
-  listBlocks,
+  pageRows,
   toRow,
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
@@ -271,11 +271,14 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
             try {
               const explorer = explorerOrRefuse(deps);
               const owner = explorer.listLimit;
-              if (!owner.ok || (input.limit !== undefined && input.limit > owner.limit)) {
+              if (!owner.ok) {
                 throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
               }
-              const facts = input.chainId === deps.chainId ? await explorer.blockFacts(input.chainId) : [];
-              const page = listBlocks(facts, { limit: input.limit ?? owner.limit, cursor: input.cursor });
+              // Owner limit bounds the window: a larger caller limit is clamped, not refused.
+              const limit = Math.min(input.limit ?? owner.limit, owner.limit);
+              const fetched = input.chainId === deps.chainId ? await explorer.blocks({ cursor: input.cursor, limit }) : [];
+              const paged = pageRows(fetched, limit);
+              const page = { rows: paged.rows.map(toRow), nextCursor: paged.nextCursor };
               return { ...page, asOf: new Date().toISOString() };
             } catch (err) {
               throw toTrpcError(err);
@@ -293,11 +296,10 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
           .query(async ({ input }) => {
             try {
               const explorer = explorerOrRefuse(deps);
-              const facts = input.chainId === deps.chainId ? await explorer.blockFacts(input.chainId) : [];
               const match =
-                'hash' in input
-                  ? facts.find((f) => f.hash === input.hash.toLowerCase())
-                  : (facts.find((f) => f.height === input.height && !f.orphaned) ?? facts.find((f) => f.height === input.height));
+                input.chainId !== deps.chainId
+                  ? null
+                  : await explorer.block('hash' in input ? { hash: input.hash.toLowerCase() } : { height: input.height });
               if (!match) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
               return toRow(match);
             } catch (err) {

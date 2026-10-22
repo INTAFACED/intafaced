@@ -22,6 +22,7 @@ import {
   INDEXER_EXPLORER_LIST_LIMIT_UNSET,
   INDEXER_EXPLORER_UNWIRED,
   PROTOCOL_NOT_FOUND,
+  memoryExplorerSource,
   parseExplorerListLimit,
   type ExplorerBlockFact,
 } from './blocks.js';
@@ -65,7 +66,7 @@ function caller(explorer: IndexerRouterDeps['explorer'], halt = false) {
     explorer,
   }).createCaller(anonymous());
 }
-const wired = (raw: string | undefined = '2') => ({ listLimit: parseExplorerListLimit(raw), blockFacts: async () => FACTS });
+const wired = (raw: string | undefined = '2') => memoryExplorerSource(parseExplorerListLimit(raw), FACTS);
 
 describe('indexer.explorer.blocks', () => {
   it('unset list limit refuses typed', async () => {
@@ -88,17 +89,26 @@ describe('indexer.explorer.blocks', () => {
     expect(page.rows.map((r) => [r.height, r.orphaned?.reason ?? null])).toEqual([
       [3, null],
       [3, 'reorg'],
-      [2, null],
     ]);
     expect(page.rows[0]!.utilisation).toBe('0.25');
     expect(page.rows[0]!.baseFeePerGas).toBeNull();
-    expect(page.nextCursor).toBe(2);
+    expect(page.nextCursor).toBe(3);
     expect(typeof page.asOf).toBe('string');
-    const next = await caller(wired()).explorer.blocks.list({ chainId: CHAIN_ID, cursor: 2 });
-    expect(next.rows.map((r) => r.height)).toEqual([1]);
+    const next = await caller(wired()).explorer.blocks.list({ chainId: CHAIN_ID, cursor: 3 });
+    expect(next.rows.map((r) => r.height)).toEqual([2, 1]);
+    expect(next.nextCursor).toBeNull();
   });
-  it('a caller limit above the owner limit refuses', async () => {
-    await expect(caller(wired()).explorer.blocks.list({ chainId: CHAIN_ID, limit: 3 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  it('a caller limit above the owner limit is clamped, not refused', async () => {
+    const page = await caller(wired()).explorer.blocks.list({ chainId: CHAIN_ID, limit: 50 });
+    expect(page.rows.map((r) => r.height)).toEqual([3, 3]);
+    expect(page.nextCursor).toBe(3);
+  });
+  it('a caller limit below the owner limit is honoured', async () => {
+    const page = await caller(memoryExplorerSource(parseExplorerListLimit('10'), FACTS)).explorer.blocks.list({
+      chainId: CHAIN_ID,
+      limit: 3,
+    });
+    expect(page.rows.map((r) => r.height)).toEqual([3, 3, 2]);
   });
   it('gets by height (canonical) and by hash (orphan)', async () => {
     const c = caller(wired());
