@@ -11,6 +11,7 @@ import {
   publishSection,
   readRegister,
 } from './privacy-register.js';
+import { openBreach, PRIVACY_BREACH_CONFLICT, PrivacyBreachError } from './privacy-breach.js';
 
 const section = z.enum(PRIVACY_SECTIONS);
 const entry = z.union([
@@ -39,6 +40,10 @@ const publishedEntry = z
   .strict();
 
 function privacyError(error: unknown): never {
+  if (error instanceof PrivacyBreachError) {
+    const code = error.code === PRIVACY_BREACH_CONFLICT ? 'CONFLICT' : 'BAD_REQUEST';
+    throw new TRPCError({ code, message: `${userCopy(error.code)} [${error.code}]`, cause: error });
+  }
   if (error instanceof PrivacyRegisterError) {
     const code =
       error.code === PRIVACY_VERSION_CONFLICT ? 'CONFLICT' : error.code === PRIVACY_APPROVAL_REQUIRED ? 'FORBIDDEN' : 'PRECONDITION_FAILED';
@@ -86,6 +91,37 @@ export function createPrivacyRegisterRouter(sql: Sql) {
           .mutation(async ({ ctx, input }) => {
             try {
               return await publishSection(sql, actor(ctx), input);
+            } catch (error) {
+              privacyError(error);
+            }
+          }),
+      }),
+      breach: router({
+        /** Compliance: log an incident (time and affected-user count) and queue its notice for svc-notify. */
+        open: scopedProcedure('admin:compliance')
+          .input(
+            z
+              .object({
+                incidentId: z.string().max(256),
+                occurredAt: z.string().max(64),
+                affectedCount: z.number().int(),
+              })
+              .strict(),
+          )
+          .output(
+            z
+              .object({
+                incidentId: z.string(),
+                occurredAt: z.string(),
+                affectedCount: z.number().int(),
+                openedAt: z.string(),
+                changed: z.boolean(),
+              })
+              .strict(),
+          )
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await openBreach(sql, actor(ctx), input);
             } catch (error) {
               privacyError(error);
             }
