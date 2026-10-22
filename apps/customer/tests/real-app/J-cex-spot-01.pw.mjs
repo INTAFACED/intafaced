@@ -1,11 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
 
-// J-cex-spot-01, in the running app: /mnt/project-files/operation-zero/modules/cex-spot/acceptance/journeys.md and
-// docs/roadmap/journeys.json. One test per step, titled "J-cex-spot-01 #<n>", run in order on one TEST account. Every
-// number here is a TEST number on the local stack; the ledger is read through the customer's own API after each move.
+// J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
+// order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
+// customer's own API after each move.
 const J = 'J-cex-spot-01';
-const PASSWORD = 'TEST-pass-phrase-1234';
 const DESK = '/trade/spot/BTC-USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -91,7 +91,8 @@ async function confirm(page, side) {
 
 test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   const handle = `jt${Date.now().toString(36)}`;
-  const who = { handle, email: `${handle}@local-test.invalid`, password: PASSWORD };
+  // A fresh TEST password per run, kept only in the run file (mode 600).
+  const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
   await page.goto('/register');
   await page.fill('input[name=handle]', handle);
   await page.fill('input[name=identifier]', who.email);
