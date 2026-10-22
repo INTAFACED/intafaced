@@ -1,7 +1,7 @@
 -- Exposed-key intake (DV-keys-05, keys-012, ENGINE KS-13). One row per operator report, matched or not. No key string,
 -- prefix or hash is stored: a matched report names the key id it revoked; a miss names none. `published_at` is the
 -- outbox mark for the owner notice event; null means the publish is still owed and is retried on the same report id.
--- Reversal: 0065_api_key_exposure_reports.down.sql
+-- Reversal: 0073_api_key_exposure_reports.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."api_key_exposure_reports" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
