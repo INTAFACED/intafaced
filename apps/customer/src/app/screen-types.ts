@@ -12,6 +12,7 @@ export type ScreenId =
   | 'trade/otc'
   | 'trade/futures'
   | 'trade/margin'
+  | 'charts'
   | 'pay'
   | 'more'
   | 'notifications'

@@ -188,6 +188,23 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/charts',
+    title: 'Charts',
+    description: 'Linked charts for one market',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'charts',
+  },
+  {
+    path: '/charts/:symbol',
+    title: 'Charts',
+    description: 'Linked charts for one market',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+    screen: 'charts',
+  },
+  {
     path: '/trade/buy',
     title: 'Buy and sell',
     description: 'Buy crypto in a few steps',
