@@ -1742,7 +1742,9 @@ export class TradeService {
     assertQty(market, input.qty);
     // A bracket's exit for a filled entry is neither banded nor capped: refusing it would leave the position
     // without its stop. A replacement takes the slot its original frees, and a reduce-only order only shrinks.
-    const protectiveExit = await this.isPendingBracketExit(principal.userId, input.clientOrderId);
+    // The exit is the one sell placed after its entry stopped resting; nothing else borrows the exemption.
+    const protectiveExit =
+      input.side === 'sell' && (await this.isPendingBracketExit(principal.userId, input.clientOrderId, { entryDone: true }));
     await assertOperatorRiskOnPlace(
       this.sql,
       market,
@@ -5592,12 +5594,18 @@ export class TradeService {
    * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
    * stored bracket intent that has no exit yet.
    */
-  private async isPendingBracketExit(userId: string, clientOrderId: string): Promise<boolean> {
+  private async isPendingBracketExit(userId: string, clientOrderId: string, opts: { entryDone?: boolean } = {}): Promise<boolean> {
     const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
     if (!exitOf) return false;
-    const pending = await this.sql`
-      SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
-    `;
+    const pending = opts.entryDone
+      ? await this.sql`
+          SELECT 1 FROM trade.order_bracket_intent i JOIN trade.orders o ON o.id = i.order_id
+           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.exit_order_id IS NULL
+             AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+        `
+      : await this.sql`
+          SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+        `;
     return pending.length > 0;
   }
 

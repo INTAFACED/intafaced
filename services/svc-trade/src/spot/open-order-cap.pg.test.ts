@@ -267,6 +267,9 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     await expect(exit()).rejects.toMatchObject({ code: 'trade.operator_throttle', data: { cap: '1', open: '1' } });
     await expect(rest(alice, btc, 'ob-reduce', { reduceOnly: true })).resolves.toBeTruthy();
     await db.sql`INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss) VALUES (${entry.id}, ${ALICE}, 60, 40)`;
+    // The entry still rests: the stored intent alone does not exempt its exit from the operator cap.
+    await expect(exit()).rejects.toMatchObject({ code: 'trade.operator_throttle' });
+    await db.sql`UPDATE trade.orders SET status = 'filled' WHERE id = ${entry.id}`;
     expect((await exit()).clientOrderId).toBe(`bracket:${entry.id}:exit`);
     await expect(rest(alice, btc, 'ob-after')).rejects.toMatchObject({ code: 'trade.operator_throttle' });
   });
