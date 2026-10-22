@@ -65,6 +65,7 @@ import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createFactorStatusRouter } from './factor-status-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -564,6 +565,7 @@ export const appRouter = mergeRouters(
     securityStepUp,
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
+  createFactorStatusRouter(sql),
   createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
@@ -789,6 +791,22 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return state;
+});
+
+/**
+ * Whether a user's current email is proved (RC-identity-01), `emailProofSchema`. svc-trade reads it per order and
+ * refuses a new custodial order while it is `missing`. Service credentials only; no address in the answer.
+ * Unknown user → 404, which the caller refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const proof = await auth.emailProof(req.params.userId);
+  if (!proof) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return proof;
 });
 
 /**

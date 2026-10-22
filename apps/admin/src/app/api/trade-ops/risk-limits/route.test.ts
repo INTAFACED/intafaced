@@ -116,14 +116,32 @@ describe('risk limits route', () => {
     expect(urls().every((u) => u.includes('admin.risk.get'))).toBe(true);
   });
 
-  it('applies through admin.risk.set with the approval id, and passes the service refusal through in its words', async () => {
+  const approval = (status: string) => ({
+    approvalId: 'ap-1',
+    actionType: 'trade.risk_set',
+    targetService: 'svc-trade',
+    targetId: MARKET,
+    expectedVersion: '2',
+    payloadHash: 'sha256:x',
+    requesterId: ME,
+    approverId: status === 'PENDING' ? null : '00000000-0000-4000-8000-000000000002',
+    policyVersion: 'trade-risk-set-v1',
+    createdAt: '2026-10-22T00:00:00.000Z',
+    expiresAt: '2026-10-22T01:00:00.000Z',
+    status,
+    operationId: 'op-minted-by-identity',
+  });
+
+  it('applies through admin.risk.set with the approval id and its own operation id, and passes the service refusal through in its words', async () => {
     fetchMock.mockImplementation(async (url: URL) =>
       String(url).includes('admin.risk.set')
         ? json(
             { error: { json: { message: 'approval was already consumed', data: { code: 'BAD_REQUEST', appCode: 'approval_reused' } } } },
             400,
           )
-        : json({ result: { data: { json: current('2') } } }),
+        : String(url).includes('actionApproval.get')
+          ? json({ result: { data: { json: approval('APPROVED') } } })
+          : json({ result: { data: { json: current('2') } } }),
     );
     const res = await post({ action: 'apply', market: MARKET, values, reason: REASON, approvalId: 'ap-1' });
     expect(res.status).toBe(400);
@@ -133,7 +151,20 @@ describe('risk limits route', () => {
       market: MARKET,
       expectedVersion: '2',
       approvalId: 'ap-1',
+      operationId: 'op-minted-by-identity',
       limits: { collar: '0.05', fatFinger: null, slippageCap: '100' },
     });
+  });
+
+  it('writes nothing while the request still waits for a second founder', async () => {
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('actionApproval.get')
+        ? json({ result: { data: { json: approval('PENDING') } } })
+        : json({ result: { data: { json: current('2') } } }),
+    );
+    const res = await post({ action: 'apply', market: MARKET, values, reason: REASON, approvalId: 'ap-1' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ kind: 'refused', code: 'action_approval.pending' });
+    expect(urls().some((u) => u.includes('admin.risk.set'))).toBe(false);
   });
 });

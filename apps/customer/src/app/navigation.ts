@@ -32,6 +32,7 @@ export const rooms: readonly Room[] = [
   { path: '/register', title: 'Create account', description: 'Your personal account', area: 'public', hidden: true },
   { path: '/reg', title: 'Create account', description: 'Your personal account', area: 'public', alias: '/register' },
   { path: '/findPwd', title: 'Password recovery', description: 'Recover account access', area: 'public', hidden: true },
+  { path: '/confirm-email', title: 'Confirm email', description: 'Prove your email address', area: 'public', hidden: true },
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },

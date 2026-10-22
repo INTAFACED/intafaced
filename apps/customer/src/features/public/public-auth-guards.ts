@@ -80,6 +80,8 @@ export function knownAuthRefusal(kind: AuthKind, answer: ApiResult<unknown>): bo
       'auth.mfa_required': 401,
       'auth.mfa_invalid': 401,
       'auth.not_found': 404,
+      // The per-account pause after too many wrong passwords (svc-identity attempt-lockout): nothing was signed in.
+      'auth.too_many_attempts': 429,
     },
     passkey: { 'auth.invalid_credentials': 401, 'auth.account_frozen': 403, 'auth.webauthn_not_enrolled': 403 },
   };

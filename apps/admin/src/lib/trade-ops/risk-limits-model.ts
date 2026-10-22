@@ -61,9 +61,9 @@ export const ENGINE_CHECKS: readonly EngineCheck[] = [
   {
     id: 'price_collar',
     field: 'collar',
-    name: 'Price collar',
-    what: 'Refuses an order priced too far from a reference price.',
-    unit: 'Decimal, up to 18 places.',
+    name: 'Price band',
+    what: 'Refuses a buy priced above, or a sell priced below, this fraction around the middle of the best bid and ask. With no bid or ask on the book there is no band, since an order there cannot trade against anything. A bracket’s stop for a filled entry is never refused.',
+    unit: 'A fraction of the price: 0.1 is 10%.',
     kind: 'decimal',
   },
   {
@@ -85,8 +85,8 @@ export const ENGINE_CHECKS: readonly EngineCheck[] = [
   {
     id: 'message_throttle',
     field: 'throttle',
-    name: 'Message throttle',
-    what: 'Limits how many orders or cancels one account may send in a period.',
+    name: 'Open-order cap',
+    what: 'Refuses a new order that would rest when the account already has this many open on the market. Market, IOC and FOK orders do not count.',
     unit: 'Whole number.',
     kind: 'integer',
   },

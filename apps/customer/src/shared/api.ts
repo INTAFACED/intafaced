@@ -15,6 +15,8 @@ export type ApiResult<T> =
       requestId?: string;
       /** Only on `auth.too_many_attempts`: whole seconds until a retry can help, as the service sent it. */
       retryAfterSeconds?: number;
+      /** Only on sign-in's `auth.account_frozen`, sent after the password verified: which state the account is in. */
+      accountState?: 'frozen' | 'closed';
     };
 export type RequestOptions = {
   signal?: AbortSignal;
@@ -64,6 +66,7 @@ const errorEnvelope = z
                 intafacedCode: z.string().optional(),
                 requestId: z.string().optional(),
                 retryAfterSeconds: z.number().int().positive().optional(),
+                accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -211,6 +214,7 @@ export function createApiClient(
           ...(code ? { code } : {}),
           ...(requestId ? { requestId } : {}),
           ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),
+          ...(code === 'auth.account_frozen' && error?.data?.accountState ? { accountState: error.data.accountState } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

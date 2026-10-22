@@ -52,7 +52,7 @@ describe('openIdentityMail', () => {
     const text = readFileSync(outbox, 'utf8');
     expect(text).toContain('LOCAL-TEST');
     expect(text).toContain('purpose=email-confirm');
-    expect(text).toContain(`link=confirmEmail?token=${encodeURIComponent(token)}`);
+    expect(text).toContain(`link=confirm-email?token=${encodeURIComponent(token)}`);
     expect(written.join('')).not.toContain(token);
     expect(readFileSync(new URL('./local-mail.ts', import.meta.url), 'utf8')).not.toMatch(
       /nodemailer|resend|sendgrid|mailgun|postmark|amazonaws/i,
@@ -67,7 +67,7 @@ describe('openIdentityMail', () => {
       purpose: 'email-confirm',
     });
     expect(line).toBe(
-      'LOCAL-TEST purpose=email-confirm email=ab@example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=tok\n',
+      'LOCAL-TEST purpose=email-confirm email=ab@example.com expires=2026-10-17T00:00:00.000Z link=confirm-email?token=tok\n',
     );
   });
 });

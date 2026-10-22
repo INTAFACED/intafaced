@@ -29,6 +29,7 @@ export {
 export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
 export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
+export { formatAmount, parseAmount } from '../../shared/money';
 export { fractionDigits } from '../../data/decimal';
 export { fetchMe, resolveHandle, cleanHandle, type MeOutcome, type ResolveOutcome } from '../../data/identity';
 

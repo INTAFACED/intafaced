@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState, mailedCodes, nextMailedCode } from './stack.mjs';
+import { EDGE, api, fund, journeyState, mailedCodes, mailedConfirmLinks, nextMailedCode } from './stack.mjs';
+import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } from './desk.mjs';
 
 // J-identity-01, in the running app (docs/roadmap/journeys.json): sign up with an email, get the code, land signed in.
 // One test per step this build serves, titled "J-identity-01 #<n>". Every person here is a TEST person on the local
 // stack; the codes are read from the stack's LOCAL-TEST mail outbox, as the person would read their inbox. The stack's
-// TEST owner values: minimum age 18, sign-up closed for AQ, five wrong codes lock, a new code after 30 s.
+// TEST owner values: minimum age 18, sign-up closed for AQ, five wrong codes lock, a new code after 30 s, five
+// confirmation emails an hour.
 const J = 'J-identity-01';
 const ORIGIN = 'http://127.0.0.1:3210';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -68,6 +70,21 @@ test(`${J} #2 a too-short password is refused with the rule in words before any 
   expect(mailedCodes(who.email)).toHaveLength(0);
 });
 
+test(`${J} #3 a social or wallet sign-in button says it needs an outside provider that is switched off, with the code`, async ({
+  page,
+}) => {
+  for (const path of ['/register', '/login']) {
+    for (const name of ['Continue with a social account', 'Continue with a wallet']) {
+      await page.goto(path);
+      await page.getByRole('button', { name }).click();
+      const alert = page.getByRole('alert').filter({ hasText: 'outside sign-in provider' });
+      await expect(alert).toContainText('switched off in this build');
+      await expect(alert).toContainText('idp.social');
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+    }
+  }
+});
+
 test(`${J} #4 "check your email" reads the same for a known address, and an early resend says the seconds left`, async ({ page }) => {
   const who = run.read().account;
   // The account made in #5 does not exist yet, so use a second TEST person who signs up fully first.
@@ -124,4 +141,157 @@ test(`${J} #5 enters the code and is signed in on Home; wrong codes lock with a 
   });
   expect(again.status).toBe(409);
   expect(JSON.stringify(await again.json())).toContain('identity.signup_code_used');
+});
+
+/** A TEST account whose email was never proved: made through the dev stack's direct register, as older accounts were. */
+async function unprovedAccount() {
+  const who = person();
+  const res = await fetch(`${EDGE}/api/identity/trpc/auth.register`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: who.handle, email: who.email, password: who.password, region: 'DE' }),
+  });
+  expect(res.status).toBe(200);
+  return who;
+}
+
+async function signIn(page, who) {
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
+async function nextLink(email, seen) {
+  const until = Date.now() + 20_000;
+  for (;;) {
+    const links = mailedConfirmLinks(email);
+    if (links.length > seen) return links.at(-1);
+    if (Date.now() > until) throw new Error(`no confirmation email reached the LOCAL-TEST outbox for ${email}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+test(`${J} #7 and #6 Account shows "verify your email", sends a link, and the opened link shows the email verified; opened again it is used`, async ({
+  page,
+}) => {
+  const who = await unprovedAccount();
+  await signIn(page, who);
+  await page.goto('/uc/account');
+  const banner = page.getByRole('region', { name: 'Verify your email address' });
+  await expect(banner).toBeVisible();
+
+  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await expect(banner.getByRole('status')).toContainText('a confirmation link is on its way');
+  // The person opens the link exactly as mailed.
+  const link = await nextLink(who.email, 0);
+  const token = new URL(link, 'http://x').searchParams.get('token');
+  expect(link).toMatch(/^\/confirm-email\?token=/);
+  await page.goto(link);
+  // Opening the page spends nothing; the person presses Confirm. The token leaves the address bar.
+  await expect(page).toHaveURL(/\/confirm-email$/);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+
+  await page.goto('/uc/account');
+  await expect(page.getByText('Your email address is verified.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Verify your email address' })).toHaveCount(0);
+
+  // Step 6 on the same link, now used: a page that names it and the next step, never the token.
+  await page.goto(link);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('send a new one');
+  await expect(page.getByRole('link', { name: 'Go to Account' })).toBeVisible();
+  expect(await page.content()).not.toContain(token);
+});
+
+test(`${J} #6 a confirmation link with no token or a wrong one is a page with the next step, not an error code`, async ({ page }) => {
+  await page.goto('/confirm-email');
+  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+  await page.goto('/confirm-email?token=not-a-real-token');
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+  expect(await page.content()).not.toContain('not-a-real-token');
+});
+
+test(`${J} #7b asking for more confirmation emails than the hour allows says how long to wait, and nothing more is sent`, async ({
+  page,
+}) => {
+  const who = await unprovedAccount();
+  await signIn(page, who);
+  await page.goto('/uc/account');
+  const banner = page.getByRole('region', { name: 'Verify your email address' });
+  for (let i = 0; i < 5; i++) {
+    await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+    await expect(banner.getByRole('status')).toContainText('on its way');
+  }
+  await expect.poll(() => mailedConfirmLinks(who.email).length).toBe(5);
+  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await expect(banner.getByRole('alert')).toContainText(/You can ask again in \d+ min\./);
+  await expect(banner.getByRole('alert')).toContainText('auth.email_confirm_rate_limited');
+  expect(mailedConfirmLinks(who.email)).toHaveLength(5);
+});
+
+test(`${J} #8 a verified, funded account with an email never proved is stopped at the trade room until it proves it`, async ({ page }) => {
+  test.setTimeout(120_000);
+  const who = await unprovedAccount();
+  await signIn(page, who);
+  // Identity verification and TEST funds, so the email is the only thing missing.
+  await verify(page, who);
+  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  await signIn(page, who);
+
+  // The room says it before the person tries, and links back to step 7.
+  await page.goto(deskPath());
+  const notice = page.getByRole('region', { name: 'Confirm your email to place orders' });
+  await expect(notice).toBeVisible();
+  await expect(notice.getByRole('link', { name: 'Confirm email' })).toHaveAttribute('href', '/uc/account');
+
+  // Trying anyway: the order is refused in plain words, nothing rests and nothing is held.
+  const price = await awayBid();
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price' }).nth(0).fill(price);
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(0).fill('0.01'));
+  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await expect(reviewSheet(page)).toBeVisible();
+  const placed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  const answer = await placed;
+  expect(answer.status()).toBe(403);
+  expect(JSON.stringify(await answer.json())).toContain('trade.email_proof_required');
+  await expect(page.getByText('Confirm your email first').first()).toBeVisible();
+  expect(await openOrders(who)).toHaveLength(0);
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+
+  // Security shows the same send-proof control as Account.
+  await page.goto('/uc/safe');
+  await expect(page.getByRole('region', { name: 'Verify your email address' })).toBeVisible();
+
+  // Step 7 from the link: send, open the mailed link, confirm.
+  await page.goto(deskPath());
+  await page.getByRole('region', { name: 'Confirm your email to place orders' }).getByRole('link', { name: 'Confirm email' }).click();
+  await expect(page).toHaveURL(/\/uc\/account$/);
+  const banner = page.getByRole('region', { name: 'Verify your email address' });
+  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await page.goto(await nextLink(who.email, 0));
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+
+  // Proved: the notice is gone and the same order now rests.
+  await page.goto(deskPath());
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Confirm your email to place orders' })).toHaveCount(0);
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price' }).nth(0).fill(price);
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(0).fill('0.01'));
+  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(reviewSheet(page)).toHaveCount(0);
+  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
+  // Leave the book as it was: cancel the TEST order through the person's own API.
+  const [open] = await openOrders(who);
+  const gone = await (await api(who)).delete(`/api/v1/orders/${encodeURIComponent(open.id)}?symbol=${encodeURIComponent('BTC/USDT')}`);
+  expect(gone.status).toBeLessThan(300);
 });

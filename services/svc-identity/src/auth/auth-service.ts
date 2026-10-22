@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState } from '@intafaced/contracts';
+import type { AccountState, EmailProof } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -163,13 +163,19 @@ export class AuthError extends Error {
       | 'auth.step_up_required'
       | 'auth.step_up_expired'
       | 'pay.role_not_allowed',
-    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
-    readonly details?: { readonly retryAfterSeconds?: number },
+    /**
+     * Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
+     * `accountState`: set by sign-in's `auth.account_frozen`, only after the password (or a provider) verified who it is.
+     */
+    readonly details?: { readonly retryAfterSeconds?: number; readonly accountState?: 'frozen' | 'closed' },
   ) {
     super(message);
     this.name = 'AuthError';
   }
 }
+
+/** Sign-in's `details` for a non-active account, once the person proved who they are. Only `closed` is final. */
+const accountStateOf = (status: string) => ({ accountState: status === 'closed' ? ('closed' as const) : ('frozen' as const) });
 
 /** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
 export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
@@ -430,7 +436,10 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
   await tx.unsafe(query.text, query.values);
 }
 
-/** A password-policy refusal at registration answers the typed `auth.password_policy`, as change and reset do. */
+/**
+ * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
+ * `auth.password_policy`, as change and reset do, before any hashing.
+ */
 function policyRefusal(check: () => void): void {
   try {
     check();
@@ -819,7 +828,10 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
     return this.finishRegistration(userId, input);
@@ -897,7 +909,10 @@ export class AuthService {
     const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
     if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
 
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
     try {
@@ -982,11 +997,14 @@ export class AuthService {
     const passwordOk = await verifyPassword(storedHash, input.password);
     if (locked) throw locked;
     if (!user || !passwordOk) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
     // The password verified: it is no longer a guess. Clear its counter NOW, before the
     // two-step TOTP flow (password first, code second), so a correct password is never
     // left counting against the owner. The mfa counter is separate and stays.
     await recordSuccess(this.sql, user.id, 'password');
+    // Named only to someone who just proved the password, so the state is never a probe. A closed
+    // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
+    // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
@@ -1013,7 +1031,8 @@ export class AuthService {
       Array<{ id: string; status: string; totp_secret: string | null }>
     >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // The provider proved the identity, so the state is named as on password sign-in.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
@@ -2055,6 +2074,20 @@ export class AuthService {
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+  }
+
+  /**
+   * Whether the account's current email is proved (RC-identity-01), for svc-trade's order gate. Null for an unknown
+   * user, which the caller must refuse on, never read as proved.
+   */
+  async emailProof(userId: string): Promise<EmailProof | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<Array<{ id: string; email_verified_at: Date | string | null }>>`
+      SELECT id, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
   }
 
   /**

@@ -53,6 +53,21 @@ export const accountStateSchema = z.object({
 export type AccountState = z.infer<typeof accountStateSchema>;
 
 /**
+ * Whether the account's current email address is proved (RC-identity-01), for a service that gates an action on it:
+ * svc-trade refuses a new custodial order while it is `missing`. Read per request from svc-identity's
+ * `GET /internal/email-proof/:userId`, service-authenticated; never copied. A separate shape from `AccountState` on
+ * purpose: that projection is status and KYC tier "and literally nothing else", and support stores it as cited.
+ * No address in it, only the fact.
+ */
+export const emailProofSchema = z
+  .object({
+    userId: z.string().uuid(),
+    emailProof: z.enum(['accepted', 'missing']),
+  })
+  .strict();
+export type EmailProof = z.infer<typeof emailProofSchema>;
+
+/**
  * The perk table other services query (§4.1). Machine-readable on purpose:
  * svc-trade reads `feeDiscountBps` and applies it without knowing what a rank
  * means, which is why rank can be re-tuned without touching a second service.

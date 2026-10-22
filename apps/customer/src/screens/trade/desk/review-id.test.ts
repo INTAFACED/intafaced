@@ -23,6 +23,10 @@ describe('the order number of a reviewed draft', () => {
     expect(reviewIdFor(ALICE, { ...draft, side: 'sell' })).not.toBe(a);
   });
 
+  it('keeps its number when only the tag changes: the tag is a label, not part of the order', () => {
+    expect(reviewIdFor(ALICE, { ...draft, tag: 'grid-1' })).toBe(reviewIdFor(ALICE, draft));
+  });
+
   it('is not shared between people', () => {
     expect(reviewIdFor(BOB, draft)).not.toBe(reviewIdFor(ALICE, draft));
   });

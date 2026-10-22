@@ -26,7 +26,8 @@ function hashOf(body: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
-const bodyOf = (draft: Unnumbered): string => JSON.stringify(draft);
+/** The order itself: the tag is the person's label, never part of the order's identity (the service keys without it). */
+const bodyOf = ({ tag: _tag, ...draft }: Unnumbered): string => JSON.stringify(draft);
 
 /** The number for this draft: the one already given to the same draft, or a new one. */
 export function reviewIdFor(userId: string, draft: Unnumbered, mint: () => string = () => crypto.randomUUID().slice(0, 8)): string {

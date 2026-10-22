@@ -36,6 +36,7 @@ import {
   type OfferLimitPolicy,
 } from './merchant-limits.js';
 import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
+import { COMPLETION_DEFINITION } from './completion-rate.js';
 import { DISPLAY_STATUSES, ORDER_TABS, displayStatus, tabOf } from './order-list.js';
 import { EXPORT_FORMATS } from './export-receipt.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
@@ -246,13 +247,26 @@ const disputeOutput = z.object({
   lastSeenByModeratorAt: z.string().nullable(),
 });
 
+const appealOutput = z.object({
+  id: z.string().uuid(),
+  userId: z.string(),
+  tradeId: z.string().uuid(),
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submittedAt: z.string(),
+  reviewDueAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+});
+
 const ownStatsOutput = z.object({
   ordersTotal: z.number().int().nonnegative(),
   completed: z.number().int().nonnegative(),
   cancelled: z.number().int().nonnegative(),
   disputed: z.number().int().nonnegative(),
-  completionRate: z.number().min(0).max(1),
-  cancelRate: z.number().min(0).max(1),
+  completionRate: z.number().min(0).max(1).nullable(),
+  cancelRate: z.number().min(0).max(1).nullable(),
   avgReleaseSecs: z.number().int().nonnegative().nullable(),
   avgPaySecs: z.number().int().nonnegative().nullable(),
   volume: z.array(
@@ -284,6 +298,16 @@ const reputationOutput = z.object({
   }),
   /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
   trades30d: z.number().int().nonnegative(),
+  /** P-trade-orders-21: decimal-string percents ("95.24"); null when nothing is counted. Definition in `completionDefinition`. */
+  completionRate30d: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionRateTotal: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() }),
   /** Buyer side: average seconds from escrow lock to "marked paid". Null with no sample, never 0-as-fast. */
   avgPaySecs: z.number().int().nonnegative().nullable(),
   /** Order reviews arrive with P-ads-merchant-21. Until then there is no rating, and none is invented. */
@@ -455,12 +479,15 @@ function toTrpcError(err: unknown): TRPCError {
       // out of a database it could honestly report on, wrote nothing, and the
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
+      case 'p2p.appeal_used':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.reason_required':
+      case 'p2p.appeal_not_eligible':
       case 'p2p.cursor_invalid':
       case 'p2p.filter_invalid':
       case 'p2p.export_range_too_large':
@@ -2485,6 +2512,18 @@ export function createP2pRouter(
     }),
 
     reputation: router({
+      /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
+      myAppeal: merchantApiProcedure('p2p:read')
+        .output(appealOutput.nullable())
+        .query(async ({ ctx }) => guard(async () => p2p.myCompletionAppeal(requireUser(ctx)))),
+
+      appeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().uuid(), reason: z.string().max(2000) }))
+        .output(appealOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
+        ),
+
       /**
        * §6.2 → §4.1. The numbers a counterparty sees before they trade with
        * you, and the same numbers that feed the XP graph raising limits
@@ -2501,7 +2540,13 @@ export function createP2pRouter(
             await p2p.assertNotBlocked(requireUser(ctx), input.userId);
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
-            const reputationDoor = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const rates = await p2p.completionRatesOf(input.userId);
+            const reputationDoor = {
+              ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
+              completionRate30d: rates.completionRate30d,
+              completionRateTotal: rates.completionRateTotal,
+              completionDefinition: COMPLETION_DEFINITION,
+            };
             const trades30d = await p2p.tradesInWindow(input.userId);
             const { avgPaySecs } = await p2p.payTimingOf(input.userId);
             const door = { ...reputationDoor, avgPaySecs, rating: null, verification: null as { level: string } | null };
