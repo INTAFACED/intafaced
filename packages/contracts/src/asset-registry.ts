@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { customerStepUpPayloadHash } from './customer-step-up.js';
 
 /**
  * ONE SUPPORTED ASSET AND NETWORK REGISTRY (W-balances-05, wallet-balances-025).
@@ -10,12 +11,15 @@ import { z } from 'zod';
  *
  * Writes are founder edits under svc-identity's existing action approval (`actionApproval.propose` / `approve`):
  * action type `ledger.asset_edit` (a `ledger.*` action, so founder-only there), target `svc-ledger`, payload the
- * `AssetEditInput` bound by hash. svc-ledger applies it once through `assets.applyEdit { approvalId, operationId }`,
- * consuming the approval the same way `matching.open` is consumed. No second approval mechanism lives here. Nothing here is defaulted. A blank precision refuses with `ledger.asset_precision_unset`; it is
+ * `AssetEditInput` bound by hash. svc-ledger applies it once through `assets.applyEdit { approvalId, operationId, edit }`:
+ * identity stores only the payload hash, so svc-ledger recomputes `assetEditPayloadHash(edit)` and identity refuses
+ * `payload_mismatch` if the applied edit is not the approved one (the way `matching.open` recomputes from `marketId`).
+ * Approval `targetId` = the asset id; `expectedVersion` = the row's current `revision` (`0` for a new asset), so an edit
+ * approved against an old row refuses once another edit lands. No second approval mechanism lives here. Nothing here is defaulted. A blank precision refuses with `ledger.asset_precision_unset`; it is
  * never read as 18, or as the precision of some other asset. A retired asset stays listed with its state so history that
  * names it still resolves.
  *
- * Contracts only: zod and pure helpers, browser-safe. The service half (svc-ledger) builds on this in its own PR.
+ * Contracts only: zod and pure helpers. `assetEditPayloadHash` uses `node:crypto` (server-side); the rest is browser-safe. The service half (svc-ledger) builds on this in its own PR.
  */
 
 /** Procedure names, so every caller asks the same router. */
@@ -109,7 +113,12 @@ function checkBody(body: AssetBody, ctx: z.RefinementCtx): void {
 
 /** One registry row as `assets.list` and `assets.get` return it. */
 export const registryAssetSchema = z
-  .object({ ...assetBodyShape, updatedAt: z.string().datetime() })
+  .object({
+    ...assetBodyShape,
+    /** Bumped by every applied edit; the action approval's `expectedVersion`. `updatedAt` is a clock, not a version. */
+    revision: z.number().int().nonnegative().safe(),
+    updatedAt: z.string().datetime(),
+  })
   .strict()
   .superRefine(checkBody);
 export type RegistryAsset = z.infer<typeof registryAssetSchema>;
@@ -141,14 +150,32 @@ export const ASSET_EDIT_ACTION_TYPE = 'ledger.asset_edit' as const;
 /** The service that consumes the approval. */
 export const ASSET_EDIT_TARGET_SERVICE = 'svc-ledger' as const;
 
-/** svc-ledger applies an approved edit once, consuming the approval under the caller's operation id. */
+/**
+ * svc-ledger applies an approved edit once, consuming the approval under the caller's operation id. The edit itself
+ * travels with the call because identity keeps only its hash.
+ */
 export const assetApplyEditInputSchema = z
   .object({
     approvalId: z.string().min(1).max(128),
     operationId: z.string().min(1).max(128),
+    edit: assetEditInputSchema,
   })
   .strict();
 export type AssetApplyEditInput = z.infer<typeof assetApplyEditInputSchema>;
+
+/**
+ * The one canonical payload hash for `ledger.asset_edit`, computed the same way by the admin form that proposes and by
+ * svc-ledger that consumes. Same construction as `bankActionPayloadHash` (action type plus sorted fields, sha256);
+ * non-string fields are JSON-encoded. Uses `node:crypto` like `customerStepUpPayloadHash`, so it is server-side.
+ */
+export function assetEditPayloadHash(edit: AssetEditInput): string {
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(edit)) {
+    if (value === undefined) continue;
+    fields[key] = typeof value === 'string' ? value : JSON.stringify(value);
+  }
+  return customerStepUpPayloadHash(ASSET_EDIT_ACTION_TYPE, fields);
+}
 
 export type AssetRegistryResult<T> = { ok: true; value: T } | { ok: false; code: AssetRegistryRefusal; message: string };
 

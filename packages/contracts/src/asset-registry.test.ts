@@ -12,6 +12,7 @@ import {
   assetsListInputSchema,
   assetsListOutputSchema,
   assetApplyEditInputSchema,
+  assetEditPayloadHash,
   parseAssetEdit,
   registryAssetSchema,
   toAssetUnits,
@@ -82,19 +83,29 @@ describe('founder approval through action approval', () => {
     expect(ASSET_EDIT_TARGET_SERVICE).toBe('svc-ledger');
   });
 
-  it('applyEdit carries only the approval and operation ids, never the edit itself', () => {
-    expect(assetApplyEditInputSchema.parse({ approvalId: 'appr-1', operationId: 'op-1' })).toEqual({
-      approvalId: 'appr-1',
-      operationId: 'op-1',
-    });
-    expect(assetApplyEditInputSchema.safeParse({ approvalId: 'appr-1' }).success).toBe(false);
-    expect(assetApplyEditInputSchema.safeParse({ approvalId: '', operationId: 'op-1' }).success).toBe(false);
-    expect(assetApplyEditInputSchema.safeParse({ approvalId: 'appr-1', operationId: 'op-1', precision: 8 }).success).toBe(false);
+  it('applyEdit carries the approval, operation id and the edit itself', () => {
+    const input = { approvalId: 'appr-1', operationId: 'op-1', edit };
+    expect(assetApplyEditInputSchema.parse(input)).toEqual(input);
+    expect(assetApplyEditInputSchema.safeParse({ approvalId: 'appr-1', operationId: 'op-1' }).success).toBe(false);
+    expect(assetApplyEditInputSchema.safeParse({ ...input, approvalId: '' }).success).toBe(false);
+    expect(assetApplyEditInputSchema.safeParse({ ...input, extra: 1 }).success).toBe(false);
+  });
+
+  it('the payload hash is stable, order-independent, and changes when any field changes', () => {
+    const parsed = parseAssetEdit(edit);
+    if (!parsed.ok) throw new Error('fixture must parse');
+    const h = assetEditPayloadHash(parsed.value);
+    expect(h).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const reordered = Object.fromEntries(Object.entries(parsed.value).reverse()) as typeof parsed.value;
+    expect(assetEditPayloadHash(reordered)).toBe(h);
+    expect(assetEditPayloadHash({ ...parsed.value, precision: parsed.value.precision + 1 })).not.toBe(h);
+    expect(assetEditPayloadHash({ ...parsed.value, state: 'halted' })).not.toBe(h);
+    expect(assetEditPayloadHash({ ...parsed.value, networks: parsed.value.networks.slice(0, 1) })).not.toBe(h);
   });
 });
 
 describe('registry rows', () => {
-  const row = { ...edit, reason: undefined, updatedAt: '2026-10-22T00:00:00.000Z' };
+  const row = { ...edit, reason: undefined, revision: 3, updatedAt: '2026-10-22T00:00:00.000Z' };
   delete (row as Record<string, unknown>).reason;
 
   it('keeps a retired asset listed with its state, and it allows nothing new', () => {
