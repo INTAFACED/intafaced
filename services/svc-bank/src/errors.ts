@@ -637,7 +637,13 @@ export type BankErrorCode =
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
-  | 'bank.ops_audit_unavailable';
+  | 'bank.ops_audit_unavailable'
+  /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */
+  | 'bank.asset_paused'
+  /** The asset pause state could not be read, so a new borrow or deposit was refused rather than assumed open. */
+  | 'bank.asset_pause_unreadable'
+  /** An asset pause change named a revision that is no longer current, or reused a revision with different terms. */
+  | 'bank.ops_revision_conflict';
 
 export class BankError extends Error {
   constructor(

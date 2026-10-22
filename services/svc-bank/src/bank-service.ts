@@ -1,3 +1,4 @@
+import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
@@ -53,6 +54,8 @@ export interface BankServices {
   readonly statements: StatementService;
   readonly accountDetails: AccountDetailsService;
   readonly loans: LoanService;
+  /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
+  readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
   readonly ramps: RampService;
   readonly deposits: DepositService;
@@ -194,6 +197,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
   const loans = new LoanService(sql, ledger, options.loans ?? { priceSource: fixedPriceSource({}) });
+  const assetPauses = new AssetPauseService(sql);
   // No convert port = DCA refuses rates-unset; threshold sweeps still work.
   // Constructed before cards so the capture hook can call applyRoundUp without
   // a setter or a circular constructor.
@@ -239,6 +243,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activityRecords,
     statements,
     accountDetails,
+    assetPauses,
     loans,
     cards,
     ramps,
