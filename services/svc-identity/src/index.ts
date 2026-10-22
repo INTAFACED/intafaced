@@ -33,6 +33,7 @@ import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
+import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
@@ -170,6 +171,7 @@ installApiKeyIpExchange(auth, sql);
 installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
+installPasskeyMintRefuse(auth, sql);
 
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
