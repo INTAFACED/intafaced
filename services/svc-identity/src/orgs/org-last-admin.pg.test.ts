@@ -105,6 +105,41 @@ if (!available) {
       expect(admins).toHaveLength(1);
     });
 
+    it('never ends with no admin when the target of a plain role change is promoted concurrently', async () => {
+      // Review #5825 blocker 1: A reads B as a trader, B is promoted and demotes A,
+      // then A's plain role change on B must not demote the last admin.
+      for (let round = 0; round < 8; round += 1) {
+        const a = await register();
+        const b = await register();
+        const org = await createOrg(db.sql, a.userId, `Promote race ${round}`);
+        await addOrgMember(db.sql, a.userId, org.id, b.userId, 'trader');
+        await Promise.allSettled([
+          (async () => {
+            await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+            await grantOrgRole(db.sql, b.userId, org.id, a.userId, 'trader');
+          })(),
+          grantOrgRole(db.sql, a.userId, org.id, b.userId, 'auditor'),
+        ]);
+        const admins = await db.sql<Array<{ user_id: string }>>`
+          SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin'`;
+        expect(admins.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('refuses a plain role change from an actor who is no longer an admin', async () => {
+      const owner = await register();
+      const second = await register();
+      const member = await register();
+      const org = await createOrg(db.sql, owner.userId, 'Stale actor desk');
+      await addOrgMember(db.sql, owner.userId, org.id, second.userId, 'trader');
+      await addOrgMember(db.sql, owner.userId, org.id, member.userId, 'trader');
+      await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${second.userId}`;
+      await grantOrgRole(db.sql, owner.userId, org.id, second.userId, 'auditor');
+      await expect(grantOrgRole(db.sql, second.userId, org.id, member.userId, 'risk-manager')).rejects.toMatchObject({
+        code: 'org.not_admin',
+      });
+    });
+
     it('still promotes and changes non-admin roles without the admin lock', async () => {
       const owner = await register();
       const member = await register();
