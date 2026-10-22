@@ -1,8 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
-import { vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
