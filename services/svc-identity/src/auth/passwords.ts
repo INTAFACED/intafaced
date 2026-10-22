@@ -172,6 +172,20 @@ export function assertPasswordShape(password: string): void {
   if (/^(.)\1+$/.test(password)) throw new WeakPasswordError('Password cannot be a single repeated character');
 }
 
+/**
+ * A password must not be the account's own name (I-signin-sessions-04): not the handle, not the email address and
+ * not the email's local part, compared without case and surrounding spaces. Those are public or guessable.
+ */
+export function assertPasswordNotIdentity(password: string, identity: { handle?: string | null; email?: string | null }): void {
+  const candidate = password.trim().toLowerCase();
+  const email = identity.email?.trim().toLowerCase() ?? '';
+  const local = email.includes('@') ? email.slice(0, email.lastIndexOf('@')) : '';
+  const handle = identity.handle?.trim().toLowerCase() ?? '';
+  for (const name of [handle, email, local]) {
+    if (name !== '' && candidate === name) throw new WeakPasswordError('Password cannot be your handle or email address');
+  }
+}
+
 /** SHA-256 for high-entropy tokens — refresh tokens, API keys. Not for passwords. */
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');

@@ -323,8 +323,8 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
 
       await trade.cancelOrder(principalFor(ALICE), order.id);
       // Redelivered cancel event (engine → bus → trade).
-      await trade.releaseOnCancelEvent(order.id);
-      await trade.releaseOnCancelEvent(order.id);
+      await trade.releaseOnCancelEvent(order.id, '6');
+      await trade.releaseOnCancelEvent(order.id, '6');
 
       expect(await avail(ALICE, 'USDT')).toBe('1600');
       expect(await held(ALICE, 'USDT')).toBe('0');
@@ -520,8 +520,8 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
         });
       }
       await trade.cancelOrder(principalFor(ALICE), partial.id);
-      await trade.releaseOnCancelEvent(partial.id);
-      await trade.releaseOnCancelEvent(partial.id);
+      await trade.releaseOnCancelEvent(partial.id, '6');
+      await trade.releaseOnCancelEvent(partial.id, '6');
 
       expect(postsWithReason('trade.fill')).toHaveLength(1);
       expect(postsWithReason('order.hold.released')).toHaveLength(1);

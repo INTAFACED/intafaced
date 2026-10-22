@@ -33,7 +33,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 
 ## Independent review
 
-Every PR gets one (AGENTS.md "Check, then merge" item 2). A different session reviews the exact head, never the author's: in a project, the review thread; ask for it with the PR number, the head sha and the slice id. It follows [reviewer-brief.md](reviewer-brief.md) and posts `Independent review: PASS <sha>` or its blocking findings. One review per head, diff only; fix blocking findings and ask again for the new head. After three rounds on one PR, step back and rethink the approach instead of a fourth.
+A money, security or gate-file PR gets one (AGENTS.md "Check, then merge" item 2). A different session reviews the exact head, never the author's: in a project, the review thread; ask for it with the PR number, the head sha and the slice id. It follows [reviewer-brief.md](reviewer-brief.md) and posts `Independent review: PASS <sha>` or its blocking findings. One review per head, diff only; fix blocking findings and ask again for the new head. After three rounds on one PR, step back and rethink the approach instead of a fourth.
 
 ## Briefing a new thread
 

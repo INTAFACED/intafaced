@@ -26,6 +26,7 @@ import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
 import { GlobalHoldService } from './personal-pay/holds.js';
+import { SpendFiguresReader } from './insufficient-funds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -64,6 +65,8 @@ export interface BankServices {
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
+  /** RC-wallet-09: figures for a refused spend. Reads only. */
+  readonly spendFigures: SpendFiguresReader;
   /**
    * Operator transfer reads. The same connection the services use.
    * The procedures only SELECT. They do not post.
@@ -254,6 +257,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     bills,
     globalSend,
     globalHolds,
+    spendFigures: new SpendFiguresReader(sql, ledger),
     transferOps: { sql, handles: options.handles },
   };
 }

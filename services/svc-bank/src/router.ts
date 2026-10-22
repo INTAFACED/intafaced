@@ -22,6 +22,14 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { BankError } from './errors.js';
+import {
+  FRAUD_BLOCK_STANCES,
+  FRAUD_PREVIEW_ACTIONS,
+  FRAUD_RISK_BANDS,
+  FRAUD_SIGNALS,
+  fraudPreview,
+  refuseFraudPreviewAction,
+} from './cards/fraud-preview.js';
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
@@ -33,6 +41,12 @@ import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import {
+  createLimitsRouter,
+  decideLimitRequestProcedure,
+  LimitRequestService,
+  limitRequestQueueProcedure,
+} from './transfers/limit-requests.js';
 import { createLoanProductProcedure } from './ops/loan-products.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
@@ -305,6 +319,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.insufficient_funds':
+        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       case 'bank.not_owner':
       case 'bank.personal_request_not_payer':
       case 'bank.personal_request_not_payee':
@@ -417,6 +433,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_dispute_exists':
       case 'bank.asset_paused':
       case 'bank.ops_revision_conflict':
+      case 'bank.limit_request_open':
+      case 'bank.limit_request_conflict':
+      case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
@@ -494,8 +513,16 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.limit_request_reason_too_short':
+      case 'bank.limit_request_list_limit_unset':
+      case 'bank.limit_grant_unset':
       case 'bank.loan_params_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+
+      case 'bank.limit_request_not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.limit_request_self_decision':
+        return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
       // Same shape and the same reason as `bank.no_liquidation_counterparty`.
@@ -831,6 +858,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvestEnabled = options.autoInvestEnabled ?? true;
   const autoInvestConvertWired = options.autoInvestConvertWired ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  // Same connection as the transfer reads; built lazily so mounts with a partial fake never touch it.
+  let limitRequestService: LimitRequestService | undefined;
+  const limitRequests = () => (limitRequestService ??= new LimitRequestService(bank.transferOps.sql));
   const stepUp = options.stepUp ?? stepUpOff;
   const stepUpEnforced = stepUp.mode === 'required';
 
@@ -1111,8 +1141,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               note: input.note ?? null,
               reference: input.reference ?? null,
             })
-            .catch((err: unknown) => {
-              throw gate.mayDescribe ? err : hideDestinationDetail(err);
+            .catch(async (err: unknown) => {
+              const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
+              // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
+              throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
             });
           return { ledgerTxId: result.ledgerTxId, amount: result.amount };
         }),
@@ -1963,6 +1995,36 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * one release. Overlapping releases share the loan row lock, so they cannot
      * each pass the product cap.
      */
+    /**
+     * Redeem-excess read (BK-loan-05): the most collateral `releaseExcess` would
+     * release now under the product's max LTV. Self-only. Posts nothing.
+     */
+    releasable: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ loanId: z.string().uuid() }))
+      .output(
+        z.object({
+          loanId: z.string(),
+          held: amountString,
+          releasable: amountString,
+          maxLtvBps: z.number().int(),
+          ltvBps: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const loan = await bank.loans.loan(input.loanId);
+          assertSelf(ctx.principal.userId, loan.userId);
+          const read = await bank.loans.releasable(input.loanId);
+          return {
+            loanId: input.loanId,
+            held: formatAmount(read.held),
+            releasable: formatAmount(read.releasable),
+            maxLtvBps: read.maxLtvBps,
+            ltvBps: read.ltvBps,
+          };
+        }),
+      ),
+
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
@@ -2599,6 +2661,40 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * not this door. Bank maker-checker is not this door.
    */
   const ops = router({
+    /**
+     * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
+     * and blurred; no authorisation carries a score until an engine exists.
+     */
+    fraudPreview: scopedProcedure('admin:treasury')
+      .output(
+        z.object({
+          label: z.literal('Preview · sample data'),
+          engine: z.string(),
+          preview: z.literal(true),
+          blurred: z.literal(true),
+          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
+          automaticBlocking: z.literal('unavailable'),
+          rows: z.array(
+            z.object({
+              testAuthorisationRef: z.string().startsWith('TEST-'),
+              test: z.literal(true),
+              band: z.enum(FRAUD_RISK_BANDS),
+              signals: z.array(z.enum(FRAUD_SIGNALS)),
+            }),
+          ),
+        }),
+      )
+      .query(() => {
+        const view = fraudPreview();
+        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
+      }),
+    /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
+    fraudPreviewAction: scopedProcedure('admin:treasury')
+      .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
+      .output(
+        z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
+      )
+      .mutation(({ input }) => refuseFraudPreviewAction(input.action)),
     runDueTransfers: jobProcedure
       .input(z.object({ limit: z.number().int().min(1).max(10_000).optional() }))
       .output(
@@ -3307,6 +3403,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
     assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
     setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
+    limitRequests: limitRequestQueueProcedure(limitRequests, guard),
+    decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
@@ -4725,6 +4823,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),
+    limits: createLimitsRouter(limitRequests, guard),
     ops,
   });
 }
