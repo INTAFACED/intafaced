@@ -1326,6 +1326,37 @@ export class CardService {
     );
   }
 
+  /**
+   * Card balances for one customer (BK-cops-04): per asset a card draws on, `available` is the customer's main
+   * available balance, `pending` is what the ledger still holds against that customer's approved card authorisations
+   * (each has its own hold account, so other withdrawals are not counted), and `ledger` is their sum. Every figure is a
+   * ledger read; the authorisation rows only name which hold accounts to read. A hold that should be empty but is not
+   * (a stuck remainder) shows in `pending` rather than being skipped.
+   */
+  async cardBalancesOf(
+    userId: string,
+    assetId?: string,
+  ): Promise<Array<{ assetId: string; ledger: Amount; available: Amount; pending: Amount }>> {
+    const assets = await this.sql<Array<{ asset_id: string }>>`
+      SELECT DISTINCT asset_id FROM bank.cards
+       WHERE user_id = ${userId} AND (${assetId ?? null}::text IS NULL OR asset_id = ${assetId ?? null}::text)
+       ORDER BY asset_id`;
+    const holds = await this.sql<Array<{ id: string; asset_id: string }>>`
+      SELECT a.id, k.asset_id
+        FROM bank.card_authorizations a
+        JOIN bank.cards k ON k.id = a.card_id
+       WHERE k.user_id = ${userId} AND a.decision = 'approved' AND a.hold_ledger_tx_id IS NOT NULL
+         AND (${assetId ?? null}::text IS NULL OR k.asset_id = ${assetId ?? null}::text)`;
+    const out: Array<{ assetId: string; ledger: Amount; available: Amount; pending: Amount }> = [];
+    for (const { asset_id } of assets) {
+      const available = (await this.ledger.balance(userAvailable(userId, asset_id))).amount;
+      let pending = 0n;
+      for (const h of holds) if (h.asset_id === asset_id) pending += await this.heldFor(h.id, userId, asset_id);
+      out.push({ assetId: asset_id, ledger: available + pending, available, pending });
+    }
+    return out;
+  }
+
   /** What is still held against an authorisation — read from the ledger, never stored. */
   async heldFor(authorizationId: string, userId: string, assetId: string): Promise<Amount> {
     return (await this.ledger.balance(withdrawalHoldAccount(userId, assetId, authorizationId))).amount;

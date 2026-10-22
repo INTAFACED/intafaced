@@ -593,6 +593,8 @@ export type BankErrorCode =
   | 'bank.card_programme_span_unset'
   /** Card programme span is longer than 92 days. */
   | 'bank.card_programme_span_too_long'
+  /** Card funds for a programme or business scope: no ledger read aggregates them yet (BK-cops-04). */
+  | 'bank.card_funds_scope_unwired'
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
   /** Transfer health window was omitted or outside 1..720 hours. */

@@ -41,6 +41,7 @@ import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import { cardBalancesProcedure } from './ops/card-balances.js';
 import {
   createLimitsRouter,
   decideLimitRequestProcedure,
@@ -508,6 +509,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ops_reason_too_short':
       case 'bank.card_programme_span_unset':
       case 'bank.card_programme_span_too_long':
+      case 'bank.card_funds_scope_unwired':
       case 'bank.ramp_health_window_unset':
       case 'bank.transfer_health_window_unset':
       case 'bank.failed_transfers_window_unset':
@@ -3416,6 +3418,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** BK-cops-01: one card authorisation for a compliance operator. Read-only. */
     authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
+    /** BK-cops-04: card balances for one customer, read from the ledger. */
+    cardBalances: cardBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
