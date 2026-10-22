@@ -305,7 +305,7 @@ export async function grantOrgRole(
       UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
     `;
     if (target.role !== grant) {
-      // Same transaction as the change (0066 allows kind 'role_changed').
+      // Same transaction as the change (0070 allows kind 'role_changed').
       await tx`
         INSERT INTO organization_history (org_id, actor_id, kind, subject_id, before, after)
         VALUES (${org}, ${actor}, 'role_changed', ${member}, ${target.role}, ${grant})
