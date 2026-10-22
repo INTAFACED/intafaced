@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { CommandPalette } from '@/components/command-palette';
 import { Nav } from '@/components/nav';
 import { FounderSessionBar } from '@/components/founder-session-bar';
 import { SkipLink } from '@/components/skip-link';
@@ -18,6 +19,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         </a>
         <Nav modules={enabledModuleIds()} />
         <span className="adm-topbar__spacer" />
+        <CommandPalette modules={enabledModuleIds()} />
         <FounderSessionBar csrf={session.csrf} userId={session.userId} expiresAt={session.expiresAt} />
       </header>
       <main className="adm-main">{children}</main>
