@@ -78,12 +78,12 @@ describe('assertLiveCredential — API key (kid present)', () => {
   });
 
   it('denies empty, unknown, and user mismatch', async () => {
-    await expect(
-      assertLiveCredential(port({ key: LIVE_KEY }), { userId: USER, sessionId: SESSION, apiKeyId: '' }),
-    ).rejects.toMatchObject({ code: 'auth.api_key_denied' });
-    await expect(
-      assertLiveCredential(port({ key: null }), { userId: USER, sessionId: SESSION, apiKeyId: KEY }),
-    ).rejects.toMatchObject({ code: 'auth.api_key_denied' });
+    await expect(assertLiveCredential(port({ key: LIVE_KEY }), { userId: USER, sessionId: SESSION, apiKeyId: '' })).rejects.toMatchObject({
+      code: 'auth.api_key_denied',
+    });
+    await expect(assertLiveCredential(port({ key: null }), { userId: USER, sessionId: SESSION, apiKeyId: KEY })).rejects.toMatchObject({
+      code: 'auth.api_key_denied',
+    });
     await expect(
       assertLiveCredential(port({ key: { ...LIVE_KEY, userId: OTHER } }), { userId: USER, sessionId: SESSION, apiKeyId: KEY }),
     ).rejects.toMatchObject({ code: 'auth.api_key_denied' });
@@ -184,8 +184,7 @@ describe('createIdentityOwnershipClient', () => {
     const badShape = createIdentityOwnershipClient({
       baseUrl: 'http://identity.test',
       headers: {},
-      fetch: async () =>
-        new Response(JSON.stringify({ id: SESSION, userId: USER }), { status: 200 }),
+      fetch: async () => new Response(JSON.stringify({ id: SESSION, userId: USER }), { status: 200 }),
     });
     await expect(badShape.getSession(SESSION)).rejects.toMatchObject({ code: 'unavailable' });
     const down = createIdentityOwnershipClient({

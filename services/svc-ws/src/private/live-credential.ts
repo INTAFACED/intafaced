@@ -73,10 +73,7 @@ function denySession(): never {
  * Missing / empty / unknown / user mismatch → denied. `revoked: true` → revoked.
  * Port `unavailable` propagates (fail-closed).
  */
-export async function assertLiveCredential(
-  port: LiveCredentialPort,
-  input: LiveCredentialInput,
-): Promise<OwnershipSnapshot> {
+export async function assertLiveCredential(port: LiveCredentialPort, input: LiveCredentialInput): Promise<OwnershipSnapshot> {
   if (input.apiKeyId !== undefined) {
     const id = typeof input.apiKeyId === 'string' ? input.apiKeyId.trim() : '';
     if (!id) denyKey();
