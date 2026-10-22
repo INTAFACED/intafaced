@@ -38,7 +38,7 @@ One service per PR. If describing it needs the word "and", it is two PRs. A slic
 
 Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
-Review: the author checks their own change and runs an automated code review on it (for example `/code-review`), answering each finding in the PR body, and an independent reviewer in a different session checks the exact head. Every PR gets an independent review of the exact head commit. When you review, look in this order:
+Review: the author checks their own change and runs an automated code review on it (for example `/code-review`), answering each finding in the PR body, and, for a money, security or gate-file change, an independent reviewer in a different session checks the exact head commit (AGENTS.md, "Check, then merge" item 2). When you review, look in this order:
 
 1. Does it touch money? Read every line, and check the tests cover the failure branches.
 2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.
@@ -48,7 +48,7 @@ Review: the author checks their own change and runs an automated code review on 
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
+Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and, for a money, security or gate-file change, the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
 
 ---
 
