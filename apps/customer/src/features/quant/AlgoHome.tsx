@@ -1,21 +1,13 @@
-import { quantQuickStartOutputSchema, quantStrategyListOutputSchema } from '@intafaced/contracts/quant-algo';
+import { quantQuickStartOutputSchema } from '@intafaced/contracts/quant-algo';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { DataTable, EmptyState, Panel } from '../../shared/ui';
+import { EmptyState, Panel } from '../../shared/ui';
+import { StrategyTable } from './StrategyTable';
 import { Read } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { algoCopy } from './algo-copy';
 import { QuantRooms } from './QuantRooms';
 import './algo.css';
-
-/** How many saved strategies the home lists at once. A page size of this screen, not a product limit. */
-export const HOME_STRATEGY_PAGE = 20;
-
-/** A stored time to the minute in UTC, or the text as sent when it is not a time. */
-function utcMinute(value: string): string {
-  const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? value : `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-}
 
 /** The Algo dev home: every room, the quick start ticked from the account's own stored rows, and its saved strategies. */
 export function AlgoHome({ paper = false }: { paper?: boolean }) {
@@ -52,10 +44,6 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
     (signal) => api.query('quant', 'quickStart', undefined, quantQuickStartOutputSchema, { signal }),
     `quant-quick-start:${userId}`,
   );
-  const library = useResource(
-    (signal) => api.query('quant', 'studio.list', { limit: HOME_STRATEGY_PAGE }, quantStrategyListOutputSchema, { signal }),
-    `quant-home-strategies:${userId}`,
-  );
   return (
     <div className="more-columns">
       <Panel title={t('quickStart')}>
@@ -91,35 +79,22 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
         </Read>
       </Panel>
       <Panel title={t('strategies')}>
-        <Read resource={library.resource} retry={library.reload}>
-          {(page) =>
-            page.strategies.length ? (
-              <>
-                <DataTable headers={[t('strategyName'), t('strategyVersionHeading'), t('strategySaved')]} label={t('strategies')}>
-                  {page.strategies.map((s) => (
-                    <tr key={s.id}>
-                      <td lang="und">{s.name}</td>
-                      <td>{t('strategyVersion', { version: s.version })}</td>
-                      <td lang="zxx">{utcMinute(s.createdAt)}</td>
-                    </tr>
-                  ))}
-                </DataTable>
-                {page.nextCursor && <p className="muted">{t('strategiesMore')}</p>}
-              </>
-            ) : (
-              <EmptyState
-                title={t('strategiesNone')}
-                action={
-                  <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
-                    {t('openStudio')}
-                  </a>
-                }
-              >
-                {t('strategiesNoneBody')}
-              </EmptyState>
-            )
+        <StrategyTable
+          label={t('strategies')}
+          reloadKey={`home:${userId}`}
+          empty={
+            <EmptyState
+              title={t('strategiesNone')}
+              action={
+                <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                  {t('openStudio')}
+                </a>
+              }
+            >
+              {t('strategiesNoneBody')}
+            </EmptyState>
           }
-        </Read>
+        />
       </Panel>
     </div>
   );

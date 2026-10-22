@@ -19,12 +19,6 @@ vi.mock('../session/session', async (original) => {
   return { ...real, useSession: () => session as unknown as ReturnType<typeof real.useSession>, useApi: () => api as never };
 });
 import { Quant } from './Quant';
-import { QuantLibrary } from './QuantLibrary';
-
-it('the old shared-library card still says it is shared', () => {
-  const html = renderToStaticMarkup(<QuantLibrary strategies={[]} onPick={() => undefined} />);
-  expect(html).toContain('Shared library');
-});
 
 it('Backtest has no shared library, asks for a Studio strategy and makes no list call', () => {
   query.mockClear();

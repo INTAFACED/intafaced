@@ -73,6 +73,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [kill, setKill] = useState(draftStart.kill),
     [link, setLink] = useState<StudioLink>(() => (mode === 'studio' ? readLink(userId ?? null) : newLink())),
     [libraryRevision, setLibraryRevision] = useState(0),
+    [replacing, setReplacing] = useState<string | null>(null),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
     [bt, setBt] = useState<HistoricalSnapshot | null>(null),
     [strategyId, setStrategyId] = useState(''),
@@ -91,7 +92,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     });
   const { Copy, t, languageFor, directionFor } = analysisCopy.useCopy();
   const draft = useRef<HTMLDivElement>(null);
-  // Backtest picks from the named draft kept on this device; the shared library is closed, so it is never read.
+  // Backtest still picks from the named draft kept on this device; it does not read the account library.
   const [studioDraft] = useState(() => (mode === 'backtest' ? readDraft(userId ?? null) : null));
   const strategyNames = draftStrategyNames(studioDraft);
   const [lastAttempt, setLastAttempt] = useState<{ request: HistoricalRequest; view: object; result: ApiResult<unknown> } | null>(null);
@@ -139,6 +140,17 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     if (mode === 'studio') writeLink(userId ?? null, link);
   }, [mode, userId, link]);
   const rules = { name, cash, blocks, risk: { maxDrawdown: drawdown, maxNotional: notional, kill } };
+  const blankRules = fingerprint({ name: '', cash: '', blocks: emptyDraft().blocks, risk: { maxDrawdown: '', maxNotional: '', kill: '' } });
+  /** Unsaved rules are never replaced on one press: the first press warns, a second press of the same control goes on. */
+  const confirmReplace = (control: string): boolean => {
+    const current = fingerprint(rules);
+    if (current === blankRules || current === link.saved || replacing === control) {
+      setReplacing(null);
+      return true;
+    }
+    setReplacing(control);
+    return false;
+  };
   /** Fill the form with saved rules (or a blank draft) and remember which strategy it is. */
   const load = (next: { name: string; cash: string; blocks: typeof blocks; risk: typeof rules.risk } | null, nextLink: StudioLink) => {
     const draft = next ?? { ...emptyDraft(), risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
@@ -353,15 +365,21 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   setLibraryRevision((n) => n + 1);
                 }}
               />
-              <Button variant="ghost" onClick={() => load(null, newLink())}>
+              <Button variant="ghost" onClick={() => confirmReplace('new') && load(null, newLink())}>
                 {studioCopy.t('newStrategy')}
               </Button>
+              {replacing && (
+                <p role="alert" data-testid="quant-replace-warning">
+                  {studioCopy.t('replaceWarning')}
+                </p>
+              )}
             </form>
           </Panel>
           <StudioLibrary
             revision={libraryRevision}
             activeId={link.strategyId}
             onOpen={(head) =>
+              confirmReplace(`open:${head.id}`) &&
               load(head, {
                 clientStrategyId: head.clientStrategyId,
                 strategyId: head.id,

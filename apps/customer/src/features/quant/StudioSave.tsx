@@ -1,20 +1,19 @@
 import { quantStrategyHeadSchema, type QuantStrategyHead } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
+import { signedDecimalSchema } from '../../shared/money';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useApi } from '../session/session';
 import { studioCopy } from './studio-copy';
 import { fingerprint, saveKey, type StudioLink, type StudioRules } from './studio-save';
 
-const DECIMAL = /^-?\d+(\.\d{1,18})?$/;
-
 /** Whether the form holds everything a save needs; the service still checks each rule and refuses by name. */
 export function savable(rules: StudioRules): boolean {
   return Boolean(
     rules.name.trim() &&
-    DECIMAL.test(rules.cash.trim()) &&
+    signedDecimalSchema.safeParse(rules.cash.trim()).success &&
     rules.blocks.length > 0 &&
-    rules.blocks.every((b) => b.symbol.trim() && DECIMAL.test(b.qty.trim())) &&
+    rules.blocks.every((b) => b.symbol.trim() && signedDecimalSchema.safeParse(b.qty.trim()).success) &&
     rules.risk.maxDrawdown.trim() &&
     rules.risk.maxNotional.trim() &&
     rules.risk.kill.trim(),

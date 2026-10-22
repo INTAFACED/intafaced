@@ -9,7 +9,7 @@ const en = {
   standing: 'Every result in Quant is simulated. It is not live performance and not a forecast.',
   accept: 'Accept for a strategy version',
   acceptReason:
-    'An acceptance is recorded for one saved strategy version and one disclosure version. It is taken at the step that puts a saved version to use, not from this panel.',
+    'An acceptance is recorded for one saved strategy version and one disclosure version. This panel does not record one: accepting belongs to putting a strategy to use, which this build does not offer.',
 } as const;
 const es = {
   title: 'Aviso de riesgo',
@@ -20,7 +20,7 @@ const es = {
   standing: 'Todos los resultados de Quant son simulados. No son rendimiento real ni una previsión.',
   accept: 'Aceptar para una versión de estrategia',
   acceptReason:
-    'La aceptación se registra para una versión de estrategia guardada y una versión del aviso. Se da en el paso que pone en uso una versión guardada, no desde este panel.',
+    'La aceptación se registra para una versión de estrategia guardada y una versión del aviso. Este panel no la registra: aceptar forma parte de poner en uso una estrategia, algo que esta versión no ofrece.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   title: 'Avertissement sur les risques',
@@ -31,6 +31,6 @@ const fr = {
   standing: 'Tous les résultats de Quant sont simulés. Ce n’est ni une performance réelle ni une prévision.',
   accept: 'Accepter pour une version de stratégie',
   acceptReason:
-    'L’acceptation est enregistrée pour une version de stratégie enregistrée et une version de l’avertissement. Elle se donne à l’étape qui met en service une version enregistrée, pas depuis ce panneau.',
+    'L’acceptation est enregistrée pour une version de stratégie enregistrée et une version de l’avertissement. Ce panneau ne l’enregistre pas : accepter fait partie de la mise en service d’une stratégie, que cette version ne propose pas.',
 } satisfies Record<keyof typeof en, string>;
 export const quantDisclosureCopy = defineCopy('more.quant.disclosure', en, { es, fr });

@@ -76,7 +76,7 @@ describe('quant risk disclosure panel', () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-describedby')).toBe('quant-disclosure-accept-reason');
     expect(document.getElementById('quant-disclosure-accept-reason')?.textContent).toContain(
-      'It is taken at the step that puts a saved version to use',
+      'accepting belongs to putting a strategy to use, which this build does not offer',
     );
   });
 

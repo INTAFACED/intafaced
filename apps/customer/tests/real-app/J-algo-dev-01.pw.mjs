@@ -127,6 +127,14 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   await expect(library.getByRole('row')).toHaveCount(2);
   await expect(library).toContainText('Version 2');
 
+  // Unsaved rules are never dropped on one press: starting a new strategy warns first and leaves the form as it is.
+  await page.getByLabel('Block 1 quantity').fill('0.03');
+  await page.getByRole('button', { name: 'Start a new strategy' }).click();
+  await expect(page.getByTestId('quant-replace-warning')).toHaveText('The rules in the form are not saved. Press again to replace them.');
+  await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.03');
+  await page.getByLabel('Block 1 quantity').fill('0.02');
+  await expect(state).toHaveText('Saved as version 2.');
+
   // The library holds it after a reload, and the Algo dev home ticks the first quick-start step.
   await page.reload();
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.02');

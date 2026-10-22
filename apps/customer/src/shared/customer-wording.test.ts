@@ -27,7 +27,6 @@ import '../features/more/launch-depth-copy';
 import '../features/more/market-purchases-copy';
 import '../features/more/prediction-catalogue-copy';
 import '../features/more/quant-analysis-copy';
-import '../features/more/quant-library-copy';
 import '../features/more/support-events-copy';
 import '../features/more/token-governance-copy';
 import '../features/quant/algo-copy';
@@ -113,7 +112,8 @@ const CHECKED = new Set([
   'more.market-purchases',
   'more.prediction.catalogue',
   'more.quant.analysis',
-  'more.quant.library',
+  'quant.algo',
+  'quant.studio',
   'customer.supportEvents',
   'token-governance',
   'customer.account',

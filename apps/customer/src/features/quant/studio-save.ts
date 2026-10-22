@@ -49,7 +49,8 @@ export function parseLink(raw: string | null): StudioLink | null {
   try {
     const row = JSON.parse(raw) as Record<string, unknown>;
     const id = row.clientStrategyId;
-    if (typeof id !== 'string' || !id || id.length > 128) return null;
+    // The first-save key adds 12 characters to the id and the service takes keys up to 128.
+    if (typeof id !== 'string' || !id || id.length > 64) return null;
     const strategyId = typeof row.strategyId === 'string' && row.strategyId ? row.strategyId : null;
     const version = typeof row.version === 'number' && Number.isInteger(row.version) && row.version > 0 ? row.version : null;
     const saved = typeof row.saved === 'string' ? row.saved : null;
