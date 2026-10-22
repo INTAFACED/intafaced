@@ -1,4 +1,5 @@
 import { changeHashesEqual, founderChangeHash } from '@intafaced/contracts/founder-change-hash';
+import { merchantDescriptorProblem } from '@intafaced/contracts';
 import { cleanMerchantName } from '../merchant-names.js';
 import { PortalError } from './errors.js';
 
@@ -48,6 +49,19 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u2028\u2029
 
 function invalid(_field: string): never {
   throw new PortalError('pay.profile_field_invalid', 'bad_request');
+}
+
+/**
+ * M-plat-org-09: the statement descriptor follows the shared contracts rule
+ * (`merchantDescriptorProblem`), so the screen and the server refuse the same
+ * values. Null or an empty string (what the portal sends to clear the field)
+ * clears it. Any other value must pass the rule exactly, without trimming;
+ * a failure refuses `pay.profile_descriptor_invalid` and nothing is written.
+ */
+function cleanStatementDescriptor(value: string | null): string | null {
+  if (value === null || value === '') return null;
+  if (merchantDescriptorProblem(value) !== null) throw new PortalError('pay.profile_descriptor_invalid', 'bad_request');
+  return value;
 }
 
 function cleanText(value: string, field: string): string {
@@ -124,7 +138,7 @@ export function parseProfilePatch(input: {
   if (input.legalName !== undefined) sensitive.legalName = input.legalName === null ? null : cleanText(input.legalName, 'legalName');
   if (input.address !== undefined) sensitive.address = input.address === null ? null : cleanAddress(input.address);
   if (input.statementDescriptor !== undefined) {
-    sensitive.statementDescriptor = input.statementDescriptor === null ? null : cleanText(input.statementDescriptor, 'statementDescriptor');
+    sensitive.statementDescriptor = cleanStatementDescriptor(input.statementDescriptor);
   }
   if (input.industry !== undefined) sensitive.industry = input.industry === null ? null : cleanText(input.industry, 'industry');
   if (Object.keys(immediate).length === 0 && Object.keys(sensitive).length === 0) {
