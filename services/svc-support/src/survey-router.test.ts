@@ -47,7 +47,9 @@ async function desk(cap: number | null = null) {
 describe('survey doors (SP-csat-02)', () => {
   it('a lead configures; the list carries the cap unset with its code and one active survey', async () => {
     const as = await desk();
-    const s = await (await as(LEAD)).configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
+    const s = await (
+      await as(LEAD)
+    ).configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' });
     expect(s).toMatchObject({ revision: 1, active: true });
     const list = await (await as(AGENT)).surveys();
     expect(list.cap).toEqual({ status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET });
@@ -56,7 +58,7 @@ describe('survey doors (SP-csat-02)', () => {
 
   it('refuses anonymous, no support:ops, and a non-lead', async () => {
     const as = await desk();
-    const input = { surveyId: null, expectedRevision: 0, config: config as never };
+    const input = { surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' };
     await expect((await as(null)).configureSurvey(input)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect((await as(LEAD, ['support:read'])).configureSurvey(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect((await as(LEAD, ['support:read'])).surveys()).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -65,8 +67,10 @@ describe('survey doors (SP-csat-02)', () => {
 
   it('a second survey under a blank cap is PRECONDITION_FAILED support.survey_cap_unset', async () => {
     const lead = await (await desk())(LEAD);
-    await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
-    await expect(lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never })).rejects.toMatchObject({
+    await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' });
+    await expect(
+      lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' }),
+    ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'support.survey_cap_unset',
       cause: { code: 'support.survey_cap_unset' },
@@ -76,8 +80,11 @@ describe('survey doors (SP-csat-02)', () => {
   it('with cap N, the door fills to N and then refuses PRECONDITION_FAILED with cause.code support.survey_cap_reached', async () => {
     const N = 2;
     const lead = await (await desk(N))(LEAD);
-    for (let i = 0; i < N; i++) await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
-    await expect(lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never })).rejects.toMatchObject({
+    for (let i = 0; i < N; i++)
+      await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' });
+    await expect(
+      lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' }),
+    ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'support.survey_cap_reached',
       cause: { code: 'support.survey_cap_reached' },
@@ -88,15 +95,28 @@ describe('survey doors (SP-csat-02)', () => {
   it('stale revision is CONFLICT, unknown survey NOT_FOUND, bad scale BAD_REQUEST', async () => {
     const as = await desk();
     const lead = await as(LEAD);
-    const s = await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
+    const s = await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' });
     await expect(
-      lead.configureSurvey({ surveyId: s.surveyId, expectedRevision: 0, config: { ...config, sendAfterMinutes: 5 } as never }),
+      lead.configureSurvey({ surveyId: s.surveyId, expectedRevision: 0, config: { ...config, sendAfterMinutes: 5 } as never, reason: 'x' }),
     ).rejects.toMatchObject({ code: 'CONFLICT', message: 'support.survey_revision_stale' });
     await expect(
-      lead.configureSurvey({ surveyId: '99999999-9999-4999-8999-999999999999', expectedRevision: 0, config: config as never }),
+      lead.configureSurvey({
+        surveyId: '99999999-9999-4999-8999-999999999999',
+        expectedRevision: 0,
+        config: config as never,
+        reason: 'Owner set it',
+      }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'support.survey_not_found' });
     await expect(
-      lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: { ...config, scale: { min: 5, max: 5, labels: [] } } as never }),
+      lead.configureSurvey({
+        surveyId: null,
+        expectedRevision: 0,
+        config: { ...config, scale: { min: 5, max: 5, labels: [] } } as never,
+        reason: 'x',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: '   ' }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 });

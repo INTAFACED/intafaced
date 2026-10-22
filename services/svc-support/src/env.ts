@@ -1,3 +1,4 @@
+import { supportSurveyCapEnv } from './survey-cap-env.js';
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
@@ -69,6 +70,8 @@ const schema = serviceEnvSchema
        * How many requests one bulk change may hold. Blank is an owner value left unset: a bulk change refuses
        * support.bulk_cap_unset and the desk says so. Never defaulted.
        */
+      /** SP-csat-02: owner cap on how many surveys exist; blank allows only the first. */
+      SUPPORT_SURVEY_CAP: supportSurveyCapEnv,
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),

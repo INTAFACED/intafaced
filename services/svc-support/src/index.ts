@@ -162,7 +162,7 @@ const appRouter = createSupportRouter(
   support,
   new SqlContactBook(sql),
   attachmentSettings,
-  new SqlSurveyBook(sql),
+  new SqlSurveyBook(sql, undefined, env.SUPPORT_SURVEY_CAP ?? null),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

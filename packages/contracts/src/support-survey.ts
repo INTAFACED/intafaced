@@ -58,8 +58,15 @@ export const supportSurveyConfigSchema = z
 export type SupportSurveyConfig = z.infer<typeof supportSurveyConfigSchema>;
 
 /** Configure carries the revision read; a stale one is refused by the service. */
+export const SUPPORT_SURVEY_REASON_MAX = 500;
 export const supportSurveyConfigureInputSchema = z
-  .object({ surveyId: id.nullable(), expectedRevision: z.number().int().nonnegative().safe(), config: supportSurveyConfigSchema })
+  .object({
+    surveyId: id.nullable(),
+    expectedRevision: z.number().int().nonnegative().safe(),
+    config: supportSurveyConfigSchema,
+    /** Audit: why the operator changed it (spec Security row). */
+    reason: z.string().trim().min(1).max(SUPPORT_SURVEY_REASON_MAX),
+  })
   .strict();
 export type SupportSurveyConfigureInput = z.infer<typeof supportSurveyConfigureInputSchema>;
 

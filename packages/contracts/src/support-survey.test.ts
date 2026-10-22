@@ -16,7 +16,7 @@ const config = {
   channels: ['in_app'],
   requestTypes: ['question', 'problem'],
 };
-const input = { surveyId: null, expectedRevision: 0, config };
+const input = { surveyId: null, expectedRevision: 0, config, reason: 'Owner set the survey' };
 
 describe('survey configuration (SP-csat-02)', () => {
   it('declares the new codes', () => {

@@ -71,30 +71,46 @@ describe.each(books)('survey book (%s)', (kind, make) => {
     const book = make(prefix);
     expect((await book.list()).cap).toEqual({ status: 'set', cap: 3 });
 
-    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
+    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT });
     expect(first).toMatchObject({ revision: 1, active: true, config });
 
     const changed = { ...config, sendAfterMinutes: 120 };
-    const second = await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config: changed, by: 'lead', at: AT });
+    const second = await book.configure({
+      surveyId: first.surveyId,
+      expectedRevision: 1,
+      config: changed,
+      reason: 'r',
+      by: 'lead',
+      at: AT,
+    });
     expect(second.revision).toBe(2);
     // Lost reply replays the stored survey.
-    expect(await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config: changed, by: 'lead', at: AT })).toMatchObject({
+    expect(
+      await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config: changed, reason: 'r', by: 'lead', at: AT }),
+    ).toMatchObject({
       revision: 2,
     });
     // Stale revision with a different config is refused.
-    await expect(book.configure({ surveyId: first.surveyId, expectedRevision: 1, config, by: 'lead', at: AT })).rejects.toBeInstanceOf(
-      SurveyStaleError,
-    );
+    await expect(
+      book.configure({ surveyId: first.surveyId, expectedRevision: 1, config, reason: 'r', by: 'lead', at: AT }),
+    ).rejects.toBeInstanceOf(SurveyStaleError);
     // New survey must start at revision 0.
-    await expect(book.configure({ surveyId: null, expectedRevision: 3, config, by: 'lead', at: AT })).rejects.toBeInstanceOf(
+    await expect(book.configure({ surveyId: null, expectedRevision: 3, config, reason: 'r', by: 'lead', at: AT })).rejects.toBeInstanceOf(
       SurveyStaleError,
     );
     // Unknown survey.
     await expect(
-      book.configure({ surveyId: '99999999-9999-4999-8999-999999999999', expectedRevision: 0, config, by: 'lead', at: AT }),
+      book.configure({ surveyId: '99999999-9999-4999-8999-999999999999', expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT }),
     ).rejects.toBeInstanceOf(SurveyNotFoundError);
 
-    const other = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: '2026-10-22T04:01:00.000Z' });
+    const other = await book.configure({
+      surveyId: null,
+      expectedRevision: 0,
+      config,
+      reason: 'r',
+      by: 'lead',
+      at: '2026-10-22T04:01:00.000Z',
+    });
     const list = await book.list();
     expect(supportSurveyListSchema.parse(list)).toEqual(list);
     expect(list.surveys.filter((s) => s.active).map((s) => s.surveyId)).toEqual([other.surveyId]);
@@ -108,21 +124,23 @@ describe.each(books)('survey cap (%s)', (kind, make) => {
     if (kind === 'postgres') await sql`TRUNCATE support.surveys`;
     const book = make(p, null);
     expect((await book.list()).cap).toEqual({ status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET });
-    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
-    await expect(book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT })).rejects.toMatchObject({
+    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT });
+    await expect(book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT })).rejects.toMatchObject({
       code: SUPPORT_SURVEY_CAP_UNSET,
     });
-    expect(await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config, by: 'lead', at: AT })).toMatchObject({
+    expect(await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config, reason: 'r', by: 'lead', at: AT })).toMatchObject({
       revision: 2,
     });
   });
   it('under the cap succeeds; at the cap a new survey refuses with support.survey_cap_reached', async () => {
     if (kind === 'postgres') await sql`TRUNCATE support.surveys`;
     const book = make(p.replace(/^./, 'e'), 2);
-    await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
-    const second = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
+    await book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT });
+    const second = await book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT });
     expect(second.active).toBe(true);
-    const err = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT }).catch((e: unknown) => e);
+    const err = await book
+      .configure({ surveyId: null, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT })
+      .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SurveyCapError);
     expect((err as SurveyCapError).code).toBe(SUPPORT_SURVEY_CAP_REACHED);
     expect((await book.list()).surveys).toHaveLength(2);

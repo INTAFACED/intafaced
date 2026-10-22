@@ -158,8 +158,8 @@ export class SqlSurveyBook implements SurveyBook {
         ON CONFLICT (survey_id) DO UPDATE SET revision = EXCLUDED.revision, active = true, config = EXCLUDED.config,
           updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`;
       await tx`
-        INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, set_at)
-        VALUES (${surveyKey(surveyId, revision)}, ${surveyId}, ${revision}, ${tx.json(input.config as never)}, ${input.by}, ${input.at})`;
+        INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, set_at)
+        VALUES (${surveyKey(surveyId, revision)}, ${surveyId}, ${revision}, ${tx.json(input.config as never)}, ${input.by}, ${input.reason}, ${input.at})`;
       return { surveyId, revision, active: true, config: input.config, updatedAt: new Date(input.at).toISOString() };
     }) as Promise<SupportSurvey>;
   }

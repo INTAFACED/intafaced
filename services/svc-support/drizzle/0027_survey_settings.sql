@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS "support"."survey_log" (
   "revision_after" integer NOT NULL CHECK ("revision_after" >= 1),
   "config" jsonb NOT NULL,
   "set_by" text NOT NULL,
+  "reason" text NOT NULL CHECK (char_length("reason") BETWEEN 1 AND 500),
   "set_at" timestamptz NOT NULL
 );
 
