@@ -1125,6 +1125,19 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const owner = fenced.createCaller(await ctx(['pay:onboard']));
     expect((await owner.fraud.getDispute({ disputeId: 'dp-onboard' })).merchantId).toBe(MERCHANT);
     await expect(owner.railHealth()).resolves.toBeInstanceOf(Array);
+    // railHealth is platform-wide: an onboarding caller with no business of its own is refused it.
+    const noBusiness = createPayRouter(
+      { ...stub.service, getMerchantByUserId: async () => null } as PayService,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+    );
+    await expect(noBusiness.createCaller(await ctx(['pay:onboard'], { userId: stranger })).railHealth()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'pay.merchant_not_found',
+    });
 
     const other = fenced.createCaller(await ctx(['pay:onboard'], { userId: stranger }));
     await expect(other.fraud.getDispute({ disputeId: 'dp-onboard' })).rejects.toMatchObject({ code: 'NOT_FOUND' });

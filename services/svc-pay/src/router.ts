@@ -7,7 +7,7 @@ import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { AuthError, requireMfa } from '@intafaced/auth';
+import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
 import {
   payCheckoutSettingsGetInputSchema,
   payCheckoutSettingsSchema,
@@ -36,7 +36,6 @@ import {
   merchantStarterFeeSchema,
   router,
   scopedProcedure,
-  anyScopeProcedure,
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
@@ -524,8 +523,12 @@ export function createPayRouter(
           }),
         ),
       )
-      .query(() =>
-        rails.health().map((h) => ({
+      .query(async ({ ctx }) => {
+        // Platform-wide, so a pay:onboard caller sees it only once it owns a business.
+        if (!hasScope(ctx.principal.scopes, 'pay:read') && !(await pay.getMerchantByUserId(ctx.principal.userId))) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'pay.merchant_not_found' });
+        }
+        return rails.health().map((h) => ({
           id: h.id,
           capabilities: [...h.capabilities],
           mode: h.mode,
@@ -533,8 +536,8 @@ export function createPayRouter(
           healthy: h.healthy,
           latencyMs: h.latencyMs,
           reason: h.reason,
-        })),
-      ),
+        }));
+      }),
 
     merchant: router({
       ...(portal?.merchant ?? {}),
@@ -606,7 +609,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
 
       /** Current merchant for the principal — null when not yet onboarded. */
-      me: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+      me: ownMerchantRead()
         .output(
           z
             .object({
@@ -646,7 +649,7 @@ export function createPayRouter(
        * The published starter fee, including for a caller who has no merchant yet.
        * Null means the fee is not configured.
        */
-      starterFee: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+      starterFee: ownMerchantRead()
         .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
         .query(() => ({ starterFee })),
 

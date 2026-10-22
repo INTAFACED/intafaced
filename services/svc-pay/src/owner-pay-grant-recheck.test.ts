@@ -39,4 +39,16 @@ describe('assertOwnerPayScopeStillGranted', () => {
       assertOwnerPayScopeStillGranted(principal(), 'pay:read', async () => merchant({ kybStatus: 'rejected' })),
     ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
   });
+
+  it('keeps pay:onboard for an owner still verifying, and withdraws it once the business is suspended or closed', async () => {
+    await expect(
+      assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => merchant({ kybStatus: 'none', status: 'pending' })),
+    ).resolves.toBeUndefined();
+    await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => null)).resolves.toBeUndefined();
+    for (const status of ['suspended', 'closed'] as const) {
+      await expect(
+        assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => merchant({ kybStatus: 'none', status })),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+    }
+  });
 });

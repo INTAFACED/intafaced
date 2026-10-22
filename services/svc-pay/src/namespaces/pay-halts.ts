@@ -20,6 +20,7 @@ import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
 import { founderProcedure, type FounderContext } from './founder-procedure.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
+import { hasScope } from '@intafaced/auth';
 
 /**
  * `payHalts.*` (W5).
@@ -83,6 +84,10 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
         .output(payHaltStatusSchema)
         .query(async ({ ctx, input }) => {
           if (!deps) return unavailable();
+          // The platform-wide answer stays with acquiring merchants; an owner still onboarding asks about its own.
+          if (!input.merchantId && !hasScope(ctx.principal.scopes, 'pay:read')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Scope "pay:read" is required' });
+          }
           if (input.merchantId) {
             try {
               await allowMerchantRead({
