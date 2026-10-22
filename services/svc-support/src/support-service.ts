@@ -1172,10 +1172,16 @@ export class SupportService implements SupportContract {
    */
   async listStaffDirectory(): Promise<(StaffMember & { groups: { id: string; name: string }[] })[]> {
     const [members, groups] = await Promise.all([this.listStaff(), this.groups.list()]);
-    return members.map((member) => ({
-      ...member,
-      groups: groups.filter((g) => g.memberIds.includes(member.userId)).map((g) => ({ id: g.id, name: g.name })),
-    }));
+    // One pass over the groups (already sorted by name) builds user id -> groups, so the directory stays linear.
+    const byUser = new Map<string, { id: string; name: string }[]>();
+    for (const g of groups) {
+      for (const userId of g.memberIds) {
+        const list = byUser.get(userId);
+        if (list) list.push({ id: g.id, name: g.name });
+        else byUser.set(userId, [{ id: g.id, name: g.name }]);
+      }
+    }
+    return members.map((member) => ({ ...member, groups: byUser.get(member.userId) ?? [] }));
   }
 
   /** Whether the automatic offline window is an owner value or still blank. */

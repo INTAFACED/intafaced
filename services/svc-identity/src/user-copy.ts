@@ -80,6 +80,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.close_restricted': 'This account is restricted. Clear the restriction, then try again.',
   'identity.close_delegated': 'Sign in on this device. An API key or a sub-account cannot close this account.',
   'identity.account_frozen_self': 'You froze this account. Lift the freeze before doing this.',
+  'identity.self_freeze_lift_wait_unset': 'Lifting a freeze is not available yet. The waiting time is not published.',
+  'identity.self_freeze_lift_too_soon': 'Your freeze can be lifted later. Try again after the waiting time.',
   'identity.close_blocked': 'Something on this account is still open. Clear it, then try again.',
   'identity.close_check_unavailable': 'We could not confirm that nothing is still open. Try again later.',
   'identity.close_nothing_open': 'There is no open closure request to cancel.',

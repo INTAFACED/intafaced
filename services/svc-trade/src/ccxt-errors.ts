@@ -378,6 +378,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.paper_fill_refused': { ccxt: 'NotSupported', status: 403 },
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
+  /** Raised on the bus cancel path only, never on a request: the fill settles first, then the cancel is redelivered. */
+  'trade.cancel_ahead_of_fill': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
    * Not retryable by the caller — operator break, not a bot backoff loop.
