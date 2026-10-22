@@ -21,7 +21,8 @@ export type KbAuthoringErrorCode =
   | 'support.kb_category_unknown'
   | 'support.kb.revision_stale'
   | 'support.kb_draft_missing'
-  | 'support.kb_id_taken';
+  | 'support.kb_id_taken'
+  | 'support.kb_draft_stale';
 
 export class KbAuthoringError extends Error {
   constructor(readonly code: KbAuthoringErrorCode) {
@@ -88,7 +89,10 @@ export class MemoryKbAuthoringBook implements KbAuthoringBook {
 
   async saveDraft(input: SaveKbDraftInput, by: string, at: string): Promise<SupportKbDraft> {
     if (input.sectionId !== null && !this.secs.has(input.sectionId)) throw new KbAuthoringError('support.kb_section_unknown');
-    const draft: SupportKbDraft = { ...input, savedBy: by, savedAt: at };
+    const prior = this.drafts.get(input.articleId);
+    if ((prior?.draftRevision ?? 0) !== input.expectedDraftRevision) throw new KbAuthoringError('support.kb_draft_stale');
+    const { expectedDraftRevision, ...fields } = input;
+    const draft: SupportKbDraft = { ...fields, draftRevision: expectedDraftRevision + 1, savedBy: by, savedAt: at };
     this.drafts.set(input.articleId, draft);
     return draft;
   }
@@ -164,6 +168,7 @@ type DraftRow = {
   title: string;
   body: string;
   section_id: string | null;
+  draft_revision: number;
   saved_by: string;
   saved_at: Date | string;
 };
@@ -173,6 +178,7 @@ const fromDraft = (r: DraftRow): SupportKbDraft => ({
   title: r.title,
   body: r.body,
   sectionId: r.section_id,
+  draftRevision: r.draft_revision,
   savedBy: r.saved_by,
   savedAt: new Date(r.saved_at).toISOString(),
 });
@@ -229,13 +235,22 @@ export class SqlKbAuthoringBook implements KbAuthoringBook {
 
   async saveDraft(input: SaveKbDraftInput, by: string, at: string): Promise<SupportKbDraft> {
     try {
-      const [row] = await this.sql<DraftRow[]>`
-        INSERT INTO support.kb_drafts (article_id, language, title, body, section_id, saved_by, saved_at)
-        VALUES (${input.articleId}, ${input.language}, ${input.title}, ${input.body}, ${input.sectionId}, ${by}, ${at})
-        ON CONFLICT (article_id) DO UPDATE SET language = EXCLUDED.language, title = EXCLUDED.title, body = EXCLUDED.body,
-          section_id = EXCLUDED.section_id, saved_by = EXCLUDED.saved_by, saved_at = EXCLUDED.saved_at
-        RETURNING article_id, language, title, body, section_id, saved_by, saved_at`;
-      return fromDraft(row!);
+      const rows =
+        input.expectedDraftRevision === 0
+          ? await this.sql<DraftRow[]>`
+              INSERT INTO support.kb_drafts (article_id, language, title, body, section_id, draft_revision, saved_by, saved_at)
+              VALUES (${input.articleId}, ${input.language}, ${input.title}, ${input.body}, ${input.sectionId}, 1, ${by}, ${at})
+              ON CONFLICT (article_id) DO NOTHING
+              RETURNING article_id, language, title, body, section_id, draft_revision, saved_by, saved_at`
+          : await this.sql<DraftRow[]>`
+              UPDATE support.kb_drafts
+              SET language = ${input.language}, title = ${input.title}, body = ${input.body}, section_id = ${input.sectionId},
+                  draft_revision = draft_revision + 1, saved_by = ${by}, saved_at = ${at}
+              WHERE article_id = ${input.articleId} AND draft_revision = ${input.expectedDraftRevision}
+              RETURNING article_id, language, title, body, section_id, draft_revision, saved_by, saved_at`;
+      // Compare-and-set: no row means someone else saved (or published) since this author read the draft.
+      if (!rows[0]) throw new KbAuthoringError('support.kb_draft_stale');
+      return fromDraft(rows[0]);
     } catch (err) {
       if (isFkViolation(err)) throw new KbAuthoringError('support.kb_section_unknown');
       throw err;
@@ -244,7 +259,7 @@ export class SqlKbAuthoringBook implements KbAuthoringBook {
 
   async getDraft(articleId: string): Promise<SupportKbDraft | null> {
     const [row] = await this.sql<DraftRow[]>`
-      SELECT article_id, language, title, body, section_id, saved_by, saved_at FROM support.kb_drafts WHERE article_id = ${articleId}`;
+      SELECT article_id, language, title, body, section_id, draft_revision, saved_by, saved_at FROM support.kb_drafts WHERE article_id = ${articleId}`;
     return row ? fromDraft(row) : null;
   }
 
@@ -261,7 +276,7 @@ export class SqlKbAuthoringBook implements KbAuthoringBook {
       const [head] = await tx<{ revision: number }[]>`SELECT revision FROM support.kb_authored_articles WHERE id = ${articleId}`;
       if ((head?.revision ?? 0) !== revision) throw new KbAuthoringError('support.kb.revision_stale');
       const [draft] = await tx<DraftRow[]>`
-        SELECT article_id, language, title, body, section_id, saved_by, saved_at FROM support.kb_drafts WHERE article_id = ${articleId}`;
+        SELECT article_id, language, title, body, section_id, draft_revision, saved_by, saved_at FROM support.kb_drafts WHERE article_id = ${articleId}`;
       if (!draft) throw new KbAuthoringError('support.kb_draft_missing');
       const version = revision + 1;
       await tx`

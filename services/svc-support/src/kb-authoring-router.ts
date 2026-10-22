@@ -27,7 +27,7 @@ export function kbAuthoringProcedures(book: KbAuthoringBook, now: () => Date = (
   const refuse = (err: unknown): never => {
     if (err instanceof KbAuthoringError) {
       const code =
-        err.code === 'support.kb.revision_stale' || err.code === 'support.kb_id_taken'
+        err.code === 'support.kb.revision_stale' || err.code === 'support.kb_id_taken' || err.code === 'support.kb_draft_stale'
           ? 'CONFLICT'
           : err.code === 'support.kb_draft_missing'
             ? 'NOT_FOUND'

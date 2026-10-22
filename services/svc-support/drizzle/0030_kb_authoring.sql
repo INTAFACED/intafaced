@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS "support"."kb_drafts" (
   "title" text NOT NULL CHECK (char_length("title") BETWEEN 1 AND 200),
   "body" text NOT NULL CHECK (char_length("body") BETWEEN 1 AND 20000),
   "section_id" uuid REFERENCES "support"."kb_sections" ("id") ON DELETE RESTRICT,
+  "draft_revision" integer NOT NULL CHECK ("draft_revision" >= 1),
   "saved_by" text NOT NULL,
   "saved_at" timestamptz NOT NULL
 );

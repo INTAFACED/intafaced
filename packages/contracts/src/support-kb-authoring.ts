@@ -7,6 +7,10 @@
  * - A blank title is `support.kb_title_blank`. A section that does not exist is `support.kb_section_unknown`.
  * - Sections and categories are owner content: none are seeded. An article with `sectionId: null` sits in the one
  *   default section, which is what a desk with no sections shows.
+ * - A draft save carries `expectedDraftRevision` (0 when there is no draft), so two authors never silently overwrite
+ *   each other: a stale save refuses `support.kb_draft_stale`.
+ * - Bodies are returned raw. Clients MUST render them only through `renderSupportKbBody`, never a generic
+ *   markdown or HTML renderer: that function is the safe-render guarantee.
  * - Publish is keyed (article, revision): the revision the author read. A replay of the same key returns the same
  *   version; any other stale revision refuses with the existing `support.kb.revision_stale`.
  */
@@ -19,6 +23,12 @@ export const SUPPORT_KB_AUTHORING_ERROR_CODES = [
   'support.kb.revision_stale',
   'support.kb_draft_missing',
   'support.kb_category_unknown',
+  /** The same client id was used again with different fields (CONFLICT). */
+  'support.kb_id_taken',
+  /** No published version of that article (NOT_FOUND on the public get). */
+  'support.kb.not_published',
+  /** The draft changed since the author read it (CONFLICT). */
+  'support.kb_draft_stale',
 ] as const;
 export type SupportKbAuthoringErrorCode = (typeof SUPPORT_KB_AUTHORING_ERROR_CODES)[number];
 
@@ -136,6 +146,8 @@ export const saveKbDraftInputSchema = z
   .object({
     /** Client-chosen id for a new article; the existing id for an edit. */
     articleId: z.string().uuid(),
+    /** The draft revision the author read; 0 when the article has no draft. */
+    expectedDraftRevision: z.number().int().min(0).max(2_147_483_646),
     ...versionFields,
   })
   .strict();
@@ -148,6 +160,8 @@ export const supportKbDraftSchema = z
     title: z.string(),
     body: z.string(),
     sectionId: z.string().uuid().nullable(),
+    /** Bumps on every save; a publish removes the draft. */
+    draftRevision: z.number().int().min(1),
     savedBy: z.string(),
     savedAt: z.string().datetime(),
   })

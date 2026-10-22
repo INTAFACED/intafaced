@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
-import { KbAuthoringError, SqlKbAuthoringBook } from './kb-authoring.js';
+import { SqlKbAuthoringBook } from './kb-authoring.js';
 
 /** SP-kb-01 against Postgres: draft then publish, immutable versions, keyed replay, and 0030 up and down rolled back. */
 
@@ -49,7 +49,14 @@ if (!url) {
   const ARTICLE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const CAT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   const SEC = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-  const draft = { articleId: ARTICLE, language: 'en', title: 'Reset your password', body: 'Open **Settings**.', sectionId: null };
+  const draft = {
+    articleId: ARTICLE,
+    expectedDraftRevision: 0,
+    language: 'en',
+    title: 'Reset your password',
+    body: 'Open **Settings**.',
+    sectionId: null,
+  };
   const listTables = async (q: postgres.Sql | postgres.TransactionSql) =>
     (
       await q<{ t: string }[]>`
@@ -93,7 +100,9 @@ if (!url) {
       await expect(book.publish(ARTICLE, 0, 'ops-1', AT)).rejects.toMatchObject({ code: 'support.kb_draft_missing' });
       await book.saveDraft(draft, 'ops-1', AT);
       await expect(book.publish(ARTICLE, 3, 'ops-1', AT)).rejects.toMatchObject({ code: 'support.kb.revision_stale' });
-      await expect(book.saveDraft({ ...draft, sectionId: SEC }, 'ops-1', AT)).rejects.toBeInstanceOf(KbAuthoringError);
+      await expect(book.saveDraft({ ...draft, expectedDraftRevision: 1, sectionId: SEC }, 'ops-1', AT)).rejects.toMatchObject({
+        code: 'support.kb_section_unknown',
+      });
     });
 
     it('two publishers of the same draft from the same revision write one version', async () => {

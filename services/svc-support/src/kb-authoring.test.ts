@@ -37,7 +37,14 @@ function desk() {
   return { book, support, as };
 }
 
-const draft = { articleId: ARTICLE, language: 'en', title: 'Reset your password', body: 'Open **Settings**.', sectionId: null };
+const draft = {
+  articleId: ARTICLE,
+  expectedDraftRevision: 0,
+  language: 'en',
+  title: 'Reset your password',
+  body: 'Open **Settings**.',
+  sectionId: null,
+};
 
 describe('restricted body format', () => {
   it('script tag rendered as text', () => {
@@ -146,20 +153,24 @@ describe('authoring procedures', () => {
     await expect(customer.getKbDraft({ articleId: ARTICLE })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
-  it('spine five unchanged: the keyed spine reads the same after desk articles are published', async () => {
+  it('spine unchanged: all 9 keyed spine articles read the same after desk articles are published', async () => {
     const { support, as } = desk();
     const before = await support.listKb({ limit: 100 });
-    expect(before.length).toBeGreaterThanOrEqual(5);
-    const ops = await as(OPS);
-    await ops.saveKbDraft(draft);
-    await ops.publishKbDraft({ articleId: ARTICLE, revision: 0 });
-    expect(await support.listKb({ limit: 100 })).toEqual(before);
-    expect(PLATFORM_KB_SPINE.slice(0, 5).map((a) => a.id)).toEqual([
+    expect(before.map((a) => a.id)).toEqual([
       'kb-account-access',
       'kb-security-basics',
       'kb-orders-status',
       'kb-deposit-withdraw-honest',
       'kb-paper-vs-live',
+      'kb-security-scam-tactics',
+      'kb-security-spoofed-sms',
+      'kb-security-dusting',
+      'kb-security-email-compromise',
     ]);
+    expect(PLATFORM_KB_SPINE).toHaveLength(9);
+    const ops = await as(OPS);
+    await ops.saveKbDraft(draft);
+    await ops.publishKbDraft({ articleId: ARTICLE, revision: 0 });
+    expect(await support.listKb({ limit: 100 })).toEqual(before);
   });
 });
