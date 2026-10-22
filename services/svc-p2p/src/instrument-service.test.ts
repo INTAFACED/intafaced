@@ -1136,6 +1136,8 @@ describe('svc-p2p payment instruments', () => {
         // Operator-only late settlement queue — no instrument fields; stranger refuses.
         'ops.lateSettlements': { limit: 100 },
         'reputation.get': { userId: SELLER },
+        // Caller's own order page (P-trade-orders-13): trade rows + counts, no instrument join.
+        'trades.page': { limit: 50 },
         // P-trade-orders-14: one own receipt; no instrument join. Stranger has no quotas set → refuses.
         'trades.receipt': { tradeId: trade.id },
         // Own counts and decimal volume sums only (P-ads-merchant-20); no instrument join.

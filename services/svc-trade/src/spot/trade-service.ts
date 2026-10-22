@@ -7,6 +7,7 @@ import {
   type TradingAdmissionPort,
   type TradingOperationKind,
 } from '../controls/trading-controls.js';
+import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { businessPayload } from '../controls/business-payload.js';
 import type { Timeframe } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
@@ -295,6 +296,12 @@ export interface TradeServiceOptions {
    * creation gate refuses it — this field does not invent a replacement.
    */
   algoMarkPolicy?: AlgoMarkPolicy;
+  /**
+   * CB-bots-10 verification gate for every bot create. The boot passes `loadBotVerificationPolicy(process.env)` (required by
+   * default; a blank level refuses every bot). Omitted: fails closed as `{ mode: 'required', level: null }`, so every bot
+   * create refuses `trade.bots_verification_level_not_set`. Only an explicit `{ mode: 'off' }` turns the gate off.
+   */
+  botVerification?: BotVerificationPolicy;
   /**
    * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
    * and refuses `trade.missing_mark`. Never a customer value.
@@ -763,6 +770,7 @@ export class TradeService {
   private readonly futuresSettleAssets: readonly string[];
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
+  private readonly botVerification: BotVerificationPolicy;
   private readonly algoMarkPolicy: AlgoMarkPolicy;
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
@@ -819,6 +827,8 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
+    // Omitted = fail closed: required with no level set refuses every bot create.
+    this.botVerification = options.botVerification ?? { mode: 'required', level: null };
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
@@ -5260,6 +5270,7 @@ export class TradeService {
       input: createInput,
       bid,
       ask,
+      verification: { policy: this.botVerification, tier: principal.tier },
     });
 
     // A preview must not emit the store callback or expose an active parent
