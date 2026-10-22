@@ -106,6 +106,8 @@ export function toMarket(row: MarketRow): Market {
 
 export interface OrderRow {
   id: string;
+  /** 0085. Absent on rows read by an older SELECT list. */
+  requested_price?: string | null;
   user_id: string;
   sub_account_id: string | null;
   market_id: string;
@@ -154,6 +156,8 @@ export function toOrder(row: OrderRow): OrderRecord {
     side: row.side,
     type: row.type,
     price: row.price === null ? null : parseAmount(row.price),
+    priceAdjusted: row.requested_price != null,
+    requestedPrice: row.requested_price == null ? null : parseAmount(row.requested_price),
     qty: parseAmount(row.qty),
     filledQty: parseAmount(row.filled_qty),
     status: row.status,

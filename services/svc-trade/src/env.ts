@@ -58,6 +58,18 @@ const schema = serviceEnvSchema
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * SP-order-entry-03 owner order-entry rules (D29(a)). NO DEFAULTS: blank refuses placement.
+       * Band half-width in bps of the last fill (1..10000); blank → limit orders refuse `trade.operator_collar`.
+       */
+      TRADE_PRICE_BAND_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+      /** Max age of the band reference (ms). Blank → the band is unset. */
+      TRADE_PRICE_REFERENCE_MAX_AGE_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+      /** Total resting orders per account across markets. Blank → `trade.open_order_cap_unset`. */
+      TRADE_OPEN_ORDER_CAP_TOTAL: z.string().default('').transform(parseOwnerIntegerEnv),
+      /** Per verification level, e.g. "basic:5,full:50". A level not named → `trade.open_order_cap_unset`. */
+      TRADE_OPEN_ORDER_CAP_BY_LEVEL: z.string().default(''),
+
+      /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
        *
        * NO DEFAULT. Blank / unset / any non-integer entry → null; arming refuses `trade.cancel_all_after_unset`.

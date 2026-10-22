@@ -3138,6 +3138,8 @@ export function fakeOrder(partial: {
     side: partial.side ?? 'buy',
     type: partial.type ?? 'limit',
     price: partial.price === undefined ? 100_000_000_000_000_000_000n : partial.price, // 100.0
+    priceAdjusted: false,
+    requestedPrice: null,
     qty,
     filledQty: partial.filledQty ?? 0n,
     status: partial.status ?? 'open',

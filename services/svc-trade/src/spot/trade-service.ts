@@ -70,6 +70,7 @@ import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { resolveFuturesFamily } from '../futures/contract-family.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
+import { applyPriceBand, assertMaxQtySet, checkOpenOrderCaps, requireOpenOrderCaps, type OrderEntryRules } from './order-entry-rules.js';
 import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
 import { recordMarketStatusTransition } from '../admin/status-history.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
@@ -222,6 +223,11 @@ export function fillsProveNoFill(filledQty: Amount, fills: { count: number; qty:
 }
 
 export interface TradeServiceOptions {
+  /**
+   * SP-order-entry-03 owner rules: price band, open-order caps, priceCorrection.
+   * REQUIRED (lead ruling D29(a)); each null member refuses placement with its spec code.
+   */
+  orderEntry: OrderEntryRules;
   /** Mandatory for fresh exposure; absent refuses while cancels/recovery remain. */
   accountAdmission?: TradingAdmissionPort;
   /** PX-S01 authority port; absent means new placement is refused. */
@@ -528,7 +534,7 @@ export function assertSamePlaceCommand(
     order.side === input.side &&
     order.type === orderType &&
     order.qty === input.qty &&
-    order.price === (input.price ?? null) &&
+    (order.requestedPrice ?? order.price) === (input.price ?? null) &&
     order.tif === tif &&
     order.seeded === seeded &&
     order.replacementOf === (input.replacementOf ?? null) &&
@@ -795,6 +801,7 @@ export class TradeService {
   }) => Promise<void>;
   private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
   private readonly holdUnknownTakerMaxAgeMs: number;
+  private readonly orderEntry: OrderEntryRules;
 
   constructor(
     private readonly sql: Sql,
@@ -802,8 +809,9 @@ export class TradeService {
     private readonly matching: MatchingClient,
     private readonly perks: RankPerksSource,
     private readonly bus: EventBus,
-    options: TradeServiceOptions = {},
+    options: TradeServiceOptions,
   ) {
+    this.orderEntry = options.orderEntry;
     this.accountAdmission = options.accountAdmission;
     this.marketLifecycle = options.marketLifecycle;
     this.spotEnabled = options.spotEnabled ?? true;
@@ -1713,6 +1721,27 @@ export class TradeService {
     assertQty(market, input.qty);
     await assertOperatorRiskOnPlace(this.sql, market.id, principal.userId, { price: input.price ?? null, qty: input.qty });
 
+    // SP-order-entry-03 (D29(a)): owner order-entry rules, before any hold.
+    // A market order has no price to band, so it needs the listing's max qty.
+    // A priced order is checked against the band; `amend` moves it to the edge
+    // and the hold, the row and the engine all use the moved price.
+    if (orderType === 'market') assertMaxQtySet(market);
+    let adjustedPrice: Amount | null = null;
+    if (orderType === 'limit' && input.price != null) {
+      const banded = await applyPriceBand({
+        rule: this.orderEntry.priceBand,
+        market,
+        side: input.side,
+        price: input.price,
+        now: this.now(),
+        correction: () => this.orderEntry.priceCorrection.preferenceOf(userId),
+      });
+      if (banded.adjusted) {
+        adjustedPrice = banded.price;
+        input = { ...input, price: banded.price };
+      }
+    }
+
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
     // market orders, force post-only so the engine refuses unfair crosses).
     if (seeded) {
@@ -1808,7 +1837,11 @@ export class TradeService {
       // Owner cap on resting orders per user. Only an order that can rest counts against it.
       // A replacement takes the slot its original just freed, and a bracket exit only protects a filled entry.
       if (orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null) {
-        await this.assertOpenOrdersCap(userId, input.clientOrderId);
+        await this.assertOpenOrdersCap(userId, input.clientOrderId!);
+        await this.assertOwnerOpenOrderCaps(principal, input.clientOrderId!);
+      } else {
+        // Blank is not off: an unset cap refuses every placement, resting or not.
+        requireOpenOrderCaps(this.orderEntry.openOrderCaps, principal.tier);
       }
     }
 
@@ -1835,6 +1868,7 @@ export class TradeService {
       seeded,
       attribution,
       lifecycleProof,
+      adjustedPrice: adjustedPrice === null ? null : formatAmount(adjustedPrice),
       engineRequest: this.toEngineRequest(orderId, userId, input, orderType, tif, protectionPrice, lifecycleProof),
     });
     await this.admitAccountOperation(principal, kind, businessId, evidence, parentBusinessId, input.subAccountId);
@@ -1895,6 +1929,9 @@ export class TradeService {
       qty: parseAmount(String(rawInput.qty)),
       price: rawInput.price == null ? null : parseAmount(String(rawInput.price)),
     } as unknown as PlaceOrderInput;
+    // The caller's price stays in `request` (idempotency compares it); a band amend is applied here.
+    const requestedPrice: Amount | null = evidence.adjustedPrice == null ? null : (input.price ?? null);
+    if (evidence.adjustedPrice != null) (input as { price: Amount | null }).price = parseAmount(String(evidence.adjustedPrice));
     const rawMarket = evidence.market as Record<string, unknown>;
     const market = { ...rawMarket } as unknown as Market;
     for (const field of ['tickSize', 'lotSize', 'minQty', 'maxQty', 'minNotional'] as const) {
@@ -1928,7 +1965,7 @@ export class TradeService {
       INSERT INTO trade.orders (
         id, user_id, sub_account_id, market_id, client_order_id, side, type,
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id, tag
+        replacement_of, replacement_request_hash, session_id, api_key_id, tag, requested_price
       ) VALUES (
         ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
         ${input.side}, ${orderType},
@@ -1938,7 +1975,8 @@ export class TradeService {
         ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
         ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
+        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null},
+        ${requestedPrice == null ? null : formatAmount(requestedPrice)}::numeric
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -1948,7 +1986,7 @@ export class TradeService {
       // Lost a race with a concurrent identical submission. The winner owns the
       // hold and the engine submission; return what it wrote.
       const raced = await this.findOrder(orderId);
-      if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
+      if (raced) return assertSamePlaceCommand(raced, { ...input, price: requestedPrice ?? input.price }, orderType, tif, seeded);
       throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
     }
 
@@ -5503,6 +5541,27 @@ export class TradeService {
    * sweeps; paper markets never count). Best effort under concurrency: two requests in flight can each see one free slot, so the book can
    * overshoot the cap by at most the number of parallel placements.
    */
+  /** SP-order-entry-03 total and per-verification-level caps (D29(a): unset refuses). */
+  private async assertOwnerOpenOrderCaps(principal: Principal, clientOrderId: string): Promise<void> {
+    requireOpenOrderCaps(this.orderEntry.openOrderCaps, principal.tier);
+    if (await this.isPendingBracketExit(principal.userId, clientOrderId)) return;
+    const [row] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM trade.orders o
+        JOIN trade.markets m ON m.id = o.market_id
+       WHERE o.user_id = ${principal.userId} AND NOT m.paper AND o.status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+    `;
+    checkOpenOrderCaps(this.orderEntry.openOrderCaps, principal.tier, row?.n ?? 0);
+  }
+
+  private async isPendingBracketExit(userId: string, clientOrderId: string): Promise<boolean> {
+    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
+    if (!exitOf) return false;
+    const pending = await this.sql`
+      SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+    `;
+    return pending.length > 0;
+  }
+
   private async assertOpenOrdersCap(userId: string, clientOrderId: string): Promise<void> {
     const resolved = resolveOpenOrdersCap();
     if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code);

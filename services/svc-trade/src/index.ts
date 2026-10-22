@@ -1,3 +1,4 @@
+import { orderEntryRulesFromEnv } from './spot/order-entry-rules.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -227,6 +228,7 @@ const trailingPlacementMarkSource: QuotedMarkSource | undefined =
       }
     : undefined;
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
+  orderEntry: orderEntryRulesFromEnv(sql, env),
   trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,
   marketLifecycle,

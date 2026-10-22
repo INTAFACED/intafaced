@@ -500,6 +500,18 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
   'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
+  /** Outside the price band. Not retryable at the same price. */
+  'trade.price_out_of_band': { ccxt: 'InvalidOrder', status: 400 },
+  /** Band reference missing or old. Retry once a fresh reference is published. */
+  'trade.reference_stale': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Owner value unset: the listing has no max quantity. */
+  'trade.max_qty_unset': { ccxt: 'InvalidOrder', status: 400 },
+  /** Owner value unset: an open-order cap. */
+  'trade.open_order_cap_unset': { ccxt: 'InvalidOrder', status: 400 },
+  /** At the total open-order cap. Cancel one before placing another. */
+  'trade.open_order_cap_total': { ccxt: 'InvalidOrder', status: 400 },
+  /** At the verification level's open-order cap. */
+  'trade.open_order_cap_level': { ccxt: 'InvalidOrder', status: 400 },
   /**
    * A circuit breaker is set and no reference mark exists. The order may be
    * well formed; the venue refuses every order until that reference is real.

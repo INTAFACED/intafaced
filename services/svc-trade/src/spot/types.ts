@@ -140,6 +140,10 @@ export interface OrderRecord {
   readonly side: OrderSide;
   readonly type: OrderType;
   readonly price: Amount | null;
+  /** SP-order-entry-03: true when `priceCorrection` amend moved the price to the band edge. */
+  readonly priceAdjusted: boolean;
+  /** The caller's price before a band amend; null when the price was not moved. */
+  readonly requestedPrice: Amount | null;
   readonly qty: Amount;
   readonly filledQty: Amount;
   readonly status: OrderStatus;
@@ -675,6 +679,18 @@ export type TradeErrorCode =
   | 'trade.operator_collar'
   /** Operator throttle is set and this account is already at it. */
   | 'trade.operator_throttle'
+  /** SP-order-entry-03: a priced order is outside the published band and the account's correction is `cancel`. */
+  | 'trade.price_out_of_band'
+  /** SP-order-entry-03: the band's reference price is missing or older than its published age. */
+  | 'trade.reference_stale'
+  /** SP-order-entry-03: a market order on a listing with no max quantity. */
+  | 'trade.max_qty_unset'
+  /** SP-order-entry-03: the total or per-verification-level open-order cap is not set. */
+  | 'trade.open_order_cap_unset'
+  /** SP-order-entry-03: the account is at the total open-order cap. */
+  | 'trade.open_order_cap_total'
+  /** SP-order-entry-03: the account is at its verification level's open-order cap. */
+  | 'trade.open_order_cap_level'
   /** Operator circuit breaker is set and no reference mark is configured. */
   | 'trade.circuit_breaker_reference_unset'
   /**
