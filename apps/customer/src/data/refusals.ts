@@ -46,6 +46,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   quoteFailed: { title: "Couldn't get a price", body: "Couldn't get a price, try again." },
   marketNotOpen: { title: "This market isn't open", body: "You can't trade it right now." },
+  marketHalted: {
+    title: 'Trading is halted',
+    body: 'An operator has paused new orders. Your open orders stay, and you can still cancel them.',
+  },
   destMissing: { title: "We couldn't find that account", body: 'Check the handle and try again.' },
   signedOut: { title: 'Sign in again', body: 'Your session ended. Sign in to carry on.', action: { label: 'Sign in', href: '/login' } },
   stepUp: {

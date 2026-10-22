@@ -128,6 +128,7 @@ function appWith(input: {
   slippageCapBps?: number | null;
   feeDiscountBps?: (userId: string) => Promise<number>;
   stopLimitEnabled?: boolean;
+  matchingHalt?: (marketId: string) => Promise<{ market: boolean; venue: boolean }>;
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -167,6 +168,7 @@ function appWith(input: {
     slippageCapBps: input.slippageCapBps === undefined ? 200 : input.slippageCapBps,
     feeSchedule: input.feeSchedule ?? PUBLISHED_FEE_SCHEDULE,
     ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
+    ...(input.matchingHalt ? { matchingHalt: input.matchingHalt } : {}),
   });
   return { app, submit, ledgerPost };
 }
@@ -865,5 +867,42 @@ describe('POST /api/v1/orders/preview: per-order slippage tolerance', () => {
     expect(res.orderable).toBe(false);
     expect(res.protectionPrice).toBeNull();
     expect(res.refusals.map((r: { code: string }) => r.code)).toContain('trade.slippage_cap_unset');
+  });
+});
+
+describe('POST /api/v1/orders/preview: an operator halt in matching (J-cex-spot-02 step 8)', () => {
+  const preview = async (matchingHalt: (marketId: string) => Promise<{ market: boolean; venue: boolean }>) => {
+    const { app, submit } = appWith({ matchingHalt });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    await app.close();
+    expect(submit).not.toHaveBeenCalled();
+    return response;
+  };
+
+  it('a halted market is refused before Confirm, with the halt named', async () => {
+    const asked: string[] = [];
+    const response = await preview(async (marketId) => {
+      asked.push(marketId);
+      return { market: true, venue: false };
+    });
+    expect(asked).toEqual([MARKET.id]);
+    expect(response.json()).toMatchObject({
+      orderable: false,
+      refusals: [expect.objectContaining({ code: 'trade.market_halted', field: 'symbol' })],
+    });
+  });
+
+  it('a venue-wide halt is refused as one', async () => {
+    const response = await preview(async () => ({ market: false, venue: true }));
+    expect(response.json().refusals.map((r: { code: string }) => r.code)).toEqual(['trade.venue_halted']);
+  });
+
+  it('an open book adds nothing, and a failed read adds nothing (place stays the authority)', async () => {
+    expect((await preview(async () => ({ market: false, venue: false }))).json()).toMatchObject({ orderable: true, refusals: [] });
+    const failed = await preview(async () => {
+      throw new Error('matching down');
+    });
+    expect(failed.statusCode).toBe(200);
+    expect(failed.json()).toMatchObject({ orderable: true, refusals: [] });
   });
 });
