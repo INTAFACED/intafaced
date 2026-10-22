@@ -42,7 +42,7 @@ function fetchIdentity(opts: { sessionRevoked?: boolean; keyRevoked?: boolean; s
     if (url.includes('/internal/account/')) {
       expect(url).toContain(`/internal/account/${USER}`);
       if (opts.accountHttp) return new Response(null, { status: opts.accountHttp });
-      return json({ userId: USER, status: opts.status ?? 'active', kycTier: 'none' });
+      return json({ userId: USER, status: opts.status ?? 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' });
     }
     if (url.includes('/internal/api-keys/')) {
       return json({ id: KEY, userId: USER, revoked: opts.keyRevoked === true });

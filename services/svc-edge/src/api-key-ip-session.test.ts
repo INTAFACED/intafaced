@@ -175,10 +175,13 @@ describe('API key IP allowlist at the session door', () => {
         fetch: async (input) => {
           const url = String(input);
           if (url.includes('/internal/account/')) {
-            return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            });
+            return new Response(
+              JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            );
           }
           expect(url).toContain(`/internal/api-keys/${KEY}`);
           return new Response(JSON.stringify({ id: KEY, userId: USER, revoked: false, ipAllowlist: [LISTED] }), {
@@ -200,10 +203,13 @@ describe('API key IP allowlist at the session door', () => {
         fetch: async (input) => {
           const url = String(input);
           if (url.includes('/internal/account/')) {
-            return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            });
+            return new Response(
+              JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            );
           }
           return new Response(JSON.stringify({ id: KEY, userId: USER, revoked: false, ipAllowlist: [LISTED] }), {
             status: 200,

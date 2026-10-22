@@ -36,7 +36,7 @@ function fetchSession(opts: { revoked: boolean; expectPath?: string }): typeof f
   return async (input) => {
     const url = String(input);
     if (url.includes('/internal/account/')) {
-      return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
+      return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });

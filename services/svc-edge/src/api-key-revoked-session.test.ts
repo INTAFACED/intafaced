@@ -37,7 +37,7 @@ function fetchKey(opts: { revoked: boolean; expectPath?: string }): typeof fetch
     const url = String(input);
     expect(url).not.toContain('/internal/sessions/');
     if (url.includes('/internal/account/')) {
-      return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
+      return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -123,10 +123,13 @@ describe('revoked API-key JWT at the HTTP session door', () => {
           const url = String(input);
           expect(url).not.toContain('/internal/api-keys/');
           if (url.includes('/internal/account/')) {
-            return new Response(JSON.stringify({ userId: USER, status: 'active', kycTier: 'none' }), {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            });
+            return new Response(
+              JSON.stringify({ userId: USER, status: 'active', kycTier: 'none', lastVerifiedAt: '2026-08-25T00:00:00.000Z' }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            );
           }
           expect(url).toContain(`/internal/sessions/${SESSION}`);
           return new Response(JSON.stringify({ id: SESSION, userId: USER, revoked: false }), {

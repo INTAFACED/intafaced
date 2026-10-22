@@ -10,6 +10,7 @@ import { assertApiKeyProduct, optionalProductScopesFromExchange, requestProduct,
 import { assertIdentityApiKeyLive, ApiKeyRevokedError } from './api-key-revoked.js';
 import { assertIdentitySessionLive, SessionRevokedError } from './session-revoked.js';
 import { assertIdentityUserActive } from './identity-user-status.js';
+import { assertIdentitySessionPasskey, SessionPasskeyError } from './session-passkey.js';
 
 /**
  * THE EDGE (§9) — where a bearer token becomes a principal.
@@ -395,12 +396,19 @@ export async function exchangePrincipal(
         identityOwnershipSecret: ownershipSecret,
         fetch: options.fetch,
       });
+      await assertIdentitySessionPasskey({
+        identityUrl: options.identityUrl,
+        userId: principal.userId,
+        identityOwnershipSecret: ownershipSecret,
+        fetch: options.fetch,
+      });
     } catch (err) {
       if (
         err instanceof SessionRevokedError ||
         err instanceof ApiKeyRevokedError ||
         err instanceof KeyUserStatusError ||
-        err instanceof KeyIpError
+        err instanceof KeyIpError ||
+        err instanceof SessionPasskeyError
       ) {
         return { headers: forward, principal: null, rejected: 'invalid' };
       }
