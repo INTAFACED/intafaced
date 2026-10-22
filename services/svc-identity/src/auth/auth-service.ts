@@ -7,6 +7,7 @@ import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashTok
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
+import { apiKeyIpAllowed, normalizeIp } from './api-key-ip.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -67,6 +68,8 @@ export class AuthError extends Error {
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
       | 'auth.domain_not_allowed'
+      | 'auth.ip_not_allowed'
+      | 'auth.ip_invalid'
       | 'auth.sub_account_required'
       | 'auth.sub_account_denied'
       | 'auth.sub_account_revoked'
@@ -520,21 +523,24 @@ export class AuthService {
     return { id: rows[0]!.id, key, prefix, mode };
   }
 
-  async verifyApiKey(key: string): Promise<{ userId: string; scopes: string[]; keyId: string; mode: 'live' | 'sandbox'; domainWhitelist: string[] } | null> {
-    const rows = await this.sql<Array<{ id: string; user_id: string; scopes: string[]; expires_at: Date | null; mode: string | null; domain_whitelist: string[] | null }>>`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
+  async verifyApiKey(key: string): Promise<{ userId: string; scopes: string[]; keyId: string; mode: 'live' | 'sandbox'; domainWhitelist: string[]; ipAllowlist: string[] } | null> {
+    const rows = await this.sql<Array<{ id: string; user_id: string; scopes: string[]; expires_at: Date | null; mode: string | null; domain_whitelist: string[] | null; ip_allowlist: string[] | null }>>`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, ip_allowlist FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
     const row = rows[0];
     if (!row) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
     await this.sql`UPDATE api_keys SET last_used_at = now() WHERE id = ${row.id}`;
     const mode: 'live' | 'sandbox' = row.mode === 'sandbox' ? 'sandbox' : 'live';
-    return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
+    return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [], ipAllowlist: row.ip_allowlist ?? [] };
   }
 
-  async exchangeApiKey(key: string, requestOrigin?: string | null): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  async exchangeApiKey(key: string, requestOrigin?: string | null, requestIp?: string | null): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
       throw new AuthError('API key is not allowed from this origin', 'auth.domain_not_allowed');
+    }
+    if (!apiKeyIpAllowed(verified.ipAllowlist, requestIp)) {
+      throw new AuthError('API key is not allowed from this IP', 'auth.ip_not_allowed');
     }
     const users = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${verified.userId}`;
     const user = users[0];
@@ -548,6 +554,25 @@ export class AuthService {
   async revokeApiKey(userId: string, keyId: string): Promise<boolean> {
     const result = await this.sql`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
+  }
+
+  /**
+   * Bind (or unbind) the IP allowlist on an existing key. Owner only.
+   * Replaces the list. Empty array unbinds. Invalid IPs refuse — never flatten.
+   */
+  async bindApiKeyIpAllowlist(userId: string, keyId: string, ips: string[]): Promise<{ id: string; ipAllowlist: string[] }> {
+    const next: string[] = [];
+    for (const raw of ips) {
+      const ip = normalizeIp(raw);
+      if (!ip) {
+        throw new AuthError('Invalid IP in allowlist', 'auth.ip_invalid');
+      }
+      next.push(ip);
+    }
+    const rows = await this.sql<Array<{ id: string; ip_allowlist: string[] }>>`UPDATE api_keys SET ip_allowlist = ${next} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false RETURNING id, ip_allowlist`;
+    const row = rows[0];
+    if (!row) throw new AuthError('API key not found', 'auth.not_found');
+    return { id: row.id, ipAllowlist: row.ip_allowlist ?? [] };
   }
 
   async getApiKeyOwnership(keyId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
@@ -573,7 +598,7 @@ export class AuthService {
   }
 
   async listApiKeys(userId: string) {
-    return this.sql<Array<{ id: string; name: string; key_prefix: string; scopes: string[]; last_used_at: Date | null; revoked: boolean; mode: string }>>`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC`;
+    return this.sql<Array<{ id: string; name: string; key_prefix: string; scopes: string[]; last_used_at: Date | null; revoked: boolean; mode: string; ip_allowlist: string[] }>>`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode, ip_allowlist FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC`;
   }
 
   async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {

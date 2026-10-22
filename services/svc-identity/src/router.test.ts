@@ -143,6 +143,10 @@ function stubServices(): Stub {
       scopes: ['trade:read'],
       mode: 'live' as const,
     })),
+    bindApiKeyIpAllowlist: record('bindApiKeyIpAllowlist', () => ({
+      id: '55555555-5555-4555-8555-555555555555',
+      ipAllowlist: ['203.0.113.10'],
+    })),
     verifyApiKey: record('verifyApiKey', () => ({
       userId: USER,
       scopes: ['trade:read'],
@@ -668,6 +672,34 @@ describe('apiKeys.exchange turns a key into an edge-usable access token', () => 
     const err = await api.apiKeys.exchange({ key: 'ifc_wrong' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('UNAUTHORIZED');
     expect((err as { message?: string }).message).toBe(userCopy('auth.invalid_credentials'));
+  });
+
+  it('forwards ctx.clientIp as the third exchange argument, never a body field', async () => {
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller({
+      ...(await ctx([])),
+      clientIp: '203.0.113.10',
+      clientOrigin: 'https://app.example.com',
+    });
+    await api.apiKeys.exchange({ key: 'ifc_live_secret' });
+    const call = stub.calls.find((c) => c.method === 'exchangeApiKey');
+    expect(call?.args).toEqual(['ifc_live_secret', 'https://app.example.com', '203.0.113.10']);
+  });
+});
+
+describe('apiKeys.bindIpAllowlist uses identity:write', () => {
+  const KEY = '55555555-5555-4555-8555-555555555555';
+
+  it('requires identity:write and passes the principal as owner', async () => {
+    const denied = await caller(['identity:read']);
+    const err = await denied.apiKeys.bindIpAllowlist({ keyId: KEY, ips: ['203.0.113.10'] }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(stub.calls.filter((c) => c.method === 'bindApiKeyIpAllowlist')).toHaveLength(0);
+
+    const api = await caller(['identity:write']);
+    const result = await api.apiKeys.bindIpAllowlist({ keyId: KEY, ips: ['203.0.113.10'] });
+    expect(result).toEqual({ id: KEY, ipAllowlist: ['203.0.113.10'] });
+    const call = stub.calls.find((c) => c.method === 'bindApiKeyIpAllowlist');
+    expect(call?.args).toEqual([USER, KEY, ['203.0.113.10']]);
   });
 });
 

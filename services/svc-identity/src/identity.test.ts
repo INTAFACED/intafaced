@@ -758,6 +758,60 @@ if (!available) {
       });
     });
 
+    it('honours ip_allowlist on exchange (empty = open; non-listed / missing refuse)', async () => {
+      const session = await register();
+
+      // Create does not require IPs — empty list stays open.
+      const open = await auth.createApiKey({
+        userId: session.userId,
+        name: 'open-bot',
+        scopes: ['trade:read'],
+        grantorScopes: SESSION_SCOPES,
+      });
+      await expect(auth.exchangeApiKey(open.key)).resolves.toMatchObject({ userId: session.userId });
+      await expect(auth.exchangeApiKey(open.key, undefined, '198.51.100.9')).resolves.toMatchObject({
+        userId: session.userId,
+      });
+
+      const bound = await auth.bindApiKeyIpAllowlist(session.userId, open.id, ['203.0.113.10', '2001:db8::1']);
+      expect(bound).toMatchObject({ id: open.id, ipAllowlist: ['203.0.113.10', '2001:db8::1'] });
+
+      const listed = await auth.listApiKeys(session.userId);
+      expect(listed.find((k) => k.id === open.id)?.ip_allowlist).toEqual(['203.0.113.10', '2001:db8::1']);
+
+      await expect(auth.exchangeApiKey(open.key, undefined, '203.0.113.10')).resolves.toMatchObject({
+        userId: session.userId,
+      });
+      await expect(auth.exchangeApiKey(open.key, undefined, '2001:db8::1')).resolves.toMatchObject({
+        userId: session.userId,
+      });
+      await expect(auth.exchangeApiKey(open.key, undefined, '198.51.100.9')).rejects.toMatchObject({
+        code: 'auth.ip_not_allowed',
+      });
+      await expect(auth.exchangeApiKey(open.key)).rejects.toMatchObject({
+        code: 'auth.ip_not_allowed',
+      });
+      await expect(auth.exchangeApiKey(open.key, undefined, null)).rejects.toMatchObject({
+        code: 'auth.ip_not_allowed',
+      });
+      await expect(auth.exchangeApiKey(open.key, undefined, '')).rejects.toMatchObject({
+        code: 'auth.ip_not_allowed',
+      });
+
+      // Invalid IPs refuse — never flatten / drop.
+      await expect(auth.bindApiKeyIpAllowlist(session.userId, open.id, ['10.0.0.0/8'])).rejects.toMatchObject({
+        code: 'auth.ip_invalid',
+      });
+      await expect(auth.bindApiKeyIpAllowlist(session.userId, open.id, ['203.0.113.10', 'not-an-ip'])).rejects.toMatchObject({
+        code: 'auth.ip_invalid',
+      });
+
+      // Empty array unbinds — exchange is open again.
+      const unbound = await auth.bindApiKeyIpAllowlist(session.userId, open.id, []);
+      expect(unbound.ipAllowlist).toEqual([]);
+      await expect(auth.exchangeApiKey(open.key)).resolves.toMatchObject({ userId: session.userId });
+    });
+
     it('default-minted keys are live; exchange JWT key_env is never sandbox', async () => {
       const session = await register();
       const minted = await auth.createApiKey({

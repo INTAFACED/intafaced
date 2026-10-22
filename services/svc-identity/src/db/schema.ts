@@ -277,6 +277,7 @@ export const apiKeys = identity.table(
     keyPrefix: text('key_prefix').notNull(),
     scopes: text('scopes').array().notNull(),
     domainWhitelist: text('domain_whitelist').array().notNull().default([]),
+    ipAllowlist: text('ip_allowlist').array().notNull().default([]),
     /**
      * `live` | `sandbox` — pay.public-api step 4 (ADR 2026-08-07 §2.5).
      * Minted into the short access token as `key_env`. Default live.

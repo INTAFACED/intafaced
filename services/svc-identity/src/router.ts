@@ -181,8 +181,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
+    case 'auth.ip_not_allowed':
       // Deliberately the same shape as a wrong password: never confirm which
-      // half of the credential was right (including "key ok, origin wrong").
+      // half of the credential was right (including "key ok, origin/IP wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
@@ -212,6 +213,7 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
     case 'auth.sub_account_same':
+    case 'auth.ip_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
@@ -1033,10 +1035,11 @@ export function createIdentityRouter(
         )
         .mutation(async ({ input, ctx }) => {
           try {
-            // Origin is read from the trusted edge request, never from the body.
-            // A non-empty domain_whitelist refuses foreign or missing origins.
+            // Origin / IP are read from the trusted edge request, never from the body.
+            // A non-empty domain_whitelist / ip_allowlist refuses foreign or missing values.
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await auth.exchangeApiKey(input.key, clientOrigin);
+            const clientIp = (ctx as { clientIp?: string }).clientIp;
+            const result = await auth.exchangeApiKey(input.key, clientOrigin, clientIp);
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -1087,6 +1090,7 @@ export function createIdentityRouter(
               lastUsedAt: z.string().nullable(),
               revoked: z.boolean(),
               mode: z.enum(['live', 'sandbox']),
+              ipAllowlist: z.array(z.string()),
             }),
           ),
         )
@@ -1100,7 +1104,23 @@ export function createIdentityRouter(
             lastUsedAt: k.last_used_at?.toISOString() ?? null,
             revoked: k.revoked,
             mode: k.mode === 'sandbox' ? ('sandbox' as const) : ('live' as const),
+            ipAllowlist: k.ip_allowlist ?? [],
           }));
+        }),
+
+      /**
+       * Bind IPs on an existing key. Empty array unbinds. identity:write only.
+       * Invalid IPs refuse — never flatten. Exchange from a non-listed IP refuses.
+       */
+      bindIpAllowlist: scopedProcedure('identity:write')
+        .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()) }))
+        .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await auth.bindApiKeyIpAllowlist(ctx.principal.userId, input.keyId, input.ips);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
 
       revoke: scopedProcedure('identity:write')
