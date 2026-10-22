@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { userCopy } from '../user-copy.js';
+import { isOperatorPrincipal } from '../auth/action-approval-audience.js';
 import type { Sql } from 'postgres';
 import {
   PRIVACY_APPROVAL_REQUIRED,
+  PRIVACY_OPERATOR_REQUIRED,
+  PRIVACY_PUBLISHER_NOT_REQUESTER,
+  PRIVACY_REASON_UNSET,
   PRIVACY_SECTION_REQUIRED,
   PRIVACY_SECTIONS,
   PRIVACY_VERSION_CONFLICT,
@@ -41,7 +45,13 @@ const publishedEntry = z
 function privacyError(error: unknown): never {
   if (error instanceof PrivacyRegisterError) {
     const code =
-      error.code === PRIVACY_VERSION_CONFLICT ? 'CONFLICT' : error.code === PRIVACY_APPROVAL_REQUIRED ? 'FORBIDDEN' : 'PRECONDITION_FAILED';
+      error.code === PRIVACY_VERSION_CONFLICT
+        ? 'CONFLICT'
+        : error.code === PRIVACY_APPROVAL_REQUIRED || error.code === PRIVACY_PUBLISHER_NOT_REQUESTER
+          ? 'FORBIDDEN'
+          : error.code === PRIVACY_REASON_UNSET
+            ? 'BAD_REQUEST'
+            : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${userCopy(error.code)} [${error.code}]`, cause: error });
   }
   throw error;
@@ -52,7 +62,7 @@ function actor(ctx: { principal: { userId: string } | null }): string {
   return ctx.principal.userId;
 }
 
-export function createPrivacyRegisterRouter(sql: Sql) {
+export function createPrivacyRegisterRouter(sql: Sql, privilegedUserIds: readonly string[] = []) {
   return router({
     privacy: router({
       register: router({
@@ -79,11 +89,16 @@ export function createPrivacyRegisterRouter(sql: Sql) {
                 retentionPeriod: z.string().max(256).nullable().optional(),
                 approvalId: z.string().min(1).max(128),
                 clientRequestId: z.string().min(1).max(128),
+                reason: z.string().max(2048),
               })
               .strict(),
           )
           .output(publishedEntry)
           .mutation(async ({ ctx, input }) => {
+            // Operators only (the existing operator notion): an API key or sub-account holding admin:write is not one.
+            if (!ctx.principal || !isOperatorPrincipal(ctx.principal, privilegedUserIds)) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: `${userCopy(PRIVACY_OPERATOR_REQUIRED)} [${PRIVACY_OPERATOR_REQUIRED}]` });
+            }
             try {
               return await publishSection(sql, actor(ctx), input);
             } catch (error) {

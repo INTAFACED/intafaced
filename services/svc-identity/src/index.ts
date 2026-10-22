@@ -517,7 +517,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
-  createPrivacyRegisterRouter(sql),
+  createPrivacyRegisterRouter(sql, founderPair ?? []),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),

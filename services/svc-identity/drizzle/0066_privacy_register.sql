@@ -15,3 +15,16 @@ CREATE TABLE IF NOT EXISTS "identity"."privacy_register" (
   PRIMARY KEY ("section", "version"),
   CHECK ("section" <> 'retention' OR "retention_period" IS NOT NULL)
 );
+
+-- One audit row per publish, written in the same transaction: who published, who approved, which approval, and why.
+CREATE TABLE IF NOT EXISTS "identity"."privacy_register_audit" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "section" text NOT NULL,
+  "version" integer NOT NULL,
+  "actor_id" uuid NOT NULL,
+  "approver_id" uuid NOT NULL,
+  "approval_id" text NOT NULL,
+  "reason" text NOT NULL CHECK (btrim("reason") <> ''),
+  "at" timestamptz NOT NULL DEFAULT clock_timestamp(),
+  FOREIGN KEY ("section", "version") REFERENCES "identity"."privacy_register" ("section", "version")
+);

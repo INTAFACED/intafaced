@@ -31,9 +31,17 @@ export const PRIVACY_BODY_UNSET = 'identity.privacy_body_unset' as const;
 export const PRIVACY_APPROVAL_REQUIRED = 'identity.privacy_approval_required' as const;
 export const PRIVACY_VERSION_CONFLICT = 'identity.privacy_version_conflict' as const;
 export const PRIVACY_SECTION_REQUIRED = 'identity.privacy_section_required' as const;
+export const PRIVACY_REASON_UNSET = 'identity.privacy_reason_unset' as const;
+export const PRIVACY_PUBLISHER_NOT_REQUESTER = 'identity.privacy_publisher_not_requester' as const;
+export const PRIVACY_OPERATOR_REQUIRED = 'identity.privacy_operator_required' as const;
 
 export type PrivacyErrorCode =
-  typeof PRIVACY_RETENTION_UNSET | typeof PRIVACY_BODY_UNSET | typeof PRIVACY_APPROVAL_REQUIRED | typeof PRIVACY_VERSION_CONFLICT;
+  | typeof PRIVACY_RETENTION_UNSET
+  | typeof PRIVACY_BODY_UNSET
+  | typeof PRIVACY_APPROVAL_REQUIRED
+  | typeof PRIVACY_VERSION_CONFLICT
+  | typeof PRIVACY_REASON_UNSET
+  | typeof PRIVACY_PUBLISHER_NOT_REQUESTER;
 
 export class PrivacyRegisterError extends Error {
   constructor(readonly code: PrivacyErrorCode) {
@@ -118,11 +126,14 @@ function normalise(input: PublishInput): { section: PrivacySection; version: num
 export async function publishSection(
   sql: Sql,
   actorId: string,
-  input: PublishInput & { approvalId: string; clientRequestId: string },
+  input: PublishInput & { approvalId: string; clientRequestId: string; reason: string },
 ): Promise<PublishResult> {
   const payload = normalise(input);
   const approvalId = input.approvalId.trim();
   if (approvalId === '') throw new PrivacyRegisterError(PRIVACY_APPROVAL_REQUIRED);
+  const reason = input.reason.trim();
+  if (reason === '' || reason.length > 500 || /[\u0000-\u001f\u007f-\u009f]/.test(reason))
+    throw new PrivacyRegisterError(PRIVACY_REASON_UNSET);
   const payloadHash = privacyPublishPayloadHash(payload);
   return transaction(sql, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('identity.privacy_register'), hashtext(${payload.section}))`;
@@ -155,6 +166,8 @@ export async function publishSection(
       approval.approverId !== approval.requesterId &&
       approval.expiresAt.getTime() > Date.now();
     if (!bound || approval === null) throw new PrivacyRegisterError(PRIVACY_APPROVAL_REQUIRED);
+    // The operator who asked for the approval is the one who publishes it: another session cannot spend it.
+    if (approval.requesterId !== actorId) throw new PrivacyRegisterError(PRIVACY_PUBLISHER_NOT_REQUESTER);
     const consumed = await sqlCasConsume(tx, {
       approvalId: approval.approvalId,
       operationId: approval.operationId,
@@ -174,6 +187,9 @@ export async function publishSection(
       VALUES (${payload.section}, ${payload.version}, ${payload.bodyRef}, ${payload.retentionPeriod}, ${approvalId}, ${actorId})
       RETURNING section, version, body_ref, retention_period, approval_id, published_at`;
     if (!row) throw new PrivacyRegisterError(PRIVACY_VERSION_CONFLICT);
+    await tx`
+      INSERT INTO identity.privacy_register_audit (section, version, actor_id, approver_id, approval_id, reason)
+      VALUES (${payload.section}, ${payload.version}, ${actorId}, ${approval.approverId}, ${approvalId}, ${reason})`;
     return { ...published(row), approvalId };
   });
 }
