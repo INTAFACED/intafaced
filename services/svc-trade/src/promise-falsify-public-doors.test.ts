@@ -182,6 +182,7 @@ async function getTrpc(
 function privateDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   return {
     edgeSecret: EDGE_SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

@@ -166,7 +166,7 @@ export interface PrivateRestDeps {
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
   /** Owner minimum iceberg display ratio; null refuses every iceberg (trade.iceberg_display_rule_unset). */
-  icebergDisplayRule?: IcebergDisplayRule | null;
+  icebergDisplayRule: IcebergDisplayRule | null;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
   stopTriggers?: StopTriggerStore;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */

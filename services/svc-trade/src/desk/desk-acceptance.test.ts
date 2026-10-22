@@ -104,6 +104,7 @@ describe('desk doors (no database)', () => {
     const deps = {
       marketBySymbol: async () => market,
       lifecycleForMarket: async () => READY_MARKET_LIFECYCLE.snapshot(market),
+      icebergDisplayRule: { numerator: 1n, denominator: 1000n },
     };
     const ok = await attachIcebergDisplay(deps, base, { type: 'limit', symbol: 'BTC/USDT' }, '2');
     expect(formatAmount((ok.input as unknown as { displayQty: bigint }).displayQty)).toBe('2');
@@ -121,6 +122,7 @@ describe('desk doors (no database)', () => {
     });
     const closed = {
       marketBySymbol: deps.marketBySymbol,
+      icebergDisplayRule: deps.icebergDisplayRule,
       lifecycleForMarket: async () => {
         const snap = await READY_MARKET_LIFECYCLE.snapshot(market);
         return { ...snap, allowedActions: snap.allowedActions.filter((action) => action !== 'PLACE' && action !== 'PLACE_POST_ONLY') };
@@ -130,7 +132,12 @@ describe('desk doors (no database)', () => {
       code: TRADE_ICEBERG_DISPLAY_INVALID,
     });
     await expect(
-      attachIcebergDisplay({ marketBySymbol: deps.marketBySymbol }, base, { type: 'limit', symbol: 'BTC/USDT' }, '2'),
+      attachIcebergDisplay(
+        { marketBySymbol: deps.marketBySymbol, icebergDisplayRule: deps.icebergDisplayRule },
+        base,
+        { type: 'limit', symbol: 'BTC/USDT' },
+        '2',
+      ),
     ).rejects.toMatchObject({
       code: 'trade.lifecycle_authority_unavailable',
     });
@@ -150,6 +157,7 @@ describe('desk doors (no database)', () => {
       edgeSecret: SECRET,
       serviceName: 'svc-trade',
       icebergDisplay: store,
+      icebergDisplayRule: { numerator: 1n, denominator: 1000n },
       marketBySymbol: async () => market,
       marketById: async () => market,
       lifecycleForMarket: () => READY_MARKET_LIFECYCLE.snapshot(market),
@@ -454,7 +462,11 @@ describe('desk acceptance (shared test postgres)', () => {
   it('rests an iceberg whose visible slice is displayQty', async () => {
     await fund(ALICE, 'USDT', '2000');
     const attached = await attachIcebergDisplay(
-      { marketBySymbol: async () => btc, lifecycleForMarket: (market) => READY_MARKET_LIFECYCLE.snapshot(market) },
+      {
+        marketBySymbol: async () => btc,
+        lifecycleForMarket: (market) => READY_MARKET_LIFECYCLE.snapshot(market),
+        icebergDisplayRule: { numerator: 1n, denominator: 1000n },
+      },
       { symbol: btc.symbol, side: 'buy', type: 'limit', qty: parseAmount('10'), price: parseAmount('100'), clientOrderId: 'ice-rest' },
       { type: 'limit', symbol: btc.symbol },
       '2',
@@ -968,6 +980,7 @@ describe('desk acceptance (shared test postgres)', () => {
       edgeSecret: SECRET,
       serviceName: 'svc-trade',
       icebergDisplay: sqlIcebergDisplay(sql),
+      icebergDisplayRule: { numerator: 1n, denominator: 1000n },
       findClientOrder: (principal: Principal, input: { symbol?: string; marketId?: string; clientOrderId?: string }) =>
         trade.findClientOrder(principal, input),
       marketBySymbol: (symbol: string) => trade.marketBySymbol(symbol),
@@ -998,6 +1011,7 @@ describe('desk acceptance (shared test postgres)', () => {
       edgeSecret: SECRET,
       serviceName: 'svc-trade',
       icebergDisplay: sqlIcebergDisplay(sql),
+      icebergDisplayRule: { numerator: 1n, denominator: 1000n },
       findClientOrder: (principal: Principal, input: { symbol?: string; marketId?: string; clientOrderId?: string }) =>
         trade.findClientOrder(principal, input),
       marketBySymbol: (symbol: string) => trade.marketBySymbol(symbol),

@@ -101,6 +101,7 @@ function harness() {
   const opened: unknown[] = [];
   const deps = {
     edgeSecret: SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

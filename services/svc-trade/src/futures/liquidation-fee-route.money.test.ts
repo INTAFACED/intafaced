@@ -135,6 +135,7 @@ describe('liquidation read fee decision route (D-margin-07)', () => {
     };
     registerPrivateRest(a, {
       edgeSecret: SECRET,
+      icebergDisplayRule: null,
       serviceName: 'svc-trade',
       openOrders: async () => [],
       orderHistory: async () => [],

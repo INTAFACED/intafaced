@@ -43,9 +43,9 @@ export async function attachIcebergDisplay(
     lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
     /**
      * Owner minimum display ratio (SP-conditional-algo-03). null: refuse every iceberg
-     * `trade.iceberg_display_rule_unset`. Production (index.ts) always passes this key.
+     * `trade.iceberg_display_rule_unset`. Required: absent or null refuses (fail closed).
      */
-    icebergDisplayRule?: IcebergDisplayRule | null;
+    icebergDisplayRule: IcebergDisplayRule | null;
   },
   input: PlaceOrderInput,
   parsed: { type: string; symbol: string },
@@ -65,7 +65,7 @@ export async function attachIcebergDisplay(
   const market = await deps.marketBySymbol(parsed.symbol);
   if (!market) throw new TradeError(`market ${parsed.symbol} not found`, 'trade.market_not_found');
   assertIcebergDisplay(input.qty, display, market.lotSize);
-  if ('icebergDisplayRule' in deps) assertIcebergDisplayRatio(deps.icebergDisplayRule ?? null, input.qty, display);
+  assertIcebergDisplayRatio(deps.icebergDisplayRule ?? null, input.qty, display);
   if (!deps.lifecycleForMarket) {
     throw new TradeError('market lifecycle authority is not configured', 'trade.lifecycle_authority_unavailable');
   }

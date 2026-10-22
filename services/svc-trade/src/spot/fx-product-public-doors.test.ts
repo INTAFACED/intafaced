@@ -77,6 +77,7 @@ function paperFx(overrides: Partial<Market> = {}): Market {
 function privateDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   return {
     edgeSecret: EDGE_SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

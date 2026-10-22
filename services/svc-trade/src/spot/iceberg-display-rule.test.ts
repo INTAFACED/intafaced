@@ -55,6 +55,17 @@ describe('iceberg owner minimum display ratio (SP-conditional-algo-03)', () => {
     }
   });
 
+  it('deps with icebergDisplayRule null refuses every iceberg (required dep, fail closed)', async () => {
+    const nullDeps = {
+      marketBySymbol: async () => market,
+      lifecycleForMarket: async () => READY_MARKET_LIFECYCLE.snapshot(market),
+      icebergDisplayRule: null,
+    };
+    await expect(attachIcebergDisplay(nullDeps, base, parsed, '5')).rejects.toMatchObject({
+      code: TRADE_ICEBERG_DISPLAY_RULE_UNSET,
+    });
+  });
+
   it('an order with no displayQty is not an iceberg and is not touched by the ratio', async () => {
     const out = await attachIcebergDisplay(deps(''), base, parsed, undefined);
     expect(out.displayQty).toBeNull();

@@ -85,6 +85,7 @@ function quotedAt(price: string): QuotedMarkSource {
 function baseDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   return {
     edgeSecret: SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

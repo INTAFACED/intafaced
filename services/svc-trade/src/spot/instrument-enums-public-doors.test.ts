@@ -55,6 +55,7 @@ function signedHeaders(p: Principal = principal()): Record<string, string> {
 function privateDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   return {
     edgeSecret: EDGE_SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

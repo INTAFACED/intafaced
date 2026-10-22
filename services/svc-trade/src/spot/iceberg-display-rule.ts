@@ -1,6 +1,6 @@
 import type { Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
-const TRADE_ICEBERG_DISPLAY_INVALID = 'trade.iceberg_display_invalid' as const;
+import { TRADE_ICEBERG_DISPLAY_INVALID } from './iceberg-door.js';
 
 /** SP-conditional-algo-03: the owner has not published a minimum iceberg display ratio. */
 export const TRADE_ICEBERG_DISPLAY_RULE_UNSET = 'trade.iceberg_display_rule_unset' as const;

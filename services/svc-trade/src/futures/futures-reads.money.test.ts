@@ -450,6 +450,7 @@ describe('futures reads money', () => {
     };
     return {
       edgeSecret: SECRET,
+      icebergDisplayRule: null,
       serviceName: 'svc-trade',
       openOrders: async () => [],
       orderHistory: async () => [],

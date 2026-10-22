@@ -134,6 +134,7 @@ describe('position liquidation timeline (D-margin-06)', () => {
     };
     registerPrivateRest(a, {
       edgeSecret: SECRET,
+      icebergDisplayRule: null,
       serviceName: 'svc-trade',
       openOrders: async () => [],
       orderHistory: async () => [],

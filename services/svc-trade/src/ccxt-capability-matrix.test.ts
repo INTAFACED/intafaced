@@ -84,6 +84,7 @@ function privateDeps(over: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   const market = fakeMarket({ symbol: 'BTC/USDT' });
   return {
     edgeSecret: SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

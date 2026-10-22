@@ -58,6 +58,7 @@ function baseDeps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
   const events = memoryAdlDisclosureEventStore();
   return {
     edgeSecret: SECRET,
+    icebergDisplayRule: null,
     serviceName: 'svc-trade',
     openOrders: async () => [],
     orderHistory: async () => [],

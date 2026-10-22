@@ -373,6 +373,7 @@ describe('private REST — mount boundary + order write path', () => {
   function deps(overrides: Partial<PrivateRestDeps> = {}): PrivateRestDeps {
     return {
       edgeSecret: SECRET,
+      icebergDisplayRule: null,
       serviceName: 'svc-trade',
       openOrders: async () => [open],
       adminOpenOrders: async () => [open],
