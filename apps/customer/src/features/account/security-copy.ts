@@ -47,6 +47,8 @@ export const securityCopy = defineCopy(
     recoveryTitle: 'Your recovery codes',
     recoveryOnce:
       'Each code signs you in once if you lose your phone. Write them down or keep them somewhere safe: this page shows them only now.',
+    recoveryUnknown:
+      'We could not tell whether your authenticator was turned on. If it was, these are its recovery codes, so keep them. The Security checklist at the top of this page shows whether it is on. If it shows it is off, these codes do nothing: review a new setup instead.',
     recoverySaved: 'I saved them',
     recoveryCheck: 'I wrote these codes down or stored them somewhere safe',
     confirmationAccepted: 'The service accepted the original authenticator confirmation. Save your recovery codes before leaving.',
@@ -142,6 +144,8 @@ export const securityCopy = defineCopy(
       recoveryTitle: 'Tus códigos de recuperación',
       recoveryOnce:
         'Cada código te deja entrar una vez si pierdes el teléfono. Anótalos o guárdalos en un lugar seguro: esta página solo los muestra ahora.',
+      recoveryUnknown:
+        'No pudimos saber si tu autenticador quedó activado. Si lo está, estos son sus códigos de recuperación, así que guárdalos. La lista de seguridad al principio de esta página muestra si está activo. Si muestra que está desactivado, estos códigos no sirven: revisa una nueva configuración.',
       recoverySaved: 'Los he guardado',
       recoveryCheck: 'Anoté estos códigos o los guardé en un lugar seguro',
       confirmationAccepted:
@@ -244,6 +248,8 @@ export const securityCopy = defineCopy(
       recoveryTitle: 'Vos codes de récupération',
       recoveryOnce:
         'Chaque code vous permet de vous connecter une fois si vous perdez votre téléphone. Notez-les ou gardez-les en lieu sûr : cette page ne les montre que maintenant.',
+      recoveryUnknown:
+        'Nous n’avons pas pu savoir si votre authentificateur a été activé. S’il l’est, voici ses codes de récupération : gardez-les. La liste de sécurité en haut de cette page indique s’il est actif. S’il est indiqué comme désactivé, ces codes ne servent à rien : examinez une nouvelle configuration.',
       recoverySaved: 'Je les ai enregistrés',
       recoveryCheck: 'J’ai noté ces codes ou je les ai gardés en lieu sûr',
       confirmationAccepted:

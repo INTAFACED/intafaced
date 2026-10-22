@@ -53,7 +53,16 @@ type Original = {
   /** The five-minute token from "Confirm it's you" (`auth.stepUp`), for this one change only. Never persisted. */
   bearer?: string;
 };
-type Setup = { original: Original; record: SecurityRecord; data: z.infer<typeof setupResponse>; confirmed: boolean };
+type Setup = {
+  original: Original;
+  record: SecurityRecord;
+  data: z.infer<typeof setupResponse>;
+  confirmed: boolean;
+  /** The confirmation's answer was lost: the authenticator may be on, so its recovery codes show, labelled as such. */
+  outcomeUnknown?: boolean;
+};
+/** The recovery codes show once the authenticator is on, or may be on because the confirmation's answer was lost. */
+const recoveryCodesShown = (setup: Setup): boolean => setup.confirmed || setup.outcomeUnknown === true;
 type Response = {
   original: Original;
   record?: SecurityRecord;
@@ -178,6 +187,7 @@ export function Security() {
     journal.records.some((row) => row.requestId === setup.record.requestId && row.state === 'prepared')
       ? setup
       : null;
+  const codesShown = visibleSetup ? recoveryCodesShown(visibleSetup) : false;
   useEffect(() => {
     const waiting = setupFocus.current;
     if (!visibleSetup || waiting?.readyRequest !== visibleSetup.record.requestId || waiting.intent !== visibleSetup.original) return;
@@ -435,9 +445,11 @@ export function Security() {
       );
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);
-        if (answer.ok && mounted.current) methodsChanged();
+        // An uncertain answer may also mean it is on: the checklist re-reads either way.
+        if ((answer.ok || answer.reason === 'uncertain') && mounted.current) methodsChanged();
         // The authenticator is on; while it is still this person on this client, the recovery codes must still show.
         if (answer.ok && sameActor(intent)) setSetup({ ...prepared, confirmed: true });
+        else if (!answer.ok && answer.reason === 'uncertain' && sameActor(intent)) setSetup({ ...prepared, outcomeUnknown: true });
         return;
       }
       known(intent, record, answer, answer.ok ? 'confirmationAccepted' : undefined);
@@ -445,6 +457,10 @@ export function Security() {
       if (answer.ok) {
         setShowKey(false);
         setSetup({ ...prepared, confirmed: true });
+        methodsChanged();
+      } else if (answer.reason === 'uncertain') {
+        // Identity may have turned the authenticator on before the answer was lost; these codes would be its only copy.
+        setSetup({ ...prepared, outcomeUnknown: true });
         methodsChanged();
       }
     });
@@ -476,7 +492,7 @@ export function Security() {
   /** The person saved the recovery codes: the codes, the setup key and the setup's journal row leave for good. */
   function codesSaved() {
     const saved = visibleSetup;
-    if (!saved?.confirmed || !codesKept) return;
+    if (!saved || !recoveryCodesShown(saved) || !codesKept) return;
     if (finishSecurity(saved.record)) sync(saved.record.owner);
     setSetup(null);
     setShowKey(false);
@@ -690,7 +706,7 @@ export function Security() {
               <Copy k="authenticatorBody" />
             </p>
             <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
-              {visibleSetup && !visibleSetup.confirmed ? <Copy k="setupReady" /> : null}
+              {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
             </p>
             {visibleSetup ? (
               <div className="stack">
@@ -698,13 +714,13 @@ export function Security() {
                   <h3 className="security__setup-heading" ref={setupHeading} tabIndex={-1}>
                     <Copy k="continue" />
                   </h3>
-                  {!visibleSetup.confirmed && (
+                  {!codesShown && (
                     <p className="security__setup-ready" aria-hidden="true">
                       <Copy k="setupReady" />
                     </p>
                   )}
                 </div>
-                {!visibleSetup.confirmed && (
+                {!codesShown && (
                   <>
                     <p>
                       <Copy k="setupBody" />
@@ -748,13 +764,18 @@ export function Security() {
                     <Copy k="confirmationAccepted" />
                   </p>
                 )}
-                {visibleSetup.confirmed && (
+                {codesShown && (
                   // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
                   // this page; nothing here is ever written to storage.
                   <div className="security__recovery stack" data-security-sensitive="true">
                     <h3>
                       <Copy k="recoveryTitle" />
                     </h3>
+                    {!visibleSetup.confirmed && (
+                      <p className="notice" role="status">
+                        <Copy k="recoveryUnknown" />
+                      </p>
+                    )}
                     <p>
                       <Copy k="recoveryOnce" />
                     </p>
