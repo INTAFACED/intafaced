@@ -159,6 +159,7 @@ export const appRouter = createAcademyRouter(
   env.ACADEMY_CERT_VERIFY_RATE_MAX !== undefined && env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS !== undefined
     ? { max: env.ACADEMY_CERT_VERIFY_RATE_MAX, windowSeconds: env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS }
     : null,
+  env,
   new AcademyCourseStore(sql),
 );
 export type AppRouter = typeof appRouter;

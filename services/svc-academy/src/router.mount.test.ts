@@ -253,6 +253,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.setCourseLifecycle',
         'admin.courseSettings',
         'admin.setCourseSetting',
+        'admin.settingsStatus',
         'health',
         'invite',
         'join',

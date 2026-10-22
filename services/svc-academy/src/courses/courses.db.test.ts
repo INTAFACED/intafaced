@@ -54,7 +54,7 @@ function caller(scopes: string[]) {
     },
     id: 'req-courses',
   });
-  return createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, store()).createCaller(ctx);
+  return createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, {}, store()).createCaller(ctx);
 }
 
 afterAll(async () => {

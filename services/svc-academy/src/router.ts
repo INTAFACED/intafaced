@@ -12,6 +12,7 @@ import {
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
 import { AcademyCourseStore, COURSE_SETTING_KEYS, type CourseRecord } from './courses/store.js';
+import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -857,6 +858,7 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  settings: SettingsEnv = {},
   courseStore: AcademyCourseStore | null = null,
 ) {
   const courses = (): AcademyCourseStore => {
@@ -2508,6 +2510,26 @@ export function createAcademyRouter(
             return { ok: true as const };
           }),
         ),
+      /**
+       * AC-order-02 — owner settings register: every class-a owner value with
+       * its state (set / not set) and the refusal shown while blank. State only:
+       * no value and no default ever leaves this read.
+       */
+      settingsStatus: scopedProcedure('admin:read', { module: 'academy' })
+        .output(
+          z.object({
+            rows: z.array(
+              z.object({
+                key: z.string(),
+                state: z.enum(['set', 'not_set']),
+                store: z.enum(['env', 'pending', 'refuse_closed']),
+                readOnly: z.boolean(),
+                refusalCode: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(() => ({ rows: [...settingsRegister(settings)] })),
 
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
