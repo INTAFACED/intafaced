@@ -13,7 +13,7 @@ import { MemorySupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 import { MemorySurveyBook } from './survey-settings.js';
 
-/** SP-csat-02 review fixes: codes in the contracts enum, user copy with code in cause, vendor.email NotConnected surfaced. */
+/** SP-csat-02 review fixes: codes in the contracts refusal enum, the refusal code on cause (message is the code until catalog copy lands), vendor.email NotConnected surfaced. */
 const authConfig = {
   secret: 'a-support-survey-blockers-test-secret-long-enough',
   issuer: 'intafaced',
