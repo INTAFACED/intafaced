@@ -195,11 +195,15 @@ test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price,
   const other = await api(otherTrader());
   // The house market maker may cross it first when it requotes; either way the order fills as maker.
   if ((await openOrders(who)).some((o) => o.id === id)) {
+    // An IOC sell takes the best bids first: if the market maker has bid above this order since, sell through those
+    // too, so the sell reaches this order at its price.
+    const { body } = await bestPrices();
+    const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
     const sell = await other.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
       type: 'limit',
       side: 'sell',
-      amount,
+      amount: fromUnits(ahead + toUnits(amount)),
       price,
       timeInForce: 'IOC',
       clientOrderId: `${J}-8-${id}`,
