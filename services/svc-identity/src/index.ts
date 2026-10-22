@@ -31,6 +31,7 @@ import { createApiKeyProductRouter } from './api-key-product-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
+import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -197,6 +198,11 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(sql),
   createOrgRouter(sql),
   createEnrollPasskeyRouter(sql, {
+    rpId: env.WEBAUTHN_RP_ID,
+    rpName: env.WEBAUTHN_RP_NAME,
+    origin: env.WEBAUTHN_ORIGIN,
+  }),
+  createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
     origin: env.WEBAUTHN_ORIGIN,
