@@ -1,6 +1,5 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { AlgoSchedulerView } from './scheduler-heartbeat.js';
-import { algoStopReason } from './stop-reason.js';
 import type { AlgoProgressView, AlgoStatus, TwapParent } from './types.js';
 
 /**
@@ -37,7 +36,6 @@ export function presentAlgoProgress(
     parentId: parent.id,
     status: parent.status,
     haltReason: parent.haltReason,
-    stopReason: algoStopReason(parent),
     childrenEmitted: parent.children.length,
     missesRecorded: parent.misses.length,
     slicesPlanned: parent.slicesPlanned,

@@ -62,7 +62,6 @@ import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insuranc
 import { supportTradeSummaryRouter } from './support/router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
-import { ALGO_STOP_REASONS, algoStopReason, type AlgoStopReasonCode } from './algo/stop-reason.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -210,13 +209,6 @@ function requireBankCaller(service: string | null): void {
 }
 
 /** Shared TWAP parent presentation (create/get/pause/resume/cancel). */
-const algoStopReasonSchema = z
-  .object({
-    code: z.enum(Object.keys(ALGO_STOP_REASONS) as [AlgoStopReasonCode, ...AlgoStopReasonCode[]]),
-    label: z.string(),
-  })
-  .nullable();
-
 const algoParentOutputSchema = z.object({
   id: z.string(),
   symbol: z.string(),
@@ -232,7 +224,6 @@ const algoParentOutputSchema = z.object({
   childrenEmitted: z.number().int(),
   missesRecorded: z.number().int(),
   haltReason: z.string().nullable(),
-  stopReason: algoStopReasonSchema,
   participationBps: z.number().int().nullable(),
   createdAt: z.string(),
   startedAt: z.string(),
@@ -1317,7 +1308,6 @@ export function createTradeRouter(
             parentId: z.string(),
             status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
             haltReason: z.string().nullable(),
-            stopReason: algoStopReasonSchema,
             childrenEmitted: z.number().int(),
             missesRecorded: z.number().int(),
             slicesPlanned: z.number().int(),
@@ -1857,7 +1847,6 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     childrenEmitted: parent.children.length,
     missesRecorded: parent.misses.length,
     haltReason: parent.haltReason,
-    stopReason: algoStopReason(parent),
     participationBps: parent.participationBps,
     createdAt: parent.createdAt.toISOString(),
     startedAt: parent.startedAt.toISOString(),
