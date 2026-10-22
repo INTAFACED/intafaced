@@ -35,7 +35,12 @@ export interface ChartSeries {
 export interface ChartApi {
   addSeries(definition: unknown, options?: Record<string, unknown>, pane?: number): ChartSeries;
   removeSeries(series: ChartSeries): void;
-  panes(): Array<{ setStretchFactor(factor: number): void; paneIndex(): number; moveTo(index: number): void; setHeight(height: number): void }>;
+  panes(): Array<{
+    setStretchFactor(factor: number): void;
+    paneIndex(): number;
+    moveTo(index: number): void;
+    setHeight(height: number): void;
+  }>;
   removePane(index: number): void;
   timeScale(): {
     fitContent(): void;
