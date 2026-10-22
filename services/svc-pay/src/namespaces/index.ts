@@ -68,6 +68,8 @@ export function createPayNamespaces(deps: {
   allowlist?: AllowlistMountDeps;
   sql?: Sql;
   ledger?: Pick<LedgerClient, 'balances'>;
+  /** Chargeback transactions by key for merchantOps.disputes.funds (M-disp-01). Absent: that read refuses. */
+  disputeFundsLedger?: Pick<LedgerClient, 'getTxByKey'>;
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
   teamEmailInvite?: TeamEmailInviteLimit;
@@ -88,6 +90,7 @@ export function createPayNamespaces(deps: {
     founderAuthority: deps.founderAuthority,
     sql: deps.sql,
     ledger: deps.ledger,
+    disputeFundsLedger: deps.disputeFundsLedger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
     teamEmailInvite: deps.teamEmailInvite,
