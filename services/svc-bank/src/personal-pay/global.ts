@@ -429,24 +429,19 @@ export class GlobalSendService {
     const toCurrency = requireText(input.toCurrency, 8).toUpperCase();
     const money = canonical(input.amount);
     // BK-xfer-03: OUR needs the owner's flat fee for this currency. Checked before the provider is asked.
-    const our = input.chargeBearer === 'OUR' ? this.ourFeeFor(toCurrency) : null;
+    const our = input.chargeBearer === 'OUR' ? this.ourFeeFor(toCurrency, asset) : null;
     const quoted = await this.checkedQuote({ asset, amount: money.text, toCurrency }, input.now ?? new Date());
     if (input.chargeBearer === undefined) return quoted;
     if (our) return { ...quoted, chargeBearer: 'OUR', ourFee: our.fee, ourFeeAsset: our.feeAsset };
     return { ...quoted, chargeBearer: 'SHA' };
   }
 
-  /**
-   * BK-xfer-03: a bank-side firm-rate conversion is HELD until LG-fx-bank-grant-01 (ledger-owner grant).
-   * It always refuses. It never quotes or posts a rate.
-   */
-  async firmRateConvert(_input: { userId: string; fromAsset: string; toAsset: string; amount: string }): Promise<never> {
-    throw personalPayError('bank.fx_firm_rate_held');
-  }
-
-  private ourFeeFor(currency: string): { fee: string; feeAsset: string } {
+  private ourFeeFor(currency: string, asset: string): { fee: string; feeAsset: string } {
     const row = this.ourFees?.get(currency);
     if (!row) throw personalPayError('bank.our_fee_unset', currency);
+    // DR5 minor: the OUR fee is charged in the asset being sent. A row in another asset (an env typo, or a
+    // different unit) is not a published fee for this send.
+    if (row.feeAsset !== asset) throw personalPayError('bank.our_fee_unset', `${currency} in ${asset}`);
     return row;
   }
 
@@ -888,6 +883,8 @@ export function parseOurFees(json: string | undefined): ReadonlyMap<string, { fe
     const { currency, fee, feeAsset } = item as Record<string, unknown>;
     if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) return null;
     if (typeof fee !== 'string' || !/^\d+(\.\d{1,18})?$/.test(fee)) return null;
+    // DR5 minor: a zero OUR fee is not a published price; the owner sets SHA for that.
+    if (/^0+(\.0+)?$/.test(fee)) return null;
     if (typeof feeAsset !== 'string' || !/^[A-Z0-9]{1,16}$/.test(feeAsset)) return null;
     if (out.has(currency)) return null;
     out.set(currency, { fee, feeAsset });

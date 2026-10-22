@@ -387,7 +387,6 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
             asset: z.string().min(1).max(16),
             amount: amountString,
             toCurrency: z.string().min(3).max(8),
-            chargeBearer: z.enum(['SHA', 'OUR']).optional(),
           })
           .strict(),
       )
@@ -399,9 +398,6 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
           receiveAmount: amountString,
           validUntil: z.string(),
           eta: z.string(),
-          chargeBearer: z.enum(['SHA', 'OUR']).optional(),
-          ourFee: amountString.optional(),
-          ourFeeAsset: z.string().optional(),
         }),
       )
       .query(({ input }) => guard(() => bank.globalSend.quote(input))),

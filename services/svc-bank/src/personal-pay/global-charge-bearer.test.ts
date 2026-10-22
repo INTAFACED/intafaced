@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { GlobalSendService, parseOurFees } from './global.js';
-import { personalPayError, PersonalPayError } from './errors.js';
+import { personalPayError } from './errors.js';
 import { emptyGlobalPorts, type FxQuote, type GlobalPorts } from './ports.js';
 
 /**
  * BK-xfer-03 (svc-bank, part one): the SHA/OUR charge bearer on `global.quote`, the owner OUR flat-fee table
- * (`BANK_GLOBAL_OUR_FEES_JSON`, blank refuses), and the bank-side firm-rate FX held as a typed refusal until
- * LG-fx-bank-grant-01. The quote path reads no database; the service gets null handles it never touches.
+ * (`BANK_GLOBAL_OUR_FEES_JSON`, blank refuses). The firm-rate FX refusal lives in contracts only (DR5: no dead svc code). The quote path reads no database; the service gets null handles it never touches.
  */
 const NOW = new Date('2026-10-22T10:00:00Z');
 const quoted: FxQuote = {
@@ -85,17 +84,7 @@ describe('global.quote charge bearer (BK-xfer-03)', () => {
   });
 });
 
-describe('firm-rate FX is HELD (LG-fx-bank-grant-01)', () => {
-  it('firmRateConvert always refuses bank.fx_firm_rate_held naming its blocker, and never asks for a rate', async () => {
-    const p = ports();
-    const err = await svc(p.ports, OUR_EUR)
-      .firmRateConvert({ userId: 'u', fromAsset: 'USDT', toAsset: 'EUR', amount: '10' })
-      .catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(PersonalPayError);
-    expect(err).toMatchObject({ code: 'bank.fx_firm_rate_held', http: 'PRECONDITION_FAILED', blocker: 'LG-fx-bank-grant-01' });
-    expect(p.asked()).toBe(0);
-  });
-
+describe('owner refusal copy', () => {
   it('our_fee_unset is a precondition with the currency named, not the generic fallback', () => {
     const e = personalPayError('bank.our_fee_unset', 'GBP');
     expect(e.http).toBe('PRECONDITION_FAILED');
