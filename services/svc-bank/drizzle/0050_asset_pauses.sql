@@ -5,7 +5,7 @@
 -- revision by one; the history row for (asset, revision) is the business key `ops-pause:<asset>:<revision>`, so two
 -- operators racing on the same revision produce one change and one `bank.ops_revision_conflict`.
 --
--- Reversal: 0046_asset_pauses.down.sql
+-- Reversal: 0050_asset_pauses.down.sql
 
 CREATE TABLE IF NOT EXISTS "bank"."asset_pauses" (
   "asset_id" text PRIMARY KEY,
