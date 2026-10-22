@@ -198,7 +198,7 @@ function caller(scopes: string[], approvals?: ActionApprovalConsumer) {
     },
     id: 'req-roles',
   });
-  return createAcademyRouter({} as AcademyService, {}, undefined, approvals, null, store()).createCaller(ctx);
+  return createAcademyRouter({} as AcademyService, {}, undefined, approvals, null, {}, store()).createCaller(ctx);
 }
 
 const causeCode = (err: unknown) => (err as { cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
@@ -245,7 +245,7 @@ describe('admin role doors', () => {
   });
 
   it('roleHolders refuses academy.role_holders_list_limit_unset when the owner page size is blank', async () => {
-    const r = createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, new AcademyRoleStore(sql, { customRoleLimit: 5 }));
+    const r = createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, {}, new AcademyRoleStore(sql, { customRoleLimit: 5 }));
     expect(await refusal(r.createCaller(ctxFor(FOUNDER, ['admin:read'])).admin.roleHolders({ courseScope: COURSE }))).toBe(
       'academy.role_holders_list_limit_unset',
     );
@@ -258,6 +258,7 @@ describe('admin role doors', () => {
       undefined,
       approved,
       null,
+      {},
       new AcademyRoleStore(sql, { customRoleLimit: 1, holdersListLimit: 10 }),
     );
     const c = r.createCaller(ctxFor(FOUNDER, ['admin:write']));
@@ -291,6 +292,7 @@ describe('admin role doors', () => {
       undefined,
       undefined,
       null,
+      {},
       store(),
     ).createCaller(ctxFor(MEMBER, ['admin:read']));
     expect(await refusal(asMember.admin.opsMetrics({ from: '2026-10-01', to: '2026-10-02' }))).toBe('academy.permission_denied');
@@ -301,6 +303,7 @@ describe('admin role doors', () => {
       undefined,
       undefined,
       null,
+      {},
       store(),
     ).createCaller(ctxFor(FOUNDER, ['admin:read']));
     await expect(asFounder.admin.opsMetrics({ from: '2026-10-01', to: '2026-10-02' })).resolves.toMatchObject({ days: [] });

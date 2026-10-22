@@ -142,7 +142,7 @@ jobs:
   changes:
     name: Affected tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: under 1 min
+    timeout-minutes: 10 # healthy run: under 1 min; a slow registry install passed 5 min on three PRs on 2026-10-22
     outputs:
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}

@@ -254,6 +254,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.setCustomRoleActive',
         'admin.assignRole',
         'admin.revokeRole',
+        'admin.settingsStatus',
         'health',
         'invite',
         'join',
