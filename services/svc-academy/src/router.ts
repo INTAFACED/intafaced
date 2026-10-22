@@ -11,6 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { queryCatalogue, relatedItems, searchEnrolled } from './curriculum/search.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -198,6 +199,27 @@ const curriculumDepthOut = z.object({
   totalBodyChars: z.number().int(),
   allDeep: z.boolean(),
 });
+
+const curriculumQueryIn = z
+  .object({
+    path: curriculumPath.optional(),
+    kind: curriculumKind.optional(),
+    q: z.string().max(500).optional(),
+    sort: z.enum(['recommended', 'name_asc', 'name_desc']).optional(),
+    limit: z.number().optional(),
+  })
+  .optional();
+
+type CurriculumPathSlug = z.infer<typeof curriculumPath>;
+
+function catalogueFilter(input: z.infer<typeof curriculumQueryIn>) {
+  return {
+    ...(input?.path ? { path: input.path } : {}),
+    ...(input?.kind ? { kind: input.kind } : {}),
+    ...(input?.q !== undefined ? { q: input.q } : {}),
+    ...(input?.sort ? { sort: input.sort } : {}),
+  };
+}
 
 const curriculumInventoryOut = z.object({
   contentSource: z.enum(['platform-native-expansion', 'licensed-import-pending']),
@@ -762,6 +784,15 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.slug_reserved':
+    case 'academy.search_query_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    case 'academy.search_list_limit_unset':
+    case 'academy.public_read_rate_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'academy.public_read_rate_limited':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
   }
 }
 
@@ -831,7 +862,9 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  publicReadRate: VerifyRate | null = null,
 ) {
+  const publicReadLimiter = new VerifyRateLimiter();
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
   const verifyLimiter = new VerifyRateLimiter();
@@ -854,18 +887,71 @@ export function createAcademyRouter(
     // proprietary library import is residual (see curriculum/catalog.ts).
 
     curriculum: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ path: curriculumPath.optional(), kind: curriculumKind.optional(), limit: z.number().optional() }).optional())
+      .input(curriculumQueryIn)
       .output(z.array(curriculumSummaryOut))
       .query(({ input }) =>
         guard(async () => {
-          const all = listCurriculum({
-            ...(input?.path ? { path: input.path } : {}),
-            ...(input?.kind ? { kind: input.kind } : {}),
-          });
           const limit = assertCurriculumPageLimit(input?.limit);
-          return all.slice(0, limit);
+          return queryCatalogue(catalogueFilter(input)).slice(0, limit);
         }),
       ),
+
+    /**
+     * AC-catalogue-01 — signed-out catalogue: published, listed items only and
+     * no learner data. Owner rate limit per address; blank refuses.
+     */
+    publicCatalogue: publicProcedure
+      .input(curriculumQueryIn)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input, ctx }) =>
+        guard(async () => {
+          if (!publicReadRate) {
+            throw new AcademyError('public catalogue read rate is not set', 'academy.public_read_rate_unset');
+          }
+          const address = clientAddressOf(ctx);
+          if (!address || publicReadLimiter.take(address, publicReadRate) === 'limited') {
+            throw new AcademyError('public catalogue read rate exceeded', 'academy.public_read_rate_limited');
+          }
+          const limit = assertCurriculumPageLimit(input?.limit);
+          return queryCatalogue(catalogueFilter(input)).slice(0, limit);
+        }),
+      ),
+
+    /**
+     * AC-catalogue-01 — search title, summary and lesson text inside the
+     * caller's own enrolled paths (server-side scope). Workbooks excluded.
+     */
+    search: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ q: z.string().max(500), limit: z.number().optional() }))
+      .output(
+        z.array(
+          z.object({
+            slug: z.string(),
+            title: z.string(),
+            path: curriculumPath,
+            field: z.enum(['title', 'summary', 'body']),
+            offset: z.number().int(),
+            excerpt: z.string(),
+          }),
+        ),
+      )
+      .query(({ input, ctx }) =>
+        guard(async () => {
+          const limit = input.limit;
+          if (limit === undefined || !Number.isInteger(limit) || limit < 1) {
+            throw new AcademyError('search list limit is unset', 'academy.search_list_limit_unset');
+          }
+          const enrolments = await academy.myEnrollments(ctx.principal!.userId);
+          const paths = enrolments.filter((e) => e.leftAt === null).map((e) => e.pathSlug as CurriculumPathSlug);
+          return searchEnrolled(paths, input.q, Math.min(200, limit));
+        }),
+      ),
+
+    /** AC-articles-02 — related items by shared path. None → []. */
+    curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120), limit: z.number().optional() }))
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
 
     /**
      * One curriculum item including markdown body.

@@ -150,7 +150,13 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
-  | 'academy.holder_name_invalid';
+  | 'academy.holder_name_invalid'
+  /** AC-catalogue-01 / AC-articles-02. */
+  | 'academy.slug_reserved'
+  | 'academy.search_query_invalid'
+  | 'academy.search_list_limit_unset'
+  | 'academy.public_read_rate_unset'
+  | 'academy.public_read_rate_limited';
 
 export class AcademyError extends Error {
   constructor(
@@ -244,6 +250,11 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
   'academy.holder_name_invalid',
+  'academy.slug_reserved',
+  'academy.search_query_invalid',
+  'academy.search_list_limit_unset',
+  'academy.public_read_rate_unset',
+  'academy.public_read_rate_limited',
 ] as const;
 
 /** L3 — catalog size. */

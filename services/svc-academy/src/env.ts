@@ -164,6 +164,20 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+
+      /**
+       * AC-catalogue-01: owner cap on signed-out catalogue reads per address
+       * per window. Blank is unpublished — publicCatalogue refuses
+       * `academy.public_read_rate_unset`. Never invent a count or a window.
+       */
+      ACADEMY_PUBLIC_READ_RATE_MAX: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(10_000)]),
+      ),
+      ACADEMY_PUBLIC_READ_RATE_WINDOW_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
     }),
   );
 
