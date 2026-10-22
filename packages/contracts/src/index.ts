@@ -70,6 +70,7 @@ export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
+export * from './support-kb-authoring.js';
 export * from './merchant-descriptor.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';

@@ -34,6 +34,8 @@ import {
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
+import { kbAuthoringProcedures } from './kb-authoring-router.js';
+import { MemoryKbAuthoringBook, type KbAuthoringBook } from './kb-authoring.js';
 import type { AttachmentMeta } from './store.js';
 import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
@@ -168,9 +170,11 @@ export function createSupportRouter(
   scope?: DeskScopeReader,
   contact: ContactBook = new MemoryContactBook(),
   attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+  kbAuthoring: KbAuthoringBook = new MemoryKbAuthoringBook(),
 ) {
   return router({
     ...contactProcedures(contact, support),
+    ...kbAuthoringProcedures(kbAuthoring),
     ...attachmentProcedures(attachmentSettings, support),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
