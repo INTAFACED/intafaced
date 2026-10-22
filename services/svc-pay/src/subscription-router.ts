@@ -431,26 +431,26 @@ export function createSubscriptionRouter(
               return requireRetryPolicy().set(input, ctx.principal!.userId);
             }),
           ),
-        /** Manual retry of one failed cycle attempt through the same charge path. */
-        retryNow: scopedProcedure('pay:write', { module: 'pay' })
-          .input(subscriptionRetryNowInputSchema)
-          .output(subscriptionRetryNowResultSchema)
-          .mutation(({ ctx, input }) =>
-            wrap(async () => {
-              if (!retryNow) throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'pay.not_built: subscription retryNow is not wired' });
-              const merchantId = await retryNow.merchantOf(input.executionId);
-              await refuseAsMissing(
-                assertPaymentArea(ctx.principal?.userId, merchantId),
-                () => new PayError('Execution not found', 'pay.subscription_retry_attempt_not_found'),
-              );
-              return retryNow.retryNow(input, ctx.principal!.userId);
-            }),
-          ),
-        /** The subscription event catalogue a webhook setup can offer. Selection per endpoint is not built yet. */
-        eventTypes: scopedProcedure('pay:read', { module: 'pay' })
-          .output(z.array(z.enum(SUBSCRIPTION_EVENT_TYPES)))
-          .query(() => [...SUBSCRIPTION_EVENT_TYPES]),
       }),
+      /** Manual retry of one failed cycle attempt through the same charge path. */
+      retryNow: scopedProcedure('pay:write', { module: 'pay' })
+        .input(subscriptionRetryNowInputSchema)
+        .output(subscriptionRetryNowResultSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            if (!retryNow) throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'pay.not_built: subscription retryNow is not wired' });
+            const merchantId = await retryNow.merchantOf(input.executionId);
+            await refuseAsMissing(
+              assertPaymentArea(ctx.principal?.userId, merchantId),
+              () => new PayError('Execution not found', 'pay.subscription_retry_attempt_not_found'),
+            );
+            return retryNow.retryNow(input, ctx.principal!.userId);
+          }),
+        ),
+      /** The subscription event catalogue a webhook setup can offer. Selection per endpoint is not built yet. */
+      eventTypes: scopedProcedure('pay:read', { module: 'pay' })
+        .output(z.array(z.enum(SUBSCRIPTION_EVENT_TYPES)))
+        .query(() => [...SUBSCRIPTION_EVENT_TYPES]),
       /**
        * Product Ready / honesty surface (D26-P1-P6 Done bar).
        * Crypto invoice-and-watch is product-complete; card refuse + pre-charge

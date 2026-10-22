@@ -94,14 +94,26 @@ export class SubscriptionRetryNow {
     policyVersion: number,
     actorId: string,
   ): Promise<'cancel' | 'mark_unpaid' | 'leave_past_due'> {
-    const inserted = await this.sql<Array<{ final_action: typeof finalAction }>>`
-      INSERT INTO pay.subscription_retry_final_actions (subscription_id, occurrence, execution_id, final_action, policy_version, actor_id)
-      VALUES (${exec.subscription_id}, ${exec.occurrence}, ${exec.id}, ${finalAction}, ${policyVersion}, ${actorId})
-      ON CONFLICT (subscription_id, occurrence) DO NOTHING
-      RETURNING final_action`;
-    if (!inserted[0]) return (await this.finalActionOf(exec))!;
-    await this.sql`UPDATE pay.subscription_executions SET exhausted_at = COALESCE(exhausted_at, now()) WHERE id = ${exec.id}`;
-    if (finalAction === 'cancel') await this.subscriptions.cancelSubscription(exec.subscription_id);
+    // One transaction: the once-row, exhausted_at and the cancel commit together or not at all, so a failed cancel
+    // is never recorded as applied (a later call retries it).
+    const applied = await this.sql.begin(async (tx) => {
+      const inserted = await tx<Array<{ final_action: typeof finalAction }>>`
+        INSERT INTO pay.subscription_retry_final_actions (subscription_id, occurrence, execution_id, final_action, policy_version, actor_id)
+        VALUES (${exec.subscription_id}, ${exec.occurrence}, ${exec.id}, ${finalAction}, ${policyVersion}, ${actorId})
+        ON CONFLICT (subscription_id, occurrence) DO NOTHING
+        RETURNING final_action`;
+      if (!inserted[0]) return null;
+      await tx`UPDATE pay.subscription_executions SET exhausted_at = COALESCE(exhausted_at, now()) WHERE id = ${exec.id}`;
+      if (finalAction === 'cancel') {
+        await tx`
+          UPDATE pay.subscriptions
+             SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, now()), updated_at = now(),
+                 stall_reason = NULL, stalled_at = NULL
+           WHERE id = ${exec.subscription_id} AND status <> 'cancelled'`;
+      }
+      return finalAction;
+    });
+    if (applied === null) return (await this.finalActionOf(exec))!;
     return finalAction;
   }
 

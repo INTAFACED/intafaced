@@ -12,6 +12,23 @@ import { SubscriptionService, type SubscriptionInvoiceOpener } from './subscript
 import { SubscriptionRetryPolicyService } from './retry-policy.js';
 import { SubscriptionRetryNow } from './retry-now.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
+import { createSubscriptionRouter } from '../subscription-router.js';
+
+const authConfig = {
+  secret: 'a-test-signing-secret-that-is-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
+async function ctx(userId: string, scopes: string[]): Promise<Context> {
+  const { token } = await issueAccessToken(
+    { userId, sessionId: '77777777-7777-4777-8777-777777777777', scopes, tier: 'full', mfa: true },
+    authConfig,
+  );
+  return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-retry-now' };
+}
 
 /** M-bill-04 retryNow and final action against a real Postgres, through the real charge path. */
 
@@ -168,17 +185,53 @@ describe('M-bill-04 retryNow and final action (Postgres)', () => {
     expect(a).toMatchObject({ outcome: 'final_action_applied', finalAction: 'cancel' });
     const b = await retry.retryNow({ executionId, attempt: 2 }, 'owner');
     expect(b).toMatchObject({ outcome: 'final_action_applied', finalAction: 'cancel' });
-    const [{ n }] = (await sql<Array<{ n: number }>>`
-      SELECT count(*)::int AS n FROM pay.subscription_retry_final_actions WHERE subscription_id = ${sub.id}`) as [{ n: number }];
-    expect(n).toBe(1);
+    const [count] = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.subscription_retry_final_actions WHERE subscription_id = ${sub.id}`;
+    expect(count?.n).toBe(1);
     expect((await subs.getSubscription(sub.id)).status).toBe('cancelled');
     expect(opens).toBe(0);
+  });
+
+  it('a cancel that fails is not recorded as applied, and a later call applies it', async () => {
+    const { sub, executionId } = await failedCycle(1, 'cancel');
+    await sql`
+      CREATE OR REPLACE FUNCTION pay.test_refuse_cancel() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.status = 'cancelled' THEN RAISE EXCEPTION 'test cancel refused'; END IF; RETURN NEW; END $$`;
+    await sql`CREATE TRIGGER test_refuse_cancel BEFORE UPDATE ON pay.subscriptions FOR EACH ROW EXECUTE FUNCTION pay.test_refuse_cancel()`;
+    try {
+      await expect(retry.retryNow({ executionId, attempt: 2 }, 'owner')).rejects.toThrow(/test cancel refused/);
+    } finally {
+      await sql`DROP TRIGGER IF EXISTS test_refuse_cancel ON pay.subscriptions`;
+      await sql`DROP FUNCTION IF EXISTS pay.test_refuse_cancel()`;
+    }
+    const [count] = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.subscription_retry_final_actions WHERE subscription_id = ${sub.id}`;
+    expect(count?.n).toBe(0);
+    expect((await subs.getSubscription(sub.id)).status).toBe('active');
+    expect(await retry.retryNow({ executionId, attempt: 2 }, 'owner')).toMatchObject({
+      outcome: 'final_action_applied',
+      finalAction: 'cancel',
+    });
+    expect((await subs.getSubscription(sub.id)).status).toBe('cancelled');
   });
 
   it('leave_past_due records the decision and stops further retries without cancelling', async () => {
     const { sub, executionId } = await failedCycle(1, 'leave_past_due');
     expect((await retry.retryNow({ executionId, attempt: 2 }, 'owner')).finalAction).toBe('leave_past_due');
     expect((await subs.getSubscription(sub.id)).status).toBe('active');
+  });
+
+  it('route: subscription.retryNow is wired, owner runs it, a stranger reads not-found', async () => {
+    const { executionId } = await failedCycle(3);
+    failing = false;
+    const router = createSubscriptionRouter(subs, pay, null, policy, retry);
+    const owner = router.createCaller(await ctx(MERCHANT_USER, ['pay:read', 'pay:write']));
+    expect(await owner.subscription.retryNow({ executionId, attempt: 2 })).toMatchObject({ outcome: 'reissued', attempt: 2 });
+    const stranger = router.createCaller(await ctx('33333333-3333-4333-8333-333333333333', ['pay:write']));
+    await expect(stranger.subscription.retryNow({ executionId, attempt: 3 })).rejects.toThrow(
+      /subscription_retry_attempt_not_found|not_found|not found/i,
+    );
+    expect(await owner.subscription.eventTypes()).toContain('subscription.recovered');
   });
 
   it('an attempt number that skips ahead or an unknown execution is refused', async () => {
