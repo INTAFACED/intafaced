@@ -167,6 +167,8 @@ export async function assertOperatorRiskOnPlace(
     readonly qty: Amount;
     /** The order can rest (not market, IOC or FOK, not a replacement): only such an order counts against the cap. */
     readonly rests: boolean;
+    /** A bracket's exit for a filled entry: the band never refuses it, or the position would be left without its stop. */
+    readonly protective?: boolean;
   },
   touch: () => Promise<Touch>,
 ): Promise<void> {
@@ -184,7 +186,7 @@ export async function assertOperatorRiskOnPlace(
       );
     }
   }
-  if (limits.collar != null && input.price != null) {
+  if (limits.collar != null && input.price != null && input.protective !== true) {
     const band = priceBandFor(limits.collar, await touch(), market.tickSize);
     if (band != null && (input.side === 'buy' ? input.price > band.high : input.price < band.low)) {
       const low = formatAmount(band.low);

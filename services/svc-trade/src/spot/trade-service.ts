@@ -1740,6 +1740,9 @@ export class TradeService {
     // before any hold; retries of an existing clientOrderId returned above.
     await assertEmailProved(this.emailProof, userId);
     assertQty(market, input.qty);
+    // A bracket's exit for a filled entry is neither banded nor capped: refusing it would leave the position
+    // without its stop. A replacement takes the slot its original frees, and a reduce-only order only shrinks.
+    const protectiveExit = await this.isPendingBracketExit(principal.userId, input.clientOrderId);
     await assertOperatorRiskOnPlace(
       this.sql,
       market,
@@ -1748,7 +1751,14 @@ export class TradeService {
         side: input.side,
         price: input.price ?? null,
         qty: input.qty,
-        rests: orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null,
+        protective: protectiveExit,
+        rests:
+          orderType !== 'market' &&
+          tif !== 'IOC' &&
+          tif !== 'FOK' &&
+          input.replacementOf == null &&
+          !protectiveExit &&
+          (input as { reduceOnly?: boolean }).reduceOnly !== true,
       },
       () => this.touch(market.id),
     );
@@ -5567,16 +5577,7 @@ export class TradeService {
     const resolved = resolveOpenOrdersCap();
     if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code);
     if (resolved.cap == null) return;
-    // The exit of a bracket whose entry already filled is never capped: refusing it leaves a position with no
-    // stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
-    // stored bracket intent that has no exit yet.
-    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
-    if (exitOf) {
-      const pending = await this.sql`
-        SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
-      `;
-      if (pending.length > 0) return;
-    }
+    if (await this.isPendingBracketExit(userId, clientOrderId)) return;
     const [row] = await this.sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM trade.orders o
         JOIN trade.markets m ON m.id = o.market_id
@@ -5584,6 +5585,20 @@ export class TradeService {
     `;
     const refusal = checkMaxOpenOrders({ cap: resolved.cap, openCount: row?.n ?? 0 });
     if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+  }
+
+  /**
+   * The exit of a bracket whose entry already filled: no cap or band may refuse it, since that leaves a position with
+   * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
+   * stored bracket intent that has no exit yet.
+   */
+  private async isPendingBracketExit(userId: string, clientOrderId: string): Promise<boolean> {
+    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
+    if (!exitOf) return false;
+    const pending = await this.sql`
+      SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+    `;
+    return pending.length > 0;
   }
 
   /** Operator slippage cap when set; otherwise the existing service cap (which may be unset). */

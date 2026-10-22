@@ -17,7 +17,7 @@ import {
 } from './deps';
 import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
-import { failureOf, previewFailure, previewIsOrderable, refusalFailure } from './preview';
+import { asReplacement, failureOf, previewFailure, previewIsOrderable } from './preview';
 import { problemText } from './problem-text';
 import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
@@ -158,8 +158,9 @@ export function EditOrder({
       });
       if (!draft.success) return setNote({ tone: 'bad', text: t('Edit couldn’t check') });
       env.poller.recordExternalRequest();
-      const preview = await api.preview(draft.data);
-      if (!preview.ok) return fail(preview);
+      const answer = await api.preview(draft.data);
+      if (!answer.ok) return fail(answer);
+      const preview = { ...answer, data: asReplacement(answer.data) };
       if (!previewIsOrderable(preview.data)) {
         const failure = previewFailure(preview.data, context, market.tickSize);
         return setNote({
@@ -174,7 +175,12 @@ export function EditOrder({
     run(async () => {
       if (!review) return;
       env.poller.recordExternalRequest(2);
-      const result = await api.replace(order, review.draft, review.preview, (fresh) => mounted.current && previewIsOrderable(fresh));
+      const result = await api.replace(
+        order,
+        review.draft,
+        review.preview,
+        (fresh) => mounted.current && previewIsOrderable(asReplacement(fresh)),
+      );
       if (result.ok) {
         const done = result.data;
         if (done.accepted && done.replacement) {

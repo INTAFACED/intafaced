@@ -113,6 +113,17 @@ describe('assertOperatorRiskOnPlace', () => {
     await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1' }), MARKET, 'u', { ...order, price: p('1000000') }, touch(null, null));
   });
 
+  it("a bracket's protective exit is never refused by the band", async () => {
+    const sql = fakeSql({ collar: '0.1', throttle: '1' }, '5');
+    await assertOperatorRiskOnPlace(
+      sql,
+      MARKET,
+      'u',
+      { ...order, side: 'sell', price: p('50'), rests: false, protective: true },
+      touch('99.99', '100.01'),
+    );
+  });
+
   it('a market order (no price) is not judged against the band', async () => {
     await assertOperatorRiskOnPlace(fakeSql({ collar: '0.1' }), MARKET, 'u', { ...order, price: null }, touch(null, null));
   });

@@ -13,6 +13,16 @@ import type { RefusalCopy } from '../../../data/types';
 /** What the person is told when a call failed. `network` means we do not know the outcome of what was sent. */
 export type Failure = { kind: 'refusal'; copy: RefusalCopy } | { kind: 'network' };
 
+/** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
+ * original frees (the service never caps it), so an edit reads the check without them. */
+const OPEN_ORDER_CAPS = new Set(['trade.operator_throttle', 'trade.limit_max_open_orders']);
+
+/** The order check for an edit: the same answer without the open-order cap refusals. */
+export function asReplacement(preview: Preview): Preview {
+  const refusals = preview.refusals.filter((refusal) => !OPEN_ORDER_CAPS.has(refusal.code));
+  return refusals.length === preview.refusals.length ? preview : { ...preview, refusals, orderable: refusals.length === 0 };
+}
+
 /** Can this preview be reviewed and sent? Orderable, no refusals, and the hold, fee and fee asset are all known. */
 export function previewIsOrderable(preview: Preview): boolean {
   if (!preview.orderable || preview.refusals.length > 0) return false;

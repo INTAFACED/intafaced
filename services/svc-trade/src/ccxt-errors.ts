@@ -504,7 +504,6 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator price band. Not retryable at the same price. */
   'trade.price_band': { ccxt: 'InvalidOrder', status: 400 },
-  /** A price band is set and the book is empty on both sides: nothing to centre it on. Retryable once quotes return. */
   /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
   'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
   /**

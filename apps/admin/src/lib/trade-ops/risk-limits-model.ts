@@ -62,7 +62,7 @@ export const ENGINE_CHECKS: readonly EngineCheck[] = [
     id: 'price_collar',
     field: 'collar',
     name: 'Price band',
-    what: 'Refuses a buy priced above, or a sell priced below, this fraction around the middle of the best bid and ask. With no bid or ask on the book, priced orders are refused.',
+    what: 'Refuses a buy priced above, or a sell priced below, this fraction around the middle of the best bid and ask. With no bid or ask on the book there is no band, since an order there cannot trade against anything. A bracket’s stop for a filled entry is never refused.',
     unit: 'A fraction of the price: 0.1 is 10%.',
     kind: 'decimal',
   },
