@@ -11,6 +11,7 @@ export type RefusalKind =
   | 'screening'
   | 'region'
   | 'verify'
+  | 'emailProof'
   | 'convertSpreadUnset'
   | 'slippageCapUnset'
   | 'noBook'
@@ -115,6 +116,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.not_owner': 'noPermission',
   'bank.not_owner': 'noPermission',
   'tier.insufficient': 'verify',
+  'trade.email_proof_required': 'emailProof',
+  'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'accountOnHold',
   'ledger.frozen': 'accountOnHold',
   'ledger.freeze': 'accountOnHold',
