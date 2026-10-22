@@ -1,15 +1,19 @@
 /**
- * AC-catalogue-01 / AC-articles-02 — catalogue query, in-course search,
- * related items and the reserved tab-slug check over the shipped curriculum.
+ * AC-catalogue-01 — catalogue query and in-course search over the shipped curriculum.
  *
  * Until courses are rows (AC-course-structure-01) the `recommended` order is
  * the order of the shipped list. No external search service: plain
  * case-folded substring matching over our own text.
  */
 import { AcademyError } from '../errors.js';
-import { getCurriculumItem, listCurriculum, type CurriculumItemSummary, type CurriculumKind, type CurriculumPath } from './catalog.js';
-
-export { RESERVED_TAB_SLUGS, assertSlugNotReserved, assertNoReservedSlugs } from './reserved-slugs.js';
+import {
+  getCurriculumItem,
+  listCurriculum,
+  searchCurriculumTitles,
+  type CurriculumItemSummary,
+  type CurriculumKind,
+  type CurriculumPath,
+} from './catalog.js';
 
 export const SEARCH_QUERY_MAX = 120;
 export type CatalogueSort = 'recommended' | 'name_asc' | 'name_desc';
@@ -34,7 +38,9 @@ export function queryCatalogue(input: {
   });
   if (input.q !== undefined) {
     const n = normaliseQuery(input.q);
-    items = items.filter((i) => i.title.toLowerCase().includes(n) || i.summary.toLowerCase().includes(n));
+    // Title matching reuses the existing catalog helper; summary matching is added here.
+    const titles = new Set(searchCurriculumTitles(n));
+    items = items.filter((i) => titles.has(i.title) || i.summary.toLowerCase().includes(n));
   }
   if (input.sort === 'name_asc') items = [...items].sort((a, b) => a.title.localeCompare(b.title));
   if (input.sort === 'name_desc') items = [...items].sort((a, b) => b.title.localeCompare(a.title));
@@ -84,13 +90,4 @@ export function searchEnrolled(paths: readonly CurriculumPath[], q: string, limi
     if (hits.length >= limit) break;
   }
   return hits;
-}
-
-/** Related items: same path, excluding the item itself, in shipped order. None → []. */
-export function relatedItems(slug: string, limit: number): CurriculumItemSummary[] {
-  const item = getCurriculumItem(slug);
-  if (!item) throw new AcademyError(`Curriculum item "${slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-  return listCurriculum({ path: item.path })
-    .filter((i) => i.slug !== slug)
-    .slice(0, limit);
 }

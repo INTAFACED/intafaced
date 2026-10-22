@@ -11,7 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
-import { queryCatalogue, relatedItems, searchEnrolled } from './curriculum/search.js';
+import { queryCatalogue, searchEnrolled, SEARCH_QUERY_MAX } from './curriculum/search.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -204,7 +204,7 @@ const curriculumQueryIn = z
   .object({
     path: curriculumPath.optional(),
     kind: curriculumKind.optional(),
-    q: z.string().max(500).optional(),
+    q: z.string().max(SEARCH_QUERY_MAX).optional(),
     sort: z.enum(['recommended', 'name_asc', 'name_desc']).optional(),
     limit: z.number().optional(),
   })
@@ -785,7 +785,6 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
-    case 'academy.slug_reserved':
     case 'academy.search_query_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     case 'academy.search_list_limit_unset':
@@ -863,6 +862,7 @@ export function createAcademyRouter(
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
   publicReadRate: VerifyRate | null = null,
+  searchListLimit: number | undefined = undefined,
 ) {
   const publicReadLimiter = new VerifyRateLimiter();
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
@@ -887,7 +887,17 @@ export function createAcademyRouter(
     // proprietary library import is residual (see curriculum/catalog.ts).
 
     curriculum: scopedProcedure('academy:read', { module: 'academy' })
-      .input(curriculumQueryIn)
+      .input(
+        z
+          .object({
+            path: curriculumPath.optional(),
+            kind: curriculumKind.optional(),
+            q: z.string().max(SEARCH_QUERY_MAX).optional(),
+            sort: z.enum(['recommended', 'name_asc', 'name_desc']).optional(),
+            limit: z.number().optional(),
+          })
+          .optional(),
+      )
       .output(z.array(curriculumSummaryOut))
       .query(({ input }) =>
         guard(async () => {
@@ -923,7 +933,7 @@ export function createAcademyRouter(
      * caller's own enrolled paths (server-side scope). Workbooks excluded.
      */
     search: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ q: z.string().max(500), limit: z.number().optional() }))
+      .input(z.object({ q: z.string().max(SEARCH_QUERY_MAX) }))
       .output(
         z.array(
           z.object({
@@ -938,7 +948,7 @@ export function createAcademyRouter(
       )
       .query(({ input, ctx }) =>
         guard(async () => {
-          const limit = input.limit;
+          const limit = searchListLimit;
           if (limit === undefined || !Number.isInteger(limit) || limit < 1) {
             throw new AcademyError('search list limit is unset', 'academy.search_list_limit_unset');
           }
@@ -947,12 +957,6 @@ export function createAcademyRouter(
           return searchEnrolled(paths, input.q, Math.min(200, limit));
         }),
       ),
-
-    /** AC-articles-02 — related items by shared path. None → []. */
-    curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ slug: z.string().min(1).max(120), limit: z.number().optional() }))
-      .output(z.array(curriculumSummaryOut))
-      .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
 
     /**
      * One curriculum item including markdown body.

@@ -1,6 +1,5 @@
 /**
- * AC-catalogue-01 / AC-articles-02 — catalogue query, enrolled search, related
- * items, reserved slugs and the public catalogue door.
+ * AC-catalogue-01 — catalogue query, enrolled search and the public catalogue door.
  */
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
@@ -9,15 +8,7 @@ import type { AcademyService } from '../academy-service.js';
 import { AcademyError } from '../errors.js';
 import { createAcademyRouter } from '../router.js';
 import { getCurriculumItem, listCurriculum } from './catalog.js';
-import {
-  assertNoReservedSlugs,
-  assertSlugNotReserved,
-  normaliseQuery,
-  queryCatalogue,
-  relatedItems,
-  RESERVED_TAB_SLUGS,
-  searchEnrolled,
-} from './search.js';
+import { normaliseQuery, queryCatalogue, searchEnrolled } from './search.js';
 
 function code(fn: () => unknown): string | undefined {
   try {
@@ -30,16 +21,6 @@ function code(fn: () => unknown): string | undefined {
 
 const all = listCurriculum();
 const first = all[0]!;
-
-describe('reserved tab slugs (AC-articles-02)', () => {
-  it.each(RESERVED_TAB_SLUGS)('%s refuses academy.slug_reserved', (slug) => {
-    expect(code(() => assertSlugNotReserved(slug))).toBe('academy.slug_reserved');
-  });
-  it('the start-up check names the colliding slug', () => {
-    expect(() => assertNoReservedSlugs(['ok', 'rooms'])).toThrow(/rooms/);
-    expect(code(() => assertNoReservedSlugs(all.map((i) => i.slug)))).toBeUndefined();
-  });
-});
 
 describe('queryCatalogue (AC-catalogue-01)', () => {
   it('q filters by title case-folded', () => {
@@ -90,16 +71,6 @@ describe('searchEnrolled (AC-catalogue-01)', () => {
   });
 });
 
-describe('relatedItems (AC-articles-02)', () => {
-  it('returns same-path items without the item itself', () => {
-    const out = relatedItems(first.slug, 50);
-    expect(out.every((i) => i.path === first.path && i.slug !== first.slug)).toBe(true);
-  });
-  it('unknown slug refuses academy.curriculum_not_found', () => {
-    expect(code(() => relatedItems('no-such-slug', 5))).toBe('academy.curriculum_not_found');
-  });
-});
-
 const SECRET = 'academy-catalogue-edge-secret-32-chars';
 const USER = '11111111-1111-4111-8111-111111111111';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-academy' });
@@ -134,41 +105,56 @@ function publicCaller(rate: { max: number; windowSeconds: number } | null, addre
   return createAcademyRouter(academy, {}, undefined, undefined, null, rate).createCaller(ctx);
 }
 
+async function causeCode(p: Promise<unknown>): Promise<string | undefined> {
+  try {
+    await p;
+  } catch (err) {
+    return (err as { cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
+  }
+  return undefined;
+}
+
+const signedCaller = (searchLimit?: number) =>
+  createAcademyRouter(academy, {}, undefined, undefined, null, null, searchLimit).createCaller(signed(['academy:read']));
+
 describe('doors', () => {
-  it('publicCatalogue refuses while the rate is blank', async () => {
-    await expect(publicCaller(null, '1.2.3.4').publicCatalogue({ limit: 5 })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+  it('publicCatalogue refuses academy.public_read_rate_unset while the rate is blank', async () => {
+    expect(await causeCode(publicCaller(null, '1.2.3.4').publicCatalogue({ limit: 5 }))).toBe('academy.public_read_rate_unset');
   });
-  it('publicCatalogue serves signed-out with a rate, then limits', async () => {
+  it('publicCatalogue serves signed-out with a rate, then refuses academy.public_read_rate_limited', async () => {
     const c = publicCaller({ max: 1, windowSeconds: 60 }, '1.2.3.4');
     const out = await c.publicCatalogue({ limit: 3 });
     expect(out).toHaveLength(3);
     expect(JSON.stringify(out)).not.toMatch(/progress|completed|enrol/i);
-    await expect(c.publicCatalogue({ limit: 3 })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await causeCode(c.publicCatalogue({ limit: 3 }))).toBe('academy.public_read_rate_limited');
   });
   it('publicCatalogue refuses with no client address and with a blank page size', async () => {
-    await expect(publicCaller({ max: 5, windowSeconds: 60 }, null).publicCatalogue({ limit: 3 })).rejects.toMatchObject({
-      code: 'TOO_MANY_REQUESTS',
-    });
-    await expect(publicCaller({ max: 5, windowSeconds: 60 }, '9.9.9.9').publicCatalogue({})).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-    });
+    expect(await causeCode(publicCaller({ max: 5, windowSeconds: 60 }, null).publicCatalogue({ limit: 3 }))).toBe(
+      'academy.public_read_rate_limited',
+    );
+    expect(await causeCode(publicCaller({ max: 5, windowSeconds: 60 }, '9.9.9.9').publicCatalogue({}))).toBe(
+      'academy.curriculum_list_limit_unset',
+    );
   });
-  it('search scopes to the caller enrolments and refuses a blank limit or empty query', async () => {
-    const c = createAcademyRouter(academy).createCaller(signed(['academy:read']));
-    await expect(c.search({ q: 'x' })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-    await expect(c.search({ q: ' ', limit: 5 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    const hits = await c.search({ q: first.title, limit: 5 });
+  it('search refuses academy.search_list_limit_unset while the owner page size is blank', async () => {
+    expect(await causeCode(signedCaller().search({ q: 'x' }))).toBe('academy.search_list_limit_unset');
+  });
+  it('search refuses an empty query with academy.search_query_invalid and an over-long one at the input', async () => {
+    expect(await causeCode(signedCaller(5).search({ q: ' ' }))).toBe('academy.search_query_invalid');
+    expect(await causeCode(signedCaller(5).search({ q: 'x'.repeat(121) }))).toBe('BAD_REQUEST');
+  });
+  it('search scopes to the caller enrolments', async () => {
+    const hits = await signedCaller(5).search({ q: first.title });
+    expect(hits.length).toBeGreaterThan(0);
     expect(hits.every((h) => h.path === first.path)).toBe(true);
   });
-  it('curriculum accepts q and sort; curriculumRelated works', async () => {
-    const c = createAcademyRouter(academy).createCaller(signed(['academy:read']));
+  it('curriculum accepts q and sort', async () => {
+    const c = signedCaller();
     expect((await c.curriculum({ sort: 'name_asc', limit: 500 })).map((i) => i.title)).toEqual(
       queryCatalogue({ sort: 'name_asc' })
         .map((i) => i.title)
         .slice(0, 500),
     );
-    expect(await c.curriculumRelated({ slug: first.slug, limit: 2 })).toHaveLength(
-      Math.min(2, listCurriculum({ path: first.path }).length - 1),
-    );
+    expect(await c.curriculum({ q: 'zzqqxx-no-such-text', limit: 5 })).toEqual([]);
   });
 });

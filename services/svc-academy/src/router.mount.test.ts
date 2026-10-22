@@ -249,7 +249,6 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.opsMetrics',
         'publicCatalogue',
         'search',
-        'curriculumRelated',
         'health',
         'invite',
         'join',

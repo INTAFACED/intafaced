@@ -178,6 +178,11 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+      /** AC-catalogue-01: owner page size for in-course search. Blank refuses `academy.search_list_limit_unset`. */
+      ACADEMY_SEARCH_LIST_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(200)]),
+      ),
     }),
   );
 

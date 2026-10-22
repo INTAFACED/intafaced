@@ -151,8 +151,7 @@ export type AcademyErrorCode =
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
   | 'academy.holder_name_invalid'
-  /** AC-catalogue-01 / AC-articles-02. */
-  | 'academy.slug_reserved'
+  /** AC-catalogue-01. */
   | 'academy.search_query_invalid'
   | 'academy.search_list_limit_unset'
   | 'academy.public_read_rate_unset'
@@ -250,7 +249,6 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
   'academy.holder_name_invalid',
-  'academy.slug_reserved',
   'academy.search_query_invalid',
   'academy.search_list_limit_unset',
   'academy.public_read_rate_unset',
