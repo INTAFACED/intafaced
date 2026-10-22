@@ -454,6 +454,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: [],
     fixed: {},
   },
+  {
+    scope: 'identity.step_up.sub_account_edit',
+    purpose: 'account.subAccount.edit',
+    clientFields: ['subAccountId', 'label', 'purpose', 'clientRequestId'],
+    targetField: 'subAccountId',
+    targetRequired: true,
+    emptyOk: ['purpose'],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {
