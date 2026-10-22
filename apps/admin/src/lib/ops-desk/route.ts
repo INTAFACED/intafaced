@@ -28,7 +28,9 @@ export async function deskGet(request: Request, deskId: OpsDeskId): Promise<Resp
   if (disabled) return disabled;
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
-  return Response.json(await loadDesk(session, deskId), { headers: NO_STORE });
+  // `?section=<id>` (repeatable) reads only those sections; an id the desk does not have reads nothing.
+  const sections = new URL(request.url).searchParams.getAll('section');
+  return Response.json(await loadDesk(session, deskId, new Date(), sections.length > 0 ? sections : undefined), { headers: NO_STORE });
 }
 
 export async function deskPost(request: Request, deskId: OpsDeskId, kinds: readonly string[]): Promise<Response> {

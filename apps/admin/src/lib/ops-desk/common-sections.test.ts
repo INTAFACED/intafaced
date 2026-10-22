@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DESKS, MINING_DESK } from './catalog';
 import { COMMON_SECTION_IDS, COMMON_SECTION_SETS, exportableSections, resolveCommonSections, type CommonDeskId } from './common-sections';
+import type { ModuleId } from '@intafaced/config';
+import { killRefusalFor } from '@/lib/desk/module-kill-model';
 import type { DeskSpec } from './types';
 
 const DESK_FOR: Record<CommonDeskId, DeskSpec | null> = {
@@ -57,8 +59,16 @@ describe('the common eight sections (OPS-founder-01)', () => {
     expect(() => resolveCommonSections('bank', renamed)).toThrow(/loans/);
   });
 
-  it('the mining-pool halt stays unwired because the edge cannot enforce a kill for it', () => {
-    expect(COMMON_SECTION_SETS.mining.halt.kind).toBe('unwired');
+  it('every halt that is wired points at the module board for a module the edge enforces', () => {
+    expect(COMMON_SECTION_SETS.mining.halt).toMatchObject({ kind: 'wired', links: [{ href: '/#module=mining-pool' }] });
     expect(COMMON_SECTION_SETS.bank.halt).toMatchObject({ kind: 'wired', links: [{ href: '/#module=bank' }] });
+    for (const id of SETS) {
+      const halt = COMMON_SECTION_SETS[id].halt;
+      if (halt.kind !== 'wired') continue;
+      for (const link of halt.links ?? []) {
+        const module = link.href.replace('/#module=', '') as ModuleId;
+        expect(killRefusalFor(module), `${id}: ${module}`).toBeNull();
+      }
+    }
   });
 });

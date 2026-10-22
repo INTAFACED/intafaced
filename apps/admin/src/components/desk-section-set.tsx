@@ -46,8 +46,8 @@ export function DeskSectionSet({ setId, spec, view }: { setId: CommonDeskId; spe
               <strong>{title}</strong>
               <p>{fill.note}</p>
               {reads.length > 0 && (
-                <Chip tone={view === null ? 'neutral' : answered === reads.length ? 'live' : 'warn'}>
-                  {view === null ? `${reads.length} reads, not read yet` : `${answered} of ${reads.length} reads answered`}
+                <Chip tone={view !== null && answered === reads.length ? 'live' : 'warn'}>
+                  {view === null ? `${reads.length} reads, none could be read` : `${answered} of ${reads.length} reads answered`}
                 </Chip>
               )}
               {fill.sections.length > 0 && (

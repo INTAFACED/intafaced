@@ -136,9 +136,10 @@ export const COMMON_SECTION_SETS: Readonly<Record<CommonDeskId, CommonSectionSet
     items: wired('Payout windows, shares by window and registered workers.', ['mining']),
     failures: wired('Shares refused in each window. svc-mining-pool gives no list of failed payouts: no window is paid yet.', ['mining']),
     limits: wired('The pool fee and window size from the pool’s configuration, blank with the reason when unset.', ['mining']),
-    halt: unwired(
-      'No edge route forwards to svc-mining-pool, so a kill would be recorded but would refuse nothing. The console does not offer one.',
-      [killLink('mining-pool', 'Mining pool on the module board')],
+    halt: wired(
+      'Stop the mining pool at the edge; it needs a second founder.',
+      [],
+      [killLink('mining-pool', 'Mining pool kill switch (two founders)')],
     ),
     approvals: unwired('svc-mining-pool has no operator action to approve. Payouts refuse until emission is published.'),
     audit: unwired('svc-mining-pool has no operator audit read.'),
@@ -178,7 +179,10 @@ export function resolveCommonSections(setId: CommonDeskId, desk: DeskSpec | null
       const sections = exportableSections(desk);
       fill =
         sections.length > 0
-          ? wired('Every list on this desk downloads as CSV of exactly the rows shown, with the read time in the file name.', sections)
+          ? wired(
+              'Every list here that loaded rows has an Export CSV of exactly the rows shown, with the read time in the file name. A list that failed or came back empty has nothing to export.',
+              sections,
+            )
           : unwired('This desk has no list to export.');
     } else {
       fill = raw;

@@ -18,6 +18,7 @@ import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
+import { DESKS } from '@/lib/ops-desk/catalog';
 import { ownServerFailureText } from '@/lib/ops-desk/own-server';
 import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
 import { downloadCsv } from '@/lib/ops-desk/csv-browser';
@@ -461,14 +462,15 @@ export function OpsDesk({ spec, initial, userId }: { spec: DeskSpec; initial: De
   const reload = useCallback(async () => {
     const mine = ++sequence.current;
     setLoading(true);
-    const next = await fetchDesk(spec.id);
+    // A desk page that shows part of a desk (mining) refreshes only that part.
+    const next = await fetchDesk(spec.id, undefined, spec === DESKS[spec.id] ? undefined : spec.sections.map((s) => s.id));
     if (mine === sequence.current) {
       // A failed refresh keeps the last good read on screen with its own time, rather than blanking the page.
       if (next) setView(next);
       setStale(next === null);
       setLoading(false);
     }
-  }, [spec.id]);
+  }, [spec]);
   return (
     <OpsDeskView
       spec={spec}

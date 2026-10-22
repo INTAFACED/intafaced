@@ -118,9 +118,16 @@ export async function loadPage(ctx: FounderCallContext, deskId: OpsDeskId, readI
   return loadRead(ctx, { ...spec, input: { ...spec.input, cursor } });
 }
 
-export async function loadDesk(ctx: FounderCallContext, deskId: OpsDeskId, now: Date = new Date()): Promise<DeskView> {
+/** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
+export async function loadDesk(
+  ctx: FounderCallContext,
+  deskId: OpsDeskId,
+  now: Date = new Date(),
+  sections?: readonly string[],
+): Promise<DeskView> {
+  const desk = DESKS[deskId];
   const groups = new Map<string, ReadSpec[]>();
-  for (const spec of allReads(DESKS[deskId])) {
+  for (const spec of allReads(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk)) {
     const key = JSON.stringify([spec.module, spec.procedure, inputFor(spec, now) ?? null, spec.sendEmptyInput === true]);
     groups.set(key, [...(groups.get(key) ?? []), spec]);
   }
