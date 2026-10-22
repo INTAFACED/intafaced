@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import { fetchMerchantMfaRule, type MerchantMfaRuleRead } from './auth/merchant-mfa-rule.js';
+import { assertMayDropFactor } from './auth/merchant-mfa-last-factor.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
@@ -278,6 +280,12 @@ const s2s = s2sFromEnv(env, 'svc-identity');
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 /** Own-key signing for the outgoing calls; undefined leaves them on the shared secret. */
 const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+/** M-plat-org-06: svc-pay's merchant require-MFA rule. Null without PAY_URL: sign-in and factor removal do not consult it. */
+const rulePayUrl = env.PAY_URL;
+const merchantMfaRuleRead: MerchantMfaRuleRead | null = rulePayUrl
+  ? (userId) =>
+      fetchMerchantMfaRule({ payUrl: rulePayUrl, secret: env.INTERNAL_SERVICE_SECRET, userId, ...(outS2s ? { s2s: outS2s } : {}) })
+  : null;
 if (env.PAY_URL) {
   const payUrl = env.PAY_URL;
   auth.useOwnerPayScopeSource(async (userId) => {
@@ -290,6 +298,7 @@ if (env.PAY_URL) {
       ...(outS2s ? { s2s: outS2s } : {}),
     });
   });
+  auth.useMerchantMfaRuleSource(merchantMfaRuleRead);
   auth.usePayStepUpRoleSource(async ({ userId, merchantId }) => {
     const grant = await fetchPayStepUpGrant({
       payUrl,
@@ -539,10 +548,11 @@ export const appRouter = mergeRouters(
     rpName: env.WEBAUTHN_RP_NAME,
     origin: env.WEBAUTHN_ORIGIN,
   }),
-  createUnenrollPasskeyRouter(sql),
+  createUnenrollPasskeyRouter(sql, merchantMfaRuleRead),
   createTotpLifecycleRouter(
     new TotpLifecycle({ sql, key: parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY), pending: new SqlPendingTotpEnrolmentStore(sql) }),
     securityStepUp,
+    (userId) => assertMayDropFactor(sql, merchantMfaRuleRead, userId, { kind: 'totp' }),
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createActionApprovalRouter(actionApprovals, {

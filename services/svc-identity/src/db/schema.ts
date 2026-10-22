@@ -260,6 +260,8 @@ export const sessions = identity.table(
     country: text('country'),
     /** True once this session has passed a second factor. */
     mfa: boolean('mfa').notNull().default(false),
+    /** M-plat-org-06 (0067): `enrol_required` | `second_step_required` = enrolment scopes only. NULL = ordinary. */
+    merchantMfa: text('merchant_mfa'),
     expiresAt: tstz('expires_at').notNull(),
     revoked: boolean('revoked').notNull().default(false),
     /**

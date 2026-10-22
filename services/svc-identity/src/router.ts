@@ -355,6 +355,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_proof_invalid':
       // Same sentence for a wrong, expired, spent, or unknown-email proof.
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.merchant_mfa_rule_unavailable':
+      // svc-pay did not answer the merchant require-MFA rule; sign-in fails closed.
+      return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+    case 'auth.merchant_mfa_last_factor':
+      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
@@ -388,6 +393,11 @@ const sessionOutput = z.object({
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
   userId: z.string().uuid(),
+  /**
+   * M-plat-org-06. `enrol_required` / `second_step_required`: a merchant this person is on requires MFA, and this
+   * session carries enrolment scopes only. `rule_unset`: the owner has not chosen yet; nothing is restricted.
+   */
+  merchantMfa: z.enum(['enrol_required', 'second_step_required', 'rule_unset']).optional(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
@@ -567,7 +577,13 @@ export function createIdentityRouter(
 
   const sessionWire = (
     ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string },
+    session: {
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: Date;
+      userId: string;
+      merchantMfa?: 'enrol_required' | 'second_step_required' | 'rule_unset';
+    },
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
@@ -575,6 +591,7 @@ export function createIdentityRouter(
       accessToken: session.accessToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
+      ...(session.merchantMfa ? { merchantMfa: session.merchantMfa } : {}),
     };
     if (bag?.browser) return wire;
     return { ...wire, refreshToken: session.refreshToken };

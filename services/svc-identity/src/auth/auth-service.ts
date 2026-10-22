@@ -1,4 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { assertMayDropFactor } from './merchant-mfa-last-factor.js';
+import {
+  isRestriction,
+  merchantMfaSignal,
+  restrictScopes,
+  type MerchantMfaRule,
+  type MerchantMfaRuleRead,
+  type MerchantMfaSignal,
+} from './merchant-mfa-rule.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
@@ -128,6 +137,8 @@ export class AuthError extends Error {
       | 'auth.session_denied'
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
+      | 'auth.merchant_mfa_rule_unavailable'
+      | 'auth.merchant_mfa_last_factor'
       | 'auth.delegate_cannot_grant'
       | 'auth.sandbox_scope_not_pay'
       | 'auth.password_unchanged'
@@ -375,6 +386,8 @@ export interface SessionTokens {
   sessionId: string;
   userId: string;
   mfaRequired: boolean;
+  /** M-plat-org-06: set when the merchant require-MFA rule shaped this sign-in. */
+  merchantMfa?: MerchantMfaSignal;
 }
 
 const DEFAULT_WEBAUTHN: WebAuthnConfig = {
@@ -468,6 +481,7 @@ export class AuthService {
    * svc-pay read: may this user refund or pay out for this merchant.
    * Unset refuses the mint. A throw refuses the mint.
    */
+  private merchantMfaRuleSource: MerchantMfaRuleRead | null = null;
   private payStepUpRoleSource: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null = null;
   /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
   private emailConfirmMail: PasswordResetMail | undefined;
@@ -548,6 +562,27 @@ export class AuthService {
   }
 
   /** Install the svc-pay role read used by `stepUpPay`. Unset refuses every mint. */
+  /** The merchant require-MFA rule read (svc-pay). Unset: sign-in does not consult it (no PAY_URL). */
+  useMerchantMfaRuleSource(source: MerchantMfaRuleRead | null): void {
+    this.merchantMfaRuleSource = source;
+  }
+
+  /**
+   * The merchant rule for a session that did NOT pass a second factor (M-plat-org-06). A session that
+   * did meets the rule and pay is not asked. Pay unreachable refuses the sign-in (fail closed).
+   */
+  private async merchantMfaFor(userId: string, mfa: boolean, hasFactor: boolean): Promise<MerchantMfaSignal | null> {
+    if (mfa || !this.merchantMfaRuleSource) return null;
+    let rule: MerchantMfaRule;
+    try {
+      rule = await this.merchantMfaRuleSource(userId);
+    } catch (err) {
+      this.log.warn({ userId, reason: err instanceof Error ? err.message : 'error' }, 'merchant MFA rule lookup failed');
+      throw new AuthError('Sign-in is unavailable right now. Try again shortly.', 'auth.merchant_mfa_rule_unavailable');
+    }
+    return merchantMfaSignal(rule, hasFactor);
+  }
+
   usePayStepUpRoleSource(source: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null): void {
     this.payStepUpRoleSource = source;
   }
@@ -902,8 +937,8 @@ export class AuthService {
 
   async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
     const rows = await this.sql<
-      Array<{ id: string; password_hash: string; status: string; totp_secret: string | null }>
-    >`SELECT id, password_hash, status, totp_secret FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      Array<{ id: string; password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT id, password_hash, status, totp_secret, webauthn_creds FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -940,7 +975,8 @@ export class AuthService {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const merchantMfa = await this.merchantMfaFor(user.id, mfa, hasSecondFactor(user));
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, merchantMfa });
   }
 
   /**
@@ -950,8 +986,8 @@ export class AuthService {
    */
   async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
     let mfa = false;
@@ -962,13 +998,15 @@ export class AuthService {
       mfa = true;
       await recordSuccess(this.sql, user.id, 'mfa');
     }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const merchantMfa = await this.merchantMfaFor(user.id, mfa, hasSecondFactor(user));
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, merchantMfa });
   }
 
   private async issueSession(
     userId: string,
-    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
+    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; merchantMfa?: MerchantMfaSignal | null },
   ): Promise<SessionTokens> {
+    const restriction = isRestriction(options.merchantMfa) ? options.merchantMfa : null;
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
     const inserted = await transaction(
@@ -978,7 +1016,7 @@ export class AuthService {
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
           Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, merchant_mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${restriction}, ${expiresAt}) RETURNING id`;
       },
       { isolation: 'read committed' },
     );
@@ -989,12 +1027,20 @@ export class AuthService {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
     });
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
+    const scopes = restrictScopes(await this.scopesFor(userId, options.mfa, sessionId), restriction);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
     );
-    return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
+    return {
+      accessToken,
+      refreshToken,
+      expiresAt: accessExpiresAt,
+      sessionId,
+      userId,
+      mfaRequired: false,
+      ...(options.merchantMfa ? { merchantMfa: options.merchantMfa } : {}),
+    };
   }
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
@@ -1011,6 +1057,7 @@ export class AuthService {
       user_id: string;
       revoked: boolean;
       mfa: boolean;
+      merchant_mfa: string | null;
       expires_at: Date;
       user_status: string;
       rotated_at: Date | null;
@@ -1038,7 +1085,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.merchant_mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1095,7 +1142,7 @@ export class AuthService {
       const expiresAt = new Date(Math.min(Date.now() + this.tokens.refreshTtlSeconds * 1000, session.expires_at.getTime()));
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, merchant_mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${session.merchant_mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
@@ -1103,7 +1150,8 @@ export class AuthService {
       const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
       const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
       await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
-      const scopes = decided.scopes;
+      // M-plat-org-06: a restricted session stays restricted across rotations.
+      const scopes = restrictScopes(decided.scopes, session.merchant_mfa);
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
         { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
@@ -1175,13 +1223,18 @@ export class AuthService {
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
     const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
-    const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
-      SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    const rows = await tx<
+      Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; merchant_mfa: string | null; expires_at: Date }>
+    >`
+      SELECT id, user_id, revoked, mfa, merchant_mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
-    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const scopes = restrictScopes(
+      successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes(),
+      successor.merchant_mfa,
+    );
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
       this.tokens,
@@ -1231,12 +1284,13 @@ export class AuthService {
         user_id: string;
         revoked: boolean;
         mfa: boolean;
+        merchant_mfa: string | null;
         expires_at: Date;
         rotated_at: Date | null;
         successor_id: string | null;
       }>
     >`
-      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      SELECT id, user_id, revoked, mfa, merchant_mfa, expires_at, rotated_at, successor_id
       FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
@@ -1246,7 +1300,10 @@ export class AuthService {
     if (successor.successor_id !== null) return null;
     if (successor.expires_at.getTime() <= Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
-    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const scopes = restrictScopes(
+      successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes(),
+      successor.merchant_mfa,
+    );
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
       this.tokens,
@@ -1781,6 +1838,8 @@ export class AuthService {
   async removeWebauthnCredential(userId: string, actor: FactorActor, credentialId: string): Promise<boolean> {
     assertMayRemoveFactor(actor);
     const target = normalizeCredId(credentialId);
+    // M-plat-org-06: the last factor stays while a merchant this person is on requires MFA.
+    await assertMayDropFactor(this.sql, this.merchantMfaRuleSource, userId, { kind: 'passkey', credentialId: target });
     return transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
       if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
@@ -2856,4 +2915,9 @@ function mapWebAuthnError(err: unknown): AuthError {
     return new AuthError(err.message, 'auth.webauthn_invalid');
   }
   return new AuthError('Invalid WebAuthn response', 'auth.webauthn_invalid');
+}
+
+/** TOTP enrolled or at least one passkey (the same reading as factor-gate's `accountHasSecondFactor`). */
+function hasSecondFactor(row: { totp_secret: string | null; webauthn_creds: unknown }): boolean {
+  return Boolean(row.totp_secret) || (Array.isArray(row.webauthn_creds) && row.webauthn_creds.length > 0);
 }

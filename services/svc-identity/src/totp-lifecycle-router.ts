@@ -22,7 +22,13 @@ function mapError(err: unknown): never {
   }
   if (err instanceof AuthError) {
     const trpc =
-      err.code === 'auth.mfa_invalid' ? 'UNAUTHORIZED' : err.code === 'auth.too_many_attempts' ? 'TOO_MANY_REQUESTS' : 'FORBIDDEN';
+      err.code === 'auth.mfa_invalid'
+        ? 'UNAUTHORIZED'
+        : err.code === 'auth.too_many_attempts'
+          ? 'TOO_MANY_REQUESTS'
+          : err.code === 'auth.merchant_mfa_rule_unavailable'
+            ? 'SERVICE_UNAVAILABLE'
+            : 'FORBIDDEN';
     throw new TRPCError({ code: trpc, message: userCopy(err.code), cause: err });
   }
   return toSecurityStepUpTrpc(err);
@@ -33,7 +39,15 @@ function mapError(err: unknown): never {
  * Disable and replace validate input, then spend the step-up approval, then prove the current authenticator
  * with a code or a recovery code (counted on the MFA lockout), then write.
  */
-export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: SecurityStepUp) {
+/**
+ * `lastFactorGuard` (M-plat-org-06): refuses turning off TOTP when it is the last factor and a merchant this person
+ * is on requires MFA. Runs before the step-up approval is spent.
+ */
+export function createTotpLifecycleRouter(
+  lifecycle: TotpLifecycle,
+  stepUp: SecurityStepUp,
+  lastFactorGuard?: (userId: string) => Promise<void>,
+) {
   return router({
     totpManage: router({
       status: scopedProcedure('identity:read')
@@ -62,6 +76,7 @@ export function createTotpLifecycleRouter(lifecycle: TotpLifecycle, stepUp: Secu
           try {
             // Already off answers ok before the guard: the guard needs a second factor, and there is none left.
             if (!(await lifecycle.isEnabled(ctx.principal.userId))) return { disabled: true as const, recoveryCodeSpent: false };
+            if (lastFactorGuard) await lastFactorGuard(ctx.principal.userId);
             await stepUp.require(
               ctx.principal,
               'identity.step_up.totp_disable',

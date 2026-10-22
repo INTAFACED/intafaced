@@ -44,6 +44,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
   'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',
   'auth.reset_unwired': 'Password reset is not available yet.',
+  'auth.merchant_mfa_rule_unavailable': 'Sign-in is unavailable right now. Try again shortly.',
+  'auth.merchant_mfa_last_factor': 'Your business requires two-step sign-in. Add another method before removing this one.',
   'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
