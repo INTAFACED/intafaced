@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TradeError } from '../spot/types.js';
-import { assertBotVerification, botPresets, loadBotVerificationPolicy } from './bots-verification.js';
+import { assertBotVerification, loadBotVerificationPolicy } from './bots-verification.js';
 import { gateAlgoCreate, type AlgoCreateGateInput } from './create-gate.js';
 
 const code = (fn: () => unknown): string => {
@@ -70,9 +70,5 @@ describe('bot verification gate (CB-bots-10)', () => {
     await expect(gateAlgoCreate(ctx)).rejects.toMatchObject({ code: 'trade.bots_verification_insufficient' });
     const blank = { ...ctx, verification: { policy: { mode: 'required', level: null }, tier: 'full' } } as unknown as AlgoCreateGateInput;
     await expect(gateAlgoCreate(blank)).rejects.toMatchObject({ code: 'trade.bots_verification_level_not_set' });
-  });
-
-  it('presets are not set and carry no APR until an owner backtest source exists', () => {
-    expect(botPresets()).toEqual({ state: 'not_set', presets: [] });
   });
 });

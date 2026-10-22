@@ -298,7 +298,8 @@ export interface TradeServiceOptions {
   algoMarkPolicy?: AlgoMarkPolicy;
   /**
    * CB-bots-10 verification gate for every bot create. The boot passes `loadBotVerificationPolicy(process.env)` (required by
-   * default; a blank level refuses every bot). Omitted only by in-process tests that predate the gate: no gate.
+   * default; a blank level refuses every bot). Omitted: fails closed as `{ mode: 'required', level: null }`, so every bot
+   * create refuses `trade.bots_verification_level_not_set`. Only an explicit `{ mode: 'off' }` turns the gate off.
    */
   botVerification?: BotVerificationPolicy;
   /**
