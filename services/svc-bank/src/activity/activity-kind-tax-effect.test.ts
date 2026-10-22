@@ -137,6 +137,21 @@ describe('tax effect on feed lines (bank.activity.list / get)', () => {
     expect(classifyTaxEffectWith(live, { module: 'p2p2', reason: 'p2p.escrow.release', direction: 'debit' })).toEqual(UNMAPPED);
   });
 
+  it('exact match pins case, prefix, suffix and the module/reason split (DR3 minors 4 and 5)', () => {
+    const live = TAX_EFFECT_MAP.map((row) => (row.type === 'p2p_purchase' ? { ...row, blocker: null } : row));
+    const near = [
+      { module: 'P2P', reason: 'p2p.escrow.release' },
+      { module: 'p2p', reason: 'P2P.escrow.release' },
+      { module: 'p2p', reason: 'p2p.escrow.release.x' },
+      { module: 'p2p', reason: 'x.p2p.escrow.release' },
+      { module: 'xp2p', reason: 'p2p.escrow.release' },
+      { module: 'p2p/p2p', reason: 'escrow.release' },
+      { module: 'p2p/p2p.escrow', reason: 'release' },
+      { module: '', reason: 'p2p/p2p.escrow.release' },
+    ];
+    for (const n of near) expect(classifyTaxEffectWith(live, { ...n, direction: 'debit' })).toEqual(UNMAPPED);
+  });
+
   it('card_spend is BLOCKED: the commitHold shape arrives with the rail dropped, capture is off the feed, and hold or void are never taxable', async () => {
     expect(ALICE_ENTRIES.find((e) => e.txId === 'tx-card')!.rail).toBeNull();
     expect(ALICE_ENTRIES.find((e) => e.txId === 'tx-withdraw')!.rail).toBe('crypto-native');

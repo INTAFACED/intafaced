@@ -288,10 +288,15 @@ const UNMAPPED: LineTaxEffect = { code: TAX_EFFECT_UNMAPPED };
  * match, and only on the exact `module/reason` AND the user's leg side; anything else is unmapped, never a guess.
  */
 export function classifyTaxEffectWith(map: ReadonlyArray<TaxEffectRow>, input: TaxEffectInput): LineTaxEffect {
-  const event = `${input.module}/${input.reason}`;
   for (const row of map) {
     if (row.blocker !== null || row.sourceEvent === null || row.ledgerSide === null) continue;
-    if (row.sourceEvent === event && row.ledgerSide === input.direction) {
+    // Module and reason compare separately (DR3 minor 5): a joined `${module}/${reason}` string would let a module
+    // containing '/' collide with another row's module and reason. A row's module is everything before its first '/'.
+    const split = row.sourceEvent.indexOf('/');
+    if (split <= 0) continue;
+    const rowModule = row.sourceEvent.slice(0, split);
+    const rowReason = row.sourceEvent.slice(split + 1);
+    if (rowModule === input.module && rowReason === input.reason && row.ledgerSide === input.direction) {
       return { type: row.type, effect: row.effect, sourceEvent: row.sourceEvent };
     }
   }
