@@ -74,7 +74,7 @@ export class DisputeCases {
     item: ActivityItem,
     input: { reasonCode: string; statement: string; linkedActivityIds: string[] },
   ): Promise<PayDisputeOpenResult> {
-    const card = await this.facts.isCardLine(item);
+    const card = await lineFact(() => this.facts.isCardLine(item), 'card');
     // Allow-list: only an explicit 'yes' routes and only an explicit 'no' proceeds; anything else (unknown, or an
     // untyped adapter returning undefined/true/false) refuses as unset.
     if (card === 'yes') return { routedTo: 'card_issuer', activityId: item.id };
@@ -90,7 +90,7 @@ export class DisputeCases {
     if (existing[0]) return this.replay(existing[0], input);
 
     if (item.kind === 'order_hold') throw new BankError('A pending charge cannot be disputed yet (pending)', 'pay.dispute_ineligible');
-    const refunded = await this.facts.isFullyRefunded(item);
+    const refunded = await lineFact(() => this.facts.isFullyRefunded(item), 'refund');
     if (refunded === 'yes') {
       throw new BankError('This line was already refunded in full (already_refunded)', 'pay.dispute_ineligible');
     }
@@ -131,5 +131,17 @@ export class DisputeCases {
 
   private result(row: CaseRow): PayDisputeOpenResult {
     return { routedTo: 'case', caseId: row.id, status: row.status, reasonCode: row.reason_code, createdAt: row.created_at.toISOString() };
+  }
+}
+
+/** A throwing card or refund lookup is an unknown fact: refuse with the dispute code, never a raw 500 (DR6 minor). */
+async function lineFact(read: () => LineFact | Promise<LineFact>, what: 'card' | 'refund'): Promise<unknown> {
+  try {
+    return await read();
+  } catch (err) {
+    throw new BankError(
+      `The ${what} lookup for this line failed: ${(err as Error)?.message ?? 'unknown error'}`,
+      'pay.dispute_line_facts_unset',
+    );
   }
 }

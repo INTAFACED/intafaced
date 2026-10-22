@@ -128,12 +128,31 @@ describe('dispute cases (Postgres)', () => {
 
   it('facts are an allow-list: an untyped adapter answer (undefined, true, false) refuses as unset', async () => {
     await publish();
-    for (const odd of [undefined, true, false] as unknown as Array<'no'>) {
+    for (const odd of [undefined, true, false, null, '', 'No'] as unknown as Array<'no'>) {
       const card = new DisputeCases(sql, { isCardLine: () => odd, isFullyRefunded: () => 'no' });
       await expect(card.open(USER, line('tx-8:0'), input)).rejects.toMatchObject({ code: 'pay.dispute_line_facts_unset' });
       const refund = new DisputeCases(sql, { isCardLine: () => 'no', isFullyRefunded: () => odd });
       await expect(refund.open(USER, line('tx-8:0'), input)).rejects.toMatchObject({ code: 'pay.dispute_line_facts_unset' });
     }
+    expect(await sql`SELECT 1 FROM bank.dispute_cases`).toHaveLength(0);
+  });
+
+  it('a throwing card or refund lookup refuses with pay.dispute_line_facts_unset, not a raw error', async () => {
+    expect.assertions(3);
+    await publish();
+    const boom = () => {
+      throw new Error('card service down');
+    };
+    await expect(
+      new DisputeCases(sql, { isCardLine: boom, isFullyRefunded: () => 'no' }).open(USER, line('tx-9:0'), input),
+    ).rejects.toMatchObject({
+      code: 'pay.dispute_line_facts_unset',
+    });
+    await expect(
+      new DisputeCases(sql, { isCardLine: () => 'no', isFullyRefunded: boom }).open(USER, line('tx-9:0'), input),
+    ).rejects.toMatchObject({
+      code: 'pay.dispute_line_facts_unset',
+    });
     expect(await sql`SELECT 1 FROM bank.dispute_cases`).toHaveLength(0);
   });
 

@@ -97,6 +97,8 @@ const activityItem = z.object({
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
 
 export function activityFailure(err: unknown): never {
+  // A route's own typed refusal (e.g. openCase `order:` id, control character) keeps its class; it was a 500 (DR6).
+  if (err instanceof TRPCError) throw err;
   if (err instanceof ActivityCursorInvalidError || err instanceof ActivityRangeError) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
