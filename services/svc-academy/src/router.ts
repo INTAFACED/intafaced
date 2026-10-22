@@ -871,18 +871,18 @@ export function createAcademyRouter(
         }),
       ),
 
-    /**
-     * One curriculum item including markdown body.
-     *
-     * Unknown slug → `academy.curriculum_not_found` (NOT_FOUND). We do not
-     * invent titles for the residual DERIV//DESK library that is not in-repo.
-     */
     /** AC-articles-02 — related items by shared path. None → []. */
     curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120), limit: z.number().optional() }))
       .output(z.array(curriculumSummaryOut))
       .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
 
+    /**
+     * One curriculum item including markdown body.
+     *
+     * Unknown slug → `academy.curriculum_not_found` (NOT_FOUND). We do not
+     * invent titles for the residual DERIV//DESK library that is not in-repo.
+     */
     curriculumItem: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
