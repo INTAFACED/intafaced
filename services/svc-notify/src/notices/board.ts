@@ -31,6 +31,17 @@ export type StatusComponent = (typeof STATUS_COMPONENTS)[number];
 export const INCIDENT_IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
 export type IncidentImpact = (typeof INCIDENT_IMPACTS)[number];
 
+/**
+ * Funding incident status flow. A scoped incident (one asset on one network)
+ * names its phase on every entry; only the closing entry reads `resolved`.
+ */
+export const INCIDENT_PHASES = ['investigating', 'identified', 'update', 'monitoring', 'resolved'] as const;
+export type IncidentPhase = (typeof INCIDENT_PHASES)[number];
+
+/** Asset symbol and network slug as the asset registry spells them. */
+export const NOTICE_ASSET_PATTERN = /^[A-Z0-9]{2,20}$/;
+export const NOTICE_NETWORK_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
+
 export type NoticeCode =
   | 'notify.notices_unavailable'
   | 'notify.notices_limit_invalid'
@@ -45,6 +56,9 @@ export type NoticeCode =
   | 'notify.notice_component_unknown'
   | 'notify.notice_impact_unset'
   | 'notify.notice_parent_invalid'
+  | 'notify.notice_scope_invalid'
+  | 'notify.notice_phase_unset'
+  | 'notify.notice_phase_invalid'
   | ChangelogCode;
 
 export class NoticeError extends Error {
@@ -64,6 +78,12 @@ export type NoticeWire = {
   readonly startsAt: string | null;
   readonly endsAt: string | null;
   readonly version: number;
+  /** Incident and maintenance: the asset this notice is about. Null when it is not scoped to one asset and network. */
+  readonly asset: string | null;
+  /** Set together with `asset`: the network of that asset. */
+  readonly network: string | null;
+  /** Scoped incidents: where this entry puts the incident. Null on every other notice. */
+  readonly phase: IncidentPhase | null;
   /** Changelog entries only: area, breaking flag, dates, examples and retirements. Null on every other kind. */
   readonly changelog: Changelog | null;
 };
@@ -86,6 +106,11 @@ export type NoticeRow = {
   parentId: string | null;
   /** Incident only. This entry closes the incident. */
   resolves: boolean;
+  /** Incident and maintenance. Asset and network the notice is about; both null or both set. */
+  asset: string | null;
+  network: string | null;
+  /** Scoped incident only. Required on every entry of a scoped incident. */
+  phase: IncidentPhase | null;
   /** Changelog only. Null on a notice that carries none, including changelog entries written before this field. */
   changelog: Changelog | null;
   authorId: string;
@@ -97,6 +122,16 @@ export type NoticeRow = {
 
 export type NoticeStatusRead = {
   readonly incidents: readonly NoticeWire[];
+  readonly maintenance: readonly NoticeWire[];
+};
+
+/** One open funding incident on an asset and network: its first entry and its newest. */
+export type FundingIncident = { readonly root: NoticeWire; readonly latest: NoticeWire };
+
+export type FundingNotices = {
+  readonly asset: string;
+  readonly network: string;
+  readonly incidents: readonly FundingIncident[];
   readonly maintenance: readonly NoticeWire[];
 };
 
@@ -145,6 +180,9 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     startsAt: row.startsAt?.toISOString() ?? null,
     endsAt: row.endsAt?.toISOString() ?? null,
     version: row.version,
+    asset: row.asset,
+    network: row.network,
+    phase: row.phase,
     changelog: row.changelog,
   };
 }
@@ -161,6 +199,7 @@ function payloadHash(row: NoticeRow): string {
     row.impact || row.components.length > 0 || row.parentId || row.resolves
       ? { impact: row.impact, components: row.components, parentId: row.parentId, resolves: row.resolves }
       : undefined;
+  const scope = row.asset !== null || row.phase !== null ? { asset: row.asset, network: row.network, phase: row.phase } : undefined;
   const payload = JSON.stringify({
     id: row.id,
     kind: row.kind,
@@ -168,6 +207,7 @@ function payloadHash(row: NoticeRow): string {
     body: row.body,
     version: row.version,
     ...(status ? { status } : {}),
+    ...(scope ? { scope } : {}),
     ...(row.changelog ? { changelog: row.changelog } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
@@ -277,6 +317,9 @@ export class NoticeBoard {
       components?: readonly string[] | null;
       parentId?: string | null;
       resolves?: boolean | null;
+      asset?: string | null;
+      network?: string | null;
+      phase?: string | null;
       changelog?: ChangelogInput | null;
       clientRequestId: string;
     },
@@ -323,7 +366,10 @@ export class NoticeBoard {
     components?: readonly string[] | null;
     parentId?: string | null;
     resolves?: boolean | null;
-  }): Promise<Pick<NoticeRow, 'impact' | 'components' | 'parentId' | 'resolves'>> {
+    asset?: string | null;
+    network?: string | null;
+    phase?: string | null;
+  }): Promise<Pick<NoticeRow, 'impact' | 'components' | 'parentId' | 'resolves' | 'asset' | 'network' | 'phase'>> {
     const components = [...new Set(input.components ?? [])];
     const impact = input.impact ?? null;
     const parentId = input.parentId ?? null;
@@ -336,11 +382,50 @@ export class NoticeBoard {
     if (impact !== null && !(INCIDENT_IMPACTS as readonly string[]).includes(impact))
       throw new NoticeError('notify.notice_incident_fields_invalid');
     if (incident && components.length > 0 && impact === null) throw new NoticeError('notify.notice_impact_unset');
+    let parent: NoticeRow | null = null;
     if (parentId !== null) {
-      const parent = await this.store.findById(parentId);
+      parent = await this.store.findById(parentId);
       if (!parent || parent.kind !== 'incident' || parent.parentId !== null) throw new NoticeError('notify.notice_parent_invalid');
     }
-    return { impact: impact as IncidentImpact | null, components: components as StatusComponent[], parentId, resolves };
+    const scope = this.scopeFields(input, incident, resolves, parent);
+    return { impact: impact as IncidentImpact | null, components: components as StatusComponent[], parentId, resolves, ...scope };
+  }
+
+  /**
+   * Asset and network scope, and the incident phase. Scope belongs to incident
+   * and maintenance notices and is set as a pair. An update of a scoped incident
+   * keeps the incident's scope; it may repeat it but never name another. Every
+   * entry of a scoped incident names its phase, and `resolved` is the phase of
+   * the closing entry and of no other.
+   */
+  private scopeFields(
+    input: { kind: NoticeKind; asset?: string | null; network?: string | null; phase?: string | null },
+    incident: boolean,
+    resolves: boolean,
+    parent: NoticeRow | null,
+  ): Pick<NoticeRow, 'asset' | 'network' | 'phase'> {
+    let asset = input.asset ?? null;
+    let network = input.network ?? null;
+    const phase = input.phase ?? null;
+    if ((asset === null) !== (network === null)) throw new NoticeError('notify.notice_scope_invalid');
+    if (asset !== null && !incident && input.kind !== 'maintenance') throw new NoticeError('notify.notice_scope_invalid');
+    if (asset !== null && (!NOTICE_ASSET_PATTERN.test(asset) || !NOTICE_NETWORK_PATTERN.test(network!)))
+      throw new NoticeError('notify.notice_scope_invalid');
+    if (phase !== null && !incident) throw new NoticeError('notify.notice_incident_fields_invalid');
+    if (phase !== null && !(INCIDENT_PHASES as readonly string[]).includes(phase)) throw new NoticeError('notify.notice_phase_invalid');
+    if (parent !== null) {
+      if (asset !== null && (asset !== parent.asset || network !== parent.network)) throw new NoticeError('notify.notice_scope_invalid');
+      asset = parent.asset;
+      network = parent.network;
+    }
+    if (incident && asset !== null) {
+      if (phase === null) throw new NoticeError('notify.notice_phase_unset');
+      if ((phase === 'resolved') !== resolves) throw new NoticeError('notify.notice_phase_invalid');
+    } else if (phase !== null) {
+      // A phase on an incident with no asset and network has nothing to scope it.
+      throw new NoticeError('notify.notice_scope_invalid');
+    }
+    return { asset, network, phase: phase as IncidentPhase | null };
   }
 
   async notices(input: { kind?: string | null; limit: number }): Promise<readonly NoticeWire[]> {
@@ -383,6 +468,33 @@ export class NoticeBoard {
       incidents: openIncidentRoots(published, at).map(toNoticeWire),
       maintenance: published.filter((row) => row.kind === 'maintenance' && noticeIsOpen(row, at)).map(toNoticeWire),
     };
+  }
+
+  /**
+   * Open funding incidents and maintenance for one asset on one network, for
+   * the deposit and withdraw banners. A notice on another network of the same
+   * asset is not shown. Each incident carries its newest entry, so the banner
+   * reads the current phase.
+   */
+  async fundingNotices(input: { asset: string; network: string }, at: Date = this.now()): Promise<FundingNotices> {
+    if (!NOTICE_ASSET_PATTERN.test(input.asset) || !NOTICE_NETWORK_PATTERN.test(input.network))
+      throw new NoticeError('notify.notice_scope_invalid');
+    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const onScope = (row: NoticeRow) => row.asset === input.asset && row.network === input.network;
+    const incidents = openIncidentRoots(published, at)
+      .filter(onScope)
+      .map((root) => {
+        const entries = published.filter((row) => row.id === root.id || row.parentId === root.id);
+        // Newest by publish time; ties broken by creation time, then id, so the read is deterministic.
+        const later = (x: NoticeRow, y: NoticeRow) =>
+          x.publishedAt!.getTime() - y.publishedAt!.getTime() ||
+          x.createdAt.getTime() - y.createdAt.getTime() ||
+          (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+        const latest = entries.reduce((a, b) => (later(b, a) > 0 ? b : a));
+        return { root: toNoticeWire(root), latest: toNoticeWire(latest) };
+      });
+    const maintenance = published.filter((row) => row.kind === 'maintenance' && onScope(row) && noticeIsOpen(row, at)).map(toNoticeWire);
+    return { asset: input.asset, network: input.network, incidents, maintenance };
   }
 
   async statusFeed(input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
