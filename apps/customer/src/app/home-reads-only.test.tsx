@@ -104,4 +104,18 @@ describe('Home total in the display unit (HM-dashboard-01)', () => {
       'There is no BTC price right now, so the total is shown in dollars.',
     );
   });
+
+  it('says the total stays in dollars when BTC is chosen and the total was built on this device (bank not answering)', () => {
+    const data = { ...toHomePortfolio(fromServer(summary())), source: 'derived' as const, btc: null };
+    expect(text(renderToString(<TotalUnitNote data={data} displayCurrency="BTC" hidden={false} className="n" />))).toBe(
+      'There is no BTC price right now, so the total is shown in dollars.',
+    );
+  });
+
+  it('never writes "$null" when the dollar total cannot be read', () => {
+    const data = toHomePortfolio(fromServer(summary({ totalUsd: 'n/a', btc: { total: '1', priceUsd: '1', reason: null } })));
+    expect(text(renderToString(<TotalUnitNote data={data} displayCurrency="BTC" hidden={false} className="n" />))).toBe(
+      'Shown in BTC at the current BTC price. In dollars: —',
+    );
+  });
 });

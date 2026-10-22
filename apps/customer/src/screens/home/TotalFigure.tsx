@@ -7,13 +7,20 @@ function rounded(value: string | null, places: number): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, places), places);
 }
 
+/** The dollar total for a sentence: a dash, never "$null", when it is unknown or unreadable. */
+function dollars(value: string | null): string {
+  const cents = rounded(value, 2);
+  return cents === null ? '—' : `$${cents}`;
+}
+
 /**
  * Home's total in the display unit the person chose (USD or BTC). The BTC figure is the bank's own (`btc.total`), never
  * the dollar total divided here; with no BTC price the dollar total stays and a note says why. Same rule as Money's headline.
  */
 export function totalUnit(data: HomePortfolio, displayCurrency: 'USD' | 'BTC') {
   const inBtc = displayCurrency === 'BTC' && data.btc != null && data.btc.total !== null;
-  const btcMissing = displayCurrency === 'BTC' && data.source === 'server' && !inBtc;
+  // No BTC total for any reason (no BTC price, or the bank did not answer and the total was built on this device): dollars, said so.
+  const btcMissing = displayCurrency === 'BTC' && !inBtc;
   return { inBtc, btcMissing };
 }
 
@@ -55,7 +62,7 @@ export function TotalUnitNote({
     return (
       <p className={className} data-total-unit="BTC">
         {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
-        {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: data.totalUsd ? `$${rounded(data.totalUsd, 2)}` : '—' })}
+        {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: dollars(data.totalUsd) })}
       </p>
     );
   if (btcMissing)

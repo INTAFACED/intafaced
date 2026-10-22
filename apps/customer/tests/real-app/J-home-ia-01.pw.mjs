@@ -104,21 +104,23 @@ test(`${J} #1 Home shows the bank's total to the cent, names what it leaves out,
   // The person picks BTC in View; Home then shows the bank's BTC total, or keeps dollars and says why.
   await page.goto('/view');
   await savedToAccount(page, () => page.getByLabel('Display currency').selectOption('BTC'));
-  const inBtc = await bankSummary({ displayCurrency: 'BTC' });
-  if (inBtc.btc?.total) {
-    await showsBankTotal(page, '/', HOME_TOTAL, (row) => (row.btc?.total ? `₿${grouped(roundTo(row.btc.total, 8))}` : null), {
-      displayCurrency: 'BTC',
-    });
-    await expect(page.getByText(/^Shown in BTC at the current BTC price\. In dollars: \$[\d,.]+$/)).toBeVisible();
-  } else {
-    await showsBankTotal(page, '/', HOME_TOTAL, usd, { displayCurrency: 'BTC' });
-    await expect(page.getByText('There is no BTC price right now, so the total is shown in dollars.')).toBeVisible();
+  try {
+    const inBtc = await bankSummary({ displayCurrency: 'BTC' });
+    if (inBtc.btc?.total) {
+      await showsBankTotal(page, '/', HOME_TOTAL, (row) => (row.btc?.total ? `₿${grouped(roundTo(row.btc.total, 8))}` : null), {
+        displayCurrency: 'BTC',
+      });
+      await expect(page.getByText(/^Shown in BTC at the current BTC price\. In dollars: \$[\d,.]+$/)).toBeVisible();
+    } else {
+      await showsBankTotal(page, '/', HOME_TOTAL, usd, { displayCurrency: 'BTC' });
+      await expect(page.getByText('There is no BTC price right now, so the total is shown in dollars.')).toBeVisible();
+    }
+    await expect(page.locator('[data-slot="state-block"][data-kind="error"]')).toHaveCount(0);
+  } finally {
+    // Back to dollars for the steps that follow, even when this one fails.
+    await page.goto('/view');
+    await savedToAccount(page, () => page.getByLabel('Display currency').selectOption('USD'));
   }
-  await expect(page.locator('[data-slot="state-block"][data-kind="error"]')).toHaveCount(0);
-
-  // Back to dollars for the steps that follow.
-  await page.goto('/view');
-  await savedToAccount(page, () => page.getByLabel('Display currency').selectOption('USD'));
 });
 
 test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the person to another device`, async ({ page, browser }) => {
@@ -150,7 +152,8 @@ test(`${J} #3 the total's Assets link opens the Assets room with the same total 
   await signIn(page, who);
   await showsBankTotal(page, '/', HOME_TOTAL, usd);
   const onHome = await spokenTotal(page, HOME_TOTAL);
-  await page.getByRole('link', { name: 'Assets', exact: true }).first().click();
+  // The total's own link, not the Assets door in the top bar.
+  await page.locator('.hp-label, .home-label').getByRole('link', { name: 'Assets', exact: true }).click();
   await expect(page).toHaveURL(/\/money(\?|#|$)/);
   // The same reading of the bank's valuation that Home showed, or a newer one if a price moved since.
   await expect

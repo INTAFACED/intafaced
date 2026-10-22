@@ -231,9 +231,10 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
     path.push(stop);
     if (path.length >= 12) break;
   }
-  expect(path.map((stop) => stop.name).slice(0, 6)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 7)).toEqual([
     'Hide balances',
     'How the total is worked out',
+    'Assets',
     'About this change',
     '2 open orders',
     'Buy',
