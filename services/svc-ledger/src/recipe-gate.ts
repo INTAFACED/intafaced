@@ -9,6 +9,7 @@ import {
   LedgerError,
   marketMaker,
   parseAmount,
+  railBoundary,
   recipes,
   rewardsEngine,
   subAccountAvailable,
@@ -1045,6 +1046,41 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         });
       }
     }
+  }
+
+  // Rail sends (personal and business bill pay, global send): svc-bank posts
+  // `bankTransfer` from a space to the treasury rail boundary and back on a
+  // return (services/svc-bank/src/personal-pay/post.ts). A business space is a
+  // sub-account (D-149), so both sources are registered. Without these shapes
+  // the gate refused every rail send svc-bank builds.
+  const railTo = railBoundary('bank-rail', 'USDT');
+  for (const space of [userFrom, subFrom]) {
+    posts.push(
+      {
+        name: 'bankTransfer',
+        post: recipes.bankTransfer({
+          transferId: 'tr-rail',
+          occurrence: 0,
+          from: space,
+          to: railTo,
+          amount: AMT,
+          kind: 'manual',
+          keySpace: 'rail',
+        }),
+      },
+      {
+        name: 'bankTransfer',
+        post: recipes.bankTransfer({
+          transferId: 'tr-rail',
+          occurrence: 1,
+          from: railTo,
+          to: space,
+          amount: AMT,
+          kind: 'manual',
+          keySpace: 'rail',
+        }),
+      },
+    );
   }
 
   for (const from of [userFrom, subFrom]) {

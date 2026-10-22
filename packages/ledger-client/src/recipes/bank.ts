@@ -113,6 +113,12 @@ export function legacyBankTransferKey(transferId: string, occurrence: number): s
  * that mapping is svc-bank's job (it owns the `spaces` table); asserting the
  * movement is well-formed is this recipe's.
  *
+ * D-149 (2026-10-22): a business space is a sub-account, so a business bill
+ * payment is this recipe with a `subAccountAvailable` source and the rail
+ * boundary as destination, exactly like a personal bill. No separate business
+ * debit recipe exists. Fees, arrival times and payment limits for bill methods
+ * are owner values and are not set here.
+ *
  * Cross-asset transfers are rejected outright rather than silently priced —
  * converting between assets is a trade, and a trade has an execution price this
  * function has no business inventing.
