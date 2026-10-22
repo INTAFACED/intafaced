@@ -664,10 +664,15 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * Futures order-type catalogue (D-orders-01): every type, time in force and
    * flag per listed futures market, with its typed refusal. Derived from the
    * capability matrix; no market listed → an empty list, never a sample one.
+   * The market window is the caller's `limit`, as on `/api/v1/markets`; blank refuses.
    */
-  app.get('/api/v1/futures/order-types', async (_req, reply) => {
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/order-types', async (req, reply) => {
+    const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('order-types limit is unset — refuse to invent a market window', TRADE_MARKETS_LIMIT_UNSET));
+    }
     const { buildFuturesOrderTypeCatalogue } = await import('./futures/order-type-catalogue.js');
-    const markets = (await deps.markets(MAX_MARKETS)).filter(
+    const markets = (await deps.markets(limit)).filter(
       (m) => m.kind === 'futures' && visibleOnPublicBoard(m, deps.futuresTestSeed === true),
     );
     return reply.code(200).send({

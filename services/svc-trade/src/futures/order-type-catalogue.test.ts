@@ -25,11 +25,11 @@ function deps(overrides: Partial<PublicRestDeps> = {}): PublicRestDeps {
   };
 }
 
-async function get(d: PublicRestDeps) {
+async function get(d: PublicRestDeps, query = '?limit=50') {
   const app = Fastify();
   registerPublicRest(app, d);
   await app.ready();
-  const res = await app.inject({ method: 'GET', url: '/api/v1/futures/order-types' });
+  const res = await app.inject({ method: 'GET', url: `/api/v1/futures/order-types${query}` });
   await app.close();
   return res;
 }
@@ -95,6 +95,22 @@ describe('futures order-type catalogue (D-orders-01)', () => {
     );
     expect(res.statusCode).toBe(500);
     expect(JSON.stringify(res.json())).not.toMatch(/orderTypes/);
+  });
+
+  it('blank or out-of-range limit refuses and never reads markets', async () => {
+    let reads = 0;
+    const d = deps({
+      markets: async () => {
+        reads += 1;
+        return [perp];
+      },
+    });
+    for (const q of ['', '?limit=', '?limit=0', '?limit=501']) {
+      const res = await get(d, q);
+      expect(res.statusCode, q).toBe(400);
+      expect(res.json().intafacedCode).toBe('trade.markets_limit_unset');
+    }
+    expect(reads).toBe(0);
   });
 
   it('the route is claimed in the capability matrix', () => {
