@@ -1,6 +1,17 @@
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
-import { Amount, fmtAmount, refusalCopy, Skeleton, StateBlock, type ActivityFeed, type ActivityItem, type Loadable } from './deps';
+import {
+  Amount,
+  detailHref,
+  fmtAmount,
+  groupActivity,
+  refusalCopy,
+  Skeleton,
+  StateBlock,
+  type ActivityFeed,
+  type ActivityItem,
+  type Loadable,
+} from './deps';
 import { HOME_LINKS } from './links';
 import { STATE_IN_COLUMN } from './panel';
 import { usePreferences } from '../../shared/preferences';
@@ -23,10 +34,9 @@ const LABEL = {
   other: 'Activity other',
 } as const satisfies Record<ActivityItem['kind'], string>;
 
-const detailHref = (item: Pick<ActivityItem, 'id'>) => `${HOME_LINKS.activity}/${encodeURIComponent(item.id)}`;
-
 /**
- * The last few money movements, newest first, each opening its own record. Amounts are the service's decimal strings
+ * The last few money movements, newest first, grouped as the Activity room groups them (one trade is one row), each
+ * opening its own record. Amounts are the service's decimal strings
  * to their last digit, never rounded for the list. An account with none gets one honest line, not a blank box: nothing is invented to
  * fill it. The full history is the Activity screen under Money.
  */
@@ -66,24 +76,27 @@ export function RecentActivity({
         <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('No activity yet')} body={t('No activity body')} />
       ) : activity.status === 'ready' ? (
         <ul className="home-activity">
-          {activity.data.items.slice(0, SHOWN).map((item) => {
-            const when = dayTime(item.postedAt, timeZone);
-            return (
-              <li key={item.id}>
-                <a className="home-activity__row" href={detailHref(item)}>
-                  <span className="home-activity__what">
-                    <span className="home-activity__kind">{t(LABEL[item.kind])}</span>
-                    {when ? <span className="home-activity__when">{when}</span> : null}
-                  </span>
-                  <Amount
-                    className="home-activity__amount"
-                    value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18, round: 'down' })} ${item.asset}`}
-                    hidden={hidden}
-                  />
-                </a>
-              </li>
-            );
-          })}
+          {groupActivity(activity.data.items)
+            .groups.slice(0, SHOWN)
+            .map((group) => {
+              const item = group.main;
+              const when = dayTime(item.postedAt, timeZone);
+              return (
+                <li key={group.id}>
+                  <a className="home-activity__row" href={detailHref(group)}>
+                    <span className="home-activity__what">
+                      <span className="home-activity__kind">{t(LABEL[item.kind])}</span>
+                      {when ? <span className="home-activity__when">{when}</span> : null}
+                    </span>
+                    <Amount
+                      className="home-activity__amount"
+                      value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
+                      hidden={hidden}
+                    />
+                  </a>
+                </li>
+              );
+            })}
         </ul>
       ) : activity.status === 'error' ? (
         <StateBlock
