@@ -4612,6 +4612,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
     spaces,
     transfers,
+    /**
+     * PP-money-balance-04: the published personal-send fee schedule. No rows → `published: false`
+     * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
+     */
+    fees: router({
+      schedule: router({
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({
+              published: z.boolean(),
+              entries: z.array(
+                z.object({
+                  assetId: z.string(),
+                  fee: amountString,
+                  free: z.boolean(),
+                  feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
+                  publishedAt: z.string(),
+                }),
+              ),
+            }),
+          )
+          .query(() => guard(() => bank.personalPay.feeSchedule())),
+      }),
+    }),
     earn,
     loans,
     cards,
