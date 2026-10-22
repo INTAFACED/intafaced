@@ -125,10 +125,15 @@ const ratingRequests = new RatingRequestOutbox(new SqlRatingRequestBook(sql), as
   return connected ? eventRatingRequestSink(connected) : null;
 });
 // Request notifications (SP-email-01): rows are written by triggers with the ticket or message; this only publishes them.
-const requestEvents = new RequestEventOutbox(new SqlRequestEventBook(sql), async () => {
-  const connected = await connectBus();
-  return connected ? eventRequestEventSink(connected) : null;
-});
+const requestEvents = new RequestEventOutbox(
+  new SqlRequestEventBook(sql),
+  async () => {
+    const connected = await connectBus();
+    return connected ? eventRequestEventSink(connected) : null;
+  },
+  undefined,
+  (failure) => console.warn('svc-support: request event publish failed, backing off', failure),
+);
 
 const store = new PostgresSupportStore(sql);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the outgoing reads on the shared secret alone.

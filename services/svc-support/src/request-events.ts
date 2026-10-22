@@ -30,9 +30,16 @@ export type RequestEvent =
     };
 
 export interface RequestEventBook {
-  /** Rows the bus has not taken yet, oldest first. */
-  pending(limit: number): Promise<RequestEvent[]>;
+  /** Rows the bus has not taken yet and that are due (not backing off), oldest first. */
+  pending(limit: number, now: string): Promise<RequestEvent[]>;
   markPublished(key: string, at: string): Promise<void>;
+  /** A publish failed: count it and back it off by `retryDelayMs(attempts)` from `now`, so later rows go first. Returns the new attempt count. */
+  markFailed(key: string, error: string, now: string): Promise<number>;
+}
+
+/** Backoff after the n-th failed publish: 1, 2, 4 … minutes, capped at one hour. A sweep cadence, not a business limit. */
+export function retryDelayMs(attempts: number): number {
+  return Math.min(60 * 60_000, 60_000 * 2 ** Math.max(0, attempts - 1));
 }
 
 export interface RequestEventSink {
@@ -41,22 +48,34 @@ export interface RequestEventSink {
 
 /** In-memory book for unit tests and a desk booted without Postgres. Rows are added by `add`, standing in for the triggers. */
 export class MemoryRequestEventBook implements RequestEventBook {
-  private readonly rows = new Map<string, RequestEvent & { publishedAt: string | null }>();
+  private readonly rows = new Map<string, RequestEvent & { publishedAt: string | null; attempts: number; nextAttemptAt: string | null }>();
 
   add(event: RequestEvent): void {
-    if (!this.rows.has(event.key)) this.rows.set(event.key, { ...event, publishedAt: null });
+    if (!this.rows.has(event.key)) this.rows.set(event.key, { ...event, publishedAt: null, attempts: 0, nextAttemptAt: null });
+  }
+
+  attempts(key: string): number {
+    return this.rows.get(key)?.attempts ?? 0;
   }
 
   publishedAt(key: string): string | null {
     return this.rows.get(key)?.publishedAt ?? null;
   }
 
-  async pending(limit: number): Promise<RequestEvent[]> {
+  async pending(limit: number, now: string): Promise<RequestEvent[]> {
     return [...this.rows.values()]
-      .filter((r) => r.publishedAt === null)
+      .filter((r) => r.publishedAt === null && (r.nextAttemptAt === null || r.nextAttemptAt <= now))
       .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.key.localeCompare(b.key))
       .slice(0, limit)
-      .map(({ publishedAt: _published, ...event }) => event as RequestEvent);
+      .map(({ publishedAt: _p, attempts: _a, nextAttemptAt: _n, ...event }) => event as RequestEvent);
+  }
+
+  async markFailed(key: string, _error: string, now: string): Promise<number> {
+    const row = this.rows.get(key);
+    if (!row || row.publishedAt !== null) return 0;
+    row.attempts += 1;
+    row.nextAttemptAt = new Date(Date.parse(now) + retryDelayMs(row.attempts)).toISOString();
+    return row.attempts;
   }
 
   async markPublished(key: string, at: string): Promise<void> {
@@ -102,21 +121,35 @@ export function rowToEvent(r: Row): RequestEvent {
 export class SqlRequestEventBook implements RequestEventBook {
   constructor(private readonly sql: Sql) {}
 
-  async pending(limit: number): Promise<RequestEvent[]> {
+  async pending(limit: number, now: string): Promise<RequestEvent[]> {
     const rows = await this.sql<Row[]>`
       SELECT event_key, event_name, ticket_id, user_id, status, message_id, author_role, occurred_at
       FROM support.event_outbox
-      WHERE published_at IS NULL ORDER BY occurred_at, event_key LIMIT ${limit}
+      WHERE published_at IS NULL AND (next_attempt_at IS NULL OR next_attempt_at <= ${now})
+      ORDER BY occurred_at, event_key LIMIT ${limit}
     `;
     const out: RequestEvent[] = [];
     for (const r of rows) {
       try {
         out.push(rowToEvent(r));
-      } catch {
-        // The CHECK constraint makes this unreachable; a bad row stays pending rather than being published wrong.
+      } catch (err) {
+        // Unreachable under the CHECK constraint. Never published wrong: backed off so it cannot block the rows behind it.
+        await this.markFailed(r.event_key, err instanceof Error ? err.message : String(err), now);
       }
     }
     return out;
+  }
+
+  async markFailed(key: string, error: string, now: string): Promise<number> {
+    const [row] = await this.sql<{ attempts: number }[]>`
+      UPDATE support.event_outbox
+      SET attempts = attempts + 1,
+          next_attempt_at = ${now}::timestamptz + make_interval(secs => LEAST(3600, 60 * power(2, attempts))),
+          last_error = ${error.slice(0, 500)}
+      WHERE event_key = ${key} AND published_at IS NULL
+      RETURNING attempts
+    `;
+    return row?.attempts ?? 0;
   }
 
   async markPublished(key: string, at: string): Promise<void> {
@@ -161,8 +194,10 @@ export function eventRequestEventSink(bus: EventBus): RequestEventSink {
   };
 }
 
-/** How many rows one sweep takes. A batch size, not a business limit. */
-const SWEEP_BATCH = 100;
+/** How many rows one page takes. A page size, not a cap: a sweep keeps paging until the due backlog is drained. */
+export const SWEEP_PAGE = 100;
+
+export type OutboxLog = (event: { key: string; error: string; attempts: number }) => void;
 
 export class RequestEventOutbox {
   constructor(
@@ -170,12 +205,17 @@ export class RequestEventOutbox {
     /** Resolves null while no bus is connected: rows stay pending and `flush` publishes nothing. */
     private readonly sink: () => Promise<RequestEventSink | null>,
     private readonly now: () => Date = () => new Date(),
+    /** Told about each failed publish, so a stuck row is visible instead of silent. */
+    private readonly onFailure: OutboxLog = () => undefined,
+    private readonly pageSize: number = SWEEP_PAGE,
   ) {}
 
   /**
-   * Publish what is pending. A failed publish keeps its row and the sweep goes on to the
-   * next; a crash between publish and mark re-publishes under the same key. Returns the
-   * number the bus took.
+   * Publish everything due. A failed publish is counted and backed off (1, 2, 4 … minutes,
+   * at most an hour), so it drops out of the next pages and never holds up the rows behind
+   * it; a crash between publish and mark re-publishes under the same key. Pages until a page
+   * comes back short, so the backlog is drained in one sweep rather than a page a minute.
+   * Returns the number the bus took.
    */
   flush(): Promise<number> {
     this.sweeping ??= this.sweep().finally(() => {
@@ -190,15 +230,27 @@ export class RequestEventOutbox {
     const sink = await this.sink();
     if (!sink) return 0;
     let sent = 0;
-    for (const event of await this.book.pending(SWEEP_BATCH)) {
-      try {
-        await sink.send(event);
-        await this.book.markPublished(event.key, this.now().toISOString());
-        sent += 1;
-      } catch {
-        // Stays pending; the next sweep tries again under the same key.
+    const attempts = new Map<string, number>(); // keys that failed in this sweep
+    for (;;) {
+      const now = this.now();
+      const page = await this.book.pending(this.pageSize, now.toISOString());
+      let progressed = false;
+      for (const event of page) {
+        if (attempts.has(event.key)) continue; // already tried in this sweep; it is backing off
+        try {
+          await sink.send(event);
+          await this.book.markPublished(event.key, this.now().toISOString());
+          sent += 1;
+          progressed = true;
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          const tries = await this.book.markFailed(event.key, error, now.toISOString());
+          attempts.set(event.key, tries);
+          this.onFailure({ key: event.key, error, attempts: tries });
+          progressed = true;
+        }
       }
+      if (page.length < this.pageSize || !progressed) return sent;
     }
-    return sent;
   }
 }

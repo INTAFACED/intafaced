@@ -70,6 +70,19 @@ describe('request event outbox triggers (SP-email-01)', () => {
     expect(rows.map((r) => r.status)).toEqual(['pending', 'resolved']);
   });
 
+  it('two changes to the same status in one transaction keep two rows', async () => {
+    const id = await newTicket('u-same-tx');
+    await sql.begin(async (tx) => {
+      await tx`UPDATE support.tickets SET status = 'pending', updated_at = now() WHERE id = ${id}`;
+      await tx`UPDATE support.tickets SET status = 'open', updated_at = now() WHERE id = ${id}`;
+      await tx`UPDATE support.tickets SET status = 'pending', updated_at = now() WHERE id = ${id}`;
+    });
+    const rows = await sql<{ status: string }[]>`
+      SELECT status FROM support.event_outbox WHERE ticket_id = ${id} AND event_name = 'supportTicketUpdated'
+    `;
+    expect(rows.map((r) => r.status).sort()).toEqual(['open', 'pending', 'pending']);
+  });
+
   it('a message writes one row keyed by the message, naming the request owner and the author role', async () => {
     const id = await newTicket('u-msg');
     const [c] = await sql<{ id: string }[]>`
@@ -111,5 +124,26 @@ describe('request event outbox triggers (SP-email-01)', () => {
     expect(await outbox.flush()).toBe(1);
     expect(sent.map((e) => [e.name, e.ticketId, e.userId])).toEqual([['supportTicketOpened', id, 'u-sweep']]);
     expect(await outbox.flush()).toBe(0);
+  });
+
+  it('a failed row backs off in Postgres and the rows behind it still publish; a backlog over one page drains in one sweep', async () => {
+    await sql`UPDATE support.event_outbox SET published_at = now() WHERE published_at IS NULL`;
+    const first = await newTicket('u-poison');
+    for (let i = 0; i < 120; i += 1) await newTicket('u-backlog');
+    const sent: string[] = [];
+    const book = new SqlRequestEventBook(sql);
+    const outbox = new RequestEventOutbox(book, async () => ({
+      send: async (e) => {
+        if (e.ticketId === first) throw new Error('rejected');
+        sent.push(e.key);
+      },
+    }));
+    expect(await outbox.flush()).toBe(120);
+    expect(sent).toHaveLength(120);
+    const [row] = await sql<{ attempts: number; due: boolean; last_error: string; published_at: Date | null }[]>`
+      SELECT attempts, next_attempt_at > now() AS due, last_error, published_at FROM support.event_outbox WHERE ticket_id = ${first}
+    `;
+    expect(row).toMatchObject({ attempts: 1, due: true, last_error: 'rejected', published_at: null });
+    expect(await book.pending(10, new Date().toISOString())).toEqual([]);
   });
 });

@@ -1,6 +1,13 @@
 import { EVENT_CATALOG } from '@intafaced/events';
 import { describe, expect, it } from 'vitest';
-import { MemoryRequestEventBook, RequestEventOutbox, eventRequestEventSink, rowToEvent, type RequestEvent } from './request-events.js';
+import {
+  MemoryRequestEventBook,
+  RequestEventOutbox,
+  eventRequestEventSink,
+  retryDelayMs,
+  rowToEvent,
+  type RequestEvent,
+} from './request-events.js';
 
 const T = '9f1b6c52-0d9e-4c55-8a53-0d3a5f0b7a11';
 const U = '11111111-1111-4111-8111-111111111111';
@@ -14,7 +21,7 @@ const OPENED: RequestEvent = {
   occurredAt: '2026-10-22T07:00:00.000Z',
 };
 const UPDATED: RequestEvent = {
-  key: `support.ticket.updated:${T}:pending:1`,
+  key: `support.ticket.updated:${T}:1`,
   name: 'supportTicketUpdated',
   ticketId: T,
   userId: U,
@@ -74,7 +81,7 @@ describe('request notification outbox (SP-email-01)', () => {
     const outbox = new RequestEventOutbox(book, async () => null);
     expect(await outbox.flush()).toBe(0);
     expect(book.publishedAt(OPENED.key)).toBeNull();
-    expect(await book.pending(10)).toHaveLength(1);
+    expect(await book.pending(10, '2100-01-01T00:00:00.000Z')).toHaveLength(1);
   });
 
   it('a failed publish keeps its row; the retry reuses the same key', async () => {
@@ -82,15 +89,21 @@ describe('request notification outbox (SP-email-01)', () => {
     book.add(OPENED);
     const keys: string[] = [];
     let fail = true;
-    const outbox = new RequestEventOutbox(book, async () => ({
-      send: async (e) => {
-        keys.push(e.key);
-        if (fail) throw new Error('bus down');
-      },
-    }));
+    let clock = new Date('2026-10-22T08:00:00.000Z');
+    const outbox = new RequestEventOutbox(
+      book,
+      async () => ({
+        send: async (e) => {
+          keys.push(e.key);
+          if (fail) throw new Error('bus down');
+        },
+      }),
+      () => clock,
+    );
     expect(await outbox.flush()).toBe(0);
     expect(book.publishedAt(OPENED.key)).toBeNull();
     fail = false;
+    clock = new Date(clock.getTime() + retryDelayMs(1));
     expect(await outbox.flush()).toBe(1);
     expect(keys).toEqual([OPENED.key, OPENED.key]);
   });
@@ -99,7 +112,7 @@ describe('request notification outbox (SP-email-01)', () => {
     const book = new MemoryRequestEventBook();
     book.add(OPENED);
     book.add(OPENED);
-    expect(await book.pending(10)).toHaveLength(1);
+    expect(await book.pending(10, '2100-01-01T00:00:00.000Z')).toHaveLength(1);
   });
 
   it('a row whose shape does not fit its name is refused, not guessed at', () => {
@@ -115,5 +128,52 @@ describe('request notification outbox (SP-email-01)', () => {
       'support.event_outbox_row_invalid',
     );
     expect(() => rowToEvent({ ...base, event_name: 'supportMessageCreated', status: null })).toThrow('support.event_outbox_row_invalid');
+  });
+
+  it('a row that keeps failing never blocks the rows behind it, and is retried after its backoff', async () => {
+    const book = new MemoryRequestEventBook();
+    book.add(OPENED); // oldest, and the bus rejects it
+    book.add(UPDATED);
+    book.add(MESSAGE);
+    let clock = new Date('2026-10-22T08:00:00.000Z');
+    const sent: string[] = [];
+    const failures: { key: string; attempts: number }[] = [];
+    const outbox = new RequestEventOutbox(
+      book,
+      async () => ({
+        send: async (e) => {
+          if (e.key === OPENED.key) throw new Error('rejected');
+          sent.push(e.key);
+        },
+      }),
+      () => clock,
+      (f) => void failures.push({ key: f.key, attempts: f.attempts }),
+      1, // one row per page, so the failing row is the whole first page
+    );
+    expect(await outbox.flush()).toBe(2);
+    expect(sent).toEqual([UPDATED.key, MESSAGE.key]);
+    expect(failures).toEqual([{ key: OPENED.key, attempts: 1 }]);
+    // Not due yet: the next sweep leaves it alone.
+    expect(await outbox.flush()).toBe(0);
+    expect(failures).toHaveLength(1);
+    // After the backoff it is tried again, and backs off longer.
+    clock = new Date(clock.getTime() + retryDelayMs(1));
+    expect(await outbox.flush()).toBe(0);
+    expect(failures.at(-1)).toEqual({ key: OPENED.key, attempts: 2 });
+    expect(book.attempts(OPENED.key)).toBe(2);
+  });
+
+  it('one sweep drains a backlog larger than a page', async () => {
+    const book = new MemoryRequestEventBook();
+    for (let i = 0; i < 7; i += 1) {
+      book.add({ ...OPENED, key: `support.ticket.opened:k${i}`, occurredAt: `2026-10-22T07:00:0${i}.000Z` });
+    }
+    const outbox = new RequestEventOutbox(book, async () => ({ send: async () => undefined }), undefined, undefined, 3);
+    expect(await outbox.flush()).toBe(7);
+    expect(await book.pending(10, '2100-01-01T00:00:00.000Z')).toEqual([]);
+  });
+
+  it('backoff doubles from one minute and stops at one hour', () => {
+    expect([1, 2, 3, 7, 8, 20].map(retryDelayMs)).toEqual([60_000, 120_000, 240_000, 3_600_000, 3_600_000, 3_600_000]);
   });
 });

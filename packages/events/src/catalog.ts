@@ -394,7 +394,7 @@ export const supportTicketOpened = defineEvent(
 
 /**
  * A support request changed status (SP-email-01). One per status change, keyed
- * `support.ticket.updated:<ticketId>:<eventRowId>`. Carries no note text.
+ * `support.ticket.updated:<ticketId>:<outbox sequence number>`. Carries no note text.
  */
 export const supportTicketUpdated = defineEvent(
   'support',
@@ -412,7 +412,8 @@ export const supportTicketUpdated = defineEvent(
 
 /**
  * A message was added to a support request (SP-email-01). Keyed by the message id.
- * `userId` is the request owner; `authorRole` says who wrote it. Carries no message text.
+ * `userId` is the request OWNER, not the author (consumers must not treat it as the author);
+ * `authorRole` says who wrote it. Carries no message text and no staff identity.
  */
 export const supportMessageCreated = defineEvent(
   'support',

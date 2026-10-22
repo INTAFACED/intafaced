@@ -7,3 +7,4 @@ DROP FUNCTION IF EXISTS "support"."tickets_outbox_updated"();
 DROP TRIGGER IF EXISTS "tickets_outbox_opened" ON "support"."tickets";
 DROP FUNCTION IF EXISTS "support"."tickets_outbox_opened"();
 DROP TABLE IF EXISTS "support"."event_outbox";
+DROP SEQUENCE IF EXISTS "support"."event_outbox_seq";
