@@ -115,13 +115,19 @@ export async function requestEmailConfirmation(deps: EmailConfirmDeps, input: { 
     deps.sql,
     async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('email-confirm'), hashtext(${input.userId}::text))`;
-      const counted = await tx<Array<{ n: number; oldest: Date | string | null }>>`
-        SELECT count(*)::int AS n, min(created_at) AS oldest FROM email_confirmation_attempts
+      const counted = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM email_confirmation_attempts
         WHERE user_id = ${input.userId} AND created_at > ${since}
       `;
-      if (Number(counted[0]?.n ?? 0) >= rate.max) {
-        // The wait is until the oldest request in the window leaves it.
-        const oldest = new Date(counted[0]!.oldest ?? now).getTime();
+      const n = Number(counted[0]?.n ?? 0);
+      if (n >= rate.max) {
+        // The wait is until enough requests leave the window for one more to fit: the (n - max + 1)th oldest.
+        const freeing = await tx<Array<{ created_at: Date | string }>>`
+          SELECT created_at FROM email_confirmation_attempts
+          WHERE user_id = ${input.userId} AND created_at > ${since}
+          ORDER BY created_at OFFSET ${n - rate.max} LIMIT 1
+        `;
+        const oldest = new Date(freeing[0]?.created_at ?? now).getTime();
         return {
           kind: 'rate' as const,
           retryAfterSeconds: Math.max(1, Math.ceil((oldest + rate.windowSeconds * 1000 - now.getTime()) / 1000)),

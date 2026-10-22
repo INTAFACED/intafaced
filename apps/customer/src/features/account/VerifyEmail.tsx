@@ -24,6 +24,7 @@ export function VerifyEmail() {
   const [busy, setBusy] = useState<'send' | 'check' | null>(null);
   const [sent, setSent] = useState(false);
   const [still, setStill] = useState(false);
+  const [unread, setUnread] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const mounted = useRef(true);
 
@@ -51,18 +52,21 @@ export function VerifyEmail() {
     const answer = await api.mutate('identity', 'auth.requestEmailConfirmation', undefined, acceptedSchema);
     if (!mounted.current) return;
     setBusy(null);
-    if (answer.ok) setSent(true);
-    else setRefusal(answer);
+    setSent(answer.ok);
+    if (!answer.ok) setRefusal(answer);
   }
 
   async function check() {
     if (busy) return;
     setBusy('check');
     setRefusal(null);
+    setStill(false);
+    setUnread(false);
     const me = await fetchMe(api);
     if (!mounted.current) return;
     setBusy(null);
-    if (me.kind === 'ok' && me.userId === userId && me.emailVerified === true) setStatus('verified');
+    if (me.kind !== 'ok' || me.userId !== userId) setUnread(true);
+    else if (me.emailVerified === true) setStatus('verified');
     else setStill(true);
   }
 
@@ -89,6 +93,7 @@ export function VerifyEmail() {
       <p>{t('body')}</p>
       {sent && <p role="status">{t('sent')}</p>}
       {still && <p role="status">{t('stillUnverified')}</p>}
+      {unread && <p role="alert">{t('unread')}</p>}
       {problem ? (
         <p role="alert">
           {problem} <small lang="zxx">{code}</small>

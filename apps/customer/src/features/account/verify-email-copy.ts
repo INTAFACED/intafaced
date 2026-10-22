@@ -10,6 +10,7 @@ const messages = {
   sent: 'If this address can receive mail, a confirmation link is on its way. It works once and runs out after a while. Open it, then come back here.',
   check: 'I opened the link: check again',
   checking: 'Checking…',
+  unread: 'We could not check your address just now. Your link still works; try again in a moment.',
   stillUnverified: 'This address is still unverified. Open the newest link from the email, or send a new one.',
   'auth.email_confirm_rate_limited': 'You asked for several emails already. You can ask again in {minutes} min.',
   'auth.email_confirm_rate_limited_plain': 'You asked for several emails already. Wait a while, then ask again.',
