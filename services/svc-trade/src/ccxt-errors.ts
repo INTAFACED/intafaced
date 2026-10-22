@@ -502,8 +502,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
   /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
-  /** Operator price collar. Not retryable at the same price. */
-  'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator price band. Not retryable at the same price. */
+  'trade.price_band': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
   'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
   /**

@@ -20,6 +20,12 @@ export interface RefusalContext {
   pair?: string;
   /** Pass the Help route only when Help is live (registry); adds "Contact support". */
   helpHref?: string;
+  /** A price band's edges, already formatted for display. */
+  low?: string;
+  high?: string;
+  /** An open-order cap and how many orders are open now. */
+  cap?: string;
+  open?: string;
 }
 
 type Words = { title: string; body: string; action?: { label: string; href: string } };
@@ -259,6 +265,28 @@ function words(kind: RefusalKind, context: RefusalContext): Words {
       return {
         title: asset ? `${who} can't receive ${asset}` : `${who} can't receive this`,
         body: 'Ask them to open INTAFACED once, then try again.',
+      };
+    }
+    case 'priceBand': {
+      const low = context.low?.trim();
+      const high = context.high?.trim();
+      return {
+        title: 'Price is outside the allowed range',
+        body:
+          low && high
+            ? `This market takes buy prices up to ${high} and sell prices down to ${low} right now. Change the price and try again.`
+            : 'This market only takes prices near the middle of its book. Change the price and try again.',
+      };
+    }
+    case 'openOrdersCap': {
+      const cap = context.cap?.trim();
+      const open = context.open?.trim();
+      return {
+        title: 'Too many open orders',
+        body:
+          cap && open
+            ? `You have ${open} open orders here and this market allows ${cap}. Cancel one to place another.`
+            : 'You have as many open orders as this market allows. Cancel one to place another.',
       };
     }
     default:

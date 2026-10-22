@@ -66,7 +66,9 @@ export const previewSchema = z.object({
   feeBps: z.number().int().nonnegative().nullable(),
   feeRole: z.enum(['maker', 'taker']).nullable(),
   orderable: z.boolean(),
-  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+  refusals: z.array(
+    z.object({ code: z.string(), field: z.string(), message: z.string(), data: z.record(z.string(), z.string()).optional() }),
+  ),
   /** The fee each linked exit leg would post if it filled. Absent or null when the draft has no exit legs. */
   exitFees: z
     .object({

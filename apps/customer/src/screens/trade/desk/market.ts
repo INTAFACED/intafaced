@@ -8,6 +8,11 @@ import { listingSchema } from '../../../features/trade/trade-api';
 /** `/markets` row as the desk reads it: the existing trade schema plus the market state the data layer also reads. */
 export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
+  // The operator limits as published for the pair; "not set" where the owner published none.
+  pairRules: z
+    .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
+    .passthrough()
+    .nullish(),
 });
 export type DeskListing = z.infer<typeof deskListingSchema>;
 
@@ -26,7 +31,14 @@ export interface DeskMarket {
   open: boolean;
   /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
   state: string | null;
+  /** Price band as a fraction around the middle of the book ("0.1" is 10%); null when none is published. */
+  band?: string | null;
+  /** How many orders one account may have open here; null when none is published. */
+  openOrderCap?: string | null;
 }
+
+/** A published operator value, or null for "not set" (or no rules read at all): never a default. */
+const published = (value: string | undefined): string | null => (value && value !== 'not set' ? value : null);
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
   const stateOpen = listing.lifecycle ? listing.lifecycle.state === 'OPEN' : true;
@@ -40,6 +52,8 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minCost: listing.limits.cost.min,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
     state: listing.lifecycle?.state?.trim() || null,
+    band: published(listing.pairRules?.protection.collar),
+    openOrderCap: published(listing.pairRules?.protection.openOrdersPerMarket),
   };
 }
 

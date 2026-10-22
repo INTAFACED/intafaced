@@ -10,6 +10,8 @@
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
  * What this stands in for, and nothing else:
@@ -468,9 +470,9 @@ export async function ensureOperators(ctx) {
 }
 
 /** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
-async function mintOperatorToken(ctx, op) {
+async function mintOperatorToken(ctx, op, scopes = ['admin:compliance']) {
   const minted = await ctx.tokens.issueAccessToken(
-    { userId: op.userId, sessionId: op.sessionId, scopes: ['admin:compliance'], tier: 'none', mfa: true },
+    { userId: op.userId, sessionId: op.sessionId, scopes, tier: 'none', mfa: true },
     { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
   );
   return minted.token;
@@ -536,6 +538,10 @@ async function signInPair(ctx, ops, saveSteps) {
        */
       async approvalToken() {
         return mintOperatorToken(ctx, op);
+      },
+      /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
+      async tradeOpsToken() {
+        return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
     };
   }
@@ -732,6 +738,85 @@ export async function setBookHalt(ctx, symbol, halted) {
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
 
+// ── 2d. Pair price band and open-order cap (two-person approval) ────────────
+
+/**
+ * LOCAL TEST operator limits for every openable market: not owner values. A price band of 10% around the middle of
+ * the book, and 20 open orders per account per market (the TEST market maker's ladder re-places at most 12). Written
+ * through svc-trade's own door (admin.risk.set) with a second operator's approval, as a new version on top of what is
+ * there; the other limits on the row are kept as they are.
+ */
+export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
+export const RISK_SET_ACTION = 'trade.risk_set';
+
+/** Keys sorted, no spaces, null for an unset value: the form svc-trade hashes (services/svc-trade/src/admin/common.ts). */
+function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+}
+
+/** The hash svc-trade recomputes when it consumes a trade.risk_set approval. */
+export function riskSetPayloadHash({ market, limits, expectedVersion, reason }) {
+  const body = { actionType: RISK_SET_ACTION, market, limits, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+export function riskSetProposal(body) {
+  return {
+    actionType: RISK_SET_ACTION,
+    targetService: 'svc-trade',
+    targetId: body.market,
+    expectedVersion: body.expectedVersion,
+    payloadHash: riskSetPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * Write one new version of a market's operator limits: `changes` replaces only the fields it names (null clears one).
+ * Returns the written row. Nothing is written when the row already says the same.
+ */
+export async function setPairRisk(ctx, symbol, changes, sessions = null) {
+  const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`no market ${symbol}`);
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', 'admin.risk.get', { market: market.id }, await pair.a.tradeOpsToken()));
+  if (!current?.version) throw new Error(`trade admin.risk.get for ${symbol} gave no version`);
+  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const limits = Object.fromEntries(fields.map((f) => [f, f in changes ? changes[f] : (current[f] ?? null)]));
+  if (fields.every((f) => limits[f] === (current[f] ?? null)))
+    return { symbol, marketId: market.id, version: current.version, changed: false, limits };
+  const body = { market: market.id, limits, expectedVersion: current.version, reason: `${MARKERS.label}: TEST pair limits` };
+  const ids = await twoPerson(ctx, pair, riskSetProposal(body));
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'trade',
+    'admin.risk.set',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(
+    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'} (${MARKERS.label}); approval ${ids.approvalId}`,
+  );
+  return { symbol, marketId: market.id, version: row.version, changed: true, limits };
+}
+
+/** Publish the TEST band and cap on every openable market that does not carry them yet. */
+export async function publishPairRisk(ctx) {
+  const markets = openableMarkets(await listMarkets(ctx));
+  if (markets.length === 0) return [];
+  const sessions = await approverSessions(ctx);
+  const out = [];
+  for (const m of markets) out.push(await setPairRisk(ctx, m.symbol, TEST_RISK_LIMITS, sessions));
+  return out;
+}
+
 // ── 3. Verification tier ────────────────────────────────────────────────────
 
 /** Accounts whose credentials this stack holds (it created them), keyed by handle. */
@@ -887,6 +972,8 @@ async function main() {
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
+      for (const r of await publishPairRisk(ctx))
+        say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
@@ -896,11 +983,28 @@ async function main() {
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'limits') {
+      for (const r of await publishPairRisk(ctx))
+        say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
+    } else if (cmd === 'risk') {
+      // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
+      const symbol = process.argv[3];
+      const pairs = process.argv.slice(4);
+      if (!symbol || pairs.length === 0) die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset ...', 2);
+      const changes = {};
+      for (const p of pairs) {
+        const [k, v] = p.split('=');
+        if (!['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'].includes(k) || v === undefined)
+          die(`not a limit: ${p}`, 2);
+        changes[k] = v === 'unset' ? null : v;
+      }
+      const r = await setPairRisk(ctx, symbol, changes);
+      say(`  ${r.symbol} limits ${r.changed ? `now version ${r.version}` : 'unchanged'}: ${JSON.stringify(r.limits)}`);
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

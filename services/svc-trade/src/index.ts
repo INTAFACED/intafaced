@@ -87,7 +87,7 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
 import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
-import { currentRiskForMarkets } from './admin/risk.js';
+import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
 import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
@@ -840,6 +840,13 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   },
+  operatorRisk: (market, userId, input) =>
+    assertOperatorRiskOnPlace(sql, market, userId, input, async () => {
+      const depth = await matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      const ask = depth.asks[0];
+      return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
+    }),
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
