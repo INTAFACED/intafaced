@@ -1098,19 +1098,14 @@ export function createP2pRouter(
         ),
 
       /** The caller's own trades in a time range, as CSV. No other person's rows. */
-      export: merchantApiProcedure('p2p:read')
-        .input(z.object({ from: z.string().min(1), to: z.string().min(1) }))
-        .output(z.object({ csv: z.string(), rows: z.number().int().nonnegative() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to })),
-        ),
-
       /**
-       * P-trade-orders-14: capped export (owner range and row caps, audited).
-       * CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       * P-trade-orders-14: export under owner range and row caps
+       * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
+       * `p2p.config_unset`), one audit row per export, totals as decimal
+       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
        */
-      exportFile: merchantApiProcedure('p2p:read')
-        .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS) }))
+      export: merchantApiProcedure('p2p:read')
+        .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))
         .output(
           z.object({
             csv: z.string(),
@@ -1119,7 +1114,9 @@ export function createP2pRouter(
             totals: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
           }),
         )
-        .mutation(async ({ ctx, input }) => guard(async () => p2p.exportTradesCapped({ userId: ctx.principal.userId, ...input }))),
+        .query(async ({ ctx, input }) =>
+          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to, format: input.format })),
+        ),
 
       /** P-trade-orders-14: receipt for one released trade, as data, under owner quotas. */
       receipt: merchantApiProcedure('p2p:read')

@@ -11,6 +11,7 @@ import { P2pService, P2pError } from './p2p-service.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { createP2pRouter } from './router.js';
+import { csvCell } from './customer-depth.js';
 
 /**
  * P-trade-orders-14: capped CSV export with audit, and receipts under owner quotas.
@@ -188,7 +189,7 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     await fund(MAKER, '1000');
     await released('20');
     await released('12.5');
-    const out = await caller(TAKER).trades.exportFile({ from: FROM, to: TO, format: 'csv' });
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
     const trades = await p2p.listTrades(TAKER, 50);
     expect(out.rows).toBe(trades.length);
     expect(out.csv.trim().split('\n')).toHaveLength(trades.length + 1);
@@ -202,10 +203,27 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     expect(audit).toEqual([{ kind: 'export', row_count: 2, format: 'csv' }]);
   });
 
+  it('every new or changed procedure refuses without p2p:read', async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    const t = await released('20');
+    await expect(caller(TAKER, []).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(TAKER, []).trades.receipt({ tradeId: t.id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const audit = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.export_audit`;
+    expect(audit[0]?.n).toBe(0);
+  });
+
+  it('omitted format is csv, as trades.export always served', async () => {
+    rebuild(FULL);
+    const out = await caller(TAKER).trades.export({ from: FROM, to: TO });
+    expect(out.format).toBe('csv');
+    expect(out.rows).toBe(0);
+  });
+
   it('a range over the cap is refused with the cap', async () => {
     rebuild({ ...FULL, maxRangeDays: 30 });
     await expect(
-      caller(TAKER).trades.exportFile({ from: '2026-01-01T00:00:00Z', to: '2026-03-01T00:00:00Z', format: 'csv' }),
+      caller(TAKER).trades.export({ from: '2026-01-01T00:00:00Z', to: '2026-03-01T00:00:00Z', format: 'csv' }),
     ).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message: expect.stringContaining('at most 30 days'),
@@ -220,26 +238,24 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     await fund(MAKER, '1000');
     await released('20');
     await released('20');
-    await expect(caller(TAKER).trades.exportFile({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject(
+    await expect(caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject(
       cause('p2p.export_too_many_rows'),
     );
   });
 
   it('blank caps refuse p2p.config_unset; xlsx and pdf refuse as unbuilt; a bad range refuses', async () => {
     rebuild({});
-    await expect(caller(TAKER).trades.exportFile({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject({
+    await expect(caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       ...cause('p2p.config_unset'),
     });
     rebuild({ maxRangeDays: 10 });
-    await expect(caller(TAKER).trades.exportFile({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject(cause('p2p.config_unset'));
+    await expect(caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject(cause('p2p.config_unset'));
     rebuild(FULL);
     for (const format of ['xlsx', 'pdf'] as const) {
-      await expect(caller(TAKER).trades.exportFile({ from: FROM, to: TO, format })).rejects.toMatchObject(
-        cause('p2p.export_format_unbuilt'),
-      );
+      await expect(caller(TAKER).trades.export({ from: FROM, to: TO, format })).rejects.toMatchObject(cause('p2p.export_format_unbuilt'));
     }
-    await expect(caller(TAKER).trades.exportFile({ from: TO, to: FROM, format: 'csv' })).rejects.toMatchObject(
+    await expect(caller(TAKER).trades.export({ from: TO, to: FROM, format: 'csv' })).rejects.toMatchObject(
       cause('p2p.export_range_invalid'),
     );
   });
@@ -305,11 +321,18 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     expect(audit[0]?.n).toBe(0);
   });
 
-  it('the existing uncapped export is unchanged with no policy', async () => {
+  it('the service export itself refuses without caps (no uncapped path left)', async () => {
     rebuild({});
     await fund(MAKER, '1000');
     await released('20');
-    const out = await p2p.exportTrades({ userId: TAKER, from: FROM, to: TO });
-    expect(out.rows).toBe(1);
+    await expect(p2p.exportTrades({ userId: TAKER, from: FROM, to: TO })).rejects.toMatchObject({ code: 'p2p.config_unset' });
+  });
+
+  it('csv cells a spreadsheet would evaluate are prefixed with a quote', () => {
+    for (const v of ['=SUM(A1)', '+1', '-1', '@x', '\tx', '\rx']) {
+      expect(csvCell(v).startsWith(`"'`)).toBe(true);
+    }
+    expect(csvCell('plain')).toBe('plain');
+    expect(csvCell('a,b')).toBe('"a,b"');
   });
 });

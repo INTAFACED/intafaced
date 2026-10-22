@@ -17,6 +17,13 @@ export interface ExportPolicy {
   readonly receiptPerTradeQuota?: number;
 }
 
+/**
+ * Class half of the two-key advisory lock serialising one user's receipt
+ * downloads (same pattern as INSTRUMENT_OWNER_LOCK_CLASS in instrument-lock.ts,
+ * a different constant so the two never contend).
+ */
+export const RECEIPT_QUOTA_LOCK_CLASS = 8_140_714;
+
 export const EXPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 

@@ -47,6 +47,7 @@ import {
   nextUtcMidnight,
   requireSetting,
   startOfUtcDay,
+  RECEIPT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -3263,18 +3264,23 @@ export class P2pService {
   }
 
   /**
-   * P-trade-orders-14: export with owner caps and an audit row. Reuses
-   * `exportTrades` for the file itself; only CSV is built. The existing
-   * uncapped `exportTrades` path is unchanged.
+   * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
    */
-  async exportTradesCapped(input: { userId: string; from: string; to: string; format: ExportFormat }): Promise<{
+  async exportTrades(input: {
+    userId: string;
+    from: string;
+    to: string;
+    /** Omitted means csv, the format this endpoint has always served. */
+    format?: ExportFormat;
+  }): Promise<{
     csv: string;
     rows: number;
     format: 'csv';
     totals: Array<{ asset: string; fiatCurrency: string; amount: string; fiatAmount: string }>;
   }> {
     try {
-      const format = assertFormatBuilt(input.format);
+      const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
       const from = new Date(input.from);
@@ -3289,7 +3295,9 @@ export class P2pService {
            AND created_at >= ${from} AND created_at <= ${to}
       `;
       assertRowsWithinCap(Number(counted[0]?.n ?? 0), maxRows);
-      const file = await this.exportTrades({ userId: input.userId, from: input.from, to: input.to });
+      const file = await this.renderTradesCsv({ userId: input.userId, from: input.from, to: input.to });
+      // Rows can land between the count and the file query; the cap holds on what is served.
+      assertRowsWithinCap(file.rows, maxRows);
       const totals = await this.sql<Array<{ asset: string; fiat_currency: string; amount: string; fiat_amount: string }>>`
         SELECT asset, fiat_currency, sum(amount)::text AS amount, sum(fiat_amount)::text AS fiat_amount
           FROM p2p.p2p_trades
@@ -3354,7 +3362,7 @@ export class P2pService {
       return await transaction(this.sql, async (tx) => {
         // One user's downloads serialise, so two parallel clicks cannot both
         // take the last unit of quota.
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${'p2p:receipt:' + input.userId}))`;
+        await tx`SELECT pg_advisory_xact_lock(${RECEIPT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
         const used = await tx<Array<{ today: number; this_trade: number }>>`
           SELECT count(*) FILTER (WHERE created_at >= ${startOfUtcDay(now)})::int AS today,
                  count(*) FILTER (WHERE trade_id = ${trade.id})::int AS this_trade
@@ -3405,7 +3413,8 @@ export class P2pService {
     }
   }
 
-  async exportTrades(input: { userId: string; from: string; to: string }): Promise<{ csv: string; rows: number }> {
+  /** The CSV file itself. Callers go through `exportTrades`, which applies the owner caps and audits. */
+  private async renderTradesCsv(input: { userId: string; from: string; to: string }): Promise<{ csv: string; rows: number }> {
     const from = new Date(input.from);
     const to = new Date(input.to);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
