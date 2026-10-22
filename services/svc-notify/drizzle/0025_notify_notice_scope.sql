@@ -1,5 +1,5 @@
 -- svc-notify · funding incident scope and phase on public notices (W-compliance-notices-01)
--- Reversal: 0023_notify_notice_scope.down.sql
+-- Reversal: 0025_notify_notice_scope.down.sql
 --
 -- asset and network scope an incident or maintenance notice to one asset on one
 -- network, so the deposit and withdraw banners show it on that network only.
