@@ -28,6 +28,7 @@ import {
   securityKey,
   securitySessionLock,
   setupResponse,
+  stepUpKind,
   type Passkey,
   type SecurityJournal,
   type SecurityKind,
@@ -60,14 +61,6 @@ type Response = {
   guardRetained?: boolean;
   unconfirmed?: boolean;
 };
-/**
- * The change a "Confirm it is you" may send again after a second-factor refusal: adding or removing a passkey, or
- * starting an authenticator. Not a confirmation (its code has likely expired by then) and not signing out everywhere.
- */
-function stepUpKind(refused: Response): 'options' | 'remove' | 'setup' | null {
-  const kind = refused.record?.kind;
-  return kind === 'options' || kind === 'register' ? 'options' : kind === 'remove' || kind === 'setup' ? kind : null;
-}
 const emptyJournal: SecurityJournal = { records: [], failed: false };
 
 export function Security() {
@@ -481,7 +474,7 @@ export function Security() {
    * expired, so that refusal offers signing in again instead.
    */
   async function afterStepUp(refused: Response, token: string): Promise<ApiResult<null>> {
-    const kind = stepUpKind(refused);
+    const kind = stepUpKind(refused.record?.kind);
     if (!kind || !userId || running.current || !sameActor(refused.original)) {
       return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
     }
@@ -803,8 +796,12 @@ export function Security() {
                 // them here sends the same change once more; signing in again with the code or a passkey also works.
                 <div className="failure" role="status">
                   <h3>{secondFactor.title}</h3>
-                  {stepUpKind(currentResponse) ? <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p> : <p>{secondFactor.body}</p>}
-                  {stepUpKind(currentResponse) && (
+                  {stepUpKind(currentResponse.record?.kind) ? (
+                    <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
+                  ) : (
+                    <p>{secondFactor.body}</p>
+                  )}
+                  {stepUpKind(currentResponse.record?.kind) && (
                     <Button onClick={() => setStepUp(currentResponse)}>
                       <Copy k="stepUpConfirm" />
                     </Button>

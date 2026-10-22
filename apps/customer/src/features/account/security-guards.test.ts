@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApiResult } from '../../shared/api';
-import { isPreEffectRefusal } from './security-guards';
+import { isPreEffectRefusal, stepUpKind } from './security-guards';
 
 const refused = (code: string, status: number, reason: Extract<ApiResult<never>, { ok: false }>['reason']) =>
   ({ ok: false, reason, message: 'Two-factor verification', code, status }) as const;
@@ -22,5 +22,20 @@ describe('isPreEffectRefusal', () => {
   it('keeps the earlier known refusals', () => {
     expect(isPreEffectRefusal('confirm', refused('auth.mfa_invalid', 401, 'unauthorized'))).toBe(true);
     expect(isPreEffectRefusal('options', refused('auth.not_found', 404, 'not_mounted'))).toBe(true);
+  });
+});
+
+describe('stepUpKind', () => {
+  it('resends a passkey add (from either half), a removal or an authenticator setup after "Confirm it is you"', () => {
+    expect(stepUpKind('options')).toBe('options');
+    expect(stepUpKind('register')).toBe('options');
+    expect(stepUpKind('remove')).toBe('remove');
+    expect(stepUpKind('setup')).toBe('setup');
+  });
+
+  it('never resends a confirmation, whose code has likely expired, a global sign-out or an unknown change', () => {
+    expect(stepUpKind('confirm')).toBeNull();
+    expect(stepUpKind('logout')).toBeNull();
+    expect(stepUpKind(undefined)).toBeNull();
   });
 });

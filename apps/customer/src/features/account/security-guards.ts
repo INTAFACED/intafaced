@@ -50,6 +50,13 @@ export function passkeysIn(limit: number) {
 }
 export const securityKind = z.enum(['options', 'register', 'remove', 'setup', 'confirm', 'logout']);
 export type SecurityKind = z.infer<typeof securityKind>;
+/**
+ * The change a "Confirm it is you" may send again after a second-factor refusal: adding or removing a passkey, or
+ * starting an authenticator. Not a confirmation (its code has likely expired by then) and not signing out everywhere.
+ */
+export function stepUpKind(kind: SecurityKind | undefined): 'options' | 'remove' | 'setup' | null {
+  return kind === 'options' || kind === 'register' ? 'options' : kind === 'remove' || kind === 'setup' ? kind : null;
+}
 /** Explicit AuthService branches before the relevant account change; HTTP status alone is insufficient.
  * registerOptions/setup may change preparation state, but do not enroll a credential/enable MFA.
  * Registration invalidity precedes credential UPDATE; MFA invalidity/key checks precede account UPDATE.
