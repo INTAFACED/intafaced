@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
+import { emailProofSchema } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
@@ -1620,6 +1621,22 @@ if (!available) {
      * halves that matter: the fact is now reachable, and it is the ONLY thing
      * that is.
      */
+    describe('email proof for the order gate (RC-identity-01)', () => {
+      it('an unknown or malformed user is null, never proved', async () => {
+        expect(await auth.emailProof('00000000-0000-4000-8000-000000000000')).toBeNull();
+        expect(await auth.emailProof('not-a-uuid')).toBeNull();
+      });
+
+      it('is missing until the current email is confirmed, then accepted, and carries no address', async () => {
+        const session = await register();
+        const missing = await auth.emailProof(session.userId);
+        expect(missing).toEqual({ userId: session.userId, emailProof: 'missing' });
+        expect(emailProofSchema.parse(missing)).toEqual(missing);
+        await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
+        expect(await auth.emailProof(session.userId)).toEqual({ userId: session.userId, emailProof: 'accepted' });
+      });
+    });
+
     describe('account state for another service to read', () => {
       it('an unknown user is null, never an account in good standing', async () => {
         // If this ever answers `{status:'active'}` for an id that does not exist,

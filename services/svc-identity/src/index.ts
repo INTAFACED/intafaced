@@ -792,6 +792,22 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
 });
 
 /**
+ * Whether a user's current email is proved (RC-identity-01), `emailProofSchema`. svc-trade reads it per order and
+ * refuses a new custodial order while it is `missing`. Service credentials only; no address in the answer.
+ * Unknown user → 404, which the caller refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const proof = await auth.emailProof(req.params.userId);
+  if (!proof) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return proof;
+});
+
+/**
  * Public handle for a user id. svc-bank snapshots it onto a personal-send receipt.
  * Service credentials only. 404 for an unknown id. Frozen and closed still have
  * a handle; the caller does not learn the status from this route.

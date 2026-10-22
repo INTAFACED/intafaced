@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState } from '@intafaced/contracts';
+import type { AccountState, EmailProof } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -2055,6 +2055,20 @@ export class AuthService {
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+  }
+
+  /**
+   * Whether the account's current email is proved (RC-identity-01), for svc-trade's order gate. Null for an unknown
+   * user, which the caller must refuse on, never read as proved.
+   */
+  async emailProof(userId: string): Promise<EmailProof | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<Array<{ id: string; email_verified_at: Date | string | null }>>`
+      SELECT id, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
   }
 
   /**
