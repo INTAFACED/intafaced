@@ -235,16 +235,16 @@ export const TAX_EFFECT_MAP: ReadonlyArray<TaxEffectRow> = [
     type: 'p2p_sale',
     effect: 'disposal',
     sourceEvent: null,
-    direction: null,
+    ledgerSide: null,
     blocker:
       'The sale happens at escrow release, which posts to the escrow account the activity feed does not read; the seller lock alone may be refunded',
   },
-  { type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release', direction: 'debit', blocker: null },
+  { type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release', ledgerSide: 'debit', blocker: null },
   {
     type: 'card_spend',
     effect: 'disposal',
     sourceEvent: null,
-    direction: null,
+    ledgerSide: null,
     blocker:
       'A card spend is the capture, which posts from the hold account the activity feed does not read; the hold alone may be voided or reversed',
   },
@@ -252,10 +252,10 @@ export const TAX_EFFECT_MAP: ReadonlyArray<TaxEffectRow> = [
     type: 'mining_payout',
     effect: 'income',
     sourceEvent: null,
-    direction: null,
+    ledgerSide: null,
     blocker: 'No mining product posts a ledger reason on this platform yet',
   },
-  { type: 'staking_reward', effect: 'income', sourceEvent: 'token/token.yield.distributed', direction: 'debit', blocker: null },
+  { type: 'staking_reward', effect: 'income', sourceEvent: 'token/token.yield.distributed', ledgerSide: 'debit', blocker: null },
 ];
 
 export interface TaxEffectInput {
@@ -270,7 +270,7 @@ const UNMAPPED: LineTaxEffect = { code: TAX_EFFECT_UNMAPPED };
 export function classifyTaxEffect(input: TaxEffectInput): LineTaxEffect {
   const event = `${input.module}/${input.reason}`;
   const row = TAX_EFFECT_MAP.find(
-    (candidate) => candidate.blocker === null && candidate.sourceEvent === event && candidate.direction === input.direction,
+    (candidate) => candidate.blocker === null && candidate.sourceEvent === event && candidate.ledgerSide === input.direction,
   );
   if (row === undefined || row.sourceEvent === null) return UNMAPPED;
   return { type: row.type, effect: row.effect, sourceEvent: row.sourceEvent };

@@ -20,7 +20,7 @@ export const taxEffectRowSchema = z
     /** The ledger `module/reason` the row reads, or null while no product posts one. */
     sourceEvent: z.string().nullable(),
     /** The leg on the user's own account that carries the effect (book convention: debit = in). */
-    direction: z.enum(['debit', 'credit']).nullable(),
+    ledgerSide: z.enum(['debit', 'credit']).nullable(),
     /** Why the row classifies nothing yet; null when it is live. */
     blocker: z.string().nullable(),
   })
