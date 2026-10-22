@@ -1004,6 +1004,53 @@ export const coreOpsRestoreFailed = defineEvent(
   'A joint restore step failed or was refused; nothing was finalised. Business key ops:restore:failed:<restoreNo>:<step>.',
 );
 
+// ── pay: custody audit log (W-security-accounts-05) ─────────────────────────
+
+/** The kinds of wallet and custody action the audit log records. */
+export const CUSTODY_AUDIT_CATEGORIES = ['withdrawal', 'address_change', 'limit_change', 'freeze', 'policy_change'] as const;
+export const custodyAuditCategorySchema = z.enum(CUSTODY_AUDIT_CATEGORIES);
+export type CustodyAuditCategory = z.infer<typeof custodyAuditCategorySchema>;
+
+/**
+ * One append-only audit entry. `entryKey` is the producer's business key (for example
+ * `pay:withdrawal:requested:<withdrawalId>`): the store keeps one row per key, so the same fact published twice is one
+ * entry. A withdrawal entry must name its request id. Client context fields are null when the action had no client
+ * (a system job), never guessed. No amount is carried: the ledger is the record of value, this is the record of who did what.
+ */
+export const custodyAuditEntryPayloadSchema = z
+  .object({
+    entryKey: z.string().min(1).max(256),
+    category: custodyAuditCategorySchema,
+    action: z.string().regex(/^[a-z][a-z0-9_.]{0,63}$/, 'action is a lower-case dotted token'),
+    actor: z.object({
+      type: z.enum(['user', 'operator', 'service', 'system']),
+      id: z.string().min(1).max(128),
+    }),
+    subjectUserId: z.string().min(1).max(128).nullable(),
+    clientContext: z.object({
+      ip: z.string().min(1).max(64).nullable(),
+      userAgent: z.string().min(1).max(512).nullable(),
+      apiKeyId: z.string().min(1).max(128).nullable(),
+    }),
+    requestId: z.string().min(1).max(128).nullable(),
+    occurredAt: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .refine((e) => e.category !== 'withdrawal' || e.requestId !== null, {
+    message: 'a withdrawal audit entry names its request id',
+    path: ['requestId'],
+  });
+export type CustodyAuditEntryPayload = z.infer<typeof custodyAuditEntryPayloadSchema>;
+
+export const payCustodyAuditCreated = defineEvent(
+  'pay',
+  'custody_audit',
+  'created',
+  1,
+  custodyAuditEntryPayloadSchema,
+  'A wallet or custody action (withdrawal, address change, limit change, freeze, policy change) was recorded for the append-only audit log behind /custody-ops. Deduplicated by entryKey.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -1023,6 +1070,7 @@ export const EVENT_CATALOG = {
   coreOpsRestoreStarted,
   coreOpsRestoreCompleted,
   coreOpsRestoreFailed,
+  payCustodyAuditCreated,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1537,6 +1585,20 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'payCustodyAuditCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-pay publishes it from its outbox when the audit producers land (W-security-accounts-05, service PR). The entry is a durable row keyed by entryKey, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'payCustodyAuditCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The append-only audit store that /custody-ops reads subscribes in the service PR for W-security-accounts-05. Producers keep the entry as a durable row first, so an entry published before its consumer exists is replayed, not lost.',
   },
 ] satisfies readonly WiringSocket[];
 
