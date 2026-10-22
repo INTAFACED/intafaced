@@ -45,7 +45,7 @@ const PG = 'skips when Postgres unreachable; uses shared journalled postgresAvai
  * @type {{file: string, kind: 'infra-journalled' | 'private-probe' | 'pending' | 'opaque', why: string}[]}
  */
 export const MONEY_SKIP_REGISTER = [
-  // ── svc-bank ───────────────────────────────────────────────
+  // ── svc-bank ───────────────────────────────────────────
   { file: 'services/svc-bank/src/auto-invest/auto-invest.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-bank/src/auto-invest/auto-invest.reachable.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-bank/src/bank-service.test.ts', kind: 'infra-journalled', why: PG },
@@ -61,7 +61,7 @@ export const MONEY_SKIP_REGISTER = [
   { file: 'services/svc-bank/src/ramps/ramps-fiat-product.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-bank/src/ramps/ramps.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-ledger ─────────────────────────────────────────────
+  // ── svc-ledger ───────────────────────────────────────
   { file: 'services/svc-ledger/src/db/guards-executed.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-ledger/src/db/idempotency-key-backstop.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-ledger/src/db/schema-drift.test.ts', kind: 'infra-journalled', why: PG },
@@ -72,13 +72,13 @@ export const MONEY_SKIP_REGISTER = [
   { file: 'services/svc-ledger/src/ledger/purposed-locks.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-ledger/src/service.freeze.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-market ─────────────────────────────────────────────
+  // ── svc-market ───────────────────────────────────────
   { file: 'services/svc-market/src/commerce/commerce.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-market/src/commerce/commerce-subscriptions.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-market/src/listing-eligibility.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-market/src/vendor-slots.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-p2p ──────────────────────────────────────────────
+  // ── svc-p2p ────────────────────────────────────────
   { file: 'services/svc-p2p/src/dispute-ruling-invariant.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-p2p/src/erase-take-race.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-p2p/src/erasure.test.ts', kind: 'infra-journalled', why: PG },
@@ -88,7 +88,7 @@ export const MONEY_SKIP_REGISTER = [
   { file: 'services/svc-p2p/src/promise-falsify-public-doors.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-p2p/src/take-refusal-deadlock.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-pay ──────────────────────────────────────────────
+  // ── svc-pay ────────────────────────────────────────
   { file: 'services/svc-pay/src/kyb-service.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-pay/src/merchant-state-service.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-pay/src/payment-service.test.ts', kind: 'infra-journalled', why: PG },
@@ -108,15 +108,16 @@ export const MONEY_SKIP_REGISTER = [
   { file: 'services/svc-pay/src/subscriptions/subscriptions-done-bar.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-pay/src/user-money-service.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-token ────────────────────────────────────────────
+  // ── svc-token ────────────────────────────────────
   { file: 'services/svc-token/src/promise-falsify-public-doors.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-token/src/token-service.test.ts', kind: 'infra-journalled', why: PG },
 
-  // ── svc-trade ────────────────────────────────────────────
+  // ── svc-trade ────────────────────────────────────
   { file: 'services/svc-trade/src/copy/follow-store.sql.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/closing-position-uniqueness.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/funding-margin-idempotency.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/isolated-margin-storage.test.ts', kind: 'infra-journalled', why: PG },
+  { file: 'services/svc-trade/src/futures/liquidation-waterfall.money.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/mark-from-venue-payout.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/orderable-path.test.ts', kind: 'infra-journalled', why: PG },
   { file: 'services/svc-trade/src/futures/portfolio-margin-refuse.money.test.ts', kind: 'infra-journalled', why: PG },
