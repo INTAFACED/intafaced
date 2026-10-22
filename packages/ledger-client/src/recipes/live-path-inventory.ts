@@ -135,6 +135,12 @@ export const RECIPE_MATRIX = {
   businessApprovalSettle: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   businessPayroll: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   subAccountTransfer: { kind: 'live', module: 'identity', proof: 'services/svc-identity/src/router.ts' },
+  bankTransferReversal: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

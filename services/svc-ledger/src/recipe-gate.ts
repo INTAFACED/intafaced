@@ -731,6 +731,17 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.subAccountTransfer({ transferId: 'st1', fromSubAccountId: S1, toSubAccountId: S2, assetId: 'USDT', amount: AMT }),
     },
     {
+      name: 'bankTransferReversal',
+      post: recipes.bankTransferReversal({
+        transferId: 'tr1',
+        occurrence: 0,
+        consentId: 'c1',
+        originalFrom: fromAvail,
+        originalTo: toAvail,
+        amount: AMT,
+      }),
+    },
+    {
       name: 'marketPurchase',
       post: recipes.marketPurchase({
         purchaseId: 'mp1',
