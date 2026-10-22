@@ -28,6 +28,7 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
+import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 
@@ -437,6 +438,24 @@ export function createLedgerRouter(
             ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),
           };
         } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator transaction detail (OPS-ledger-desk-01): one booked transaction by id with its postings. A read; works
+     * while the posting freeze is on.
+     */
+    transactionGet: scopedProcedure('admin:treasury')
+      .input(operatorTxGetInputSchema)
+      .output(operatorTxGetOutputSchema)
+      .query(async ({ input }) => {
+        try {
+          return await operatorTxGet(ledger, input);
+        } catch (err) {
+          if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
+          }
           throw toTrpcError(err);
         }
       }),
