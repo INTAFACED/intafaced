@@ -28,6 +28,7 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
+import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -438,6 +439,24 @@ export function createLedgerRouter(
             ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),
           };
         } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator trace (OPS-ledger-desk-01): a business key to the transaction it booked, each posting with its balance
+     * after, or an honest `found: false`. A read, never a post; works while the posting freeze is on.
+     */
+    trace: scopedProcedure('admin:treasury')
+      .input(operatorTraceInputSchema)
+      .output(operatorTraceOutputSchema)
+      .query(async ({ input }) => {
+        try {
+          return await traceBusinessKey(ledger, input);
+        } catch (err) {
+          if (err instanceof TraceInconsistentError) {
+            throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
+          }
           throw toTrpcError(err);
         }
       }),
