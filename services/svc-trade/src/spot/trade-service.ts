@@ -4519,14 +4519,44 @@ export class TradeService {
    * is fixed per order, so a redelivered `order.cancelled` cannot release
    * twice.
    */
-  async releaseOnCancelEvent(orderId: string): Promise<void> {
+  async releaseOnCancelEvent(orderId: string, remainingQty: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
       // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
       // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
       // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
       if (ocoLegParent(orderId) !== null) return;
+      await this.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
       await this.finalize(orderId, 'cancelled');
     });
+  }
+
+  /**
+   * The same race for an ordinary order. An IOC that partly fills produces a fill event and a cancel event
+   * for its remainder at the same moment, on two consumers. If the cancel is handled first, `finalize`
+   * finds no fill row, releases the whole hold, and the fill's `tradeFill` then fails on an empty hold:
+   * the engine matched, the money never moved, and the counterparty's order stays open with its hold.
+   * The engine says how much filled (`qty - remainingQty`); until `trade.fills` shows at least that, refuse,
+   * so the hold stays and the bus redelivers the cancel after the fill settles.
+   *
+   * If the fill never settles inside the redelivery budget, the cancel is abandoned and the hold stays with
+   * the order: money stays where it can be found rather than going back while a fill is owed. A submission
+   * also finalizes its own IOC, market and self-trade remainders inline after its fills, so this consumer is
+   * the recovery path, not the normal one. A house market-maker stub row (qty is its first fill, not the
+   * engine size) and an amend that has not committed yet read as "nothing more filled"; both behave as before.
+   */
+  private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
+    const order = await this.findOrder(orderId);
+    // The same statuses `finalize` acts on; any other is terminal and a no-op there.
+    if (!order || (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required')) return;
+    const engineFilled = sub(order.qty, remainingQty);
+    if (engineFilled <= 0n) return;
+    const recorded = (await this.fillEvidence(orderId)).qty;
+    if (recorded >= engineFilled) return;
+    throw new TradeError(
+      `order ${orderId}: the engine filled ${formatAmount(engineFilled)} but ${formatAmount(recorded)} is settled; the cancel waits for the fill`,
+      'trade.cancel_ahead_of_fill',
+      { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
+    );
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
