@@ -29,7 +29,7 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 ## Ports
 
-Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Customer 3210 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
+Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Mining pool 14518 · Customer 3210 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
 
 State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
 
@@ -51,18 +51,18 @@ Edge answers `502 Connection unavailable` for any route whose service is not run
 
 "Reachable" means the door answers with the service's own responses. These parts stay **not connected** on purpose, because they need a real outside provider or an owner decision, and the service says so by name instead of inventing an answer:
 
-| Door               | Not connected             | Why                                                                                                                                                                                     |
-| ------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Navigator / Agents | Model provider            | `AGENTS_PROVIDER=upstream` aimed at a closed port; the service's built-in mock is not used. Metering is off, so no usage fee is charged.                                                |
-| Blueprint          | Neural engine             | `BLUEPRINT_ENGINE_MODE=http` aimed at a closed port; the stub engine is not used. Card PNG renderer is unset.                                                                           |
-| Academy            | Live classes, video       | No LiveKit and no video storage. Paper-trading market limit is owner-unpublished and unset.                                                                                             |
-| P2P                | Offer caps                | Caps stay unset (owner-unpublished). The house fee is an explicit LOCAL TEST free cut (`P2P_FEE_BPS=0`). Payment-instrument details are sealed with a local-test key, not an owner KMS. |
-| Notifications      | Email, push, SMS          | No gateway; the in-app inbox works.                                                                                                                                                     |
-| Market             | House commission          | Owner-unpublished, unset.                                                                                                                                                               |
-| Quant              | Data lake, venue vault    | Not connected.                                                                                                                                                                          |
-| Execution          | Outside venues            | `EXECUTION_VENUE_IDS` is empty, so nothing can route off-platform.                                                                                                                      |
-| Token              | Emissions, yield, buyback | Background jobs off, like Bank's.                                                                                                                                                       |
-| Mining             | The whole service         | Not started: `svc-mining-pool` listens on `0.0.0.0` in its code, which breaks the loopback-only rule. The Mining room is a static "unavailable" page; its health probe answers 502.     |
+| Door               | Not connected             | Why                                                                                                                                                                                       |
+| ------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigator / Agents | Model provider            | `AGENTS_PROVIDER=upstream` aimed at a closed port; the service's built-in mock is not used. Metering is off, so no usage fee is charged.                                                  |
+| Blueprint          | Neural engine             | `BLUEPRINT_ENGINE_MODE=http` aimed at a closed port; the stub engine is not used. Card PNG renderer is unset.                                                                             |
+| Academy            | Live classes, video       | No LiveKit and no video storage. Paper-trading market limit is owner-unpublished and unset.                                                                                               |
+| P2P                | Offer caps                | Caps stay unset (owner-unpublished). The house fee is an explicit LOCAL TEST free cut (`P2P_FEE_BPS=0`). Payment-instrument details are sealed with a local-test key, not an owner KMS.   |
+| Notifications      | Email, push, SMS          | No gateway; the in-app inbox works.                                                                                                                                                       |
+| Market             | House commission          | Owner-unpublished, unset.                                                                                                                                                                 |
+| Quant              | Data lake, venue vault    | Not connected.                                                                                                                                                                            |
+| Execution          | Outside venues            | `EXECUTION_VENUE_IDS` is empty, so nothing can route off-platform.                                                                                                                        |
+| Token              | Emissions, yield, buyback | Background jobs off, like Bank's.                                                                                                                                                         |
+| Mining             | Pool fee, window, payouts | Started on 14518. The pool fee and the PPLNS window are owner-unpublished and unset, so the service refuses by name; `MINING_PAYOUT_INTERVAL_MS` is unset, so no epoch job pays anything. |
 
 Not started because the Customer app never calls them: Protocol, DEX, Indexer, Ops (operator back-office) and the data-lake door.
 
