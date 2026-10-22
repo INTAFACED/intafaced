@@ -6,6 +6,11 @@ export const securityCopy = defineCopy(
     title: 'Security',
     description: 'Passkeys, two-step sign-in and where you’re signed in.',
     passkeys: 'Passkeys',
+    stepUpBody:
+      'This change needs your second step first. Confirm it is you with your authenticator code or a passkey, and the change goes ahead.',
+    stepUpConfirm: 'Confirm it is you',
+    stepUpChanged: 'This page changed while you confirmed. Close this and try the change again.',
+    stepUpWhy: 'This changes how you sign in, so we check it is you first.',
     add: 'Add passkey',
     addBody: 'Use your device or security key. Account registration is sent only after the browser ceremony and a current-account check.',
     empty: 'No passkeys yet',
@@ -89,6 +94,11 @@ export const securityCopy = defineCopy(
       title: 'Seguridad',
       description: 'Claves de acceso, configuración del autenticador y sesiones abiertas.',
       passkeys: 'Claves de acceso',
+      stepUpBody:
+        'Este cambio necesita antes tu segundo paso. Confirma que eres tú con el código de tu autenticador o una clave de acceso y el cambio continúa.',
+      stepUpConfirm: 'Confirmar que eres tú',
+      stepUpChanged: 'Esta página cambió mientras confirmabas. Cierra esto y vuelve a intentar el cambio.',
+      stepUpWhy: 'Esto cambia cómo inicias sesión, así que primero comprobamos que eres tú.',
       add: 'Añadir clave de acceso',
       addBody:
         'Usa tu dispositivo o llave de seguridad. El registro de cuenta se envía solo después del proceso del navegador y de comprobar la cuenta actual.',
@@ -183,6 +193,11 @@ export const securityCopy = defineCopy(
       title: 'Sécurité',
       description: 'Clés d’accès, configuration de l’authentificateur et sessions ouvertes.',
       passkeys: 'Clés d’accès',
+      stepUpBody:
+        'Ce changement demande d’abord votre deuxième étape. Confirmez que c’est bien vous avec le code de votre authentificateur ou une clé d’accès, et le changement continue.',
+      stepUpConfirm: 'Confirmer que c’est vous',
+      stepUpChanged: 'Cette page a changé pendant votre confirmation. Fermez ceci et réessayez le changement.',
+      stepUpWhy: 'Cela change votre façon de vous connecter, nous vérifions donc d’abord que c’est bien vous.',
       add: 'Ajouter une clé d’accès',
       addBody:
         'Utilisez votre appareil ou votre clé de sécurité. L’enregistrement du compte est envoyé uniquement après la procédure du navigateur et la vérification du compte actuel.',

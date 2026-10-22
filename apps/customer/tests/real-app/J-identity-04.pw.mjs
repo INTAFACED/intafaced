@@ -32,7 +32,7 @@ test(`${J}, part of #2 and #3: with an authenticator on, adding a passkey asks t
   await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
   const refusal = page.locator('.failure');
   await expect(refusal).toContainText('Confirm it is you');
-  await expect(refusal).toContainText('Sign in again with your passkey or authenticator code');
+  await expect(refusal).toContainText('Confirm it is you with your authenticator code or a passkey');
   await expect(refusal).not.toContainText('Outcome not confirmed');
   await expect(page.locator('.security__passkeys')).toContainText('No passkeys yet');
 
@@ -46,4 +46,33 @@ test(`${J}, part of #2 and #3: with an authenticator on, adding a passkey asks t
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/uc\/safe$/);
   await addPasskey(page);
+});
+
+test(`${J}, part of #2: the refused passkey add goes ahead after the authenticator code in "Confirm it's you", without signing in again`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('su');
+  await virtualAuthenticator(page);
+  await signUpInBrowser(page, who);
+  const { secret, step } = await addAuthenticator(page, totp);
+
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  const refusal = page.locator('.failure');
+  await expect(refusal).toContainText('Confirm it is you');
+
+  // The sheet asks for a fresh factor; the code buys one change, and the same add runs again on this page.
+  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+  await expect(sheet).toContainText('This changes how you sign in');
+  const { code } = await nextCode(totp, secret, step);
+  await sheet.getByLabel('Authenticator code or recovery code').fill(code);
+  await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page).toHaveURL(/\/uc\/safe$/);
+  await expect(page.locator('.security__passkeys')).not.toContainText('No passkeys yet');
+  await expect(page.locator('.failure')).toHaveCount(0);
 });
