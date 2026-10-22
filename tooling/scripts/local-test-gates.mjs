@@ -490,7 +490,20 @@ export async function approverSessions(ctx) {
     const l = ['a', 'b'][i];
     ops[l] = { handle: f.handle, email: f.email, password: f.password, totpSecret: f.totpSecret, lastStep: Number(steps[l] ?? 0) };
   });
-  return signInPair(ctx, ops, () => writePrivate(stepsFile, { a: ops.a.lastStep, b: ops.b.lastStep }));
+  return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+}
+
+/**
+ * A TOTP code for founder `key` at a step after the last one any local tool used for that founder, recorded in
+ * founder-totp-steps.json. Identity refuses a replayed step, and the world signs the founders in again right after the
+ * gates do.
+ */
+export async function founderTotp(ctx, key, secret) {
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const op = { totpSecret: secret, lastStep: Number(readJson(stepsFile, {})[key] ?? 0) };
+  const code = await freshCode(ctx, op);
+  writePrivate(stepsFile, { ...readJson(stepsFile, {}), [key]: op.lastStep });
+  return code;
 }
 
 async function signInPair(ctx, ops, saveSteps) {
@@ -609,7 +622,12 @@ export async function openBooks(ctx) {
     });
     const body = await res.json().catch(() => ({}));
     if (res.status !== 200 || body.accepted !== true)
-      throw new Error(`matching open for ${m.symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+      throw new Error(
+        `matching open for ${m.symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}` +
+          (body.code === 'action_approval.not_operator'
+            ? '\n  matching reads its operator seats when it starts; after the founders enrol, run: pnpm local:stack restart matching'
+            : ''),
+      );
     out.push({
       symbol: m.symbol,
       marketId: m.id,

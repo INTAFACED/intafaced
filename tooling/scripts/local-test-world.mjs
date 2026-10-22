@@ -3561,7 +3561,7 @@ async function signInLocalFounders(gctx, gates, founders) {
   for (const founder of founders) {
     let code;
     try {
-      code = gctx.totp.totp(founder.totpSecret);
+      code = await gates.founderTotp(gctx, founder.key ?? founder.handle, founder.totpSecret);
     } catch (err) {
       return { ok: false, refusal: `${KYB_FOUNDERS_MISSING} (${oneLine(err.message)})` };
     }
