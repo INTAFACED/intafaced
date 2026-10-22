@@ -153,11 +153,8 @@ describe('same-person approvals', () => {
       'link_method',
       'unlink_method',
       'sub_account_delete',
-<<<<<<< HEAD
       'sub_account_signin',
-=======
       'sub_account_edit',
->>>>>>> origin/main
     ]) {
       expect(isSamePersonActionType(`identity.step_up.${action}`)).toBe(true);
       expect(samePersonTargetService(`identity.step_up.${action}`)).toBe('svc-identity');

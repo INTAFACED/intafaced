@@ -96,7 +96,6 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.client_request_id_invalid': 'This request could not be read. Reload the page and try again.',
   'identity.sub_account_revoked': 'That sub-account has been deleted.',
   'identity.sub_account_edit_delegated': 'Sign in on this device. An API key or a sub-account cannot edit a sub-account.',
-  'identity.client_request_id_invalid': 'This request could not be read. Reload the page and try again.',
   'identity.sub_account_edit_unavailable': 'Editing sub-accounts is not available right now. Try again later.',
   'identity.sub_account_label_invalid': 'Use a label of 1 to 64 characters and a purpose of up to 200, with no control characters.',
   'identity.sub_account_frozen': 'This sub-account is frozen. Unfreeze it before changing its trading features.',
