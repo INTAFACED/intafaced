@@ -1,3 +1,4 @@
+import type { ExplorerBlockFact } from '../explorer/blocks.js';
 import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
@@ -81,6 +82,41 @@ export class PostgresProjectionStore implements ProjectionStore {
    * The normal ingest loop is one writer; the lock also serializes competing
    * writers and reorg repairs so identity checks see the preceding commit.
    */
+  /** D-explorer-01: every block with header facts, canonical and orphaned. */
+  async explorerBlockFacts(): Promise<ExplorerBlockFact[]> {
+    const rows = await this.sql<
+      Array<{
+        height: string;
+        hash: string;
+        gas_used: string;
+        gas_limit: string;
+        base_fee_per_gas: string | null;
+        miner: string;
+        tx_count: number;
+        size: number;
+        block_time: Date;
+        status: string;
+      }>
+    >`
+      SELECT b.height, b.hash, f.gas_used, f.gas_limit, f.base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status
+      FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash
+      WHERE f.chain_id = ${this.chainId}
+    `;
+    return rows.map((r) => ({
+      chainId: this.chainId,
+      height: Number(r.height),
+      hash: r.hash,
+      gasUsed: BigInt(r.gas_used),
+      gasLimit: BigInt(r.gas_limit),
+      baseFeePerGas: r.base_fee_per_gas === null ? null : BigInt(r.base_fee_per_gas),
+      miner: r.miner,
+      txCount: r.tx_count,
+      size: r.size,
+      timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+      orphaned: r.status === 'orphaned' ? { reason: 'reorg' } : null,
+    }));
+  }
+
   async applyBlock(block: ChainBlock): Promise<ApplyOutcome> {
     assertValidBlock(block);
 
@@ -185,6 +221,18 @@ export class PostgresProjectionStore implements ProjectionStore {
         ON CONFLICT (chain_id, hash) DO UPDATE
           SET status = 'canonical', event_count = EXCLUDED.event_count
       `;
+
+      // D-explorer-01: header facts in the SAME transaction, so a block is
+      // never stored with half its facts.
+      if (block.header) {
+        const h = block.header;
+        await tx`
+          INSERT INTO explorer_block_facts (chain_id, hash, gas_used, gas_limit, base_fee_per_gas, miner, tx_count, size)
+          VALUES (${this.chainId}, ${block.hash}, ${h.gasUsed.toString()}, ${h.gasLimit.toString()},
+                  ${h.baseFeePerGas === null ? null : h.baseFeePerGas.toString()}, ${h.miner}, ${h.txCount}, ${h.size})
+          ON CONFLICT (chain_id, hash) DO NOTHING
+        `;
+      }
 
       for (const event of block.events) {
         switch (event.kind) {
