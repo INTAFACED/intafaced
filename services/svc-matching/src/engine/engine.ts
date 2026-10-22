@@ -1725,6 +1725,8 @@ function cancelledEvent(marketId: MarketId, cancellation: CancelledRef): Pending
       marketId,
       remainingQty: formatAmount(cancellation.remainingQty),
       sequence: cancellation.sequence,
+      // Why it left, so a consumer that hears the event before the inline outcome ends the order the same way.
+      reason: cancellation.reason,
     },
     key: `matching.order.cancelled:${marketId}:${cancellation.sequence}`,
   };
