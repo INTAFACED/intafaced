@@ -104,13 +104,8 @@ export class SubscriptionRetryNow {
         RETURNING final_action`;
       if (!inserted[0]) return null;
       await tx`UPDATE pay.subscription_executions SET exhausted_at = COALESCE(exhausted_at, now()) WHERE id = ${exec.id}`;
-      if (finalAction === 'cancel') {
-        await tx`
-          UPDATE pay.subscriptions
-             SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, now()), updated_at = now(),
-                 stall_reason = NULL, stalled_at = NULL
-           WHERE id = ${exec.subscription_id} AND status <> 'cancelled'`;
-      }
+      // Through SubscriptionService.cancelSubscription (its clock and rules) on this transaction.
+      if (finalAction === 'cancel') await this.subscriptions.cancelSubscription(exec.subscription_id, tx as unknown as Sql);
       return finalAction;
     });
     if (applied === null) return (await this.finalActionOf(exec))!;

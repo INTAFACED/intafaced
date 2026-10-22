@@ -234,6 +234,19 @@ describe('M-bill-04 retryNow and final action (Postgres)', () => {
     expect(await owner.subscription.eventTypes()).toContain('subscription.recovered');
   });
 
+  it('route: eventTypes needs pay:read; retryNow needs pay:write', async () => {
+    const router = createSubscriptionRouter(subs, pay, null, policy, retry);
+    const none = router.createCaller(await ctx(MERCHANT_USER, []));
+    await expect(none.subscription.eventTypes()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const readOnly = router.createCaller(await ctx(MERCHANT_USER, ['pay:read']));
+    expect(await readOnly.subscription.eventTypes()).toHaveLength(8);
+    await expect(readOnly.subscription.retryNow({ executionId: '00000000-0000-4000-8000-000000000000', attempt: 2 })).rejects.toMatchObject(
+      {
+        code: 'FORBIDDEN',
+      },
+    );
+  });
+
   it('an attempt number that skips ahead or an unknown execution is refused', async () => {
     const { executionId } = await failedCycle(3);
     await expect(retry.retryNow({ executionId, attempt: 4 }, 'owner')).rejects.toMatchObject({

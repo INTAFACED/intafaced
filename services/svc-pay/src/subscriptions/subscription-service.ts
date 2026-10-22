@@ -655,12 +655,13 @@ export class SubscriptionService {
   /**
    * Cancel takes effect at once (SPEC §4). Does not reverse settled executions.
    */
-  async cancelSubscription(subscriptionId: string): Promise<SubscriptionRecord> {
-    const existing = await this.getSubscription(subscriptionId);
+  async cancelSubscription(subscriptionId: string, db: Sql = this.sql): Promise<SubscriptionRecord> {
+    // `db` lets a caller cancel inside its own transaction (M-bill-04 final action); default is the pool.
+    const existing = await this.readSubscription(db, subscriptionId);
     if (existing.status === 'cancelled') return existing;
 
     const at = this.now();
-    const rows = await this.sql<SubRow[]>`
+    const rows = await db<SubRow[]>`
       UPDATE pay.subscriptions
          SET status = 'cancelled', cancelled_at = ${at}, updated_at = ${at},
              stall_reason = NULL, stalled_at = NULL
