@@ -867,6 +867,8 @@ test('money tables are decimal strings and the seed does not touch service trees
 
   const needles = ['local-test-seed', 'TEST_HOUSE_INVENTORY', 'local_test_bank', 'LOCAL-TEST-seed-house', 'TEST_EARN'];
   const skip = new Set(['node_modules', 'dist', '.git', 'coverage', '.turbo', 'vendor']);
+  // What ships: docs may describe the seed and tests may name it as a caller or fixture; runtime code may not.
+  const notShipped = (name) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(name) || name.endsWith('.md');
   const hits = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -874,7 +876,7 @@ test('money tables are decimal strings and the seed does not touch service trees
       const full = path.join(dir, name);
       const st = statSync(full);
       if (st.isDirectory()) walk(full);
-      else if (st.isFile() && st.size < 2_000_000) {
+      else if (st.isFile() && st.size < 2_000_000 && !notShipped(name)) {
         let text;
         try {
           text = readFileSync(full, 'utf8');

@@ -19,6 +19,8 @@ import { GuardError, enrolFounderAccounts, generateInvites, randomPassword } fro
 export { GuardError };
 
 export const FOUNDER_VAULT_NAME = 'founders.json';
+/** Each founder's last used TOTP step (a, b), shared with local-test-gates.mjs so no tool replays a code. */
+export const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 export const PIN_STAMP_NAME = 'identity-founder-pin.json';
 export const VAULT_KIND = 'intafaced-local-test-founders';
 /** Docker compose edge. This seed never talks to it. */
@@ -342,6 +344,7 @@ export async function enrolTestStackFounders({
   const vault = JSON.parse(readFileSync(vaultPath, 'utf8'));
   assertVaultShape(vault);
   const save = () => writePrivate(vaultPath, `${JSON.stringify(vault, null, 2)}\n`);
+  const confirmedBefore = new Set(vault.founders.filter((f) => f.totpConfirmed === true).map((f) => f.key));
   await enrolFounderAccounts({
     edge,
     founders: vault.founders,
@@ -352,5 +355,15 @@ export async function enrolTestStackFounders({
     vaultLabel: vaultPath,
   });
   assertVaultShape(vault);
+  // A confirm here used the current TOTP step. Record it where the gates and the world look (founderTotp in
+  // local-test-gates.mjs), or their first sign-in in the same 30 seconds is refused as a replay (auth.mfa_invalid).
+  const fresh = vault.founders.filter((f) => f.totpConfirmed === true && !confirmedBefore.has(f.key)).map((f) => f.key);
+  if (fresh.length) {
+    const stepsFile = path.join(stateDir, FOUNDER_STEPS_NAME);
+    const steps = existsSync(stepsFile) ? JSON.parse(readFileSync(stepsFile, 'utf8')) : {};
+    const step = Math.floor(now().getTime() / 30_000);
+    for (const key of fresh) steps[key] = Math.max(Number(steps[key] ?? 0), step);
+    writePrivate(stepsFile, `${JSON.stringify(steps, null, 2)}\n`);
+  }
   return vault;
 }

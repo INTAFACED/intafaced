@@ -183,6 +183,14 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * operator never named. Blank/unset refuse boot. An operator-set 200 is
      * that size — this mill does not invent one.
      */
+    /**
+     * D-explorer-01: owner-published explorer list window (1..200). Raw here on
+     * purpose: blank/unset does NOT refuse boot; `indexer.explorer.blocks.list`
+     * refuses `indexer.explorer_list_limit_unset` (same pattern as trpc-windows).
+     * No default — never an invented page size.
+     */
+    INDEXER_EXPLORER_LIST_LIMIT: z.string().optional(),
+
     INDEXER_BATCH_SIZE: z.preprocess(
       (value) => {
         if (value === undefined || value === null) return undefined;

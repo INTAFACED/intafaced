@@ -1,0 +1,55 @@
+# Gate-file guard: a PR that changes the files that decide what may merge must say so in its title.
+#
+# Rule (also in tooling/scripts/gate-file-guard.mjs and in the PR comment): a PR that changes tooling/ci/** (which holds the
+# dependency-audit allowlist, the secret-scan allowlists and the money-skip inventory), .github/workflows/**,
+# .gitleaks.toml or the merge-gate tools fails this check unless its TITLE starts with `ci:`, `gate:` or `chore(ci):`,
+# or contains `[gate-change]`.
+#
+# Why: #4402 widened the dependency-audit allowlist inside a migration fix, and nothing in the PR said so.
+#
+# SAFETY:
+# - `pull_request`, never `pull_request_target`. This job holds a token that can comment on PRs; on a public repo
+#   `pull_request_target` plus a checkout of PR code is the classic way an outside PR steals secrets.
+# - It checks out the PR's BASE commit and runs the script from there. A PR therefore cannot weaken the rule inside
+#   the PR it is judged on, and no PR code runs in this job at all. The PR title reaches the script through an
+#   environment variable, never through shell interpolation.
+# - A PR can still edit this workflow file. That edit is itself a gate change, and merge-gate.mjs applies the same rule
+#   again when the PR is merged, independently of this workflow.
+# - `edited` is in the trigger list so that fixing the title re-runs the check. It is a separate workflow from PR checks
+#   (Gitleaks, Dependency audit) so that a title or body edit runs only this one small job.
+name: Gate-file guard
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-file-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Gate-file guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - name: Check gate files against the PR title
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ ! -f tooling/scripts/gate-file-guard.mjs ]; then
+            echo "::notice::gate-file-guard.mjs is not on the base commit yet (this PR introduces it); nothing to enforce."
+            exit 0
+          fi
+          node tooling/scripts/gate-file-guard.mjs --pr "$PR_NUMBER" --title "$PR_TITLE" --repo "$REPO" --comment

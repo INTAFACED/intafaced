@@ -28,6 +28,7 @@ export const TEST_MARKET: ExecMarket = {
   minAmount: '0.0001',
   minCost: '5',
   open: true,
+  state: 'OPEN',
   taker: '0.001',
   maker: '0.0005',
 };

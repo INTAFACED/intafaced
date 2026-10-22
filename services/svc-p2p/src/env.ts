@@ -73,6 +73,26 @@ const schema = serviceEnvSchema
           .regex(/^(unlimited|\d+(\.\d+)?)$/i, 'P2P_OFFER_MAX_STANDARD must be a non-negative decimal string or the literal unlimited')
           .optional(),
       ),
+      /**
+       * P-trade-orders-14 owner caps (whole numbers ≥ 1). Empty is unset, and an
+       * unset cap makes trades.exportFile / trades.receipt refuse p2p.config_unset.
+       */
+      P2P_EXPORT_MAX_RANGE_DAYS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_EXPORT_MAX_ROWS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_RECEIPT_DAILY_QUOTA: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_RECEIPT_PER_TRADE_QUOTA: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
       P2P_OFFER_MAX_MERCHANT: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z

@@ -40,6 +40,7 @@ import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-poli
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
+import { loanServicingPreviewProcedures, type LoanMissedPaymentPolicy } from './loans/loan-servicing-preview.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
 import {
   createLimitsRouter,
@@ -57,6 +58,7 @@ import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -433,6 +435,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_dispute_exists':
       case 'bank.asset_paused':
       case 'bank.ops_revision_conflict':
+      case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
       case 'bank.limit_request_decided':
@@ -513,6 +516,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.activity_filter_name_invalid':
+      case 'bank.activity_filter_empty':
+      case 'bank.activity_filter_limit_unset':
       case 'bank.limit_request_reason_too_short':
       case 'bank.limit_request_list_limit_unset':
       case 'bank.limit_grant_unset':
@@ -832,6 +838,8 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
+  loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
@@ -2084,6 +2092,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId };
         }),
       ),
+    // BK-loan-09: unsecured-loan servicing previews (typed Preview refusals) and the owner missed-payment policy.
+    ...loanServicingPreviewProcedures(options.loanMissedPaymentPolicy),
   });
 
   /**
@@ -4820,6 +4830,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
+    /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
+    creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),
