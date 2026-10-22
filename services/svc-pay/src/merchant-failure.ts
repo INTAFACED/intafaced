@@ -47,3 +47,10 @@ export function safeFailure(raw: string | null | undefined): MerchantFailure | n
   if (message) return { code: raw, message };
   return { code: 'pay.failed', message: FAILURE_CATALOG['pay.failed']! };
 }
+
+/** The published failure list (M-payments-core-02): every code with its one sentence, sorted by code. */
+export function failureCatalog(): readonly MerchantFailure[] {
+  return Object.keys(FAILURE_CATALOG)
+    .sort()
+    .map((code) => ({ code, message: FAILURE_CATALOG[code]! }));
+}
