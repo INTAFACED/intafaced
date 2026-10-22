@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { WITHDRAWAL_STATES_NOT_COUNTED } from '../../limits/allowance.js';
+import { usedInWindow } from '../../limits/allowance.js';
 import { CustodyTaskExecutionError } from '../approvals/errors.js';
 import type { TaskExecutor } from '../approvals/service.js';
 import { evaluatePolicy, validateRules, type PolicyProblem, type PolicyTx, type UsedInWindow } from './engine.js';
@@ -59,15 +59,8 @@ export async function loadPublishedPolicy(q: Sql): Promise<{ version: number; ru
  */
 export function withdrawalsUsedInWindow(q: Sql, exceptClientRef = ''): UsedInWindow {
   return async ({ initiator, assetId, windowSeconds }): Promise<Amount> => {
-    const rows = await q<Array<{ used: string }>>`
-      SELECT COALESCE(SUM(amount), 0)::text AS used
-        FROM pay.withdrawals
-       WHERE user_id = ${initiator} AND asset_id = ${assetId}
-         AND status::text NOT IN ${q([...WITHDRAWAL_STATES_NOT_COUNTED])}
-         AND created_at > now() - make_interval(secs => ${windowSeconds})
-         AND client_ref <> ${exceptClientRef}
-    `;
-    return parseAmount(rows[0]?.used ?? '0');
+    // The D-148 definition: window on `updated_at`, so a reopened old claim counts as today.
+    return usedInWindow(q, { userId: initiator, assetId, exceptClientRef, windowSeconds });
   };
 }
 

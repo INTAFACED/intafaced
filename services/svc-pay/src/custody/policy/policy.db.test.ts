@@ -336,11 +336,20 @@ describe('custody transaction policy (real Postgres)', () => {
       expect((await service.withdraw(request('10', 'a'))).status).toBe('sent');
     });
 
-    it('the cumulative window runs on created_at: a withdrawal asked for before the window does not count', async () => {
+    it('the cumulative window runs on updated_at: a reopened old claim counts as today', async () => {
       await publish([cumulative, allowAll]);
       const service = await funded('required');
       expect((await service.withdraw(request('10', 'old'))).status).toBe('sent');
+      // Asked for two days ago, failed, then reopened (retried under the same client_ref) today.
       await db.sql`UPDATE pay.withdrawals SET created_at = now() - interval '2 days', updated_at = now() WHERE client_ref = 'old'`;
+      expect(await refusal(service.withdraw(request('10', 'new')))).toBe('pay.guard_custody_policy_blocked');
+    });
+
+    it('a withdrawal last touched before the window does not count', async () => {
+      await publish([cumulative, allowAll]);
+      const service = await funded('required');
+      expect((await service.withdraw(request('10', 'stale'))).status).toBe('sent');
+      await db.sql`UPDATE pay.withdrawals SET created_at = now() - interval '2 days', updated_at = now() - interval '2 days' WHERE client_ref = 'stale'`;
       expect((await service.withdraw(request('10', 'new'))).status).toBe('sent');
     });
 
