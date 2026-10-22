@@ -974,9 +974,10 @@ export class TransferService {
             // rejected while the ledger already moved money.
             const prior = await this.ledger.getTxByKey(bankTransferKey('sched', schedule.id, occurrence));
             if (prior) {
+              // Record what the ledger booked, not the instruction (review #8: record == movement).
               await tx`
                 UPDATE bank.transfer_executions
-                   SET status = 'settled', ledger_tx_id = ${prior.id}, settled_at = now()
+                   SET status = 'settled', ledger_tx_id = ${prior.id}, settled_at = now(), amount = ${formatAmount(bookedAmount(prior))}::numeric
                  WHERE id = ${executionId}
               `;
               return 'settled';
@@ -1009,6 +1010,19 @@ export class TransferService {
     to: Awaited<ReturnType<SpaceService['get']>>,
     occurrence: number,
   ): Promise<FiringOutcome> {
+    // BK-xfer-10 review #8: a crash after `ledger.post` and before commit leaves no run row while the key is booked.
+    // A later claim (possibly after a paused edit) must ADOPT that booking with ITS amount, never post a new body
+    // under the same key (refuse mode: stuck forever; detect mode: record != movement).
+    const prior = await this.ledger.getTxByKey(bankTransferKey('sched', schedule.id, occurrence));
+    if (prior) {
+      const booked = bookedAmount(prior);
+      await tx`
+        UPDATE bank.transfer_executions
+           SET status = 'settled', ledger_tx_id = ${prior.id}, settled_at = now(), amount = ${formatAmount(booked)}::numeric
+         WHERE id = ${executionId}
+      `;
+      return 'settled';
+    }
     try {
       const posted = await this.ledger.post(
         recipes.bankTransfer({
@@ -1075,4 +1089,9 @@ export class TransferService {
   static occurrenceAt(startsAt: Date, cadence: ScheduleCadence, occurrence: number): Date {
     return occurrenceStart(startsAt, cadence, occurrence);
   }
+}
+
+/** The amount a booked two-leg transfer moved: its largest entry (entries are unsigned with a direction). */
+function bookedAmount(tx: { readonly entries: ReadonlyArray<{ readonly amount: bigint }> }): bigint {
+  return tx.entries.reduce((m, e) => (e.amount > m ? e.amount : m), 0n);
 }

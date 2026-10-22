@@ -171,12 +171,14 @@ export class ScheduleRunRetry {
   async retry(input: {
     scheduleId: string;
     occurrence: number;
-  }): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean }> {
+    now?: Date;
+  }): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean; rejectionCode?: string }> {
+    const now = input.now ?? new Date();
     return transaction(
       this.sql,
       async (tx) => {
-        const sched = await tx<Array<{ from_space_id: string; to_space_id: string }>>`
-          SELECT from_space_id, to_space_id FROM bank.scheduled_transfers WHERE id = ${input.scheduleId} FOR UPDATE
+        const sched = await tx<Array<{ from_space_id: string; to_space_id: string; status: string }>>`
+          SELECT from_space_id, to_space_id, status FROM bank.scheduled_transfers WHERE id = ${input.scheduleId} FOR UPDATE
         `;
         if (!sched[0]) throw new BankError(`Schedule ${input.scheduleId} not found`, 'bank.schedule_not_found');
         const rows = await tx<Array<{ id: string; status: string; amount: string; ledger_tx_id: string | null }>>`
@@ -197,8 +199,33 @@ export class ScheduleRunRetry {
           ledgerTxId = prior.id;
           adopted = true;
         } else {
-          const from = await this.spaces.get(sched[0].from_space_id, tx);
-          const to = await this.spaces.get(sched[0].to_space_id, tx);
+          // BK-xfer-10 review #6: a fresh post only for a schedule that is still active. Cancelled or paused means the
+          // user stopped it; an operator does not move money past that. (An already-booked key above is adopted:
+          // the money already moved, the record must say so.)
+          if (sched[0].status !== 'active') {
+            throw new BankError(
+              `Schedule ${input.scheduleId} is ${sched[0].status}; a rejected run is not retried`,
+              'bank.schedule_inactive',
+            );
+          }
+          // The runner's exact product gates (transfer-service fireOccurrenceInner): a locked or archived debit space
+          // or a recipient who cannot receive refuses, and the refusal is recorded on the run. Bare `get` here was
+          // the rent-lock drain.
+          let from: Awaited<ReturnType<SpaceService['get']>>;
+          let to: Awaited<ReturnType<SpaceService['get']>>;
+          try {
+            from = await this.spaces.resolveForDebit(sched[0].from_space_id, now, tx);
+            to = await this.spaces.resolveForCredit(sched[0].to_space_id, { actingUserId: from.userId }, tx);
+          } catch (err) {
+            if (
+              err instanceof BankError &&
+              (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
+            ) {
+              await tx`UPDATE bank.transfer_executions SET rejection_code = ${err.code} WHERE id = ${run.id}`;
+              return { status: 'rejected' as const, ledgerTxId: null, adopted: false, rejectionCode: err.code };
+            }
+            throw err;
+          }
           try {
             const posted = await this.ledger.post(
               recipes.bankTransfer({
@@ -214,7 +241,7 @@ export class ScheduleRunRetry {
             ledgerTxId = posted.id;
           } catch (err) {
             if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
-              return { status: 'rejected' as const, ledgerTxId: null, adopted: false };
+              return { status: 'rejected' as const, ledgerTxId: null, adopted: false, rejectionCode: 'ledger.insufficient_funds' };
             }
             throw err;
           }

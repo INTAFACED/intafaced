@@ -2694,7 +2694,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** BK-xfer-10: operator retry of ONE rejected standing-order run; adopts the existing post (same key, stored amount). */
     retryScheduleRun: scopedProcedure('admin:write')
       .input(bankScheduleRetryRunInputSchema)
-      .output(z.object({ status: z.enum(['settled', 'rejected']), ledgerTxId: z.string().nullable(), adopted: z.boolean() }))
+      .output(
+        z.object({
+          status: z.enum(['settled', 'rejected']),
+          ledgerTxId: z.string().nullable(),
+          adopted: z.boolean(),
+          rejectionCode: z.string().optional(),
+        }),
+      )
       .mutation(async ({ input }) =>
         guard(async () => {
           if (!bank.scheduleRetry) throw new BankError('Schedule retry is not wired', 'bank.schedule_not_found');
