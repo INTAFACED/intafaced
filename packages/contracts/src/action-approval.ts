@@ -82,6 +82,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.unlink_method',
   // Delete one of the caller's own sub-accounts (revoke only; it moves no money). Identity mints and consumes it.
   'identity.step_up.sub_account_delete',
+  // Turn sign-in for one of the caller's own sub-accounts on or off (I-account-lifecycle-04).
+  'identity.step_up.sub_account_signin',
 ] as const;
 
 /**

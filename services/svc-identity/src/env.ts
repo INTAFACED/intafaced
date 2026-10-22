@@ -211,6 +211,14 @@ const schema = serviceEnvSchema
        * can be read.
        */
       IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
+      /**
+       * Owner's minimum interval between two switches into sub-accounts, in seconds (I-account-lifecycle-04).
+       * Blank / unset → none stated, so no wait is enforced. Never git-default.
+       */
+      SUBACCOUNT_SWITCH_MIN_SECONDS: z.preprocess(
+        (v) => (v === undefined || v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(0).max(86_400).optional(),
+      ),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

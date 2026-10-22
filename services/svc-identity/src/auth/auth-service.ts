@@ -341,6 +341,8 @@ function toKycRecord(row: KycRow): KycRecordView {
 
 const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full: 2, institutional: 3 };
 const STEP_UP_TTL_SECONDS = 300;
+/** A switch into a sub-account is short and single-purpose (I-account-lifecycle-04). */
+const SUB_ACCOUNT_SWITCH_TTL_SECONDS = 300;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
 /** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
@@ -2384,6 +2386,31 @@ export class AuthService {
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
+  }
+
+  /**
+   * Short-lived access token scoped to one of the caller's sub-accounts (`sub_account` claim), for
+   * `subAccounts.switchTo`. The main session stays; no refresh token is issued. A revoked session or a
+   * non-active main account refuses. Ownership, revocation and freeze are checked by the caller.
+   */
+  async issueSubAccountSwitchToken(input: {
+    userId: string;
+    sessionId: string;
+    subAccountId: string;
+    mfa: boolean;
+  }): Promise<{ accessToken: string; expiresAt: Date }> {
+    const sessions = await this.sql<Array<{ status: string }>>`
+      SELECT u.status FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.id = ${input.sessionId} AND s.user_id = ${input.userId} AND s.revoked = false AND s.expires_at > now()`;
+    if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (sessions[0].status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+    const scopes = await this.scopesForNewAccessToken(input.userId);
+    const tier = await this.kycTier(input.userId);
+    const { token, expiresAt } = await issueAccessToken(
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: input.mfa, subAccountId: input.subAccountId },
+      { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, SUB_ACCOUNT_SWITCH_TTL_SECONDS) },
+    );
+    return { accessToken: token, expiresAt };
   }
 
   /**
