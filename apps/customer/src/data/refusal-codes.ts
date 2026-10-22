@@ -18,6 +18,7 @@ export type RefusalKind =
   | 'quoteFailed'
   | 'marketNotOpen'
   | 'marketHalted'
+  | 'protectionUnset'
   | 'insufficient'
   | 'destMissing'
   | 'recipientNoAccount'
@@ -90,6 +91,8 @@ export type RefusalKind =
 const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
+  // No published price protection for a market order: refused, never a guessed floor.
+  'trade.protection_unset': 'protectionUnset',
   'trade.no_book': 'noBook',
   // An operator halt: new orders stop, open orders stay and can be cancelled. Not the same as a closed market.
   'trade.market_halted': 'marketHalted',

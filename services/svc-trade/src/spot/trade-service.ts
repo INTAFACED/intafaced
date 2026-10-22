@@ -4529,16 +4529,21 @@ export class TradeService {
    * The other half of the recovery path. Idempotent: `finalize` returns
    * immediately for an order already in a terminal state, and the release key
    * is fixed per order, so a redelivered `order.cancelled` cannot release
-   * twice.
+   * twice. The engine's reason rides along, as the inline outcome records
+   * it: an order the engine expired (a GTD/GTT at its expiry) ends `expired`,
+   * and a self-trade pull keeps its reason. Whichever path comes first decides
+   * the row, so both must write the same.
    */
-  async releaseOnCancelEvent(orderId: string, remainingQty: string): Promise<void> {
+  async releaseOnCancelEvent(orderId: string, remainingQty: string, reason?: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
       // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
       // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
       // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
       if (ocoLegParent(orderId) !== null) return;
       await this.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
-      await this.finalize(orderId, 'cancelled');
+      // A person's own cancel ('requested') is not an engine reason: its inline path writes none, so neither does this.
+      const engineReason = reason === 'requested' ? undefined : reason;
+      await this.finalize(orderId, engineReason === 'expired' ? 'expired' : 'cancelled', engineReason);
     });
   }
 
