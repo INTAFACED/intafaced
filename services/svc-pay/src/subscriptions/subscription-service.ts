@@ -753,15 +753,6 @@ export class SubscriptionService {
   }
 
   /**
-   * PAUSE — stop charging, and record that a person did it.
-   *
-   * A pause writes `paused_at` and `stall_reason = 'operator_pause'`. The reason
-   * column is what makes this distinguishable from a runner outage on the
-   * record, which `adr/2026-08-08-twap-overdue-slice-disposition.md` requires:
-   * *"A tick outage is recorded on the parent, distinguishable from a user
-   * pause. They have identical mechanics and completely different explanations."*
-   */
-  /**
    * M-bill-01: set the collection method. `charge_automatically` refuses
    * `pay.mandate_rail_absent` before any write. `send_invoice` moves a card
    * subscription onto the live crypto-invoice path; on one already there it
@@ -789,6 +780,15 @@ export class SubscriptionService {
     return toSub(row);
   }
 
+  /**
+   * PAUSE — stop charging, and record that a person did it.
+   *
+   * A pause writes `paused_at` and `stall_reason = 'operator_pause'`. The reason
+   * column is what makes this distinguishable from a runner outage on the
+   * record, which `adr/2026-08-08-twap-overdue-slice-disposition.md` requires:
+   * *"A tick outage is recorded on the parent, distinguishable from a user
+   * pause. They have identical mechanics and completely different explanations."*
+   */
   async pauseSubscription(subscriptionId: string): Promise<SubscriptionRecord> {
     const existing = await this.getSubscription(subscriptionId);
     if (existing.status === 'paused') return existing;

@@ -15,7 +15,7 @@ describe('M-bill-01 collection method (pure)', () => {
 
   it('charge automatically refuses rail absent; send invoice passes', () => {
     expect(() => assertCollectionMethodAvailable('charge_automatically')).toThrow(
-      expect.objectContaining({ code: 'pay.mandate_rail_absent' }),
+      expect.objectContaining({ code: 'pay.mandate_rail_absent', blockers: [{ code: 'rail.card' }] }),
     );
     expect(() => assertCollectionMethodAvailable('send_invoice')).not.toThrow();
   });
