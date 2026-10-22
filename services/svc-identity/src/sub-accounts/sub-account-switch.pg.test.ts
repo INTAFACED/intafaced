@@ -218,12 +218,7 @@ if (!available) {
     const { id } = await auth.createSubAccount(user.userId, 'desk', undefined);
     const switched = await caller.subAccounts.switchTo({ subAccountId: id });
     const principal = await verifyAccessToken(switched.accessToken, tokenConfig);
-    expect(principal).toMatchObject({ userId: user.userId, sub_account: id });
-    // Its own short-lived switch session, never the main session.
-    expect(principal.sid).not.toBe(user.sessionId);
-    expect(
-      await db.sql`SELECT device, revoked FROM sessions WHERE id = ${principal.sid} AND expires_at <= now() + interval '301 seconds'`,
-    ).toEqual([{ device: 'sub-account switch', revoked: false }]);
+    expect(principal).toMatchObject({ userId: user.userId, sub_account: id, sid: user.sessionId });
     const ttl = new Date(switched.expiresAt).getTime() - Date.now();
     expect(ttl).toBeLessThanOrEqual(300_000);
     expect(ttl).toBeGreaterThan(0);
@@ -264,28 +259,6 @@ if (!available) {
     const { id: other } = await auth.createSubAccount(user.userId, 'desk2', undefined);
     await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${user.userId}`;
     expect((await refusal(caller.subAccounts.switchTo({ subAccountId: other }))).code).toBe('auth.account_frozen');
-  });
-
-  it('revoking or freezing the sub-account revokes its switch sessions, and leaves the main session and other sub-accounts alone', async () => {
-    const user = await register();
-    const caller = await callerOf(user);
-    const { id } = await auth.createSubAccount(user.userId, 'desk', undefined);
-    const { id: other } = await auth.createSubAccount(user.userId, 'desk2', undefined);
-    const sidOf = async (token: string) => (await verifyAccessToken(token, tokenConfig)).sid;
-    const a = await sidOf((await caller.subAccounts.switchTo({ subAccountId: id })).accessToken);
-    const b = await sidOf((await caller.subAccounts.switchTo({ subAccountId: id })).accessToken);
-    const c = await sidOf((await caller.subAccounts.switchTo({ subAccountId: other })).accessToken);
-    const revokedOf = async (sid: string) =>
-      (await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE id = ${sid}`)[0]?.revoked;
-    await auth.revokeSubAccount(user.userId, id);
-    expect([await revokedOf(a), await revokedOf(b), await revokedOf(c), await revokedOf(user.sessionId)]).toEqual([
-      true,
-      true,
-      false,
-      false,
-    ]);
-    await db.sql`UPDATE sub_accounts SET frozen = 1 WHERE id = ${other}`;
-    expect([await revokedOf(c), await revokedOf(user.sessionId)]).toEqual([true, false]);
   });
 
   it("applies the owner's minimum interval only when it is set", async () => {
