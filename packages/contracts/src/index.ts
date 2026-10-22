@@ -69,4 +69,7 @@ export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
+export * from './preview-refusal.js';
+export * from './academy-articles.js';
 export * from './bank-card-funds.js';
+export * from './asset-registry.js';
