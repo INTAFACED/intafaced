@@ -56,6 +56,7 @@ import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -4813,6 +4814,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
+    /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
+    creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),
