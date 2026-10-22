@@ -1,15 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';
 const ORIGIN = 'http://127.0.0.1:3210';
-const STATE = process.env.LOCAL_STACK_STATE ?? path.join(homedir(), '.intafaced', 'local-test-stack');
+// The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
+const STATE = localStackState();
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */

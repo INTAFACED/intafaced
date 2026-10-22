@@ -28,6 +28,11 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
+import {
+  operatorOwnerBalances,
+  operatorOwnerBalancesInputSchema,
+  operatorOwnerBalancesOutputSchema,
+} from './ledger/operator-owner-balances.js';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import type { LedgerService } from './service.js';
@@ -441,6 +446,21 @@ export function createLedgerRouter(
             confirmOperatorId,
             ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),
           };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator account browser (OPS-ledger-desk-01): every balance an owner holds. Writes an access row first and refuses
+     * the read if it cannot.
+     */
+    ownerBalances: scopedProcedure('admin:treasury')
+      .input(operatorOwnerBalancesInputSchema)
+      .output(operatorOwnerBalancesOutputSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await operatorOwnerBalances(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
           throw toTrpcError(err);
         }

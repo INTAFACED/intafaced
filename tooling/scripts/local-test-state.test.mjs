@@ -5,12 +5,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState, assertStackOwnership, processRecordMatches, postgresProcessMatches } from './local-test-state.mjs';
+import { localStackState, localPgOsUser, assertStackOwnership, processRecordMatches, postgresProcessMatches } from './local-test-state.mjs';
 import { stackPaths as marketPaths } from './local-test-market.mjs';
 import { stackPaths as worldPaths } from './local-test-world.mjs';
 import { gatePaths } from './local-test-gates.mjs';
 
 assert.equal(localStackState('/test-home', {}), '/test-home/.intafaced/local-test-stack');
+assert.equal(localStackState('/root', { LOCAL_STACK_STATE: '/srv/stack' }), '/srv/stack');
+assert.equal(localPgOsUser({}, 501), null);
+assert.equal(localPgOsUser({}, 0), 'postgres');
+assert.equal(localPgOsUser({ LOCAL_STACK_PG_USER: 'pgrunner' }, 0), 'pgrunner');
 for (const value of ['', ' ', 'relative/path']) {
   assert.throws(() => localStackState('/test-home', { LOCAL_STACK_STATE: value }), /absolute folder path/);
 }
