@@ -87,6 +87,18 @@
   .hp-eye:hover {
     color: var(--if-fg);
   }
+  /* The total's own door to the Assets room (Money). */
+  .hp-tile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    color: var(--if-fg-2);
+    text-decoration: none;
+  }
+  .hp-tile-link:hover {
+    color: var(--if-fg);
+  }
   .hp-total__figure {
     display: flex;
     align-items: center;

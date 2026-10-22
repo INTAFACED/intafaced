@@ -227,7 +227,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   for (const value of await texts(page.locator('[data-money], [data-slot="money"]')))
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
-  // Keyboard: Tab from the top bar reaches eye -> the two info tips -> actions -> Cash -> Crypto -> 4 cards (each
+  // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> actions -> Cash -> Crypto -> 4 cards (each
   // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
   await page.locator('.harness-bar a').last().focus();
   const path = [];
@@ -247,9 +247,10 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
     path.push(stop);
   }
-  expect(path.map((stop) => stop.name).slice(0, 8)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 9)).toEqual([
     'Hide balances',
     'How the total is worked out',
+    'Assets',
     'About this change',
     'Buy',
     'Sell',
@@ -257,8 +258,9 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Send',
     'Receive',
   ]);
-  expect(path.slice(8, 10).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
-  const cardStops = path.slice(10, 18);
+  expect(path[2].href).toBe('/money');
+  expect(path.slice(9, 11).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
+  const cardStops = path.slice(11, 19);
   expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
@@ -266,8 +268,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Add IFC to watchlist',
     'Add SOL to watchlist',
   ]);
-  expect(path[18].name).toBe('About top movers');
-  expect(path.slice(19, 25).map((stop) => stop.href)).toEqual([
+  expect(path[19].name).toBe('About top movers');
+  expect(path.slice(20, 26).map((stop) => stop.href)).toEqual([
     '/coin/DOGE',
     '/coin/BTC',
     '/coin/XRP',
@@ -276,16 +278,16 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     '/coin/ETH',
   ]);
   // Recent activity ("See all") and the Learn strip (the Academy, four links) follow the movers.
-  expect(path.slice(25, 26).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(26, 30).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(30, 32).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  expect(path.slice(26, 27).map((stop) => stop.href)).toEqual(['/money/activity']);
+  expect(path.slice(27, 31).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(31, 33).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(32)
+      .slice(33)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(32).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(33).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
