@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
-import { requireScope, type Principal } from '@intafaced/auth';
+import { requireScope, TIER_ORDER, type Principal } from '@intafaced/auth';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
@@ -141,10 +141,29 @@ export type LeaderFill = {
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
 export type LookupLeaderFillPort = (fillId: string) => Promise<LeaderFill | null>;
 
+/**
+ * Who may follow (CB-copy-03): a sub-account never follows, and the principal's
+ * verification tier must reach the compliance-set copy tier. Runs before any write.
+ */
+export function assertCopyFollowEligible(principal: Principal, followTier: Principal['tier'] | null): void {
+  if (principal.sub_account) {
+    throw new CopyError('A sub-account cannot follow a leader', 'trade.copy_subaccount_refused');
+  }
+  if (followTier && TIER_ORDER[principal.tier ?? 'none'] < TIER_ORDER[followTier]) {
+    throw new CopyError('Verification tier is below the copy tier', 'trade.tier_insufficient');
+  }
+}
+
 const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent observation from caller qty/notional';
 
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
+  /**
+   * Minimum verification tier to follow a leader (CB-copy-03), set by compliance.
+   * Read from the principal's token tier, never from identity tables. Absent → no
+   * tier floor beyond the trade router's own scope guard (left for later: env wiring).
+   */
+  followTier?: Principal['tier'];
   jurisdictionLaw?: CopyJurisdictionLaw;
   /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
   disclosureLaw?: CopyDisclosureLaw;
@@ -270,6 +289,7 @@ export class CopyService {
   private readonly store: CopyFollowStore;
   private readonly feeShareLaw: CopyFeeShareLaw;
   private readonly jurisdictionLaw: CopyJurisdictionLaw;
+  private readonly followTier: Principal['tier'] | null;
   private readonly disclosureLaw: CopyDisclosureLaw;
   private readonly now: () => Date;
   private readonly placeFollowerOrder: PlaceFollowerOrderPort | null;
@@ -291,6 +311,7 @@ export class CopyService {
     this.accountAdmission = options.accountAdmission;
     this.feeShareLaw = options.feeShareLaw ?? UNPUBLISHED_COPY_FEE_SHARE_LAW;
     this.jurisdictionLaw = options.jurisdictionLaw ?? UNPUBLISHED_COPY_JURISDICTION_LAW;
+    this.followTier = options.followTier ?? null;
     this.disclosureLaw = options.disclosureLaw ?? UNPUBLISHED_COPY_DISCLOSURE_LAW;
     this.now = options.now ?? (() => new Date());
     this.store = options.store ?? new MemoryCopyFollowStore();
@@ -573,6 +594,7 @@ export class CopyService {
     } catch (err) {
       this.blankLawRefusal(err);
     }
+    assertCopyFollowEligible(principal, this.followTier);
     const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     if (leaderId === principal.userId) {
       throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
