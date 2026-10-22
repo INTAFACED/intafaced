@@ -186,7 +186,9 @@ if (!available) {
     const byTrader = await refusal(caller(trader).agreements.accept({ kind: 'trading', version: 1, orgId: org!.id }));
     expect(byTrader).toMatchObject({ trpc: 'FORBIDDEN', code: 'identity.agreement_signer_not_admin' });
     const byOutsider = await refusal(caller(outsider).agreements.listMine({ orgId: org!.id }));
-    expect(byOutsider.code).toBe('identity.agreement_signer_not_admin');
+    expect(byOutsider).toMatchObject({ trpc: 'NOT_FOUND', code: 'auth.not_found' });
+    const outsiderSigns = await refusal(caller(outsider).agreements.accept({ kind: 'trading', version: 1, orgId: org!.id }));
+    expect(outsiderSigns).toMatchObject({ trpc: 'NOT_FOUND', code: 'auth.not_found' });
 
     expect(await caller(admin).agreements.accept({ kind: 'trading', version: 1, orgId: org!.id })).toEqual({
       accepted: true,

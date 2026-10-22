@@ -19,7 +19,8 @@ export type AgreementCode =
   | 'identity.agreement_version_not_current'
   | 'identity.agreement_signer_not_admin'
   | 'identity.agreement_delegated'
-  | 'identity.agreement_approval_refused';
+  | 'identity.agreement_approval_refused'
+  | 'auth.not_found';
 
 export class AgreementError extends Error {
   constructor(
@@ -169,7 +170,9 @@ export class AgreementService {
     const seat = await this.sql<Array<{ role: string }>>`
       SELECT role FROM organization_members WHERE org_id = ${orgId} AND user_id = ${userId} LIMIT 1
     `;
-    if (!seat[0] || (signing && seat[0].role !== 'admin')) throw new AgreementError('identity.agreement_signer_not_admin');
+    // Not a member: the organisation is hidden. A member who is not admin may read but not sign.
+    if (!seat[0]) throw new AgreementError('auth.not_found');
+    if (signing && seat[0].role !== 'admin') throw new AgreementError('identity.agreement_signer_not_admin');
     return { id: orgId, type: 'org' };
   }
 }

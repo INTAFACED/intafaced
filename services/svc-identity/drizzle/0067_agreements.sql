@@ -1,6 +1,6 @@
 -- Legal agreements register (RC-identity-12, TRD-0631). A fixed list of kinds (CHECK), immutable published versions that point at
 -- owner-supplied text (never generated), and one acceptance row per (subject, kind, version) with the signer and time.
--- No balance, no ledger. Reversal: 0066_agreements.down.sql
+-- No balance, no ledger. Reversal: 0067_agreements.down.sql
 
 -- The fixed list of kinds lives in this CHECK (and AGREEMENT_KINDS in contracts), not in a seeded table.
 CREATE TABLE IF NOT EXISTS "identity"."agreement_versions" (

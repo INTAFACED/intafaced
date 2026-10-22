@@ -17,13 +17,15 @@ function toTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
   if (err instanceof AgreementError) {
     const code =
-      err.code === 'identity.agreement_signer_not_admin' || err.code === 'identity.agreement_delegated'
-        ? 'FORBIDDEN'
-        : err.code === 'identity.agreement_not_published' ||
-            err.code === 'identity.agreement_version_not_current' ||
-            err.code === 'identity.agreement_approval_refused'
-          ? 'PRECONDITION_FAILED'
-          : 'BAD_REQUEST';
+      err.code === 'auth.not_found'
+        ? 'NOT_FOUND'
+        : err.code === 'identity.agreement_signer_not_admin' || err.code === 'identity.agreement_delegated'
+          ? 'FORBIDDEN'
+          : err.code === 'identity.agreement_not_published' ||
+              err.code === 'identity.agreement_version_not_current' ||
+              err.code === 'identity.agreement_approval_refused'
+            ? 'PRECONDITION_FAILED'
+            : 'BAD_REQUEST';
     throw new TRPCError({ code, message: `${userCopy(err.code)} [${err.code}]`, cause: err });
   }
   throw err;
