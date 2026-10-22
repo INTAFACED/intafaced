@@ -17,6 +17,7 @@ import type {
 import { massCancelSessionRefuse, readSessionId } from './matching-client.js';
 import type { RankPerksSource } from './rank-perks.js';
 import type { SubAccountOwnershipSource } from './sub-account-ownership.js';
+import type { EmailProofSource } from './email-proof.js';
 import type { SubAccountOwnership } from '@intafaced/contracts';
 import { TradeError } from './types.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
@@ -612,4 +613,21 @@ export function principalFor(userId: string, scopes: readonly string[] = ['trade
     sid: '99999999-9999-4999-8999-999999999999',
     expiresAt: new Date(Date.now() + 3_600_000),
   };
+}
+
+/**
+ * Email-proof stand-in (RC-identity-01). Every user is proved unless listed in
+ * `missing`; `unavailable` throws the same fail-closed code as a down identity.
+ */
+export class StubEmailProof implements EmailProofSource {
+  readonly missing = new Set<string>();
+  unavailable = false;
+  /** Observed reads — proves the gate runs, and runs before any hold. */
+  readonly lookedUp: string[] = [];
+
+  async get(userId: string): Promise<'accepted' | 'missing'> {
+    this.lookedUp.push(userId);
+    if (this.unavailable) throw new TradeError('svc-identity is unreachable', 'trade.identity_unavailable');
+    return this.missing.has(userId) ? 'missing' : 'accepted';
+  }
 }

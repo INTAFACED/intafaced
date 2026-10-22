@@ -7,7 +7,14 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { TradingControls } from '../controls/trading-controls.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
-import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import {
+  PUBLISHED_TEST_FEE_SCHEDULE,
+  READY_MARKET_LIFECYCLE,
+  StubEmailProof,
+  StubMatching,
+  StubPerks,
+  principalFor,
+} from '../spot/testing.js';
 import { TradeService } from '../spot/trade-service.js';
 import type { BotVerificationPolicy } from './bots-verification.js';
 
@@ -28,6 +35,7 @@ describe('CB-bots-10 bot verification through createTwap (isolated PostgreSQL)',
   };
   const build = (botVerification?: BotVerificationPolicy) =>
     new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+      emailProof: new StubEmailProof(),
       accountAdmission: new TradingControls(db.sql, { check: async () => 'enabled' }, identity),
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,

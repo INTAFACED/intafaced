@@ -32,6 +32,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'You need a verified account to do this.',
     action: { label: 'Verify now', href: '/verification' },
   },
+  emailProof: {
+    title: 'Confirm your email first',
+    body: 'New orders wait until you confirm the email on this account. Nothing was held, and your open orders stay.',
+    action: { label: 'Confirm email', href: '/uc/account' },
+  },
   mfaRequired: {
     title: 'Confirm it is you',
     body: 'Sign in again with your passkey or authenticator code to change this.',

@@ -37,7 +37,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack, processRecordMatches, readProcessIdentity } from './local-test-state.mjs';
+import {
+  localStackState,
+  assertActiveLocalStack,
+  processRecordMatches,
+  readProcessIdentity,
+  readLatestEmailConfirmToken,
+} from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -350,6 +356,37 @@ class EdgeClient {
     this.account.userId = data.userId;
     return 'created';
   }
+  /**
+   * New custodial orders need a proved email (RC-identity-01). Proves it the way a
+   * person does: auth.requestEmailConfirmation, then the link from the LOCAL-TEST
+   * outbox into auth.confirmEmail. Never writes email_verified_at itself.
+   */
+  async proveEmail(outboxPath, waitMs = 10_000) {
+    const me = await this.http('GET', '/api/identity/trpc/me');
+    if (me.json?.result?.data?.emailVerified === true) return 'already proved';
+    const readToken = () => {
+      try {
+        return readLatestEmailConfirmToken(fs.readFileSync(outboxPath, 'utf8'), this.account.email);
+      } catch {
+        return null;
+      }
+    };
+    const before = readToken();
+    const asked = await this.http('POST', '/api/identity/trpc/auth.requestEmailConfirmation', {});
+    if (asked.status !== 200)
+      throw new Error(`email proof request refused for ${this.account.handle} (${asked.status}): ${asked.text.slice(0, 200)}`);
+    const until = Date.now() + waitMs;
+    let token = readToken();
+    while (!token || token === before) {
+      if (Date.now() >= until) throw new Error(`no LOCAL-TEST confirm link reached ${this.account.email} in ${outboxPath}`);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      token = readToken();
+    }
+    const confirmed = await this.http('POST', '/api/identity/trpc/auth.confirmEmail', { token }, { auth: false });
+    if (confirmed.status !== 200)
+      throw new Error(`email confirm refused for ${this.account.handle} (${confirmed.status}): ${confirmed.text.slice(0, 200)}`);
+    return 'proved';
+  }
 }
 
 function loadAccounts(p) {
@@ -495,6 +532,8 @@ async function runLoop(opts, home) {
   log(`${LABEL}. seed=${opts.seed}, requote every ${opts.seconds}s`);
   log(`maker ${await maker.ensureAccount()} (${accounts.maker.handle}); taker ${await taker.ensureAccount()} (${accounts.taker.handle})`);
   save(p, accounts);
+  const outbox = path.join(p.stateDir, 'email-outbox.log');
+  log(`maker email ${await maker.proveEmail(outbox)}; taker email ${await taker.proveEmail(outbox)}`);
 
   const wanted = opts.symbols ?? DEFAULT_SYMBOLS;
   const markets = await discoverMarkets(maker, wanted);
