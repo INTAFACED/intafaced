@@ -605,7 +605,7 @@ export const appRouter = mergeRouters(
     sql,
     depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
-    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
+    custody: { sql, approvals: actionApprovals, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },

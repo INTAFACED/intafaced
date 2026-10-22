@@ -163,3 +163,29 @@ export function withdrawalLimitChangeFields(input: {
     reason: input.reason,
   };
 }
+
+/** The action a second founder's approval must be issued for when a custody sweep policy (trigger or treasury address) is set. */
+export const PAY_CUSTODY_SWEEP_POLICY_SET = 'pay.custody_sweep_policy_set';
+
+/** Every field of the policy as it will be stored; `-` stands for a figure the trigger does not take. */
+export function custodySweepPolicyFields(input: {
+  networkId: string;
+  assetId: string;
+  trigger: string;
+  thresholdAmount: string | null;
+  thresholdCount: number | null;
+  scheduleMinutes: number | null;
+  treasuryAddress: string;
+  reason: string;
+}): Record<string, string> {
+  return {
+    networkId: input.networkId,
+    assetId: input.assetId,
+    trigger: input.trigger,
+    thresholdAmount: input.thresholdAmount ?? '-',
+    thresholdCount: input.thresholdCount === null ? '-' : String(input.thresholdCount),
+    scheduleMinutes: input.scheduleMinutes === null ? '-' : String(input.scheduleMinutes),
+    treasuryAddress: input.treasuryAddress,
+    reason: input.reason,
+  };
+}

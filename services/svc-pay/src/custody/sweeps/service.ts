@@ -1,5 +1,13 @@
 import { compare, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
+import {
+  consumePayApproval,
+  payActionPayloadHash,
+  unwiredApprovalConsumer,
+  type ActionApprovalConsumer,
+} from '../../action-approval-consume.js';
+import { PAY_CUSTODY_SWEEP_POLICY_SET, custodySweepPolicyFields } from '../../approval-bindings.js';
+import { requireDualControl } from '../../dual-control.js';
 import { CustodySweepError } from './errors.js';
 import type { SweepDueView, SweepPolicySetInput, SweepPolicyView, SweepView } from './schemas.js';
 
@@ -10,8 +18,10 @@ import type { SweepDueView, SweepPolicySetInput, SweepPolicyView, SweepView } fr
  * customer balance (ENGINE D-5): the customer was credited by the `deposit` post when the deposit was recorded
  * (W-deposit-05), and that stands whether a sweep succeeds, fails or is never made.
  *
- * OWNER-SET, BLANK REFUSES. The trigger and the treasury address are set per (network, asset) by a founder; a pair with
- * no policy refuses every sweep and every due check. Each trigger needs its own figure (amount, count, minutes) and
+ * OWNER-SET, TWO PEOPLE, BLANK REFUSES. The trigger and the treasury address are set per (network, asset) by a founder
+ * and need a second founder's identity action approval (`pay.custody_sweep_policy_set`, bound to every field; `policy.preview`
+ * returns the hash), the same mechanism as withdrawal limits. The approver is stored on the row. A pair with no policy
+ * refuses every sweep and every due check. Each trigger needs its own figure (amount, count, minutes) and
  * nothing is defaulted.
  *
  * SAGA. `create` writes the intent row under the business key `sweep:<depositId>:treasury` before the rail is asked;
@@ -47,6 +57,7 @@ interface PolicyRow {
   treasury_address: string;
   reason: string;
   set_by: string;
+  approved_by: string;
   set_at: Date;
 }
 
@@ -65,6 +76,7 @@ interface SweepRow {
   attempts: number;
   last_error: string | null;
   created_by: string;
+  last_executed_by: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -79,6 +91,7 @@ const policyView = (r: PolicyRow): SweepPolicyView => ({
   treasuryAddress: r.treasury_address,
   reason: r.reason,
   setBy: r.set_by,
+  approvedBy: r.approved_by,
   setAt: r.set_at.toISOString(),
 });
 
@@ -97,6 +110,7 @@ const sweepView = (r: SweepRow): SweepView => ({
   attempts: r.attempts,
   lastError: r.last_error,
   createdBy: r.created_by,
+  lastExecutedBy: r.last_executed_by,
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -106,9 +120,17 @@ function invalid(message: string): never {
 }
 
 export class CustodySweepService {
-  constructor(private readonly deps: { readonly sql: Sql; readonly broadcaster?: SweepBroadcaster }) {}
+  constructor(
+    private readonly deps: {
+      readonly sql: Sql;
+      readonly broadcaster?: SweepBroadcaster;
+      /** Identity action approvals. Omitted: every policy set refuses (`action_approval.identity_unwired`). */
+      readonly approvals?: ActionApprovalConsumer;
+    },
+  ) {}
 
-  async setPolicy(actor: string, input: SweepPolicySetInput): Promise<SweepPolicyView> {
+  /** Checks the figures and returns the policy exactly as it would be stored. Reads and writes nothing. */
+  private normalize(input: Omit<SweepPolicySetInput, 'approvalId' | 'operationId'>) {
     const address = input.treasuryAddress.trim();
     if (address === '' || /\s/.test(address)) invalid('treasuryAddress is required and has no spaces');
     let amount: string | null = null;
@@ -128,12 +150,40 @@ export class CustodySweepService {
     }
     if (input.trigger === 'count' && (input.thresholdCount ?? 0) < 1) invalid('thresholdCount must be at least 1');
     if (input.trigger === 'schedule' && (input.scheduleMinutes ?? 0) < 1) invalid('scheduleMinutes must be at least 1');
+    return {
+      networkId: input.networkId,
+      assetId: input.assetId,
+      trigger: input.trigger,
+      thresholdAmount: amount,
+      thresholdCount: input.trigger === 'count' ? input.thresholdCount : null,
+      scheduleMinutes: input.trigger === 'schedule' ? input.scheduleMinutes : null,
+      treasuryAddress: address,
+      reason: input.reason,
+    };
+  }
+
+  /** The action type and hash a second founder's approval must be issued for. */
+  previewPolicy(input: Omit<SweepPolicySetInput, 'approvalId' | 'operationId'>): { actionType: string; payloadHash: string } {
+    return {
+      actionType: PAY_CUSTODY_SWEEP_POLICY_SET,
+      payloadHash: payActionPayloadHash(PAY_CUSTODY_SWEEP_POLICY_SET, custodySweepPolicyFields(this.normalize(input))),
+    };
+  }
+
+  async setPolicy(actor: string, input: SweepPolicySetInput): Promise<SweepPolicyView> {
+    const p = this.normalize(input);
+    const approver = await consumePayApproval(
+      this.deps.approvals ?? unwiredApprovalConsumer(),
+      input,
+      PAY_CUSTODY_SWEEP_POLICY_SET,
+      custodySweepPolicyFields(p),
+    );
+    const approvedBy = requireDualControl(actor.toLowerCase(), approver.trim().toLowerCase());
     const [row] = await this.deps.sql<PolicyRow[]>`
       INSERT INTO pay.custody_sweep_policy_events
-        (network_id, asset_id, trigger, threshold_amount, threshold_count, schedule_minutes, treasury_address, reason, set_by)
-      VALUES (${input.networkId}, ${input.assetId}, ${input.trigger}, ${amount},
-              ${input.trigger === 'count' ? input.thresholdCount : null}, ${input.trigger === 'schedule' ? input.scheduleMinutes : null},
-              ${address}, ${input.reason}, ${actor})
+        (network_id, asset_id, trigger, threshold_amount, threshold_count, schedule_minutes, treasury_address, reason, set_by, approved_by)
+      VALUES (${p.networkId}, ${p.assetId}, ${p.trigger}, ${p.thresholdAmount}, ${p.thresholdCount}, ${p.scheduleMinutes},
+              ${p.treasuryAddress}, ${p.reason}, ${actor}, ${approvedBy})
       RETURNING *`;
     return policyView(row!);
   }
@@ -190,7 +240,15 @@ export class CustodySweepService {
     };
   }
 
-  /** Write the intent row for one credited deposit. Idempotent on `sweep:<depositId>:treasury`. */
+  /**
+   * Write the intent row for one credited deposit. Idempotent on `sweep:<depositId>:treasury`.
+   *
+   * `custody_sweeps.deposit_id` has no foreign key (the deposit record tables are truncated as a group by their own
+   * tests), so this read is the existence check. It runs outside the insert's transaction on purpose: a credited
+   * deposit row is never deleted and a credit is never undone into another status by the deposit book except
+   * `reversed` (W-deposit-06), and a sweep row moves no customer balance, so a race here can at worst sweep coins that
+   * already arrived on chain, never change what a customer holds.
+   */
   async create(actor: string, depositId: string): Promise<SweepView> {
     const [dep] = await this.deps.sql<
       Array<{ id: string; network_id: string; asset_id: string; address: string; amount: string; status: string }>
@@ -224,24 +282,28 @@ export class CustodySweepService {
   }
 
   /** Ask the rail to send one sweep, always under its original key. */
-  async execute(sweepId: string): Promise<SweepView> {
+  async execute(actor: string, sweepId: string): Promise<SweepView> {
     const [row] = await this.deps.sql<SweepRow[]>`SELECT * FROM pay.custody_sweeps WHERE id = ${sweepId}`;
     if (!row) throw new CustodySweepError('custody_sweep.sweep_not_found', `no sweep ${sweepId}`);
     if (row.status === 'broadcast') return sweepView(row);
     const broadcaster = this.deps.broadcaster;
     if (!broadcaster)
       throw new CustodySweepError('rail.crypto', 'Sweeping to treasury needs rail.crypto. It is switched off in this build.');
-    await this.deps
-      .sql`UPDATE pay.custody_sweeps SET attempts = attempts + 1, updated_at = now() WHERE id = ${sweepId} AND status <> 'broadcast'`;
+    // Conditional claim: only a row still open is counted as an attempt; one that turned `broadcast` meanwhile is returned.
+    const [claimed] = await this.deps.sql<SweepRow[]>`
+      UPDATE pay.custody_sweeps SET attempts = attempts + 1, last_executed_by = ${actor}, updated_at = now()
+       WHERE id = ${sweepId} AND status IN ('pending', 'failed', 'unknown')
+       RETURNING *`;
+    if (!claimed) return sweepView(await this.byId(sweepId));
     let result: SweepBroadcastResult;
     try {
       result = await broadcaster.send({
-        idempotencyKey: row.idempotency_key,
-        networkId: row.network_id,
-        assetId: row.asset_id,
-        fromAddress: row.from_address,
-        toAddress: row.to_address,
-        amount: row.amount,
+        idempotencyKey: claimed.idempotency_key,
+        networkId: claimed.network_id,
+        assetId: claimed.asset_id,
+        fromAddress: claimed.from_address,
+        toAddress: claimed.to_address,
+        amount: claimed.amount,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

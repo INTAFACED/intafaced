@@ -1,6 +1,6 @@
 -- Sweeps from customer deposit addresses to treasury (W-custody-ops-05, wallet-custody-ops-067). CUSTODY SIDE ONLY: a sweep
 -- moves coins between our own addresses on chain and never changes a customer balance or posts to the ledger (ENGINE D-5).
--- The policy is owner-set per (network, asset) and append-only; the latest row is the policy and a pair with none refuses
+-- The policy is owner-set per (network, asset), needs a second founder's identity approval, and is append-only; the latest row is the policy and a pair with none refuses
 -- every sweep. One intent row per business key `sweep:<depositId>:<tier>` is written before the rail is asked; an unknown
 -- broadcast keeps it, and a retry reuses the same key.
 CREATE TABLE IF NOT EXISTS "pay"."custody_sweep_policy_events" (
@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweep_policy_events" (
   "treasury_address" text NOT NULL,
   "reason" text NOT NULL,
   "set_by" text NOT NULL,
+  -- The second founder whose identity action approval (pay.custody_sweep_policy_set) was consumed for this exact row.
+  "approved_by" text NOT NULL,
   "set_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "custody_sweep_policy_dual_ck" CHECK (length(btrim("approved_by")) > 0 AND lower("approved_by") <> lower("set_by")),
   CONSTRAINT "custody_sweep_policy_trigger_ck" CHECK (
     ("trigger" = 'immediate' AND "threshold_amount" IS NULL AND "threshold_count" IS NULL AND "schedule_minutes" IS NULL)
     OR ("trigger" = 'amount' AND "threshold_amount" IS NOT NULL AND "threshold_count" IS NULL AND "schedule_minutes" IS NULL)
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   "attempts" integer NOT NULL DEFAULT 0,
   "last_error" text,
   "created_by" text NOT NULL,
+  "last_executed_by" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "custody_sweeps_key_ck" CHECK ("idempotency_key" = 'sweep:' || "deposit_id"::text || ':' || "tier"),

@@ -18,8 +18,13 @@ export const sweepPolicySetInputSchema = z
     scheduleMinutes: z.number().int().nullable(),
     treasuryAddress: z.string().max(256),
     reason: z.string().trim().min(1).max(500),
+    /** Identity-issued second-founder approval bound to this exact policy (see `policy.preview`). */
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
   })
   .strict();
+export const sweepPolicyPreviewInputSchema = sweepPolicySetInputSchema.omit({ approvalId: true, operationId: true });
+export const sweepPolicyPreviewViewSchema = z.object({ actionType: z.string(), payloadHash: z.string() });
 export type SweepPolicySetInput = z.infer<typeof sweepPolicySetInputSchema>;
 
 export const sweepPolicyViewSchema = z.object({
@@ -32,6 +37,7 @@ export const sweepPolicyViewSchema = z.object({
   treasuryAddress: z.string(),
   reason: z.string(),
   setBy: z.string(),
+  approvedBy: z.string(),
   setAt: z.string(),
 });
 export type SweepPolicyView = z.infer<typeof sweepPolicyViewSchema>;
@@ -69,6 +75,7 @@ export const sweepViewSchema = z.object({
   attempts: z.number().int(),
   lastError: z.string().nullable(),
   createdBy: z.string(),
+  lastExecutedBy: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

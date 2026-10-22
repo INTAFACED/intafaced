@@ -6,6 +6,7 @@ import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { stubApprovalConsumer } from '../../action-approval-consume.js';
 import { MerchantControlError } from '../../merchant-account-controls.js';
 import { createPayNamespaces } from '../../namespaces/index.js';
 import type { SweepBroadcaster, SweepBroadcastResult } from './service.js';
@@ -53,6 +54,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let api: any;
   let apiNoRail: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let apiSelfApproved: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   const sweeps = () => api.founderAdmin.custody.sweeps;
 
   beforeAll(async () => {
@@ -80,8 +82,14 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       expiresAt: new Date(Date.now() + 3_600_000),
     };
     const ctx = { principal, service: null, region: 'DE', requestId: 'r' };
-    api = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster } }).createCaller(ctx);
+    // TEST identity stand-ins: a second founder approves; or the proposer approves their own change.
+    const approvals = stubApprovalConsumer('founder-b');
+    api = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster, approvals } }).createCaller(ctx);
     apiNoRail = createPayNamespaces({ founderAuthority, custody: { sql: db.sql } }).createCaller(ctx);
+    apiSelfApproved = createPayNamespaces({
+      founderAuthority,
+      custody: { sql: db.sql, approvals: stubApprovalConsumer('founder-a') },
+    }).createCaller(ctx);
   }, 120_000);
 
   afterAll(async () => {
@@ -115,6 +123,8 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     scheduleMinutes: null,
     treasuryAddress: TREASURY,
     reason: 'TEST policy',
+    approvalId: 'appr-test',
+    operationId: 'op-test',
     ...o,
   });
   const pair = { networkId: 'testnet-evm', assetId: 'USDT' };
@@ -141,7 +151,26 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     }
     await sweeps().policy.set(policyBody());
     await sweeps().policy.set(policyBody({ trigger: 'amount', thresholdAmount: '5.50' }));
-    expect(await sweeps().policy.get(pair)).toMatchObject({ trigger: 'amount', thresholdAmount: '5.5', setBy: 'founder-a' });
+    expect(await sweeps().policy.get(pair)).toMatchObject({
+      trigger: 'amount',
+      thresholdAmount: '5.5',
+      setBy: 'founder-a',
+      approvedBy: 'founder-b',
+    });
+  });
+
+  it('a policy (and so the treasury address) needs a second founder through identity action approval', async () => {
+    const { approvalId: _a, operationId: _o, ...plain } = policyBody();
+    const preview = await sweeps().policy.preview(plain);
+    expect(preview.actionType).toBe('pay.custody_sweep_policy_set');
+    expect(preview.payloadHash).toMatch(/^sha256:/);
+    expect((await sweeps().policy.preview({ ...plain, treasuryAddress: '0xTESTother' })).payloadHash).not.toBe(preview.payloadHash);
+    expect((await refused(apiNoRail.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(/IDENTITY_URL/);
+    expect((await refused(apiSelfApproved.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(
+      /distinct/,
+    );
+    expect((await refused(sweeps().policy.set(policyBody({ approvalId: null, operationId: null })))).code).toBe('PRECONDITION_FAILED');
+    expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
   });
 
   it('due follows each trigger over credited deposits with no sweep yet', async () => {
@@ -193,7 +222,12 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     const before = await db.sql`SELECT * FROM pay.custody_deposits ORDER BY id`;
     const s = await sweeps().create({ depositId });
     next = async () => ({ state: 'failed', error: 'TEST insufficient gas' });
-    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({ status: 'failed', lastError: 'TEST insufficient gas', attempts: 1 });
+    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({
+      status: 'failed',
+      lastError: 'TEST insufficient gas',
+      attempts: 1,
+      lastExecutedBy: 'founder-a',
+    });
     next = async () => ({ state: 'broadcast', txHash: '0xTESTTX' });
     expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({
       status: 'broadcast',

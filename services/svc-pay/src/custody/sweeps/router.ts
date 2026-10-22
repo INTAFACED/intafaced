@@ -8,6 +8,8 @@ import {
   sweepExecuteInputSchema,
   sweepListInputSchema,
   sweepPairInputSchema,
+  sweepPolicyPreviewInputSchema,
+  sweepPolicyPreviewViewSchema,
   sweepPolicySetInputSchema,
   sweepPolicyViewSchema,
   sweepViewSchema,
@@ -35,6 +37,10 @@ export function createCustodySweepRouters(
           .input(sweepPairInputSchema)
           .output(sweepPolicyViewSchema)
           .query(({ input }) => wrap(() => service.getPolicy(input.networkId, input.assetId))),
+        preview: founder
+          .input(sweepPolicyPreviewInputSchema)
+          .output(sweepPolicyPreviewViewSchema)
+          .query(({ input }) => wrap(async () => service.previewPolicy(input))),
         set: founder
           .input(sweepPolicySetInputSchema)
           .output(sweepPolicyViewSchema)
@@ -55,7 +61,7 @@ export function createCustodySweepRouters(
       execute: founder
         .input(sweepExecuteInputSchema)
         .output(sweepViewSchema)
-        .mutation(({ input }) => wrap(() => service.execute(input.sweepId))),
+        .mutation(({ ctx, input }) => wrap(() => service.execute(actorOf(ctx), input.sweepId))),
     }),
   };
 }

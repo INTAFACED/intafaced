@@ -31,6 +31,7 @@ import { CustodyStuckService, type DroppedReverser, type NonceChain, type TxRepl
 import { createCustodyTxRouters } from './tx/router.js';
 import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
+import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { createCustodySweepRouters } from './sweeps/router.js';
 import { CustodySweepService, type SweepBroadcaster } from './sweeps/service.js';
 import { CustodyFeesService, type FeeEstimator } from './fees/service.js';
@@ -50,6 +51,8 @@ export interface CustodyRouterDeps {
   readonly utxoNode?: UtxoNode;
   /** The sweep broadcaster (W-custody-ops-05). Omitted: `sweeps.execute` refuses `rail.crypto` and the intent row stays. */
   readonly sweepBroadcaster?: SweepBroadcaster;
+  /** Identity action approvals for two-founder custody settings (sweep policy). Omitted: those writes refuse. */
+  readonly approvals?: ActionApprovalConsumer;
   /** The chain reader for block height and hash (W-custody-ops-11). Omitted: `tx.get` shows `unwired`. */
   readonly chainReader?: TxChainReader;
   /** W-custody-ops-12 ports. Omitted: boost/replace/drop refuse `rail.crypto`, and cancel and reverse say they are not connected. */
@@ -91,7 +94,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
   );
   const sweepRouters = createCustodySweepRouters(
     founder,
-    new CustodySweepService({ sql: deps.sql, broadcaster: deps.sweepBroadcaster }),
+    new CustodySweepService({ sql: deps.sql, broadcaster: deps.sweepBroadcaster, approvals: deps.approvals }),
     actorOf,
   );
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);

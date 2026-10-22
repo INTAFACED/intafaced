@@ -1,4 +1,6 @@
 import { TRPCError } from '@intafaced/contracts';
+import { ActionApprovalConsumeError } from '../../action-approval-consume.js';
+import { DualControlError } from '../../dual-control.js';
 
 export type CustodySweepErrorCode =
   | 'custody_sweep.policy_unset'
@@ -32,6 +34,9 @@ export function custodySweepToTrpcError(error: unknown): unknown {
   if (error instanceof TRPCError) return error;
   if (error instanceof CustodySweepError) {
     return new TRPCError({ code: KIND[error.code], message: `${error.code}: ${error.message}`, cause: error });
+  }
+  if (error instanceof DualControlError || error instanceof ActionApprovalConsumeError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message, cause: error });
   }
   return error;
 }
