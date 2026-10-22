@@ -11,12 +11,15 @@ import {
 describe('academy catalogue contracts (AC-catalogue-01)', () => {
   it('query is optional and filters by path, kind, text and sort', () => {
     expect(academyCatalogueQuerySchema.safeParse(undefined).success).toBe(true);
-    expect(academyCatalogueQuerySchema.safeParse({ path: 'markets', kind: 'lesson', q: 'risk', sort: 'name_asc', limit: 20 }).success).toBe(
-      true,
-    );
+    expect(
+      academyCatalogueQuerySchema.safeParse({ path: 'markets', kind: 'lesson', q: 'risk', category: 'risk', sort: 'progress', limit: 20 })
+        .success,
+    ).toBe(true);
     for (const bad of [
       { path: 'other' },
-      { sort: 'progress' },
+      { sort: 'popular' },
+      { category: '' },
+      { category: 'x'.repeat(97) },
       { q: 'x'.repeat(ACADEMY_SEARCH_QUERY_MAX + 1) },
       { limit: 0 },
       { limit: 1.5 },
@@ -25,9 +28,12 @@ describe('academy catalogue contracts (AC-catalogue-01)', () => {
       expect(academyCatalogueQuerySchema.safeParse(bad).success).toBe(false);
   });
   it('summary row needs positive derived minutes', () => {
-    const row = { slug: 'a', title: 'A', kind: 'playbook', path: 'foundations', order: 1, summary: 's', estimatedMinutes: 5 };
+    const row = { slug: 'a', title: 'A', kind: 'playbook', path: 'foundations', order: 1, summary: 's', author: null, estimatedMinutes: 5 };
     expect(academyCurriculumSummarySchema.safeParse(row).success).toBe(true);
     expect(academyCurriculumSummarySchema.safeParse({ ...row, estimatedMinutes: 0 }).success).toBe(false);
+    expect(academyCurriculumSummarySchema.safeParse({ ...row, author: 'A. Writer' }).success).toBe(true);
+    const { author: _a, ...noAuthor } = row;
+    expect(academyCurriculumSummarySchema.safeParse(noAuthor).success).toBe(false);
   });
   it('search input has no page size; hits name the matched field', () => {
     expect(academySearchInputSchema.safeParse({ q: 'risk' }).success).toBe(true);

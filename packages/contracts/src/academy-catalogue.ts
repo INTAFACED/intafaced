@@ -10,7 +10,8 @@ export const academyCurriculumPathSchema = z.enum(['foundations', 'markets', 'bu
 export type AcademyCurriculumPath = z.infer<typeof academyCurriculumPathSchema>;
 export const academyCurriculumKindSchema = z.enum(['playbook', 'workbook', 'lesson']);
 export type AcademyCurriculumKind = z.infer<typeof academyCurriculumKindSchema>;
-export const academyCatalogueSortSchema = z.enum(['recommended', 'name_asc', 'name_desc']);
+export const academyCatalogueSortSchema = z.enum(['recommended', 'progress', 'name_asc', 'name_desc']);
+/** `progress` needs a signed-in learner; the service refuses it for a signed-out caller. */
 
 /** Input of `curriculum` and `publicCatalogue`. */
 export const academyCatalogueQuerySchema = z
@@ -18,6 +19,7 @@ export const academyCatalogueQuerySchema = z
     path: academyCurriculumPathSchema.optional(),
     kind: academyCurriculumKindSchema.optional(),
     q: z.string().max(ACADEMY_SEARCH_QUERY_MAX).optional(),
+    category: z.string().min(1).max(96).optional(),
     sort: academyCatalogueSortSchema.optional(),
     limit: z.number().int().positive().safe().optional(),
   })
@@ -33,6 +35,8 @@ export const academyCurriculumSummarySchema = z.object({
   path: academyCurriculumPathSchema,
   order: z.number().int(),
   summary: z.string(),
+  /** Shown only when the course has one; null otherwise, never invented. */
+  author: z.string().nullable(),
   estimatedMinutes: z.number().int().positive(),
 });
 export type AcademyCurriculumSummary = z.infer<typeof academyCurriculumSummarySchema>;
