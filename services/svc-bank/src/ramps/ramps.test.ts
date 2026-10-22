@@ -432,7 +432,6 @@ if (!available) {
     });
   });
 
-
   describe('user withdraw destination persist before withdrawHold', () => {
     it('refuses a gibberish dest before any hold is posted', async () => {
       await ramps.creditOnramp({

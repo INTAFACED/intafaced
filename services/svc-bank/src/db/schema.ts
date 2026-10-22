@@ -948,7 +948,6 @@ export const rampOfframps = bank.table(
   ],
 );
 
-
 /**
  * Where a user is paid out on withdraw — kind+ref asserted (IBAN/IFSC/EVM)
  * before insert. One row per (user, kind). Loaded by offramp so withdrawHold
