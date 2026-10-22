@@ -228,9 +228,9 @@ describe('chart workbench', () => {
   });
 
   it('states how deep the loaded history goes', async () => {
-    world.history = { status: 'loaded', bars: [bar(-60_000, '1')], earliest: -60_000, reachedStart: true };
+    world.history = { status: 'loaded', bars: [bar(-60_000, '1')], earliest: -60_000, since: -120_000 };
     await open();
     expect(host.querySelector('[data-testid="chart-depth"]')?.textContent).toContain('3 bars loaded');
-    expect(host.querySelector('[data-testid="chart-depth"]')?.textContent).toContain('all the history');
+    expect(host.querySelector('[data-testid="chart-depth"]')?.textContent).toContain('keeps the last 720 bars');
   });
 });

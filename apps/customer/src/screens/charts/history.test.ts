@@ -37,11 +37,11 @@ describe('chart history', () => {
     expect(merged.map((c) => c.t / M)).toEqual([1, 2, 3, 4]);
   });
 
-  it('places a date on a bar, before the first trade, beyond the depth or in the future', () => {
+  it("places a date on a bar, before the window's first trade, beyond the depth or in the future", () => {
     const bars = [bar(10 * M), bar(11 * M), bar(12 * M)];
-    expect(locateDate(bars, 11 * M + 30_000, true, 0, 20 * M)).toEqual({ kind: 'show', index: 1 });
-    expect(locateDate(bars, 5 * M, true, 0, 20 * M)).toEqual({ kind: 'before-start', earliest: 10 * M });
-    expect(locateDate(bars, 5 * M, false, 8 * M, 20 * M)).toEqual({ kind: 'beyond-depth', oldestReachable: 8 * M });
-    expect(locateDate(bars, 30 * M, true, 0, 20 * M)).toEqual({ kind: 'future' });
+    expect(locateDate(bars, 11 * M + 30_000, 0, 20 * M)).toEqual({ kind: 'show', index: 1 });
+    expect(locateDate(bars, 5 * M, 0, 20 * M)).toEqual({ kind: 'no-trades-until', earliest: 10 * M });
+    expect(locateDate(bars, 5 * M, 8 * M, 20 * M)).toEqual({ kind: 'beyond-depth', oldestReachable: 8 * M });
+    expect(locateDate(bars, 30 * M, 0, 20 * M)).toEqual({ kind: 'future' });
   });
 });

@@ -22,8 +22,12 @@ export const HISTORY_DEPTH = 720;
 export type HistoryState =
   | { status: 'idle' }
   | { status: 'loading' }
-  /** `earliest` is the first bar the service holds inside the deepest window; `reachedStart` when trading began inside it. */
-  | { status: 'loaded'; bars: Candle[]; earliest: number | null; reachedStart: boolean }
+  /**
+   * `earliest` is the first bar the service holds inside the deepest window (null: none). Buckets without trades are
+   * absent from the read, so nothing here says whether the market traded before the window: only that it did not
+   * between `since` and `earliest`.
+   */
+  | { status: 'loaded'; bars: Candle[]; earliest: number | null; since: number }
   | { status: 'error'; code?: string };
 
 /** `since` for the deepest window of an interval: the bucket 719 steps before the current one. */
@@ -54,26 +58,19 @@ export function withHistory(recent: readonly Candle[], older: readonly Candle[])
 
 export type DateTarget =
   | { kind: 'show'; index: number }
-  /** Before the first trade in the window: the chart moves to `earliest` and says so. */
-  | { kind: 'before-start'; earliest: number }
+  /** Inside the window but before its first trade: nothing traded between the date and `earliest`. */
+  | { kind: 'no-trades-until'; earliest: number }
   /** Older than the deepest window the service serves for this interval. */
   | { kind: 'beyond-depth'; oldestReachable: number }
   | { kind: 'future' };
 
-/** Where a date lands in the bars on the chart. `bars` are oldest first; `reachedStart` means the first bar is the market's first. */
-export function locateDate(
-  bars: readonly Candle[],
-  targetMs: number,
-  reachedStart: boolean,
-  oldestReachable: number,
-  nowMs: number,
-): DateTarget {
+/** Where a date lands in the bars on the chart. `bars` are oldest first; `oldestReachable` is the deepest window's start. */
+export function locateDate(bars: readonly Candle[], targetMs: number, oldestReachable: number, nowMs: number): DateTarget {
   if (targetMs > nowMs) return { kind: 'future' };
+  if (targetMs < oldestReachable) return { kind: 'beyond-depth', oldestReachable };
   const first = bars[0];
-  if (!first || targetMs < first.t) {
-    if (first && reachedStart) return { kind: 'before-start', earliest: first.t };
-    return { kind: 'beyond-depth', oldestReachable };
-  }
+  if (!first) return { kind: 'beyond-depth', oldestReachable };
+  if (targetMs < first.t) return { kind: 'no-trades-until', earliest: first.t };
   let index = bars.length - 1;
   for (let i = 0; i < bars.length; i += 1) {
     if (bars[i]!.t > targetMs) {
@@ -89,15 +86,19 @@ export function useChartHistory(symbol: string, interval: ChartInterval, oldestL
   const env = useDataEnv();
   const [state, setState] = useState<HistoryState>({ status: 'idle' });
   const asked = useRef<Promise<HistoryState> | null>(null);
+  // Bumped when the market or interval changes: a read started for the old one is dropped when it returns.
+  const generation = useRef(0);
   const oldest = useRef(oldestLoadedMs);
   oldest.current = oldestLoadedMs;
   useEffect(() => {
+    generation.current += 1;
     asked.current = null;
     setState({ status: 'idle' });
   }, [symbol, interval]);
 
   const load = useCallback((): Promise<HistoryState> => {
     if (asked.current) return asked.current;
+    const mine = generation.current;
     const nowMs = (env.now ?? Date.now)();
     const since = deepSince(interval, nowMs);
     setState({ status: 'loading' });
@@ -105,20 +106,21 @@ export function useChartHistory(symbol: string, interval: ChartInterval, oldestL
       env.api.rest(`/ohlcv/${encodeURIComponent(symbol)}`, z.array(ohlcvSchema), {
         query: { timeframe: interval, since, limit: HISTORY_DEPTH },
       }) as Promise<{ ok: true; data: OhlcvRow[] } | { ok: false; code?: string }>
-    ).then((result): HistoryState => {
-      if (!result.ok) {
-        asked.current = null;
-        return { status: 'error', code: result.code };
-      }
-      const rows = [...result.data].sort((a, b) => a[0] - b[0]);
-      const earliest = rows[0]?.[0] ?? null;
-      // Fewer rows than the window can hold, with the first one after `since`: trading began inside the window.
-      const reachedStart = earliest === null || (rows.length < HISTORY_DEPTH && earliest > since);
-      const bars = olderBars(rows, interval, oldest.current ?? nowMs);
-      return { status: 'loaded', bars, earliest, reachedStart };
-    });
+    )
+      .then((result): HistoryState => {
+        if (!result.ok) return { status: 'error', code: result.code };
+        const rows = [...result.data].sort((a, b) => a[0] - b[0]);
+        return { status: 'loaded', bars: olderBars(rows, interval, oldest.current ?? nowMs), earliest: rows[0]?.[0] ?? null, since };
+      })
+      .catch((): HistoryState => ({ status: 'error' }))
+      .then((next) => {
+        if (generation.current !== mine) return next;
+        // A failed read is not kept, so scrolling back (or the next date) asks again.
+        if (next.status === 'error') asked.current = null;
+        setState(next);
+        return next;
+      });
     asked.current = run;
-    void run.then(setState, () => setState({ status: 'error' }));
     return run;
   }, [env, symbol, interval]);
 

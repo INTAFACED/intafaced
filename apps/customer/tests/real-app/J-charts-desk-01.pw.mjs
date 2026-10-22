@@ -77,7 +77,8 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
 test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {
   await openChart(page, `${CHART}?interval=1m`);
   const before = Number(await canvas(page).getAttribute('data-bars'));
-  await expect(page.getByTestId('chart-depth').first()).toContainText('bars loaded');
+  // Opening the chart reads only the recent bars; the older block waits until the person scrolls back.
+  await expect(page.getByTestId('chart-depth').first()).toContainText(`${before} bars loaded. Scroll back for more.`);
   // Zoom and pan by keyboard: the drawn picture changes with each.
   await canvas(page).focus();
   const shot0 = await canvas(page).screenshot();
@@ -88,9 +89,7 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   // Zoom right out and pan to the oldest bar: the chart asks the service for the older block once.
   for (let i = 0; i < 12; i += 1) await page.keyboard.press('-');
   for (let i = 0; i < 40; i += 1) await page.keyboard.press('ArrowLeft');
-  await expect(page.getByTestId('chart-depth').first()).toContainText(
-    /bars loaded, from .+: (all the history|the most this interval keeps)/,
-  );
+  await expect(page.getByTestId('chart-depth').first()).toContainText(/bars loaded, from .+\. This interval keeps the last 720 bars/);
   const after = Number(await canvas(page).getAttribute('data-bars'));
   expect(after).toBeGreaterThanOrEqual(before);
   // Mouse: a drag pans the chart.

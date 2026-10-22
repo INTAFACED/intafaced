@@ -83,6 +83,8 @@ export function WorkbenchChart({
   reachStart.current = onReachStart;
   const count = useRef(0);
   count.current = candles.length;
+  // Older bars are asked for only once the person moves the chart, never by the chart's own fit on open.
+  const moved = useRef(false);
   const [host, setHost] = useState<ChartHost | null>(null);
   const [mounted, setMounted] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
@@ -95,7 +97,7 @@ export function WorkbenchChart({
     let api: ChartApi | null = null;
     const onMove = (param: { time?: number }) => setHover(param.time ?? null);
     const onRange = (range: { from: number; to: number } | null) => {
-      if (range && count.current > 0 && range.from < 5) reachStart.current?.();
+      if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
     };
     void import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() => {
       const lib = engineOf();
@@ -175,6 +177,7 @@ export function WorkbenchChart({
       if (fittedFor.current !== resetKey) {
         api.timeScale().fitContent();
         fittedFor.current = resetKey;
+        moved.current = false;
       } else if (range && prepended > 0) {
         api.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
       }
@@ -191,10 +194,13 @@ export function WorkbenchChart({
     const range = api.timeScale().getVisibleLogicalRange();
     const width = range ? Math.max(20, range.to - range.from) : 120;
     api.timeScale().setVisibleLogicalRange({ from: focus.index - width / 2, to: focus.index + width / 2 });
-  }, [focus, host]);
+    // Only a new ask moves the view; a new series (style, scheme) keeps where the person is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
 
   /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again. */
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    moved.current = true;
     const scale = chart.current?.timeScale();
     const range = scale?.getVisibleLogicalRange();
     if (!scale || !range) return;
@@ -246,6 +252,8 @@ export function WorkbenchChart({
         data-first={candles[0] ? String(candles[0].t) : ''}
         data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
         onKeyDown={onKey}
+        onPointerDown={() => (moved.current = true)}
+        onWheel={() => (moved.current = true)}
       />
       {legend && focusBar ? (
         <div className="wc-legend" data-testid="chart-legend">

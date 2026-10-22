@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { usePreferences } from '../../shared/preferences';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
 import { zoneName } from '../trade/desk/time';
@@ -78,6 +78,11 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const [basisRefused, setBasisRefused] = useState<PriceBasis | null>(null);
   const [focus, setFocus] = useState<{ index: number; nonce: number } | null>(null);
   const [dateNote, setDateNote] = useState<string | null>(null);
+  // A date asked for on one interval or style is not carried to the next one.
+  useEffect(() => {
+    setFocus(null);
+    setDateNote(null);
+  }, [market.symbol, interval, mode]);
   const day = useCallback(
     (ms: number) =>
       new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : language, {
@@ -113,12 +118,15 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     const loaded = await history.load();
     const older = loaded.status === 'loaded' ? loaded.bars : [];
     const bars = withHistory(recent, older);
-    const reachedStart = loaded.status === 'loaded' && loaded.reachedStart;
-    const spot = locateDate(bars, target, reachedStart, history.oldestReachable, Date.now());
+    if (loaded.status === 'error') {
+      setDateNote(t('Depth error'));
+      return;
+    }
+    const spot = locateDate(bars, target, history.oldestReachable, Date.now());
     if (spot.kind === 'show') {
       setDateNote(null);
       setFocus({ index: spot.index, nonce: Date.now() });
-    } else if (spot.kind === 'before-start') {
+    } else if (spot.kind === 'no-trades-until') {
       setDateNote(t('Date before start', { earliest: day(spot.earliest) }));
       setFocus({ index: 0, nonce: Date.now() });
     } else if (spot.kind === 'beyond-depth') {
@@ -157,9 +165,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const seconds = polled.status === 'ready' ? Math.max(0, Math.round((now - polled.asOf) / 1000)) : null;
   const depth =
     candles && history.state.status === 'loaded'
-      ? history.state.reachedStart
-        ? t('Depth all', { bars: String(candles.length), from: day(candles[0]!.t) })
-        : t('Depth capped', { bars: String(candles.length), from: day(candles[0]!.t), depth: String(HISTORY_DEPTH) })
+      ? t('Depth loaded', {
+          bars: String(candles.length),
+          from: day(candles[0]!.t),
+          depth: String(HISTORY_DEPTH),
+          oldest: day(history.state.since),
+        })
       : history.state.status === 'loading'
         ? t('Depth loading')
         : history.state.status === 'error'
