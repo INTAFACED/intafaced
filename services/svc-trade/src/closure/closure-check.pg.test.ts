@@ -284,6 +284,37 @@ describe('convert hold (RC-identity-15)', () => {
   });
 });
 
+it('fails closed with 503 and no partial blockers when only the convert_quotes read fails', async () => {
+  const marketId = await market();
+  await db.sql`
+    INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, hold_asset, hold_amount, status)
+    VALUES (${randomUUID()}, ${USER}, ${marketId}, 'buy', 'limit', '1', '1', 'USDT', '1', 'open')
+  `;
+  const reads: string[] = [];
+  const flaky = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    reads.push(text);
+    if (text.includes('trade.convert_quotes')) return Promise.reject(new Error('convert_quotes unreadable'));
+    return (db.sql as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+  }) as unknown as typeof db.sql;
+  const failing = Fastify();
+  retainRawBody(failing);
+  registerClosureCheck(failing, { sql: flaky, secret: SECRET });
+  const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
+  const response = await failing.inject({
+    method: 'POST',
+    url: '/internal/closure-check',
+    payload: raw,
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-identity', SECRET, raw) },
+  });
+  await failing.close();
+  expect(reads.some((t) => t.includes('trade.orders'))).toBe(true);
+  expect(reads.some((t) => t.includes('trade.positions'))).toBe(true);
+  expect(response.statusCode).toBe(503);
+  expect(response.json()).toEqual({ error: 'closure check unavailable', code: 'trade.closure_check_unavailable' });
+  expect(response.json()).not.toHaveProperty('blockers');
+});
+
 describe('scope sub_accounts leaves the main account out', () => {
   const SUB = '33333333-3333-4333-8333-333333333333';
   const openOrder = async (userId: string, subAccountId: string | null) => {
