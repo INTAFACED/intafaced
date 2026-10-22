@@ -128,6 +128,13 @@ export class OtcDeskService {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
 
+    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
+    // free text. A blank list, an unknown provider or an outside provider refuses
+    // the request before any stake read or price lookup.
+    if (law.counterparty === 'maker' && (input.makerId ?? '').trim() !== '') {
+      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+    }
+
     // Access gate before price lookup: an unstaked caller learns nothing about
     // what the desk can price, and a mid source that costs a round trip is not
     // spent on a caller who was never eligible.

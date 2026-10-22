@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { OtcError, type OtcErrorCode } from './errors.js';
 import { FixedOtcStake } from './stake-source.js';
+import { createObservedOtcMidSource } from './mid-source.js';
 import {
   listOtcMakers,
   loadOtcMakerDirectory,
@@ -176,5 +177,44 @@ describe('loadOtcMakerDirectory', () => {
     const logged: string[] = [];
     expect(loadOtcMakerDirectory(TEST_DIRECTORY_JSON, (m) => logged.push(m)).published).toBe(true);
     expect(logged).toEqual([]);
+  });
+});
+
+describe('OtcDeskService.quote in maker mode (CB-otc-01 request path)', () => {
+  const now = () => new Date('2026-10-22T03:00:00.000Z');
+  const TEST_MAKER_LAW = {
+    published: true as const,
+    spreadBps: 50,
+    minStake: parseAmount('500'),
+    counterparty: 'maker' as const,
+    quoteTtlMs: 60_000,
+    maxMidAgeSeconds: 60,
+  };
+  const principal = { userId: '00000000-0000-4000-8000-000000000001' } as import('@intafaced/auth').Principal;
+  const req = (makerId: string) => ({ side: 'buy' as const, baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1', makerId });
+  const svc = (directoryJson: string) =>
+    new OtcDeskService(new MemoryLedger(), new FixedOtcStake(parseAmount('9999')), {
+      law: TEST_MAKER_LAW,
+      midSource: createObservedOtcMidSource('BTC/USDT:200', now),
+      makerDirectory: parseOtcMakerDirectoryJson(directoryJson),
+      now,
+    });
+
+  it('a blank provider list refuses the request', async () => {
+    await expect(svc('').quote(principal, req('test-lp-a'))).rejects.toMatchObject({ code: 'trade.otc_makers_unset' });
+  });
+
+  it('a free-text maker not on the list refuses', async () => {
+    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('anyone'))).rejects.toMatchObject({ code: 'trade.otc_provider_unknown' });
+  });
+
+  it('an outside provider refuses by name', async () => {
+    await expect(svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-out'))).rejects.toMatchObject({ code: 'trade.otc_settle_refused' });
+  });
+
+  it('a listed platform-routed provider is quoted as the counterparty', async () => {
+    const q = await svc(TEST_DIRECTORY_JSON).quote(principal, req('test-lp-b'));
+    expect(q.counterparty).toBe('maker');
+    expect(q.counterpartyId).toBe('test-lp-b');
   });
 });
