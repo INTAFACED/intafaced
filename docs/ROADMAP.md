@@ -14,7 +14,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 
 - **Lanes.** A lane is one service, or one app area, so two lanes never edit the same files. A lane keeps one thread across many slices and takes its next slice from its queue (`node tooling/scripts/roadmap.mjs --lane "<lane>"`). Trader-journey slices go first.
 - **Slice ids.** A PR that builds a slice names its id in the title (for example `svc-trade: SP-order-entry-02 market order by value`), so progress is counted from merged PRs, not typed (`node tooling/scripts/roadmap.mjs --progress`).
-- **How to build and review a slice:** the `build-slice` repo skill, with the lane brief and the reviewer brief.
+- **How to build and review a slice:** `docs/agents/build-slice.md`, with the lane brief and the reviewer brief beside it. A slice lands as one PR: its contracts or events, one service and that service's screen (owner decision 2026-10-22).
 - **Before building a slice,** re-read its spec and re-check every cited `file:line` against today's main. The specs were written against main of 2026-10-18; drop what is already built and say so in the PR.
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
