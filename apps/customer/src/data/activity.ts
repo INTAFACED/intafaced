@@ -51,6 +51,8 @@ export interface ActivityItem {
    * line, and on every line from a server that does not send it yet (those lines then simply never group).
    */
   orderId?: string;
+  /** The note the sender wrote on a payment between two people. Both of them see it. Absent on every other line. */
+  paymentNote?: string;
   /** The signed-in person's own note on this line, when they wrote one. Never shown to anyone else. */
   privateNote?: string;
   /** True on the line that brought in an asset the customer bought. Absent on every other line. */
@@ -59,39 +61,46 @@ export interface ActivityItem {
   reportDescription?: string;
 }
 
-const itemSchema = z.object({
-  id: z.string(),
-  kind: z.string().transform((kind): ActivityKind => (KNOWN.has(kind) ? (kind as ActivityKind) : 'other')),
-  direction: z.enum(['in', 'out']),
-  asset: z.string(),
-  amount: z.string(),
-  postedAt: z.string(),
-  txId: z.string(),
-  counterparty: z
-    .object({ handle: z.string() })
-    .nullish()
-    .transform((value) => value ?? null),
-  spaceName: z
-    .string()
-    .nullish()
-    .transform((value) => value ?? null),
-  orderId: z
-    .string()
-    .nullish()
-    .transform((value) => (value ? value : undefined)),
-  purchase: z
-    .literal(true)
-    .nullish()
-    .transform((value) => (value === true ? (true as const) : undefined)),
-  privateNote: z
-    .string()
-    .nullish()
-    .transform((value) => (value ? value : undefined)),
-  reportDescription: z
-    .string()
-    .nullish()
-    .transform((value) => (value ? value : undefined)),
-});
+const itemSchema = z
+  .object({
+    id: z.string(),
+    kind: z.string().transform((kind): ActivityKind => (KNOWN.has(kind) ? (kind as ActivityKind) : 'other')),
+    direction: z.enum(['in', 'out']),
+    asset: z.string(),
+    amount: z.string(),
+    postedAt: z.string(),
+    txId: z.string(),
+    counterparty: z
+      .object({ handle: z.string() })
+      .nullish()
+      .transform((value) => value ?? null),
+    spaceName: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? null),
+    orderId: z
+      .string()
+      .nullish()
+      .transform((value) => (value ? value : undefined)),
+    purchase: z
+      .literal(true)
+      .nullish()
+      .transform((value) => (value === true ? (true as const) : undefined)),
+    // The bank names the payment's own note `note`; it is a different thing from the customer's private note.
+    note: z
+      .string()
+      .nullish()
+      .transform((value) => (value ? value : undefined)),
+    privateNote: z
+      .string()
+      .nullish()
+      .transform((value) => (value ? value : undefined)),
+    reportDescription: z
+      .string()
+      .nullish()
+      .transform((value) => (value ? value : undefined)),
+  })
+  .transform(({ note, ...item }) => (note ? { ...item, paymentNote: note } : item));
 
 const pageShape = z.object({ items: z.array(itemSchema), nextCursor: z.string().nullable() });
 export interface ActivityPage {

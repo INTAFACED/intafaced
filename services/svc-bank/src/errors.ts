@@ -578,6 +578,8 @@ export type BankErrorCode =
   | 'bank.personal_request_list_limit_unset'
   | 'bank.personal_request_payer_unknown'
   | 'bank.pay_request_notify_unwired'
+  /** No notices port for posted sends: the send stands, its notice stays owed. */
+  | 'bank.transfer_notify_unwired'
   /** IDENTITY_URL is unset, so a request cannot name either person. */
   | 'bank.party_handles_unset'
   /** Identity did not answer a handle lookup. Nothing was created. */

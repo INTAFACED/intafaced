@@ -264,6 +264,7 @@ const messages = {
   When: 'When',
   Account: 'Account',
   Counterparty: 'Person',
+  'Payment note': 'Note with the payment',
   Asset: 'Coin',
   Direction: 'Direction',
   Reference: 'Reference',

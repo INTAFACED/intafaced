@@ -150,6 +150,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <Fact label={t('Direction')}>{up ? t('Money in direction') : t('Money out direction')}</Fact>
             <Fact label={t('Asset')}>{item.asset}</Fact>
             {item.counterparty && <Fact label={t('Counterparty')}>@{item.counterparty.handle}</Fact>}
+            {item.paymentNote && <Fact label={t('Payment note')}>{item.paymentNote}</Fact>}
             {item.spaceName && <Fact label={t('Account')}>{item.spaceName}</Fact>}
             <Fact label={t('When')}>
               <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
