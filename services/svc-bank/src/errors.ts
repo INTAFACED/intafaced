@@ -29,6 +29,8 @@ export type BankErrorCode =
   | 'bank.schedule_run_pending'
   | 'bank.schedule_retry_approval_unwired'
   | 'bank.schedule_retry_approval_refused'
+  | 'bank.schedule_retry_approval_stale'
+  | 'bank.schedule_paused'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'

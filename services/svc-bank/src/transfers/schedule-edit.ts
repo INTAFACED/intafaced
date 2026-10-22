@@ -172,6 +172,8 @@ export class ScheduleRunRetry {
     scheduleId: string;
     occurrence: number;
     now?: Date;
+    /** DR6 M1: what the second person approved; re-checked against the LOCKED run before anything posts. */
+    approved?: { status: string; amount: string };
     /** Runs inside the retry's transaction with the outcome, so the audit row commits with the settle (or not at all). */
     audit?: (
       tx: Sql,
@@ -202,7 +204,7 @@ export class ScheduleRunRetry {
 
   private async retryIn(
     tx: Sql,
-    input: { scheduleId: string; occurrence: number },
+    input: { scheduleId: string; occurrence: number; approved?: { status: string; amount: string } },
     now: Date,
   ): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean; rejectionCode?: string }> {
     {
@@ -217,6 +219,14 @@ export class ScheduleRunRetry {
         `;
         const run = rows[0];
         if (!run) throw new BankError(`Run ${input.occurrence} of ${input.scheduleId} not found`, 'bank.schedule_not_found');
+        // DR6 M1: the approval was bound to a read made before the lock. Under the lock, the run must still be the
+        // one the second person approved (same status, same canonical amount), or nothing posts.
+        if (input.approved && (run.status !== input.approved.status || formatAmount(parseAmount(run.amount)) !== input.approved.amount)) {
+          throw new BankError(
+            `Run ${input.occurrence} of ${input.scheduleId} changed since it was approved`,
+            'bank.schedule_retry_approval_stale',
+          );
+        }
         if (run.status === 'settled') return { status: 'settled' as const, ledgerTxId: run.ledger_tx_id, adopted: true };
         if (run.status !== 'rejected') {
           throw new BankError(`Run ${input.occurrence} is ${run.status}; only a rejected run can be retried`, 'bank.schedule_run_pending');
@@ -225,19 +235,17 @@ export class ScheduleRunRetry {
         const prior = await this.ledger.getTxByKey(key);
         let ledgerTxId: string;
         let adopted = false;
+        let recordAmount: string | null = null;
         if (prior) {
           ledgerTxId = prior.id;
           adopted = true;
+          // DR6 minor 1: record what the ledger booked (record == movement), as the runner does.
+          recordAmount = formatAmount(prior.entries.reduce((m, e) => (e.amount > m ? e.amount : m), 0n));
         } else {
           // BK-xfer-10 review #6: a fresh post only for a schedule that is still active. Cancelled or paused means the
           // user stopped it; an operator does not move money past that. (An already-booked key above is adopted:
           // the money already moved, the record must say so.)
-          if (sched[0].status !== 'active') {
-            throw new BankError(
-              `Schedule ${input.scheduleId} is ${sched[0].status}; a rejected run is not retried`,
-              'bank.schedule_inactive',
-            );
-          }
+          if (sched[0].status !== 'active') throw stoppedSchedule(input.scheduleId, sched[0].status);
           // The runner's exact product gates (transfer-service fireOccurrenceInner): a locked or archived debit space
           // or a recipient who cannot receive refuses, and the refusal is recorded on the run. Bare `get` here was
           // the rent-lock drain.
@@ -277,11 +285,22 @@ export class ScheduleRunRetry {
           }
         }
         await tx`
-          UPDATE bank.transfer_executions SET status = 'settled', ledger_tx_id = ${ledgerTxId}, settled_at = now(), rejection_code = NULL
+          UPDATE bank.transfer_executions SET status = 'settled', ledger_tx_id = ${ledgerTxId}, settled_at = now(), rejection_code = NULL,
+                 amount = COALESCE(${recordAmount}::numeric, amount)
            WHERE id = ${run.id}
         `;
         return { status: 'settled' as const, ledgerTxId, adopted };
       }
     }
   }
+}
+
+/**
+ * D89 / DR6 M2: the same code the runner records for a stopped schedule. Paused is `bank.schedule_paused`
+ * (PAUSED_SKIP_REASON, what the runner writes on a paused occurrence); cancelled or completed is `bank.schedule_inactive`.
+ */
+export function stoppedSchedule(scheduleId: string, status: string): BankError {
+  return status === 'paused'
+    ? new BankError(`Schedule ${scheduleId} is paused; a rejected run is not retried`, 'bank.schedule_paused')
+    : new BankError(`Schedule ${scheduleId} is ${status}; a rejected run is not retried`, 'bank.schedule_inactive');
 }

@@ -3,7 +3,7 @@ import type { Sql } from 'postgres';
 import { createIdentityApprovalClient } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import type { ScheduleRunRetry } from './schedule-edit.js';
+import { stoppedSchedule, type ScheduleRunRetry } from './schedule-edit.js';
 
 /**
  * BK-xfer-10 review #7: the operator retry of a standing-order run is a four-eyes money action, following the #5827
@@ -40,7 +40,8 @@ export function scheduleRetryApprovalConsumer(
     baseUrl: identityUrl,
     internalSecret,
     timeoutMs: 2_000,
-    fail: (message) => new BankError(message, 'bank.schedule_retry_approval_refused'),
+    fail: (message) =>
+      Object.assign(new BankError('identity refused the approval', 'bank.schedule_retry_approval_refused'), { cause: message }),
   });
 }
 
@@ -78,7 +79,7 @@ export class ScheduleRetryDesk {
     // D89: the runner skips paused and cancelled schedules, so the retry refuses them too; checked BEFORE consuming
     // the approval so a refused retry does not burn it (the retry re-checks under the row lock).
     if (run.scheduleStatus !== 'active') {
-      throw new BankError(`Schedule ${input.scheduleId} is ${run.scheduleStatus}; a rejected run is not retried`, 'bank.schedule_inactive');
+      throw stoppedSchedule(input.scheduleId, run.scheduleStatus);
     }
     const amount = formatAmount(parseAmount(run.amount)); // canonical, not Postgres numeric text
     const payloadHash = scheduleRetryPayloadHash(input.scheduleId, input.occurrence, amount, reason);
@@ -94,7 +95,8 @@ export class ScheduleRetryDesk {
       });
     } catch (err) {
       if (err instanceof BankError) throw err;
-      throw new BankError(`identity refused the approval: ${(err as Error).message}`, 'bank.schedule_retry_approval_refused');
+      // DR6 minor 3: a fixed sentence to the caller; identity's detail stays in the cause, not the message.
+      throw Object.assign(new BankError('identity refused the approval', 'bank.schedule_retry_approval_refused'), { cause: err });
     }
     const approver = consumed.approverId?.trim() ?? '';
     const requester = consumed.requesterId?.trim() ?? '';
@@ -108,6 +110,7 @@ export class ScheduleRetryDesk {
       scheduleId: input.scheduleId,
       occurrence: input.occurrence,
       now: input.now,
+      approved: { status: run.status, amount },
       audit: async (tx: Sql, out) => {
         await tx`
           INSERT INTO bank.schedule_retry_audit

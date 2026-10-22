@@ -389,6 +389,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.space_archived':
       case 'bank.space_locked':
       case 'bank.schedule_inactive':
+      case 'bank.schedule_paused':
       case 'bank.pool_closed':
       case 'bank.position_closed':
       case 'bank.position_locked':
@@ -444,6 +445,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_conflict':
       case 'bank.schedule_revision_conflict':
       case 'bank.schedule_run_pending':
+      case 'bank.schedule_retry_approval_stale':
       case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });

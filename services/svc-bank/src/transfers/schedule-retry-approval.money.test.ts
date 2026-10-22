@@ -11,6 +11,7 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
+import { PAUSED_SKIP_REASON } from './transfer-service.js';
 import { scheduleRetryApprovalConsumer, scheduleRetryPayloadHash, type ScheduleRetryApprovalConsumer } from './schedule-retry-approval.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -160,7 +161,7 @@ describe('four-eyes operator retry (Postgres, ledger in refuse mode)', () => {
     expect(await ledger.getTxByKey(key(s.id))).toBeNull();
   });
 
-  it('D89: the runner SKIPS a paused schedule, and the approved retry REFUSES it with bank.schedule_inactive', async () => {
+  it('D89: the runner SKIPS a paused schedule, and the approved retry REFUSES it with the runner code (DR6 M2)', async () => {
     const b = services(stub({ status: 'CONSUMED', requesterId: 'op-proposer', approverId: 'op-approver' }).consumer);
     const s = await rejectedRun(b);
     await b.transfers.pauseSchedule(s.id);
@@ -168,7 +169,7 @@ describe('four-eyes operator retry (Postgres, ledger in refuse mode)', () => {
     const fired = await sql`SELECT occurrence FROM bank.transfer_executions WHERE schedule_id = ${s.id} AND status <> 'rejected'`;
     expect(fired).toHaveLength(0);
     expect(await ledger.getTxByKey(`bank.transfer.sched:${s.id}:1`)).toBeNull();
-    await expect(b.scheduleRetryDesk!.retry(req(s.id))).rejects.toMatchObject({ code: 'bank.schedule_inactive' });
+    await expect(b.scheduleRetryDesk!.retry(req(s.id))).rejects.toMatchObject({ code: PAUSED_SKIP_REASON });
     expect(await ledger.getTxByKey(key(s.id))).toBeNull();
     expect(await audits()).toHaveLength(0);
   });

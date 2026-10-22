@@ -99,13 +99,13 @@ describe('operator retry gates and crash-after-post adoption (Postgres, ledger i
     expect((await run0(schedule.id))?.status).toBe('rejected');
   });
 
-  it('retry refuses a CANCELLED schedule and a PAUSED one with bank.schedule_inactive; nothing posts', async () => {
+  it('retry refuses a CANCELLED schedule and a PAUSED one (bank.schedule_inactive / bank.schedule_paused, DR6 M2); nothing posts', async () => {
     expect.assertions(4);
     for (const status of ['cancelled', 'paused']) {
       const { schedule } = await standing(new Date('2026-01-01T09:00:00Z'));
       await sql`UPDATE bank.scheduled_transfers SET status = ${status} WHERE id = ${schedule.id}`;
       await expect(bank.scheduleRetry!.retry({ scheduleId: schedule.id, occurrence: 0, now: NOW })).rejects.toMatchObject({
-        code: 'bank.schedule_inactive',
+        code: status === 'paused' ? 'bank.schedule_paused' : 'bank.schedule_inactive',
       });
       expect(await ledger.getTxByKey(key(schedule.id))).toBeNull();
     }
