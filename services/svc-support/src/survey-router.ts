@@ -1,5 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { scopedProcedure, supportSurveyConfigureInputSchema, supportSurveyListSchema, supportSurveySchema } from '@intafaced/contracts';
+import {
+  SUPPORT_SURVEY_EMAIL_DELIVERY,
+  scopedProcedure,
+  supportSurveyConfigureInputSchema,
+  supportSurveyListViewSchema,
+  supportSurveyViewSchema,
+} from '@intafaced/contracts';
 import { SurveyCapError, SurveyNotFoundError, SurveyStaleError, type SurveyBook } from './survey-settings.js';
 import { requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
@@ -12,26 +18,28 @@ import { userCopy } from './user-copy.js';
 export function surveyProcedures(book: SurveyBook, support: Pick<SupportService, 'listStaff'>) {
   return {
     surveys: scopedProcedure('support:ops')
-      .output(supportSurveyListSchema)
-      .query(({ ctx }) => {
+      .output(supportSurveyListViewSchema)
+      .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return book.list();
+        return { ...(await book.list()), emailDelivery: SUPPORT_SURVEY_EMAIL_DELIVERY };
       }),
 
     configureSurvey: scopedProcedure('support:ops')
       .input(supportSurveyConfigureInputSchema)
-      .output(supportSurveySchema)
+      .output(supportSurveyViewSchema)
       .mutation(async ({ ctx, input }) => {
         requireSupportOps(ctx.principal!);
         const actorId = ctx.principal!.userId;
         const actor = (await support.listStaff()).find((member) => member.userId === actorId);
         if (actor?.role !== 'lead') throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
         try {
-          return await book.configure({ ...input, by: actorId, at: new Date().toISOString() });
+          const survey = await book.configure({ ...input, by: actorId, at: new Date().toISOString() });
+          return { ...survey, emailDelivery: SUPPORT_SURVEY_EMAIL_DELIVERY };
         } catch (err) {
-          if (err instanceof SurveyCapError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.code, cause: err });
-          if (err instanceof SurveyStaleError) throw new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
-          if (err instanceof SurveyNotFoundError) throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+          // User copy on `message`; the machine code rides on `cause.code`.
+          if (err instanceof SurveyCapError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
+          if (err instanceof SurveyStaleError) throw new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
+          if (err instanceof SurveyNotFoundError) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(err.code), cause: err });
           throw err;
         }
       }),

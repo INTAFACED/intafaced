@@ -10,6 +10,8 @@ import type { Sql } from 'postgres';
 import {
   SUPPORT_SURVEY_CAP_REACHED,
   SUPPORT_SURVEY_CAP_UNSET,
+  SUPPORT_SURVEY_NOT_FOUND,
+  SUPPORT_SURVEY_REVISION_STALE,
   type SupportSurvey,
   type SupportSurveyConfig,
   type SupportSurveyConfigureInput,
@@ -17,14 +19,16 @@ import {
 } from '@intafaced/contracts';
 
 export class SurveyStaleError extends Error {
+  readonly code = SUPPORT_SURVEY_REVISION_STALE;
   constructor() {
-    super('support.survey_revision_stale');
+    super(SUPPORT_SURVEY_REVISION_STALE);
     this.name = 'SurveyStaleError';
   }
 }
 export class SurveyNotFoundError extends Error {
+  readonly code = SUPPORT_SURVEY_NOT_FOUND;
   constructor() {
-    super('support.survey_not_found');
+    super(SUPPORT_SURVEY_NOT_FOUND);
     this.name = 'SurveyNotFoundError';
   }
 }

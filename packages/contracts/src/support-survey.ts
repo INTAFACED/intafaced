@@ -11,7 +11,16 @@ export const SUPPORT_SURVEY_CAP_UNSET = 'support.survey_cap_unset' as const;
 /** The owner-set survey cap is reached: a new survey is refused, never an old one silently replaced. */
 export const SUPPORT_SURVEY_CAP_REACHED = 'support.survey_cap_reached' as const;
 export const SUPPORT_SURVEY_SCALE_INVALID = 'support.survey_scale_invalid' as const;
+export const SUPPORT_SURVEY_REVISION_STALE = 'support.survey_revision_stale' as const;
+export const SUPPORT_SURVEY_NOT_FOUND = 'support.survey_not_found' as const;
 export const supportSurveyErrorCodeSchema = z.enum([SUPPORT_SURVEY_CAP_UNSET, SUPPORT_SURVEY_CAP_REACHED, SUPPORT_SURVEY_SCALE_INVALID]);
+/** Every code a survey door refuses with: the config codes plus the configure door's stale-revision and unknown-survey codes. */
+export const supportSurveyRefusalCodeSchema = z.enum([
+  ...supportSurveyErrorCodeSchema.options,
+  SUPPORT_SURVEY_REVISION_STALE,
+  SUPPORT_SURVEY_NOT_FOUND,
+]);
+export type SupportSurveyRefusalCode = z.infer<typeof supportSurveyRefusalCodeSchema>;
 export type SupportSurveyErrorCode = z.infer<typeof supportSurveyErrorCodeSchema>;
 
 const id = z.string().uuid();
@@ -91,3 +100,23 @@ export const supportSurveyListSchema = z
   .strict()
   .refine((list) => list.surveys.filter((s) => s.active).length <= 1, { path: ['surveys'], message: 'One active survey at a time' });
 export type SupportSurveyList = z.infer<typeof supportSurveyListSchema>;
+
+/** Email delivery is `vendor.email`, NotConnected (allowlisted `edge.upstream_unwired`); surfaced on every survey door. */
+export const SUPPORT_SURVEY_EMAIL_NOT_CONNECTED = 'edge.upstream_unwired' as const;
+export const supportSurveyEmailDeliverySchema = z
+  .object({ vendor: z.literal('vendor.email'), status: z.literal('not_connected'), code: z.literal(SUPPORT_SURVEY_EMAIL_NOT_CONNECTED) })
+  .strict();
+export type SupportSurveyEmailDelivery = z.infer<typeof supportSurveyEmailDeliverySchema>;
+export const SUPPORT_SURVEY_EMAIL_DELIVERY: SupportSurveyEmailDelivery = {
+  vendor: 'vendor.email',
+  status: 'not_connected',
+  code: SUPPORT_SURVEY_EMAIL_NOT_CONNECTED,
+};
+/** The survey doors' output: the list or survey plus where email delivery stands. */
+export const supportSurveyListViewSchema = z
+  .object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema), emailDelivery: supportSurveyEmailDeliverySchema })
+  .strict()
+  .refine((list) => list.surveys.filter((s) => s.active).length <= 1, { path: ['surveys'], message: 'One active survey at a time' });
+export type SupportSurveyListView = z.infer<typeof supportSurveyListViewSchema>;
+export const supportSurveyViewSchema = supportSurveySchema.extend({ emailDelivery: supportSurveyEmailDeliverySchema }).strict();
+export type SupportSurveyView = z.infer<typeof supportSurveyViewSchema>;
