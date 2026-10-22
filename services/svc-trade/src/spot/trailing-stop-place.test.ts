@@ -125,9 +125,39 @@ describe('svc-trade trailing-stop-place (H8a PG-hard)', () => {
       });
     });
 
-    it('place trailing stop with trail + mark — accepted, forwarded as stop', async () => {
+    function withMark(price: string): TradeService {
+      const source = { quote: async () => ({ price: amt(price) }) } as unknown as QuotedMarkSource;
+      return new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 200,
+        trailingMarkSource: source,
+      });
+    }
+
+    it('no server mark source refuses trade.missing_mark even when the caller sends a mark', async () => {
       await fund(ALICE, 'BTC', '20');
-      const order = await trade.placeOrder(principalFor(ALICE), {
+      await expect(
+        trade.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'sell',
+          type: 'limit',
+          qty: amt('10'),
+          price: amt('100'),
+          clientOrderId: 'ts-callermark',
+          trail: amt('5'),
+          mark: amt('100'),
+        } as Parameters<TradeService['placeOrder']>[1] & { trail: ReturnType<typeof amt>; mark: ReturnType<typeof amt> }),
+      ).rejects.toMatchObject({ code: 'trade.missing_mark' });
+      expect(matching.submitted).toHaveLength(0);
+      expect(await avail(ALICE, 'BTC')).toBe('20');
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+    });
+
+    it('place trailing stop with trail + server mark — accepted, forwarded as stop', async () => {
+      await fund(ALICE, 'BTC', '20');
+      const order = await withMark('100').placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
         side: 'sell',
         type: 'limit',
@@ -185,7 +215,7 @@ describe('svc-trade trailing-stop-place (H8a PG-hard)', () => {
     it('matching scriptRejection missing_trail rejects — hold released', async () => {
       await fund(ALICE, 'BTC', '20');
       matching.scriptRejection('missing_trail', 'a trailing stop requires a trail');
-      const order = await trade.placeOrder(principalFor(ALICE), {
+      const order = await withMark('100').placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
         side: 'sell',
         type: 'limit',

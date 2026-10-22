@@ -10,8 +10,8 @@ import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a trailing stop through the matching door that landed in #3294.
- * The stop walks with the mark.
- * Refuse if trail is missing. Trade does not invent a mark.
+ * The stop walks with the server mark (`trailingMarkSource`); a caller-supplied `mark` is never used as the trigger.
+ * Refuse if trail is missing. Refuse `trade.missing_mark` when no server mark source is wired or it has no mark.
  */
 
 type PlaceWithTrail = PlaceOrderInput & {
@@ -109,10 +109,9 @@ export function installTrailingStopPlace(ctor: typeof TradeService): void {
       const missingTrail = trailRefuse(bound.trail ?? null);
       if (missingTrail) throw missingTrail;
       const source = (this as unknown as { trailingMarkSource?: QuotedMarkSource }).trailingMarkSource;
-      if (source) {
-        // The mark is ours. Whatever the request carried is dropped, so a caller cannot choose where the stop starts.
-        bound = { ...bound, mark: await serverMark(this, source, bound) };
-      }
+      // The mark is ours. Whatever the request carried is dropped, so a caller cannot choose where the stop starts.
+      // No server mark source: the price source stays blank and the stop refuses trade.missing_mark.
+      bound = { ...bound, mark: source ? await serverMark(this, source, bound) : null };
       const missingMark = markRefuse(bound.mark ?? null);
       if (missingMark) throw missingMark;
       if (bound.side === 'buy') {
