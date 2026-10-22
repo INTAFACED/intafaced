@@ -103,3 +103,24 @@
 .dk-kv-row {
   display: contents;
 }
+
+/* The common eight sections at the top of a module desk: a grid of short cards. */
+.dk-common {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+}
+.dk-common > article {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.dk-common ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dk-common .adm-chip {
+  align-self: flex-start;
+}
