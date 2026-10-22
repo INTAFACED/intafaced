@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema, academyRelatedInputSchema } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -11,6 +11,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { relatedItems } from './curriculum/related.js';
 import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
@@ -763,6 +764,9 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.slug_reserved':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
@@ -868,6 +872,12 @@ export function createAcademyRouter(
           return all.slice(0, limit);
         }),
       ),
+
+    /** AC-articles-02 — related items by shared path. None → []. */
+    curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyRelatedInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
 
     /**
      * One curriculum item including markdown body.

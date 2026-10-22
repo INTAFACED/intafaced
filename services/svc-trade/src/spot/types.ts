@@ -473,6 +473,12 @@ export type TradeErrorCode =
   | 'trade.paper_fill_refused'
   | 'trade.hold_uncovered'
   /**
+   * An engine cancel event says part of the order filled, and that fill is not
+   * in `trade.fills` yet. Releasing now would hand back the hold the fill is
+   * about to spend. Hold stays; the bus redelivers the cancel, within its delivery budget.
+   */
+  | 'trade.cancel_ahead_of_fill'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */
