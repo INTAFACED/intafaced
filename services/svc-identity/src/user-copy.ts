@@ -91,11 +91,13 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.sub_account_check_unavailable': 'We could not confirm that this sub-account is empty. Try again later.',
   'identity.sub_account_revoked': 'That sub-account has been deleted.',
   'identity.sub_account_edit_delegated': 'Sign in on this device. An API key or a sub-account cannot edit a sub-account.',
-  'identity.org_policy_delegated': 'Sign in on this device to change the organisation security policy. An API key or a sub-account cannot do this.',
+  'identity.org_policy_delegated':
+    'Sign in on this device to change the organisation security policy. An API key or a sub-account cannot do this.',
   'identity.org_policy_owner_only': 'Only the organisation owner can change its security policy.',
   'identity.org_policy_idle_unset': 'An idle sign-out cannot be set yet: the platform maximum is not published.',
   'identity.org_policy_idle_out_of_range': 'That idle sign-out time is outside the allowed range.',
-  'identity.org_policy_2fa': 'This organisation requires a second factor you have not set up. Enrol one in Security to continue; your personal account is not affected.',
+  'identity.org_policy_2fa':
+    'This organisation requires a second factor you have not set up. Enrol one in Security to continue; your personal account is not affected.',
   'identity.org_session_idle': 'Your organisation session ended after being idle. Sign in again to continue.',
   'identity.client_request_id_invalid': 'This request could not be read. Reload the page and try again.',
   'identity.sub_account_edit_unavailable': 'Editing sub-accounts is not available right now. Try again later.',

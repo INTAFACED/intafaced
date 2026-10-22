@@ -162,7 +162,15 @@ export class OrgSecurityPolicyService {
     });
   }
 
-  private async consume(input: Actor & { orgId: string; memberSecondFactor: string; idleSignOutSeconds: number | null; stepUpApprovalId: string; clientRequestId: string }) {
+  private async consume(
+    input: Actor & {
+      orgId: string;
+      memberSecondFactor: string;
+      idleSignOutSeconds: number | null;
+      stepUpApprovalId: string;
+      clientRequestId: string;
+    },
+  ) {
     try {
       await this.deps.approvals.consume('svc-identity', {
         approvalId: input.stepUpApprovalId,
@@ -216,7 +224,10 @@ function passkeyCount(raw: unknown): number {
  * The org-call gate. No policy row: nothing is required and nothing is recorded. Runs on the database clock.
  * `sessionId` is null for an API-key caller: the factor rule still applies, the idle rule (a session rule) does not.
  */
-export async function enforceOrgSecurityPolicy(sql: Sql, input: { userId: string; orgId: string; sessionId: string | null }): Promise<void> {
+export async function enforceOrgSecurityPolicy(
+  sql: Sql,
+  input: { userId: string; orgId: string; sessionId: string | null },
+): Promise<void> {
   const policy = await readPolicy(sql, input.orgId);
   if (!policy) return;
   // A non-member gets the org action's own refusal, never a policy answer about an org they are not in.

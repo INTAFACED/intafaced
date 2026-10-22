@@ -70,7 +70,13 @@ export function createOrgSecurityPolicyRouter(service: OrgSecurityPolicyService)
         .mutation(async ({ ctx, input }) => {
           const p = ctx.principal as Principal;
           try {
-            return await service.set({ userId: p.userId, sessionId: p.sid, apiKey: Boolean(p.kid), subAccount: Boolean(p.sub_account), ...input });
+            return await service.set({
+              userId: p.userId,
+              sessionId: p.sid,
+              apiKey: Boolean(p.kid),
+              subAccount: Boolean(p.sub_account),
+              ...input,
+            });
           } catch (err) {
             orgSecurityPolicyToTrpc(err);
           }
