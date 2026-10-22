@@ -10,7 +10,13 @@ import {
 } from './dispute-open-policy.js';
 import { TRADE_STATUSES } from './state.js';
 
-const NONE = parseDisputePolicy({});
+const WINDOWS_OFF = {
+  earliestAfterCreatedSeconds: 'off',
+  latestAfterCreatedSeconds: 'off',
+  earliestAfterFiatSentSeconds: 'off',
+  latestAfterFiatSentSeconds: 'off',
+};
+const NONE = parseDisputePolicy(WINDOWS_OFF);
 const T0 = new Date('2026-10-22T00:00:00Z');
 const at = (s: number) => new Date(T0.getTime() + s * 1000);
 const trade = { status: 'fiat_sent' as const, buyerId: 'b', sellerId: 's', createdAt: T0, fiatSentAt: at(60) };
@@ -74,14 +80,16 @@ describe('P-disputes-security-01 open policy', () => {
     ).toBe('p2p.dispute_not_allowed');
   });
 
-  it('blank policy reads "no cap set" for every value', () => {
-    expect(Object.values(describePolicy(NONE)).every((v) => v === 'no cap set')).toBe(true);
-    expect(describePolicy(parseDisputePolicy({ perDayCap: '3' })).perDayCap).toBe(3);
+  it('windows off and caps blank read "rule off" and "no cap set"', () => {
+    const d = describePolicy(NONE);
+    expect([d.earliestAfterCreatedSeconds, d.latestAfterFiatSentSeconds]).toEqual(['rule off', 'rule off']);
+    expect([d.perDayCap, d.perOrderCap, d.resubmissionWaitSeconds]).toEqual(['no cap set', 'no cap set', 'no cap set']);
+    expect(describePolicy(parseDisputePolicy({ ...WINDOWS_OFF, perDayCap: '3' })).perDayCap).toBe(3);
   });
 
   it('a garbled owner value refuses p2p.config_unset instead of becoming no cap', () => {
     for (const v of ['abc', -1, 1.5, '1e3', NaN]) {
-      expect(err(() => parseDisputePolicy({ perDayCap: v }))?.code).toBe('p2p.config_unset');
+      expect(err(() => parseDisputePolicy({ ...WINDOWS_OFF, perDayCap: v }))?.code).toBe('p2p.config_unset');
     }
   });
 
