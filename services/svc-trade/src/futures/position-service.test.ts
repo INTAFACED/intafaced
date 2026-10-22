@@ -434,6 +434,42 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     expect(bus.emitted('positionUpdated')).toHaveLength(2);
   });
 
+  it('positionUpdated idempotency key is the business state, not the wall clock', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-position-service.test-idem-key',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const [row] = await sql`
+      SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${pos.id!}`;
+    bus.reset();
+    const publish = (r: unknown) =>
+      (positions as unknown as { publishPositionUpdated(r: unknown): Promise<void> }).publishPositionUpdated(r);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-08-06T12:00:00.000Z'));
+      await publish(row);
+      vi.setSystemTime(new Date('2026-08-06T12:05:00.123Z'));
+      await publish(row);
+      const [a, b] = bus.emitted('positionUpdated');
+      expect(a!.payload.ts).not.toEqual(b!.payload.ts);
+      expect(a!.idempotencyKey).toBe(b!.idempotencyKey);
+      expect(a!.idempotencyKey).toBe(`trade.position.updated:${pos.id}:open:${row!.margin_adjust_seq}`);
+      // A real change of state yields a new key.
+      await publish({ ...row, margin_adjust_seq: Number(row!.margin_adjust_seq) + 1 });
+      await publish({ ...row, status: 'closed' });
+      const keys = bus.emitted('positionUpdated').map((e) => e.idempotencyKey);
+      expect(new Set(keys).size).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── D-S-01: a price that moves money is never supplied by the party it pays ──
 
   /**

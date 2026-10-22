@@ -2202,7 +2202,9 @@ export class PositionService {
         closingReason: row.status === 'closing' ? (row.closing_reason ?? null) : null,
         ts,
       },
-      { idempotencyKey: `trade.position.updated:${row.id}:${row.status}:${ts}` },
+      // Business key, never the clock (AGENTS.md Money 4): a retry of the same
+      // transition must dedupe. `ts` stays in the payload only.
+      { idempotencyKey: `trade.position.updated:${row.id}:${row.status}:${row.margin_adjust_seq}` },
     );
   }
 
