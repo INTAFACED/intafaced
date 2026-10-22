@@ -2,7 +2,7 @@
 -- reuses it. A filter is not money and holds no balance. The name is the business key per customer: saving the same
 -- name with the same filter replays, with a different filter it is refused.
 --
--- Reversal: 0047_activity_saved_filters.down.sql
+-- Reversal: 0049_activity_saved_filters.down.sql
 
 CREATE TABLE IF NOT EXISTS "bank"."activity_saved_filters" (
   "user_id" uuid NOT NULL,
