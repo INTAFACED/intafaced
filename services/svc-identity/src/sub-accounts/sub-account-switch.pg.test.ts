@@ -205,7 +205,8 @@ if (!available) {
     const cross = await refusal(
       strangerCaller.subAccounts.setSignIn({ subAccountId: theirs, enabled: true, stepUpApprovalId: b, clientRequestId: e }),
     );
-    expect(['identity.step_up_target', 'identity.step_up_not_yours']).toContain(cross.code);
+    // The payload hash binds the actor and the sub-account, so it fails on the hash before the requester check.
+    expect(cross.code).toBe('identity.step_up_target');
     expect(
       (await refusal(strangerCaller.subAccounts.setSignIn({ subAccountId: id, enabled: true, stepUpApprovalId: b, clientRequestId: e })))
         .code,
