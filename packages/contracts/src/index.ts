@@ -73,4 +73,5 @@ export * from './support-merge.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';
 export * from './bank-card-funds.js';
+export * from './bank-schedules.js';
 export * from './asset-registry.js';
