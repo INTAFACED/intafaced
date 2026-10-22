@@ -1053,6 +1053,9 @@ function serviceDefs(secrets) {
         // the verification-code lifetime is the .env.example value.
         NOTIFY_MAX_DELIVERY_ATTEMPTS: '3',
         NOTIFY_VERIFY_TTL_MINUTES: '15',
+        // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
+        // and every create is refused (notify.alert_quota_unset) until then.
+        NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
       }),
     },
     {
