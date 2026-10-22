@@ -14,6 +14,8 @@
  * trade at take, and a take can still refuse for insufficient balance.
  */
 
+import { compare, parseAmount } from '@intafaced/ledger-client';
+
 export type AdCreateTermsCode = 'p2p.config_unset' | 'p2p.terms_not_accepted' | 'p2p.insufficient_balance';
 
 export class AdCreateTermsError extends Error {
@@ -58,25 +60,21 @@ export function offerCreateIdempotencyKey(userId: string, clientRequestId: strin
   return `p2p:offer-create:${u}:${c}`;
 }
 
-const DECIMAL = /^\d+(\.\d+)?$/;
-
-function scaled(a: string, b: string): [bigint, bigint] {
-  const [ai, af = ''] = a.split('.');
-  const [bi, bf = ''] = b.split('.');
-  const n = Math.max(af.length, bf.length);
-  return [BigInt(ai + af.padEnd(n, '0')), BigInt(bi + bf.padEnd(n, '0'))];
-}
-
 /**
  * Advisory: the ad total must not exceed the ledger available balance.
  * Exact decimal strings only; anything unparseable refuses.
  */
 export function assertAdvisoryBalance(total: string, available: string | null | undefined): void {
-  if (typeof available !== 'string' || !DECIMAL.test(available) || !DECIMAL.test(total)) {
+  if (typeof available !== 'string' || !/^\d+(\.\d+)?$/.test(available) || !/^\d+(\.\d+)?$/.test(total)) {
     throw new AdCreateTermsError('Available balance could not be read.', 'p2p.insufficient_balance', '0');
   }
-  const [t, a] = scaled(total, available);
-  if (t > a) {
+  let over: boolean;
+  try {
+    over = compare(parseAmount(total), parseAmount(available)) > 0;
+  } catch {
+    throw new AdCreateTermsError('Available balance could not be read.', 'p2p.insufficient_balance', '0');
+  }
+  if (over) {
     throw new AdCreateTermsError('Total is above your available balance.', 'p2p.insufficient_balance', available);
   }
 }
