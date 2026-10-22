@@ -73,6 +73,8 @@ const migrations = readdirSync(drizzle)
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
 const USER_C = '33333333-3333-4333-8333-333333333333';
+/** An id identity does not know: the only kind of "missing" recipient there is. */
+const NO_SUCH_USER = '77777777-7777-4777-8777-777777777777';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -249,7 +251,10 @@ describe('svc-bank money PG-hard', () => {
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
-    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients: memoryRecipientState() });
+    bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState({ [NO_SUCH_USER]: 'not_found' }),
+    });
     router = createBankRouter(bank);
   }, 30_000);
 
@@ -321,6 +326,27 @@ describe('svc-bank money PG-hard', () => {
 
       const unnamed = await bank.spaces.unnamedAssets(USER_A);
       expect(unnamed).toEqual([{ assetId: 'BTC', balance: '0.25' }]);
+    });
+
+    it('lists the main account of every asset the user holds, even when the money never came through the bank', async () => {
+      // A deposit or a fill credits the user's main account directly; no space row exists for it yet.
+      await fund(USER_A, 'USDT', '100');
+      await fund(USER_A, 'BTC', '0.25');
+      const overview = await bank.spaces.overview(USER_A, undefined, 50);
+      expect(overview.map((s) => [s.assetId, s.kind, s.balance])).toEqual([
+        ['BTC', 'primary', '0.25'],
+        ['USDT', 'primary', '100'],
+      ]);
+      expect(await bank.spaces.overview(USER_A, undefined, 50)).toHaveLength(2);
+      expect(await sql`SELECT id FROM bank.spaces WHERE user_id = ${USER_A}`).toHaveLength(2);
+      // Asking for one asset opens only that one; an asset with nothing in it opens nothing.
+      await fund(USER_B, 'USDT', '1');
+      await fund(USER_B, 'EUR', '2');
+      expect((await bank.spaces.overview(USER_B, 'USDT', 50)).map((s) => s.assetId)).toEqual(['USDT']);
+      expect(await bank.spaces.findPrimary(USER_B, 'EUR')).toBeNull();
+      expect(await bank.spaces.overview(USER_C, undefined, 50)).toEqual([]);
+      // No value moved: labels only.
+      expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
     it('archiving a space moves no value', async () => {
@@ -547,12 +573,27 @@ describe('svc-bank money PG-hard', () => {
         bank.transfers.transferToUser({
           transferId: 'user-transfer-missing',
           fromSpaceId: a.id,
-          toUserId: USER_C,
+          toUserId: NO_SUCH_USER,
           amount: amt('10'),
         }),
       ).rejects.toMatchObject({ code: 'bank.recipient_cannot_receive' });
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
       expect(await availableOf(USER_A, 'USDT')).toBe('50');
+      expect(await bank.spaces.findPrimary(NO_SUCH_USER, 'USDT')).toBeNull();
+    });
+
+    it('pays a member who has never held the asset: their main account opens on the first credit, once', async () => {
+      const a = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await fund(USER_A, 'USDT', '50');
+      expect(await bank.spaces.findPrimary(USER_B, 'USDT')).toBeNull();
+      const send = { transferId: 'user-transfer-first-credit', fromSpaceId: a.id, toUserId: USER_B, amount: amt('20') };
+      const first = await bank.transfers.transferToUser(send);
+      const again = await bank.transfers.transferToUser(send);
+      expect(again.ledgerTxId).toBe(first.ledgerTxId);
+      expect(await availableOf(USER_A, 'USDT')).toBe('30');
+      expect(await availableOf(USER_B, 'USDT')).toBe('20');
+      expect(await sql`SELECT id FROM bank.spaces WHERE user_id = ${USER_B} AND kind = 'primary'`).toHaveLength(1);
+      expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
     it('transfers to the dest user through ledger-client', async () => {
@@ -605,7 +646,7 @@ describe('svc-bank money PG-hard', () => {
           scheduleId: randomUUID(),
           userId: USER_A,
           fromSpaceId: a.id,
-          toUserId: USER_C,
+          toUserId: NO_SUCH_USER,
           amount: amt('10'),
           cadence: 'monthly',
           startsAt: new Date('2026-01-01T09:00:00Z'),
@@ -615,6 +656,29 @@ describe('svc-bank money PG-hard', () => {
       expect(rows).toHaveLength(0);
       expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
       expect(await availableOf(USER_A, 'USDT')).toBe('50');
+    });
+
+    it('schedules to a member who has never held the asset: the run pays the account the schedule opened', async () => {
+      const a = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await fund(USER_A, 'USDT', '100');
+      expect(await bank.spaces.findPrimary(USER_B, 'USDT')).toBeNull();
+      const schedule = await bank.transfers.scheduleToUser({
+        scheduleId: randomUUID(),
+        userId: USER_A,
+        fromSpaceId: a.id,
+        toUserId: USER_B,
+        amount: amt('25'),
+        cadence: 'monthly',
+        startsAt: new Date('2026-01-01T09:00:00Z'),
+      });
+      const opened = await bank.spaces.findPrimary(USER_B, 'USDT');
+      expect(schedule.toSpaceId).toBe(opened?.id);
+      const now = new Date('2026-01-01T10:00:00Z');
+      expect((await bank.transfers.runDueTransfers({ now, limit: 200 })).settled).toBe(1);
+      expect((await bank.transfers.runDueTransfers({ now, limit: 200 })).settled).toBe(0);
+      expect(await availableOf(USER_A, 'USDT')).toBe('75');
+      expect(await availableOf(USER_B, 'USDT')).toBe('25');
+      expect(ledger.totalsByAsset().USDT).toBe('0');
     });
 
     it('schedules to the dest user and fires through ledger-client', async () => {
@@ -2941,6 +3005,8 @@ describe('svc-bank money PG-hard', () => {
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
         'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',
         'personal_transfer_terms.fee': 'a published POLICY fee, not a collected balance',
+        'limit_increase_requests.requested': 'the limit a customer ASKED for; a request, never a balance',
+        'limit_increase_requests.granted': 'a POLICY ceiling compliance granted one customer; no money path writes it',
         'personal_requests.amount': 'the amount asked for, an instruction until paid',
         'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
         'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',

@@ -29,7 +29,7 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 ## Ports
 
-Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Customer 3210. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
+Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Customer 3210. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
 
 State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
 
@@ -47,7 +47,7 @@ Placeholders the services refuse to boot without (no owner-published value exist
 
 ## Every Customer door is reachable
 
-Edge answers `502 Connection unavailable` for any route whose service is not running, so the stack starts all 17 backend services the Customer app calls: besides Ledger, Identity, Matching, Trade, Pay and Bank, also **Token** (Token room), **P2P**, **Academy**, **Support**, **Market**, **Notify** (Notifications), **Agents** (Navigator), **Blueprint**, **Quant** and **Execution** (Trade tools). Each is one Node process on `127.0.0.1`, gets the same secrets as the others (edge principal, internal service secret, screening pass-through) and its own Postgres schema and role (`svc_<name>`); Quant and Execution have no tables. `pnpm local:stack:test` fails if any route in `services/svc-edge/src/routes.ts`, or any module the Customer app calls, points at a service the stack does not start and is not listed (with a reason) in `EDGE_ABSENT` in the script.
+Edge answers `502 Connection unavailable` for any route whose service is not running, so the stack starts all 18 backend services the Customer app calls: besides Ledger, Identity, Matching, Trade, Pay and Bank, also **Token** (Token room), **P2P**, **Academy**, **Support**, **Market**, **Notify** (Notifications), **Agents** (Navigator), **Blueprint**, **Quant** and **Execution** (Trade tools), and **Tax** (profit and loss, the lot book over ledger reads). Each is one Node process on `127.0.0.1`, gets the same secrets as the others (edge principal, internal service secret, screening pass-through) and its own Postgres schema and role (`svc_<name>`); Quant, Execution and Tax have no tables. `pnpm local:stack:test` fails if any route in `services/svc-edge/src/routes.ts`, or any module the Customer app calls, points at a service the stack does not start and is not listed (with a reason) in `EDGE_ABSENT` in the script.
 
 "Reachable" means the door answers with the service's own responses. These parts stay **not connected** on purpose, because they need a real outside provider or an owner decision, and the service says so by name instead of inventing an answer:
 
@@ -64,9 +64,25 @@ Edge answers `502 Connection unavailable` for any route whose service is not run
 | Token              | Emissions, yield, buyback | Background jobs off, like Bank's.                                                                                                                                                       |
 | Mining             | The whole service         | Not started: `svc-mining-pool` listens on `0.0.0.0` in its code, which breaks the loopback-only rule. The Mining room is a static "unavailable" page; its health probe answers 502.     |
 
-Not started because the Customer app never calls them: Protocol, DEX, Indexer, Tax, Ops (operator back-office) and the data-lake door.
+Not started because the Customer app never calls them: Protocol, DEX, Indexer, Ops (operator back-office) and the data-lake door.
 
 Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` and `LOCAL_TEST_KMS_DIR` to `<state>/p2p-kms`. The first boot writes `p2p-instrument.local-test.key` there, mode 0600, and seals new instrument details as `{"_sealed":"local-test:v1:..."}`. Health keeps `instrumentKmsConfigured: false` and adds `instrumentKeyProvider: "local-test"`. This is not owner KMS. `P2P_FEE_BPS=0` is an explicit LOCAL TEST free cut, the same kind of published zero as `MARKET_HOUSE_COMMISSION_BPS=0` in `.env.example`: `trades.take` posts a 0 bps cut, so the buyer receives the whole amount, instead of refusing `p2p.fee_bps_unset`. Undo: unset `LOCAL_TEST_KMS` and `LOCAL_TEST_KMS_DIR`, then `pnpm local:stack:restart p2p`. After that restart a sealed row refuses with `p2p.instrument_kms_required` and is not returned as account details. No other service gets either variable.
+
+## A fresh stack, or a cloud container (root)
+
+A wiped state folder trades only after five steps, in this order (the journeys workflow runs the same):
+
+```sh
+pnpm local:stack                                         # services up; the founders enrol
+node tooling/scripts/local-test-stack.mjs restart matching # matching reads its operator seats at start
+node tooling/scripts/local-test-gates.mjs apply           # lifecycle publication, then the markets open
+pnpm local:market                                        # refuses closed markets; creates its two TEST accounts
+node tooling/scripts/local-test-gates.mjs verify          # verifies those accounts, so their quotes are accepted
+```
+
+The first BTC/USDT trade, and so the first candle, follows within about a minute.
+
+As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
 
 ## Screening
 

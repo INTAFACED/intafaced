@@ -22,7 +22,13 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-options.js';
+import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
+import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
+import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { MerchantSecurity } from './security.js';
+import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
@@ -55,6 +61,8 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** Chargeback transactions by key, for the read-only dispute funds card. Absent: that read refuses. */
+  readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
   readonly teamEmailInvite?: TeamEmailInviteLimit;
   /**
@@ -75,6 +83,8 @@ function makeParts(deps: MerchantOpsDeps) {
     ? {
         sql,
         team: new TeamService(sql, deps.teamEmailInvite),
+        security: new MerchantSecurity(sql),
+        disputeStore: deps.disputes ?? defaultDisputeCaseStore,
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
@@ -133,6 +143,27 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.list(await callerOf(ctx), input))),
         summary: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().disputes.summary(await callerOf(ctx)))),
+        /** M-disp-02: what a contest would send now, what is missing, and the rail's due date. Writes nothing. */
+        reviewDraft: read
+          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
+          .query(({ ctx, input }) =>
+            wrapOps(async () =>
+              new DisputeEvidenceDraft(need().sql, need().disputeStore).reviewDraft(await callerOf(ctx), input.disputeId),
+            ),
+          ),
+        /** M-disp-02: plain-words meaning and recommended evidence for a reason category. Static; no merchant data. */
+        guidance: read.input(z.object({ reason: z.enum(DISPUTE_REASON_CATEGORIES) })).query(({ ctx, input }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return disputeGuidance(input.reason);
+          }),
+        ),
+        /** M-disp-01: where the money is. Reads the chargeback posts by their dispute keys; posts nothing. */
+        funds: read
+          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
+          .query(({ ctx, input }) =>
+            wrapOps(async () => readDisputeFunds(await callerOf(ctx), need().disputeStore, deps.disputeFundsLedger, input.disputeId)),
+          ),
         get: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.get(await callerOf(ctx), input.disputeId))),
@@ -226,6 +257,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         send: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.send(await callerOf(ctx), input))),
+        /** M-bill-07: copy a draft into a new draft (same lines, no link, payer email not copied). */
+        duplicate: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.duplicate(await callerOf(ctx), input))),
         void: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
@@ -259,6 +294,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(merchantCustomerSeriesInputSchema)
           .output(merchantCustomerSeriesSchema)
           .query(({ ctx, input }) => wrapOps(async () => need().customers.series(await callerOf(ctx), input))),
+      }),
+
+      /** Team-wide sign-in rule (M-plat-org-06). Members read it; only the owner changes it. svc-identity enforces it. */
+      security: router({
+        get: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().security.get(await callerOf(ctx)))),
+        setRequireMfa: write
+          .input(z.object({ requireMfa: z.boolean(), expectedRevision: z.number().int().min(0) }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().security.setRequireMfa(await callerOf(ctx), input))),
       }),
 
       team: router({
@@ -317,6 +360,33 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         ),
       }),
 
+      /** M-plat-org-03: the built-in roles and what each can do, read from the role table. Built-in roles have no write. */
+      permissions: router({
+        catalogue: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return permissionCatalogue();
+          }),
+        ),
+        /** Mounted on the read scope on purpose: a read-only caller gets the named refusal too, not a scope error. It never writes. */
+        updateRole: read.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return refuseBuiltInRoleEdit();
+          }),
+        ),
+      }),
+
+      /** M-disp-05: the default risk rules in plain words, from fraud-policy.ts. Read only; enforces nothing. */
+      risk: router({
+        policy: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return merchantRiskPolicy();
+          }),
+        ),
+      }),
+
       kyb: router({
         current: onboardOrRead
           .input(z.object({}).strict())
@@ -340,16 +410,30 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .array(z.string().regex(/^[a-z_]{1,64}$/))
                 .max(32)
                 .optional(),
+              /** M-rep-01: local days in a time zone; the server computes the UTC boundaries. Not combined with filters.from/to. */
+              period: z
+                .object({
+                  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  timeZone: z.string().trim().min(1).max(64),
+                })
+                .strict()
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
-              const result = await p.exports.create(await callerOf(ctx), input);
+              const caller = await callerOf(ctx);
+              const { period, ...rest } = input;
+              const filters = period ? zonedFilters(rest.filters, period, new Date()) : rest.filters;
+              const result = await p.exports.create(caller, { ...rest, filters });
               if (result.created) kick(result.job.jobId, () => p.exports.process(result.job.jobId));
               return result.job;
             }),
           ),
+        /** M-rep-01: per kind, the date basis and the columns this caller's role may pick; formats offered. */
+        options: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => reportOptions(await callerOf(ctx)))),
         list: read
           .input(
             z.object({

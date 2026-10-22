@@ -473,6 +473,12 @@ export type TradeErrorCode =
   | 'trade.paper_fill_refused'
   | 'trade.hold_uncovered'
   /**
+   * An engine cancel event says part of the order filled, and that fill is not
+   * in `trade.fills` yet. Releasing now would hand back the hold the fill is
+   * about to spend. Hold stays; the bus redelivers the cancel, within its delivery budget.
+   */
+  | 'trade.cancel_ahead_of_fill'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */
@@ -557,6 +563,10 @@ export type TradeErrorCode =
   /** Mark policy key blank at creation. Names `AlgoMarkPolicy.maxAgeSeconds`. */
   | 'trade.algo_mark_policy_unset'
   | 'trade.algo_insufficient_balance'
+  /** CB-bots-10: the owner has not set the verification level bots need. Every bot create refuses. */
+  | 'trade.bots_verification_level_not_set'
+  /** CB-bots-10: the caller's verification tier is below the owner's level for bots. `data.required` names it. */
+  | 'trade.bots_verification_insufficient'
   /** Ledger balance read failed at creation. Never treated as enough funds. */
   | 'trade.algo_balance_unreadable'
   | 'trade.algo_child_refused'

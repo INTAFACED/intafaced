@@ -7,6 +7,7 @@ import {
   type TradingAdmissionPort,
   type TradingOperationKind,
 } from '../controls/trading-controls.js';
+import type { BotVerificationPolicy } from '../algo/bots-verification.js';
 import { businessPayload } from '../controls/business-payload.js';
 import type { Timeframe } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
@@ -295,6 +296,12 @@ export interface TradeServiceOptions {
    * creation gate refuses it — this field does not invent a replacement.
    */
   algoMarkPolicy?: AlgoMarkPolicy;
+  /**
+   * CB-bots-10 verification gate for every bot create. The boot passes `loadBotVerificationPolicy(process.env)` (required by
+   * default; a blank level refuses every bot). Omitted: fails closed as `{ mode: 'required', level: null }`, so every bot
+   * create refuses `trade.bots_verification_level_not_set`. Only an explicit `{ mode: 'off' }` turns the gate off.
+   */
+  botVerification?: BotVerificationPolicy;
   /**
    * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
    * and refuses `trade.missing_mark`. Never a customer value.
@@ -763,6 +770,7 @@ export class TradeService {
   private readonly futuresSettleAssets: readonly string[];
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
+  private readonly botVerification: BotVerificationPolicy;
   private readonly algoMarkPolicy: AlgoMarkPolicy;
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
@@ -819,6 +827,8 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
+    // Omitted = fail closed: required with no level set refuses every bot create.
+    this.botVerification = options.botVerification ?? { mode: 'required', level: null };
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
@@ -4519,14 +4529,44 @@ export class TradeService {
    * is fixed per order, so a redelivered `order.cancelled` cannot release
    * twice.
    */
-  async releaseOnCancelEvent(orderId: string): Promise<void> {
+  async releaseOnCancelEvent(orderId: string, remainingQty: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
       // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
       // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
       // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
       if (ocoLegParent(orderId) !== null) return;
+      await this.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
       await this.finalize(orderId, 'cancelled');
     });
+  }
+
+  /**
+   * The same race for an ordinary order. An IOC that partly fills produces a fill event and a cancel event
+   * for its remainder at the same moment, on two consumers. If the cancel is handled first, `finalize`
+   * finds no fill row, releases the whole hold, and the fill's `tradeFill` then fails on an empty hold:
+   * the engine matched, the money never moved, and the counterparty's order stays open with its hold.
+   * The engine says how much filled (`qty - remainingQty`); until `trade.fills` shows at least that, refuse,
+   * so the hold stays and the bus redelivers the cancel after the fill settles.
+   *
+   * If the fill never settles inside the redelivery budget, the cancel is abandoned and the hold stays with
+   * the order: money stays where it can be found rather than going back while a fill is owed. A submission
+   * also finalizes its own IOC, market and self-trade remainders inline after its fills, so this consumer is
+   * the recovery path, not the normal one. A house market-maker stub row (qty is its first fill, not the
+   * engine size) and an amend that has not committed yet read as "nothing more filled"; both behave as before.
+   */
+  private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
+    const order = await this.findOrder(orderId);
+    // The same statuses `finalize` acts on; any other is terminal and a no-op there.
+    if (!order || (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required')) return;
+    const engineFilled = sub(order.qty, remainingQty);
+    if (engineFilled <= 0n) return;
+    const recorded = (await this.fillEvidence(orderId)).qty;
+    if (recorded >= engineFilled) return;
+    throw new TradeError(
+      `order ${orderId}: the engine filled ${formatAmount(engineFilled)} but ${formatAmount(recorded)} is settled; the cancel waits for the fill`,
+      'trade.cancel_ahead_of_fill',
+      { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
+    );
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
@@ -5230,6 +5270,7 @@ export class TradeService {
       input: createInput,
       bid,
       ask,
+      verification: { policy: this.botVerification, tier: principal.tier },
     });
 
     // A preview must not emit the store callback or expose an active parent

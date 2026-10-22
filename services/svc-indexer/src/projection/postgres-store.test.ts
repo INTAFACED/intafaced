@@ -8,6 +8,7 @@ import { formatAmount } from '@intafaced/ledger-client/money';
 import { PostgresProjectionStore } from './postgres-store.js';
 import { CHAIN_ID, runProjectionConformance } from '../testing/conformance.js';
 import type { ChainBlock } from '../chain/source.js';
+import { listPage, parseExplorerListLimit } from '../explorer/blocks.js';
 
 /**
  * The Postgres store runs the SAME conformance suite as the in-memory
@@ -163,6 +164,105 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         WHERE table_schema = ${db.schema} AND table_name = 'book_levels' AND column_name = 'quantity'
       `;
       expect(row).toMatchObject({ data_type: 'numeric', numeric_precision: 38, numeric_scale: 18 });
+    });
+
+    it('D-explorer-01: limit-1 walk lists canonical and orphan at one height', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const h = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(32)}`;
+      const header = { gasUsed: 1n, gasLimit: 2n, baseFeePerGas: 1n, miner: `0x${'cd'.repeat(20)}`, txCount: 0, size: 1 };
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 0,
+        hash: h(0x60),
+        parentHash: `0x${'00'.repeat(32)}`,
+        timestamp: 1_700_000_000,
+        events: [],
+        header,
+      });
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 1,
+        hash: h(0x61),
+        parentHash: h(0x60),
+        timestamp: 1_700_000_001,
+        events: [],
+        header,
+      });
+      // Orphan the first height-1 block, then the canonical replacement.
+      await db.sql`UPDATE blocks SET status = 'orphaned' WHERE chain_id = ${CHAIN_ID} AND hash = ${h(0x61)}`;
+      await store.applyBlock({
+        chainId: CHAIN_ID,
+        height: 1,
+        hash: h(0x62),
+        parentHash: h(0x60),
+        timestamp: 1_700_000_002,
+        events: [],
+        header,
+      });
+      const source = {
+        listLimit: parseExplorerListLimit('1'),
+        blocks: (q: { cursor?: number; limit: number }) => store.explorerBlocks(q),
+        atHeight: (n: number) => store.explorerAtHeight(n),
+        block: (q: { height: number } | { hash: string }) => store.explorerBlock(q),
+      };
+      const seen: Array<[number, string, boolean]> = [];
+      let cursor: number | undefined;
+      for (let i = 0; i < 10; i++) {
+        const page = await listPage(source, { cursor, limit: 1 });
+        seen.push(...page.rows.map((r): [number, string, boolean] => [r.height, r.hash, r.orphaned !== null]));
+        if (page.nextCursor === null) break;
+        cursor = page.nextCursor;
+      }
+      expect(seen).toEqual([
+        [1, h(0x62), false],
+        [1, h(0x61), true],
+        [0, h(0x60), false],
+      ]);
+    });
+
+    it('D-explorer-01: header facts stored with the block; DB paging and lookup; FK holds', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const hash = (n: number) => `0x${n.toString(16).padStart(2, '0').repeat(32)}`;
+      const header = { gasUsed: 21_000n, gasLimit: 30_000_000n, baseFeePerGas: null, miner: `0x${'ab'.repeat(20)}`, txCount: 1, size: 612 };
+      let parent = `0x${'00'.repeat(32)}`;
+      for (let h = 0; h < 4; h++) {
+        await store.applyBlock({
+          chainId: CHAIN_ID,
+          height: h,
+          hash: hash(0x50 + h),
+          parentHash: parent,
+          timestamp: 1_700_000_000 + h,
+          events: [],
+          ...(h === 3 ? {} : { header }),
+        });
+        parent = hash(0x50 + h);
+      }
+      // Height 3 has no header: never stored as a partial fact row.
+      const first = await store.explorerBlocks({ limit: 2 });
+      expect(first.map((f) => f.height)).toEqual([2, 1, 0]);
+      expect(first[0]).toEqual({
+        chainId: CHAIN_ID,
+        height: 2,
+        hash: hash(0x52),
+        gasUsed: 21_000n,
+        gasLimit: 30_000_000n,
+        baseFeePerGas: null,
+        miner: header.miner,
+        txCount: 1,
+        size: 612,
+        timestamp: 1_700_000_002,
+        orphaned: null,
+      });
+      expect((await store.explorerBlocks({ cursor: 1, limit: 2 })).map((f) => f.height)).toEqual([0]);
+      expect((await store.explorerBlock({ height: 1 }))?.hash).toBe(hash(0x51));
+      expect((await store.explorerBlock({ hash: hash(0x50) }))?.height).toBe(0);
+      expect(await store.explorerBlock({ height: 3 })).toBeNull();
+      expect(await store.explorerBlock({ height: 999_999_999 })).toBeNull();
+      await expect(
+        db.sql`INSERT INTO explorer_block_facts (chain_id, hash, gas_consumed, gas_limit, miner, tx_count, size) VALUES (${CHAIN_ID}, ${hash(0x99)}, 1, 1, ${header.miner}, 0, 0)`,
+      ).rejects.toThrow(/foreign key/);
     });
 
     /**
@@ -395,7 +495,7 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         ).map((r) => r.table_name);
 
       const before = await tableNames();
-      expect(before).toEqual(['blocks', 'book_levels', 'fills', 'positions']);
+      expect(before).toEqual(['blocks', 'book_levels', 'explorer_block_facts', 'fills', 'positions']);
 
       for (const body of [...downFiles].reverse()) {
         await db.sql.unsafe(rewriteSchemaSql(body, 'indexer', db.schema));

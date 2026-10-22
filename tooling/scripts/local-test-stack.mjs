@@ -12,7 +12,7 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution) · svc-edge · a small Customer
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
  *   static server + reverse proxy on http://127.0.0.1:3210
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -41,6 +41,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
+  FOUNDER_VAULT_NAME,
+  enrolledFounderPair,
   ensureFounderVaultDraft,
   enrolTestStackFounders,
   founderIdentityEnv,
@@ -51,10 +53,12 @@ import {
 } from './local-test-founders.mjs';
 import {
   localStackState,
+  localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
   readProcessIdentity,
   postgresProcessMatches,
+  localPgOsUser,
 } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
@@ -102,6 +106,7 @@ const PORTS = {
   blueprint: 14514,
   quant: 14515,
   execution: 14516,
+  tax: 14517,
   customer: 3210,
 };
 const HOST = '127.0.0.1';
@@ -142,8 +147,8 @@ const NATS_PRIOR =
   ) ?? '/tmp/intafaced-product-vitality-2026-10-10/account-test';
 const NATS_ZIP = 'nats-server-v2.10.24-darwin-arm64.zip';
 
-const PG_BIN =
-  process.env.LOCAL_STACK_PG_BIN ?? (fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin');
+const PG_BIN = localPgBin();
+const PG_OS_USER = localPgOsUser();
 const PNPM_PATH = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':');
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -215,11 +220,14 @@ const SECRET_NAMES = [
   'payCryptoWebhook',
   'payCardWebhook',
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
+  'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
 ];
 
 function loadOrCreateSecrets() {
+  // As root, the folders the stack creates above STATE stay traversable for the database's OS user (preparePgPaths).
+  if (PG_OS_USER) fs.mkdirSync(path.dirname(STATE), { recursive: true, mode: 0o711 });
   fs.mkdirSync(STATE, { recursive: true, mode: 0o700 });
-  fs.chmodSync(STATE, 0o700);
+  fs.chmodSync(STATE, PG_OS_USER ? 0o711 : 0o700);
   for (const d of [P.run, P.logs, P.data, P.bin, path.join(STATE, 'tmp')]) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
   let s = {};
   if (fs.existsSync(P.secrets)) s = readJson(P.secrets);
@@ -238,17 +246,26 @@ const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
 const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
 
-/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+/**
+ * User ids of the two LOCAL TEST operators and, once enrolled, the two local founders (comma-separated), or '' while
+ * none exist yet. The founders approve founder-only actions such as opening a book, so matching must seat them too.
+ */
 function localOperatorIds() {
+  let ops = {};
   try {
-    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
-    return ['a', 'b']
-      .map((k) => ops[k]?.userId)
-      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
-      .join(',');
+    ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
   } catch {
-    return '';
+    /* no operators yet */
   }
+  let vault = null;
+  try {
+    vault = readJson(path.join(STATE, FOUNDER_VAULT_NAME));
+  } catch {
+    /* no founder vault yet */
+  }
+  const founders = enrolledFounderPair(vault) ?? [];
+  const ids = [...['a', 'b'].map((k) => ops[k]?.userId), ...founders.map((f) => f.userId)];
+  return [...new Set(ids.filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id)))].join(',');
 }
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
@@ -315,13 +332,48 @@ function pgRunning() {
   return directory === P.pgdata && postgresProcessMatches(P.pgdata, Number(started) * 1000, readProcessIdentity(Number(pid)));
 }
 
+/** A command as the caller or, when the caller is root, as PG_OS_USER (initdb and postgres refuse root). */
+function asPgUser(cmd, args, options) {
+  // runuser lives in /usr/sbin or /sbin, which baseEnv()'s PATH leaves out on purpose.
+  const runuser = PG_OS_USER && ['/usr/sbin/runuser', '/sbin/runuser'].find((f) => fs.existsSync(f));
+  if (PG_OS_USER && !runuser) fail(`running as root needs runuser to start Postgres as ${PG_OS_USER}`);
+  const r = PG_OS_USER ? spawnSync(runuser, ['-u', PG_OS_USER, '--', cmd, ...args], options) : spawnSync(cmd, args, options);
+  if (r.error) fail(`${path.basename(cmd)} could not start: ${r.error.message}`);
+  return r;
+}
+const pgServerTool = (tool, args, options) => asPgUser(`${PG_BIN}/${tool}`, args, options);
+
+/**
+ * As root, hand the database's own paths to PG_OS_USER: its data directory, socket directory and log. The state
+ * folders above them open for traversal only (0711), so secrets.json and the other 0600 files stay root's.
+ */
+function preparePgPaths(extra = []) {
+  if (!PG_OS_USER) return;
+  const ids = (flag) => Number(spawnSync('id', [flag, PG_OS_USER], { encoding: 'utf8' }).stdout.trim());
+  const uid = ids('-u');
+  const gid = ids('-g');
+  if (!Number.isInteger(uid) || uid <= 0)
+    fail(`running as root, but there is no OS user ${PG_OS_USER} to run Postgres as (set LOCAL_STACK_PG_USER)`);
+  for (const d of [STATE, P.data, P.logs]) fs.chmodSync(d, 0o711);
+  fs.mkdirSync(P.pgdata, { recursive: true, mode: 0o700 });
+  const log = path.join(P.logs, 'postgres.log');
+  if (!fs.existsSync(log)) fs.writeFileSync(log, '', { mode: 0o600 });
+  for (const f of [P.pgdata, P.run, log, ...extra]) fs.chownSync(f, uid, gid);
+  if (asPgUser('/usr/bin/test', ['-w', P.pgdata], {}).status !== 0)
+    fail(
+      `the OS user ${PG_OS_USER} cannot reach ${P.pgdata}; set LOCAL_STACK_STATE to a folder whose parents it can enter, for example /var/lib/intafaced/local-test-stack`,
+    );
+}
+
 function ensurePostgres(secrets) {
   if (!fs.existsSync(path.join(P.pgdata, 'PG_VERSION'))) {
     say('  postgres: first run, initialising a dedicated data directory');
     const pwfile = path.join(STATE, 'tmp', 'pg-admin.pw');
     writePrivate(pwfile, `${secrets.pgAdmin}\n`);
-    const r = spawnSync(
-      `${PG_BIN}/initdb`,
+    if (PG_OS_USER) fs.chmodSync(path.join(STATE, 'tmp'), 0o711);
+    preparePgPaths([pwfile]);
+    const r = pgServerTool(
+      'initdb',
       [
         '-D',
         P.pgdata,
@@ -339,8 +391,9 @@ function ensurePostgres(secrets) {
     if (r.status !== 0) fail(`initdb failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
   }
   if (!pgRunning()) {
-    const r = spawnSync(
-      `${PG_BIN}/pg_ctl`,
+    preparePgPaths();
+    const r = pgServerTool(
+      'pg_ctl',
       ['-D', P.pgdata, '-l', path.join(P.logs, 'postgres.log'), '-o', `-p ${PORTS.postgres} -h ${HOST} -k ${P.run}`, '-w', 'start'],
       { encoding: 'utf8', env: baseEnv() },
     );
@@ -443,6 +496,7 @@ const BACKEND_PKGS = [
   'svc-blueprint',
   'svc-quant',
   'svc-execution',
+  'svc-tax',
 ];
 
 function gitHead() {
@@ -688,6 +742,7 @@ const EDGE_UPSTREAMS = {
   MARKET_URL: 'market',
   EXECUTION_URL: 'execution',
   QUANT_URL: 'quant',
+  TAX_URL: 'tax',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -697,7 +752,6 @@ const EDGE_ABSENT = {
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
-  TAX_URL: 'Tax reporting; the Customer app never calls /api/tax.',
   OPS_URL: 'Back-office CRM and analytics for operators; not a customer door.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
@@ -750,6 +804,18 @@ function serviceDefs(secrets) {
         IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
         IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
         IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
+        // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
+        // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
+        // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
+        // journey can show the per-country switch refusing; it says nothing about any real country.
+        IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
+        IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
+        IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
+        IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
+        IDENTITY_SIGNUP_RESEND_SECONDS: '30',
+        IDENTITY_SIGNUP_REQUEST_MAX: '10',
+        IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
+        IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
@@ -999,6 +1065,12 @@ function serviceDefs(secrets) {
         EXECUTION_EMS_STORE_PATH: path.join(P.data, 'execution', 'ems-orders.ndjson'),
         // EXECUTION_VENUE_IDS empty: no outside venue, so nothing can route off-platform.
       }),
+    },
+    {
+      // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
+      // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
+      name: 'tax',
+      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
     },
     {
       name: 'edge',
@@ -1354,7 +1426,7 @@ async function cmdStop(names = []) {
     return;
   }
   if (pgRunning()) {
-    const r = spawnSync(`${PG_BIN}/pg_ctl`, ['-D', P.pgdata, '-m', 'fast', '-w', 'stop'], { encoding: 'utf8', env: baseEnv() });
+    const r = pgServerTool('pg_ctl', ['-D', P.pgdata, '-m', 'fast', '-w', 'stop'], { encoding: 'utf8', env: baseEnv() });
     say(`  postgres: ${r.status === 0 ? 'stopped' : `stop failed: ${r.stderr.trim()}`}`);
     if (r.status !== 0) bad = true;
   } else {
