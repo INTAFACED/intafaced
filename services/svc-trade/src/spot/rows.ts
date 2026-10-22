@@ -106,7 +106,7 @@ export function toMarket(row: MarketRow): Market {
 
 export interface OrderRow {
   id: string;
-  /** 0085. Absent on rows read by an older SELECT list. */
+  /** 0088. Absent on rows read by an older SELECT list. */
   requested_price?: string | null;
   user_id: string;
   sub_account_id: string | null;
