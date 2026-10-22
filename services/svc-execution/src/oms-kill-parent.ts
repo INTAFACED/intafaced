@@ -2,6 +2,7 @@
  * Operator kill — stop one live TWAP/VWAP/POV parent.
  *
  * Reuses cancel-remaining. Children stop or the outcome is unknown.
+ * An unknown child cancel is not killed: true and does not stop the parent.
  * This door never invents a canceled order, never silent-succeeds a
  * missing parent, and does not touch matching. Claimed parents are in
  * scope (unattended kill is the unowned night-desk door).
@@ -16,7 +17,7 @@ import type { AlgoKind, ApprovedAlgoParentStore } from './oms-start.js';
 
 export type OmsKillParentOk = {
   readonly ok: true;
-  readonly killed: true;
+  readonly killed: boolean;
   readonly parent: { readonly parentClientOrderId: string; readonly kind: AlgoKind };
   readonly children: readonly OmsDrainChild[];
   readonly residual: OmsDrainResidual;
@@ -48,6 +49,10 @@ function liveStatus(status: string): boolean {
 
 function operatorOf(operatorId?: string): string {
   return operatorId?.trim() ?? '';
+}
+
+function childrenKnown(children: readonly OmsDrainChild[]): boolean {
+  return children.every((child) => child.outcome === 'stopped' || child.outcome === 'already_stopped');
 }
 
 export async function killLiveAlgoParent(input: {
@@ -109,20 +114,30 @@ export async function killLiveAlgoParent(input: {
     return cancelled;
   }
 
+  if (!childrenKnown(cancelled.children)) {
+    return {
+      ok: true,
+      killed: false,
+      parent: { parentClientOrderId: existing.parentClientOrderId, kind: existing.kind },
+      children: cancelled.children,
+      residual: cancelled.residual,
+    };
+  }
+
   input.pauseStore.pause({ kind: 'parent', id: parentClientOrderId });
 
-  const killed =
+  const stopped =
     typeof input.parentStore.kill === 'function'
       ? input.parentStore.kill(parentClientOrderId)
       : input.parentStore.stop(parentClientOrderId);
-  if (!killed) {
+  if (!stopped) {
     return refuse('not_live', `parent ${parentClientOrderId} could not be stopped`);
   }
 
   return {
     ok: true,
     killed: true,
-    parent: { parentClientOrderId: killed.parentClientOrderId, kind: killed.kind },
+    parent: { parentClientOrderId: stopped.parentClientOrderId, kind: stopped.kind },
     children: cancelled.children,
     residual: cancelled.residual,
   };

@@ -274,7 +274,7 @@ describe('killLiveAlgoParent', () => {
     expect(parentStore.get('parent-2')?.status).toBe('running');
   });
 
-  it('venue throw is unknown — never invents canceled, never silent success', async () => {
+  it('venue throw is unknown - killed is not true, parent stays live, never invents canceled', async () => {
     const parentStore = new InMemoryApprovedAlgoParentStore();
     parentStore.seed(
       live({
@@ -297,11 +297,11 @@ describe('killLiveAlgoParent', () => {
     });
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    expect(out.killed).toBe(true);
+    expect(out.killed).toBe(false);
     expect(out.children[0]).toMatchObject({ outcome: 'unknown', reason: 'cancel_failed' });
     expect(out.residual).toEqual({ filled: '0', remaining: null });
     expect(out.children.some((c) => c.status === 'canceled')).toBe(false);
-    expect(parentStore.get('parent-twap')?.status).toBe('stopped');
+    expect(parentStore.get('parent-twap')?.status).toBe('running');
   });
 
   it('missing operator / group / missing parent refuse — no silent success, no cancel', async () => {
