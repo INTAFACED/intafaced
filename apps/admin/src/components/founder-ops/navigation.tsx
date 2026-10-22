@@ -6,17 +6,8 @@ export function PageFinder() {
   const dialog = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState('');
   const [ready, setReady] = useState(false);
-  useEffect(() => {
-    setReady(true);
-    const key = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        if (!dialog.current?.open) dialog.current?.showModal();
-      }
-    };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, []);
+  // Ctrl K belongs to the console-wide command palette, which lists these pages too; this button stays for the merchant desk.
+  useEffect(() => setReady(true), []);
   return (
     <>
       <button
@@ -26,7 +17,7 @@ export function PageFinder() {
         title={ready ? undefined : 'Page search is connecting.'}
         onClick={() => dialog.current?.showModal()}
       >
-        Find page <kbd>Ctrl K</kbd>
+        Find page
       </button>
       <dialog className="fo-dialog" ref={dialog}>
         <form method="dialog">

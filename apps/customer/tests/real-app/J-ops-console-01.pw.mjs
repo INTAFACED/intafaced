@@ -44,3 +44,28 @@ test('J-ops-console-01 #5 each of the five desks shows all eight common sections
   await expect(page).toHaveURL(/#loans$/);
   await expect(page.getByTestId('section-loans')).toBeInViewport();
 });
+
+test('J-ops-console-01 #6 Ctrl K and "ledger" lists matching pages and actions, and Enter opens one', async ({ page }) => {
+  await founderSignIn(page, 'a');
+  await page.goto(`${ADMIN}/crm`);
+  // The shortcut works once the page is live; the Search button says so by turning on.
+  await expect(page.getByRole('button', { name: /^Search/ })).toBeEnabled();
+  await page.keyboard.press('Control+k');
+  const palette = page.getByTestId('command-palette');
+  await expect(palette).toBeVisible();
+  await page.keyboard.type('ledger');
+  const options = palette.getByRole('option');
+  await expect(options.first()).toContainText('Ledger ops');
+  await expect(palette.getByRole('option', { name: /Freeze or unfreeze ledger posting/ })).toBeVisible();
+  // Nothing unrelated is listed.
+  await expect(palette.getByRole('option', { name: /^CRM/ })).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/ledger$/);
+  await expect(palette).toHaveCount(0);
+  // Escape closes it without going anywhere.
+  await page.keyboard.press('Control+k');
+  await expect(palette).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(palette).toHaveCount(0);
+  await expect(page).toHaveURL(/\/ledger$/);
+});
