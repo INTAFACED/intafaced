@@ -95,28 +95,23 @@ export const supportSurveySchema = z
   .strict();
 export type SupportSurvey = z.infer<typeof supportSurveySchema>;
 
-export const supportSurveyListSchema = z
-  .object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema) })
-  .strict()
-  .refine((list) => list.surveys.filter((s) => s.active).length <= 1, { path: ['surveys'], message: 'One active survey at a time' });
+const oneActiveSurvey = (list: { surveys: { active: boolean }[] }) => list.surveys.filter((s) => s.active).length <= 1;
+const oneActiveSurveyIssue = { path: ['surveys'], message: 'One active survey at a time' };
+const supportSurveyListObjectSchema = z.object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema) }).strict();
+export const supportSurveyListSchema = supportSurveyListObjectSchema.refine(oneActiveSurvey, oneActiveSurveyIssue);
 export type SupportSurveyList = z.infer<typeof supportSurveyListSchema>;
 
-/** Email delivery is `vendor.email`, NotConnected (allowlisted `edge.upstream_unwired`); surfaced on every survey door. */
-export const SUPPORT_SURVEY_EMAIL_NOT_CONNECTED = 'edge.upstream_unwired' as const;
+/** Email delivery is `vendor.email`, NotConnected: the same `notConnected` shape as svc-notify and kyb-documents. */
 export const supportSurveyEmailDeliverySchema = z
-  .object({ vendor: z.literal('vendor.email'), status: z.literal('not_connected'), code: z.literal(SUPPORT_SURVEY_EMAIL_NOT_CONNECTED) })
+  .object({ status: z.literal('not_connected'), notConnected: z.literal('vendor.email') })
   .strict();
 export type SupportSurveyEmailDelivery = z.infer<typeof supportSurveyEmailDeliverySchema>;
-export const SUPPORT_SURVEY_EMAIL_DELIVERY: SupportSurveyEmailDelivery = {
-  vendor: 'vendor.email',
-  status: 'not_connected',
-  code: SUPPORT_SURVEY_EMAIL_NOT_CONNECTED,
-};
+export const SUPPORT_SURVEY_EMAIL_DELIVERY: SupportSurveyEmailDelivery = { status: 'not_connected', notConnected: 'vendor.email' };
 /** The survey doors' output: the list or survey plus where email delivery stands. */
-export const supportSurveyListViewSchema = z
-  .object({ cap: supportSurveyCapSchema, surveys: z.array(supportSurveySchema), emailDelivery: supportSurveyEmailDeliverySchema })
+export const supportSurveyListViewSchema = supportSurveyListObjectSchema
+  .extend({ emailDelivery: supportSurveyEmailDeliverySchema })
   .strict()
-  .refine((list) => list.surveys.filter((s) => s.active).length <= 1, { path: ['surveys'], message: 'One active survey at a time' });
+  .refine(oneActiveSurvey, oneActiveSurveyIssue);
 export type SupportSurveyListView = z.infer<typeof supportSurveyListViewSchema>;
 export const supportSurveyViewSchema = supportSurveySchema.extend({ emailDelivery: supportSurveyEmailDeliverySchema }).strict();
 export type SupportSurveyView = z.infer<typeof supportSurveyViewSchema>;

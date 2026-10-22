@@ -12,7 +12,6 @@ import { createSupportRouter } from './router.js';
 import { MemorySupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 import { MemorySurveyBook } from './survey-settings.js';
-import { userCopy } from './user-copy.js';
 
 /** SP-csat-02 review fixes: codes in the contracts enum, user copy with code in cause, vendor.email NotConnected surfaced. */
 const authConfig = {
@@ -58,18 +57,18 @@ describe('survey review fixes (SP-csat-02)', () => {
       as.configureSurvey({ surveyId: s.surveyId, expectedRevision: 0, config: { ...config, sendAfterMinutes: 5 } as never, reason: 'x' }),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
-      message: userCopy(SUPPORT_SURVEY_REVISION_STALE),
+      message: 'support.survey_revision_stale',
       cause: { code: SUPPORT_SURVEY_REVISION_STALE },
     });
     await expect(
       as.configureSurvey({ surveyId: '99999999-9999-4999-8999-999999999999', expectedRevision: 0, config: config as never, reason: 'x' }),
-    ).rejects.toMatchObject({ code: 'NOT_FOUND', message: userCopy(SUPPORT_SURVEY_NOT_FOUND), cause: { code: SUPPORT_SURVEY_NOT_FOUND } });
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'support.survey_not_found', cause: { code: SUPPORT_SURVEY_NOT_FOUND } });
   });
 
   it('list and configure surface vendor.email as NotConnected', async () => {
     const as = await lead();
     const s = await as.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never, reason: 'Owner set it' });
-    expect(s.emailDelivery).toEqual({ vendor: 'vendor.email', status: 'not_connected', code: 'edge.upstream_unwired' });
+    expect(s.emailDelivery).toEqual({ status: 'not_connected', notConnected: 'vendor.email' });
     expect((await as.surveys()).emailDelivery).toEqual(SUPPORT_SURVEY_EMAIL_DELIVERY);
   });
 });
