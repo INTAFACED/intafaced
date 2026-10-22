@@ -3302,6 +3302,42 @@ export class PayService {
         });
         const row = await lockPayment(tx, paymentId);
 
+        // REPLAY FIRST (refund-resume race). A completed explicit refundId is answered from the event log BEFORE any
+        // status check: a full refund moves the payment to `refunded`, so a concurrent (or later) retry of the SAME id
+        // that takes the row lock after the winner's Phase 3 committed would otherwise be refused
+        // `pay.nothing_captured` for a refund that succeeded. Same id + same amount replays; a different amount is a
+        // conflict. Nothing is booked, sent or recorded on this path.
+        if (options.refundId !== undefined) {
+          // A COMPLETED refundId is one business event with ONE amount.
+          // Same id + same amount → replay (no second movement / event).
+          // Same id + different amount → conflict: silent 200 with the old
+          // amount would teach the merchant their second request succeeded.
+          const alreadyDone = await tx<Array<{ amount: string | null }>>`
+          SELECT payload->>'amount' AS amount
+            FROM pay.payment_events
+           WHERE payment_id = ${row.id}
+             AND event = 'refunded'
+             AND payload->>'refundId' = ${options.refundId}
+           LIMIT 1
+        `;
+          if (alreadyDone[0]) {
+            const prior = alreadyDone[0].amount;
+            if (prior !== null && prior !== formatAmount(amount)) {
+              throw new PayError(
+                `Refund id ${options.refundId} already completed for ${prior}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
+                'pay.refund_id_conflict',
+                {
+                  refundId: options.refundId,
+                  paymentId: row.id,
+                  completedAmount: prior,
+                  requested: formatAmount(amount),
+                },
+              );
+            }
+            return { replay: true as const, view: await this.view(tx, row) };
+          }
+        }
+
         if (row.status !== 'captured' && row.status !== 'settled') {
           throw new PayError(`Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`, 'pay.nothing_captured', {
             paymentId: row.id,
@@ -3363,35 +3399,6 @@ export class PayService {
         // Only for an EXPLICIT id. The `${paymentId}:${sequence + 1}` default is
         // a fresh ordinal by construction and can never be a replay of itself.
         if (options.refundId !== undefined) {
-          // A COMPLETED refundId is one business event with ONE amount.
-          // Same id + same amount → replay (no second movement / event).
-          // Same id + different amount → conflict: silent 200 with the old
-          // amount would teach the merchant their second request succeeded.
-          const alreadyDone = await tx<Array<{ amount: string | null }>>`
-            SELECT payload->>'amount' AS amount
-              FROM pay.payment_events
-             WHERE payment_id = ${row.id}
-               AND event = 'refunded'
-               AND payload->>'refundId' = ${options.refundId}
-             LIMIT 1
-          `;
-          if (alreadyDone[0]) {
-            const prior = alreadyDone[0].amount;
-            if (prior !== null && prior !== formatAmount(amount)) {
-              throw new PayError(
-                `Refund id ${options.refundId} already completed for ${prior}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
-                'pay.refund_id_conflict',
-                {
-                  refundId: options.refundId,
-                  paymentId: row.id,
-                  completedAmount: prior,
-                  requested: formatAmount(amount),
-                },
-              );
-            }
-            return { replay: true as const, view: await this.view(tx, row) };
-          }
-
           // Spent after reverse: ledger key will no-op; rail may still pay.
           // A genuine re-attempt needs a new refundId (public REST: new
           // Idempotency-Key → new restRefundId).
