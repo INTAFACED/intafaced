@@ -32,6 +32,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
+import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
 import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
@@ -209,6 +210,7 @@ export const appRouter = mergeRouters(
     rpName: env.WEBAUTHN_RP_NAME,
     origin: env.WEBAUTHN_ORIGIN,
   }),
+  createUnenrollPasskeyRouter(sql),
 );
 export type AppRouter = typeof appRouter;
 
