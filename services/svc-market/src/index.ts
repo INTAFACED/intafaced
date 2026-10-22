@@ -80,6 +80,7 @@ const vendors = new VendorService(sql, createStakeSource(env.TOKEN_URL, env.INTE
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
+  listingCategories: env.MARKET_LISTING_CATEGORIES ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });

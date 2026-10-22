@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { marketListingCategoriesSchema } from './commerce/listing-categories.js';
 import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
 
 /**
@@ -52,6 +53,12 @@ const schema = serviceEnvSchema
        * missing / whitespace → refuse every purchase. Do not invent 0.
        */
       MARKET_HOUSE_COMMISSION_BPS: marketHouseCommissionBpsSchema,
+
+      /**
+       * Comma-separated non-strategy category slugs. No in-code list.
+       * Blank / whitespace is unset (`market.category_taxonomy_unset`).
+       */
+      MARKET_LISTING_CATEGORIES: marketListingCategoriesSchema,
     }),
   );
 

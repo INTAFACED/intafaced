@@ -26,27 +26,30 @@ stake numbers stay in svc-token; value moves only through `packages/ledger-clien
 tRPC under `/trpc` (edge mounts `/api/market`). Principal via edge HMAC
 (`EDGE_PRINCIPAL_SECRET`).
 
-| Procedure            | Scope          | Behaviour                                                    |
-| -------------------- | -------------- | ------------------------------------------------------------ |
-| `profile`            | **public**     | One listed vendor's public profile                           |
-| `listed`             | **public**     | The directory of vendors listed right now                    |
-| `listings`           | **public**     | Active sellable listings (one-time + perioded subscriptions) |
-| `commerceProgramme`  | **public**     | Whether house commission bps is configured                   |
-| `applyAsVendor`      | `market:write` | Create the caller's own application (`applied`)              |
-| `mine`               | `market:read`  | The caller's own application, or `null`                      |
-| `createListing`      | `market:write` | Create a listing; claims a slot named by the listing id      |
-| `archiveListing`     | `market:write` | Archive own listing; releases its slot                       |
-| `myListings`         | `market:read`  | Caller's listings                                            |
-| `purchase`           | `market:write` | One-time or one-period subscription purchase (`purchaseId`)  |
-| `myPurchases`        | `market:read`  | Caller's purchases                                           |
-| `cancelSubscription` | `market:write` | Stop new access; no ledger reverse                           |
-| `subscriptionAccess` | `market:read`  | Time-bounded grant, or named past-due / cancelled            |
-| `claimSlot`          | `market:write` | Take a listing slot, if the caller's tier has one            |
-| `releaseSlot`        | `market:write` | Give a slot back                                             |
-| `slots`              | `market:read`  | Tier, capacity, held and **usable** slots                    |
-| `listApplications`   | `market:ops`   | Operator queue — undecided first, oldest first               |
-| `vet`                | `market:ops`   | Record an operator's decision and apply it                   |
-| `history`            | `market:ops`   | The decision trail for one application                       |
+| Procedure                  | Scope          | Behaviour                                                    |
+| -------------------------- | -------------- | ------------------------------------------------------------ |
+| `profile`                  | **public**     | One listed vendor's public profile                           |
+| `listed`                   | **public**     | The directory of vendors listed right now                    |
+| `listings`                 | **public**     | Active sellable listings (one-time + perioded subscriptions) |
+| `listingCategories`        | **public**     | Owner category slugs; unset refuses, no built-in list        |
+| `listingsByCategory`       | **public**     | Active one-time listings in one published category           |
+| `commerceProgramme`        | **public**     | Whether house commission bps is configured                   |
+| `applyAsVendor`            | `market:write` | Create the caller's own application (`applied`)              |
+| `mine`                     | `market:read`  | The caller's own application, or `null`                      |
+| `createListing`            | `market:write` | Create a listing; claims a slot named by the listing id      |
+| `createNonStrategyListing` | `market:write` | One-time listing that must name a taxonomy slug              |
+| `archiveListing`           | `market:write` | Archive own listing; releases its slot                       |
+| `myListings`               | `market:read`  | Caller's listings                                            |
+| `purchase`                 | `market:write` | One-time or one-period subscription purchase (`purchaseId`)  |
+| `myPurchases`              | `market:read`  | Caller's purchases                                           |
+| `cancelSubscription`       | `market:write` | Stop new access; no ledger reverse                           |
+| `subscriptionAccess`       | `market:read`  | Time-bounded grant, or named past-due / cancelled            |
+| `claimSlot`                | `market:write` | Take a listing slot, if the caller's tier has one            |
+| `releaseSlot`              | `market:write` | Give a slot back                                             |
+| `slots`                    | `market:read`  | Tier, capacity, held and **usable** slots                    |
+| `listApplications`         | `market:ops`   | Operator queue — undecided first, oldest first               |
+| `vet`                      | `market:ops`   | Record an operator's decision and apply it                   |
+| `history`                  | `market:ops`   | The decision trail for one application                       |
 
 HTTP: `GET /health`, `GET /ready` (`stage: commerce-subscriptions`, plus whether commission is configured).
 
@@ -306,6 +309,11 @@ otherwise.
 | `marketPurchase` | `market.purchase` | buyer available → vendor available + `houseFees('market')` |
 
 - **Idempotency:** `market.purchase:<purchaseId>` (client-supplied).
+- **Categories:** `MARKET_LISTING_CATEGORIES` — **no in-code list**. Blank refuses
+  `market.category_taxonomy_unset`. A non-strategy listing (`createNonStrategyListing`,
+  one-time only) must name a slug from that list; blank is
+  `market.listing_category_unset`, unknown is `market.listing_category_unknown`.
+  Strategy subscriptions stay uncategorised. The column is not seeded.
 - **Commission:** `MARKET_HOUSE_COMMISSION_BPS` — **no in-code default**. Unset
   refuses `market.commission_not_configured` on **createListing** and fresh **purchase**
   before any row, slot claim, or post; **public catalogue returns []** so the

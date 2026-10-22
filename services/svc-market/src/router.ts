@@ -167,6 +167,8 @@ function mapError(err: unknown): never {
     }
     if (
       err.code === 'market.commission_not_configured' ||
+      err.code === 'market.category_taxonomy_unset' ||
+      err.code === 'market.listing_category_unset' ||
       err.code === 'market.subscription_not_built' ||
       err.code === 'market.subscription_recurring_not_built' ||
       err.code === 'market.subscription_period_unset' ||
@@ -733,6 +735,35 @@ export function createMarketRouter(
         }
       }),
 
+    /**
+     * One-time listing in the owner category taxonomy. Not a strategy.
+     * Blank category, blank price, and an unpublished taxonomy refuse by name.
+     * No category list is built into this door.
+     */
+    createNonStrategyListing: scopedProcedure('market:write', { module: 'market' })
+      .input(
+        z
+          .object({
+            title: z.string().min(1).max(120),
+            description: z.string().min(1).max(4_000),
+            assetId: z.string().min(1).max(32),
+            /** Decimal string. Blank reaches the service refuse — not a free price. */
+            price: z.string().max(64).optional(),
+            /** Taxonomy slug. Omit and whitespace are `market.listing_category_unset`. */
+            category: z.string().max(64).optional(),
+          })
+          .strict(),
+      )
+      .output(listingOut.extend({ category: z.string().min(1).max(32) }))
+      .mutation(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.createNonStrategyListing({ userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     archiveListing: scopedProcedure('market:write', { module: 'market' })
       .input(z.object({ listingId: z.string().uuid() }))
       .output(listingOut)
@@ -874,6 +905,45 @@ export function createMarketRouter(
             sort: input?.sort,
             limit: input?.limit,
             cursor: input?.cursor,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Owner category slugs for non-strategy listings. Unset refuses.
+     * There is no built-in list, and an empty array is not a published taxonomy.
+     */
+    listingCategories: publicProcedure.output(z.object({ categories: z.array(z.string().min(1).max(32)) })).query(() => {
+      requireCommerce(commerce);
+      try {
+        return { categories: [...commerce.listingCategories()] };
+      } catch (err) {
+        mapError(err);
+      }
+    }),
+
+    /**
+     * One-time listings in one published category. Omit / blank category is
+     * not the whole catalogue. Omit limit is not 50. Strategy rows are excluded.
+     */
+    listingsByCategory: publicProcedure
+      .input(
+        z
+          .object({
+            category: z.string().max(64).optional(),
+            limit: z.number().int().positive().max(50).optional(),
+          })
+          .optional(),
+      )
+      .output(z.array(listingOut.extend({ category: z.string().min(1).max(32) })))
+      .query(async ({ input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.publicListingsByCategory({
+            category: input?.category,
+            limit: input?.limit,
           });
         } catch (err) {
           mapError(err);

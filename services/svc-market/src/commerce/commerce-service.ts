@@ -24,6 +24,7 @@ import {
   type AffiliateAccruePort,
 } from '../affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from '../affiliate-payout.js';
+import { assertListingCategory, requireListingTaxonomy } from './listing-categories.js';
 import { MARKET_OPS_SCOPE, MarketError, type VendorService } from '../vendor-service.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
@@ -214,6 +215,8 @@ interface ListingRow {
   /** Driver may yield a JS number if numeric is not text-mode — refuse, never String(). */
   price: unknown;
   period_seconds: number | string | null;
+  /** Null on strategy and legacy one-time rows. Slug when this row is non-strategy. */
+  category?: string | null;
   status: ListingStatus;
   created_at: Date;
   updated_at: Date;
@@ -299,6 +302,11 @@ export interface CommerceConfig {
   affiliatePayout?: AffiliatePayoutPort;
   /** Clock for access windows. Tests inject; production uses wall time. */
   now?: () => Date;
+  /**
+   * Owner slugs for non-strategy listings. Null or omitted is unset —
+   * not an empty catalogue and not a built-in list.
+   */
+  listingCategories?: readonly string[] | null;
 }
 
 export class CommerceService {
@@ -351,6 +359,11 @@ export class CommerceService {
     price: string;
     /** Whole seconds. Required for subscription; forbidden for one-time. No default. */
     periodSeconds?: number | null;
+    /**
+     * Published taxonomy slug. Omit for strategy and legacy one-time creates.
+     * A string is checked against the owner list — never stored if it is not on it.
+     */
+    category?: string | null;
   }): Promise<ListingRecord> {
     // Commission law before stake burn: a blank rate must not consume a slot
     // for inventory that can never settle (D26-P1-M2). Same door for
@@ -376,6 +389,9 @@ export class CommerceService {
       throw new MarketError('Listing price must be positive', 'market.listing_invalid_price');
     }
 
+    const category =
+      input.category === undefined || input.category === null ? null : assertListingCategory(this.config.listingCategories, input.category);
+
     // Create gate ≠ public "listed". A vendor is listed only AFTER they hold a
     // usable slot; the first listing is what claims that slot. Using
     // listingEligibility here would refuse every first listing with
@@ -394,7 +410,9 @@ export class CommerceService {
 
     // Insert listing first so the id can name the slot claim (idempotent ref).
     const inserted = await this.sql<ListingRow[]>`
-      INSERT INTO market.listings (vendor_id, title, description, offer_type, asset_id, price, period_seconds, status)
+      INSERT INTO market.listings (
+        vendor_id, title, description, offer_type, asset_id, price, period_seconds, status, category
+      )
       VALUES (
         ${vendor.id},
         ${title},
@@ -403,7 +421,8 @@ export class CommerceService {
         ${assetId},
         ${priceStr}::numeric,
         ${periodSeconds},
-        'active'
+        'active',
+        ${category}
       )
       RETURNING *
     `;
@@ -419,6 +438,40 @@ export class CommerceService {
     }
 
     return toListing(row);
+  }
+
+  /** Published slugs. Unset refuses — an empty array would look like a finished taxonomy. */
+  listingCategories(): readonly string[] {
+    return requireListingTaxonomy(this.config.listingCategories);
+  }
+
+  /**
+   * One-time listing in the owner taxonomy. Not a strategy subscription.
+   * Blank category is not "uncategorised". Blank price is not free.
+   * Strategy publish stays on createListing(subscription) and writes no category.
+   */
+  async createNonStrategyListing(input: {
+    userId: string;
+    title: string;
+    description: string;
+    assetId: string;
+    price?: string | null;
+    category?: string | null;
+  }): Promise<ListingRecord & { category: string }> {
+    const category = assertListingCategory(this.config.listingCategories, input.category);
+    if (input.price == null || input.price.trim() === '') {
+      throw new MarketError('Listing price must be a positive decimal string', 'market.listing_invalid_price');
+    }
+    const row = await this.createListing({
+      userId: input.userId,
+      title: input.title,
+      description: input.description,
+      offerType: 'one_time',
+      assetId: input.assetId,
+      price: input.price,
+      category,
+    });
+    return { ...row, category };
   }
 
   async archiveListing(input: { userId: string; listingId: string }): Promise<ListingRecord> {
@@ -516,6 +569,46 @@ export class CommerceService {
         out.push(toListing(row));
       } catch (err) {
         // stake_unavailable and friends — drop this vendor's rows, keep the page.
+        if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
+        throw err;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Active one-time listings in one published category. Strategy rows stay out
+   * (`offer_type = subscription` or a null category). Blank category is not
+   * the whole catalogue. Unset taxonomy refuses before a query. Blank
+   * commission returns [] after those checks, same as `publicListings`.
+   */
+  async publicListingsByCategory(opts?: {
+    category?: string | null;
+    limit?: number;
+  }): Promise<Array<ListingRecord & { category: string }>> {
+    const limit = assertPublicListingsListLimit(opts?.limit);
+    const category = assertListingCategory(this.config.listingCategories, opts?.category ?? null);
+    if (this.config.commissionBps === null) return [];
+    const rows = await this.sql<ListingRow[]>`
+      SELECT * FROM market.listings
+       WHERE status = 'active'
+         AND offer_type = 'one_time'
+         AND category = ${category}
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${limit * 3}
+    `;
+    const out: Array<ListingRecord & { category: string }> = [];
+    for (const row of rows) {
+      if (out.length >= limit) break;
+      if (row.category !== category) continue;
+      try {
+        const elig = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+        if (!elig.listed) continue;
+        if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) continue;
+        const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+        if (!entitled.has(row.id)) continue;
+        out.push({ ...toListing(row), category });
+      } catch (err) {
         if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
         throw err;
       }
