@@ -98,7 +98,9 @@ import {
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import {
+  MatchingNoBookError,
   type EngineAmendResult,
+  type EngineDepth,
   type EngineCancellation,
   type EngineFill,
   type EngineSubmitRequest,
@@ -5207,7 +5209,17 @@ export class TradeService {
     }
 
     // Refuse at creation when mark feed is blank — never accept a schedule that cannot run.
-    const depth = await this.matching.depth(market.id, 1);
+    // Matching 404 (engine holds no book) is a named refusal, not a 500. Nothing
+    // is held or stored yet: the gate, admission and parent save all come later.
+    let depth: EngineDepth;
+    try {
+      depth = await this.matching.depth(market.id, 1);
+    } catch (err) {
+      if (err instanceof MatchingNoBookError) {
+        throw new TradeError(`${market.symbol}: matching holds no book — refusing algo at creation`, 'trade.no_book');
+      }
+      throw err;
+    }
     const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
     const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
     if (bid === null || ask === null) {
