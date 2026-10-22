@@ -62,15 +62,32 @@ export const opsAlertConditionSchema = z.object({
   threshold: decimalString,
 });
 
-export const opsAlertAnnotationsSchema = z.object({
-  summary: z.string().min(1).max(500).optional(),
-  runbookUrl: z
-    .string()
-    .url()
-    .max(500)
-    .refine((u) => u.startsWith('https://'), { message: 'runbook link is an https address' })
-    .optional(),
-});
+const panelToken = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+
+/**
+ * A panel link is the pair Grafana stores as annotations: both the dashboard and the panel, or neither.
+ * One without the other is not a link, and this schema does not invent the missing half.
+ */
+export const opsAlertAnnotationsSchema = z
+  .object({
+    summary: z.string().min(1).max(500).optional(),
+    runbookUrl: z
+      .string()
+      .url()
+      .max(500)
+      .refine((u) => u.startsWith('https://'), { message: 'runbook link is an https address' })
+      .optional(),
+    dashboardUid: panelToken.optional(),
+    panelId: panelToken.optional(),
+  })
+  .superRefine((ann, ctx) => {
+    if ((ann.dashboardUid === undefined) === (ann.panelId === undefined)) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'ops.alert_panel_link_incomplete — a panel link needs both the dashboard and the panel',
+      path: ann.dashboardUid === undefined ? ['dashboardUid'] : ['panelId'],
+    });
+  });
 
 const ruleName = z.string().trim().min(1).max(120);
 const ruleFolder = z.string().trim().min(1).max(80);

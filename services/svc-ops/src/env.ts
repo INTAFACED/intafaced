@@ -65,6 +65,11 @@ export const opsEnvSchema = baseEnvSchema
        */
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * How long a recorded heartbeat may age before it is overdue, in seconds.
+       * Blank → heartbeatStatus reports ops.alert_heartbeat_window_unset and overdue stays null. Never invented.
+       */
+      OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
+      /**
        * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
        * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.
        */
