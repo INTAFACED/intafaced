@@ -130,9 +130,9 @@ if (!available) {
     const err = (await promise.then(
       () => undefined,
       (e: unknown) => e,
-    )) as { code?: string; message?: string; cause?: { code?: string } } | undefined;
+    )) as { code?: string; message?: string; cause?: { code?: string; details?: { retryAfterSeconds?: number } } } | undefined;
     expect(err).toBeDefined();
-    return { trpc: err!.code, code: err!.cause?.code, message: err!.message };
+    return { trpc: err!.code, code: err!.cause?.code, message: err!.message, retryAfterSeconds: err!.cause?.details?.retryAfterSeconds };
   };
 
   beforeEach(async () => {
@@ -277,6 +277,9 @@ if (!available) {
       await api.auth.requestEmailConfirmation();
       const limited = await refusal(api.auth.requestEmailConfirmation());
       expect(limited).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_rate_limited' });
+      // The wait is the time until the oldest request leaves the hour.
+      expect(limited.retryAfterSeconds).toBeGreaterThan(3500);
+      expect(limited.retryAfterSeconds).toBeLessThanOrEqual(3600);
       expect(sent).toHaveLength(2);
       const proofs = await db.sql<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM email_confirmation_proofs WHERE user_id = ${user.userId}

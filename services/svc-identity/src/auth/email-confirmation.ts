@@ -115,11 +115,18 @@ export async function requestEmailConfirmation(deps: EmailConfirmDeps, input: { 
     deps.sql,
     async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('email-confirm'), hashtext(${input.userId}::text))`;
-      const counted = await tx<Array<{ n: number }>>`
-        SELECT count(*)::int AS n FROM email_confirmation_attempts
+      const counted = await tx<Array<{ n: number; oldest: Date | string | null }>>`
+        SELECT count(*)::int AS n, min(created_at) AS oldest FROM email_confirmation_attempts
         WHERE user_id = ${input.userId} AND created_at > ${since}
       `;
-      if (Number(counted[0]?.n ?? 0) >= rate.max) return { kind: 'rate' as const };
+      if (Number(counted[0]?.n ?? 0) >= rate.max) {
+        // The wait is until the oldest request in the window leaves it.
+        const oldest = new Date(counted[0]!.oldest ?? now).getTime();
+        return {
+          kind: 'rate' as const,
+          retryAfterSeconds: Math.max(1, Math.ceil((oldest + rate.windowSeconds * 1000 - now.getTime()) / 1000)),
+        };
+      }
 
       const users = await tx<Array<{ id: string; status: string; email: string; email_verified_at: Date | string | null }>>`
         SELECT id, status, email::text AS email, email_verified_at
@@ -151,7 +158,9 @@ export async function requestEmailConfirmation(deps: EmailConfirmDeps, input: { 
   );
 
   if (outcome.kind === 'rate') {
-    throw new AuthError('Too many confirmation emails. Try again later.', 'auth.email_confirm_rate_limited');
+    throw new AuthError('Too many confirmation emails. Try again later.', 'auth.email_confirm_rate_limited', {
+      retryAfterSeconds: outcome.retryAfterSeconds,
+    });
   }
   if (outcome.kind === 'silent') return { accepted: true };
 

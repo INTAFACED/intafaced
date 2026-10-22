@@ -163,7 +163,7 @@ export class AuthError extends Error {
       | 'auth.step_up_required'
       | 'auth.step_up_expired'
       | 'pay.role_not_allowed',
-    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
+    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
     super(message);
