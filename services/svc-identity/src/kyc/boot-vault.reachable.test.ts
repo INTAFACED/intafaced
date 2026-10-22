@@ -26,7 +26,6 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { createIdentityRouter } from '../router.js';
-import { stubActionApprovals } from '../auth/privileged-dual-control.js';
 import type { AuthService, KycRecordView } from '../auth/auth-service.js';
 import type { RankService } from '../rank/rank-service.js';
 import { bootKycVault } from './boot-vault.js';
@@ -47,8 +46,6 @@ const OPERATOR = '22222222-2222-4222-8222-222222222222';
 const RECORD = '33333333-3333-4333-8333-333333333333';
 const SESSION = '44444444-4444-4444-8444-444444444444';
 const DOC_ID = '55555555-5555-4555-8555-555555555555';
-const CONFIRM = '66666666-6666-4666-8666-666666666666';
-const bindDual = { approvalId: 'appr-1', operationId: 'op-1' };
 
 const codeOf = (err: unknown) => (err as { code?: string }).code;
 
@@ -105,7 +102,7 @@ function fakeSql(): Sql {
 /** Exact production fragment: helper + spread. Omitting the spread is the silent-dark store. */
 function productionRouter(keyMaterial: string | undefined, sql: Sql = fakeSql()) {
   const vault = bootKycVault(sql, keyMaterial);
-  return createIdentityRouter(auth, rank, { registrationOpen: true, actionApprovals: stubActionApprovals(), ...(vault ?? {}) });
+  return createIdentityRouter(auth, rank, { registrationOpen: true, ...(vault ?? {}) });
 }
 
 describe('index.ts production-wires bootKycVault (fails if the spread is omitted)', () => {
@@ -124,16 +121,11 @@ describe('production boot shape — missing key refuses named, never invents a v
     const r = productionRouter(undefined);
     const op = r.createCaller(await ctx(['admin:compliance'], { mfa: true }));
     const store = await op.kyc
-      .storeDocument({
-        userId: USER,
-        contentType: 'image/jpeg',
-        bytesBase64: Buffer.from('scan').toString('base64'),
-        ...bindDual,
-      })
+      .storeDocument({ userId: USER, contentType: 'image/jpeg', bytesBase64: Buffer.from('scan').toString('base64') })
       .catch((e: unknown) => e);
-    const list = await op.kyc.listDocuments({ userId: USER, limit: 200 }).catch((e: unknown) => e);
-    const bind = await op.kyc.bindDocument({ recordId: RECORD, documentId: DOC_ID, ...bindDual }).catch((e: unknown) => e);
-    const get = await op.kyc.getDocument({ documentId: DOC_ID, ...bindDual }).catch((e: unknown) => e);
+    const list = await op.kyc.listDocuments({ userId: USER }).catch((e: unknown) => e);
+    const bind = await op.kyc.bindDocument({ recordId: RECORD, documentId: DOC_ID }).catch((e: unknown) => e);
+    const get = await op.kyc.getDocument({ documentId: DOC_ID }).catch((e: unknown) => e);
     expect(codeOf(store)).toBe('PRECONDITION_FAILED');
     expect(String((store as Error).message)).toMatch(/kyc_doc\.unwired/);
     expect(codeOf(list)).toBe('PRECONDITION_FAILED');
@@ -152,24 +144,23 @@ describe('production boot shape — parsed key exposes operator vault procedures
       userId: USER,
       contentType: 'image/jpeg',
       bytesBase64: Buffer.from('scan').toString('base64'),
-      ...bindDual,
     });
     expect(meta.id).toBe(DOC_ID);
     expect(meta.userId).toBe(USER);
     expect(meta).not.toHaveProperty('bytes');
     expect(meta).not.toHaveProperty('ciphertext');
 
-    const list = await op.kyc.listDocuments({ userId: USER, limit: 200 });
+    const list = await op.kyc.listDocuments({ userId: USER });
     expect(Array.isArray(list)).toBe(true);
     for (const row of list) {
       expect(row).not.toHaveProperty('bytes');
     }
 
-    const bindErr = await op.kyc.bindDocument({ recordId: RECORD, documentId: DOC_ID, ...bindDual }).catch((e: unknown) => e);
+    const bindErr = await op.kyc.bindDocument({ recordId: RECORD, documentId: DOC_ID }).catch((e: unknown) => e);
     expect(codeOf(bindErr)).not.toBe('PRECONDITION_FAILED');
     expect(String((bindErr as Error).message ?? bindErr)).not.toMatch(/kyc_doc\.unwired/);
 
-    const getErr = await op.kyc.getDocument({ documentId: DOC_ID, ...bindDual }).catch((e: unknown) => e);
+    const getErr = await op.kyc.getDocument({ documentId: DOC_ID }).catch((e: unknown) => e);
     expect(codeOf(getErr)).not.toBe('PRECONDITION_FAILED');
     expect(String((getErr as Error).message ?? getErr)).not.toMatch(/kyc_doc\.unwired/);
   });
@@ -179,7 +170,7 @@ describe('kyc.status never returns document bytes or provider_ref', () => {
   it('status payload omits providerRef, reviewedBy, and any bytes field', async () => {
     const r = productionRouter(randomBytes(32).toString('base64'));
     const user = r.createCaller(await ctx(['identity:read'], { userId: USER }));
-    const status = await user.kyc.status({ limit: 200 });
+    const status = await user.kyc.status();
     const wire = JSON.stringify(status);
     expect(wire).not.toContain('provider-pointer-that-must-not-leak');
     expect(status.records[0]).not.toHaveProperty('providerRef');

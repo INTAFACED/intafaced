@@ -14,7 +14,6 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import type { AuthService } from '../auth/auth-service.js';
 import type { RankService } from '../rank/rank-service.js';
 import { createIdentityRouter } from '../router.js';
-import { stubActionApprovals } from '../auth/privileged-dual-control.js';
 import { MemoryKycDocumentStore } from './document-store.js';
 
 const EDGE_SECRET = 'identity-kyc-doc-get-public-door-edge-secret-32b';
@@ -59,7 +58,6 @@ function unwrapData(body: WireBody): unknown {
 async function mount(vault?: MemoryKycDocumentStore): Promise<FastifyInstance> {
   const router = createIdentityRouter({} as AuthService, {} as RankService, {
     registrationOpen: true,
-    actionApprovals: stubActionApprovals(),
     ...(vault ? { kycDocs: vault } : {}),
   });
   const app = Fastify({ logger: false });
@@ -68,14 +66,14 @@ async function mount(vault?: MemoryKycDocumentStore): Promise<FastifyInstance> {
     prefix: '/trpc',
     trpcOptions: {
       router,
-      createContext: ({ req }) => edgeContext(req),
+      createContext: ({ req }) => edgeContext({ headers: req.headers, id: req.id }),
     } satisfies FastifyTRPCPluginOptions<typeof router>['trpcOptions'],
   });
   await app.ready();
   return app;
 }
 
-const getBody = { documentId: DOC_ID, approvalId: 'appr-1', operationId: 'op-1' };
+const getBody = { documentId: DOC_ID };
 
 describe('kyc.getDocument — refuse blank IDENTITY_KYC_DOC_KEY', () => {
   it('unwired vault (blank env key) is 412 — no invented store', async () => {
@@ -115,7 +113,7 @@ describe('kyc.getDocument — refuse blank IDENTITY_KYC_DOC_KEY', () => {
         method: 'POST',
         url: '/trpc/kyc.getDocument',
         headers: signedHeaders(),
-        payload: { documentId: meta.id, approvalId: 'appr-1', operationId: 'op-1' },
+        payload: { documentId: meta.id },
       });
       expect(res.statusCode).toBe(200);
       const data = unwrapData(res.json() as WireBody) as Record<string, unknown>;

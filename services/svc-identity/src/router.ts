@@ -1,42 +1,9 @@
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
-import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
-import {
-  callFounderControl,
-  identityFreezeInputSchema,
-  identityRestoreInputSchema,
-  type FounderControlsPort,
-} from './controls/founder-controls-router.js';
+import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
-import { requestIpAls } from './auth/auth-service-ip.js';
-import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
-import type { RefreshCookieBag } from './auth/refresh-cookie.js';
-
-declare module '@intafaced/contracts' {
-  interface Context {
-    /** Set by svc-identity's request hook. Absent in callers that do not install it. */
-    refreshCookie?: RefreshCookieBag | null;
-  }
-}
-import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
-import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
-import {
-  AuthError,
-  assertDelegateCannotGrant,
-  assertOperatorKycReview,
-  ApiKeysListLimitUnsetError,
-  KycPendingLimitUnsetError,
-  KycRecordsListLimitUnsetError,
-  SELF_FREEZE_REASONS,
-  SUB_ACCOUNT_KINDS,
-  SubAccountsListLimitUnsetError,
-  WebauthnListLimitUnsetError,
-  type AuthService,
-  type KycRecordView,
-} from './auth/auth-service.js';
+import { AuthError, assertOperatorKycReview, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import type { RankService } from './rank/rank-service.js';
-import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
-import { normalisePayeeEmail, normalisePayeePhone } from './payee-search.js';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import {
   AFFILIATE_PAYOUT_RESIDUAL,
@@ -51,13 +18,10 @@ import {
   planAffiliatePayout,
   postAffiliatePayout,
 } from './affiliates/payout-engine.js';
-import { describeAffiliatesPolicy } from './affiliates/affiliates-policy.js';
 import { ReferralError } from './affiliates/referral-tree.js';
-import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
-import { ShareError } from './affiliates/share-service.js';
-import type { ShareService } from './affiliates/share-service.js';
+import type { ReferralService } from './affiliates/referral-service.js';
 import { FreezeError } from './affiliates/freeze-store.js';
-import { AffiliateFreezesLimitUnsetError, type FreezeService } from './affiliates/freeze-service.js';
+import type { FreezeService } from './affiliates/freeze-service.js';
 import { CommissionError } from './affiliates/commission.js';
 import {
   AccrualRateRefuseError,
@@ -66,31 +30,13 @@ import {
   UNPUBLISHED_ACCRUAL_TIER_LAW,
 } from './affiliates/commission-rate-law.js';
 import { accrueTreeUnderRateAuthority, accrualTreeAuthorityStatusLine } from './affiliates/accrual-tree-authority.js';
-import { AccrualsLimitUnsetError, type AccrualStore } from './affiliates/accrual-store.js';
+import type { AccrualStore } from './affiliates/accrual-store.js';
 import { KYC_VAULT_UNWIRED } from './kyc/boot-vault.js';
-import { KycDocumentError, KycDocumentsListLimitUnsetError, type KycDocumentVault, type StoredDocumentMeta } from './kyc/document-store.js';
+import { KycDocumentError, type KycDocumentVault, type StoredDocumentMeta } from './kyc/document-store.js';
 import { ProviderRefBindError, type BindProviderRefInput, type BindProviderRefResult } from './kyc/provider-ref-bind.js';
 import { FlagDisabledError } from '@intafaced/config';
 import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
-import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
-import { ActionApprovalError } from './auth/action-approval-service.js';
-import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
-import { SocialError, SocialSignin } from './social/social-signin.js';
 import { userCopy } from './user-copy.js';
-import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
-import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
-import type { ProfileService } from './profile/profile-service.js';
-import { createProfileRouter } from './profile/profile-router.js';
-import type { AccountChange } from './account/account-router.js';
-import { createAccountRouter } from './account/account-router.js';
-import { createAccountClosureRouter } from './closure/closure-router.js';
-import type { AccountClosureService } from './closure/closure-service.js';
-import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
-import type { SubAccountFeatureService } from './sub-accounts/sub-account-features.js';
-import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
-import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
-import { type SubAccountEditService } from './sub-accounts/sub-account-edit.js';
-import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-router.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -108,10 +54,6 @@ function toTrpcError(err: unknown): TRPCError {
   // shared package's AuthError, which is a different class from this service's.
   if (err instanceof GuardError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
-  }
-
-  if (err instanceof PrivilegedDualControlError || err instanceof ActionApprovalError) {
-    return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
   }
 
   if (err instanceof KycDocumentError) {
@@ -158,19 +100,6 @@ function toTrpcError(err: unknown): TRPCError {
     }
   }
 
-  if (err instanceof ShareError) {
-    switch (err.code) {
-      case 'share.unknown':
-      case 'share.not_found':
-      case 'share.profile_gone':
-        return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
-      case 'share.revoked':
-        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
-      case 'share.invalid':
-        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
-    }
-  }
-
   if (err instanceof FreezeError) {
     switch (err.code) {
       case 'freeze.not_found':
@@ -212,42 +141,6 @@ function toTrpcError(err: unknown): TRPCError {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
   }
 
-  if (err instanceof KycPendingLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof ApiKeysListLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof SubAccountsListLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof KycRecordsListLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof WebauthnListLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof KycDocumentsListLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof AccrualsLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof AffiliateMembersLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
-  if (err instanceof AffiliateFreezesLimitUnsetError) {
-    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
-  }
-
   if (err instanceof WaitlistError) {
     switch (err.code) {
       case 'waitlist.unbuilt':
@@ -256,7 +149,6 @@ function toTrpcError(err: unknown): TRPCError {
       case 'waitlist.unknown_referrer':
         return new TRPCError({ code: 'NOT_FOUND', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.self_referral':
-      case 'waitlist.referral_locked':
         return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
@@ -273,22 +165,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.invalid_credentials':
     case 'auth.mfa_invalid':
     case 'auth.domain_not_allowed':
-    case 'auth.request_unsigned':
-    case 'auth.request_stale':
-    case 'auth.request_tampered':
-    case 'auth.request_replay':
-    case 'auth.ip_allowlist_required':
       // Deliberately the same shape as a wrong password: never confirm which
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
-    case 'auth.too_many_attempts':
-      // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.
-      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
-    case 'auth.privileged_enrolment_requires_invite':
-      // Retrying cannot help: this identity's first factor needs an invite.
-      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.mfa_not_enrolled':
     case 'auth.webauthn_not_enrolled':
       // FORBIDDEN, not UNAUTHORIZED: retrying with a code cannot help. The
@@ -297,16 +178,10 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.webauthn_invalid':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
-    case 'identity.passkey_limit':
-      // The owner's per-account limit: removing a passkey is what helps.
-      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':
       // Operator/agent refuse — keep the reviewed_by sentence. Not user catalog copy.
-      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
-    case 'auth.delegate_cannot_grant':
-    case 'auth.sandbox_scope_not_pay':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
@@ -316,112 +191,25 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.mfa_already_enrolled':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
-    case 'identity.account_frozen_self':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
-    case 'auth.invite_invalid':
-    case 'auth.invite_expired':
-    case 'auth.founder_enrolment_closed':
-      // Founder enrolment (auth.registerFounder). Retrying the same call cannot help; the client
-      // branches on `intafacedCode` for the copy of each.
-      return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
-    case 'auth.invite_used':
-      return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     case 'auth.sub_account_required':
     case 'auth.sub_account_same':
-    case 'auth.password_unchanged':
-    case 'auth.password_policy':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
-    case 'auth.sub_account_nickname_invalid':
-      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
-    case 'auth.sub_account_nickname_taken':
-      return new TRPCError({ code: 'CONFLICT', message, cause: err });
-    case 'auth.sub_account_kind_unavailable':
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
     case 'auth.sub_account_limit':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
-    case 'auth.sub_account_cap_unset':
-      // Owner number unpublished — not a 401 (no identity) or 403 (known, not allowed).
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
-    case 'auth.webauthn_unconfigured':
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
-    case 'auth.api_key_denied':
-    case 'auth.api_key_revoked':
-    case 'auth.session_denied':
-    case 'auth.session_revoked':
-      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
-    case 'auth.reset_proof_invalid':
-      // Same sentence for a wrong, expired, spent, or unknown-email proof.
-      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
-    case 'auth.reset_unwired':
-      // No mail port or no owner-published lifetime. Same answer for every address.
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
-    case 'auth.email_confirm_invalid':
-      // Same sentence for a wrong, expired, spent, or rebound link.
-      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
-    case 'auth.email_confirm_unwired':
-      // No mail port, no published lifetime, or no published rate budget.
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
-    case 'auth.email_confirm_rate_limited':
-      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
-    case 'auth.payee_email_unconfirmed':
-    case 'auth.payee_phone_unverified':
-    case 'auth.payee_phone_unset':
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
-    case 'auth.step_up_required':
-    case 'auth.step_up_expired':
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
-    case 'pay.role_not_allowed':
-      return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
-  }
-}
-
-const signUpAccepted = z.object({
-  accepted: z.literal(true),
-  next: z.literal('confirm_email'),
-  flowId: z.string().uuid(),
-  resendAfterSeconds: z.number().int().positive(),
-});
-
-/** A sign-up refusal for the wire. Its code goes in `cause`, so the page can name it. */
-function signUpTrpcError(err: unknown): TRPCError {
-  if (!(err instanceof SignUpError)) return toTrpcError(err);
-  switch (err.code) {
-    case 'auth.too_many_attempts':
-      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
-    case 'identity.resend_too_soon':
-      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
-    case 'identity.signup_unwired':
-    case 'identity.age_rule_unset':
-    case 'identity.screening_unset':
-    case 'vendor.email':
-    case 'vendor.sms':
-      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
-    case 'identity.underage':
-    case 'identity.region_blocked':
-      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
-    case 'auth.handle_taken':
-    case 'auth.email_taken':
-    case 'identity.signup_code_used':
-      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
-    default:
-      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
 const sessionOutput = z.object({
   accessToken: z.string(),
-  /**
-   * Present for a native or API client (no Origin). Omitted when the
-   * request is a browser session: the refresh token is only in the
-   * httpOnly `ifc_rt` cookie. Optional so both shapes parse.
-   */
-  refreshToken: z.string().optional(),
+  refreshToken: z.string(),
   expiresAt: z.string(),
   userId: z.string().uuid(),
 });
@@ -482,68 +270,13 @@ const kycDocMetaOutput = z.object({
   createdAt: z.string(),
 });
 
-const socialProviderName = z.string().regex(/^[a-z0-9-]{1,32}$/);
-
-/** No registry configured is the same as no provider registered. */
-function socialOrNone(social: SocialSignin | undefined): SocialSignin {
-  return social ?? new SocialSignin(null as never, { providers: new Map(), flowTtlSeconds: undefined });
-}
-
-function toSocialTrpcError(err: unknown): TRPCError {
-  if (err instanceof SocialError) {
-    const message = `${err.message} [${err.code}]`;
-    switch (err.code) {
-      case 'identity.social_flow_invalid':
-      case 'identity.social_exchange_failed':
-        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
-      case 'identity.social_not_linked':
-        return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
-      case 'identity.provider_taken':
-        return new TRPCError({ code: 'CONFLICT', message, cause: err });
-      case 'auth.not_found':
-        return new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
-      default:
-        // idp.social and the settings refusals: the build or the owner has not provided it.
-        return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
-    }
-  }
-  return toTrpcError(err);
-}
-
 export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
   options: {
-    founderControls?: Pick<FounderControlsPort, 'change'>;
-    /**
-     * Owner-published registration gate. Unset → register refuses
-     * `identity.registration_open_unset`. Explicit false → closed. Never invent true.
-     */
-    registrationOpen?: boolean;
-    /**
-     * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
-     * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
-     * `identity.register_replaced`: people sign up through `auth.signUpStart` and the mailed code.
-     */
-    directRegister?: boolean;
-    /**
-     * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
-     * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
-     * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
-     */
-    founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
+    registrationOpen: boolean;
     webauthnEnabled?: boolean;
-    /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
-    social?: SocialSignin;
-    /**
-     * Founder pair (user ids). These identities may not self-enrol a FIRST
-     * second factor on a password-only session (`auth.privileged_enrolment_requires_invite`).
-     * Unset → only `admin:*`-scoped principals count as privileged.
-     */
-    privilegedUserIds?: readonly string[];
     referral?: ReferralService;
-    /** Share tokens (ops.social-promotion). Token → referrer; hits; revoke. */
-    share?: ShareService;
     freeze?: FreezeService;
     /** Slice B durable accrual rows (no ledger). Optional for light tests. */
     accruals?: AccrualStore;
@@ -573,67 +306,14 @@ export function createIdentityRouter(
      */
     bindKycProviderRef?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>;
     /**
-     * Action-bound approval issuer. Privileged mutates consume it.
-     * Absent → those doors refuse (typed-in second name is not enough).
-     */
-    actionApprovals?: Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'consume'>;
-    /**
      * Drop 0 waitlist + referral queue. Absent → named `waitlist.unbuilt`
      * (no silent enroll). Wired in index.ts against SqlWaitlistStore.
      */
     waitlist?: WaitlistService;
-    /**
-     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
-     * process-local. Injected so tests can pin the clock and a shared store can
-     * replace it later.
-     */
-    handleLookupLimiter?: HandleLookupLimiterPort;
-    /**
-     * Live staff session required before unfreeze. Absent in light router
-     * tests; index.ts wires the session row check. A revoked row refuses.
-     */
-    assertStaffSessionLive?: (sessionId: string, userId: string) => Promise<void>;
-    /** Customer profile edit. Absent → `profile.get` / `profile.update` refuse closed. */
-    profile?: ProfileService;
-    /** Email and phone change. Absent → those doors refuse closed. */
-    account?: AccountChange;
-    /** Account closure. Absent → the door refuses `identity.close_disabled`. */
-    closure?: AccountClosureService;
-    /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
-    subAccountDelete?: SubAccountDeleteService;
-    /** Sub-account trading features. Absent → `subAccounts.setFeatures` refuses `identity.sub_account_features_unset`. */
-    subAccountFeatures?: SubAccountFeatureService;
-    subAccountEdit?: SubAccountEditService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
-
-  const sessionWire = (
-    ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string },
-  ) => {
-    const bag = ctx.refreshCookie;
-    bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
-    const wire = {
-      accessToken: session.accessToken,
-      expiresAt: session.expiresAt.toISOString(),
-      userId: session.userId,
-    };
-    if (bag?.browser) return wire;
-    return { ...wire, refreshToken: session.refreshToken };
-  };
-
-  const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {
-    const token = body ?? ctx.refreshCookie?.presented ?? '';
-    if (!token) throw new AuthError('Session not found', 'auth.session_invalid');
-    return token;
-  };
-  const founderInvites = options.founderEnrolment?.invites;
-  const founderNow = options.founderEnrolment?.now ?? (() => new Date());
-  const privilegedUserIds = options.privilegedUserIds ?? [];
-  const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
   const referral = options.referral;
-  const share = options.share;
   const freeze = options.freeze;
   const accruals = options.accruals;
   const accrualTierLaw = options.accrualTierLaw ?? UNPUBLISHED_ACCRUAL_TIER_LAW;
@@ -641,34 +321,12 @@ export function createIdentityRouter(
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
   const waitlist = options.waitlist;
-  const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
-
-  /** The owner's registration switch. Unset refuses as unset; closed says so with its own code. */
-  function assertRegistrationOpen(): void {
-    if (options.registrationOpen === undefined) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: 'REGISTRATION_OPEN is unset — owner must publish open or closed [identity.registration_open_unset]',
-        cause: { code: 'identity.registration_open_unset' },
-      });
-    }
-    if (!options.registrationOpen) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
-    }
-  }
 
   function requireReferral(): ReferralService {
     if (!referral) {
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral tree is not configured' });
     }
     return referral;
-  }
-
-  function requireShare(): ShareService {
-    if (!share) {
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Affiliate share store is not configured' });
-    }
-    return share;
   }
 
   function requireFreeze(): FreezeService {
@@ -705,29 +363,6 @@ export function createIdentityRouter(
     return bindKycProviderRef;
   }
 
-  async function consumePrivileged(
-    actorId: string,
-    input: { approvalId?: string | null; operationId?: string | null },
-    targetId: string,
-    fields: Record<string, string> = {},
-  ): Promise<string> {
-    const approvals = options.actionApprovals;
-    if (!approvals) {
-      throw new PrivilegedDualControlError(
-        'action-approval issuer is not wired; a typed-in second name is not approval',
-        ACTION_APPROVAL_MISSING,
-      );
-    }
-    const consumed = await requirePrivilegedDualControl(approvals, {
-      actorId,
-      approvalId: input.approvalId,
-      operationId: input.operationId,
-      targetId,
-      fields,
-    });
-    return consumed.approverId;
-  }
-
   function requireWaitlist(): WaitlistService {
     if (!waitlist) {
       throw new TRPCError({
@@ -742,145 +377,6 @@ export function createIdentityRouter(
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-identity') }))
       .query(() => ({ ok: true, service: 'svc-identity' as const })),
-
-    /**
-     * The caller's own handle (Receive screen, account menu). Self-only: the
-     * user id comes from the session, there is no input.
-     */
-    me: protectedProcedure
-      .output(z.object({ userId: z.string().uuid(), handle: z.string(), emailVerified: z.boolean() }))
-      .query(async ({ ctx }) => {
-        const view = await auth.selfView(ctx.principal.userId);
-        if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-        return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
-      }),
-
-    profile: createProfileRouter(options.profile),
-    account: createAccountRouter(options.account),
-    accountClosure: createAccountClosureRouter(options.closure),
-
-    users: router({
-      /**
-       * Pay by exact @handle: show the sender who they are about to pay.
-       *
-       * Returns the least that lets a sender confirm the right person: the
-       * stored handle, the user id the transfer needs, and `self`. No display
-       * name (a profile display name is never returned here), no email,
-       * phone or legal name.
-       *
-       * No enumeration: exact case-insensitive match only; malformed, unknown,
-       * frozen and closed handles all answer `{ found: false }`; a per-caller
-       * budget (30/min) refuses bulk probing with 429. Sessions only: an API
-       * key may not probe the handle space.
-       */
-      resolveHandle: protectedProcedure
-        .input(z.object({ handle: z.string().max(64) }))
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
-          if (ctx.principal.kid) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Handle lookup needs a signed-in session' });
-          }
-          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
-            throw new TRPCError({
-              code: 'TOO_MANY_REQUESTS',
-              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
-              cause: Object.assign(new Error('handle lookup rate limited'), { code: HANDLE_LOOKUP_RATE_LIMITED }),
-            });
-          }
-          const handle = normaliseHandleQuery(input.handle);
-          if (handle === null) return { found: false as const };
-          const hit = await auth.findActiveByHandle(handle);
-          if (!hit) return { found: false as const };
-          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
-        }),
-
-      /**
-       * Find a person by exact email or exact phone. Same budget and the same
-       * miss as `resolveHandle`. A hit requires that person's consent flag.
-       * The email and the phone are never in the answer.
-       */
-      searchPayees: protectedProcedure
-        .input(
-          z
-            .object({
-              email: z.string().max(320).optional(),
-              phone: z.string().max(32).optional(),
-            })
-            .strict()
-            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
-        )
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
-          if (ctx.principal.kid) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
-          }
-          if (!(await handleLookupLimiter.tryTake(ctx.principal.userId))) {
-            throw new TRPCError({
-              code: 'TOO_MANY_REQUESTS',
-              message: `Too many lookups. Try again in a minute. [${HANDLE_LOOKUP_RATE_LIMITED}]`,
-            });
-          }
-          const email = input.email === undefined ? undefined : normalisePayeeEmail(input.email);
-          const phone = input.phone === undefined ? undefined : normalisePayeePhone(input.phone);
-          if (email === null || phone === null || (email === undefined && phone === undefined)) return { found: false as const };
-          const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
-          if (!hit) return { found: false as const };
-          return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
-        }),
-
-      /**
-       * Opt in to being found by email or phone, and store the phone people
-       * would match. The stored number is not returned.
-       */
-      setPayeeSearchConsent: protectedProcedure
-        .input(
-          z
-            .object({
-              emailConsent: z.boolean().optional(),
-              phoneConsent: z.boolean().optional(),
-              phone: z.string().max(32).nullable().optional(),
-            })
-            .strict()
-            .refine(
-              (value) => value.emailConsent !== undefined || value.phoneConsent !== undefined || value.phone !== undefined,
-              'Nothing to change',
-            ),
-        )
-        .output(z.object({ emailConsent: z.boolean(), phoneConsent: z.boolean(), phoneOnFile: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
-          if (ctx.principal.kid) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search settings need a signed-in session' });
-          }
-          let phone: string | null | undefined;
-          if (input.phone === undefined) phone = undefined;
-          else if (input.phone === null) phone = null;
-          else {
-            phone = normalisePayeePhone(input.phone);
-            if (phone === null) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: 'Phone numbers are stored as E.164 [identity.payee_phone_invalid]' });
-            }
-          }
-          try {
-            return await auth.setPayeeSearchConsent(ctx.principal.userId, {
-              ...(input.emailConsent !== undefined ? { emailConsent: input.emailConsent } : {}),
-              ...(input.phoneConsent !== undefined ? { phoneConsent: input.phoneConsent } : {}),
-              ...(phone !== undefined ? { phone } : {}),
-            });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-    }),
 
     auth: router({
       register: publicProcedure
@@ -901,141 +397,16 @@ export function createIdentityRouter(
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
-          assertRegistrationOpen();
-          if (options.directRegister !== true) {
-            throw new TRPCError({
-              code: 'FORBIDDEN',
-              message: 'Sign up with auth.signUpStart and the mailed code [identity.register_replaced]',
-              cause: { code: 'identity.register_replaced' },
-            });
+          if (!options.registrationOpen) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet' });
           }
           try {
             const { referrerId, ...registerInput } = input;
-            const session = await auth.register({ ...registerInput, ip: requestIpAls.getStore() });
+            const session = await auth.register({ ...registerInput, ip: ctx.requestId });
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
-            return sessionWire(ctx, session);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * Sign-up, step 1 (I-signin-sessions-18, I-kyc-compliance-06). Eligibility first (age, country,
-       * nationality), then the password, then a six-digit code by email. Answers the same for a new address
-       * and one that already has an account, and opens no session. Phone sign-up needs an SMS provider and
-       * answers `vendor.sms` in this build; email sign-up works without it.
-       */
-      signUpStart: publicProcedure
-        .input(
-          z.object({
-            channel: z.enum(['email', 'phone']),
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().trim().email().max(320).optional(),
-            phone: z.string().trim().max(20).optional(),
-            password: z.string().max(200),
-            country: z.string().trim().length(2),
-            nationality: z.string().trim().length(2).optional(),
-            dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
-            accountType: z.enum(ACCOUNT_TYPES),
-            referrerId: z.string().uuid().optional(),
-          }),
-        )
-        .output(signUpAccepted)
-        .mutation(async ({ input }) => {
-          assertRegistrationOpen();
-          try {
-            if (input.channel === 'phone') {
-              throw new SignUpError(
-                'Phone sign-up needs a text-message provider, which is not connected in this build. Use email.',
-                'vendor.sms',
-              );
-            }
-            if (!input.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter an email address.' });
-            const { channel: _channel, phone: _phone, email, ...rest } = input;
-            return await auth.signUpStart({ ...rest, email });
-          } catch (err) {
-            throw signUpTrpcError(err);
-          }
-        }),
-
-      /** Sign-up, step 1b: another code once the resend interval has passed. Same answer for either kind of address. */
-      signUpResend: publicProcedure
-        .input(z.object({ flowId: z.string().uuid() }))
-        .output(signUpAccepted)
-        .mutation(async ({ input }) => {
-          assertRegistrationOpen();
-          try {
-            return await auth.signUpResend(input);
-          } catch (err) {
-            throw signUpTrpcError(err);
-          }
-        }),
-
-      /**
-       * Sign-up, step 2: the right code makes the account, marks the email proved and opens the first session.
-       * A wrong code counts toward the owner's lockout; a used code is refused. `accountType` tells the app
-       * whether to open business verification next.
-       */
-      signUpConfirm: publicProcedure
-        .input(z.object({ flowId: z.string().uuid(), code: z.string().trim().min(1).max(12) }))
-        .output(sessionOutput.and(z.object({ accountType: z.enum(ACCOUNT_TYPES) })))
-        .mutation(async ({ input, ctx }) => {
-          assertRegistrationOpen();
-          try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore() });
-            if (done.referrerId) {
-              // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
-              try {
-                await requireReferral().attribute({ userId: done.session.userId, referrerId: done.referrerId });
-              } catch (err) {
-                const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : 'unknown';
-                process.stderr.write(`${JSON.stringify({ level: 'warn', code, msg: 'identity.signup_referral_refused' })}\n`);
-              }
-            }
-            return { ...sessionWire(ctx, done.session), accountType: done.accountType };
-          } catch (err) {
-            throw signUpTrpcError(err);
-          }
-        }),
-
-      /**
-       * Is the founder enrolment door open? True only while the founder pair is not
-       * pinned, invites are configured, the expiry has not passed and one is unspent.
-       * Public and input-free; reveals nothing else.
-       */
-      founderEnrolmentStatus: publicProcedure.output(z.object({ open: z.boolean() })).query(async () => {
-        try {
-          return { open: await auth.founderEnrolmentOpen(founderInvites, founderNow()) };
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-      /**
-       * Founder enrolment: an invite-gated, single-use `register`. Independent of
-       * REGISTRATION_OPEN, so public sign-up stays closed. Refuses forever once the
-       * founder pair is pinned. Same handle/email/password rules as `register`;
-       * the session it returns is a password session (mfa false) that may enrol
-       * its first factor (the account is not privileged until pinned).
-       * Errors (`intafacedCode`): auth.invite_invalid, auth.invite_used,
-       * auth.invite_expired, auth.founder_enrolment_closed, plus handle/email taken.
-       */
-      registerFounder: publicProcedure
-        .input(
-          z.object({
-            invite: z.string().min(1).max(100),
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().email(),
-            password: z.string().min(12).max(200),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
-          try {
-            const session = await auth.registerFounder({ ...input, ip: requestIpAls.getStore() }, founderInvites, founderNow());
-            return sessionWire(ctx, session);
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -1044,247 +415,38 @@ export function createIdentityRouter(
       login: publicProcedure
         .input(z.object({ identifier: z.string().min(1), password: z.string().min(1), totpCode: z.string().optional() }))
         .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+        .mutation(async ({ input }) => {
           try {
             const session = await auth.login(input);
-            return sessionWire(ctx, session);
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
 
-      /**
-       * Social sign-in, step 1. With no provider registered this answers the allowlisted `idp.social`.
-       * The same answer for every provider name, so a name tells a caller nothing.
-       */
-      oauthStart: publicProcedure
-        .input(z.object({ provider: socialProviderName }).strict())
-        .output(z.object({ provider: z.string(), authorizationUrl: z.string(), expiresAt: z.string() }).strict())
+      refresh: publicProcedure
+        .input(z.object({ refreshToken: z.string().min(1) }))
+        .output(sessionOutput)
         .mutation(async ({ input }) => {
           try {
-            const started = await socialOrNone(options.social).start({ provider: input.provider, purpose: 'signin' });
-            return { provider: started.provider, authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt.toISOString() };
+            const session = await auth.refresh(input.refreshToken);
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
-            throw toSocialTrpcError(err);
-          }
-        }),
-
-      /**
-       * Social sign-in, step 2. Signs in only an account that already linked this provider identity;
-       * the provider's email never links or creates one. An account with a second factor still needs its code.
-       */
-      oauthComplete: publicProcedure
-        .input(
-          z
-            .object({
-              provider: socialProviderName,
-              state: z.string().min(1).max(200),
-              code: z.string().min(1).max(2000),
-              totpCode: z.string().optional(),
-            })
-            .strict(),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
-          try {
-            const social = socialOrNone(options.social);
-            const done = await social.complete({ provider: input.provider, purpose: 'signin', state: input.state, code: input.code });
-            const userId = await social.findLinked(input.provider, done.profile.subject);
-            if (!userId) throw new SocialError('That provider account is not linked to an account', 'identity.social_not_linked');
-            return sessionWire(
-              ctx,
-              await auth.signInVerifiedIdentity(userId, input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
-            );
-          } catch (err) {
-            throw toSocialTrpcError(err);
-          }
-        }),
-
-      refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
-          try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
-            return sessionWire(ctx, session);
-          } catch (err) {
-            if (
-              !input?.refreshToken &&
-              err instanceof AuthError &&
-              (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid')
-            ) {
-              ctx.refreshCookie?.clear();
-            }
             throw toTrpcError(err);
           }
         }),
 
       logout: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(z.object({ refreshToken: z.string().min(1) }))
         .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ input, ctx }) => {
-          const token = input?.refreshToken ?? ctx.refreshCookie?.presented ?? '';
-          if (token) await auth.logout(token);
-          ctx.refreshCookie?.clear();
+        .mutation(async ({ input }) => {
+          await auth.logout(input.refreshToken);
           return { ok: true as const };
         }),
 
       logoutAll: protectedProcedure.output(z.object({ revoked: z.number() })).mutation(async ({ ctx }) => ({
         revoked: await auth.logoutAll(ctx.principal.userId),
       })),
-
-      /**
-       * Change the signed-in user's password. User sessions only (an API key or
-       * sub-account is refused), the current password is required, and an account
-       * with any second factor also needs an `mfa` session. Revokes every OTHER
-       * session; the caller's stays. Rules: auth-service `changePassword`.
-       */
-      changePassword: protectedProcedure
-        .input(z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().max(200) }))
-        .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            await auth.changePassword({
-              userId: ctx.principal.userId,
-              sessionId: ctx.principal.sid,
-              actor: factorActor(ctx.principal, privilegedUserIds),
-              currentPassword: input.currentPassword,
-              newPassword: input.newPassword,
-            });
-            return { ok: true as const };
-          } catch (err) {
-            // A typo in the current password is not an expired session. Every 401 makes the
-            // apps sign the person out, so this door answers 403 (code stays in `cause`).
-            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
-              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
-            }
-            throw toFactorError(err);
-          }
-        }),
-
-      /**
-       * Self-service freeze (I-account-lifecycle-08). Needs the current password; revokes every session and key.
-       * Not the staff freeze and not the ledger freeze.
-       */
-      selfFreeze: protectedProcedure
-        .input(z.object({ reason: z.enum(SELF_FREEZE_REASONS), password: z.string().min(1).max(200) }))
-        .output(z.object({ frozen: z.literal(true), reason: z.enum(SELF_FREEZE_REASONS), since: z.string(), changed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            const done = await auth.selfFreeze({
-              userId: ctx.principal.userId,
-              actor: factorActor(ctx.principal, privilegedUserIds),
-              reason: input.reason,
-              password: input.password,
-            });
-            return { frozen: done.frozen, reason: done.reason, since: done.since.toISOString(), changed: done.changed };
-          } catch (err) {
-            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
-              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
-            }
-            throw toFactorError(err);
-          }
-        }),
-
-      selfFreezeStatus: protectedProcedure
-        .output(z.object({ frozen: z.boolean(), reason: z.enum(SELF_FREEZE_REASONS).nullable(), since: z.string().nullable() }))
-        .query(async ({ ctx }) => {
-          const s = await auth.selfFreezeStatus(ctx.principal.userId);
-          return { frozen: s.frozen, reason: s.reason, since: s.since ? s.since.toISOString() : null };
-        }),
-
-      /**
-       * Signed-out password reset, step 1 (D-38). Same answer whether or not
-       * the email is registered. The one-time code is mailed, never returned.
-       * The password hash does not change here.
-       */
-      requestPasswordReset: publicProcedure
-        .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.requestPasswordReset({ email: input.email });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * Username recovery. Same shape and same answer as `requestPasswordReset`: the username is mailed to a
-       * known address, and nothing in the answer says whether the address has an account.
-       */
-      requestHandleRecovery: publicProcedure
-        .input(z.object({ email: z.string().trim().email().max(320) }))
-        .output(z.object({ accepted: z.literal(true) }))
-        .mutation(async ({ input }) => {
-          try {
-            return await auth.requestHandleRecovery({ email: input.email });
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * Whether recovery mail can leave the server at all. The page shows its "not live" card only when this
-       * says off. It is the same for every visitor.
-       */
-      passwordResetChannel: publicProcedure
-        .output(z.object({ emailDelivery: z.enum(['on', 'off']) }))
-        .query(() => auth.passwordResetChannel()),
-
-      /**
-       * Signed-out password reset, step 2. A correct proof replaces the hash
-       * and ends the old sessions. This does not sign the caller in.
-       */
-      completePasswordReset: publicProcedure
-        .input(
-          z.object({
-            email: z.string().trim().email().max(320),
-            code: z.string().trim().min(1).max(200),
-            newPassword: z.string().max(200),
-          }),
-        )
-        .output(z.object({ ok: z.literal(true) }))
-        .mutation(async ({ input }) => {
-          try {
-            await auth.completePasswordReset(input);
-            return { ok: true as const };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * Signed-in email confirmation, step 1. The link goes to this account's
-       * own address. The response does not say whether a message was sent.
-       * An API key is not a session.
-       */
-      requestEmailConfirmation: protectedProcedure.output(z.object({ accepted: z.literal(true) })).mutation(async ({ ctx }) => {
-        if (ctx.principal.kid) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'Email confirmation needs a signed-in session' });
-        }
-        try {
-          return await auth.requestEmailConfirmation({ userId: ctx.principal.userId });
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
-
-      /**
-       * Email confirmation, step 2. The token is the proof. A wrong, expired,
-       * spent, or rebound token is the same refusal and does not name an account.
-       */
-      confirmEmail: publicProcedure
-        .input(z.object({ token: z.string().trim().min(1).max(500) }))
-        .output(z.object({ confirmed: z.literal(true) }))
-        .mutation(async ({ input }) => {
-          try {
-            await auth.confirmEmail({ token: input.token });
-            return { confirmed: true as const };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
 
       /**
        * THE STEP-UP CHALLENGE.
@@ -1356,76 +518,6 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
-
-      /**
-       * Confirm it's you, then mint a ten-minute access token that can refund
-       * or pay out. The token is not refreshable. A plain session cannot call
-       * payment.refund or settlement.payout.
-       *
-       * Input: `{ merchantId, scopes: ('pay:refund' | 'pay:payout')[], factorProof }`.
-       * `factorProof` is exactly one of `{ totpCode }`, `{ webauthn }`,
-       * or `{ proofId }` from a factor verified in the last five minutes
-       * (`proveFreshFactor`, STEPUP #4880). A passkey assertion is signed over
-       * the single-use challenge from `auth.stepUpOptions`.
-       * Output: `{ accessToken, expiresAt, scopes, refreshable: false }`.
-       * Refusals: `auth.step_up_required`, `auth.step_up_expired`, `pay.role_not_allowed`.
-       * Nothing is minted on a refusal.
-       */
-      stepUpPay: protectedProcedure
-        .input(
-          z.object({
-            merchantId: z.string().uuid(),
-            scopes: z
-              .array(z.enum(['pay:refund', 'pay:payout']))
-              .min(1)
-              .max(2),
-            factorProof: z.union([
-              z.object({ totpCode: z.string().regex(/^\d{6}$/) }).strict(),
-              z
-                .object({
-                  webauthn: z.object({
-                    id: z.string().min(1),
-                    rawId: z.string().min(1),
-                    type: z.literal('public-key'),
-                    response: z.object({
-                      clientDataJSON: z.string().min(1),
-                      authenticatorData: z.string().min(1),
-                      signature: z.string().min(1),
-                      userHandle: z.string().nullish(),
-                    }),
-                    clientExtensionResults: z.record(z.unknown()).optional(),
-                  }),
-                })
-                .strict(),
-              z.object({ proofId: z.string().uuid() }).strict(),
-            ]),
-          }),
-        )
-        .output(
-          z.object({
-            accessToken: z.string(),
-            expiresAt: z.string(),
-            scopes: z.array(z.string()),
-            refreshable: z.literal(false),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
-          try {
-            if (ctx.principal.kid || ctx.principal.sub_account) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot confirm a payment' });
-            }
-            const elevated = await auth.stepUpPay({
-              userId: ctx.principal.userId,
-              sessionId: ctx.principal.sid,
-              merchantId: input.merchantId,
-              scopes: input.scopes,
-              factorProof: input.factorProof,
-            });
-            return { ...elevated, expiresAt: elevated.expiresAt.toISOString() };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
     }),
 
     totp: router({
@@ -1433,9 +525,9 @@ export function createIdentityRouter(
         .output(z.object({ secret: z.string(), uri: z.string(), recoveryCodes: z.array(z.string()) }))
         .mutation(async ({ ctx }) => {
           try {
-            return await auth.startTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+            return await auth.startTotpEnrolment(ctx.principal.userId);
           } catch (err) {
-            throw toFactorError(err);
+            throw toTrpcError(err);
           }
         }),
 
@@ -1444,10 +536,10 @@ export function createIdentityRouter(
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
           try {
-            await auth.confirmTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input.secret, input.code);
+            await auth.confirmTotpEnrolment(ctx.principal.userId, input.secret, input.code);
             return { ok: true as const };
           } catch (err) {
-            throw toFactorError(err);
+            throw toTrpcError(err);
           }
         }),
     }),
@@ -1463,9 +555,9 @@ export function createIdentityRouter(
       registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
         if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
         try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          return await auth.startWebauthnRegistration(ctx.principal.userId);
         } catch (err) {
-          throw toFactorError(err);
+          throw toTrpcError(err);
         }
       }),
 
@@ -1487,9 +579,9 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            return await auth.confirmWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input);
+            return await auth.confirmWebauthnRegistration(ctx.principal.userId, input);
           } catch (err) {
-            throw toFactorError(err);
+            throw toTrpcError(err);
           }
         }),
 
@@ -1521,19 +613,17 @@ export function createIdentityRouter(
           }),
         )
         .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+        .mutation(async ({ input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
             const session = await auth.confirmWebauthnAuthentication(input.identifier, input.credential);
-            return sessionWire(ctx, session);
+            return { ...session, expiresAt: session.expiresAt.toISOString() };
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
 
-      /** Limit required — omit never dumps credentials. */
       list: protectedProcedure
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
         .output(
           z.array(
             z.object({
@@ -1543,10 +633,10 @@ export function createIdentityRouter(
             }),
           ),
         )
-        .query(async ({ ctx, input }) => {
+        .query(async ({ ctx }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            return await auth.listWebauthnCredentials(ctx.principal.userId, input.limit);
+            return await auth.listWebauthnCredentials(ctx.principal.userId);
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -1562,14 +652,10 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            const removed = await auth.removeWebauthnCredential(
-              ctx.principal.userId,
-              factorActor(ctx.principal, privilegedUserIds),
-              input.credentialId,
-            );
+            const removed = await auth.removeWebauthnCredential(ctx.principal.userId, input.credentialId);
             return { removed };
           } catch (err) {
-            throw toFactorError(err);
+            throw toTrpcError(err);
           }
         }),
     }),
@@ -1629,24 +715,17 @@ export function createIdentityRouter(
           }
         }),
 
-      /** The caller's own records, and the tier they currently add up to. Limit required — omit never dumps records. */
+      /** The caller's own records, and the tier they currently add up to. */
       status: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
         .output(z.object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), records: z.array(kycRecordOutput) }))
-        .query(async ({ ctx, input }) => {
-          try {
-            return {
-              // Read from the same function the token issuer uses, rather than
-              // re-deriving "highest approved, unexpired" here. Two implementations
-              // of that rule would eventually disagree, and the one the user is
-              // shown is not the one that decides what they can do.
-              tier: await auth.kycTier(ctx.principal.userId),
-              records: (await auth.listKycRecords(ctx.principal.userId, input.limit)).map(presentKyc),
-            };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+        .query(async ({ ctx }) => ({
+          // Read from the same function the token issuer uses, rather than
+          // re-deriving "highest approved, unexpired" here. Two implementations
+          // of that rule would eventually disagree, and the one the user is
+          // shown is not the one that decides what they can do.
+          tier: await auth.kycTier(ctx.principal.userId),
+          records: (await auth.listKycRecords(ctx.principal.userId)).map(presentKyc),
+        })),
 
       /**
        * THE OPERATOR ACTION — THIS GRANTS TRADING ACCESS.
@@ -1655,14 +734,15 @@ export function createIdentityRouter(
        * second-factor check.
        *
        * WHY `requireMfa` IS HERE AND NOT IMPLIED BY THE SCOPE.
-       * `admin:compliance` is in `INTERACTIVE_ONLY_SCOPES`, so an API key that
-       * carries it is refused at `requireScope` (`scope.interactive_only`).
-       * That list does not force 2FA: `SESSION_MFA_SCOPES` is the value-off-
-       * platform subset, and approving a record moves nothing. It is still a
-       * privilege-escalation primitive, so the second factor is enforced here,
-       * locally. Dual-control reuses four-eyes
-       * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
-       * operator cannot self-grant `institutional`.
+       * `INTERACTIVE_ONLY_SCOPES` is what forces 2FA on a scope, and
+       * `admin:compliance` is NOT in that list — its stated membership test is
+       * "does this move value OFF the platform", and approving a record moves
+       * nothing. But it is a privilege-escalation primitive: a leaked operator
+       * key that can self-approve an account to `institutional` unlocks every
+       * custodial module in the OS. So the second factor is enforced here,
+       * locally, and the question of whether the shared list should grow is
+       * argued in the PR rather than settled by editing a shared package inside
+       * a service PR (§15.2).
        */
       approve: scopedProcedure('admin:compliance')
         .input(
@@ -1670,9 +750,6 @@ export function createIdentityRouter(
             recordId: z.string().uuid(),
             /** When the verification lapses. Null means it does not. */
             expiresAt: z.string().datetime({ offset: true }).nullish(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
           }),
         )
         .output(kycRecordOutput)
@@ -1680,7 +757,6 @@ export function createIdentityRouter(
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
             return presentKyc(
               await auth.approveKycRecord({
                 recordId: input.recordId,
@@ -1688,9 +764,6 @@ export function createIdentityRouter(
                 expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
                 service: ctx.service,
                 kid: ctx.principal.kid,
-                confirmActorId: input.confirmOperatorId,
-                approvalId: input.approvalId,
-                operationId: input.operationId,
               }),
             );
           } catch (err) {
@@ -1698,31 +771,20 @@ export function createIdentityRouter(
           }
         }),
 
-      /** The other half of a review. Grants nothing and announces nothing. Dual-control matches approve. */
+      /** The other half of a review. Grants nothing and announces nothing. */
       reject: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            recordId: z.string().uuid(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
+        .input(z.object({ recordId: z.string().uuid() }))
         .output(kycRecordOutput)
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
             return presentKyc(
               await auth.rejectKycRecord({
                 recordId: input.recordId,
                 reviewerId: ctx.principal.userId,
                 service: ctx.service,
                 kid: ctx.principal.kid,
-                confirmActorId: input.confirmOperatorId,
-                approvalId: input.approvalId,
-                operationId: input.operationId,
               }),
             );
           } catch (err) {
@@ -1730,17 +792,11 @@ export function createIdentityRouter(
           }
         }),
 
-      /** The review queue. Without it `approve` needs a record id nobody can find. Limit required — omit never invents 50. */
+      /** The review queue. Without it `approve` needs a record id nobody can find. */
       pending: scopedProcedure('admin:compliance')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).optional())
         .output(z.array(kycRecordOutput))
-        .query(async ({ input }) => {
-          try {
-            return (await auth.listPendingKyc(input.limit)).map(presentKyc);
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
+        .query(async ({ input }) => (await auth.listPendingKyc(input?.limit ?? 50)).map(presentKyc)),
 
       /**
        * §10 — operator stores a KYC document into the encrypted vault.
@@ -1748,8 +804,6 @@ export function createIdentityRouter(
        * Returns meta + opaque id only. NEVER returns plaintext/ciphertext.
        * Live vendor webhook remains Class X; this is the in-house store path.
        * MFA required: same privilege class as approve (document = PII grant prep).
-       * Dual-control reuses four-eyes (`confirmOperatorId` mill field → distinct
-       * `confirmActorId`) so one MFA `admin:compliance` session cannot PII-put.
        */
       storeDocument: scopedProcedure('admin:compliance')
         .input(
@@ -1758,30 +812,17 @@ export function createIdentityRouter(
             contentType: z.string().min(1).max(128),
             /** Base64 document bytes (max 10 MiB decoded). */
             bytesBase64: z.string().min(1).max(14_000_000),
-            /**
-             * Distinct confirming operator. Enforced after parse so
-             * missing/blank/same refuse `dual_control_missing`, not a schema dump.
-             */
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
           }),
         )
         .output(kycDocMetaOutput)
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.store', { userId: input.userId });
             const vault = requireKycDocs();
             let bytes: Buffer;
             try {
               bytes = Buffer.from(input.bytesBase64, 'base64');
             } catch {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
-            }
-            // Buffer.from accepts ignored characters, padding and unused-bit
-            // variants. Store only the canonical encoding of the decoded bytes.
-            if (bytes.toString('base64') !== input.bytesBase64) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
             }
             // Empty after decode is a put refusal from the store; reject early for a clean code.
@@ -1805,28 +846,14 @@ export function createIdentityRouter(
        * §10 — operator opens a KYC document from the encrypted vault.
        *
        * MFA required: same privilege class as store/approve (document = PII).
-       * Dual-control reuses four-eyes (`confirmOperatorId` mill field → distinct
-       * `confirmActorId`) so one MFA `admin:compliance` session cannot PII-read.
        * Refuses a blank IDENTITY_KYC_DOC_KEY before reader — no invented AES key, no plaintext.
        */
       getDocument: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            documentId: z.string().uuid(),
-            /**
-             * Distinct confirming operator. Enforced after parse so
-             * missing/blank/same refuse `dual_control_missing`, not a schema dump.
-             */
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
+        .input(z.object({ documentId: z.string().uuid() }))
         .output(kycDocMetaOutput.extend({ bytesBase64: z.string() }))
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.get', { documentId: input.documentId });
             const vault = requireKycDocs();
             const opened = await vault.getFor(input.documentId, {
               kind: 'compliance',
@@ -1841,15 +868,14 @@ export function createIdentityRouter(
       /**
        * Meta-only list for one subject. No document bytes on the wire.
        * Compliance scope only — not a free userId lookup for ordinary sessions.
-       * Limit required — omit never dumps KYC meta.
        */
       listDocuments: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(200) }))
+        .input(z.object({ userId: z.string().uuid() }))
         .output(z.array(kycDocMetaOutput))
         .query(async ({ input }) => {
           try {
             const vault = requireKycDocs();
-            return (await vault.listMetaForUser(input.userId, input.limit)).map(presentDocMeta);
+            return (await vault.listMetaForUser(input.userId)).map(presentDocMeta);
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -1859,21 +885,12 @@ export function createIdentityRouter(
        * Bind vault document id as kyc_records.provider_ref for a pending record.
        * Ownership of the document must match the record subject — cross-user bind refused.
        * Returns the opaque pointer only (never bytes).
-       * Dual-control reuses four-eyes (`confirmOperatorId` mill field → distinct
-       * `confirmActorId`) so one MFA `admin:compliance` session cannot PII-bind.
        */
       bindDocument: scopedProcedure('admin:compliance')
         .input(
           z.object({
             recordId: z.string().uuid(),
             documentId: z.string().uuid(),
-            /**
-             * Distinct confirming operator. Enforced after parse so
-             * missing/blank/same refuse `dual_control_missing`, not a schema dump.
-             */
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
           }),
         )
         .output(
@@ -1887,10 +904,6 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.bind', {
-              recordId: input.recordId,
-              documentId: input.documentId,
-            });
             const bind = requireBindKyc();
             const result = await bind({
               recordId: input.recordId,
@@ -1981,7 +994,7 @@ export function createIdentityRouter(
        * This is what makes identity.apikeys real — create alone is not enough.
        */
       exchange: publicProcedure
-        .input(z.object({ key: z.string().min(8).max(200), request: requestSignWireSchema.optional() }))
+        .input(z.object({ key: z.string().min(8).max(200) }))
         .output(
           z.object({
             accessToken: z.string(),
@@ -1990,18 +1003,14 @@ export function createIdentityRouter(
             keyId: z.string().uuid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
-            requireSignature: z.boolean().optional(),
-            requireNonEmptyIpAllowlist: z.boolean().optional(),
-            ipAllowlist: z.array(z.string()).optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
           try {
             // Origin is read from the trusted edge request, never from the body.
             // A non-empty domain_whitelist refuses foreign or missing origins.
-            assertEdgeSignedRequest(ctx.service, input.request);
             const clientOrigin = (ctx as { clientOrigin?: string }).clientOrigin;
-            const result = await requestSignAls.run(input.request, () => auth.exchangeApiKey(input.key, clientOrigin));
+            const result = await auth.exchangeApiKey(input.key, clientOrigin);
             return {
               accessToken: result.accessToken,
               expiresAt: result.expiresAt.toISOString(),
@@ -2009,9 +1018,6 @@ export function createIdentityRouter(
               keyId: result.keyId,
               scopes: result.scopes,
               mode: result.mode,
-              ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
-              ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
-              ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             };
           } catch (err) {
             throw toTrpcError(err);
@@ -2026,63 +1032,25 @@ export function createIdentityRouter(
             domainWhitelist: z.array(z.string()).optional(),
             /** pay.public-api step 4 — sandbox keys route to the sandbox rail. */
             mode: z.enum(['live', 'sandbox']).optional(),
-            /** A TOTP code, passkey assertion or proof id verified in the last five minutes. */
-            factorProof: optionalFactorProof,
           }),
         )
-        .output(
-          z.object({
-            id: z.string(),
-            key: z.string(),
-            prefix: z.string(),
-            mode: z.enum(['live', 'sandbox']),
-            scopes: z.array(z.string()),
-          }),
-        )
+        .output(z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.enum(['live', 'sandbox']) }))
         .mutation(async ({ ctx, input }) => {
           try {
             // `grantorScopes` comes from the verified principal, never from the
             // body. A key is a delegation of THIS session's authority, so the
             // ceiling has to be read from the token that asked for it.
-            // A key (`kid`) is already a delegate and cannot mint another.
-            assertDelegateCannotGrant(ctx.principal.kid);
-            const money = input.scopes.filter((scope) => scope === 'pay:refund' || scope === 'pay:payout');
-            const stepped = new Set(ctx.principal.stp ?? []);
-            const payStepUp = money.length > 0 && money.every((scope) => stepped.has(scope) && ctx.principal.scopes.includes(scope));
-            if (money.length > 0 && !payStepUp) {
-              throw new TRPCError({
-                code: 'PRECONDITION_FAILED',
-                message: `${userCopy('auth.step_up_required')} [auth.step_up_required]`,
-              });
-            }
-            const { factorProof, ...keyInput } = input;
-            const created = await guardedApiKeyAction(
-              auth,
-              ctx.principal,
-              factorProof,
-              { action: 'create', scopes: input.scopes },
-              (scope) =>
-                scope.createApiKey({
-                  userId: ctx.principal.userId,
-                  ...keyInput,
-                  grantorScopes: ctx.principal.scopes,
-                  grantorKid: ctx.principal.kid,
-                  payStepUp,
-                }),
-            );
-            return { ...created, scopes: created.scopes ?? input.scopes };
+            return await auth.createApiKey({
+              userId: ctx.principal.userId,
+              ...input,
+              grantorScopes: ctx.principal.scopes,
+            });
           } catch (err) {
-            if (err instanceof TRPCError) throw err;
-            if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
-              throw toTrpcError(err);
-            }
             throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
           }
         }),
 
-      /** Limit required — omit never dumps API keys. */
       list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
         .output(
           z.array(
             z.object({
@@ -2093,30 +1061,20 @@ export function createIdentityRouter(
               lastUsedAt: z.string().nullable(),
               revoked: z.boolean(),
               mode: z.enum(['live', 'sandbox']),
-              requireSignature: z.boolean(),
-              requireNonEmptyIpAllowlist: z.boolean(),
-              ipAllowlist: z.array(z.string()),
             }),
           ),
         )
-        .query(async ({ ctx, input }) => {
-          try {
-            const keys = await auth.listApiKeys(ctx.principal.userId, input.limit);
-            return keys.map((k) => ({
-              id: k.id,
-              name: k.name,
-              prefix: k.key_prefix,
-              scopes: k.scopes,
-              lastUsedAt: k.last_used_at?.toISOString() ?? null,
-              revoked: k.revoked,
-              mode: k.mode === 'sandbox' ? ('sandbox' as const) : ('live' as const),
-              requireSignature: k.require_signature === true,
-              requireNonEmptyIpAllowlist: k.require_non_empty_ip_allowlist === true,
-              ipAllowlist: k.ip_allowlist ?? [],
-            }));
-          } catch (err) {
-            throw toTrpcError(err);
-          }
+        .query(async ({ ctx }) => {
+          const keys = await auth.listApiKeys(ctx.principal.userId);
+          return keys.map((k) => ({
+            id: k.id,
+            name: k.name,
+            prefix: k.key_prefix,
+            scopes: k.scopes,
+            lastUsedAt: k.last_used_at?.toISOString() ?? null,
+            revoked: k.revoked,
+            mode: k.mode === 'sandbox' ? ('sandbox' as const) : ('live' as const),
+          }));
         }),
 
       revoke: scopedProcedure('identity:write')
@@ -2130,57 +1088,43 @@ export function createIdentityRouter(
      * Cascades: user frozen + all sessions revoked + all sub-accounts + all API keys revoked.
      */
     compliance: router({
-      freezeIdentity: protectedProcedure
-        .input(identityFreezeInputSchema)
-        .output(accountControlResultSchema)
-        .mutation(({ ctx, input }) => callFounderControl(options.founderControls, ctx, input)),
-
-      unfreezeIdentity: protectedProcedure
-        .input(identityRestoreInputSchema)
-        .output(accountControlResultSchema)
-        .mutation(async ({ ctx, input }) => {
-          if (options.assertStaffSessionLive) {
-            try {
-              await options.assertStaffSessionLive(ctx.principal.sid, ctx.principal.userId);
-            } catch (err) {
-              if (err instanceof TradeIdentityAuthError) {
-                throw new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
-              }
-              throw err;
-            }
-          }
-          return callFounderControl(options.founderControls, ctx, input);
-        }),
-    }),
-
-    subAccounts: router({
-      ...createSubAccountDeleteProcedures(options.subAccountDelete),
-      ...createSubAccountFeatureProcedures(options.subAccountFeatures),
-      ...createSubAccountEditProcedures(options.subAccountEdit),
-      create: scopedProcedure('identity:write')
-        .input(
+      freezeIdentity: scopedProcedure('admin:compliance')
+        .input(z.object({ userId: z.string().uuid() }))
+        .output(
           z.object({
-            label: z.string().min(1).max(64),
-            purpose: z.string().max(200).optional(),
-            kind: z.enum(SUB_ACCOUNT_KINDS).optional(),
-            nickname: z.string().max(64).optional(),
+            userId: z.string().uuid(),
+            status: z.literal('frozen'),
+            subAccountsRevoked: z.number().int(),
+            apiKeysRevoked: z.number().int(),
           }),
         )
-        .output(z.object({ id: z.string().uuid() }))
-        .mutation(async ({ ctx, input }) => {
+        .mutation(async ({ input }) => {
           try {
-            return await auth.createSubAccount(ctx.principal.userId, input.label, input.purpose, {
-              kind: input.kind,
-              nickname: input.nickname,
-            });
+            return await auth.freezeIdentity(input.userId);
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
 
-      /** Limit required — omit never dumps partitions. */
+      unfreezeIdentity: scopedProcedure('admin:compliance')
+        .input(z.object({ userId: z.string().uuid() }))
+        .output(z.object({ userId: z.string().uuid(), status: z.literal('active') }))
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.unfreezeIdentity(input.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
+
+    subAccounts: router({
+      create: scopedProcedure('identity:write')
+        .input(z.object({ label: z.string().min(1).max(64), purpose: z.string().max(200).optional() }))
+        .output(z.object({ id: z.string().uuid() }))
+        .mutation(({ ctx, input }) => auth.createSubAccount(ctx.principal.userId, input.label, input.purpose)),
+
       list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
         .output(
           z.array(
             z.object({
@@ -2188,29 +1132,19 @@ export function createIdentityRouter(
               label: z.string(),
               purpose: z.string().nullable(),
               revoked: z.boolean(),
-              frozen: z.boolean(),
-              kind: z.enum(SUB_ACCOUNT_KINDS),
-              nickname: z.string().nullable(),
               createdAt: z.string(),
             }),
           ),
         )
-        .query(async ({ ctx, input }) => {
-          try {
-            const rows = await auth.listSubAccounts(ctx.principal.userId, input.limit);
-            return rows.map((r) => ({
-              id: r.id,
-              label: r.label,
-              purpose: r.purpose,
-              revoked: r.revoked,
-              frozen: r.frozen,
-              kind: r.kind,
-              nickname: r.nickname,
-              createdAt: r.createdAt.toISOString(),
-            }));
-          } catch (err) {
-            throw toTrpcError(err);
-          }
+        .query(async ({ ctx }) => {
+          const rows = await auth.listSubAccounts(ctx.principal.userId);
+          return rows.map((r) => ({
+            id: r.id,
+            label: r.label,
+            purpose: r.purpose,
+            revoked: r.revoked,
+            createdAt: r.createdAt.toISOString(),
+          }));
         }),
 
       /**
@@ -2220,16 +1154,9 @@ export function createIdentityRouter(
       revoke: scopedProcedure('identity:write')
         .input(z.object({ subAccountId: z.string().uuid() }))
         .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
-          // Revoke is the same act as delete, so it carries the same assets and open-orders check, and fails closed.
-          try {
-            if (!options.subAccountDelete) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
-            await options.subAccountDelete.assertEmpty(ctx.principal.userId, input.subAccountId);
-          } catch (err) {
-            subAccountDeleteToTrpc(err);
-          }
-          return { revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId) };
-        }),
+        .mutation(async ({ ctx, input }) => ({
+          revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId),
+        })),
 
       /**
        * Single-row ownership door (SPEC-SUBACCOUNTS §2 / D26-P1-I1).
@@ -2282,8 +1209,6 @@ export function createIdentityRouter(
      * Spec: docs/ops/trk/ops.affiliates.md Slice A.
      */
     affiliates: router({
-      policy: publicProcedure.query(() => describeAffiliatesPolicy()),
-
       attribute: scopedProcedure('identity:write')
         .input(z.object({ referrerId: z.string().uuid() }))
         .output(
@@ -2304,83 +1229,6 @@ export function createIdentityRouter(
               referrerId: edge.referrerId,
               attributedAt: edge.attributedAt.toISOString(),
             };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * One-tap share token mapped to this principal's user id (the referrer).
-       * Idempotent while unrevoked. Hits are a counter, not money.
-       */
-      createShare: scopedProcedure('identity:write')
-        .output(
-          z.object({
-            token: z.string().uuid(),
-            referrerId: z.string().uuid(),
-            hits: z.number().int(),
-          }),
-        )
-        .mutation(async ({ ctx }) => {
-          try {
-            const rec = await requireShare().createShare(ctx.principal.userId);
-            return { token: rec.token, referrerId: rec.referrerId, hits: rec.hits };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      revokeShare: scopedProcedure('identity:write')
-        .output(
-          z.object({
-            token: z.string().uuid(),
-            referrerId: z.string().uuid(),
-            hits: z.number().int(),
-            revokedAt: z.string(),
-          }),
-        )
-        .mutation(async ({ ctx }) => {
-          try {
-            const rec = await requireShare().revokeShare(ctx.principal.userId);
-            return {
-              token: rec.token,
-              referrerId: rec.referrerId,
-              hits: rec.hits,
-              revokedAt: rec.revokedAt ? rec.revokedAt.toISOString() : new Date().toISOString(),
-            };
-          } catch (err) {
-            throw toTrpcError(err);
-          }
-        }),
-
-      /**
-       * Public hit. Signed-out: increment only. Signed-in: increment then
-       * attribute via the same `affiliates.attribute` path (one tree).
-       * Revoked / gone profile: named refuse, no later attribute.
-       */
-      shareHits: publicProcedure
-        .input(z.object({ token: z.string().uuid() }))
-        .output(z.object({ hits: z.number().int(), attributed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            const rec = await requireShare().shareHits(input.token);
-            let attributed = false;
-            if (ctx.principal && ctx.principal.userId !== rec.referrerId) {
-              try {
-                await requireReferral().attribute({
-                  userId: ctx.principal.userId,
-                  referrerId: rec.referrerId,
-                });
-                attributed = true;
-              } catch (err) {
-                if (err instanceof ReferralError && err.code === 'referral.already_set') {
-                  attributed = true;
-                } else {
-                  throw err;
-                }
-              }
-            }
-            return { hits: rec.hits, attributed };
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -2424,11 +1272,10 @@ export function createIdentityRouter(
        * Affiliate self-view of durable commission accruals only.
        * Always scoped to ctx.principal.userId — no beneficiaryId input (foreign refuse by design).
        * Empty list when no rows / rates unpublished (never invents rates or amounts).
-       * Limit required — omit never invents 100. Owner/query may pass 100 explicitly.
        * Payout is a separate admin procedure (affiliates.payout) — refuse-closed without owner rates + ledger.
        */
       myAccruals: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(500) }))
+        .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
         .output(
           z.object({
             rows: z.array(
@@ -2451,7 +1298,7 @@ export function createIdentityRouter(
           try {
             const store = requireAccruals();
             // Self-only: never accept a foreign beneficiaryId.
-            const rows = await store.listByBeneficiary(ctx.principal.userId, input.limit);
+            const rows = await store.listByBeneficiary(ctx.principal.userId, input?.limit);
             return {
               rows: rows.map((r) => ({
                 feeEventId: r.feeEventId,
@@ -2471,26 +1318,9 @@ export function createIdentityRouter(
           }
         }),
 
-      /**
-       * Operator freeze beneficiary — skips accrual; no payout path here.
-       * `admin:write` is not INTERACTIVE_ONLY, so MFA is local (same reason as
-       * `kyc.approve`). Dual-control reuses four-eyes (`confirmOperatorId` mill
-       * field → distinct `confirmActorId`) so one operator cannot freeze alone.
-       */
+      /** Operator freeze beneficiary — skips accrual; no payout path here. */
       freeze: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            beneficiaryId: z.string().uuid(),
-            reason: z.string().min(3).max(500),
-            /**
-             * Distinct confirming operator. Enforced after parse so
-             * missing/blank/same refuse `dual_control_missing`, not a schema dump.
-             */
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
+        .input(z.object({ beneficiaryId: z.string().uuid(), reason: z.string().min(3).max(500) }))
         .output(
           z.object({
             beneficiaryId: z.string().uuid(),
@@ -2502,19 +1332,11 @@ export function createIdentityRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'affiliates.freeze', {
-              beneficiaryId: input.beneficiaryId,
-              reason: input.reason,
-            });
             const svc = requireFreeze();
             const rec = await svc.freeze({
               beneficiaryId: input.beneficiaryId,
               frozenBy: ctx.principal.userId,
               reason: input.reason,
-              confirmActorId: input.confirmOperatorId,
-              approvalId: input.approvalId,
-              operationId: input.operationId,
             });
             const frozenIds = await svc.frozenIds();
             return {
@@ -2534,14 +1356,7 @@ export function createIdentityRouter(
         }),
 
       unfreeze: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            beneficiaryId: z.string().uuid(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
+        .input(z.object({ beneficiaryId: z.string().uuid() }))
         .output(
           z.object({
             beneficiaryId: z.string().uuid(),
@@ -2551,19 +1366,10 @@ export function createIdentityRouter(
             honestyLine: z.string(),
           }),
         )
-        .mutation(async ({ ctx, input }) => {
+        .mutation(async ({ input }) => {
           try {
-            requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'affiliates.unfreeze', {
-              beneficiaryId: input.beneficiaryId,
-            });
             const svc = requireFreeze();
-            const rec = await svc.unfreeze(input.beneficiaryId, {
-              actorId: ctx.principal.userId,
-              confirmActorId: input.confirmOperatorId,
-              approvalId: input.approvalId,
-              operationId: input.operationId,
-            });
+            const rec = await svc.unfreeze(input.beneficiaryId);
             const frozenIds = await svc.frozenIds();
             return {
               beneficiaryId: rec.beneficiaryId,
@@ -2581,9 +1387,7 @@ export function createIdentityRouter(
           }
         }),
 
-      /** Limit required — omit never invents 100. Owner/query may pass 100 explicitly. */
       freezes: scopedProcedure('admin:read')
-        .input(z.object({ limit: z.number().int().min(1).max(500) }))
         .output(
           z.array(
             z.object({
@@ -2594,9 +1398,9 @@ export function createIdentityRouter(
             }),
           ),
         )
-        .query(async ({ input }) => {
+        .query(async () => {
           try {
-            const rows = await requireFreeze().list(input.limit);
+            const rows = await requireFreeze().list();
             return rows.map((r) => ({
               beneficiaryId: r.beneficiaryId,
               frozenBy: r.frozenBy,
@@ -2682,15 +1486,9 @@ export function createIdentityRouter(
       /**
        * Stage-2 admin read — attributed member roster (+ optional root filter).
        * Structure + freeze overlay only; no rates / payouts.
-       * Limit required — omit never invents 100. Owner/query may pass 100 explicitly.
        */
       members: scopedProcedure('admin:read')
-        .input(
-          z.object({
-            rootId: z.string().uuid().optional(),
-            limit: z.number().int().min(1).max(500),
-          }),
-        )
+        .input(z.object({ rootId: z.string().uuid().optional() }).optional())
         .output(
           z.object({
             members: z.array(
@@ -2712,8 +1510,8 @@ export function createIdentityRouter(
         .query(async ({ input }) => {
           try {
             const frozen = freeze ? await requireFreeze().frozenIds() : new Set<string>();
-            const rootId = input.rootId ?? null;
-            const { members, board } = await requireReferral().listMembers(frozen, rootId, input.limit);
+            const rootId = input?.rootId ?? null;
+            const { members, board } = await requireReferral().listMembers(frozen, rootId);
             return {
               members: members.map((m) => ({
                 userId: m.userId,
@@ -2746,11 +1544,6 @@ export function createIdentityRouter(
        * be the one an operator sees first. Rejecting a missing field before
        * checking the law would answer "your request is malformed" to someone
        * whose real problem is that no rate exists.
-       *
-       * Posting is a value move. `admin:write` is not INTERACTIVE_ONLY, so MFA
-       * is local (same reason as `kyc.approve`). Dual-control reuses four-eyes
-       * (`confirmOperatorId` mill field → distinct `confirmActorId`). Dry-run
-       * stays single-operator — it posts nothing.
        */
       payout: scopedProcedure('admin:write')
         .input(
@@ -2758,16 +1551,9 @@ export function createIdentityRouter(
             feeEventId: z.string().min(1).max(120).optional(),
             beneficiaryId: z.string().uuid().optional(),
             dryRun: z.boolean().optional(),
-            /**
-             * Distinct confirming operator. Enforced after parse so
-             * missing/blank/same refuse `dual_control_missing`, not a schema dump.
-             */
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
           }),
         )
-        .mutation(async ({ ctx, input }) => {
+        .mutation(async ({ input }) => {
           try {
             // Rate law first — before store, ledger, or field validation.
             assertPayoutRateProvenance([], accrualTierLaw);
@@ -2782,16 +1568,7 @@ export function createIdentityRouter(
             }
 
             const rows = await requireAccruals().listByFeeEvent(feeEventId);
-            // An unknown frozen set is not an empty one: without the freeze
-            // service we cannot tell who is frozen, so neither plan nor pay.
-            if (!freeze) {
-              throw new AffiliatePayoutRefuseError(
-                'Affiliate payout cannot run — no freeze service is wired, so the frozen beneficiary set is unknown',
-                'affiliate.payout.freeze_unwired',
-                AFFILIATE_PAYOUT_RESIDUAL,
-              );
-            }
-            const frozen = await freeze.frozenIds();
+            const frozen = freeze ? await requireFreeze().frozenIds() : new Set<string>();
 
             const plan = planAffiliatePayout({
               feeEventId,
@@ -2823,11 +1600,6 @@ export function createIdentityRouter(
               );
             }
 
-            requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePrivileged(ctx.principal.userId, input, 'affiliates.payout', {
-              feeEventId,
-            });
-
             const receipt = await postAffiliatePayout(ledger, plan);
             return {
               posted: true as const,
@@ -2838,7 +1610,6 @@ export function createIdentityRouter(
               beneficiaryCount: receipt.beneficiaryCount,
               idempotencyKeys: receipt.idempotencyKeys,
               statusLine: affiliatePayoutPlanStatusLine(plan),
-              confirmOperatorId,
             };
           } catch (err) {
             throw toTrpcError(err);
@@ -3055,7 +1826,6 @@ export function createIdentityRouter(
             email: z.string(),
             position: z.number().int().positive(),
             referralCode: z.string(),
-            referredBy: z.string().nullable(),
             referredCount: z.number().int().min(0),
             created: z.boolean(),
           }),
@@ -3068,7 +1838,6 @@ export function createIdentityRouter(
               email: out.entry.email,
               position: out.entry.position,
               referralCode: out.entry.referralCode,
-              referredBy: out.entry.referredBy,
               referredCount: out.entry.referredCount,
               created: out.created,
             };
@@ -3098,7 +1867,7 @@ export function createIdentityRouter(
       list: scopedProcedure('admin:read')
         .input(
           z.object({
-            limit: z.number().int().min(1).max(200),
+            limit: z.number().int().min(1).max(200).default(50),
             offset: z.number().int().min(0).default(0),
           }),
         )

@@ -6,12 +6,9 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createIdentityRouter } from './router.js';
-import { requestIpAls } from './auth/auth-service-ip.js';
-import { stubActionApprovals } from './auth/privileged-dual-control.js';
 import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 import type { RankService } from './rank/rank-service.js';
-import type { FreezeService } from './affiliates/freeze-service.js';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
@@ -19,7 +16,6 @@ import { MemoryKycDocumentStore } from './kyc/document-store.js';
 import type { BindProviderRefInput, BindProviderRefResult } from './kyc/provider-ref-bind.js';
 import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
-import { MemoryShareStore } from './affiliates/share-service.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -47,12 +43,10 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const OPERATOR = '22222222-2222-4222-8222-222222222222';
 const RECORD = '33333333-3333-4333-8333-333333333333';
 const SESSION = '44444444-4444-4444-8444-444444444444';
-const CONFIRM_KYC = '66666666-6666-4666-8666-666666666666';
-const kycDual = { approvalId: 'appr-1', operationId: 'op-1' };
 
 async function ctx(
   scopes: string[],
-  opts: { mfa?: boolean; userId?: string; region?: string; service?: string | null; apiKeyId?: string; stepUpScopes?: string[] } = {},
+  opts: { mfa?: boolean; userId?: string; region?: string; service?: string | null; apiKeyId?: string } = {},
 ): Promise<Context> {
   const region = opts.region ?? 'DE';
   if (scopes.length === 0) {
@@ -67,7 +61,6 @@ async function ctx(
       tier: 'none',
       mfa: opts.mfa ?? true,
       ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
-      ...(opts.stepUpScopes ? { stepUpScopes: opts.stepUpScopes } : {}),
     },
     authConfig,
   );
@@ -133,12 +126,6 @@ function stubServices(): Stub {
       expiresAt: new Date('2026-07-28T09:05:00.000Z'),
       scopes: ['trade:withdraw'],
     })),
-    stepUpPay: record('stepUpPay', () => ({
-      accessToken: 'pay.step.token',
-      expiresAt: new Date('2026-07-28T09:10:00.000Z'),
-      scopes: ['identity:read', 'pay:refund'],
-      refreshable: false as const,
-    })),
     startWebauthnStepUp: record('startWebauthnStepUp', () => ({
       challenge: 'chal-stepup',
       timeout: 60000,
@@ -146,14 +133,6 @@ function stubServices(): Stub {
       allowCredentials: [{ type: 'public-key' as const, id: 'cred-1' }],
       userVerification: 'preferred' as const,
     })),
-    withApiKeyAction: (input: { proof?: unknown }, run: (scope: unknown) => Promise<unknown>) => {
-      if (!input.proof) return Promise.reject(new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required'));
-      return run({
-        tx: {},
-        createApiKey: (i: unknown) => (auth.createApiKey as (x: unknown) => unknown)(i),
-        revokeApiKey: async () => true,
-      });
-    },
     createApiKey: record('createApiKey', () => ({ id: 'key-1', key: 'ifc_secret', prefix: 'ifc_abc', mode: 'live' as const })),
     exchangeApiKey: record('exchangeApiKey', () => ({
       accessToken: 'api.key.jwt',
@@ -234,7 +213,7 @@ let router: ReturnType<typeof createIdentityRouter>;
 
 beforeEach(() => {
   stub = stubServices();
-  router = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, actionApprovals: stubActionApprovals(CONFIRM_KYC) });
+  router = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true });
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));
@@ -283,7 +262,7 @@ describe('rank.awardXp refuses user sessions, including defaultScopes()', () => 
 describe('kyc.approve is the operator action that grants custodial access', () => {
   it('serves an operator holding admin:compliance with a second factor', async () => {
     const api = await caller(['admin:compliance'], { userId: OPERATOR });
-    await expect(api.kyc.approve({ recordId: RECORD, ...kycDual })).resolves.toMatchObject({ id: RECORD, status: 'approved' });
+    await expect(api.kyc.approve({ recordId: RECORD })).resolves.toMatchObject({ id: RECORD, status: 'approved' });
   });
 
   it('REFUSES A NORMAL USER SESSION — every scope a session actually carries', async () => {
@@ -316,12 +295,11 @@ describe('kyc.approve is the operator action that grants custodial access', () =
   });
 
   it('REQUIRES A SECOND FACTOR, even with the right scope', async () => {
-    // `admin:compliance` is interactive-only (no API key) but not in
-    // `SESSION_MFA_SCOPES`, so `requireScope` does not demand mfa for a
-    // session — this endpoint demands it itself. Approving a record is a
-    // privilege-escalation primitive: a leaked operator credential that can
-    // self-approve an account to `institutional` unlocks every custodial
-    // module in the OS.
+    // `admin:compliance` is NOT in INTERACTIVE_ONLY_SCOPES, so `requireScope`
+    // does not demand mfa for it — this endpoint demands it itself. Approving a
+    // record is a privilege-escalation primitive: a leaked operator credential
+    // that can self-approve an account to `institutional` unlocks every
+    // custodial module in the OS.
     const api = await caller(['admin:compliance'], { userId: OPERATOR, mfa: false });
     const err = await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e);
 
@@ -332,11 +310,10 @@ describe('kyc.approve is the operator action that grants custodial access', () =
 
   it('records the CALLER as the reviewer, not anything the caller sent', async () => {
     const api = await caller(['admin:compliance'], { userId: OPERATOR });
-    await api.kyc.approve({ recordId: RECORD, ...kycDual });
+    await api.kyc.approve({ recordId: RECORD });
 
     const call = stub.calls.find((c) => c.method === 'approveKycRecord')!;
     expect((call.args[0] as { reviewerId: string }).reviewerId).toBe(OPERATOR);
-    expect((call.args[0] as { approvalId?: string }).approvalId).toBe('appr-1');
   });
 
   it('holds the same bar on reject', async () => {
@@ -347,58 +324,27 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     expect(codeOf(await noMfa.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
 
     const operator = await caller(['admin:compliance'], { userId: OPERATOR });
-    await expect(operator.kyc.reject({ recordId: RECORD, ...kycDual })).resolves.toMatchObject({ status: 'rejected' });
-  });
-
-  it('approve/reject without a distinct confirmOperatorId refuses and does not review', async () => {
-    const api = await caller(['admin:compliance'], { userId: OPERATOR });
-
-    const missing = await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await api.kyc.approve({ recordId: RECORD, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const rejectMissing = await api.kyc.reject({ recordId: RECORD }).catch((e: unknown) => e);
-    expect(codeOf(rejectMissing)).toBe('PRECONDITION_FAILED');
-    expect((rejectMissing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    expect(stub.calls.filter((c) => c.method === 'approveKycRecord')).toHaveLength(0);
-    expect(stub.calls.filter((c) => c.method === 'rejectKycRecord')).toHaveLength(0);
+    await expect(operator.kyc.reject({ recordId: RECORD })).resolves.toMatchObject({ status: 'rejected' });
   });
 
   it('keeps the review queue behind the same scope', async () => {
     const user = await caller(['identity:read']);
-    expect(codeOf(await user.kyc.pending({ limit: 50 }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    expect(codeOf(await user.kyc.pending().catch((e: unknown) => e))).toBe('FORBIDDEN');
 
     const operator = await caller(['admin:compliance'], { userId: OPERATOR });
-    await expect(operator.kyc.pending({ limit: 50 })).resolves.toHaveLength(1);
-    const call = stub.calls.find((c) => c.method === 'listPendingKyc');
-    expect(call?.args[0]).toBe(50);
-  });
-
-  it('kyc.pending omit limit refuses — does not invent 50', async () => {
-    const operator = await caller(['admin:compliance'], { userId: OPERATOR });
-    const omitted = await (operator.kyc.pending as (input?: unknown) => Promise<unknown>)().catch((e: unknown) => e);
-    expect(codeOf(omitted)).toBe('BAD_REQUEST');
-    const empty = await operator.kyc.pending({} as never).catch((e: unknown) => e);
-    expect(codeOf(empty)).toBe('BAD_REQUEST');
-    expect(stub.calls.filter((c) => c.method === 'listPendingKyc')).toHaveLength(0);
+    await expect(operator.kyc.pending()).resolves.toHaveLength(1);
   });
 
   it('maps a record that cannot be approved to CONFLICT, not to a 500', async () => {
     stub.fail(new AuthError('KYC record is rejected', 'auth.kyc_not_pending'));
     const api = await caller(['admin:compliance'], { userId: OPERATOR });
-    expect(codeOf(await api.kyc.approve({ recordId: RECORD, ...kycDual }).catch((e: unknown) => e))).toBe('CONFLICT');
+    expect(codeOf(await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e))).toBe('CONFLICT');
   });
 
   it('maps an unknown record to NOT_FOUND', async () => {
     stub.fail(new AuthError('KYC record not found', 'auth.not_found'));
     const api = await caller(['admin:compliance'], { userId: OPERATOR });
-    expect(codeOf(await api.kyc.approve({ recordId: RECORD, ...kycDual }).catch((e: unknown) => e))).toBe('NOT_FOUND');
+    expect(codeOf(await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e))).toBe('NOT_FOUND');
   });
 
   it('refuses an agent service caller writing reviewed_by even with compliance + MFA', async () => {
@@ -420,9 +366,7 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     });
     const err = await api.kyc.approve({ recordId: RECORD }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
-    // requireScope refuses the key before the handler's reviewed_by check.
-    expect((err as Error).message).toMatch(/cannot be used from an API key/);
-    expect((err as { cause?: { code?: string } }).cause?.code).toBe('scope.interactive_only');
+    expect((err as Error).message).toMatch(/agent must never write reviewed_by/);
     expect(stub.calls.filter((c) => c.method === 'approveKycRecord')).toHaveLength(0);
   });
 });
@@ -476,7 +420,7 @@ describe('kyc.submit', () => {
 describe('kyc.status', () => {
   it('reports the caller’s own tier and records', async () => {
     const api = await caller(['identity:read']);
-    const status = await api.kyc.status({ limit: 200 });
+    const status = await api.kyc.status();
 
     expect(status.tier).toBe('none');
     expect(status.records).toHaveLength(1);
@@ -485,7 +429,7 @@ describe('kyc.status', () => {
 
   it('NEVER RETURNS THE PROVIDER POINTER OR THE REVIEWER (§10 PII isolation)', async () => {
     const api = await caller(['identity:read']);
-    const status = await api.kyc.status({ limit: 200 });
+    const status = await api.kyc.status();
 
     // The provider ref points into a document store; the reviewer is a
     // compliance officer the subject of the review has no business naming.
@@ -602,48 +546,6 @@ describe('auth.stepUp is what makes a withdrawal reachable at all', () => {
   });
 });
 
-describe('auth.stepUpPay is the confirm-it-is-you door for pay:refund and pay:payout', () => {
-  const MERCHANT = '55555555-5555-4555-8555-555555555555';
-
-  it('passes the session, the merchant, the scopes, and the factor proof', async () => {
-    const api = await caller(['identity:read']);
-    const minted = await api.auth.stepUpPay({
-      merchantId: MERCHANT,
-      scopes: ['pay:refund'],
-      factorProof: { totpCode: '123456' },
-    });
-    expect(minted.refreshable).toBe(false);
-    expect(minted.accessToken).toBe('pay.step.token');
-    const call = stub.calls.find((c) => c.method === 'stepUpPay');
-    expect(call?.args[0]).toMatchObject({
-      userId: USER,
-      sessionId: SESSION,
-      merchantId: MERCHANT,
-      scopes: ['pay:refund'],
-      factorProof: { totpCode: '123456' },
-    });
-  });
-
-  it('maps a stale factor and a missing role without minting through a 500', async () => {
-    stub.fail(new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired'));
-    const stale = await caller(['identity:read']);
-    const expired = await stale.auth
-      .stepUpPay({ merchantId: MERCHANT, scopes: ['pay:refund'], factorProof: { proofId: '66666666-6666-4666-8666-666666666666' } })
-      .catch((e: unknown) => e);
-    expect(codeOf(expired)).toBe('PRECONDITION_FAILED');
-    expect((expired as Error).message).toMatch(/auth\.step_up_expired/);
-
-    stub.fail(new AuthError('Your role on this merchant does not allow refunds.create', 'pay.role_not_allowed'));
-    const refused = await caller(['identity:read']);
-    const role = await refused.auth
-      .stepUpPay({ merchantId: MERCHANT, scopes: ['pay:refund'], factorProof: { totpCode: '123456' } })
-      .catch((e: unknown) => e);
-    expect(codeOf(role)).toBe('FORBIDDEN');
-    expect((role as Error).message).toMatch(/pay\.role_not_allowed/);
-    expect((role as Error).message).toMatch(/refunds\.create/);
-  });
-});
-
 // ── WebAuthn ─────────────────────────────────────────────────────────────────
 
 describe('webauthn registration requires a live session; auth is public', () => {
@@ -702,11 +604,7 @@ describe('webauthn registration requires a live session; auth is public', () => 
   });
 
   it('refuses every procedure when WebAuthn is disabled', async () => {
-    router = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      webauthnEnabled: false,
-      actionApprovals: stubActionApprovals(),
-    });
+    router = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, webauthnEnabled: false });
     const api = await caller(['identity:read']);
     expect(codeOf(await api.webauthn.registerOptions().catch((e: unknown) => e))).toBe('FORBIDDEN');
     expect(codeOf(await api.webauthn.authOptions({ identifier: 'alice' }).catch((e: unknown) => e))).toBe('FORBIDDEN');
@@ -717,7 +615,6 @@ describe('webauthn registration requires a live session; auth is public', () => 
 // ── API keys are a delegation, not a wish list ───────────────────────────────
 
 describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
-  const factorProof = { proofId: '77777777-7777-4777-8777-777777777777' };
   const argsOf = (method: string) => stub.calls.filter((c) => c.method === method).map((c) => c.args[0] as Record<string, unknown>);
 
   it('reads the ceiling from the token, never from the request body', async () => {
@@ -727,7 +624,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // stops being passed at all — the check downstream has nothing to compare
     // against and any account can mint any scope again.
     const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof });
+    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] });
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write', 'trade:read']);
@@ -738,59 +635,17 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // A body naming its own grantor must not reach the service. `grantorScopes`
     // is spread AFTER `...input` in the router for exactly this reason.
     const api = await caller(['identity:write']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['identity:read'], grantorScopes: ['admin:compliance'], factorProof } as never);
+    await api.apiKeys.create({ name: 'bot', scopes: ['identity:read'], grantorScopes: ['admin:compliance'] } as never);
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write']);
   });
 
-  it('refuses create without a fresh factor and never reaches the service', async () => {
-    const api = await caller(['identity:write', 'trade:read']);
-    const err = await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
-    expect((err as Error).message).toMatch(/auth\.step_up_required/);
-    expect(argsOf('createApiKey')).toHaveLength(0);
-  });
-
   it('surfaces a refused delegation as BAD_REQUEST, not a 500', async () => {
     stub.fail(new Error('Cannot grant scopes the granting session does not hold: admin:compliance'));
     const api = await caller(['identity:write']);
-    const err = await api.apiKeys.create({ name: 'escalate', scopes: ['admin:compliance'], factorProof }).catch((e: unknown) => e);
+    const err = await api.apiKeys.create({ name: 'escalate', scopes: ['admin:compliance'] }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('BAD_REQUEST');
-  });
-
-  it('refuses an API-key principal minting a further key', async () => {
-    const api = await caller(['identity:write', 'trade:read'], {
-      apiKeyId: '55555555-5555-4555-8555-555555555555',
-    });
-    const err = await api.apiKeys.create({ name: 'nested', scopes: ['trade:read'] }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
-    expect((err as Error).message).toMatch(/cannot grant further/);
-    expect(argsOf('createApiKey')).toHaveLength(0);
-  });
-
-  it('refuses pay:refund on a key unless the access token is a pay step-up', async () => {
-    const api = await caller(['identity:write', 'pay:refund']);
-    const err = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'] }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
-    expect((err as Error).message).toMatch(/auth\.step_up_required/);
-    expect(argsOf('createApiKey')).toHaveLength(0);
-  });
-
-  it('passes payStepUp when the token stp claim lists the requested pay scope', async () => {
-    const api = await caller(['identity:write', 'pay:refund'], { stepUpScopes: ['pay:refund'] });
-    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'], factorProof });
-    const [args] = argsOf('createApiKey');
-    expect(args!.payStepUp).toBe(true);
-    expect(args!.scopes).toEqual(['pay:refund']);
-    expect(created.scopes).toEqual(['pay:refund']);
-  });
-
-  it('session grantor has no kid on the mint call', async () => {
-    const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof });
-    const [args] = argsOf('createApiKey');
-    expect(args!.grantorKid).toBeUndefined();
   });
 });
 
@@ -798,10 +653,7 @@ describe('apiKeys.exchange turns a key into an edge-usable access token', () => 
   const argsOf = (method: string) => stub.calls.filter((c) => c.method === method).map((c) => c.args[0] as unknown);
 
   it('is public — no principal required', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
     const result = await api.apiKeys.exchange({ key: 'ifc_live_secret' });
     expect(result.accessToken).toBe('api.key.jwt');
     expect(result.userId).toBe(USER);
@@ -811,44 +663,10 @@ describe('apiKeys.exchange turns a key into an edge-usable access token', () => 
 
   it('maps a bad key to UNAUTHORIZED without leaking whether the key existed', async () => {
     stub.fail(new AuthError('Invalid credentials', 'auth.invalid_credentials'));
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
     const err = await api.apiKeys.exchange({ key: 'ifc_wrong' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('UNAUTHORIZED');
     expect((err as { message?: string }).message).toBe(userCopy('auth.invalid_credentials'));
-  });
-});
-
-// ── Register gate: unset vs explicit closed ──────────────────────────────────
-
-describe('auth.register REGISTRATION_OPEN refuse-closed', () => {
-  const signup = {
-    handle: 'newbie',
-    email: 'newbie@example.com',
-    password: 'correct horse battery staple',
-  };
-
-  it('unset refuses identity.registration_open_unset and does not register', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: stubActionApprovals(CONFIRM_KYC) }).createCaller(
-      await ctx([]),
-    );
-    const err = await api.auth.register(signup).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
-    expect((err as Error).message).toContain('identity.registration_open_unset');
-    expect(stub.calls.filter((c) => c.method === 'register')).toHaveLength(0);
-  });
-
-  it('explicit false refuses closed and does not register', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: false,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx([]));
-    const err = await api.auth.register(signup).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
-    expect((err as Error).message).toContain('Registration is not open yet');
-    expect(stub.calls.filter((c) => c.method === 'register')).toHaveLength(0);
   });
 });
 
@@ -856,30 +674,6 @@ describe('auth.register REGISTRATION_OPEN refuse-closed', () => {
 
 describe('auth.register optional referrerId', () => {
   const REFERRER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-  it('records the client address on the session, not the request id', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
-    await requestIpAls.run('203.0.113.10', () =>
-      api.auth.register({
-        handle: 'newbie',
-        email: 'newbie@example.com',
-        password: 'correct horse battery staple',
-      }),
-    );
-    const arg = stub.calls.find((c) => c.method === 'register')!.args[0] as { ip?: string };
-    expect(arg.ip).toBe('203.0.113.10');
-  });
-
-  it('leaves the session address empty when no client address was seen', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
-    await api.auth.register({
-      handle: 'newbie',
-      email: 'newbie@example.com',
-      password: 'correct horse battery staple',
-    });
-    const arg = stub.calls.find((c) => c.method === 'register')!.args[0] as { ip?: string };
-    expect(arg.ip).toBeUndefined();
-  });
 
   it('registers without a referrer and does not call attribute', async () => {
     const attributeCalls: unknown[] = [];
@@ -890,9 +684,7 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
-      await ctx([]),
-    );
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
     const session = await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -911,9 +703,7 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
-      await ctx([]),
-    );
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
     await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -931,9 +721,7 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
-      await ctx([]),
-    );
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
     const err = await api.auth
       .register({
         handle: 'newbie',
@@ -953,8 +741,6 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
   const NODE = '55555555-5555-4555-8555-555555555555';
   const REF = '66666666-6666-4666-8666-666666666666';
   const CHILD = '77777777-7777-4777-8777-777777777777';
-  const CONFIRM_FREEZE = '88888888-8888-4888-8888-888888888888';
-  const freezeDual = { approvalId: 'appr-1', operationId: 'op-1' };
 
   function affiliatesRouter() {
     const frozen = new Set<string>([NODE]);
@@ -976,7 +762,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
         frozen: frozenIds?.has(userId) ?? false,
         attributedAt: '2026-08-07T12:00:00.000Z',
       }),
-      listMembers: async (frozenIds?: ReadonlySet<string>, rootId?: string | null, _limit?: number) => {
+      listMembers: async (frozenIds?: ReadonlySet<string>, rootId?: string | null) => {
         const members = [
           {
             userId: NODE,
@@ -1007,7 +793,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
 
     const freeze = {
       frozenIds: async () => new Set(frozen),
-      list: async (_limit: number) => [],
+      list: async () => [],
       freeze: async (input: { beneficiaryId: string; frozenBy: string; reason: string }) => {
         frozen.add(input.beneficiaryId);
         return {
@@ -1032,7 +818,6 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
       registrationOpen: true,
       referral,
       freeze,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
   }
 
@@ -1065,12 +850,12 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
 
   it('members lists attributed roster for admin:read', async () => {
     const api = affiliatesRouter().createCaller(await ctx(['admin:read'], { userId: OPERATOR }));
-    const roster = await api.affiliates.members({ limit: 100 });
+    const roster = await api.affiliates.members();
     expect(roster.total).toBe(2);
     expect(roster.frozenInList).toBe(1);
     expect(roster.members[0]?.userId).toBe(NODE);
     expect(roster.statusLine).toContain('total=2');
-    const under = await api.affiliates.members({ rootId: NODE, limit: 100 });
+    const under = await api.affiliates.members({ rootId: NODE });
     expect(under.total).toBe(1);
     expect(under.members[0]?.userId).toBe(CHILD);
     expect(under.rootId).toBe(NODE);
@@ -1078,120 +863,18 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
 
   it('members requires admin:read', async () => {
     const api = affiliatesRouter().createCaller(await ctx(['identity:read']));
-    const err = await api.affiliates.members({ limit: 100 }).catch((e: unknown) => e);
+    const err = await api.affiliates.members().catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
   });
 
   it('freeze/unfreeze return honestyLine confirming set membership', async () => {
     const api = affiliatesRouter().createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
-    const frozen = await api.affiliates.freeze({ beneficiaryId: CHILD, reason: 'ops hold', ...freezeDual });
+    const frozen = await api.affiliates.freeze({ beneficiaryId: CHILD, reason: 'ops hold' });
     expect(frozen.honestyLine).toContain('action=freeze');
     expect(frozen.honestyLine).toContain('ok=1');
-    const thawed = await api.affiliates.unfreeze({ beneficiaryId: CHILD, ...freezeDual });
+    const thawed = await api.affiliates.unfreeze({ beneficiaryId: CHILD });
     expect(thawed.honestyLine).toContain('action=unfreeze');
     expect(thawed.honestyLine).toContain('ok=1');
-  });
-
-  it('freeze/unfreeze without a distinct confirmOperatorId refuse and do not write', async () => {
-    const held = new Set<string>([NODE]);
-    let writes = 0;
-    const referral = {
-      treeBoard: async () => ({ edges: 0, referrers: 0, maxDepth: 0, frozenCount: 0, maxDepthCap: 5 }),
-      nodeStatus: async (userId: string) => ({
-        userId,
-        referrerId: null,
-        depth: 0,
-        ancestors: [],
-        directDownline: [],
-        directDownlineCount: 0,
-        frozen: false,
-        attributedAt: null,
-      }),
-      listMembers: async () => ({ members: [], board: { total: 0, frozenInList: 0, maxDepthInList: 0, rootId: null } }),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
-    const freeze = {
-      frozenIds: async () => new Set(held),
-      list: async () => [],
-      freeze: async (input: { beneficiaryId: string; frozenBy: string; reason: string }) => {
-        writes += 1;
-        held.add(input.beneficiaryId);
-        return {
-          beneficiaryId: input.beneficiaryId,
-          frozenBy: input.frozenBy,
-          reason: input.reason,
-          frozenAt: new Date('2026-08-07T16:00:00.000Z'),
-        };
-      },
-      unfreeze: async (beneficiaryId: string) => {
-        writes += 1;
-        held.delete(beneficiaryId);
-        return {
-          beneficiaryId,
-          frozenBy: OPERATOR,
-          reason: 'prior',
-          frozenAt: new Date('2026-08-07T15:00:00.000Z'),
-        };
-      },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      referral,
-      freeze,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
-
-    const missing = await api.affiliates.freeze({ beneficiaryId: CHILD, reason: 'ops hold' }).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await api.affiliates
-      .freeze({ beneficiaryId: CHILD, reason: 'ops hold', confirmOperatorId: OPERATOR })
-      .catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const thawMissing = await api.affiliates.unfreeze({ beneficiaryId: NODE }).catch((e: unknown) => e);
-    expect(codeOf(thawMissing)).toBe('PRECONDITION_FAILED');
-    const thawSame = await api.affiliates.unfreeze({ beneficiaryId: NODE, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(thawSame)).toBe('PRECONDITION_FAILED');
-
-    expect(writes).toBe(0);
-    expect(held.has(CHILD)).toBe(false);
-    expect(held.has(NODE)).toBe(true);
-  });
-
-  it('freeze/unfreeze without MFA refuse and do not write', async () => {
-    let writes = 0;
-    const freeze = {
-      frozenIds: async () => new Set<string>(),
-      list: async () => [],
-      freeze: async () => {
-        writes += 1;
-        throw new Error('must not freeze without MFA');
-      },
-      unfreeze: async () => {
-        writes += 1;
-        throw new Error('must not unfreeze without MFA');
-      },
-    } as unknown as import('./affiliates/freeze-service.js').FreezeService;
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      freeze,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx(['admin:write'], { userId: OPERATOR, mfa: false }));
-    const freezeErr = await api.affiliates.freeze({ beneficiaryId: CHILD, reason: 'ops hold', ...freezeDual }).catch((e: unknown) => e);
-    expect(codeOf(freezeErr)).toBe('UNAUTHORIZED');
-    const thawErr = await api.affiliates.unfreeze({ beneficiaryId: CHILD, ...freezeDual }).catch((e: unknown) => e);
-    expect(codeOf(thawErr)).toBe('UNAUTHORIZED');
-    expect(writes).toBe(0);
-  });
-
-  it('freezes requires an explicit limit — omit never invents 100', async () => {
-    const api = affiliatesRouter().createCaller(await ctx(['admin:read'], { userId: OPERATOR }));
-    const omitted = await (api.affiliates.freezes as (input?: unknown) => Promise<unknown>)().catch((e: unknown) => e);
-    expect(codeOf(omitted)).toBe('BAD_REQUEST');
-    await expect(api.affiliates.freezes({ limit: 100 })).resolves.toEqual([]);
   });
 
   it('payout is refuse-closed (PRECONDITION_FAILED) — no invent rates', async () => {
@@ -1244,7 +927,7 @@ describe('affiliates.myAccruals (self-only durable accruals)', () => {
     ]);
 
     const api = r.createCaller(await ctx(['identity:read'], { userId: USER }));
-    const out = await api.affiliates.myAccruals({ limit: 100 });
+    const out = await api.affiliates.myAccruals();
     expect(out.rows).toHaveLength(1);
     expect(out.rows[0]!.beneficiaryId).toBe(USER);
     expect(out.rows[0]!.commissionAmount).toBe('10');
@@ -1254,26 +937,15 @@ describe('affiliates.myAccruals (self-only durable accruals)', () => {
   it('empty when no durable rows (does not invent rates or commissions)', async () => {
     const { router: r } = withAccruals();
     const api = r.createCaller(await ctx(['identity:read'], { userId: USER }));
-    const out = await api.affiliates.myAccruals({ limit: 100 });
+    const out = await api.affiliates.myAccruals();
     expect(out.rows).toEqual([]);
   });
 
   it('requires identity:read', async () => {
     const { router: r } = withAccruals();
     const api = r.createCaller(await ctx([]));
-    const err = await api.affiliates.myAccruals({ limit: 100 }).catch((e: unknown) => e);
+    const err = await api.affiliates.myAccruals().catch((e: unknown) => e);
     expect(codeOf(err)).toBe('UNAUTHORIZED');
-  });
-
-  it('omit limit refuses — does not invent 100', async () => {
-    const { router: r } = withAccruals();
-    const api = r.createCaller(await ctx(['identity:read'], { userId: USER }));
-    const omitted = await (api.affiliates.myAccruals as (input?: unknown) => Promise<unknown>)().catch((e: unknown) => e);
-    expect(codeOf(omitted)).toBe('BAD_REQUEST');
-    const empty = await api.affiliates.myAccruals({} as never).catch((e: unknown) => e);
-    expect(codeOf(empty)).toBe('BAD_REQUEST');
-    const explicit = await api.affiliates.myAccruals({ limit: 100 });
-    expect(explicit.rows).toEqual([]);
   });
 });
 
@@ -1295,7 +967,6 @@ describe('affiliates.payout on the mount', () => {
   const BENE1 = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
   const FEE_EVT = 'fee-evt-mount-1';
   const ASSET_U = 'USDT';
-  const CONFIRM = '55555555-5555-4555-8555-555555555555';
 
   /** TEST FIXTURE rates — never a source default. */
   const publishedLaw = {
@@ -1349,8 +1020,6 @@ describe('affiliates.payout on the mount', () => {
       accruals: store,
       accrualTierLaw: opts.law,
       ledger: opts.ledger,
-      freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
-      actionApprovals: stubActionApprovals(CONFIRM),
     });
     return { store, router: r };
   }
@@ -1398,10 +1067,9 @@ describe('affiliates.payout on the mount', () => {
     const { router: r } = await mounted({ law: publishedLaw, ledger });
     const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
 
-    const receipt = await api.affiliates.payout({ feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' });
+    const receipt = await api.affiliates.payout({ feeEventId: FEE_EVT });
     expect(receipt.posted).toBe(true);
     expect(receipt.totalCommission).toBe('15');
-    expect(receipt.confirmOperatorId).toBe(CONFIRM);
 
     expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('10');
     expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('5');
@@ -1414,8 +1082,8 @@ describe('affiliates.payout on the mount', () => {
     const { router: r } = await mounted({ law: publishedLaw, ledger });
     const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
 
-    const first = await api.affiliates.payout({ feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' });
-    const second = await api.affiliates.payout({ feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' });
+    const first = await api.affiliates.payout({ feeEventId: FEE_EVT });
+    const second = await api.affiliates.payout({ feeEventId: FEE_EVT });
 
     // Distinct keys within a run, identical keys ACROSS runs — that is what makes
     // the retry a no-op. Call counts would prove neither.
@@ -1457,35 +1125,6 @@ describe('affiliates.payout on the mount', () => {
     const err = await api.affiliates.payout({ feeEventId: 'fee-evt-that-never-happened' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('PRECONDITION_FAILED');
     expect(await bal(ledger, rewardsEngine(ASSET_U))).toBe('0');
-  });
-
-  it('posting without a distinct confirmOperatorId refuses and moves nothing', async () => {
-    const ledger = await fundedLedger();
-    const { router: r } = await mounted({ law: publishedLaw, ledger });
-    const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
-
-    const missing = await api.affiliates.payout({ feeEventId: FEE_EVT }).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await api.affiliates.payout({ feeEventId: FEE_EVT, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
-    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
-  });
-
-  it('posting without MFA refuses and moves nothing', async () => {
-    const ledger = await fundedLedger();
-    const { router: r } = await mounted({ law: publishedLaw, ledger });
-    const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR, mfa: false }));
-
-    const err = await api.affiliates.payout({ feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('UNAUTHORIZED');
-    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
-    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
   });
 
   it('payout requires admin:write — a read scope cannot move value', async () => {
@@ -1554,7 +1193,6 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
       freeze,
       accruals: store,
       accrualTierLaw: opts.law,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
     return { store, router: r };
   }
@@ -1657,7 +1295,6 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
       registrationOpen: true,
       kycDocs: store,
       bindKycProviderRef: bind,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
     return { store, r };
   }
@@ -1695,7 +1332,6 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
       userId: DOC_USER,
       contentType: 'image/jpeg',
       bytesBase64: Buffer.from('passport-bytes').toString('base64'),
-      ...kycDual,
     });
     expect(meta.userId).toBe(DOC_USER);
     expect(meta.contentType).toBe('image/jpeg');
@@ -1706,50 +1342,16 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     expect(meta).not.toHaveProperty('ciphertext');
   });
 
-  it('storeDocument without a distinct confirmOperatorId refuses and does not put', async () => {
-    const { r, store } = vaultRouter();
-    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
-    const bytes = {
-      userId: DOC_USER,
-      contentType: 'image/jpeg',
-      bytesBase64: Buffer.from('scan').toString('base64'),
-    };
-
-    const missing = await op.kyc.storeDocument(bytes).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await op.kyc.storeDocument({ ...bytes, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    expect(await store.listMetaForUser(DOC_USER, 200)).toEqual([]);
-  });
-
-  it.each(['eA==!', 'eA', 'eA===', 'e A==', 'eB=='])(
-    'storeDocument rejects noncanonical base64 %s before storing bytes',
-    async (bytesBase64) => {
-      const { r, store } = vaultRouter();
-      const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
-      const result = await op.kyc
-        .storeDocument({ userId: DOC_USER, contentType: 'image/png', bytesBase64, ...kycDual })
-        .catch((error: unknown) => error);
-      expect(codeOf(result)).toBe('BAD_REQUEST');
-      expect(await store.listMetaForUser(DOC_USER, 200)).toEqual([]);
-    },
-  );
-
   it('listDocuments is compliance-only and never includes foreign users or bytes', async () => {
     const { r, store } = vaultRouter();
     await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });
     await store.put({ userId: OTHER, contentType: 'image/png', bytes: Buffer.from('b') });
 
     const user = r.createCaller(await ctx(['identity:read'], { userId: DOC_USER }));
-    expect(codeOf(await user.kyc.listDocuments({ userId: DOC_USER, limit: 200 }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    expect(codeOf(await user.kyc.listDocuments({ userId: DOC_USER }).catch((e: unknown) => e))).toBe('FORBIDDEN');
 
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
-    const list = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 });
+    const list = await op.kyc.listDocuments({ userId: DOC_USER });
     expect(list).toHaveLength(1);
     expect(list[0]!.userId).toBe(DOC_USER);
     expect(list[0]).not.toHaveProperty('bytes');
@@ -1759,18 +1361,15 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     const unwired = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       kycDocs: new MemoryKycDocumentStore(randomBytes(32).toString('base64')),
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
     const opUnwired = unwired.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
     expect(
       codeOf(
-        await opUnwired.kyc
-          .bindDocument({ recordId: RECORD, documentId: '55555555-5555-4555-8555-555555555555', ...kycDual })
-          .catch((e: unknown) => e),
+        await opUnwired.kyc.bindDocument({ recordId: RECORD, documentId: '55555555-5555-4555-8555-555555555555' }).catch((e: unknown) => e),
       ),
     ).toBe('PRECONDITION_FAILED');
 
-    const docId = '55555555-5555-4555-8555-555555555555';
+    const docId = '66666666-6666-4666-8666-666666666666';
     const bind = async (input: BindProviderRefInput): Promise<BindProviderRefResult> => ({
       recordId: input.recordId,
       userId: DOC_USER,
@@ -1786,54 +1385,19 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     });
     const { r } = vaultRouter(bind);
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
-    const bound = await op.kyc.bindDocument({ recordId: RECORD, documentId: docId, ...kycDual });
+    const bound = await op.kyc.bindDocument({ recordId: RECORD, documentId: docId });
     expect(bound.providerRef).toBe(docId);
     expect(bound.document).not.toHaveProperty('bytes');
   });
 
-  it('bindDocument without a distinct confirmOperatorId refuses and does not bind', async () => {
-    const docId = '55555555-5555-4555-8555-555555555555';
-    let bound = 0;
-    const bind = async (input: BindProviderRefInput): Promise<BindProviderRefResult> => {
-      bound += 1;
-      return {
-        recordId: input.recordId,
-        userId: DOC_USER,
-        providerRef: input.documentId,
-        document: {
-          id: input.documentId,
-          userId: DOC_USER,
-          contentType: 'image/jpeg',
-          byteLength: 12,
-          storedBy: OPERATOR,
-          createdAt: new Date('2026-08-10T00:00:00.000Z'),
-        },
-      };
-    };
-    const { r } = vaultRouter(bind);
-    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
-
-    const missing = await op.kyc.bindDocument({ recordId: RECORD, documentId: docId }).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await op.kyc.bindDocument({ recordId: RECORD, documentId: docId, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    expect(bound).toBe(0);
-  });
-
   it('storeDocument without vault refuses closed with named kyc_doc.unwired — never invents a key', async () => {
-    const r = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, actionApprovals: stubActionApprovals(CONFIRM_KYC) });
+    const r = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true });
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
     const err = await op.kyc
       .storeDocument({
         userId: DOC_USER,
         contentType: 'image/jpeg',
         bytesBase64: Buffer.from('x').toString('base64'),
-        ...kycDual,
       })
       .catch((e: unknown) => e);
     expect(codeOf(err)).toBe('PRECONDITION_FAILED');
@@ -1854,37 +1418,10 @@ describe('kyc.getDocument is compliance-only bytes, never a public/user read', (
 
   it('a user session cannot open document bytes', async () => {
     const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
-    const r = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      kycDocs: store,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    });
+    const r = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, kycDocs: store });
     const user = r.createCaller(await ctx(['identity:read', 'identity:write'], { userId: USER }));
     const err = await user.kyc.getDocument({ documentId: '55555555-5555-4555-8555-555555555555' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
-  });
-
-  it('getDocument without a distinct confirmOperatorId refuses and does not read', async () => {
-    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
-    const meta = await store.put({ userId: USER, contentType: 'image/png', bytes: Buffer.from('secret-scan') });
-    const r = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      kycDocs: store,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    });
-    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
-
-    const missing = await op.kyc.getDocument({ documentId: meta.id }).catch((e: unknown) => e);
-    expect(codeOf(missing)).toBe('PRECONDITION_FAILED');
-    expect(String((missing as { message?: string }).message)).toMatch(/typed-in second name|approvalId/);
-    expect((missing as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const same = await op.kyc.getDocument({ documentId: meta.id, confirmOperatorId: OPERATOR }).catch((e: unknown) => e);
-    expect(codeOf(same)).toBe('PRECONDITION_FAILED');
-    expect((same as { cause?: { code?: string } }).cause?.code).toBe('action_approval.missing');
-
-    const opened = await op.kyc.getDocument({ documentId: meta.id, ...kycDual });
-    expect(opened.bytesBase64).toBe(Buffer.from('secret-scan').toString('base64'));
   });
 });
 
@@ -1901,10 +1438,7 @@ function waitlistRouter(overrides: Record<string, boolean> = {}) {
 
 describe('waitlist door — unbuilt / flag / operator', () => {
   it('refuses enroll with waitlist.unbuilt when the store is not wired', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, {
-      registrationOpen: true,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
-    }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
     const err = await api.waitlist.enroll({ email: 'ada@example.com' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('PRECONDITION_FAILED');
     expect(String((err as { message?: string }).message)).toContain('waitlist.unbuilt');
@@ -1916,23 +1450,6 @@ describe('waitlist door — unbuilt / flag / operator', () => {
     expect(out.created).toBe(true);
     expect(out.position).toBe(1);
     expect(out.referralCode).toMatch(/^[a-f0-9]{12}$/);
-    expect(out.referredBy).toBeNull();
-  });
-
-  it('attaches a referral on a later enroll and refuses a different one', async () => {
-    const { api } = waitlistRouter();
-    const caller = api.createCaller(await ctx([]));
-    const ref = await caller.waitlist.enroll({ email: 'ref@example.com' });
-    const other = await caller.waitlist.enroll({ email: 'other@example.com' });
-    const first = await caller.waitlist.enroll({ email: 'ada@example.com' });
-    const attached = await caller.waitlist.enroll({ email: 'ada@example.com', referralCode: ref.referralCode });
-    expect(attached.created).toBe(false);
-    expect(attached.position).toBe(first.position);
-    expect(attached.referredBy).toBe(ref.referralCode);
-    const err = await caller.waitlist.enroll({ email: 'ada@example.com', referralCode: other.referralCode }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('CONFLICT');
-    expect(String((err as { message?: string }).message)).toContain('[waitlist.referral_locked]');
-    expect(String((err as { message?: string }).message)).toContain('already has a referral code');
   });
 
   it('refuses enroll when waitlist.enabled is off — no silent capture', async () => {
@@ -1986,102 +1503,5 @@ describe('waitlist door — unbuilt / flag / operator', () => {
     });
     expect(list.total).toBe(2);
     expect(list.entries.map((e) => e.email)).toEqual(['a@example.com', 'b@example.com']);
-  });
-
-  it('waitlist.list omit limit refuses — does not invent 50', async () => {
-    const { api, store } = waitlistRouter();
-    await api.createCaller(await ctx([])).waitlist.enroll({ email: 'a@example.com' });
-    const admin = api.createCaller(await ctx(['admin:read'], { userId: OPERATOR }));
-    const omitted = await (admin.waitlist.list as (input?: unknown) => Promise<unknown>)().catch((e: unknown) => e);
-    expect(codeOf(omitted)).toBe('BAD_REQUEST');
-    const empty = await admin.waitlist.list({ offset: 0 } as never).catch((e: unknown) => e);
-    expect(codeOf(empty)).toBe('BAD_REQUEST');
-    const explicit = await admin.waitlist.list({ limit: 50, offset: 0 });
-    expect(explicit.total).toBe(1);
-    expect(explicit.entries).toHaveLength(1);
-    expect(await store.count()).toBe(1);
-  });
-});
-
-// ── Affiliates share tokens (ops.social-promotion) ───────────────────────────
-
-describe('affiliates createShare / revokeShare / shareHits', () => {
-  const VISITOR = '99999999-9999-4999-8999-999999999999';
-
-  function shareRouter() {
-    const store = new MemoryShareStore();
-    store.rememberUser(USER);
-    const attributeCalls: Array<{ userId: string; referrerId: string }> = [];
-    const share = {
-      createShare: async (referrerId: string) => store.createShare(referrerId),
-      revokeShare: async (referrerId: string) => store.revokeShare(referrerId),
-      shareHits: async (token: string) => store.shareHits(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
-    const referral = {
-      attribute: async (input: { userId: string; referrerId: string }) => {
-        attributeCalls.push(input);
-        return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
-      },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
-    return {
-      api: createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral }),
-      store,
-      attributeCalls,
-    };
-  }
-
-  it('createShare requires identity:write', async () => {
-    const { api } = shareRouter();
-    const err = await api
-      .createCaller(await ctx([]))
-      .affiliates.createShare()
-      .catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('UNAUTHORIZED');
-  });
-
-  it('Share → URL token; signed-out hit +1; signed-in attributes via affiliates.attribute', async () => {
-    const { api, attributeCalls } = shareRouter();
-    const owner = api.createCaller(await ctx(['identity:write']));
-    const created = await owner.affiliates.createShare();
-    expect(created.referrerId).toBe(USER);
-    expect(created.hits).toBe(0);
-
-    const anon = api.createCaller(await ctx([]));
-    const hit = await anon.affiliates.shareHits({ token: created.token });
-    expect(hit.hits).toBe(1);
-    expect(hit.attributed).toBe(false);
-    expect(attributeCalls).toHaveLength(0);
-
-    const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
-    const attributed = await visitor.affiliates.shareHits({ token: created.token });
-    expect(attributed.hits).toBe(2);
-    expect(attributed.attributed).toBe(true);
-    expect(attributeCalls).toEqual([{ userId: VISITOR, referrerId: USER }]);
-  });
-
-  it('revokeShare then shareHits refuses and does not attribute', async () => {
-    const { api, attributeCalls } = shareRouter();
-    const owner = api.createCaller(await ctx(['identity:write']));
-    const created = await owner.affiliates.createShare();
-    await owner.affiliates.revokeShare();
-    const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
-    const err = await visitor.affiliates.shareHits({ token: created.token }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
-    expect((err as { message?: string }).message).toContain('share.revoked');
-    expect(attributeCalls).toHaveLength(0);
-  });
-
-  it('deleted profile refuses shareHits (share.profile_gone)', async () => {
-    const { api, store, attributeCalls } = shareRouter();
-    const owner = api.createCaller(await ctx(['identity:write']));
-    const created = await owner.affiliates.createShare();
-    store.forgetUser(USER);
-    const err = await api
-      .createCaller(await ctx([]))
-      .affiliates.shareHits({ token: created.token })
-      .catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('NOT_FOUND');
-    expect((err as { message?: string }).message).toContain('share.profile_gone');
-    expect(attributeCalls).toHaveLength(0);
   });
 });
