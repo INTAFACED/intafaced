@@ -1,3 +1,4 @@
+import { parseBotPresetsSource } from './algo/bot-presets.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -306,6 +307,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
+const botPresetsSource = parseBotPresetsSource(env.TRADE_BOTS_PRESETS_BACKTEST);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -413,6 +415,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  botPresetsSource,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

@@ -688,6 +688,15 @@ const schema = serviceEnvSchema
        */
       TRADE_FEE_SCHEDULE: z.string().default(''),
 
+      /**
+       * Bot strategy presets backtest source (copy-bots-otc-bots-003). Owner-set JSON or empty.
+       * Empty (default) → `trade.bots.presets` reads `not_set`, no APR. Set → parsed at boot by
+       * `parseBotPresetsSource`; invalid fails boot. Shape:
+       * {"version":"…","backtestedAt":"ISO","presets":[{"id":"grid-btc-cons-30d","strategy":"grid","marketId":"…",
+       *  "aggressiveness":"conservative|moderate|aggressive","horizon":"7d|30d|90d","aprEstimate":"12.5"}]}
+       */
+      TRADE_BOTS_PRESETS_BACKTEST: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),

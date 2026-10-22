@@ -1,4 +1,4 @@
-import { botPresets } from './algo/bot-presets.js';
+import { BOT_PRESETS_NOT_SET, type BotPresetsView } from './algo/bot-presets.js';
 import { z } from 'zod';
 import {
   JurisdictionError,
@@ -786,6 +786,7 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  botPresets: BotPresetsView = BOT_PRESETS_NOT_SET,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
@@ -1256,9 +1257,9 @@ export function createTradeRouter(
         ),
     }),
 
-    /** copy-bots-otc-bots-003: bot presets. `not_set` until the owner publishes a backtest source; no APR is ever invented. */
+    /** copy-bots-otc-bots-003: bot presets from the owner's backtest source (TRADE_BOTS_PRESETS_BACKTEST, parsed at boot). Blank → `not_set`; no APR is ever invented. */
     bots: router({
-      presets: scopedProcedure('trade:read', { module: 'trade' }).query(() => botPresets()),
+      presets: scopedProcedure('trade:read', { module: 'trade' }).query(() => botPresets),
     }),
     /**
      * TWAP algo (D-S-04 / trade.algo) — schedule emits child orders.
