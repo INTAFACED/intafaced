@@ -1,17 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { SupportHours, SupportHoursSetInput } from '@intafaced/contracts';
-import {
-  MemoryHoursBook,
-  MemoryOutOfHoursReplyBook,
-  isOpen,
-  outOfHoursReplyFor,
-  type HoursBook,
-  type OutOfHoursReplyBook,
-} from './support-hours.js';
-
-/** Who the out-of-hours reply is written as. Not a person: the desk itself. */
-export const OUT_OF_HOURS_AUTHOR = 'system:support-hours';
-type HoursChangeInput = SupportHoursSetInput;
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
@@ -99,6 +86,23 @@ import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.j
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
+
+import type { SupportHours, SupportHoursSetInput } from '@intafaced/contracts';
+import {
+  MemoryHoursBook,
+  MemoryOutOfHoursReplyBook,
+  isOpen,
+  outOfHoursReplyFor,
+  type HoursBook,
+  type OutOfHoursReplyBook,
+} from './support-hours.js';
+
+/**
+ * Who the out-of-hours reply is written as. Not a person: the desk itself. A fixed, reserved UUID because a comment's
+ * author is a UUID in the contract (`supportCommentSchema.authorId`), so a non-UUID author would fail every read of the thread.
+ */
+export const OUT_OF_HOURS_AUTHOR = '00000000-0000-4000-8000-000000000029';
+type HoursChangeInput = SupportHoursSetInput;
 
 const INVALID = Symbol('invalid');
 
@@ -325,7 +329,8 @@ export class SupportService implements SupportContract {
       if (!(await this.outOfHoursReplies.claim(ticket.id, this.now().toISOString()))) return;
       await this.store.addComment({ ticketId: ticket.id, authorId: OUT_OF_HOURS_AUTHOR, authorRole: 'operator', body: text });
     } catch {
-      // The request stands; the reply is best effort and never claimed sent unless the message row was written.
+      // The request stands. The reply is at most once: a claim is taken before the message is written, so a failed
+      // write leaves the request without the reply rather than risking it twice.
     }
   }
 
