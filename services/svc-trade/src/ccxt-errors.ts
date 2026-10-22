@@ -343,6 +343,9 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Operator price band or open-order cap unpublished for the pair — refuse-closed, never a default. */
+  'trade.price_band_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.open_orders_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Owner pre-trade limits (#4725). The order is well-formed but breaches a
    * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink

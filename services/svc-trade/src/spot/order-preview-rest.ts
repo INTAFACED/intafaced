@@ -457,7 +457,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           rests: orderType === 'limit' && tif !== 'IOC' && tif !== 'FOK',
         });
       } catch (error) {
-        pushError(refusals, error, error instanceof TradeError && error.code === 'trade.operator_throttle' ? 'symbol' : 'price');
+        pushError(
+          refusals,
+          error,
+          error instanceof TradeError && (error.code === 'trade.operator_throttle' || error.code === 'trade.open_orders_cap_unset')
+            ? 'symbol'
+            : 'price',
+        );
       }
     }
 

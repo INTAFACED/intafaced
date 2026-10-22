@@ -60,6 +60,8 @@ export class TradeService extends ProductionTradeService {
       accountAdmission: options.accountAdmission ?? readyForSql(sql),
       // Legacy tests predate the email-proof gate (RC-identity-01): every test user is proved.
       emailProof: options.emailProof ?? new StubEmailProof(),
+      // Legacy tests predate published pair rules (J-cex-spot-04 step 6): their markets publish no band or cap.
+      allowUnpublishedPairRules: options.allowUnpublishedPairRules ?? true,
     });
   }
 }

@@ -137,9 +137,10 @@ test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the 
   const who = account();
   const before = await (await api(who)).balances();
   const { ask, body } = await bestPrices();
-  // Every sell at or under the best ask's price, and one lot more: the book cannot fill it whole.
+  // Twice every sell at or under the best ask's price, and one lot more: the book cannot fill it whole, even when the
+  // TEST market maker requotes the same level between this read and the send.
   const atAsk = body.asks.filter(([p]) => toUnits(p) <= toUnits(ask)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-  const amount = fromUnits(atAsk + toUnits('0.001'));
+  const amount = fromUnits(2n * atAsk + toUnits('0.001'));
   await openDesk(page, who);
   const sent = await limitBuy(page, { tif: 'Fill or kill', price: ask, amount });
   expect(sent).toMatchObject({ type: 'limit', timeInForce: 'FOK', postOnly: false });
