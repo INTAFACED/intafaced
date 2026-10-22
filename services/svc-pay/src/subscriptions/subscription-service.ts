@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { assertCollectionMethodAvailable, collectionMethodOf, type CollectionMethod } from './merchant-disp-bill-rep-collection-method.js';
 import { transaction } from '@intafaced/db';
 import { fingerprintRequest } from '../rest-idempotency.js';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -760,6 +761,34 @@ export class SubscriptionService {
    * *"A tick outage is recorded on the parent, distinguishable from a user
    * pause. They have identical mechanics and completely different explanations."*
    */
+  /**
+   * M-bill-01: set the collection method. `charge_automatically` refuses
+   * `pay.mandate_rail_absent` before any write. `send_invoice` moves a card
+   * subscription onto the live crypto-invoice path; on one already there it
+   * returns the record unchanged (setting it twice gives the same answer).
+   * A cancelled or completed subscription refuses `pay.subscription_inactive`.
+   */
+  async setCollectionMethod(subscriptionId: string, method: CollectionMethod): Promise<SubscriptionRecord> {
+    assertCollectionMethodAvailable(method);
+    const existing = await this.getSubscription(subscriptionId);
+    if (existing.status !== 'active' && existing.status !== 'paused') {
+      throw new PayError(`Subscription ${subscriptionId} is ${existing.status}`, 'pay.subscription_inactive');
+    }
+    if (collectionMethodOf(existing.path) === method) return existing;
+    const at = this.now();
+    const rows = await this.sql<SubRow[]>`
+      UPDATE pay.subscriptions
+         SET path = 'crypto_invoice', updated_at = ${at}
+       WHERE id = ${subscriptionId} AND status IN ('active', 'paused')
+      RETURNING id, mandate_id, merchant_id, customer_id, next_run_at, status,
+                cancelled_at, path, created_at, anchor_at, anchor_occurrence,
+                paused_at, resumed_at, stalled_at, stall_reason
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Subscription ${subscriptionId} is no longer open`, 'pay.subscription_inactive');
+    return toSub(row);
+  }
+
   async pauseSubscription(subscriptionId: string): Promise<SubscriptionRecord> {
     const existing = await this.getSubscription(subscriptionId);
     if (existing.status === 'paused') return existing;
