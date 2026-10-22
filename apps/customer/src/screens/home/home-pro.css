@@ -181,6 +181,14 @@
     border-radius: 16px;
     background: var(--if-panel);
   }
+  /* Recent activity reuses Simple Home's list; in Pro it sits in a panel, so the list drops its own card. */
+  .hp-activity .home-activity {
+    padding: 0;
+    background: transparent;
+  }
+  .hp-activity .home-activity__row {
+    margin: 0;
+  }
   .hp-panel__head {
     display: flex;
     align-items: center;

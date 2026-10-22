@@ -636,9 +636,17 @@
     gap: 16px;
     min-height: 56px;
     margin: 0 16px;
+    color: inherit;
+    text-decoration: none;
   }
-  .home-activity__row + .home-activity__row {
+  .home-activity > li {
+    list-style: none;
+  }
+  .home-activity > li + li > .home-activity__row {
     border-top: 1px solid var(--if-line);
+  }
+  .home-activity__row:hover .home-activity__kind {
+    text-decoration: underline;
   }
   .home-activity__what {
     display: flex;

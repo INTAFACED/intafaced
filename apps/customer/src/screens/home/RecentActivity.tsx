@@ -1,11 +1,23 @@
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
-import { Amount, fmtAmount, Skeleton, StateBlock, type ActivityFeed, type ActivityItem, type Loadable } from './deps';
+import {
+  Amount,
+  detailHref,
+  fmtAmount,
+  groupActivity,
+  refusalCopy,
+  Skeleton,
+  StateBlock,
+  type ActivityFeed,
+  type ActivityItem,
+  type Loadable,
+} from './deps';
 import { HOME_LINKS } from './links';
 import { STATE_IN_COLUMN } from './panel';
 import { usePreferences } from '../../shared/preferences';
 
-const SHOWN = 5;
+/** How many movements Home lists: a glance, not the history (J-home-ia-01 #5). The Activity room has the rest. */
+const SHOWN = 3;
 
 const LABEL = {
   deposit: 'Activity deposit',
@@ -23,14 +35,24 @@ const LABEL = {
 } as const satisfies Record<ActivityItem['kind'], string>;
 
 /**
- * The last few money movements. An account with none gets one honest line, not a blank box: nothing is invented to
+ * The last few money movements, newest first, grouped as the Activity room groups them (one trade is one row), each
+ * opening its own record. Amounts are the service's decimal strings
+ * to their last digit, never rounded for the list. An account with none gets one honest line, not a blank box: nothing is invented to
  * fill it. The full history is the Activity screen under Money.
  */
-export function RecentActivity({ activity, hidden }: { activity: Loadable<ActivityFeed>; hidden: boolean }) {
+export function RecentActivity({
+  activity,
+  hidden,
+  className = 'home-section',
+}: {
+  activity: Loadable<ActivityFeed>;
+  hidden: boolean;
+  className?: string;
+}) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
   return (
-    <section className="home-section" aria-labelledby="home-activity-title">
+    <section className={className} aria-labelledby="home-activity-title">
       <div className="home-section__head">
         <h2 className="home-h2" id="home-activity-title">
           {t('Recent activity')}
@@ -54,22 +76,27 @@ export function RecentActivity({ activity, hidden }: { activity: Loadable<Activi
         <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('No activity yet')} body={t('No activity body')} />
       ) : activity.status === 'ready' ? (
         <ul className="home-activity">
-          {activity.data.items.slice(0, SHOWN).map((item) => {
-            const when = dayTime(item.postedAt, timeZone);
-            return (
-              <li key={item.id} className="home-activity__row">
-                <span className="home-activity__what">
-                  <span className="home-activity__kind">{t(LABEL[item.kind])}</span>
-                  {when ? <span className="home-activity__when">{when}</span> : null}
-                </span>
-                <Amount
-                  className="home-activity__amount"
-                  value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { round: 'down' })} ${item.asset}`}
-                  hidden={hidden}
-                />
-              </li>
-            );
-          })}
+          {groupActivity(activity.data.items)
+            .groups.slice(0, SHOWN)
+            .map((group) => {
+              const item = group.main;
+              const when = dayTime(item.postedAt, timeZone);
+              return (
+                <li key={group.id}>
+                  <a className="home-activity__row" href={detailHref(group)}>
+                    <span className="home-activity__what">
+                      <span className="home-activity__kind">{t(LABEL[item.kind])}</span>
+                      {when ? <span className="home-activity__when">{when}</span> : null}
+                    </span>
+                    <Amount
+                      className="home-activity__amount"
+                      value={`${item.direction === 'in' ? '+' : '−'}${fmtAmount(item.amount, { places: 18 })} ${item.asset}`}
+                      hidden={hidden}
+                    />
+                  </a>
+                </li>
+              );
+            })}
         </ul>
       ) : activity.status === 'error' ? (
         <StateBlock
@@ -80,8 +107,16 @@ export function RecentActivity({ activity, hidden }: { activity: Loadable<Activi
           retryLabel={t('Try again')}
         />
       ) : (
-        <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('Couldn’t load your activity')} />
+        <Refused code={activity.code} />
       )}
     </section>
+  );
+}
+
+/** The service said no (for example, this account is not verified for bank reads yet): its reason, never a bare failure. */
+function Refused({ code }: { code: string }) {
+  const copy = refusalCopy(code);
+  return (
+    <StateBlock kind="refused" className={STATE_IN_COLUMN} title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
   );
 }

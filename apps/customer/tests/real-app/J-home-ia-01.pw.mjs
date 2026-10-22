@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fund } from './stack.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 
 // J-home-ia-01, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand. Tests titled
 // "J-home-ia-01 #<n>" prove a whole step. One TEST person walks the steps in order: TEST USDT and BTC through the real
@@ -86,6 +86,8 @@ test.beforeAll(async ({ browser }) => {
   who = await fundedTrader(page, 'hm', '1000');
   expect(fund(who.email, 'BTC', '0.01').tx).toBeTruthy();
   expect(fund(who.email, 'EUR', '25').tx).toBeTruthy();
+  // The newest movement, with all 18 decimals, so the list must show it to the last digit.
+  expect(fund(who.email, 'USDT', '0.123456789012345678').tx).toBeTruthy();
   await page.close();
 });
 
@@ -163,4 +165,66 @@ test(`${J} #3 the total's Assets link opens the Assets room with the same total 
     })
     .toBe('same');
   for (const asset of ['USDT', 'BTC', 'EUR']) await expect(page.locator('main').getByText(asset, { exact: true }).first()).toBeVisible();
+});
+
+test(`${J} #5 Recent activity lists the three newest movements to the last digit, each opening its record; an empty account says so`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await signIn(page, who);
+  await page.goto('/');
+  const list = page.locator('section[aria-labelledby="home-activity-title"]');
+  await expect(list.getByRole('heading', { name: 'Recent activity' })).toBeVisible();
+  const rows = list.locator('.home-activity__row');
+  await expect(rows).toHaveCount(3);
+  // Newest first: the four TEST deposits went in as USDT 1000, BTC 0.01, EUR 25, then USDT 0.123456789012345678.
+  await expect(rows.nth(0)).toContainText('+0.123456789012345678 USDT');
+  await expect(rows.nth(1)).toContainText('+25 EUR');
+  await expect(rows.nth(2)).toContainText('+0.01 BTC');
+  // The stack's TEST funding posts on its own rail, which the list names as welcome funds.
+  for (let i = 0; i < 3; i++) await expect(rows.nth(i).locator('.home-activity__kind')).toHaveText(/^(Deposit|Welcome funds)$/);
+  await expect(list.getByRole('link', { name: 'See all' })).toHaveAttribute('href', '/money/activity');
+
+  // A row opens that movement's own record.
+  const href = await rows.nth(0).getAttribute('href');
+  expect(href).toMatch(/^\/money\/activity\/.+/);
+  await rows.nth(0).click();
+  await expect(page).toHaveURL(href);
+  // The record it opens is that movement's own (its record number is the row's id).
+  await expect(page.locator('main')).toContainText(decodeURIComponent(href.slice('/money/activity/'.length)));
+  await expect(page.locator('main')).toContainText('USDT');
+
+  // A new, verified account with nothing in it has nothing to list, and says so instead of showing sample rows.
+  const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const empty = await fresh.newPage();
+  const nobody = await signUp(empty, 'hme');
+  // Before verification the bank refuses the read: Home gives the bank's reason, not a bare "couldn't load".
+  await empty.goto('/');
+  const refused = empty.locator('section[aria-labelledby="home-activity-title"]');
+  await expect(refused.locator('[data-slot="state-block"]')).toBeVisible();
+  await expect(refused).not.toContainText('Couldn’t load your activity');
+  await verify(empty, nobody);
+  await signIn(empty, nobody);
+  await empty.goto('/');
+  const none = empty.locator('section[aria-labelledby="home-activity-title"]');
+  await expect(none).toContainText('No activity');
+  await expect(none).toContainText('Deposits, trades and transfers show here.');
+  await expect(none.locator('.home-activity__row')).toHaveCount(0);
+  await fresh.close();
+});
+
+test(`${J}, part of #5: a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
+  test.setTimeout(120_000);
+  await signIn(page, who);
+  // The one outside thing in this run: the browser cannot reach the activity read (the service itself is untouched).
+  let fail = true;
+  await page.route('**/activity.list**', (route) => (fail ? route.abort('connectionrefused') : route.continue()));
+  await page.goto('/');
+  const list = page.locator('section[aria-labelledby="home-activity-title"]');
+  await expect(list).toContainText('Couldn’t load your activity.');
+  await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
+  fail = false;
+  await list.getByRole('button', { name: 'Try again' }).click();
+  await expect(list.locator('.home-activity__row')).toHaveCount(3);
 });

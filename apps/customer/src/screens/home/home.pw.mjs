@@ -277,17 +277,19 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     '/coin/SOL',
     '/coin/ETH',
   ]);
-  // Recent activity ("See all") and the Learn strip (the Academy, four links) follow the movers.
+  // Recent activity ("See all", then its three newest rows, each opening its record) and the Learn strip (the Academy,
+  // four links) follow the movers.
   expect(path.slice(26, 27).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(27, 31).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(31, 33).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  expect(path.slice(27, 30).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
+  expect(path.slice(30, 34).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(34, 36).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(33)
+      .slice(36)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(33).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(36).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).

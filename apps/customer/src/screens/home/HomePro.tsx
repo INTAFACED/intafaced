@@ -24,6 +24,7 @@ import {
   Skeleton,
   StateBlock,
   sub,
+  useActivity,
   useFavorites,
   useMarkets,
   useHomePortfolio,
@@ -47,6 +48,7 @@ import { normalizePair } from '../../app/navigation';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
+import { RecentActivity } from './RecentActivity';
 
 /** How many markets and assets Home Pro lists before it points to the full screen. */
 const MARKET_ROWS = 10;
@@ -579,6 +581,7 @@ export function HomePro() {
   const portfolio = useHomePortfolio(displayCurrency);
   const orders = useOpenOrders();
   const markets = useMarkets();
+  const activity = useActivity();
 
   const noMarkets = markets.status === 'empty' || (markets.status === 'ready' && !markets.data.some((market) => market.orderable));
   const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
@@ -600,6 +603,7 @@ export function HomePro() {
       <h1 className="if-sr">{t('Home')}</h1>
       <Summary portfolio={portfolio} orders={orders} hidden={hideBalances} actionMode={actionMode} />
       {showAssets ? <Assets portfolio={portfolio} hidden={hideBalances} /> : null}
+      <RecentActivity activity={activity} hidden={hideBalances} className="hp-panel hp-activity" />
       <MarketsPanel />
     </div>
   );
