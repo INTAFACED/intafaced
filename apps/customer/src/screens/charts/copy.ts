@@ -29,7 +29,7 @@ const messages = {
   'Date before start': 'There’s no data that far back: this market has no trades from that date until {earliest}.',
   'Date beyond depth':
     'That date is older than the {depth} bars this interval keeps (back to {oldest}). Pick a longer interval to go further back.',
-  'Date in future': 'That date hasn’t happened yet.',
+  'Date in future': 'That date is in the future.',
   'Depth recent': '{bars} bars loaded. Scroll back for more.',
   'Depth loading': 'Loading older bars…',
   'Depth loaded':
