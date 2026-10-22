@@ -14,8 +14,10 @@ export default async function Page() {
   const founder = await requireFounderPage();
   return (
     <>
-      <nav aria-label="More modules rooms">
+      <nav aria-label="More modules rooms" className="dk-row">
         <Link href="/more-ops/venue-economics">Venue unit economics</Link>
+        <Link href="/more-ops/mining">Mining desk</Link>
+        <Link href="/more-ops/predict">Predict desk</Link>
       </nav>
       <OpsDesk spec={DESKS.more} initial={await loadDesk(founder, 'more')} userId={founder.session.userId} />
     </>

@@ -13,6 +13,7 @@ import {
   VendorActions,
 } from '@/components/ops-actions';
 import { CustomerBalances } from '@/components/customer-balances';
+import { DeskSectionSet } from '@/components/desk-section-set';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
@@ -408,7 +409,8 @@ export interface OpsDeskViewProps {
 
 export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRefresh, stale = false }: OpsDeskViewProps) {
   const ctx: RowActionContext = { userId, onChanged: onRefresh };
-  const counts = view ? Object.values(view.reads) : [];
+  // Only this desk's own reads: the mining desk shares the More modules read, which also answers for agents, market and the rest.
+  const counts = view ? spec.sections.flatMap((s) => s.reads.map((r) => view.reads[r.id])).filter((o) => o !== undefined) : [];
   const failed = counts.filter((o) => o.part.kind === 'failed').length;
   return (
     <div className="dk" data-testid={`ops-desk-${spec.id}`}>
@@ -435,6 +437,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
         </p>
       )}
       {!view && <p className="dk-why">The console could not reach its own server for this desk. Nothing is shown rather than a guess.</p>}
+      {spec.commonSet && <DeskSectionSet setId={spec.commonSet} spec={spec} view={view} />}
       <nav aria-label="Sections" className="dk-row">
         {spec.sections.map((s) => (
           <a key={s.id} href={`#${s.id}`}>
