@@ -107,6 +107,12 @@ export interface SpotOrderPreviewRestDeps {
   bestAsk?(marketId: string): Promise<Amount | null>;
   /** Best bid for market-sell protection. Absent/null → `trade.no_reference_price`. */
   bestBid?(marketId: string): Promise<Amount | null>;
+  /**
+   * Matching's operator halt of this market, or of the whole venue (its public board). A halted book refuses every
+   * new submit with `market_halted`, so the preview says so before Confirm. Absent or a failed read adds nothing:
+   * place stays the authority and refuses on its own.
+   */
+  matchingHalt?(marketId: string): Promise<{ readonly market: boolean; readonly venue: boolean }>;
   /** True when the stop-trigger store is wired, the same condition under which placement accepts `stop_limit`. */
   stopLimitEnabled?: boolean;
   spotEnabled: boolean;
@@ -334,6 +340,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       assertMarketOpen(market, deps.now());
     } catch (error) {
       pushError(refusals, error, 'symbol');
+    }
+
+    const halt = deps.matchingHalt ? await deps.matchingHalt(market.id).catch(() => null) : null;
+    if (halt?.venue) {
+      refusals.push({ code: 'trade.venue_halted', field: 'symbol', message: 'an operator has halted new orders on every market' });
+    } else if (halt?.market) {
+      refusals.push({ code: 'trade.market_halted', field: 'symbol', message: `an operator has halted new orders on ${market.symbol}` });
     }
 
     const action: MarketAction = tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE';

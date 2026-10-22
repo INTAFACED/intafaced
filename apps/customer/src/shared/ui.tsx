@@ -88,6 +88,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'slippageCapUnset',
   'noBook',
   'marketNotOpen',
+  'marketHalted',
   'stepUp',
   'mfaRequired',
   'noPermission',

@@ -11,6 +11,7 @@ import {
   GuardError,
   MARKERS,
   assertLocalTarget,
+  bookProposal,
   buildLifecyclePublication,
   identityPayloadHash,
   kycApproveProposal,
@@ -159,6 +160,17 @@ assert.deepEqual(
 );
 const routerSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-matching', 'src', 'router.ts'), 'utf8');
 assert.ok(routerSrc.includes("'matching.open', { marketId }, `open:${marketId}`"), 'matching open recipe changed; update openProposal');
+// Halt and resume use the same recipe as open, one action word apart.
+for (const action of ['halt', 'resume']) {
+  const p = bookProposal(action, 'm-1');
+  assert.deepEqual([p.actionType, p.targetId], [`matching.${action}`, `${action}:m-1`]);
+  assert.equal(p.payloadHash, matchingPayloadHash(`matching.${action}`, { marketId: 'm-1' }));
+  assert.ok(
+    routerSrc.includes(`'matching.${action}', { marketId }, \`${action}:\${marketId}\``),
+    `matching ${action} recipe changed; update bookProposal`,
+  );
+}
+assert.throws(() => bookProposal('delete', 'm-1'));
 const identityRouter = readFileSync(resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'router.ts'), 'utf8');
 assert.ok(identityRouter.includes("'kyc.approve', { recordId: input.recordId }"), 'kyc.approve recipe changed; update kycApproveProposal');
 

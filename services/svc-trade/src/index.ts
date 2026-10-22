@@ -821,6 +821,10 @@ registerSpotOrderPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
   stopLimitEnabled: true,
+  matchingHalt: async (marketId) => {
+    const board = await matching.listMarkets();
+    return { market: board.halted?.includes(marketId) === true, venue: board.venueHalted === true };
+  },
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];
