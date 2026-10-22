@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   OPS_MAIL_ALIAS_REFUSED,
+  OPS_MAIL_FREE_MAIL_LIST_UNSET,
+  companyLinkDecision,
+  freeMailDomainListSchema,
   OPS_MAIL_NOT_CONNECTED_COPY,
   OPS_MAIL_SCOPE_INVALID,
   isAliasAddress,
@@ -21,6 +24,8 @@ const save = {
     calendarProtocol: 'caldav',
   },
   contactCreation: 'sent_only',
+  companyLinking: 'link_by_domain',
+  expectedRevision: null,
   scope: { inbox: true, sent: true, customFolders: ['TEST deals'], exclusions: ['spam', 'trash'], cadenceMinutes: 15 },
 };
 
@@ -89,6 +94,8 @@ describe('read back', () => {
       connection: save.connection,
       ...resolveMailSharing({}),
       contactCreation: 'never',
+      companyLinking: 'off',
+      revision: 'rev-1',
       scope: save.scope,
       syncState: 'off_draft',
       updatedAt: '2026-10-22T00:00:00.000Z',
@@ -100,5 +107,47 @@ describe('read back', () => {
 
   it('names the parked notice', () => {
     expect(OPS_MAIL_NOT_CONNECTED_COPY).toMatch(/switched off in this build/);
+  });
+});
+
+describe('company linking by email domain', () => {
+  it('a free-mail domain on a contact creates or links no company', () => {
+    expect(companyLinkDecision('someone@freemail.test', 'link_by_domain', ['freemail.test'])).toEqual({
+      link: false,
+      reason: 'free_mail_domain',
+    });
+  });
+
+  it('a company domain links', () => {
+    expect(companyLinkDecision('a@Acme.test', 'link_by_domain', ['freemail.test'])).toEqual({ link: true, domain: 'acme.test' });
+  });
+
+  it('an unset free-mail list refuses instead of linking every domain', () => {
+    expect(companyLinkDecision('a@acme.test', 'link_by_domain', null)).toEqual({
+      link: false,
+      reason: 'refused',
+      code: OPS_MAIL_FREE_MAIL_LIST_UNSET,
+    });
+  });
+
+  it('an owner-published empty list is honest: every domain links', () => {
+    expect(companyLinkDecision('a@acme.test', 'link_by_domain', [])).toMatchObject({ link: true });
+  });
+
+  it('linking off links nothing, list or not', () => {
+    expect(companyLinkDecision('a@acme.test', 'off', null)).toEqual({ link: false, reason: 'linking_off' });
+  });
+
+  it('the list holds domains only', () => {
+    expect(freeMailDomainListSchema.safeParse(['freemail.test']).success).toBe(true);
+    expect(freeMailDomainListSchema.safeParse(['not a domain']).success).toBe(false);
+  });
+});
+
+describe('revision', () => {
+  it('the save carries the expected revision, null only on the first save', () => {
+    expect(mailSettingsSaveInputSchema.safeParse({ ...save, expectedRevision: 'rev-1' }).success).toBe(true);
+    const { expectedRevision: _r, ...noRevision } = save;
+    expect(mailSettingsSaveInputSchema.safeParse(noRevision).success).toBe(false);
   });
 });
