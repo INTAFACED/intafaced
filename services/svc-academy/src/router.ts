@@ -2466,9 +2466,7 @@ export function createAcademyRouter(
     admin: router({
       // ── AC-roles-01: course team roles, custom roles and the permission query ──
       academyRoles: scopedProcedure('admin:read', { module: 'academy' })
-        .output(
-          academyRolesCatalogueSchema,
-        )
+        .output(academyRolesCatalogueSchema)
         .query(() =>
           guard(async () => ({
             permissions: [...ACADEMY_PERMISSIONS],

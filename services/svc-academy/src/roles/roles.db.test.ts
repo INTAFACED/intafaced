@@ -245,7 +245,15 @@ describe('admin role doors', () => {
   });
 
   it('roleHolders refuses academy.role_holders_list_limit_unset when the owner page size is blank', async () => {
-    const r = createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, {}, new AcademyRoleStore(sql, { customRoleLimit: 5 }));
+    const r = createAcademyRouter(
+      {} as AcademyService,
+      {},
+      undefined,
+      undefined,
+      null,
+      {},
+      new AcademyRoleStore(sql, { customRoleLimit: 5 }),
+    );
     expect(await refusal(r.createCaller(ctxFor(FOUNDER, ['admin:read'])).admin.roleHolders({ courseScope: COURSE }))).toBe(
       'academy.role_holders_list_limit_unset',
     );
