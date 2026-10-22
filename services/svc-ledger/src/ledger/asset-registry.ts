@@ -68,7 +68,7 @@ export class AssetRegistry {
   async list(input: AssetsListInput): Promise<{ assets: RegistryAsset[] }> {
     const { state, action } = assetsListInputSchema.parse(input);
     const rows = await this.sql.unsafe<AssetRow[]>(
-      `SELECT ${COLUMNS} FROM "ledger"."assets"
+      `SELECT ${COLUMNS} FROM assets
         WHERE precision IS NOT NULL
           AND ($1::text IS NULL OR state = $1::text)
           AND ($2::text IS NULL OR $2::text = ANY (allowed_actions))
@@ -80,7 +80,7 @@ export class AssetRegistry {
 
   async get(input: { assetId: string }): Promise<RegistryAsset> {
     const { assetId } = assetsGetInputSchema.parse(input);
-    const [row] = await this.sql.unsafe<AssetRow[]>(`SELECT ${COLUMNS} FROM "ledger"."assets" WHERE id = $1`, [assetId]);
+    const [row] = await this.sql.unsafe<AssetRow[]>(`SELECT ${COLUMNS} FROM assets WHERE id = $1`, [assetId]);
     if (!row) throw new AssetRegistryError(ASSET_NOT_FOUND, `asset ${assetId} is not in the ledger`);
     if (row.precision === null) {
       throw new AssetRegistryError(ASSET_PRECISION_UNSET, `asset ${assetId} has no precision set; the owner must set it`);
@@ -103,7 +103,7 @@ export class AssetRegistry {
     const ids = readApprovalIds(shape.data);
 
     const [current] = await this.sql<Array<{ kind: string; revision: number }>>`
-      SELECT kind::text AS kind, revision FROM "ledger"."assets" WHERE id = ${edit.id}`;
+      SELECT kind::text AS kind, revision FROM assets WHERE id = ${edit.id}`;
     if (current && current.kind !== edit.kind) {
       throw new AssetRegistryError(ASSET_EDIT_INVALID, `asset ${edit.id} is ${current.kind}; its kind is not changed by an edit`);
     }
@@ -126,7 +126,7 @@ export class AssetRegistry {
     const nextRevision = expectedRevision + 1;
     await this.sql.begin(async (tx) => {
       const [locked] = await tx<Array<{ revision: number }>>`
-        SELECT revision FROM "ledger"."assets" WHERE id = ${edit.id} FOR UPDATE`;
+        SELECT revision FROM assets WHERE id = ${edit.id} FOR UPDATE`;
       if ((locked?.revision ?? 0) !== expectedRevision) {
         throw new AssetRegistryError(
           ASSET_EDIT_INVALID,
@@ -136,18 +136,18 @@ export class AssetRegistry {
       const networks = tx.json(edit.networks as unknown as Parameters<typeof tx.json>[0]);
       if (locked) {
         await tx`
-          UPDATE "ledger"."assets" SET precision = ${edit.precision}, networks = ${networks},
+          UPDATE assets SET precision = ${edit.precision}, networks = ${networks},
             default_network_id = ${edit.defaultNetworkId}, allowed_actions = ${edit.allowedActions}::text[],
             state = ${edit.state}, revision = ${nextRevision}, registry_updated_at = now()
           WHERE id = ${edit.id}`;
       } else {
         await tx`
-          INSERT INTO "ledger"."assets" (id, kind, decimals, precision, networks, default_network_id, allowed_actions, state, revision)
-          VALUES (${edit.id}, ${edit.kind}::ledger.asset_kind, ${edit.precision}, ${edit.precision}, ${networks},
+          INSERT INTO assets (id, kind, decimals, precision, networks, default_network_id, allowed_actions, state, revision)
+          VALUES (${edit.id}, ${edit.kind}::asset_kind, ${edit.precision}, ${edit.precision}, ${networks},
             ${edit.defaultNetworkId}, ${edit.allowedActions}::text[], ${edit.state}, ${nextRevision})`;
       }
       await tx`
-        INSERT INTO "ledger"."asset_edits" (approval_id, operation_id, asset_id, revision, payload_hash, edit, actor_id, approver_id)
+        INSERT INTO asset_edits (approval_id, operation_id, asset_id, revision, payload_hash, edit, actor_id, approver_id)
         VALUES (${ids.approvalId}, ${ids.operationId}, ${edit.id}, ${nextRevision}, ${payloadHash},
           ${tx.json(edit as unknown as Parameters<typeof tx.json>[0])}, ${actorId}, ${consumed.approverId ?? null})`;
     });

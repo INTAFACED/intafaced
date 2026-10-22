@@ -1,236 +1,203 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import {
+  ASSET_EDIT_ACTION_TYPE,
+  actionApprovalSchema,
+  assetAllows,
+  assetEditPayloadHash,
+  type ActionApprovalConsumeInput,
+  type AssetEditInput,
+} from '@intafaced/contracts';
+import { AssetRegistry, AssetRegistryError } from './asset-registry.js';
+import { ActionApprovalConsumeError, type ActionApprovalConsumer } from './action-approval-consume.js';
 
-/**
- * VALUE MAY NOT EXIST IN AN ASSET THE LEDGER HAS NEVER HEARD OF (§4.2).
- *
- * Three places said so and nothing enforced it. `0003` — "Every one of them
- * needs a row in `ledger.assets` before a balance in it can exist." `0004` — "a
- * market whose asset has no row here fails at the first ledger post rather than
- * at listing time." `packages/contracts/src/instruments.test.ts` — "the first
- * order fails at the ledger rather than at the listing."
- *
- * None of it was true. `asset_id` was bare `text` on both tables, with no
- * foreign key, no CHECK and no lookup, and no code in this service ever read
- * the `assets` table. A one-character typo opened a second complete book:
- * balanced per-asset, non-negative, hash-chained, reconciling — and unreachable,
- * because no rail or market or asset-keyed query would ever see it.
- *
- * Two claims are asserted here, and neither is provable from the client suite:
- *
- *   1. The keys refuse an unregistered asset against a RAW INSERT, with
- *      `ledger-client` entirely out of the picture. The README's own argument:
- *      "an adapter bridging a Java stack is the least likely caller in the OS to
- *      route through a TypeScript library, so application-only enforcement would
- *      be bypassable by exactly the thing it exists to stop."
- *
- *   2. Migration 0006 behaves correctly on a table that ALREADY HAS ROWS. A
- *      constraint added ahead of its data passes on an empty database and stops
- *      a deploy in the middle of a populated one. So the populated case is built
- *      explicitly: rows in an unregistered asset, then the migration, and its
- *      refusal is asserted — including that it names the offending asset.
- *
- * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
- * TEST_DATABASE_URL (per-run schema via `createTestDb`). Local without that env
- * starts Testcontainers `postgres:16-alpine`. Docker/PG down is a failed suite,
- * not a green skip.
- */
-
+/** All assets, networks and figures here are TEST values. */
+const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
-
-const allMigrationFiles = readdirSync(drizzleDir)
+const migrations = readdirSync(drizzleDir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
-  .sort();
+  .sort()
+  .map((f) => (schema: string) => rewriteSchemaSql(readFileSync(join(drizzleDir, f), 'utf8'), 'ledger', schema));
 
-/** Everything before the one under test — the schema as production has it today. */
-const PRIOR = allMigrationFiles.filter((f) => !f.startsWith('0006_'));
-const UP = readFileSync(join(drizzleDir, '0006_asset_must_exist.sql'), 'utf8');
-const DOWN = readFileSync(join(drizzleDir, '0006_asset_must_exist.down.sql'), 'utf8');
-
-const read = (f: string) => readFileSync(join(drizzleDir, f), 'utf8');
-const priorMigrations = PRIOR.map((f) => (schema: string) => rewriteSchemaSql(read(f), 'ledger', schema));
-const allMigrations = allMigrationFiles.map((f) => (schema: string) => rewriteSchemaSql(read(f), 'ledger', schema));
-
-const USER = '0007e7f3-2e25-4dc9-88b4-146db6d491f0';
-const FOREIGN_KEY_VIOLATION = '23503';
-
-const H8A_IMAGE = 'postgres:16-alpine';
-
-async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
-  const envUrl = process.env.TEST_DATABASE_URL?.trim();
-  if (envUrl) {
-    return { url: envUrl, stop: async () => undefined };
-  }
-
-  try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
-      .withDatabase('intafaced_h8a_test')
-      .withUsername('intafaced')
-      .withPassword('intafaced')
-      .start();
-    return {
-      url: container.getConnectionUri(),
-      stop: async () => {
-        await container.stop();
-      },
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `H8a: svc-ledger asset-registry is PG-hard (no skip-green). ` +
-        `TEST_DATABASE_URL unset and Testcontainers could not start ${H8A_IMAGE}: ${msg}`,
-    );
-  }
+/** A fake identity: consumes each approval once, as a distinct founder pair, and records what it was asked. */
+function fakeIdentity(overrides: { approverIsFounder?: boolean } = {}) {
+  const seen: ActionApprovalConsumeInput[] = [];
+  const used = new Set<string>();
+  const consumer: ActionApprovalConsumer = {
+    async consume(input) {
+      seen.push(input);
+      if (used.has(input.approvalId)) throw new ActionApprovalConsumeError('approval already consumed', 'action_approval.consume_failed');
+      used.add(input.approvalId);
+      return actionApprovalSchema.parse({
+        ...input,
+        actionType: ASSET_EDIT_ACTION_TYPE,
+        requesterId: 'founder-a',
+        approverId: 'founder-b',
+        approverIsFounder: overrides.approverIsFounder ?? true,
+        requesterIsFounder: true,
+        policyVersion: 'v1',
+        createdAt: '2026-10-22T09:00:00.000Z',
+        expiresAt: '2026-10-22T09:10:00.000Z',
+        status: 'CONSUMED',
+      });
+    },
+  };
+  return { consumer, seen };
 }
 
-describe('svc-ledger asset-registry PG-hard (source)', () => {
-  it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
-    const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-    expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
-    expect(src).not.toMatch(/describe\.skip\s*\(/);
-    expect(src).not.toMatch(/\bit\.skip\s*\(/);
-  });
+const edit = (o: Partial<AssetEditInput> = {}): AssetEditInput => ({
+  id: 'TSTA',
+  kind: 'crypto',
+  precision: 6,
+  networks: [{ networkId: 'test-net', label: 'TEST net' }],
+  defaultNetworkId: 'test-net',
+  allowedActions: ['deposit', 'withdraw'],
+  state: 'active',
+  reason: 'TEST registry edit',
+  ...o,
 });
 
-describe('svc-ledger asset registry', () => {
-  let adminStop: () => Promise<void> = async () => undefined;
-  let adminUrl: string | undefined;
+let n = 0;
+const ids = () => ({ approvalId: `appr-${++n}`, operationId: `op-${n}` });
 
+async function refusal(p: Promise<unknown>): Promise<string> {
+  try {
+    await p;
+  } catch (e) {
+    return (e as { code?: string }).code ?? String(e);
+  }
+  throw new Error('expected a refusal');
+}
+
+// PG-hard: no skip. The registry is a ledger table; a run without Postgres fails here.
+describe('asset registry on ledger.assets (0025)', () => {
+  let db: TestDb;
+  let reg: AssetRegistry;
   beforeAll(async () => {
-    const admin = await openH8aAdmin();
-    adminStop = admin.stop;
-    adminUrl = admin.url;
-  }, 120_000);
-
+    db = await createTestDb({ service: 'ledger_asset_registry', url: URL, migrations });
+    reg = new AssetRegistry(db.sql);
+  });
   afterAll(async () => {
-    await adminStop();
-  }, 30_000);
-
-  // ───────────────────────────────────────────────────────────────────────────
-  describe('accounts_asset_id_fk — enforced by the database, not by the caller', () => {
-    let db: TestDb | undefined;
-
-    beforeAll(async () => {
-      if (!adminUrl) throw new Error('H8a: test db not opened');
-      db = await createTestDb({ service: 'ledger_assetreg', url: adminUrl, migrations: allMigrations });
-    }, 120_000);
-    afterAll(async () => {
-      await db?.drop();
-    }, 30_000);
-
-    const openAccount = (assetId: string) => {
-      if (!db) throw new Error('H8a: test db not opened');
-      return db.sql`
-        INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
-        VALUES ('user'::owner_type, ${USER}, ${assetId}, 'available'::account_kind, '')
-      `;
-    };
-
-    it('REFUSES an account in an asset with no row in ledger.assets — raw SQL, no client library', async () => {
-      // This is the finding. Before 0006 this INSERT succeeded, and everything
-      // built on top of it balanced and reconciled while being unspendable.
-      await expect(openAccount('USTD')).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
-    });
-
-    it('still allows every asset the seed migrations registered', async () => {
-      for (const asset of ['USDT', 'BTC', 'IFC', 'XAU', 'EUR']) {
-        await expect(openAccount(asset)).resolves.toBeDefined();
-      }
-    });
-
-    it('refuses an UPDATE that moves an existing account into an unregistered asset', async () => {
-      if (!db) throw new Error('H8a: test db not opened');
-      await openAccount('ETH');
-      await expect(db.sql`UPDATE accounts SET asset_id = 'ETHH' WHERE asset_id = 'ETH'`).rejects.toMatchObject({
-        code: FOREIGN_KEY_VIOLATION,
-      });
-      await db.sql`DELETE FROM accounts WHERE asset_id = 'ETH'`;
-    });
-
-    it('refuses an entry in an unregistered asset, even pointing at a valid account', async () => {
-      if (!db) throw new Error('H8a: test db not opened');
-      // `ledger_entries.asset_id` is denormalised from the account but written
-      // independently, so it is constrained independently.
-      const [account] = await db.sql<{ id: string }[]>`
-        INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
-        VALUES ('user'::owner_type, ${USER}, 'USDC', 'available'::account_kind, '')
-        RETURNING id
-      `;
-      const [tx] = await db.sql<{ id: string }[]>`
-        INSERT INTO ledger_tx (module, reason, idempotency_key, hash)
-        VALUES ('ledger', 'asset-fk-probe', ${`asset-fk-${USER}`}, 'not-a-real-chain-hash')
-        RETURNING id
-      `;
-      await expect(
-        db.sql`
-          INSERT INTO ledger_entries (tx_id, account_id, asset_id, direction, amount, balance_after)
-          VALUES (${tx!.id}, ${account!.id}, 'USDCC', 'credit'::direction, 1, 1)
-        `,
-      ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
-    });
-
-    it('refuses deleting an asset that still holds balances — RESTRICT, not silent orphaning', async () => {
-      if (!db) throw new Error('H8a: test db not opened');
-      await openAccount('AUD');
-      await expect(db.sql`DELETE FROM assets WHERE id = 'AUD'`).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
-      await db.sql`DELETE FROM accounts WHERE asset_id = 'AUD'`;
-    });
+    await db?.drop();
+  });
+  beforeEach(async () => {
+    await db.sql.unsafe(`ALTER TABLE asset_edits DISABLE TRIGGER asset_edits_append_only`);
+    await db.sql.unsafe(`DELETE FROM asset_edits`);
+    await db.sql.unsafe(`ALTER TABLE asset_edits ENABLE TRIGGER asset_edits_append_only`);
+    await db.sql.unsafe(`DELETE FROM assets WHERE id LIKE 'TST%'`);
+    await db.sql.unsafe(
+      `UPDATE assets SET precision = NULL, networks = '[]', default_network_id = NULL, allowed_actions = '{}', state = 'active', revision = 0`,
+    );
   });
 
-  // ───────────────────────────────────────────────────────────────────────────
-  describe('migration 0006 on a table that already has rows', () => {
-    let db: TestDb | undefined;
+  it('seeded assets have no precision yet: get refuses precision_unset, list leaves them out, decimals is not read', async () => {
+    const [usd] = await db.sql<
+      Array<{ decimals: number; precision: number | null }>
+    >`SELECT decimals, precision FROM assets WHERE id = 'USD'`;
+    expect(usd).toEqual({ decimals: 2, precision: null });
+    expect(await refusal(reg.get({ assetId: 'USD' }))).toBe('ledger.asset_precision_unset');
+    expect(await refusal(reg.get({ assetId: 'NOPE' }))).toBe('ledger.asset_not_found');
+    expect((await reg.list({})).assets).toEqual([]);
+  });
 
-    beforeAll(async () => {
-      if (!adminUrl) throw new Error('H8a: test db not opened');
-      db = await createTestDb({ service: 'ledger_assetmig', url: adminUrl, migrations: priorMigrations });
-    }, 120_000);
-    afterAll(async () => {
-      await db?.drop();
-    }, 30_000);
-
-    it('REFUSES, naming the asset, rather than stopping a deploy halfway', async () => {
-      if (!db) throw new Error('H8a: test db not opened');
-      // Exactly the state the pre-0006 schema permitted: a phantom book.
-      await db.sql`
-        INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
-        VALUES ('user'::owner_type, ${USER}, 'USTD', 'available'::account_kind, '')
-      `;
-
-      await expect(db.sql.unsafe(rewriteSchemaSql(UP, 'ledger', db.schema))).rejects.toMatchObject({
-        message: expect.stringContaining('USTD'),
-      });
-
-      // And it left the row alone — a migration does not move value (§0.6).
-      const [row] = await db.sql<{ n: string }[]>`SELECT count(*)::text AS n FROM accounts WHERE asset_id = 'USTD'`;
-      expect(row?.n).toBe('1');
+  it('an approved edit applies once, bound to the payload hash and the row revision', async () => {
+    const { consumer, seen } = fakeIdentity();
+    const a = ids();
+    const row = await reg.applyEdit(consumer, { ...a, edit: edit() }, 'founder-a');
+    expect(row).toMatchObject({ id: 'TSTA', precision: 6, revision: 1, defaultNetworkId: 'test-net', state: 'active' });
+    expect(seen[0]).toMatchObject({
+      targetService: 'svc-ledger',
+      targetId: 'TSTA',
+      expectedVersion: '0',
+      payloadHash: assetEditPayloadHash(edit()),
     });
+    // The same approval again: refused, and nothing changes.
+    expect(await refusal(reg.applyEdit(consumer, { ...a, edit: edit() }, 'founder-a'))).toBe('action_approval.consume_failed');
+    expect((await reg.get({ assetId: 'TSTA' })).revision).toBe(1);
+    const [audit] = await db.sql`SELECT asset_id, revision, actor_id, approver_id FROM asset_edits`;
+    expect(audit).toEqual({ asset_id: 'TSTA', revision: 1, actor_id: 'founder-a', approver_id: 'founder-b' });
+    // The next edit is approved against revision 1.
+    await reg.applyEdit(consumer, { ...ids(), edit: edit({ precision: 8 }) }, 'founder-a');
+    expect(seen[2]?.expectedVersion).toBe('1');
+    expect((await reg.get({ assetId: 'TSTA' })).precision).toBe(8);
+  });
 
-    it('applies cleanly once the phantom book is gone, and reverses', async () => {
-      if (!db) throw new Error('H8a: test db not opened');
-      await db.sql`DELETE FROM accounts WHERE asset_id = 'USTD'`;
+  it('deposit and withdraw read the same row and precision; list filters by action and state', async () => {
+    const { consumer } = fakeIdentity();
+    await reg.applyEdit(consumer, { ...ids(), edit: edit() }, 'founder-a');
+    await reg.applyEdit(consumer, { ...ids(), edit: edit({ id: 'TSTB', allowedActions: ['trade'], state: 'halted' }) }, 'founder-a');
+    const deposit = (await reg.list({ action: 'deposit' })).assets;
+    const withdraw = (await reg.list({ action: 'withdraw' })).assets;
+    expect(deposit).toEqual(withdraw);
+    expect(deposit.map((a) => [a.id, a.precision])).toEqual([['TSTA', 6]]);
+    expect((await reg.list({ state: 'halted' })).assets.map((a) => a.id)).toEqual(['TSTB']);
+    expect(assetAllows(await reg.get({ assetId: 'TSTB' }), 'trade')).toBe(false);
+  });
 
-      await db.sql.unsafe(rewriteSchemaSql(UP, 'ledger', db.schema));
-      await expect(
-        db.sql`
-          INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
-          VALUES ('user'::owner_type, ${USER}, 'USTD', 'available'::account_kind, '')
-        `,
-      ).rejects.toMatchObject({ code: FOREIGN_KEY_VIOLATION });
+  it('a retired asset stays listed with its state', async () => {
+    const { consumer } = fakeIdentity();
+    await reg.applyEdit(consumer, { ...ids(), edit: edit() }, 'founder-a');
+    await reg.applyEdit(consumer, { ...ids(), edit: edit({ state: 'retired' }) }, 'founder-a');
+    expect((await reg.list({})).assets).toEqual([expect.objectContaining({ id: 'TSTA', state: 'retired' })]);
+  });
 
-      // Down restores the old behaviour exactly — the door, re-opened.
-      await db.sql.unsafe(rewriteSchemaSql(DOWN, 'ledger', db.schema));
-      await expect(
-        db.sql`
-          INSERT INTO accounts (owner_type, owner_id, asset_id, kind, purpose)
-          VALUES ('user'::owner_type, ${USER}, 'USTD', 'available'::account_kind, '')
-        `,
-      ).resolves.toBeDefined();
-    });
+  it('blank precision refuses ledger.asset_precision_unset before identity is asked', async () => {
+    const { consumer, seen } = fakeIdentity();
+    for (const precision of [undefined, null, '  ']) {
+      expect(await refusal(reg.applyEdit(consumer, { ...ids(), edit: { ...edit(), precision } }, 'founder-a'))).toBe(
+        'ledger.asset_precision_unset',
+      );
+    }
+    expect(await refusal(reg.applyEdit(consumer, { ...ids(), edit: edit({ precision: 19 }) }, 'founder-a'))).toBe(
+      'ledger.asset_precision_invalid',
+    );
+    expect(await refusal(reg.applyEdit(consumer, { ...ids(), edit: edit({ defaultNetworkId: 'other' }) }, 'founder-a'))).toBe(
+      'ledger.asset_default_network_not_listed',
+    );
+    expect(seen).toHaveLength(0);
+  });
+
+  it('an edit approved against an older row refuses once another edit lands', async () => {
+    const { consumer } = fakeIdentity();
+    await reg.applyEdit(consumer, { ...ids(), edit: edit() }, 'founder-a');
+    // Identity echoes the revision it was approved against; a second edit lands between read and write.
+    const racing: ActionApprovalConsumer = {
+      async consume(input) {
+        const out = await consumer.consume(input);
+        await reg.applyEdit(consumer, { ...ids(), edit: edit({ precision: 4 }) }, 'founder-a');
+        return out;
+      },
+    };
+    const err = await reg.applyEdit(racing, { ...ids(), edit: edit({ precision: 9 }) }, 'founder-a').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AssetRegistryError);
+    expect((err as AssetRegistryError).message).toMatch(/changed after this edit was approved/);
+    expect((await reg.get({ assetId: 'TSTA' })).precision).toBe(4);
+  });
+
+  it('a non-founder approver or a kind change refuses and writes nothing', async () => {
+    const notFounder = fakeIdentity({ approverIsFounder: false });
+    expect(await refusal(reg.applyEdit(notFounder.consumer, { ...ids(), edit: edit() }, 'founder-a'))).toBe('action_approval.not_founders');
+    expect(await refusal(reg.get({ assetId: 'TSTA' }))).toBe('ledger.asset_not_found');
+    const { consumer, seen } = fakeIdentity();
+    expect(
+      await refusal(
+        reg.applyEdit(consumer, { ...ids(), edit: edit({ id: 'USD', kind: 'crypto', networks: [], defaultNetworkId: null }) }, 'founder-a'),
+      ),
+    ).toBe('ledger.asset_edit_invalid');
+    expect(seen).toHaveLength(0);
+  });
+
+  it('missing approval ids refuse; asset_edits is append-only', async () => {
+    const { consumer } = fakeIdentity();
+    expect(await refusal(reg.applyEdit(consumer, { approvalId: '', operationId: 'op', edit: edit() }, 'founder-a'))).toBe(
+      'ledger.asset_edit_invalid',
+    );
+    await reg.applyEdit(consumer, { ...ids(), edit: edit() }, 'founder-a');
+    await expect(db.sql`DELETE FROM asset_edits`).rejects.toThrow(/append-only/);
+    await expect(db.sql`UPDATE asset_edits SET actor_id = 'x'`).rejects.toThrow(/append-only/);
   });
 });
