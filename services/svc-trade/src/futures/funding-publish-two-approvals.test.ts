@@ -2,7 +2,7 @@
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
-import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
+import { MemoryApprovalBook, payloadHash, type AuditWrite } from '../admin/common.js';
 import type { FundingHistoryRow } from './funding-history.js';
 import type { FundingRateEntry } from './funding-rate-source.js';
 import {
@@ -31,13 +31,19 @@ function bind(book: MemoryApprovalBook, approvalId: string, requesterId: string,
     }),
     requesterId,
     approverId,
+    operationId: `op-${approvalId}`,
   });
 }
 
-async function setup(maxAbsRate: string | null = '1') {
+function ids(...approvalIds: string[]) {
+  return { approvalIds, operationIds: approvalIds.map((id) => `op-${id}`) };
+}
+
+async function setup(maxAbsRate: string | null = '1', writeAudit?: (row: AuditWrite) => Promise<unknown>) {
   const published: FundingRateEntry[] = [];
   const history: FundingHistoryRow[] = [];
   const book = new MemoryApprovalBook();
+  const audits: AuditWrite[] = [];
   const app = Fastify();
   registerInternalFundingRate(app, {
     internalSecret: SECRET,
@@ -46,6 +52,7 @@ async function setup(maxAbsRate: string | null = '1') {
     maxAbsRate,
     now: () => 1_700_000_000_000,
     approvals: book,
+    writeAudit: writeAudit ?? (async (row) => audits.push(row)),
   });
   await app.ready();
   const post = (body: unknown) => {
@@ -57,7 +64,7 @@ async function setup(maxAbsRate: string | null = '1') {
       payload: raw,
     });
   };
-  return { app, book, post, published, history };
+  return { app, book, post, published, history, audits };
 }
 
 describe('funding publish needs two distinct approvals (RC-derivatives-01)', () => {
@@ -65,12 +72,12 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
     bind(t.book, 'apr-c', 'operator-a', 'operator-c');
-    const res = await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] });
+    const res = await t.post({ ...BODY, ...ids('apr-b', 'apr-c') });
     expect(res.statusCode).toBe(200);
     expect(res.json().approverIds).toEqual(['operator-b', 'operator-c']);
     expect(t.published).toHaveLength(1);
     expect(t.history).toEqual([expect.objectContaining({ fundingRate: '0.0001', approverIds: ['operator-b', 'operator-c'] })]);
-    const replay = await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] });
+    const replay = await t.post({ ...BODY, ...ids('apr-b', 'apr-c') });
     expect(replay.json().duplicate).toBe(true);
     expect(t.published).toHaveLength(1);
     await t.app.close();
@@ -80,10 +87,10 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
     for (const body of [
-      { ...BODY, approvalIds: ['apr-b'] },
+      { ...BODY, ...ids('apr-b') },
       { ...BODY, approvalId: 'apr-b' },
-      { ...BODY, approvalIds: ['apr-b', ''] },
-      { ...BODY, approvalIds: ['apr-b', 'x', 'y'] },
+      { ...BODY, ...ids('apr-b', '') },
+      { ...BODY, ...ids('apr-b', 'x', 'y') },
       { ...BODY, approvalIds: 'apr-b' },
       BODY,
     ]) {
@@ -94,14 +101,14 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     expect(t.published).toEqual([]);
     // apr-b was never consumed: it still works in a valid pair.
     bind(t.book, 'apr-c', 'operator-a', 'operator-c');
-    expect((await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] })).statusCode).toBe(200);
+    expect((await t.post({ ...BODY, ...ids('apr-b', 'apr-c') })).statusCode).toBe(200);
     await t.app.close();
   });
 
   it('the same id twice → approvers_not_distinct, nothing consumed', async () => {
     const t = await setup();
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
-    const res = await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-b'] });
+    const res = await t.post({ ...BODY, ...ids('apr-b', 'apr-b') });
     expect(res.json().error).toBe(FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT);
     expect(t.published).toEqual([]);
     await t.app.close();
@@ -111,7 +118,7 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-1', 'operator-a', 'operator-b');
     bind(t.book, 'apr-2', 'operator-a', 'Operator-B');
-    const res = await t.post({ ...BODY, approvalIds: ['apr-1', 'apr-2'] });
+    const res = await t.post({ ...BODY, ...ids('apr-1', 'apr-2') });
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe(FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT);
     expect(t.published).toEqual([]);
@@ -123,7 +130,7 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-1', 'operator-a', 'operator-b');
     bind(t.book, 'apr-2', 'operator-c', 'operator-a');
-    const res = await t.post({ ...BODY, approvalIds: ['apr-1', 'apr-2'] });
+    const res = await t.post({ ...BODY, ...ids('apr-1', 'apr-2') });
     expect(res.json().error).toBe(FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT);
     expect(t.published).toEqual([]);
     await t.app.close();
@@ -133,11 +140,11 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
     bind(t.book, 'apr-c', 'operator-a', 'operator-c');
-    expect((await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] })).statusCode).toBe(200);
+    expect((await t.post({ ...BODY, ...ids('apr-b', 'apr-c') })).statusCode).toBe(200);
     bind(t.book, 'apr-d', 'operator-a', 'operator-d', '0.0003');
-    const res = await t.post({ ...BODY, rate: '0.0003', approvalIds: ['apr-b', 'apr-d'] });
+    const res = await t.post({ ...BODY, rate: '0.0003', ...ids('apr-b', 'apr-d') });
     expect(res.statusCode).toBe(403);
-    expect(res.json().error).toBe('approval_reused');
+    expect(res.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_reused' });
     expect(t.published).toHaveLength(1);
     await t.app.close();
   });
@@ -147,33 +154,90 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
     bind(t.book, 'apr-c', 'operator-a', 'operator-c');
     bind(t.book, 'apr-d', 'operator-a', 'operator-d');
-    expect((await t.post({ ...BODY, approvalIds: ['apr-c', 'apr-d'] })).statusCode).toBe(200);
+    expect((await t.post({ ...BODY, ...ids('apr-c', 'apr-d') })).statusCode).toBe(200);
     const t2 = await setup();
     bind(t2.book, 'apr-b', 'operator-a', 'operator-b');
     bind(t2.book, 'apr-c', 'operator-a', 'operator-c', '0.0002');
-    const res = await t2.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] });
-    expect(res.json().error).toBe('approval_mismatch');
+    const res = await t2.post({ ...BODY, ...ids('apr-b', 'apr-c') });
+    expect(res.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_mismatch' });
     expect(t2.published).toEqual([]);
     bind(t2.book, 'apr-e', 'operator-a', 'operator-e');
-    const again = await t2.post({ ...BODY, approvalIds: ['apr-b', 'apr-e'] });
-    expect(again.json().error).toBe('approval_reused');
+    const again = await t2.post({ ...BODY, ...ids('apr-b', 'apr-e') });
+    expect(again.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_reused' });
     expect(t2.published).toEqual([]);
     await t.app.close();
     await t2.app.close();
+  });
+
+  it('each approval is consumed with its own identity operationId; a wrong one is a mismatch and stores nothing', async () => {
+    const t = await setup();
+    bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+    const res = await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'], operationIds: ['op-apr-b', 'op-apr-b'] });
+    expect(res.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_mismatch' });
+    expect(t.published).toEqual([]);
+    expect(t.audits).toEqual([]);
+    await t.app.close();
+  });
+
+  it('a not-distinct pair leaves BOTH approvals consumed', async () => {
+    const t = await setup();
+    bind(t.book, 'apr-1', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-2', 'operator-a', 'operator-b');
+    expect((await t.post({ ...BODY, ...ids('apr-1', 'apr-2') })).json().error).toBe(FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT);
+    bind(t.book, 'apr-3', 'operator-a', 'operator-c');
+    for (const spent of ['apr-1', 'apr-2']) {
+      const res = await t.post({ ...BODY, ...ids(spent, 'apr-3') });
+      expect(res.json().approvalCode, spent).toBe('approval_reused');
+    }
+    expect(t.published).toEqual([]);
+    await t.app.close();
+  });
+
+  it('a stored publish writes one operator audit row with both approvers; the replay returns the approver ids', async () => {
+    const t = await setup();
+    bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+    await t.post({ ...BODY, ...ids('apr-b', 'apr-c') });
+    expect(t.audits).toEqual([
+      expect.objectContaining({
+        id: 'funding.publish:m1:m1:p1:0.0001',
+        kind: 'futures.funding_rate.publish',
+        operatorId: 'operator-a',
+        detail: expect.objectContaining({ approverIds: ['operator-b', 'operator-c'] }),
+      }),
+    ]);
+    const replay = await t.post({ ...BODY, ...ids('apr-b', 'apr-c') });
+    expect(replay.json()).toMatchObject({ duplicate: true, approverIds: ['operator-b', 'operator-c'] });
+    expect(t.audits).toHaveLength(1);
+    await t.app.close();
+  });
+
+  it('an audit write failure stores no rate', async () => {
+    const t = await setup('1', async () => {
+      throw new Error('audit down');
+    });
+    bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+    const res = await t.post({ ...BODY, ...ids('apr-b', 'apr-c') });
+    expect(res.statusCode).toBe(500);
+    expect(t.published).toEqual([]);
+    expect(t.history).toEqual([]);
+    await t.app.close();
   });
 
   it('a refused rate burns no approval: bound unset and above-max refuse before any consume', async () => {
     const unset = await setup(null);
     bind(unset.book, 'apr-b', 'operator-a', 'operator-b');
     bind(unset.book, 'apr-c', 'operator-a', 'operator-c');
-    expect((await unset.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'] })).json().error).toBe('trade.funding_rate_bound_unconfigured');
+    expect((await unset.post({ ...BODY, ...ids('apr-b', 'apr-c') })).json().error).toBe('trade.funding_rate_bound_unconfigured');
     const consumed = await unset.book.consume({
       approvalId: 'apr-b',
       actionType: 'trade.funding_rate.publish',
       targetId: BODY.marketId,
       expectedVersion: BODY.periodId,
       payloadHash: payloadHash({ actionType: 'trade.funding_rate.publish', ...BODY, markPrice: null }),
-      operationId: 'probe',
+      operationId: 'op-apr-b',
     });
     expect(consumed.ok).toBe(true);
     expect(unset.published).toEqual([]);
@@ -190,7 +254,7 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
       approvals: null,
     });
     await app.ready();
-    const raw = JSON.stringify({ ...BODY, approvalIds: ['a', 'b'] });
+    const raw = JSON.stringify({ ...BODY, ...ids('a', 'b') });
     const res = await app.inject({
       method: 'POST',
       url: PATH,

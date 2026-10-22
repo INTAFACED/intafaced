@@ -98,6 +98,7 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { writeOperatorAudit } from './admin/common.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
@@ -813,6 +814,7 @@ registerInternalFundingRate(app, {
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
   approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+  writeAudit: (row) => writeOperatorAudit(sql, row),
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

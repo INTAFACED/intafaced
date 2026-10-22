@@ -294,7 +294,13 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
   it('a missing approval book refuses even when an approval id is sent', async () => {
     const published: FundingRateEntry[] = [];
     const app = appWith(published, [], null);
-    const res = await post(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0', approvalIds: ['apr-1', 'apr-2'] });
+    const res = await post(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p0',
+      approvalIds: ['apr-1', 'apr-2'],
+      operationIds: ['apr-1', 'apr-2'],
+    });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
     await app.close();
@@ -323,7 +329,7 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       requesterId: 'requester-1',
       approverId: 'approver-3',
     });
-    const res = await post(app, { ...body, approvalIds: ['apr-good', 'apr-self'] });
+    const res = await post(app, { ...body, approvalIds: ['apr-good', 'apr-self'], operationIds: ['apr-good', 'apr-self'] });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
     await app.close();
@@ -357,6 +363,7 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       periodId: 'm1:p0',
       markPrice: '50000',
       approvalIds: ['apr-good', 'apr-other-rate'],
+      operationIds: ['apr-good', 'apr-other-rate'],
     });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
@@ -387,13 +394,13 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       requesterId: 'requester-1',
       approverId: 'approver-3',
     });
-    const stored = await post(app, { ...body, approvalIds: ['apr-ok', 'apr-ok-2'] });
+    const stored = await post(app, { ...body, approvalIds: ['apr-ok', 'apr-ok-2'], operationIds: ['apr-ok', 'apr-ok-2'] });
     expect(stored.statusCode).toBe(200);
     expect(stored.json().approverIds).toEqual(['approver-2', 'approver-3']);
     expect(published).toHaveLength(1);
     expect(history).toEqual([expect.objectContaining({ markPrice: '50000', fundingRate: '0.0001', periodId: 'm1:p1' })]);
 
-    const replay = await post(app, { ...body, approvalIds: ['apr-ok', 'apr-ok-2'] });
+    const replay = await post(app, { ...body, approvalIds: ['apr-ok', 'apr-ok-2'], operationIds: ['apr-ok', 'apr-ok-2'] });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().duplicate).toBe(true);
     expect(published).toHaveLength(1);
@@ -405,6 +412,7 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       periodId: 'm1:p2',
       markPrice: '50000',
       approvalIds: ['apr-ok', 'apr-ok-2'],
+      operationIds: ['apr-ok', 'apr-ok-2'],
     });
     expect(reused.statusCode).toBe(403);
     expect(published).toHaveLength(1);
