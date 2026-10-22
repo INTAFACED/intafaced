@@ -41,6 +41,8 @@ const submitBodySchema = z.object({
   ocoSiblingId: z.string().uuid().optional(),
   /** Caller expire instant for GTD/GTT. The engine does not invent one. */
   expireAt: z.string().min(1).optional(),
+  /** Rest only if it shrinks this account's position. The engine does not invent a mark. */
+  reduceOnly: z.boolean().optional(),
   /** PX-S01 evidence is mandatory at this private risk-increasing boundary. */
   lifecycleProof: marketLifecycleAdmissionProofSchema,
 });
@@ -98,6 +100,7 @@ function toEngineOrder(body: z.infer<typeof submitBodySchema>): EngineOrder {
     tif: body.tif,
     ...(body.ocoSiblingId ? { ocoSiblingId: body.ocoSiblingId } : {}),
     ...(body.expireAt ? { expireAt: body.expireAt } : {}),
+    ...(body.reduceOnly === true ? { reduceOnly: true } : {}),
   };
 }
 

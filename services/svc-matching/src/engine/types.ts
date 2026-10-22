@@ -58,6 +58,11 @@ export interface EngineOrder {
    * a trigger — existing stop/stop_limit prices still fire the legs.
    */
   readonly ocoSiblingId?: OrderId | null;
+  /**
+   * Rest only if filling would shrink this account's position on this book.
+   * Position is net fills. The engine does not invent a mark.
+   */
+  readonly reduceOnly?: boolean;
 }
 
 export const REJECT_CODES = [
@@ -79,6 +84,7 @@ export const REJECT_CODES = [
   'engine_clock_missing',
   'missing_expire_at',
   'already_expired',
+  'would_increase_position',
 ] as const;
 
 export type RejectCode = (typeof REJECT_CODES)[number];
@@ -123,6 +129,7 @@ export const CANCEL_REASONS = [
   'trigger_rejected',
   'oco_sibling_filled',
   'expired',
+  'would_increase_position',
 ] as const;
 
 export type CancelReason = (typeof CANCEL_REASONS)[number];
@@ -228,6 +235,8 @@ export interface RestingOrderState {
   readonly ocoSiblingId?: string;
   /** Present only on GTD/GTT. Caller instant; never invented. */
   readonly expireAt?: string;
+  /** Present only when the rest is reduce-only. */
+  readonly reduceOnly?: boolean;
 }
 
 export interface PriceLevelState {
@@ -248,6 +257,7 @@ export interface StopOrderState {
   readonly version?: number;
   readonly ocoSiblingId?: string;
   readonly expireAt?: string;
+  readonly reduceOnly?: boolean;
 }
 
 export interface BookState {
@@ -265,6 +275,11 @@ export interface BookState {
    * Absent when empty so a book that never linked a pair serialises identically.
    */
   readonly ocoTerminal?: readonly string[];
+  /**
+   * Net fill qty per account on this book (signed decimal). Absent when flat.
+   * Never a mark.
+   */
+  readonly positions?: readonly { readonly accountId: string; readonly qty: string }[];
 }
 
 // ── Liveness (reconciliation) ────────────────────────────────────────────────

@@ -51,6 +51,7 @@ interface RestingOrder {
   version: number;
   ocoSiblingId: OrderId | null;
   expireAt: string | null;
+  reduceOnly: boolean;
 }
 
 interface PriceLevel {
@@ -72,6 +73,7 @@ interface StopOrder {
   version: number;
   ocoSiblingId: OrderId | null;
   expireAt: string | null;
+  reduceOnly: boolean;
 }
 
 /**
@@ -89,6 +91,7 @@ interface EffectiveOrder {
   readonly tif: TimeInForce;
   readonly ocoSiblingId: OrderId | null;
   readonly expireAt: string | null;
+  readonly reduceOnly: boolean;
 }
 
 interface MatchOutcome {
@@ -129,6 +132,8 @@ export class OrderBook {
   /** Order ids that joined an OCO pair. A named sibling that has left is terminal. */
   private readonly ocoMembers = new Set<OrderId>();
   private lastTradePrice: Amount | null = null;
+  /** Net fill qty per account. Signed. Never a mark. */
+  private readonly positions = new Map<AccountId, Amount>();
 
   /**
    * MEMOISED DEPTH — see `depth()` for the correctness argument.
@@ -274,6 +279,7 @@ export class OrderBook {
         version: 1,
         ocoSiblingId: order.ocoSiblingId ?? null,
         expireAt: order.expireAt ?? null,
+        reduceOnly: order.reduceOnly === true,
       });
       this.rememberOco(order);
       this.linkLiveSibling(order.orderId, order.ocoSiblingId ?? null);
@@ -307,6 +313,8 @@ export class OrderBook {
     const sequence = this.nextSequence();
     const outcome = this.execute(effective, sequence);
     this.recordPrints(outcome.fills);
+    this.applyFillsToPosition(outcome.fills);
+    const reduceCancels = this.cancelReduceOnlyDue();
     this.rememberOco(order);
     this.linkLiveSibling(order.orderId, order.ocoSiblingId ?? null);
     const ocoCancels = this.cancelOcoSiblings(outcome.fills, order);
@@ -316,7 +324,7 @@ export class OrderBook {
       sequence,
       fills: outcome.fills,
       resting: outcome.resting,
-      cancellations: [...expired, ...outcome.cancellations, ...ocoCancels],
+      cancellations: [...expired, ...outcome.cancellations, ...reduceCancels, ...ocoCancels],
       triggered: this.drainStops(),
     };
   }
@@ -384,6 +392,12 @@ export class OrderBook {
     const price = cmd.price ?? resting.price;
     if (qty <= ZERO) return refusedAmend(cmd.orderId, reject('invalid_qty', 'quantity must be strictly positive'));
     if (price <= ZERO) return refusedAmend(cmd.orderId, reject('invalid_price', 'price must be strictly positive'));
+    if (resting.reduceOnly && this.wouldIncreasePosition(resting.accountId, resting.side, qty)) {
+      return refusedAmend(
+        cmd.orderId,
+        reject('would_increase_position', 'reduce-only refuses a qty that would increase the position; the engine does not invent a mark'),
+      );
+    }
 
     const tif: TimeInForce = cmd.tif ?? 'GTC';
     const tifForcesReexecute = tif === 'IOC' || tif === 'FOK';
@@ -415,6 +429,7 @@ export class OrderBook {
       tif,
       ocoSiblingId: resting.ocoSiblingId,
       expireAt: cmd.expireAt ?? resting.expireAt,
+      reduceOnly: resting.reduceOnly,
     };
     const viability = this.checkViability(effective);
     if (viability) return refusedAmend(cmd.orderId, viability);
@@ -424,6 +439,8 @@ export class OrderBook {
     const sequence = this.nextSequence();
     const outcome = this.execute(effective, sequence, nextVersion);
     this.recordPrints(outcome.fills);
+    this.applyFillsToPosition(outcome.fills);
+    const reduceCancels = this.cancelReduceOnlyDue();
     const ocoCancels = this.cancelOcoSiblings(outcome.fills, {
       orderId: resting.orderId,
       ocoSiblingId: resting.ocoSiblingId,
@@ -436,7 +453,7 @@ export class OrderBook {
       priority: 'lost',
       fills: outcome.fills,
       resting: outcome.resting,
-      cancellations: [...outcome.cancellations, ...ocoCancels],
+      cancellations: [...outcome.cancellations, ...reduceCancels, ...ocoCancels],
       triggered: this.drainStops(),
     };
   }
@@ -508,6 +525,7 @@ export class OrderBook {
       tif: updated.tif,
       ocoSiblingId: updated.ocoSiblingId,
       expireAt: cmd.expireAt ?? updated.expireAt,
+      reduceOnly: updated.reduceOnly,
     };
 
     if (this.isTriggered(updated.side, updated.stopPrice)) {
@@ -616,6 +634,15 @@ export class OrderBook {
       }
       if (expireMs <= now.getTime()) {
         return reject('already_expired', 'expireAt is not after the engine clock');
+      }
+    }
+
+    if (order.reduceOnly === true) {
+      if (this.wouldIncreasePosition(order.accountId, order.side, order.qty)) {
+        return reject(
+          'would_increase_position',
+          'reduce-only refuses a qty that would increase the position; the engine does not invent a mark',
+        );
       }
     }
 
@@ -816,6 +843,7 @@ export class OrderBook {
       version,
       ocoSiblingId: order.ocoSiblingId,
       expireAt: order.expireAt,
+      reduceOnly: order.reduceOnly,
     };
 
     const levels = order.side === 'buy' ? this.bids : this.asks;
@@ -884,6 +912,7 @@ export class OrderBook {
       tif: stop.tif,
       ocoSiblingId: stop.ocoSiblingId,
       expireAt: stop.expireAt,
+      reduceOnly: stop.reduceOnly,
     };
 
     // Viability BEFORE a sequence is taken — same rule as submit(). A pure
@@ -917,13 +946,15 @@ export class OrderBook {
     const outcome = this.execute(effective, sequence, stop.version);
     // Prints from a triggered stop arm the next one — that is the cascade.
     this.recordPrints(outcome.fills);
+    this.applyFillsToPosition(outcome.fills);
+    const reduceCancels = this.cancelReduceOnlyDue();
     const ocoCancels = this.cancelOcoSiblings(outcome.fills, stop);
     return {
       orderId: stop.orderId,
       sequence,
       fills: outcome.fills,
       resting: outcome.resting,
-      cancellations: [...outcome.cancellations, ...ocoCancels],
+      cancellations: [...outcome.cancellations, ...reduceCancels, ...ocoCancels],
     };
   }
 
@@ -1019,6 +1050,86 @@ export class OrderBook {
     if (stop) stop.ocoSiblingId = null;
   }
 
+  private netPosition(accountId: AccountId): Amount {
+    return this.positions.get(accountId) ?? ZERO;
+  }
+
+  private reducibleQty(accountId: AccountId, side: OrderSide): Amount {
+    const net = this.netPosition(accountId);
+    if (side === 'sell') return net > ZERO ? net : ZERO;
+    return net < ZERO ? -net : ZERO;
+  }
+
+  private wouldIncreasePosition(accountId: AccountId, side: OrderSide, qty: Amount): boolean {
+    return qty > this.reducibleQty(accountId, side);
+  }
+
+  private addPosition(accountId: AccountId, delta: Amount): void {
+    const next = (this.positions.get(accountId) ?? ZERO) + delta;
+    if (next === ZERO) this.positions.delete(accountId);
+    else this.positions.set(accountId, next);
+  }
+
+  /** Position is net fills. Never a mark. */
+  private applyFillsToPosition(fills: readonly Fill[]): void {
+    for (const fill of fills) {
+      const signed = fill.takerSide === 'buy' ? fill.qty : -fill.qty;
+      this.addPosition(fill.takerAccountId, signed);
+      this.addPosition(fill.makerAccountId, -signed);
+    }
+  }
+
+  private positionState(): { accountId: string; qty: string }[] {
+    return [...this.positions.entries()]
+      .filter(([, qty]) => qty !== ZERO)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([accountId, qty]) => ({ accountId, qty: formatAmount(qty) }));
+  }
+
+  /** Pull every reduce-only rest that would now increase the position. */
+  private cancelReduceOnlyDue(): CancelledRef[] {
+    const due: { orderId: OrderId; accountId: AccountId; remaining: Amount }[] = [];
+    for (const o of this.index.values()) {
+      if (o.reduceOnly && this.wouldIncreasePosition(o.accountId, o.side, o.remaining)) {
+        due.push({ orderId: o.orderId, accountId: o.accountId, remaining: o.remaining });
+      }
+    }
+    for (const s of this.stops) {
+      if (s.reduceOnly && this.wouldIncreasePosition(s.accountId, s.side, s.qty)) {
+        due.push({ orderId: s.orderId, accountId: s.accountId, remaining: s.qty });
+      }
+    }
+    const out: CancelledRef[] = [];
+    for (const row of due) {
+      const resting = this.index.get(row.orderId);
+      if (resting) {
+        this.removeResting(resting);
+        const sequence = this.nextSequence();
+        out.push({
+          orderId: row.orderId,
+          accountId: resting.accountId,
+          remainingQty: resting.remaining,
+          sequence,
+          reason: 'would_increase_position',
+        });
+        continue;
+      }
+      const stopIndex = this.stops.findIndex((s) => s.orderId === row.orderId);
+      if (stopIndex !== -1) {
+        const stop = this.stops.splice(stopIndex, 1)[0] as StopOrder;
+        const sequence = this.nextSequence();
+        out.push({
+          orderId: row.orderId,
+          accountId: stop.accountId,
+          remainingQty: stop.qty,
+          sequence,
+          reason: 'would_increase_position',
+        });
+      }
+    }
+    return out;
+  }
+
   private nextSequence(): number {
     this.sequence += 1;
     return this.sequence;
@@ -1045,6 +1156,7 @@ export class OrderBook {
           version: o.version,
           ...(o.ocoSiblingId ? { ocoSiblingId: o.ocoSiblingId } : {}),
           ...(o.expireAt ? { expireAt: o.expireAt } : {}),
+          ...(o.reduceOnly ? { reduceOnly: true } : {}),
         })),
       }));
 
@@ -1067,8 +1179,10 @@ export class OrderBook {
         version: s.version,
         ...(s.ocoSiblingId ? { ocoSiblingId: s.ocoSiblingId } : {}),
         ...(s.expireAt ? { expireAt: s.expireAt } : {}),
+        ...(s.reduceOnly ? { reduceOnly: true } : {}),
       })),
       ...(this.ocoTerminalIds().length > 0 ? { ocoTerminal: this.ocoTerminalIds() } : {}),
+      ...(this.positionState().length > 0 ? { positions: this.positionState() } : {}),
     };
   }
 
@@ -1095,6 +1209,7 @@ export class OrderBook {
           version: o.version && o.version > 0 ? o.version : 1,
           ocoSiblingId: o.ocoSiblingId ?? null,
           expireAt: o.expireAt ?? null,
+          reduceOnly: o.reduceOnly === true,
         }));
         for (const o of orders) book.index.set(o.orderId, o);
         target.push({ price, orders });
@@ -1118,6 +1233,7 @@ export class OrderBook {
         version: s.version && s.version > 0 ? s.version : 1,
         ocoSiblingId: s.ocoSiblingId ?? null,
         expireAt: s.expireAt ?? null,
+        reduceOnly: s.reduceOnly === true,
       });
       if (s.ocoSiblingId) book.ocoMembers.add(s.orderId);
     }
@@ -1128,6 +1244,11 @@ export class OrderBook {
       }
     }
     for (const id of state.ocoTerminal ?? []) book.ocoMembers.add(id);
+
+    for (const row of state.positions ?? []) {
+      const qty = parseAmount(row.qty);
+      if (qty !== ZERO) book.positions.set(row.accountId, qty);
+    }
 
     return book;
   }
@@ -1177,6 +1298,7 @@ function toEffective(order: EngineOrder): EffectiveOrder {
     tif: order.tif,
     ocoSiblingId: order.ocoSiblingId ?? null,
     expireAt: order.expireAt ?? null,
+    reduceOnly: order.reduceOnly === true,
   };
 }
 

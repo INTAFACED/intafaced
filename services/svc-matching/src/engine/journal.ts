@@ -44,6 +44,7 @@ export interface WireOrder {
   readonly tif: TimeInForce;
   readonly ocoSiblingId?: string;
   readonly expireAt?: string;
+  readonly reduceOnly?: boolean;
   /** Exact PX-S01 admission evidence for new HTTP submissions. */
   readonly lifecycleProof?: MarketLifecycleAdmissionProof;
 }
@@ -98,6 +99,7 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     tif: order.tif,
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
+    ...(order.reduceOnly ? { reduceOnly: true } : {}),
     lifecycleProof,
   };
 }
@@ -114,6 +116,7 @@ export function fromWire(order: WireOrder): EngineOrder {
     tif: order.tif,
     ...(order.ocoSiblingId ? { ocoSiblingId: order.ocoSiblingId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
+    ...(order.reduceOnly ? { reduceOnly: true } : {}),
   };
 }
 
@@ -157,6 +160,7 @@ function encode(record: JournalRecord): string {
         tif: o.tif,
         ...(o.ocoSiblingId ? { ocoSiblingId: o.ocoSiblingId } : {}),
         ...(o.expireAt ? { expireAt: o.expireAt } : {}),
+        ...(o.reduceOnly ? { reduceOnly: true } : {}),
         lifecycleProof: o.lifecycleProof,
       },
     });
