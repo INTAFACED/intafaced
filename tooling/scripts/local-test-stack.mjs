@@ -123,7 +123,7 @@ const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
-// svc-quant and svc-execution own no tables (execution keeps a file journal).
+// svc-execution owns no tables (it keeps a file journal).
 const SCHEMAS = [
   'identity',
   'ledger',
@@ -138,6 +138,7 @@ const SCHEMAS = [
   'support',
   'market',
   'blueprint',
+  'quant',
 ];
 const STREAM_PREFIX = 'LOCAL_TEST';
 const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
@@ -1084,7 +1085,8 @@ function serviceDefs(secrets) {
     },
     {
       name: 'quant',
-      env: () => ({ ...c('svc-quant', PORTS.quant) }), // no database; no data lake or venue vault is connected
+      // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
+      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets) }),
     },
     {
       name: 'execution',

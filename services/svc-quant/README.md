@@ -20,6 +20,7 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 | `studio.clone`           | session or allow-listed service               | `{ strategyId, clientStrategyId, idempotencyKey }`               | version 1, name suffixed ` copy`                                  |
 | `studio.run`             | session or allow-listed service               | `{ id, idempotencyKey }`                                         | sandbox result of that account's source; one run row              |
 | `studio.operatorList`    | admin scope                                   | `{ limit }`                                                      | metadata only (no source, no blocks)                              |
+| `quickStart`             | session or allow-listed service               | —                                                                | `{ strategy, backtest, paperRun }` from the account's own rows    |
 | `backtest.run`           | session or allow-listed service               | strategy id, `idempotencyKey`, windows, cost model               | fill metrics plus `strategyVersion`; one run row                  |
 | `backtest.get`           | session or allow-listed service               | `{ runId }`                                                      | owner equity curve, trades, costs; other accounts are not found   |
 | `sandbox.capabilities`   | `publicJurisdictionProcedure('quant','fiat')` | —                                                                | sandbox isolate + Venue Vault (not the lake)                      |

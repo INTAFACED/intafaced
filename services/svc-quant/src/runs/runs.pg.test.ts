@@ -127,6 +127,9 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
       idempotencyKey: 'idem-backtest',
     });
     expect(ran.strategyVersion).toBe(1);
+    // The quick start ticks from the stored rows: the owner has a strategy and an ok backtest; the other account nothing.
+    expect(await a.quickStart()).toEqual({ strategy: true, backtest: true, paperRun: false });
+    expect(await b.quickStart()).toEqual({ strategy: false, backtest: false, paperRun: false });
     const listedForOwner = await admin.ops.runs({ userId: ACCOUNT_A, kind: 'backtest', limit: 10 });
     const success = listedForOwner.runs.find((row) => row.outcome === 'ok');
     expect(success).toBeTruthy();

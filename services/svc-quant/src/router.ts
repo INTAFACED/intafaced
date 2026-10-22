@@ -11,6 +11,7 @@ import {
   quantDisclosurePublishOutputSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
+  quantQuickStartOutputSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -587,6 +588,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           }
         }),
     }),
+
+    /**
+     * The quick start on the Algo dev home: each step is ticked only from this account's own stored rows, never a
+     * fake progress. A paper run is a finished sandbox run (the sandbox is the paper book).
+     */
+    quickStart: publicJurisdictionProcedure('quant', 'fiat')
+      .input(z.object({ ...accountField }).optional())
+      .output(quantQuickStartOutputSchema)
+      .query(async ({ input, ctx }) => {
+        try {
+          const accountId = accountOf(ctx, input?.accountId);
+          const [saved, ran] = await Promise.all([
+            strategies.list({ accountId, limit: 1, cursor: null }),
+            runs.okKinds({ userId: accountId }),
+          ]);
+          return { strategy: saved.strategies.length > 0, backtest: ran.backtest, paperRun: ran.sandbox };
+        } catch (err) {
+          toTrpc(err);
+        }
+      }),
 
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')

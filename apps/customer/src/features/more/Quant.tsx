@@ -1,4 +1,3 @@
-import { SubNav } from '@intafaced/ui';
 import { QuantDisclosure } from './QuantDisclosure';
 import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
@@ -29,6 +28,7 @@ import { QuantHistoricalRecord } from './QuantHistoricalRecord';
 import { QuantLibraryClosed, QuantSaveOff } from './QuantSaveOff';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
+import { QuantRooms } from '../quant/QuantRooms';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
@@ -133,18 +133,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
   return (
     <div className="more-grid">
-      {/* The same room switch Trade uses, so moving between Quant rooms looks and behaves the same everywhere. */}
-      <SubNav
-        aria-label={copyText('quant.rooms')}
-        active={mode}
-        className="px-0"
-        items={[
-          { id: 'sandbox', label: copyText('quant.sandbox'), href: preservePaperHref('/quant', paper) },
-          { id: 'studio', label: copyText('quant.studio'), href: preservePaperHref('/quant/studio', paper) },
-          { id: 'backtest', label: copyText('quant.backtest'), href: preservePaperHref('/quant/backtest', paper) },
-          { id: 'execution', label: copyText('quant.execution'), href: preservePaperHref('/execution', paper) },
-        ]}
-      />
+      <QuantRooms active={mode} paper={paper} />
       {mode !== 'sandbox' && <QuantMemoryNotice />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
