@@ -38,7 +38,7 @@ retainRawBody(app);
 registerClosureCheck(app, { sql: db.sql, secret: SECRET });
 
 beforeEach(async () => {
-  await db.sql`TRUNCATE trade.positions, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+  await db.sql`TRUNCATE trade.convert_quotes, trade.positions, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
 });
 afterAll(async () => {
   await app.close();
@@ -69,6 +69,25 @@ async function market() {
     RETURNING id
   `;
   return rows[0]!.id;
+}
+
+async function convertQuote(userId: string, lifecycle: 'open' | 'bound' | 'settled') {
+  const quoteId = `cq-${randomUUID()}`;
+  const accepted = lifecycle === 'open' ? null : new Date();
+  const fill = lifecycle === 'open' ? null : '100';
+  const settled = lifecycle === 'settled' ? new Date() : null;
+  await db.sql`
+    INSERT INTO trade.convert_quotes (
+      quote_id, user_id, lifecycle, symbol, market_id, side, base_asset, quote_asset, in_asset, out_asset,
+      in_amount, out_amount, requested_qty, filled_qty, book_notional, user_notional, avg_price, convert_spread_bps,
+      fully_filled, source_kind, source_symbol, source_as_of, created_at, expires_at, accepted_at, fill_price, fill_notional, settled_at
+    ) VALUES (
+      ${quoteId}, ${userId}, ${lifecycle}, 'BTC/USDT', 'm-1', 'buy', 'BTC', 'USDT', 'USDT', 'BTC',
+      '100', '1', '1', '1', '100', '100', '100', 10,
+      true, 'book', 'BTC/USDT', now(), now(), now() + interval '30 seconds', ${accepted}, ${fill}, ${fill}, ${settled}
+    )
+  `;
+  return quoteId;
 }
 
 it('mounts the signed route from svc-trade index', () => {
@@ -222,6 +241,78 @@ it('counts rows on a listed sub-account and ignores an unlisted one', async () =
   // The same rows do not show when the sub-account is not listed.
   const unlisted = await post({ userId: USER, subAccountIds: [] });
   expect(unlisted.json()).toMatchObject({ blockers: [] });
+});
+
+describe('convert hold (RC-identity-15)', () => {
+  it('counts a bound convert quote as convert_hold with its count, and clears it when the quote settles', async () => {
+    const first = await convertQuote(USER, 'bound');
+    await convertQuote(USER, 'bound');
+    const response = await post({ userId: USER, subAccountIds: [] });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { blockers: unknown[] }).blockers).toEqual([{ code: 'convert_hold', count: 2 }]);
+    await db.sql`UPDATE trade.convert_quotes SET lifecycle = 'settled', settled_at = now() WHERE quote_id = ${first}`;
+    const after = await post({ userId: USER, subAccountIds: [] });
+    expect((after.json() as { blockers: unknown[] }).blockers).toEqual([{ code: 'convert_hold', count: 1 }]);
+  });
+
+  it("ignores an open (unaccepted) or settled quote, and another user's bound quote", async () => {
+    await convertQuote(USER, 'open');
+    await convertQuote(USER, 'settled');
+    await convertQuote(OTHER, 'bound');
+    expect(await codes()).toEqual([]);
+  });
+
+  it('lists open_order and convert_hold together', async () => {
+    const marketId = await market();
+    await db.sql`
+      INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, hold_asset, hold_amount, status)
+      VALUES (${randomUUID()}, ${USER}, ${marketId}, 'buy', 'limit', '1', '1', 'USDT', '1', 'open')
+    `;
+    await convertQuote(USER, 'bound');
+    expect(await codes()).toEqual(['open_order', 'convert_hold']);
+  });
+
+  it('counts a sub-account bound quote for the account and for scope sub_accounts, never the main account alone', async () => {
+    const SUB = '44444444-4444-4444-8444-444444444444';
+    await convertQuote(SUB, 'bound');
+    expect(await codes()).toEqual([]);
+    const all = await post({ userId: USER, subAccountIds: [SUB] });
+    expect((all.json() as { blockers: unknown[] }).blockers).toEqual([{ code: 'convert_hold', count: 1 }]);
+    await convertQuote(USER, 'bound');
+    const subOnly = await post({ userId: USER, subAccountIds: [SUB], scope: 'sub_accounts' });
+    expect((subOnly.json() as { blockers: unknown[] }).blockers).toEqual([{ code: 'convert_hold', count: 1 }]);
+  });
+});
+
+it('fails closed with 503 and no partial blockers when only the convert_quotes read fails', async () => {
+  const marketId = await market();
+  await db.sql`
+    INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, hold_asset, hold_amount, status)
+    VALUES (${randomUUID()}, ${USER}, ${marketId}, 'buy', 'limit', '1', '1', 'USDT', '1', 'open')
+  `;
+  const reads: string[] = [];
+  const flaky = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    reads.push(text);
+    if (text.includes('trade.convert_quotes')) return Promise.reject(new Error('convert_quotes unreadable'));
+    return (db.sql as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+  }) as unknown as typeof db.sql;
+  const failing = Fastify();
+  retainRawBody(failing);
+  registerClosureCheck(failing, { sql: flaky, secret: SECRET });
+  const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
+  const response = await failing.inject({
+    method: 'POST',
+    url: '/internal/closure-check',
+    payload: raw,
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-identity', SECRET, raw) },
+  });
+  await failing.close();
+  expect(reads.some((t) => t.includes('trade.orders'))).toBe(true);
+  expect(reads.some((t) => t.includes('trade.positions'))).toBe(true);
+  expect(response.statusCode).toBe(503);
+  expect(response.json()).toEqual({ error: 'closure check unavailable', code: 'trade.closure_check_unavailable' });
+  expect(response.json()).not.toHaveProperty('blockers');
 });
 
 describe('scope sub_accounts leaves the main account out', () => {

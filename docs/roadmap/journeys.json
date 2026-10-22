@@ -5976,7 +5976,8 @@
       { "n": 8, "slices": ["OPS-outreach-02"], "noSlice": false },
       { "n": 9, "slices": ["OPS-outreach-02"], "noSlice": false },
       { "n": 10, "slices": ["OPS-outreach-03"], "noSlice": false },
-      { "n": 11, "slices": ["OPS-outreach-04"], "noSlice": false }
+      { "n": 11, "slices": ["OPS-outreach-04"], "noSlice": false },
+      { "n": 12, "slices": ["PH-ops-console-04"], "noSlice": false }
     ]
   },
   {
@@ -6101,6 +6102,27 @@
       { "n": 4, "slices": ["RC-ops-console-19"], "noSlice": false },
       { "n": 5, "slices": ["RC-ops-console-19"], "noSlice": false },
       { "n": 6, "slices": ["RC-ops-console-19"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-ops-console-26",
+    "title": "A provider pays short: claim the break, switch the provider off and keep tracking what it owes",
+    "module": "ops-console",
+    "persona": "operator:founder",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["PH-merchant-01"], "noSlice": false },
+      { "n": 2, "slices": ["PH-merchant-02"], "noSlice": false },
+      { "n": 3, "slices": ["PH-merchant-04", "PH-merchant-05"], "noSlice": false },
+      { "n": 4, "slices": ["PH-merchant-03"], "noSlice": false },
+      { "n": 5, "slices": ["RC-ops-console-23"], "noSlice": false },
+      { "n": 6, "slices": ["PH-merchant-08", "M-adv-orchestration-02"], "noSlice": false },
+      { "n": 7, "slices": ["PH-merchant-08"], "noSlice": false },
+      { "n": 8, "slices": ["PH-merchant-08"], "noSlice": false },
+      { "n": 9, "slices": ["PH-merchant-08"], "noSlice": false },
+      { "n": 10, "slices": ["PH-merchant-03", "PH-merchant-04", "PH-merchant-05"], "noSlice": false },
+      { "n": 11, "slices": ["RC-ops-console-14"], "noSlice": false }
     ]
   },
   {

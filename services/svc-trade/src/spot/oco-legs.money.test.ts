@@ -268,8 +268,8 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
     const { oco } = await setup();
     matching.scriptCancelMiss(slOf(oco.id));
     matching.scriptCancelMiss(tpOf(oco.id));
-    await trade.releaseOnCancelEvent(slOf(oco.id));
-    await trade.releaseOnCancelEvent(tpOf(oco.id));
+    await trade.releaseOnCancelEvent(slOf(oco.id), '1');
+    await trade.releaseOnCancelEvent(tpOf(oco.id), '1');
     expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('1');
     expect((await trade.findOrder(oco.id))?.status).toBe('open');
   });
