@@ -1692,7 +1692,8 @@ export function createExecutionRouter(
       arb: router({
         /**
          * CB-execution-06: customer read of funding and spread opportunities. Read only: places no order.
-         * No feed attached answers NotConnected `feed.market`; blanks come back as refused rows.
+         * No feed attached answers NotConnected `feed.market`. Blank symbol or amount refuse with typed codes, a failed
+         * feed read is retryable `execution.arb.feed_unavailable`, and scanner blanks come back as coded refused rows.
          */
         opportunities: scopedProcedure('trade:read')
           // Blank symbol/amount reach the read so they refuse with a typed code, not a schema message.

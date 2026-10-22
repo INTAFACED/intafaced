@@ -9,6 +9,7 @@
  * funding rate, missing or stale quote, blank owner freshness window) comes back as a refused row, never as an
  * invented spread, mid or rate.
  */
+import { EMPTY_BOOK_REFUSE } from '@intafaced/execution-arb';
 import type { SorCostTerms } from '@intafaced/venue-adapter';
 import { scanOmsExternalArb, type OmsArbOpportunityWire, type OmsArbQuoteInput, type OmsArbScanResultWire } from './oms-arbitrage.js';
 
@@ -103,7 +104,7 @@ function refusal(code: CustomerRefusalCode): CustomerArbRefusal {
 }
 
 function customerRefusal(row: OmsArbScanResultWire['refused'][number]): CustomerArbRefusal {
-  if (row.detail.startsWith('empty book')) return refusal('empty_book');
+  if (row.detail === EMPTY_BOOK_REFUSE) return refusal('empty_book');
   return refusal(row.reason in CUSTOMER_REFUSAL_LABELS ? (row.reason as CustomerRefusalCode) : 'unavailable');
 }
 

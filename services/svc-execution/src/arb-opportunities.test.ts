@@ -244,4 +244,20 @@ describe('execution.arb.opportunities tRPC', () => {
         .execution.arb.opportunities({ symbol: 'BTC/USDT', amount: '1e3' }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
+  it('maps blank inputs and a failed feed to typed codes on the wire', async () => {
+    const caller = (feed?: ArbOpportunityFeed) => routerWith(feed).createCaller(signed(['trade:read']));
+    await expect(caller().execution.arb.opportunities({ symbol: '', amount: '1' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('execution.arb.symbol_unset'),
+    });
+    await expect(caller().execution.arb.opportunities({ symbol: 'BTC/USDT', amount: '' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('execution.arb.amount_unset'),
+    });
+    const broken: ArbOpportunityFeed = { read: async () => Promise.reject(new Error('down')) };
+    await expect(caller(broken).execution.arb.opportunities({ symbol: 'BTC/USDT', amount: '1' })).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: expect.stringContaining('execution.arb.feed_unavailable'),
+    });
+  });
 });
