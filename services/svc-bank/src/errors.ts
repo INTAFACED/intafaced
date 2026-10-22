@@ -608,6 +608,8 @@ export type BankErrorCode =
    * so the shape of the id is not an existence oracle.
    */
   | 'bank.ops_transfer_not_found'
+  /** Operator authorisation read (BK-cops-01): unknown or malformed id. */
+  | 'bank.ops_authorization_not_found'
   /** Operator business-approval page size unpublished. Blank is not 50. */
   | 'bank.ops_business_approvals_limit_unset'
   /** A transfer id was reused with a different note or reference. */
