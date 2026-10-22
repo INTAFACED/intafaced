@@ -244,6 +244,28 @@ describe('rung fee decision (D-margin-07)', () => {
     });
   });
 
+  it('a SOLVENT closing rung from a real tick plans min(fraction × notional, leftover) from the residual release (TEST)', async () => {
+    // Full maintenance and a target so high no partial keep (not even one attounit) restores it on this tiny
+    // equity: largestRestoringKeep returns 0 on a SOLVENT position, so the ladder closes in full with margin
+    // left over (TEST policy, not a production table).
+    const h = harness();
+    h.row.margin = amt('100.00001');
+    h.deps.ladder!.policy = {
+      tiers: [{ uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 10_000 }],
+      marginCallBps: 20_000,
+      targetBps: 9_000_000_000_000_000,
+      maxTrancheBps: 10_000,
+    };
+    h.price.current = '90';
+    const t = await runLiquidationTick({ ...h.deps, liquidationFeeFraction: amt('0.001') });
+    const r = h.rungs.all()[0]!;
+    expect(t.items.map((i) => i.outcome)).toEqual(['liquidated']);
+    expect(r.kind).toBe('closing');
+    // 10 × 90 = 900 notional; fraction 0.001 → 0.9, above the 0.00001 left after the 100 loss, so the fee is
+    // min(0.9, residualRelease) = 0.00001 — non-zero. With the old marginRemaining-only input this was 0n.
+    expect(r.plan).toMatchObject({ feeState: 'ledger_job_pending', plannedFee: amt('0.00001') });
+  });
+
   it('a bankrupt closing rung from the tick (no leftover) plans a zero fee, never negative', async () => {
     const h = harness();
     h.price.current = '60';
