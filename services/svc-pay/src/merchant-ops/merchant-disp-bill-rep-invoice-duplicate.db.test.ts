@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { InvoiceView } from './invoices.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,17 +55,7 @@ async function refusal(fn: () => Promise<unknown>) {
   throw new Error('expected a refusal');
 }
 
-type InvoiceOut = {
-  id: string;
-  status: string;
-  amount: string;
-  customerRef: string | null;
-  customerEmail: string | null;
-  description: string | null;
-  dueAt: string | null;
-  paymentLinkId: string | null;
-  lineItems: Array<{ description: string; quantity: string; unitAmount: string; amount: string; kind: string }>;
-};
+type InvoiceOut = InvoiceView;
 
 describe('M-bill-07 invoice duplicate (real Postgres)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
