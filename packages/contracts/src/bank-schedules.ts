@@ -49,6 +49,15 @@ export const bankScheduleRetryRunInputSchema = z
   .object({ scheduleId: id, occurrence: z.number().int().min(0), reason: z.string().min(3).max(500) })
   .strict();
 
+/**
+ * The operator door's input (BK-xfer-10 review #7): the retry plus the identity four-eyes approval for this exact
+ * payload. `approvalId` / `operationId` are identity's; the operator is the signed principal, never an input field.
+ */
+export const bankScheduleRetryRunApprovedInputSchema = bankScheduleRetryRunInputSchema
+  .extend({ approvalId: z.string().min(1).max(128), operationId: z.string().min(1).max(128) })
+  .strict();
+export type BankScheduleRetryRunApprovedInput = z.infer<typeof bankScheduleRetryRunApprovedInputSchema>;
+
 /** Run outcomes a schedule history shows. A frozen account records `skipped` with its code; a posting freeze `failed`. */
 export const BANK_SCHEDULE_RUN_STATUSES = ['settled', 'rejected', 'skipped', 'failed'] as const;
 export const bankScheduleRunSchema = z
