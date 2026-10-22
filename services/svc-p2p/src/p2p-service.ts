@@ -2879,7 +2879,11 @@ export class P2pService {
       ${filter.side === 'buy' ? sql`AND buyer_id = ${me}` : filter.side === 'sell' ? sql`AND seller_id = ${me}` : sql``}
       ${filter.from ? sql`AND created_at >= ${filter.from}` : sql``}
       ${filter.to ? sql`AND created_at <= ${filter.to}` : sql``}
-      ${filter.orderId ? sql`AND id::text LIKE ${filter.orderId + '%'}` : sql``}
+      ${
+        // Unescaped LIKE is safe only because parseOrderListFilter admits
+        // ^[0-9a-f-]{1,36}$: no '%', '_' or backslash can reach the pattern.
+        filter.orderId ? sql`AND id::text LIKE ${filter.orderId + '%'}` : sql``
+      }
     `;
     const tabStatuses = filter.tab ? [...TAB_STATUSES[filter.tab]] : null;
     const rows = await sql<Array<TradeRow & { created_us: string }>>`
@@ -2889,7 +2893,9 @@ export class P2pService {
          ${tabStatuses ? sql`AND status::text IN ${sql(tabStatuses)}` : sql``}
          ${
            after
-             ? sql`AND ((floor(extract(epoch FROM created_at) * 1000000))::bigint, id) < (${after.createdAtMicros}::bigint, ${after.id}::uuid)`
+             ? // created_at stays bare so an index on (created_at, id) can serve the keyset;
+               // the cursor's microseconds are rebuilt into an exact timestamptz.
+               sql`AND (created_at, id) < (timestamptz 'epoch' + ${after.createdAtMicros}::bigint * interval '1 microsecond', ${after.id}::uuid)`
              : sql``
          }
        ORDER BY created_at DESC, id DESC

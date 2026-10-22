@@ -29,7 +29,8 @@ export const TAB_STATUSES: Record<OrderTab, readonly TradeStatus[]> = {
 
 export function tabOf(status: TradeStatus): OrderTab {
   for (const tab of ORDER_TABS) if (TAB_STATUSES[tab].includes(status)) return tab;
-  throw new OrderListError(`unknown trade status ${status}`, 'p2p.filter_invalid');
+  // A status outside the enum is a server/data fault, not a caller's bad filter.
+  throw new Error(`order-list: unknown trade status ${String(status)}`);
 }
 
 export const DISPLAY_STATUSES = [
@@ -126,6 +127,8 @@ export function parseOrderListFilter(raw: RawOrderListFilter = {}): OrderListFil
   if (out.from && out.to && out.from.getTime() > out.to.getTime()) bad('from after to');
   if (raw.orderId !== undefined) {
     const q = raw.orderId.trim().toLowerCase();
+    // This allowlist is what makes the unescaped LIKE prefix in pageTrades safe:
+    // no '%', '_' or '\\' can pass. Widen it only together with LIKE escaping.
     if (!/^[0-9a-f-]{1,36}$/.test(q)) bad('orderId');
     out.orderId = q;
   }
