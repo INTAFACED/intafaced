@@ -37,6 +37,10 @@ jobs:
     name: Real-app journeys
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # The owner's labelled TEST screening placeholder, for every stack command in this job (see the check step).
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ vars.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ vars.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
       # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
       - name: Paths
@@ -44,6 +48,17 @@ jobs:
           echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
           echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
           echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
+
+      # Edge refuses every money read without a screening list (edge.screening_unset), and the stack never invents one.
+      # The runner takes the owner's labelled TEST placeholder from two repository variables, never from this file.
+      - name: Screening placeholder is set
+        run: |
+          if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
+            msg="Blocked: the repository variables INTAFACED_SANCTIONS_REGIONS and INTAFACED_SANCTIONS_LIST_SOURCE are unset, so Edge would refuse every money read (edge.screening_unset). The owner sets them once (Settings, Secrets and variables, Actions, Variables)."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$msg"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the scoreboard counts merged slice PRs from history
