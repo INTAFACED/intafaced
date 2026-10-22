@@ -637,7 +637,22 @@ export type BankErrorCode =
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
-  | 'bank.ops_audit_unavailable';
+  | 'bank.ops_audit_unavailable'
+  /** A limit-increase request reason is shorter than 10 characters (BK-acct-04). */
+  | 'bank.limit_request_reason_too_short'
+  /** A request of that kind for that asset is already open. */
+  | 'bank.limit_request_open'
+  /** A request id was reused for a different request. */
+  | 'bank.limit_request_conflict'
+  /** Limit request page size unpublished. Blank is not 50. */
+  | 'bank.limit_request_list_limit_unset'
+  | 'bank.limit_request_not_found'
+  /** The decider is the customer who asked. */
+  | 'bank.limit_request_self_decision'
+  /** Already decided, differently. */
+  | 'bank.limit_request_decided'
+  /** An approval named no granted limit; it is never defaulted to the requested one. */
+  | 'bank.limit_grant_unset';
 
 export class BankError extends Error {
   constructor(
