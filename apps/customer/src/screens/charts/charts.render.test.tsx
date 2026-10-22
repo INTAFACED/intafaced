@@ -141,7 +141,7 @@ describe('chart workbench', () => {
     await open();
     await choose('Layout', 'grid');
     expect(host.querySelectorAll('section.cw')).toHaveLength(1);
-    expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('isn’t set yet');
+    expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('which is not set');
   });
 
   it('opens four charts that follow the first one’s market and interval in their group', async () => {

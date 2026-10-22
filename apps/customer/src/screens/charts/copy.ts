@@ -73,7 +73,7 @@ const messages = {
   'Layout two across': 'Two charts side by side',
   'Layout two down': 'Two charts, one above the other',
   'Layout grid': 'Four charts (2 × 2)',
-  'Layout limit unset': 'More than one chart needs the owner’s chart limit, which isn’t set yet. The workbench stays on one chart.',
+  'Layout limit unset': 'More than one chart needs the owner’s chart limit, which is not set. The workbench stays on one chart.',
   'Layout over limit': 'This layout has {count} charts; the limit is {limit}.',
   'Layout limit unavailable': 'The chart limit couldn’t be read, so the workbench stays on one chart. Try again in a moment.',
   'Sync in a group': 'Charts in the same colour group follow each other’s',
