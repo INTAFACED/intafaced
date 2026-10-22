@@ -126,7 +126,7 @@ export class AcademyCourseStore {
   }
 
   async setPrice(courseId: string, price: string, actor: string, reason: string): Promise<CourseRecord> {
-    assertReason(reason);
+    const why = assertReason(reason);
     return transaction(this.sql, async (tx) => {
       const rows = await tx<CourseSql[]>`SELECT * FROM academy.courses WHERE id = ${courseId} FOR UPDATE`;
       const row = rows[0];
@@ -137,18 +137,27 @@ export class AcademyCourseStore {
       const amount = parseCoursePrice(row.price_choice, price);
       if (amount === null) throw new AcademyError('price is required', 'academy.course_invalid');
       const updated = await tx<CourseSql[]>`
-        UPDATE academy.courses SET price = ${formatAmount(amount)} WHERE id = ${courseId} RETURNING *`;
+        UPDATE academy.courses SET price = ${formatAmount(amount)}, revision = revision + 1, updated_at = now()
+        WHERE id = ${courseId} RETURNING *`;
+      await tx`
+        INSERT INTO academy.course_events (idempotency_key, course_id, from_state, to_state, revision, actor, reason)
+        VALUES (${`price:${courseId}:${row.revision}`}, ${courseId}, 'draft', 'draft', ${row.revision + 1}, ${actor}, ${why})`;
       return toRecord(updated[0] as CourseSql);
     });
   }
 
-  async setSetting(key: CourseSettingKey, value: string, actor: string): Promise<void> {
+  async setSetting(key: CourseSettingKey, value: string, actor: string, reason: string): Promise<void> {
+    const why = assertReason(reason);
     if (!/^[1-9][0-9]{0,9}$/.test(value)) {
       throw new AcademyError(`${key} must be a positive whole number`, 'academy.course_invalid');
     }
-    await this.sql`
-      INSERT INTO academy.course_settings (key, value, set_by) VALUES (${key}, ${value}, ${actor})
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_by = EXCLUDED.set_by, set_at = now()`;
+    await transaction(this.sql, async (tx) => {
+      await tx`
+        INSERT INTO academy.course_settings (key, value, set_by) VALUES (${key}, ${value}, ${actor})
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, set_by = EXCLUDED.set_by, set_at = now()`;
+      await tx`
+        INSERT INTO academy.course_settings_events (key, value, actor, reason) VALUES (${key}, ${value}, ${actor}, ${why})`;
+    });
   }
 
   async settings(): Promise<Array<{ key: CourseSettingKey; state: 'set' | 'not_set'; value: string | null }>> {
@@ -193,7 +202,8 @@ export class AcademyCourseStore {
           state_before_delete = ${deleting ? row.state : null},
           deleted_at = ${deleting ? this.now() : null},
           listed = ${to === 'published'},
-          revision = revision + 1
+          revision = revision + 1,
+          updated_at = now()
         WHERE id = ${input.courseId}
         RETURNING *`;
       await tx`
@@ -210,6 +220,8 @@ export class AcademyCourseStore {
   }
 }
 
-function assertReason(reason: string): void {
-  if (reason.trim() === '') throw new AcademyError('a reason is required', 'academy.course_invalid');
+function assertReason(reason: string): string {
+  const r = reason.trim();
+  if (r === '') throw new AcademyError('a reason is required', 'academy.course_invalid');
+  return r;
 }

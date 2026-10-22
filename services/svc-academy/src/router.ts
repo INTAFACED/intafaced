@@ -2493,11 +2493,11 @@ export function createAcademyRouter(
         .query(() => guard(async () => ({ rows: await courses().settings() }))),
 
       setCourseSetting: scopedProcedure('admin:write', { module: 'academy' })
-        .input(z.object({ key: z.enum(COURSE_SETTING_KEYS), value: z.string().min(1).max(16) }))
+        .input(z.object({ key: z.enum(COURSE_SETTING_KEYS), value: z.string().min(1).max(16), reason: z.string().max(500) }))
         .output(z.object({ ok: z.literal(true) }))
         .mutation(({ input, ctx }) =>
           guard(async () => {
-            await courses().setSetting(input.key, input.value, ctx.principal.userId);
+            await courses().setSetting(input.key, input.value, ctx.principal.userId, input.reason);
             return { ok: true as const };
           }),
         ),

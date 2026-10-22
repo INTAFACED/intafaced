@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS "academy"."courses" (
   "deleted_at"    timestamptz,
   "created_by"    uuid NOT NULL,
   "created_at"    timestamptz NOT NULL DEFAULT now(),
+  "updated_at"    timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "courses_slug_uq" UNIQUE ("slug"),
   CONSTRAINT "courses_price_choice_chk" CHECK ("price_choice" IN ('free', 'paid')),
   CONSTRAINT "courses_free_no_price_chk" CHECK ("price_choice" = 'paid' OR "price" IS NULL),
@@ -44,4 +45,14 @@ CREATE TABLE IF NOT EXISTS "academy"."course_settings" (
   "value"   text NOT NULL,
   "set_by"  uuid NOT NULL,
   "set_at"  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Append-only history of owner settings changes (actor and reason on every change).
+CREATE TABLE IF NOT EXISTS "academy"."course_settings_events" (
+  "id"      bigserial PRIMARY KEY,
+  "key"     text NOT NULL,
+  "value"   text NOT NULL,
+  "actor"   uuid NOT NULL,
+  "reason"  text NOT NULL,
+  "at"      timestamptz NOT NULL DEFAULT now()
 );

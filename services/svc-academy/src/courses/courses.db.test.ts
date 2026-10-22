@@ -94,9 +94,10 @@ describe('AcademyCourseStore (AC-course-structure-01)', () => {
     await expect(store().move({ courseId: c.id, move: 'publish', revision: 0, actor: ACTOR, reason: 'go' })).rejects.toMatchObject({
       code: 'academy.price_unset',
     });
-    await store().setPrice(c.id, '9', ACTOR, 'priced');
-    const p = await store().move({ courseId: c.id, move: 'publish', revision: 0, actor: ACTOR, reason: 'go' });
-    expect(p).toMatchObject({ state: 'published', listed: true, revision: 1 });
+    const priced = await store().setPrice(c.id, '9', ACTOR, 'priced');
+    expect(priced.revision).toBe(1);
+    const p = await store().move({ courseId: c.id, move: 'publish', revision: 1, actor: ACTOR, reason: 'go' });
+    expect(p).toMatchObject({ state: 'published', listed: true, revision: 2 });
     await expect(store().setPrice(c.id, '10', ACTOR, 'later')).rejects.toMatchObject({ code: 'academy.item_transition_illegal' });
   });
 
@@ -140,7 +141,7 @@ describe('AcademyCourseStore (AC-course-structure-01)', () => {
   });
 
   it('delete keeps the row and other tables; undelete inside the window restores; outside refuses', async () => {
-    await store().setSetting('undelete_window_seconds', '60', ACTOR);
+    await store().setSetting('undelete_window_seconds', '60', ACTOR, 'TEST window');
     const c = await create();
     await store().move({ courseId: c.id, move: 'publish', revision: 0, actor: ACTOR, reason: 'go' });
     const d = await store().move({ courseId: c.id, move: 'delete', revision: 1, actor: ACTOR, reason: 'gone' });
@@ -158,9 +159,34 @@ describe('AcademyCourseStore (AC-course-structure-01)', () => {
 
   it('settings report not_set until set; a bad value refuses', async () => {
     expect(await store().settings()).toEqual([{ key: 'undelete_window_seconds', state: 'not_set', value: null }]);
-    await expect(store().setSetting('undelete_window_seconds', '0', ACTOR)).rejects.toMatchObject({ code: 'academy.course_invalid' });
-    await store().setSetting('undelete_window_seconds', '120', ACTOR);
+    await expect(store().setSetting('undelete_window_seconds', '0', ACTOR, 'TEST')).rejects.toMatchObject({
+      code: 'academy.course_invalid',
+    });
+    await store().setSetting('undelete_window_seconds', '120', ACTOR, 'TEST');
     expect(await store().settings()).toEqual([{ key: 'undelete_window_seconds', state: 'set', value: '120' }]);
+  });
+});
+
+describe('audit rows (review fix)', () => {
+  it('setPrice writes a course event with actor and reason and bumps the revision', async () => {
+    const c = await create({ priceChoice: 'paid' });
+    await store().setPrice(c.id, '9', ACTOR, 'TEST price reason');
+    const rows = await sql<Array<{ idempotency_key: string; actor: string; reason: string; revision: number }>>`
+      SELECT idempotency_key, actor, reason, revision FROM academy.course_events WHERE course_id = ${c.id} AND idempotency_key LIKE 'price:%'`;
+    expect(rows).toEqual([{ idempotency_key: `price:${c.id}:0`, actor: ACTOR, reason: 'TEST price reason', revision: 1 }]);
+    await expect(store().setPrice(c.id, '10', ACTOR, ' ')).rejects.toMatchObject({ code: 'academy.course_invalid' });
+  });
+
+  it('setSetting needs a reason and appends one history row per change', async () => {
+    await expect(store().setSetting('undelete_window_seconds', '60', ACTOR, ' ')).rejects.toMatchObject({ code: 'academy.course_invalid' });
+    await store().setSetting('undelete_window_seconds', '60', ACTOR, 'TEST first');
+    await store().setSetting('undelete_window_seconds', '90', ACTOR, 'TEST second');
+    const rows = await sql<Array<{ value: string; actor: string; reason: string }>>`
+      SELECT value, actor, reason FROM academy.course_settings_events ORDER BY id`;
+    expect(rows).toEqual([
+      { value: '60', actor: ACTOR, reason: 'TEST first' },
+      { value: '90', actor: ACTOR, reason: 'TEST second' },
+    ]);
   });
 });
 
