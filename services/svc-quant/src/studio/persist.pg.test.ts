@@ -5,7 +5,9 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import type { QuantSignalRules } from '@intafaced/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { compileSignalRules } from './modules.js';
 import { createPostgresStrategyRepository } from './postgres-repository.js';
 import type { StrategyRepository } from './repository.js';
 import type { StrategyDraft } from './repository.js';
@@ -27,12 +29,21 @@ function testDatabaseUrl(): string {
   return value;
 }
 
+const SIGNAL_RULES: QuantSignalRules = {
+  symbol: 'BTC/USDT',
+  barSize: '1h',
+  signal: { kind: 'ma_cross', average: 'sma', fast: '3', slow: '5' },
+  sizing: { kind: 'quantity', value: '0.01' },
+  exit: { stopLossPercent: '', takeProfitPercent: '' },
+};
+
 const draft = (name: string): StrategyDraft => ({
   name,
   language: 'javascript',
   source: 'oms.buy("BTC-USD", "0.01");',
   cash: '10000',
   blocks: [{ side: 'buy', symbol: 'BTC-USD', qty: '0.01' }],
+  modules: null,
   risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
   environment: 'paper',
   kind: 'paper',
@@ -100,11 +111,11 @@ describe('paper strategies survive a new connection to the same database', () =>
   let probeDir = '';
 
   beforeAll(async () => {
-    const migration = readFileSync(join(SERVICE, 'drizzle/0000_quant_strategies.sql'), 'utf8')
-      .replaceAll('"quant"', `"${SCHEMA}"`)
-      .replaceAll("'quant'", `'${SCHEMA}'`);
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    await sql.unsafe(migration);
+    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0003_quant_signal_rules.sql']) {
+      const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
+      await sql.unsafe(migration);
+    }
     repo = createPostgresStrategyRepository(sql, SCHEMA);
     probeDir = mkdtempSync(join(tmpdir(), 'quant-reopen-'));
     probeProgram = join(probeDir, 'reopen-probe.mjs');
@@ -244,5 +255,36 @@ describe('paper strategies survive a new connection to the same database', () =>
       SELECT count(*)::int AS n FROM ${sql(SCHEMA)}.strategy_versions WHERE strategy_id = ${created.id}
     `;
     expect(Number(counted[0]?.n)).toBe(2);
+  });
+
+  it('keeps signal rules on a version and refuses a row with both blocks and rules, or neither', async () => {
+    const compiled = compileSignalRules(SIGNAL_RULES);
+    const saved = await repo.create({
+      accountId: ACCOUNT_A,
+      clientStrategyId: 'client-signal',
+      idempotencyKey: 'idem-signal',
+      draft: { ...draft('signal'), blocks: [], modules: compiled.rules, source: compiled.source },
+    });
+    expect(saved.modules).toEqual(compiled.rules);
+    expect(saved.blocks).toEqual([]);
+    expect((await repo.get({ accountId: ACCOUNT_A, id: saved.id }))?.versions[0]?.modules).toEqual(compiled.rules);
+
+    await expect(
+      repo.create({
+        accountId: ACCOUNT_A,
+        clientStrategyId: 'client-both',
+        idempotencyKey: 'idem-both',
+        draft: { ...draft('both'), modules: compiled.rules },
+      }),
+    ).rejects.toThrow(/strategy_versions_rules_ck/);
+    await expect(
+      repo.create({
+        accountId: ACCOUNT_A,
+        clientStrategyId: 'client-neither',
+        idempotencyKey: 'idem-neither',
+        draft: { ...draft('neither'), blocks: [] },
+      }),
+    ).rejects.toThrow(/strategy_versions_rules_ck/);
+    await repo.softDelete({ accountId: ACCOUNT_A, id: saved.id, idempotencyKey: 'idem-delete-signal' });
   });
 });

@@ -49,7 +49,7 @@ it('Studio offers Save to library, off until the rules are complete, and reads t
   const html = renderToStaticMarkup(<Quant mode="studio" />);
   vi.unstubAllGlobals();
   expect(html).toMatch(/<button[^>]*disabled[^>]*>Save to library<\/button>/);
-  expect(html).toContain('Fill in a name, the starting cash, every block and the three risk limits to save.');
+  expect(html).toContain('Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.');
   expect(html).toContain('Your strategy library');
   expect(html).not.toMatch(/Saving to a library is off/);
   expect(mutate).not.toHaveBeenCalled();

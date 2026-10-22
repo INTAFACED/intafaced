@@ -5,6 +5,7 @@ import { signedDecimalSchema } from '../../shared/money';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useApi } from '../session/session';
 import { studioCopy } from './studio-copy';
+import { signalRulesFilled, trimSignalRules } from './signal-rules';
 import { fingerprint, saveKey, type StudioLink, type StudioRules } from './studio-save';
 
 /** Whether the form holds everything a save needs; the service still checks each rule and refuses by name. */
@@ -12,8 +13,9 @@ export function savable(rules: StudioRules): boolean {
   return Boolean(
     rules.name.trim() &&
     signedDecimalSchema.safeParse(rules.cash.trim()).success &&
-    rules.blocks.length > 0 &&
-    rules.blocks.every((b) => b.symbol.trim() && signedDecimalSchema.safeParse(b.qty.trim()).success) &&
+    (rules.modules
+      ? signalRulesFilled(rules.modules)
+      : rules.blocks.length > 0 && rules.blocks.every((b) => b.symbol.trim() && signedDecimalSchema.safeParse(b.qty.trim()).success)) &&
     rules.risk.maxDrawdown.trim() &&
     rules.risk.maxNotional.trim() &&
     rules.risk.kill.trim(),
@@ -49,7 +51,8 @@ export function StudioSave({
     const body = {
       name: rules.name.trim(),
       cash: rules.cash.trim(),
-      blocks: rules.blocks.map((b) => ({ side: b.side, symbol: b.symbol.trim(), qty: b.qty.trim() })),
+      blocks: rules.modules ? [] : rules.blocks.map((b) => ({ side: b.side, symbol: b.symbol.trim(), qty: b.qty.trim() })),
+      modules: rules.modules ? trimSignalRules(rules.modules) : null,
       risk: { maxDrawdown: rules.risk.maxDrawdown.trim(), maxNotional: rules.risk.maxNotional.trim(), kill: rules.risk.kill.trim() },
       environment: 'paper',
       presentedAs: 'paper',

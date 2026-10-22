@@ -1,3 +1,4 @@
+import type { QuantSignalRules } from '@intafaced/contracts';
 import type { BacktestRunResult } from '../backtest/run.js';
 import type { SavedStrategy, StrategyMetadata, StudioBlock, StudioRiskBlock } from './store.js';
 
@@ -8,6 +9,7 @@ export interface StrategyDraft {
   readonly source: string;
   readonly cash: string;
   readonly blocks: StudioBlock[];
+  readonly modules: QuantSignalRules | null;
   readonly risk: StudioRiskBlock;
   readonly environment: SavedStrategy['environment'];
   readonly kind: SavedStrategy['kind'];
@@ -77,6 +79,7 @@ export function draftOf(saved: SavedStrategy): StrategyDraft {
     source: saved.source,
     cash: saved.cash,
     blocks: saved.blocks.map((block) => ({ side: block.side, symbol: block.symbol, qty: block.qty })),
+    modules: saved.modules,
     risk: { maxDrawdown: saved.risk.maxDrawdown, maxNotional: saved.risk.maxNotional, kill: saved.risk.kill },
     environment: saved.environment,
     kind: saved.kind,

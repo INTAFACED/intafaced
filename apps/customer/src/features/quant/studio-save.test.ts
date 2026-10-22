@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { emptySignalRules } from './signal-rules';
 import { fingerprint, newLink, parseLink, readLink, saveKey, writeLink } from './studio-save';
 
 const rules = {
   name: 'alpha',
   cash: '1000',
   blocks: [{ side: 'buy' as const, symbol: 'BTC/USDT', qty: '0.1' }],
+  modules: null,
   risk: { maxDrawdown: '10', maxNotional: '500', kill: '5' },
 };
 
@@ -19,6 +21,10 @@ describe('studio save keys', () => {
   it('gives the same fingerprint for the same rules, whitespace aside, and a new one for a change', () => {
     expect(fingerprint(rules)).toBe(fingerprint({ ...rules, name: ' alpha ' }));
     expect(fingerprint(rules)).not.toBe(fingerprint({ ...rules, cash: '1001' }));
+    const signal = { ...rules, modules: { ...emptySignalRules(), symbol: 'BTC/USDT' } };
+    // A strategy of signal rules is its rules: the hidden block rows do not change it, and a rule change does.
+    expect(fingerprint(signal)).toBe(fingerprint({ ...signal, blocks: [] }));
+    expect(fingerprint(signal)).not.toBe(fingerprint({ ...signal, modules: { ...signal.modules, barSize: '4h' } }));
   });
 
   it('reads back what it wrote, and a damaged value starts a fresh draft link', () => {

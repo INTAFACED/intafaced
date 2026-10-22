@@ -31,10 +31,55 @@ export const quantStrategyListOutputSchema = z.object({
 
 const decimalText = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 
-/** A strategy's rules as Studio edits them: order blocks, the risk block and the simulated starting cash. */
+/** Bar sizes a signal rule reads. The same names as the exchange's candle timeframes. */
+export const QUANT_BAR_SIZES = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
+/** How a signal rule sizes its entry: a fixed quantity, a cash amount, or a percent of simulated equity. */
+export const QUANT_SIZING_KINDS = ['quantity', 'cash', 'percent_equity'] as const;
+
+/**
+ * The no-code builder's signal rules (AL-editor-02). Every numeric input travels as text and may be blank on the way
+ * in: the service refuses a blank required input by name (`quant.param_unset`, `quant.sizing_rule_unset`) and a value
+ * outside its range (`quant.param_out_of_range`). The exit inputs are optional; blank means no such exit.
+ */
+export const quantSignalRulesSchema = z.object({
+  symbol: z.string().max(32),
+  barSize: z.enum(QUANT_BAR_SIZES),
+  signal: z.object({
+    kind: z.literal('ma_cross'),
+    average: z.enum(['sma', 'ema']),
+    fast: z.string().max(12),
+    slow: z.string().max(12),
+  }),
+  sizing: z.object({ kind: z.enum(QUANT_SIZING_KINDS), value: z.string().max(40) }),
+  exit: z.object({ stopLossPercent: z.string().max(40), takeProfitPercent: z.string().max(40) }),
+});
+export type QuantSignalRules = z.infer<typeof quantSignalRulesSchema>;
+
+/** One typed input of the signal rules, as the service declares it. Bounds are text so decimals stay exact. */
+export const quantRuleInputSchema = z.object({
+  name: z.string(),
+  type: z.enum(['symbol', 'integer', 'decimal']),
+  required: z.boolean(),
+  value: z.string(),
+  min: z.string().nullable(),
+  max: z.string().nullable(),
+});
+
+/** `studio.compile`: the source the signal rules generate, and the inputs it declares. Nothing runs. */
+export const quantCompileOutputSchema = z.object({
+  source: z.string(),
+  inputs: z.array(quantRuleInputSchema),
+});
+export type QuantCompileOutput = z.infer<typeof quantCompileOutputSchema>;
+
+/**
+ * A strategy's rules as Studio edits them: order blocks or signal rules (one of the two), the risk block and the
+ * simulated starting cash.
+ */
 export const quantStrategyRulesSchema = z.object({
   cash: decimalText,
   blocks: z.array(z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: decimalText })),
+  modules: quantSignalRulesSchema.nullable(),
   risk: z.object({ maxDrawdown: z.string(), maxNotional: z.string(), kill: z.string() }),
 });
 
