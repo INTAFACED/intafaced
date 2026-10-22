@@ -1962,6 +1962,36 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * one release. Overlapping releases share the loan row lock, so they cannot
      * each pass the product cap.
      */
+    /**
+     * Redeem-excess read (BK-loan-05): the most collateral `releaseExcess` would
+     * release now under the product's max LTV. Self-only. Posts nothing.
+     */
+    releasable: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ loanId: z.string().uuid() }))
+      .output(
+        z.object({
+          loanId: z.string(),
+          held: amountString,
+          releasable: amountString,
+          maxLtvBps: z.number().int(),
+          ltvBps: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const loan = await bank.loans.loan(input.loanId);
+          assertSelf(ctx.principal.userId, loan.userId);
+          const read = await bank.loans.releasable(input.loanId);
+          return {
+            loanId: input.loanId,
+            held: formatAmount(read.held),
+            releasable: formatAmount(read.releasable),
+            maxLtvBps: read.maxLtvBps,
+            ltvBps: read.ltvBps,
+          };
+        }),
+      ),
+
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
