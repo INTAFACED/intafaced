@@ -7,10 +7,15 @@
  * existing leak sweep, which is an existing-test edit and needs an exception.
  * The late-complaint support path is a separate part of this slice.
  *
- * Owner values are blank-safe in the direction the spec states: a blank window
- * or cap means "no limit set", and the policy read says so. Every other input
- * fails closed: an unknown reason, a role that is not a party, a status that
- * is not `escrowed` or `fiat_sent`, or an unparseable owner value refuses.
+ * Owner values follow spec C3 (p2p-disputes-security.md:9): blank fails closed
+ * with `p2p.config_unset`, except customer-protecting dispute caps, which C3
+ * lets read blank as "rule off" (and the slice test at :26 requires "Given caps
+ * unset Then open works with no cap and the policy read says 'no cap set'").
+ * - Windows (after creation, after fiat_sent): blank REFUSES `p2p.config_unset`.
+ *   An owner who wants no window publishes an explicit `off`.
+ * - Caps (per day, per order, resubmission wait): blank = no cap set; `off` too.
+ * Every other input fails closed: an unknown reason, a role that is not a
+ * party, a status that is not `escrowed` or `fiat_sent`, or a garbled value.
  */
 
 import type { TradeStatus } from './state.js';
@@ -60,7 +65,7 @@ export function assertOpenable(status: TradeStatus): void {
   }
 }
 
-/** Owner-published values. `null` = not set = no limit. */
+/** Owner-published values. `null` = explicit `off` (windows) or no cap set (caps). */
 export interface DisputePolicy {
   earliestAfterCreatedSeconds: number | null;
   latestAfterCreatedSeconds: number | null;
@@ -71,26 +76,34 @@ export interface DisputePolicy {
   resubmissionWaitSeconds: number | null;
 }
 
-const POLICY_KEYS: readonly (keyof DisputePolicy)[] = [
+/** Window keys: blank refuses (C3); only an explicit `off` disables one. */
+export const WINDOW_KEYS: readonly (keyof DisputePolicy)[] = [
   'earliestAfterCreatedSeconds',
   'latestAfterCreatedSeconds',
   'earliestAfterFiatSentSeconds',
   'latestAfterFiatSentSeconds',
-  'perDayCap',
-  'perOrderCap',
-  'resubmissionWaitSeconds',
 ];
 
+const POLICY_KEYS: readonly (keyof DisputePolicy)[] = [...WINDOW_KEYS, 'perDayCap', 'perOrderCap', 'resubmissionWaitSeconds'];
+
 /**
- * Parse owner values. Blank (undefined, null, '') = not set. Anything else must
- * be a non-negative integer; a garbled value refuses `p2p.config_unset` rather
- * than silently becoming "no cap".
+ * Parse owner values. Blank (undefined, null, '' or whitespace) on a window
+ * refuses `p2p.config_unset` naming the key; on a cap it means no cap set.
+ * `off` (any case) disables either. Anything else must be a non-negative
+ * integer; a garbled value refuses `p2p.config_unset`.
  */
 export function parseDisputePolicy(raw: Readonly<Record<string, unknown>>): DisputePolicy {
   const out = {} as Record<keyof DisputePolicy, number | null>;
   for (const key of POLICY_KEYS) {
     const v = raw[key];
     if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
+      if (WINDOW_KEYS.includes(key)) {
+        throw new DisputeOpenError(`Dispute policy value ${key} is not set.`, 'p2p.config_unset');
+      }
+      out[key] = null;
+      continue;
+    }
+    if (typeof v === 'string' && v.trim().toLowerCase() === 'off') {
       out[key] = null;
       continue;
     }
@@ -159,10 +172,10 @@ export function assertUnderCaps(
   }
 }
 
-/** The `disputes.policy` read: what is in force, with "no cap set" spelled out for blanks. */
-export function describePolicy(policy: DisputePolicy): Record<keyof DisputePolicy, number | 'no cap set'> {
-  const out = {} as Record<keyof DisputePolicy, number | 'no cap set'>;
-  for (const key of POLICY_KEYS) out[key] = policy[key] ?? 'no cap set';
+/** The `disputes.policy` read: what is in force; "rule off" for a window set `off`, "no cap set" for a cap. */
+export function describePolicy(policy: DisputePolicy): Record<keyof DisputePolicy, number | 'no cap set' | 'rule off'> {
+  const out = {} as Record<keyof DisputePolicy, number | 'no cap set' | 'rule off'>;
+  for (const key of POLICY_KEYS) out[key] = policy[key] ?? (WINDOW_KEYS.includes(key) ? 'rule off' : 'no cap set');
   return out;
 }
 
