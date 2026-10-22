@@ -96,12 +96,13 @@ const migrations = readdirSync(drizzleDir)
       expect(rows[0]?.accessed_at).toBeInstanceOf(Date);
     });
 
-    it('refuses UPDATE and DELETE', async () => {
+    it('refuses UPDATE, DELETE and TRUNCATE', async () => {
       await recordOperatorAccess(db.sql, { actorId: OPERATOR, ownerType: 'house', ownerId: 'fees', requestId: 'req-db-2' });
       await expect(db.sql`UPDATE operator_access_log SET actor_id = 'someone-else' WHERE request_id = 'req-db-2'`).rejects.toThrow(
         /append-only/,
       );
       await expect(db.sql`DELETE FROM operator_access_log WHERE request_id = 'req-db-2'`).rejects.toThrow(/append-only/);
+      await expect(db.sql`TRUNCATE operator_access_log`).rejects.toThrow(/append-only/);
     });
 
     it('refuses an empty actor and an unknown action', async () => {

@@ -15,6 +15,7 @@ BEGIN
     RAISE EXCEPTION 'Cannot reverse 0024: % operator access row(s). Access history must be preserved.', n;
   END IF;
 
+  DROP TRIGGER IF EXISTS "operator_access_log_no_truncate" ON "ledger"."operator_access_log";
   DROP TRIGGER IF EXISTS "operator_access_log_append_only" ON "ledger"."operator_access_log";
   DROP FUNCTION IF EXISTS "ledger"."operator_access_log_append_only"();
   DROP INDEX IF EXISTS "ledger"."operator_access_log_target_idx";

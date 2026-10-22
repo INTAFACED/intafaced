@@ -36,3 +36,7 @@ $$;
 CREATE TRIGGER "operator_access_log_append_only"
   BEFORE UPDATE OR DELETE ON "ledger"."operator_access_log"
   FOR EACH ROW EXECUTE FUNCTION "ledger"."operator_access_log_append_only"();
+
+CREATE TRIGGER "operator_access_log_no_truncate"
+  BEFORE TRUNCATE ON "ledger"."operator_access_log"
+  FOR EACH STATEMENT EXECUTE FUNCTION "ledger"."operator_access_log_append_only"();
