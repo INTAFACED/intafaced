@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**70 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**73 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -73,6 +73,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `businessApprovalSettle`        | `bank`     | `bank.business.approval.settled`                                 |
 | `businessPayroll`               | `bank`     | `bank.business.payroll.settled`                                  |
 | `subAccountTransfer`            | `identity` | `identity.sub_account.transfer`                                  |
+| `payReceivedHold`               | `bank`     | `pay.recv.held`                                                  |
+| `payReceivedRelease`            | `bank`     | `pay.recv.released`                                              |
+| `payReceivedReturn`             | `bank`     | `pay.recv.returned`                                              |
 | `marketPurchase`                | `market`   | `market.purchase`                                                |
 | `marketListingFee`              | `market`   | `market.listing_fee`                                             |
 | `marketPremiumPlacement`        | `market`   | `market.premium_placement`                                       |

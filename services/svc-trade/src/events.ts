@@ -77,7 +77,7 @@ export async function subscribeMatchingEvents(
     'orderCancelled',
     idempotent(
       async (payload) => {
-        await trade.releaseOnCancelEvent(payload.orderId);
+        await trade.releaseOnCancelEvent(payload.orderId, payload.remainingQty);
       },
       store,
       'svc-trade',
