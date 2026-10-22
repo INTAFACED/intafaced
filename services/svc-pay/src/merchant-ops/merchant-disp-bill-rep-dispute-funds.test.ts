@@ -203,6 +203,16 @@ describe('M-disp-01 dispute funds (read only)', () => {
     expect(ledger.keys).toEqual([]);
   });
 
+  it('a dispute store that throws is not turned into a funds answer', async () => {
+    const store = storeWith('dp-10');
+    store.get = () => {
+      throw new Error('store down');
+    };
+    const ledger = ledgerOf([]);
+    await expect(readDisputeFunds(caller(), store, ledger, 'dp-10')).rejects.toThrow('store down');
+    expect(ledger.keys).toEqual([]);
+  });
+
   it('every role holding disputes.read may read; the read checks it', async () => {
     const store = storeWith('dp-9');
     for (const role of ['admin', 'finance', 'developer', 'viewer'] as const) {

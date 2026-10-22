@@ -78,6 +78,7 @@ function makeParts(deps: MerchantOpsDeps) {
     ? {
         sql,
         team: new TeamService(sql, deps.teamEmailInvite),
+        disputeStore: deps.disputes ?? defaultDisputeCaseStore,
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
@@ -140,9 +141,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         funds: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
           .query(({ ctx, input }) =>
-            wrapOps(async () =>
-              readDisputeFunds(await callerOf(ctx), deps.disputes ?? defaultDisputeCaseStore, deps.disputeFundsLedger, input.disputeId),
-            ),
+            wrapOps(async () => readDisputeFunds(await callerOf(ctx), need().disputeStore, deps.disputeFundsLedger, input.disputeId)),
           ),
         get: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
