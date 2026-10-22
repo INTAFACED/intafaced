@@ -87,6 +87,10 @@ export function Security() {
     original = useRef<Original | null>(null),
     controller = useRef<AbortController | null>(null);
   const setupHeading = useRef<HTMLHeadingElement | null>(null);
+  const authenticatorHeading = useRef<HTMLHeadingElement | null>(null);
+  const [codesKept, setCodesKept] = useState(false);
+  // A new or cleared setup asks again whether its codes were kept.
+  useEffect(() => setCodesKept(false), [setup]);
   const [stepUp, setStepUp] = useState<Response | null>(null);
   /** Counts passkeys added or removed here, so the passkey names below load again. */
   const [passkeyRevision, setPasskeyRevision] = useState(0);
@@ -432,6 +436,8 @@ export function Security() {
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);
         if (answer.ok && mounted.current) methodsChanged();
+        // The authenticator is on; while it is still this person on this client, the recovery codes must still show.
+        if (answer.ok && sameActor(intent)) setSetup({ ...prepared, confirmed: true });
         return;
       }
       known(intent, record, answer, answer.ok ? 'confirmationAccepted' : undefined);
@@ -466,6 +472,18 @@ export function Security() {
       setShowKey(false);
       clear();
     }
+  }
+  /** The person saved the recovery codes: the codes, the setup key and the setup's journal row leave for good. */
+  function codesSaved() {
+    const saved = visibleSetup;
+    if (!saved?.confirmed || !codesKept) return;
+    if (finishSecurity(saved.record)) sync(saved.record.owner);
+    setSetup(null);
+    setShowKey(false);
+    setCode('');
+    setCodesKept(false);
+    setResponse(null);
+    authenticatorHeading.current?.focus();
   }
   function dispatch(intent: Original) {
     return intent.kind === 'options'
@@ -665,7 +683,7 @@ export function Security() {
             </div>
           </section>
           <section className="security__authenticator security__card" aria-label={t('authenticator')}>
-            <h2>
+            <h2 ref={authenticatorHeading} tabIndex={-1}>
               <Copy k="authenticator" />
             </h2>
             <p>
@@ -730,18 +748,32 @@ export function Security() {
                     <Copy k="confirmationAccepted" />
                   </p>
                 )}
-                <details data-security-sensitive="true">
-                  <summary>
-                    <Copy k="recoveryCodes" />
-                  </summary>
-                  <ul className="recovery-codes">
-                    {visibleSetup.data.recoveryCodes.map((value) => (
-                      <li key={value} lang="zxx">
-                        {value}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
+                {visibleSetup.confirmed && (
+                  // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
+                  // this page; nothing here is ever written to storage.
+                  <div className="security__recovery stack" data-security-sensitive="true">
+                    <h3>
+                      <Copy k="recoveryTitle" />
+                    </h3>
+                    <p>
+                      <Copy k="recoveryOnce" />
+                    </p>
+                    <ul className="recovery-codes">
+                      {visibleSetup.data.recoveryCodes.map((value) => (
+                        <li key={value} lang="zxx">
+                          {value}
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="security__check">
+                      <input type="checkbox" checked={codesKept} onChange={(event) => setCodesKept(event.target.checked)} />
+                      <Copy k="recoveryCheck" />
+                    </label>
+                    <Button disabled={!codesKept} onClick={codesSaved}>
+                      <Copy k="recoverySaved" />
+                    </Button>
+                  </div>
+                )}
                 <Button variant="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
                   <Copy k="newSetup" />
                 </Button>

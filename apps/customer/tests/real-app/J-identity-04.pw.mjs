@@ -167,3 +167,37 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('A passkey')).toContainText('1 on this account');
   await expect(checklist.getByText('To do', { exact: true })).toHaveCount(0);
 });
+
+test(`${J} #5 the first authenticator code turns it on; recovery codes show once with "I saved them", and nothing secret stays in the page`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('rc');
+  await signUpInBrowser(page, who);
+  const { secret } = await addAuthenticator(page, totp);
+
+  // The codes appear once the authenticator works, each one usable once.
+  const recovery = page.locator('.security__recovery');
+  await expect(recovery).toContainText('Your recovery codes');
+  const codes = await recovery.locator('.recovery-codes li').allInnerTexts();
+  expect(codes).toHaveLength(10);
+  for (const code of codes) expect(code).toMatch(/^[0-9A-Fa-f]{5}-[0-9A-Fa-f]{5}$/);
+  await expect(page.locator('.security__checklist .security__row', { hasText: 'Recovery codes saved' })).toContainText(
+    `${codes.length} left`,
+  );
+
+  // "I saved them" takes the codes and the setup key off the page; neither was ever written to storage.
+  const saved = recovery.getByRole('button', { name: 'I saved them' });
+  await expect(saved).toBeDisabled();
+  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe').check();
+  await saved.click();
+  await expect(recovery).toHaveCount(0);
+  const html = await page.content();
+  for (const code of codes) expect(html).not.toContain(code);
+  expect(html).not.toContain(secret);
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }));
+  for (const code of codes) expect(stored).not.toContain(code);
+  expect(stored).not.toContain(secret);
+  await expect(page.locator('.security__authenticator')).toContainText('Start authenticator setup');
+});
