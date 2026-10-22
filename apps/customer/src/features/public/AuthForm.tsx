@@ -538,7 +538,7 @@ export function AuthForm({ register }: { register: boolean }) {
           )}
           {result && !result.ok && (
             <div lang="und">
-              {result.code === 'auth.too_many_attempts' ? (
+              {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
                 // The per-account pause: say how long, from the service's own Retry-After.
                 <p className="failure" role="alert" lang={languageFor('locked')}>
                   {result.retryAfterSeconds

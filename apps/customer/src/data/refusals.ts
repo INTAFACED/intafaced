@@ -39,9 +39,9 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   signInMismatch: {
     title: 'Those details did not work',
-    body: 'The email or handle and the password do not match an account. Check both and try again.',
+    body: 'Check what you typed and try again.',
   },
-  tooManyTries: { title: 'Too many tries', body: 'This account is paused for new tries for a few minutes. Wait, then try again.' },
+  tooManyTries: { title: 'Too many tries', body: 'New tries are paused for a while. Wait, then try again.' },
   mfaRequired: {
     title: 'Confirm it is you',
     body: 'Sign in again with your passkey or authenticator code to change this.',

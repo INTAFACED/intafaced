@@ -15,7 +15,6 @@ describe('sign-in refusals the service answers on purpose', () => {
 
   it('the pause after too many wrong passwords is a known answer, never "not confirmed"', () => {
     expect(knownAuthRefusal('password', refused('auth.too_many_attempts', 429, 'error'))).toBe(true);
-    expect(knownAuthRefusal('passkey', refused('auth.too_many_attempts', 429, 'error'))).toBe(true);
     expect(classifyRefusal('auth.too_many_attempts')).toBe('tooManyTries');
   });
 

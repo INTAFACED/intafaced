@@ -38,7 +38,7 @@ test(`${J} #1 signs in with the email or the handle and a password; an unknown n
   const refusal = page.locator('.failure');
   await fillSignIn(page, `nobody-${who.handle}@local-test.invalid`, who.password);
   await expect(refusal).toContainText('Those details did not work');
-  await expect(refusal).toContainText('do not match an account');
+  await expect(refusal).toContainText('Check what you typed');
   const unknown = await refusal.textContent();
   await page.reload();
   await fillSignIn(page, who.email, `${who.password}-wrong`);
@@ -77,6 +77,6 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
   }
   await fillSignIn(page, who.email, who.password);
   // Even the right password waits out the pause, and the page says how long.
-  await expect(page.getByRole('alert')).toContainText(/Too many tries for this account\. You can try again in \d+ min\./);
+  await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min\./);
   await expect(page).toHaveURL(/\/login/);
 });
