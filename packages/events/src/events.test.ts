@@ -1016,6 +1016,16 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       code: 'ops.restore_watermarks_disagree',
       failedAt: ts(),
     },
+    payCustodyAuditCreated: {
+      entryKey: 'pay:withdrawal:requested:TEST-1',
+      category: 'withdrawal',
+      action: 'withdrawal.requested',
+      actor: { type: 'user', id: 'user-1' },
+      subjectUserId: 'user-1',
+      clientContext: { ip: null, userAgent: null, apiKeyId: null },
+      requestId: 'req-1',
+      occurredAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),
