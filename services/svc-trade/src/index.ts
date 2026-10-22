@@ -1020,6 +1020,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
+  icebergDisplayRule: env.TRADE_ICEBERG_MIN_DISPLAY_RATIO,
   stopTriggers: sqlStopTrigger(sql),
   ocoExits: (ids) => readOcoIntents(sql, ids),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

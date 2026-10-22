@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { parseOwnerIntegerEnv } from './owner-int-env.js';
+import { parseIcebergDisplayRule } from './spot/iceberg-display-rule.js';
 
 // Both, and they are not alternatives. `edgeEnvSchema` authenticates the USER a
 // request claims to carry; `internalServiceEnvSchema` authenticates the SERVICE
@@ -56,6 +57,14 @@ const schema = serviceEnvSchema
        * `protectionPriceFor` refuses `trade.slippage_cap_unset`. Never invent 200.
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * Owner minimum iceberg display ratio, "<n>/<d>" (for example "1/15"). SP-conditional-algo-03.
+       *
+       * NO DEFAULT. Blank → null; every iceberg refuses `trade.iceberg_display_rule_unset`.
+       * Any other malformed value fails boot.
+       */
+      TRADE_ICEBERG_MIN_DISPLAY_RATIO: z.string().default('').transform(parseIcebergDisplayRule),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

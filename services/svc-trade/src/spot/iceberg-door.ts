@@ -3,6 +3,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { TradeError, type Market } from './types.js';
 import type { PlaceOrderInput } from './trade-service.js';
+import { assertIcebergDisplayRatio, type IcebergDisplayRule } from './iceberg-display-rule.js';
 
 export const TRADE_ICEBERG_DISPLAY_INVALID = 'trade.iceberg_display_invalid' as const;
 
@@ -40,6 +41,11 @@ export async function attachIcebergDisplay(
   deps: {
     marketBySymbol(symbol: string): Promise<Market | null>;
     lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+    /**
+     * Owner minimum display ratio (SP-conditional-algo-03). null: refuse every iceberg
+     * `trade.iceberg_display_rule_unset`. Production (index.ts) always passes this key.
+     */
+    icebergDisplayRule?: IcebergDisplayRule | null;
   },
   input: PlaceOrderInput,
   parsed: { type: string; symbol: string },
@@ -59,6 +65,7 @@ export async function attachIcebergDisplay(
   const market = await deps.marketBySymbol(parsed.symbol);
   if (!market) throw new TradeError(`market ${parsed.symbol} not found`, 'trade.market_not_found');
   assertIcebergDisplay(input.qty, display, market.lotSize);
+  if ('icebergDisplayRule' in deps) assertIcebergDisplayRatio(deps.icebergDisplayRule ?? null, input.qty, display);
   if (!deps.lifecycleForMarket) {
     throw new TradeError('market lifecycle authority is not configured', 'trade.lifecycle_authority_unavailable');
   }

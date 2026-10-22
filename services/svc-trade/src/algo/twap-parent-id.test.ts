@@ -215,4 +215,15 @@ describe('TWAP parent id: whole user id + clientAlgoId (isolated PostgreSQL)', (
     const amos = await trade.createTwap(principalFor(AMOS), schedule('old-create'));
     expect(amos.id).toBe(algoParentId(AMOS, 'old-create'));
   });
+
+  it('two identical creates sent at once store one parent and both return it (checklist 5)', async () => {
+    await fund(ALICE, '1000');
+    const results = await Promise.allSettled([
+      trade.createTwap(principalFor(ALICE), schedule('race')),
+      trade.createTwap(principalFor(ALICE), schedule('race')),
+    ]);
+    const ids = results.map((r) => (r.status === 'fulfilled' ? r.value.id : String((r.reason as Error).message)));
+    expect(ids).toEqual([algoParentId(ALICE, 'race'), algoParentId(ALICE, 'race')]);
+    expect(await parentRows()).toEqual([{ id: algoParentId(ALICE, 'race'), user_id: ALICE, status: 'active' }]);
+  });
 });

@@ -3,6 +3,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
+import type { IcebergDisplayRule } from './spot/iceberg-display-rule.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
@@ -164,6 +165,8 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
+  /** Owner minimum iceberg display ratio; null refuses every iceberg (trade.iceberg_display_rule_unset). */
+  icebergDisplayRule?: IcebergDisplayRule | null;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
   stopTriggers?: StopTriggerStore;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
