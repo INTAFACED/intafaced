@@ -505,6 +505,72 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     expect(events[0]!.idempotencyKey).not.toBe(openKey);
   });
 
+  it('a no-op set-leverage whose claim moved underneath it refuses 409 trade.position_concurrent_update and publishes nothing', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-idem-key-noop-claim-moved',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const [before] = await sql`SELECT margin_adjust_seq, row_version FROM trade.positions WHERE id = ${pos.id!}`;
+    bus.reset();
+    // Between the claim and the no-op UPDATE, clear margin_adjust_request inside the same transaction
+    // (the row is locked FOR UPDATE, so this is the only writer that can move it at that point).
+    const svc = positions as unknown as { assertLiquidationHold(tx: unknown, id: string, op: string): Promise<void> };
+    const original = svc.assertLiquidationHold.bind(positions);
+    const hold = vi.spyOn(svc, 'assertLiquidationHold').mockImplementation(async (tx, id, op) => {
+      await original(tx, id, op);
+      const t = tx as typeof sql;
+      await t`UPDATE trade.positions SET margin_adjust_request = NULL WHERE id = ${id}`;
+    });
+    try {
+      const err = await positions
+        .setLeverage({
+          userId: ALICE,
+          symbol: 'BTC/USDT-PERP',
+          positionId: pos.id!,
+          leverage: amt('10'),
+          clientAdjustmentId: 'idem-key-noop-claim-moved',
+        })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(FuturesError);
+      expect((err as FuturesError).code).toBe('trade.position_concurrent_update');
+      expect((err as FuturesError).status).toBe(409);
+    } finally {
+      hold.mockRestore();
+    }
+    expect(bus.emitted('positionUpdated')).toHaveLength(0);
+    const [after] = await sql`SELECT status, margin_adjust_seq, row_version FROM trade.positions WHERE id = ${pos.id!}`;
+    expect(after!.status).toBe('open');
+    expect(Number(after!.margin_adjust_seq)).toBe(Number(before!.margin_adjust_seq));
+  });
+
+  it('a liquidation rung reduce (production sqlPositionReducer) bumps row_version, so the next publish gets a new key', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-idem-key-rung-reduce',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const [before] = await sql`SELECT row_version FROM trade.positions WHERE id = ${pos.id!}`;
+    const moved = await sqlPositionReducer(sql).reduce(pos.id!, {
+      liquidationId: 'idem-key-rung-1',
+      sizeClosed: amt('0.5'),
+      marginRemaining: amt('2000'),
+      reason: 'test: rung reduce bumps row_version',
+    });
+    expect(moved).toBe(true);
+    const [after] = await sql`SELECT row_version, size FROM trade.positions WHERE id = ${pos.id!}`;
+    expect(Number(after!.size)).toBe(0.5);
+    expect(Number(after!.row_version)).toBe(Number(before!.row_version) + 1);
+  });
+
   // ── D-S-01: a price that moves money is never supplied by the party it pays ──
 
   /**

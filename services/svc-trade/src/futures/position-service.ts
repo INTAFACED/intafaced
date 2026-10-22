@@ -1417,7 +1417,8 @@ export class PositionService {
             WHERE p.id = ${row.id} AND p.margin_adjust_request = ${adjustmentId} AND m.id = p.market_id
             RETURNING p.*, m.symbol, m.contract_size`;
           if (!bumped) {
-            throw new FuturesError('position changed underneath this leverage update', 'trade.position_not_open', 409);
+            // The position may still be open: the claim (margin_adjust_request) moved, so say that.
+            throw new FuturesError('position changed underneath this leverage update', 'trade.position_concurrent_update', 409);
           }
           const result = presentPosition(bumped);
           await tx`UPDATE trade.position_margin_adjustments
