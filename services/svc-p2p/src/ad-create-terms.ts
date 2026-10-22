@@ -96,7 +96,9 @@ export function assertAdvisoryBalance(total: string, available: string | null | 
 /**
  * Typed refusal for the future mount (wiring pending owner ruling). Every
  * code maps to P2pError so the router's toTrpcError gives a typed tRPC code,
- * never a bare 500. `available` is kept for `p2p.insufficient_balance`.
+ * never a bare 500. `available` stays on the server-side P2pError only: the
+ * shared contracts error formatter does not carry it to the client (follow-up
+ * with the D85 mount if the UI needs it), so clients get `data.cause.code` alone.
  * Anything that is not an AdCreateTermsError is returned unchanged.
  */
 export function toP2pRefusal(e: unknown): unknown {
