@@ -126,6 +126,18 @@ export const pairRulesSchema = z.object({
 });
 export type PairRules = z.infer<typeof pairRulesSchema>;
 
+/**
+ * SP-order-entry-03 review fix: operator circuit-breaker state. While set, the
+ * order path refuses every order with `trade.circuit_breaker_reference_unset`.
+ */
+export const pairHaltSchema = z.object({
+  circuitBreaker: pairRuleValueSchema,
+  refusesAllOrders: z.boolean(),
+  refusalCode: z.literal('trade.circuit_breaker_reference_unset').nullable(),
+  riskVersion: z.string(),
+});
+export type PairHalt = z.infer<typeof pairHaltSchema>;
+
 export const marketSchema = z.object({
   id: z.string(),
   symbol: z.string(),
@@ -221,6 +233,8 @@ export const marketSchema = z.object({
   }),
   /** SP-order-entry-03 pair rules; null when the mount has no risk reader, absent on older servers. */
   pairRules: pairRulesSchema.nullable().optional(),
+  /** SP-order-entry-03 circuit-breaker state; null when the mount has no risk reader or the read failed. */
+  pairHalt: pairHaltSchema.nullable().optional(),
 });
 export type Market = z.infer<typeof marketSchema>;
 
