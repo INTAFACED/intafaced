@@ -63,6 +63,69 @@ test(`${J} #1 opens Algo dev from the Trade menu: every room listed, quick start
 });
 
 /** The next write to `procedure` reaches the service, but its reply is lost on the way back, as on a dropped line. */
+test(`${J} #3 types the signal rule inputs: a blank required input refuses by name and nothing runs; filled, the builder shows the generated source`, async ({
+  page,
+}) => {
+  await signIn(page, developer());
+  await page.goto('/quant/studio');
+  await page.getByLabel('How the strategy trades').selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await expect(builder).toBeVisible();
+  // Every number starts blank: nothing is filled in for the developer.
+  for (const label of ['Fast average (bars)', 'Slow average (bars)', 'Size', 'Stop loss (percent, optional)']) {
+    await expect(builder.getByLabel(label, { exact: true })).toHaveValue('');
+  }
+
+  // TEST inputs, with the slow average left blank.
+  await builder.getByLabel('Symbol').fill('BTC/USDT');
+  await builder.getByLabel('Bar size').selectOption('1h');
+  await builder.getByLabel('Fast average (bars)').fill('3');
+  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  const compiled = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/studio.compile')) compiled.push(res.status());
+  });
+  await builder.getByRole('button', { name: 'Build source' }).click();
+  await expect(builder.getByTestId('quant-rule-refusal')).toHaveText('Fill in Slow average (bars) first. Nothing ran.');
+  await expect(builder.getByLabel('Slow average (bars)')).toHaveAttribute('aria-invalid', 'true');
+  await expect(builder.getByTestId('quant-generated-source')).toHaveCount(0);
+  expect(compiled).toEqual([400]);
+
+  // A slow average no slower than the fast one is out of range, by name.
+  await builder.getByLabel('Slow average (bars)').fill('3');
+  await builder.getByRole('button', { name: 'Build source' }).click();
+  await expect(builder.getByTestId('quant-rule-refusal')).toContainText('Slow average (bars) is outside its range');
+
+  await builder.getByLabel('Slow average (bars)').fill('5');
+  await builder.getByRole('button', { name: 'Build source' }).click();
+  const source = builder.getByTestId('quant-generated-source');
+  await expect(source).toBeVisible();
+  await expect(builder.getByTestId('quant-rule-refusal')).toHaveCount(0);
+  for (const line of [
+    'const closes = bars("BTC/USDT", "1h").close;',
+    'const fast = sma(closes, 3);',
+    'const slow = sma(closes, 5);',
+    'oms.buy("BTC/USDT", size.quantity("0.01"));',
+    'oms.sell("BTC/USDT", position("BTC/USDT").qty);',
+  ]) {
+    await expect(source).toContainText(line);
+  }
+  // A changed rule marks the shown source as out of date until it is built again.
+  await builder.getByRole('combobox', { name: /^Average/ }).selectOption('ema');
+  await expect(source).toContainText('The rules changed since this source was built.');
+  await builder.getByRole('button', { name: 'Build source' }).click();
+  await expect(source).toContainText('const fast = ema(closes, 3);');
+  await expect(source).not.toContainText('The rules changed');
+
+  // Nothing was saved: the library is still empty. Clear the form for the next step (the second press confirms).
+  await expect(page.getByText('No strategy is saved yet.')).toBeVisible();
+  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
+  await fresh.click();
+  await expect(page.getByTestId('quant-replace-warning')).toBeVisible();
+  await fresh.click();
+  await expect(page.getByLabel('How the strategy trades')).toHaveValue('blocks');
+});
+
 async function loseNextReply(page, procedure) {
   let lost = false;
   await page.route(`**/api/quant/trpc/${procedure}*`, async (route) => {

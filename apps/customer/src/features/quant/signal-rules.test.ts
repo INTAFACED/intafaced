@@ -6,7 +6,12 @@ describe('signal rules in the builder', () => {
     const blank = emptySignalRules();
     expect([blank.signal.fast, blank.signal.slow, blank.sizing.value, blank.exit.stopLossPercent]).toEqual(['', '', '', '']);
     expect(signalRulesFilled(blank)).toBe(false);
-    const filled = { ...blank, symbol: 'BTC/USDT', signal: { ...blank.signal, fast: '3', slow: '5' }, sizing: { ...blank.sizing, value: '1' } };
+    const filled = {
+      ...blank,
+      symbol: 'BTC/USDT',
+      signal: { ...blank.signal, fast: '3', slow: '5' },
+      sizing: { ...blank.sizing, value: '1' },
+    };
     expect(signalRulesFilled(filled)).toBe(true);
     expect(signalRulesFilled({ ...filled, signal: { ...filled.signal, slow: ' ' } })).toBe(false);
     expect(trimSignalRules({ ...filled, symbol: ' BTC/USDT ' }).symbol).toBe('BTC/USDT');

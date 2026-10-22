@@ -21,13 +21,7 @@ export const trimSignalRules = (rules: QuantSignalRules): QuantSignalRules => ({
 export const signalRulesFilled = (rules: QuantSignalRules): boolean =>
   Boolean(rules.symbol.trim() && rules.signal.fast.trim() && rules.signal.slow.trim() && rules.sizing.value.trim());
 
-export type RuleInputName =
-  | 'symbol'
-  | 'signal.fast'
-  | 'signal.slow'
-  | 'sizing.value'
-  | 'exit.stopLossPercent'
-  | 'exit.takeProfitPercent';
+export type RuleInputName = 'symbol' | 'signal.fast' | 'signal.slow' | 'sizing.value' | 'exit.stopLossPercent' | 'exit.takeProfitPercent';
 const INPUT_NAMES: readonly RuleInputName[] = [
   'symbol',
   'signal.fast',

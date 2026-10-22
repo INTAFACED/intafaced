@@ -333,38 +333,39 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 ]}
               />
               {modules && <SignalBuilder value={modules} onChange={setModules} />}
-              {!modules && blocks.map((b, i) => (
-                <fieldset key={i}>
-                  <legend>
-                    <Text k="quant.order.block" />
-                    {i + 1}
-                  </legend>
-                  <Select
-                    label={copyText('quant.block.side', { value1: i + 1 })}
-                    value={b.side}
-                    onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                    options={['buy', 'sell']}
-                  />
-                  <Field
-                    label={copyText('quant.block.symbol', { value1: i + 1 })}
-                    value={b.symbol}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
-                    maxLength={32}
-                  />
-                  <Field
-                    label={copyText('quant.block.quantity', { value1: i + 1 })}
-                    value={b.qty}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
-                    inputMode="decimal"
-                  />
-                  {blocks.length > 1 && (
-                    <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
-                      <Text k="quant.remove.block" />
+              {!modules &&
+                blocks.map((b, i) => (
+                  <fieldset key={i}>
+                    <legend>
+                      <Text k="quant.order.block" />
                       {i + 1}
-                    </Button>
-                  )}
-                </fieldset>
-              ))}
+                    </legend>
+                    <Select
+                      label={copyText('quant.block.side', { value1: i + 1 })}
+                      value={b.side}
+                      onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
+                      options={['buy', 'sell']}
+                    />
+                    <Field
+                      label={copyText('quant.block.symbol', { value1: i + 1 })}
+                      value={b.symbol}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
+                      maxLength={32}
+                    />
+                    <Field
+                      label={copyText('quant.block.quantity', { value1: i + 1 })}
+                      value={b.qty}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
+                      inputMode="decimal"
+                    />
+                    {blocks.length > 1 && (
+                      <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
+                        <Text k="quant.remove.block" />
+                        {i + 1}
+                      </Button>
+                    )}
+                  </fieldset>
+                ))}
               {!modules && (
                 <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
                   <Text k="quant.add.block" />

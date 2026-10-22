@@ -67,7 +67,12 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
         maxLength={32}
         error={errorFor('symbol')}
       />
-      <Select label={t('barSize')} value={value.barSize} onChange={(v) => set((r) => ({ ...r, barSize: v as QuantSignalRules['barSize'] }))} options={QUANT_BAR_SIZES} />
+      <Select
+        label={t('barSize')}
+        value={value.barSize}
+        onChange={(v) => set((r) => ({ ...r, barSize: v as QuantSignalRules['barSize'] }))}
+        options={QUANT_BAR_SIZES}
+      />
       <Select
         label={t('average')}
         value={value.signal.average}

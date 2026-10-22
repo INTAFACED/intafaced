@@ -13,7 +13,9 @@ test('Quant Studio keeps the draft on this device and offers Save to library onl
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
   const save = page.getByRole('button', { name: 'Save to library', exact: true });
   await expect(save).toBeDisabled();
-  await expect(page.getByText('Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.')).toBeVisible();
+  await expect(
+    page.getByText('Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.'),
+  ).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
