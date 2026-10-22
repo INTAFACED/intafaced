@@ -131,11 +131,10 @@ describe('ops.authorizationGet (BK-cops-01)', () => {
       'merchantName',
       'merchantCountry',
       'networkData',
-      'avsResult',
-      'cvcResult',
       'method',
       'cardPresence',
       'initiator',
+      'type',
     ]);
     for (const f of ok.notAvailable) expect(f.reason).toBe('not available on card-sim');
 

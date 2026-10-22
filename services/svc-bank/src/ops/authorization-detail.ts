@@ -4,8 +4,8 @@
  *
  * It returns what svc-bank stores for the decision: amount, channel, merchant
  * category, decision, decline code, status, hold and conversion. The fields
- * card-sim does not produce (merchant name and country, network data, AVS and
- * CVC results, method, card presence, initiator) are named in `notAvailable`
+ * card-sim does not produce or svc-bank does not store (merchant name and
+ * country, network data, method, card presence, initiator, authorisation type) are named in `notAvailable`
  * with the reason "not available on card-sim" rather than returned as blanks
  * or made up. Unknown and malformed ids are the same not-found. The read
  * writes one structured log line (actor and id), like `ops.transferDetail`;
@@ -26,11 +26,10 @@ export const AUTHORIZATION_FIELDS_NOT_ON_CARD_SIM = [
   'merchantName',
   'merchantCountry',
   'networkData',
-  'avsResult',
-  'cvcResult',
   'method',
   'cardPresence',
   'initiator',
+  'type',
 ] as const;
 
 export const NOT_AVAILABLE_ON_CARD_SIM = 'not available on card-sim' as const;
