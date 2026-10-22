@@ -6,7 +6,7 @@ import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
-import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
+import { BATCH_CANCEL_MAX, createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
 import {
   ZERO,
   add,
@@ -2550,7 +2550,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * and independent: a refusal or unresolved cancel never rewrites an earlier item and there is no rollback or
    * atomicity promise. Body: `{ ids: [...] }`, `{ orders: [{ id }|"id"] }`, or a bare array of ids.
    */
-  app.post('/api/v1/orders/batch-cancel', async (req, reply) => {
+  const batchCancel = (cap: number) => async (req: FastifyRequest, reply: FastifyReply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -2580,8 +2580,25 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (rawItems.length === 0) {
       return reply.code(400).send(invalidOrder('batch cancel ids must be non-empty', 'trade.batch_empty').body);
     }
-    if (rawItems.length > MAX_BATCH_ORDERS) {
-      return reply.code(400).send(invalidOrder(`batch cancel may contain at most ${MAX_BATCH_ORDERS} items`, 'trade.batch_too_large').body);
+    if (rawItems.length > cap) {
+      return reply.code(400).send(invalidOrder(`batch cancel may contain at most ${cap} items`, 'trade.batch_too_large').body);
+    }
+    // A clientOrderId is unique per market, so a client-id item must name its symbol. Checked before any cancel.
+    for (const item of rawItems) {
+      if (item === null || typeof item !== 'object') continue;
+      const it = item as { id?: unknown; orderId?: unknown; clientOrderId?: unknown; symbol?: unknown };
+      if (it.id === undefined && it.orderId === undefined && it.clientOrderId !== undefined) {
+        if (typeof it.symbol !== 'string' || it.symbol.trim().length === 0) {
+          return reply
+            .code(400)
+            .send(
+              invalidOrder(
+                'symbol is required for a clientOrderId item: a clientOrderId is unique per market',
+                'trade.order_symbol_required',
+              ).body,
+            );
+        }
+      }
     }
 
     const results: Array<Record<string, unknown>> = [];
@@ -2593,7 +2610,28 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           : rawItem !== null && typeof rawItem === 'object'
             ? ((rawItem as { id?: unknown; orderId?: unknown }).id ?? (rawItem as { orderId?: unknown }).orderId)
             : null;
-      const orderId = typeof idRaw === 'string' && idRaw.length > 0 ? idRaw : null;
+      let orderId = typeof idRaw === 'string' && idRaw.length > 0 ? idRaw : null;
+      const clientRaw =
+        orderId === null && rawItem !== null && typeof rawItem === 'object'
+          ? (rawItem as { clientOrderId?: unknown; symbol?: unknown })
+          : null;
+      if (clientRaw && typeof clientRaw.clientOrderId === 'string' && clientRaw.clientOrderId.length > 0) {
+        // A client id is looked up in the caller's own namespace only; another user's id is simply not found.
+        const clientOrderId = clientRaw.clientOrderId;
+        const symbol = clientRaw.symbol as string;
+        const found = deps.findClientOrder ? await deps.findClientOrder(principal, { symbol, clientOrderId }) : null;
+        if (!found || found.userId !== principal.userId) {
+          results.push({
+            index,
+            orderId: null,
+            clientOrderId,
+            status: 'refused',
+            error: { code: 'OrderNotFound', message: 'order not found', intafacedCode: 'trade.order_not_found' },
+          });
+          continue;
+        }
+        orderId = found.id;
+      }
       const base = { index, orderId };
       if (orderId === null) {
         results.push({ ...base, status: 'refused', error: invalidOrder('id must be a non-empty order id', 'trade.invalid_order_id').body });
@@ -2633,7 +2671,14 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     return reply.code(200).send({ atomic: false, results });
-  });
+  };
+  /** Kept for existing clients at MAX_BATCH_ORDERS (100); same handler as `cancel-batch`. */
+  app.post('/api/v1/orders/batch-cancel', batchCancel(MAX_BATCH_ORDERS));
+  /**
+   * SP-lifecycle-history-02 (010): up to BATCH_CANCEL_MAX order ids or `{ clientOrderId, symbol }` items in the
+   * caller's namespace. A client-id item without a symbol refuses `trade.order_symbol_required` before any cancel.
+   */
+  app.post('/api/v1/orders/cancel-batch', batchCancel(BATCH_CANCEL_MAX));
 
   app.post('/api/v1/orders', async (req, reply) => {
     const principal = requirePrincipal(req, reply);

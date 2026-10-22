@@ -296,8 +296,9 @@ export interface TradeServiceOptions {
    */
   algoMarkPolicy?: AlgoMarkPolicy;
   /**
-   * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
-   * and refuses `trade.missing_mark`. Never a customer value.
+   * Where a trailing stop's starting mark comes from. Set: the server quote replaces any mark in the request.
+   * Unset: the request's own mark is used (trailing-stop-place.ts:111-117). Fails closed either way: no mark,
+   * a non-positive mark, or a source with no quote refuses `trade.missing_mark` before any hold.
    */
   trailingMarkSource?: QuotedMarkSource;
   /**

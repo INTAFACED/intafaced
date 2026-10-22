@@ -116,3 +116,9 @@ export const RATE_LIMITS = {
   publicPerMinute: 300,
   privatePerMinute: 300,
 } as const;
+
+/**
+ * Most items in one batch cancel (`POST /api/v1/orders/cancel-batch`, SP-lifecycle-history-02).
+ * One constant, shared with SP-conditional-algo-04. More refuses `trade.batch_too_large`.
+ */
+export const BATCH_CANCEL_MAX = 50;

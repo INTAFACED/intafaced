@@ -631,7 +631,18 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     kind: 'supported',
     refuseArmIds: [],
     notes:
-      'Bounded sequential cancel by order id list (same path as DELETE /orders/:id per item). Per-item success/refused/unknown. Non-atomic.',
+      'Bounded (MAX_BATCH_ORDERS, 100) sequential cancel by order id list (same path as DELETE /orders/:id per item). Per-item success/refused/unknown. Non-atomic.',
+  },
+  {
+    name: 'cancelBatchOrders',
+    method: 'POST',
+    path: '/api/v1/orders/cancel-batch',
+    auth: 'private',
+    scope: 'trade:write',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes:
+      'SP-lifecycle-history-02: same handler as batch-cancel. Up to BATCH_CANCEL_MAX (50) order ids or {clientOrderId, symbol} in the caller namespace; symbol required (trade.order_symbol_required); per-item results; non-atomic.',
   },
   {
     name: 'massCancelOrders',

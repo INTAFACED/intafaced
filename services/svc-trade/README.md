@@ -68,7 +68,9 @@ refuses `trade.cancel_all_after_unset`); the credential must outlive the deadlin
 
 **Batch cancel.** `POST /api/v1/orders/batch-cancel` takes up to 100 order ids (`{ids}`, `{orders:[{id}]}` or a bare array) and cancels them one by
 one through the same path as `DELETE /api/v1/orders/:id`. Results are per item (`success`, `refused`, `unknown`), never atomic; scope and jurisdiction
-are checked before any item, and a repeated id is refused.
+are checked before any item, and a repeated id is refused. `POST /api/v1/orders/cancel-batch` (SP-lifecycle-history-02) runs the same
+handler capped at `BATCH_CANCEL_MAX` (50, `@intafaced/exchange-contract`), and also takes `{ clientOrderId, symbol }` items resolved in the
+caller's own namespace; a client-id item without `symbol` refuses `trade.order_symbol_required` before any cancel.
 
 `trade:withdraw` appears nowhere, deliberately: it is an `INTERACTIVE_ONLY_SCOPE` that no API key may hold, which
 is what protects a leaked bot key from moving value off the platform.
