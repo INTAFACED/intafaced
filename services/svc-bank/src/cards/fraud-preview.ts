@@ -43,8 +43,18 @@ export interface FraudPreview {
 
 /** Fixed TEST fixture, one row per band, covering every signal. Served from the back end, never from front-end constants. */
 const TEST_ROWS: readonly FraudPreviewRow[] = Object.freeze([
-  Object.freeze({ testAuthorisationRef: 'TEST-AUTH-1', test: true, band: 'very_likely', signals: Object.freeze(['card_testing', 'compromised_card'] as const) }),
-  Object.freeze({ testAuthorisationRef: 'TEST-AUTH-2', test: true, band: 'neutral', signals: Object.freeze(['merchant_dispute_risk'] as const) }),
+  Object.freeze({
+    testAuthorisationRef: 'TEST-AUTH-1',
+    test: true,
+    band: 'very_likely',
+    signals: Object.freeze(['card_testing', 'compromised_card'] as const),
+  }),
+  Object.freeze({
+    testAuthorisationRef: 'TEST-AUTH-2',
+    test: true,
+    band: 'neutral',
+    signals: Object.freeze(['merchant_dispute_risk'] as const),
+  }),
   Object.freeze({ testAuthorisationRef: 'TEST-AUTH-3', test: true, band: 'very_unlikely', signals: Object.freeze([] as const) }),
 ] as const);
 

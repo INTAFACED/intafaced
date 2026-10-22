@@ -2625,7 +2625,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
     fraudPreviewAction: scopedProcedure('admin:treasury')
       .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
-      .output(z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }))
+      .output(
+        z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
+      )
       .mutation(({ input }) => refuseFraudPreviewAction(input.action)),
     runDueTransfers: jobProcedure
       .input(z.object({ limit: z.number().int().min(1).max(10_000).optional() }))
