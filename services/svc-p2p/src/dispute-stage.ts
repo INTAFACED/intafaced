@@ -97,7 +97,12 @@ export function stageDeadline(stage: DisputeStage, now: Date, timers: StageTimer
   if (typeof s !== 'number' || !Number.isSafeInteger(s) || s <= 0) {
     throw new DisputeStageError(`Dispute timer ${key} is not set.`, 'p2p.config_unset');
   }
-  return new Date(now.getTime() + s * 1000);
+  const at = new Date(now.getTime() + s * 1000);
+  // A huge safe-integer timer overflows Date (Invalid Date), which would fire at once: refuse.
+  if (!Number.isFinite(at.getTime()) || !Number.isFinite(now.getTime())) {
+    throw new DisputeStageError(`Dispute timer ${key} is out of range.`, 'p2p.config_unset');
+  }
+  return at;
 }
 
 /**
@@ -105,7 +110,12 @@ export function stageDeadline(stage: DisputeStage, now: Date, timers: StageTimer
  * `under_review`. Returns null when nothing is due. Never touches escrow.
  */
 export function timedTransition(stage: DisputeStage, deadlineAt: Date | null, now: Date): { from: DisputeStage; to: DisputeStage } | null {
-  if (!TIMED[stage] || !deadlineAt || now < deadlineAt) return null;
+  if (!TIMED[stage] || !deadlineAt) return null;
+  // Fail-closed: an invalid deadline or clock never fires a transition.
+  if (!Number.isFinite(deadlineAt.getTime()) || !Number.isFinite(now.getTime())) {
+    throw new DisputeStageError('Dispute deadline is invalid.', 'p2p.config_unset');
+  }
+  if (now < deadlineAt) return null;
   assertStage(stage, 'under_review');
   return { from: stage, to: 'under_review' };
 }
