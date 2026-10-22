@@ -40,8 +40,8 @@ export interface AlgoCreateGateInput {
   readonly input: CreateTwapInput;
   readonly bid: Amount;
   readonly ask: Amount;
-  /** CB-bots-10 verification gate. Checked first. The trade service always passes it; omitted only by gate unit tests. */
-  readonly verification?: { readonly policy: BotVerificationPolicy; readonly tier: Principal['tier'] };
+  /** CB-bots-10 verification gate. Checked first; required (callers that mean no gate pass `{ mode: 'off' }`). */
+  readonly verification: { readonly policy: BotVerificationPolicy; readonly tier: Principal['tier'] };
 }
 
 /** Spend-asset hold plus the child-fill fee for one slice. Both are exact amounts. */
@@ -196,7 +196,7 @@ async function assertFirstSliceBalance(ledger: LedgerClient, userId: string, cov
 
 /** Refuse a new schedule that cannot place its first slice. Reads a balance. Posts nothing. */
 export async function gateAlgoCreate(ctx: AlgoCreateGateInput): Promise<void> {
-  if (ctx.verification) assertBotVerification(ctx.verification.policy, ctx.verification.tier);
+  assertBotVerification(ctx.verification.policy, ctx.verification.tier);
   requireAlgoMarkPolicy(ctx.markPolicy);
   assertReferenceUsable(ctx.market, ctx.bid, ctx.now, ctx.markPolicy);
   assertReferenceUsable(ctx.market, ctx.ask, ctx.now, ctx.markPolicy);

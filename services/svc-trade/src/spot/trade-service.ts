@@ -826,7 +826,8 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
-    this.botVerification = options.botVerification ?? { mode: 'off' };
+    // Omitted = fail closed: required with no level set refuses every bot create.
+    this.botVerification = options.botVerification ?? { mode: 'required', level: null };
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;

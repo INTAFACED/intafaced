@@ -56,6 +56,8 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     return new TradeService(db.sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       accountAdmission: admission,
       marketLifecycle: READY_MARKET_LIFECYCLE,
+      // CB-bots-10: the bot verification gate now fails closed when omitted; this suite tests other gates.
+      botVerification: { mode: 'off' },
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
       convertEnabled: true,
       convertSpreadBps: 25,
