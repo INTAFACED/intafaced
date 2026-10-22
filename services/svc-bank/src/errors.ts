@@ -216,6 +216,8 @@ export type BankErrorCode =
   | 'bank.ramp_invalid_destination'
   /** Persisted dest missing — later withdraw has no real ref before withdrawHold. */
   | 'bank.withdraw_destination_missing'
+  /** Dest user has no primary space — refuse before ledger-client posts. */
+  | 'bank.dest_user_missing'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /**

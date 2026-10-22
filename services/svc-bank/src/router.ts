@@ -233,6 +233,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.no_fiat_rail':
       case 'bank.fiat_ramp_socket':
       case 'bank.withdraw_destination_missing':
+      case 'bank.dest_user_missing':
       case 'bank.earn_rate_unset':
       case 'bank.auto_invest_rate_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
@@ -567,6 +568,34 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             .catch((err: unknown) => {
               throw gate.mayDescribe ? err : hideDestinationDetail(err);
             });
+          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+        }),
+      ),
+
+    /**
+     * User-to-user: dest is a user id, not a guessed space. Missing dest user
+     * refuses `bank.dest_user_missing` before ledger-client posts. No PSP.
+     */
+    toUser: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          transferId: z.string().min(8).max(64),
+          fromSpaceId: z.string().uuid(),
+          toUserId: z.string().min(1).max(64),
+          amount: amountString,
+        }),
+      )
+      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const from = await bank.spaces.get(input.fromSpaceId);
+          assertSelf(ctx.principal.userId, from.userId);
+          const result = await bank.transfers.transferToUser({
+            transferId: input.transferId,
+            fromSpaceId: input.fromSpaceId,
+            toUserId: input.toUserId,
+            amount: parseAmount(input.amount),
+          });
           return { ledgerTxId: result.ledgerTxId, amount: result.amount };
         }),
       ),

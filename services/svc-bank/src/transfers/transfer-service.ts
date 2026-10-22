@@ -212,6 +212,43 @@ export class TransferService {
     );
   }
 
+  /**
+   * User-to-user transfer through ledger-client. Refuse if the dest user is
+   * missing — before the ledger posts. Does not invent a dest space or a PSP.
+   * Amounts stay Amount / decimal strings, never a raw JS number.
+   */
+  async transferToUser(input: {
+    transferId: string;
+    fromSpaceId: string;
+    toUserId: string;
+    amount: Amount;
+    now?: Date;
+  }): Promise<TransferResult> {
+    const now = input.now ?? new Date();
+    return withMoneySpan(
+      'bank.transferToUser',
+      { operation: 'transfer', amount: formatAmount(input.amount), spaceId: input.fromSpaceId },
+      async () => {
+        const destUserId = input.toUserId.trim();
+        const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
+        const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
+        if (!dest) {
+          throw new BankError(
+            `Dest user ${destUserId || '(empty)'} has no primary ${from.assetId} space — transfer refused`,
+            'bank.dest_user_missing',
+          );
+        }
+        return this.transfer({
+          transferId: input.transferId,
+          fromSpaceId: input.fromSpaceId,
+          toSpaceId: dest.id,
+          amount: input.amount,
+          now,
+        });
+      },
+    );
+  }
+
   // ── Standing orders ────────────────────────────────────────────────────────
 
   async schedule(input: {
