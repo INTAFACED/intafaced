@@ -83,4 +83,25 @@ describe('sign-in names the account state only after the password verified (J-id
       expect((err as { details?: unknown }).details).toBeUndefined();
     }
   });
+
+  it('the right password on a frozen account never counts towards the lockout', async () => {
+    const s = await register();
+    await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${s.userId}`;
+    const [u] = await db.sql<Array<{ email: string }>>`SELECT email::text AS email FROM users WHERE id = ${s.userId}`;
+    for (let i = 0; i < 12; i++) {
+      await expect(auth.login({ identifier: u!.email, password: PASSWORD })).rejects.toMatchObject({
+        code: 'auth.account_frozen',
+        details: { accountState: 'frozen' },
+      });
+    }
+  });
+
+  it('a provider-verified sign-in names the state the same way', async () => {
+    const s = await register();
+    await db.sql`UPDATE users SET status = 'closed' WHERE id = ${s.userId}`;
+    await expect(auth.signInVerifiedIdentity(s.userId, {})).rejects.toMatchObject({
+      code: 'auth.account_frozen',
+      details: { accountState: 'closed' },
+    });
+  });
 });

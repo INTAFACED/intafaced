@@ -155,12 +155,17 @@ export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const founders = await gates.approverSessions(ctx);
-  const res = await ctx.edge.mutate(
-    'identity',
-    'compliance.freezeIdentity',
-    { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restrict', reason, expectedVersion: '0' },
-    founders.a.token,
-  );
+  const freeze = (expectedVersion) =>
+    ctx.edge.mutate(
+      'identity',
+      'compliance.freezeIdentity',
+      { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restrict', reason, expectedVersion },
+      founders.a.token,
+    );
+  // A new account starts at version 0; one an earlier control changed answers `conflict` with its current version.
+  let res = await freeze('0');
+  const current = res.json?.result?.data?.outcome === 'conflict' ? res.json.result.data.current?.version : undefined;
+  if (current) res = await freeze(current);
   if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff freeze refused: ${res.status} ${res.text.slice(0, 300)}`);
   return userId;
 }

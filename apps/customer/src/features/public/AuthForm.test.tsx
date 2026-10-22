@@ -213,6 +213,7 @@ describe('password sign-in refusals the service names (J-identity-02 #2, #7)', (
   it('falls back to the plain refusal when the service names no state', async () => {
     const alert = await signInAnswered(403, { intafacedCode: 'auth.account_frozen' });
     expect(alert.textContent).not.toContain('This account is');
+    expect(alert.textContent).toContain('You do not have access to this.');
   });
 });
 
