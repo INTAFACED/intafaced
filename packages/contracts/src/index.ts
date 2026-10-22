@@ -43,6 +43,7 @@ export * from './operation-identity-client.js';
 export * from './crm-workflows.js';
 export * from './crm-notifications.js';
 export * from './outreach-interests.js';
+export * from './ops-enquiry-intake.js';
 export * from './guest-notifications.js';
 export * from './crm-privacy.js';
 export * from './merchant-control.js';
