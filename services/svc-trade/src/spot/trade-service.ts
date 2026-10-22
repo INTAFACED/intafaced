@@ -1669,8 +1669,9 @@ export class TradeService {
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
-    // An admitted original was granted only after the email-proof gate below passed,
-    // and a proof does not lapse, so finishing it here needs no second read.
+    // An admitted original was granted only after the email-proof gate below passed.
+    // The decision was made at admission, so finishing it needs no second read even
+    // if the proof has lapsed since (an email change clears it).
     if (original) {
       const evidence = original.payload as Record<string, unknown>;
       if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');

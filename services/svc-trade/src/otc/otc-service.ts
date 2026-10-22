@@ -285,7 +285,7 @@ export class OtcDeskService {
     if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
     const original = await this.accountAdmission.original(principal.userId, `otc:${stored.quote.quoteId}`);
     // RC-identity-01: an accepted quote settles against customer funds, so a new accept
-    // needs a proved email. An admitted original was granted after this gate passed.
+    // needs a proved email. An admitted original was decided after this gate passed, so it finishes.
     if (!original) await assertEmailProved(this.emailProof, principal.userId);
     const saved = (original?.payload as { bound?: Record<string, unknown> } | undefined)?.bound;
     const bound = saved
