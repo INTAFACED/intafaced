@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { isWriteBlockCode } from './ledger/write-block.js';
 import {
   LEDGER_FEE_REVENUE_WINDOW_INVALID,
   DEFAULT_SERVICE_BODY_BIND_MODE,
@@ -94,6 +95,10 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   // useless and the caller must NOT record success; a new key is a new movement.
   if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
     return { status: 409, body: { message: err.message, code: err.code } };
+  }
+  // 503: the store cannot take a write right now. Nothing was booked; retry with the SAME key.
+  if (err instanceof LedgerError && isWriteBlockCode(err.code)) {
+    return { status: 503, body: { message: err.code, code: err.code } };
   }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return { status: 412, body: { message: userCopy(err.code), code: err.code } };
