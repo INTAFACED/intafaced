@@ -37,6 +37,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'New orders wait until you confirm the email on this account. Nothing was held, and your open orders stay.',
     action: { label: 'Confirm email', href: '/uc/account' },
   },
+  signInMismatch: {
+    title: 'Those details did not work',
+    body: 'The email or handle and the password do not match an account. Check both and try again.',
+  },
+  tooManyTries: { title: 'Too many tries', body: 'This account is paused for new tries for a few minutes. Wait, then try again.' },
   mfaRequired: {
     title: 'Confirm it is you',
     body: 'Sign in again with your passkey or authenticator code to change this.',
