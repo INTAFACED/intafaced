@@ -35,7 +35,7 @@ describe('P-ads-merchant-01 ad create rules', () => {
   it('idempotency key is stable per user and client request', () => {
     expect(offerCreateIdempotencyKey('u1', 'r1')).toBe('p2p:offer-create:u1:r1');
     expect(offerCreateIdempotencyKey('u1', 'r1')).toBe(offerCreateIdempotencyKey(' u1', 'r1 '));
-    expect(() => offerCreateIdempotencyKey('', 'r1')).toThrow(TypeError);
+    expect(code(() => offerCreateIdempotencyKey('', 'r1'))).toBe('p2p.invalid_input');
   });
 
   it('total above available refuses p2p.insufficient_balance with the available decimal', () => {
@@ -53,6 +53,41 @@ describe('P-ads-merchant-01 ad create rules', () => {
   it('unreadable balance fails closed', () => {
     for (const a of [null, undefined, '', '-1', '1e3', 'NaN'])
       expect(code(() => assertAdvisoryBalance('1', a))).toBe('p2p.insufficient_balance');
-    expect(code(() => assertAdvisoryBalance('abc', '10'))).toBe('p2p.insufficient_balance');
+    expect(code(() => assertAdvisoryBalance('1', 'abc'))).toBe('p2p.insufficient_balance');
+  });
+
+  it('m1: zero total refuses p2p.invalid_input', () => {
+    for (const t of ['0', '0.0', '00', '0.000000000000000000'])
+      expect(code(() => assertAdvisoryBalance(t, '10'))).toBe('p2p.invalid_input');
+  });
+
+  it('m3: non-string inputs refuse with typed AdCreateTermsError, never TypeError', () => {
+    for (const bad of [1, null, undefined, {}, [], true]) {
+      expect(code(() => offerCreateIdempotencyKey(bad as never, 'r1'))).toBe('p2p.invalid_input');
+      expect(code(() => offerCreateIdempotencyKey('u1', bad as never))).toBe('p2p.invalid_input');
+      expect(code(() => assertTermsAccepted({ published: 'v2', requested: bad as never, acceptedVersions: ['v2'] }))).toBe(
+        'p2p.invalid_input',
+      );
+      expect(code(() => assertAdvisoryBalance(bad as never, '10'))).toBe('p2p.invalid_input');
+    }
+  });
+
+  it('m4: overflow, too many decimals, whitespace, unicode digits, Infinity all refuse', () => {
+    const cases = [
+      ['overflow', '9'.repeat(400)],
+      ['too many decimals', '1.' + '1'.repeat(19)],
+      ['leading space', ' 1'],
+      ['trailing space', '1 '],
+      ['inner space', '1 0'],
+      ['arabic-indic digits', '\u0661\u0662'],
+      ['fullwidth digits', '\uFF11\uFF12'],
+      ['Infinity', 'Infinity'],
+      ['-Infinity', '-Infinity'],
+    ] as const;
+    for (const [, t] of cases) {
+      expect(['p2p.invalid_input', 'p2p.insufficient_balance']).toContain(code(() => assertAdvisoryBalance(t, '1' + '0'.repeat(500))));
+    }
+    expect(code(() => assertAdvisoryBalance('1', '9'.repeat(400)))).toBe('p2p.insufficient_balance');
+    expect(code(() => assertAdvisoryBalance('1', '1.' + '1'.repeat(19)))).toBe('p2p.insufficient_balance');
   });
 });
