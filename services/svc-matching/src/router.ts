@@ -1448,7 +1448,9 @@ export function registerRoutes(
     }
 
     const { marketId } = req.params as { marketId: string };
-    if (typeof engine.hasMarket !== 'function' || !engine.hasMarket(marketId)) {
+    // An opened market with no orders yet is a real, empty queue, as on /depth.
+    const known = (typeof engine.hasMarket === 'function' && engine.hasMarket(marketId)) || engine.isListed?.(marketId) === true;
+    if (!known) {
       return reply.code(404).send({ code: 'MarketNotFound', message: userCopy('matching.market_not_found') });
     }
 

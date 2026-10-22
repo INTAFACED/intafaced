@@ -942,6 +942,29 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
+      {preview.feeRole ? (
+        <div>
+          <dt>{t('Review fee role')}</dt>
+          <dd>
+            {preview.feeRole === 'maker'
+              ? t('Review fee role maker')
+              : // Taker is the server's worst case for an order that can rest (as the fee line's "up to" says): only an
+                // order that never rests is surely a taker.
+                draft.type === 'market' || tifOfDraft(draft) === 'IOC' || tifOfDraft(draft) === 'FOK'
+                ? t('Review fee role taker')
+                : t('Review fee role either')}
+          </dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>{t('Review client id')}</dt>
+        <dd>
+          {/* The end of the client order id (draft hash and mint); the rest is the account, which the person knows. */}
+          <span className="if-num">{draft.clientOrderId.split(':').at(-1)}</span>
+          <br />
+          {t('Review client id note')}
+        </dd>
+      </div>
       {exitFeeLines(preview).map((line) => (
         <div key={line.leg}>
           <dt>{line.leg === 'takeProfit' ? t('Review take profit fee') : t('Review stop loss fee')}</dt>
