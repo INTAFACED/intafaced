@@ -164,10 +164,17 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
     taxEffects: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({}).strict())
       .output(taxEffectMapSchema)
-      .query(() => ({
-        rows: TAX_EFFECT_MAP.map((row) => ({ ...row })),
-        unmappedCode: TAX_EFFECT_UNMAPPED,
-      })),
+      .query(() => {
+        // Which line is taxable is an owner and counsel call. While no row is live (every row carries a blocker),
+        // the map is unset: refuse rather than serve a map that answers nothing.
+        if (!TAX_EFFECT_MAP.some((row) => row.blocker === null)) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'The tax effect of each kind of line is not set (portfolio.tax_effect_map_unset)',
+          });
+        }
+        return { rows: TAX_EFFECT_MAP.map((row) => ({ ...row })), unmappedCode: TAX_EFFECT_UNMAPPED };
+      }),
 
     note: router({
       set: scopedProcedure('bank:write', { module: 'bank' })

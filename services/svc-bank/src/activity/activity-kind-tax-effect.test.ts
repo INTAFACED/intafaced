@@ -3,7 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, TAX_EFFECT_TYPES } from '@intafaced/contracts';
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
-import { TAX_EFFECT_MAP, classifyTaxEffect } from './activity-kind.js';
+import { TAX_EFFECT_MAP, TAX_EFFECT_OWNER_DECISION_BLOCKER, classifyTaxEffect, classifyTaxEffectWith } from './activity-kind.js';
 import { ActivityService, type LedgerHistoryPages, type LedgerPageEntry } from './activity-service.js';
 import { formatAmount, parseAmount, recipes, type PostRequest } from '@intafaced/ledger-client';
 
@@ -109,11 +109,32 @@ describe('tax effect on feed lines (bank.activity.list / get)', () => {
     expect(line(items, 'tx-p2p-refund').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
   });
 
-  it('the buyer leg of a real escrowRelease is the p2p_purchase acquisition, naming its source', async () => {
+  it('p2p_purchase is BLOCKED on an owner decision: the buyer leg of a real escrowRelease is unmapped', async () => {
     const { items } = await service().list(ALICE, {});
     const buy = line(items, 'tx-p2p-buy');
     expect(buy).toHaveLength(1);
-    expect(buy[0]!.taxEffect).toEqual({ type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release' });
+    expect(buy[0]!.taxEffect).toEqual(UNMAPPED);
+    expect(TAX_EFFECT_MAP.find((row) => row.type === 'p2p_purchase')).toMatchObject({
+      sourceEvent: 'p2p/p2p.escrow.release',
+      blocker: TAX_EFFECT_OWNER_DECISION_BLOCKER,
+    });
+  });
+
+  it('no row is live without an owner decision: every map row names a blocker', () => {
+    expect(TAX_EFFECT_MAP.every((row) => typeof row.blocker === 'string' && row.blocker.length > 0)).toBe(true);
+  });
+
+  it('once a row is live, only the exact event AND the user leg side match; the credit side of the same event is unmapped', () => {
+    const live = TAX_EFFECT_MAP.map((row) => (row.type === 'p2p_purchase' ? { ...row, blocker: null } : row));
+    const release = { module: 'p2p', reason: 'p2p.escrow.release' };
+    expect(classifyTaxEffectWith(live, { ...release, direction: 'debit' })).toEqual({
+      type: 'p2p_purchase',
+      effect: 'acquisition',
+      sourceEvent: 'p2p/p2p.escrow.release',
+    });
+    expect(classifyTaxEffectWith(live, { ...release, direction: 'credit' })).toEqual(UNMAPPED);
+    expect(classifyTaxEffectWith(live, { module: 'p2p', reason: 'p2p.escrow.refund', direction: 'debit' })).toEqual(UNMAPPED);
+    expect(classifyTaxEffectWith(live, { module: 'p2p2', reason: 'p2p.escrow.release', direction: 'debit' })).toEqual(UNMAPPED);
   });
 
   it('card_spend is BLOCKED: the commitHold shape arrives with the rail dropped, capture is off the feed, and hold or void are never taxable', async () => {
@@ -132,12 +153,10 @@ describe('tax effect on feed lines (bank.activity.list / get)', () => {
     expect(items.some((i) => 'type' in i.taxEffect && (i.taxEffect.type === 'card_spend' || i.taxEffect.type === 'p2p_sale'))).toBe(false);
   });
 
-  it('a staking reward from the real rewardPay is income at receipt', async () => {
+  it('staking_reward is BLOCKED on an owner decision: a real rewardPay line is unmapped', async () => {
     const { items } = await service().list(ALICE, {});
     const reward = line(items, 'tx-stake-reward');
-    expect(reward.map((i) => i.taxEffect)).toEqual([
-      { type: 'staking_reward', effect: 'income', sourceEvent: 'token/token.yield.distributed' },
-    ]);
+    expect(reward.map((i) => i.taxEffect)).toEqual([UNMAPPED]);
   });
 
   it('a reason with no row is portfolio.tax_effect_unmapped and carries no effect', async () => {
@@ -198,10 +217,13 @@ describe('over the router', () => {
     );
   }
 
-  it('taxEffects serves the map: five rows, mining blocked, and the unmapped code', async () => {
-    const out = await caller(['bank:read']).activity.taxEffects({});
-    expect(out.unmappedCode).toBe('portfolio.tax_effect_unmapped');
-    expect(out.rows.map((row) => [row.type, row.effect, row.sourceEvent])).toEqual([
+  it('taxEffects refuses portfolio.tax_effect_map_unset while every row is blocked (no owner decision)', async () => {
+    await expect(caller(['bank:read']).activity.taxEffects({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('portfolio.tax_effect_map_unset'),
+    });
+    expect(TAX_EFFECT_MAP.every((row) => row.blocker !== null)).toBe(true);
+    expect(TAX_EFFECT_MAP.map((row) => [row.type, row.effect, row.sourceEvent])).toEqual([
       ['p2p_sale', 'disposal', null],
       ['p2p_purchase', 'acquisition', 'p2p/p2p.escrow.release'],
       ['card_spend', 'disposal', null],
@@ -212,11 +234,7 @@ describe('over the router', () => {
 
   it('list rows carry taxEffect through the output schema', async () => {
     const out = await caller(['bank:read']).activity.list({});
-    expect(out.items.find((i) => i.txId === 'tx-p2p-buy')?.taxEffect).toEqual({
-      type: 'p2p_purchase',
-      effect: 'acquisition',
-      sourceEvent: 'p2p/p2p.escrow.release',
-    });
+    expect(out.items.find((i) => i.txId === 'tx-p2p-buy')?.taxEffect).toEqual(UNMAPPED);
     expect(out.items.find((i) => i.txId === 'tx-unknown')?.taxEffect).toEqual(UNMAPPED);
   });
 

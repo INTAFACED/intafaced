@@ -131,10 +131,11 @@ describe('over the router', () => {
     );
   }
 
-  it('serves the tax-effect map instead of refusing (RC-portfolio-02)', async () => {
-    const out = await caller({ activity: service() }).activity.taxEffects({});
-    expect(out.unmappedCode).toBe('portfolio.tax_effect_unmapped');
-    expect(out.rows).toHaveLength(5);
+  it('refuses the tax-effect view while the owner has not set the effect of each kind', async () => {
+    await expect(caller({ activity: service() }).activity.taxEffects({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('portfolio.tax_effect_map_unset'),
+    });
   });
 
   it('takes a description alone, and refuses a write with neither a note nor a description', async () => {
