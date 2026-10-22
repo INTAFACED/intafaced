@@ -10,7 +10,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import { parseCopyFollowTier, type CopyFollowTier } from './copy-service.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
-import type { ReadIdentityTierPort } from './identity-tier.js';
+import { createIdentityTierReader, type ReadIdentityTierPort } from './identity-tier.js';
 
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
 const LEADER = '00000000-0000-4000-8000-000000000002';
@@ -100,8 +100,20 @@ describe('CB-copy-03 who may follow', () => {
   });
 
   it('identity read not wired refuses trade.identity_unavailable', async () => {
-    const { svc } = make({});
+    const { store, svc } = make({});
     await expect(svc.follow(principal(), input)).rejects.toMatchObject({ code: 'trade.identity_unavailable' });
+    expect(await store.listFollowsByFollower(FOLLOWER)).toEqual([]);
+  });
+
+  it('real identity reader on a failing fetch refuses trade.identity_unavailable, no row written', async () => {
+    const read = createIdentityTierReader(
+      { url: 'http://identity.test', serviceSecret: 'x'.repeat(32) },
+      (async () => new Response('down', { status: 503 })) as typeof fetch,
+    );
+    expect(read).toBeDefined();
+    const { store, svc } = make({ read });
+    await expect(svc.follow(principal(), input)).rejects.toMatchObject({ code: 'trade.identity_unavailable' });
+    expect(await store.listFollowsByFollower(FOLLOWER)).toEqual([]);
   });
 
   it('identity tier at the floor creates exactly one follow', async () => {

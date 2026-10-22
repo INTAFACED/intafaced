@@ -307,6 +307,11 @@ const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
 const copyFollowTier = parseCopyFollowTier(env.TRADE_COPY_FOLLOW_TIER);
+const copyIdentityTier = createIdentityTierReader({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, s2s: outS2s });
+if (!copyIdentityTier) {
+  // Bad IDENTITY_URL or INTERNAL_SERVICE_SECRET: every copy follow refuses trade.identity_unavailable.
+  process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.copy.identity_tier_reader_unconfigured' })}\n`);
+}
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -332,7 +337,7 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
   followTier: copyFollowTier,
-  readIdentityTier: createIdentityTierReader({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, s2s: outS2s }),
+  readIdentityTier: copyIdentityTier,
   store: copyStore,
   directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,
