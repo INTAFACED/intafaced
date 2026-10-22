@@ -37,11 +37,13 @@ jobs:
     name: Real-app journeys
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      LOCAL_STACK_STATE: ${{ runner.temp }}/stack-state
-      LOCAL_STACK_NATS_BIN: ${{ runner.temp }}/nats-server
-      JOURNEY_REPORT: ${{ runner.temp }}/journeys/report.json
     steps:
+      # The runner context is not allowed in a job's env, so the paths under the runner's temp folder are set here.
+      - name: Paths
+        run: |
+          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the scoreboard counts merged slice PRs from history
