@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError, type OrderSide } from '../spot/types.js';
 import { acceptableForAlgo, algoMarkMissing, withinPriceBand, type AlgoMarkPolicy, DEFAULT_ALGO_MARK_POLICY } from './mark-gate.js';
@@ -29,6 +30,23 @@ import type {
  */
 
 /** haltReason when cancel partially failed — resume refused until re-cancel. */
+
+/**
+ * Parent id for one user's `clientAlgoId` (SP-conditional-algo-03, ENGINE D-5).
+ * The whole user id goes into the hash, so two users whose ids share a prefix
+ * never get the same parent. A fixed-length id keeps the child client order id
+ * `algo:<parentId>:<slice>` inside the 64-character order limit for any
+ * `clientAlgoId` the create door accepts (up to 48 characters).
+ */
+export function algoParentId(userId: string, clientAlgoId: string): string {
+  return `algo-${createHash('sha256').update(`${userId}\n${clientAlgoId.trim()}`).digest('hex').slice(0, 32)}`;
+}
+
+/** The id formula before SP-conditional-algo-03 (8-character user prefix). Only read, to replay parents created before it. */
+export function legacyAlgoParentId(userId: string, clientAlgoId: string): string {
+  return `algo-${userId.slice(0, 8)}-${clientAlgoId.trim()}`;
+}
+
 export const CANCEL_INCOMPLETE_HALT = 'cancel_incomplete';
 
 export interface PlaceChildRequest {
@@ -195,7 +213,7 @@ export class TwapEngine {
     }
 
     const now = this.ports.now();
-    const id = `algo-${userId.slice(0, 8)}-${clientAlgoId}`;
+    const id = algoParentId(userId, clientAlgoId);
 
     if (this.parents.has(id)) {
       throw new TradeError(`algo id ${id} already exists`, 'trade.algo_duplicate_id');

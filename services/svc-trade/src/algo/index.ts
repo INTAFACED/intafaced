@@ -4,6 +4,8 @@
  */
 export {
   TwapEngine,
+  algoParentId,
+  legacyAlgoParentId,
   projectTwapEndsAt,
   type TwapEnginePorts,
   type PlaceChildRequest,

@@ -149,6 +149,8 @@ import {
   type AuthAttribution,
 } from './auth-attribution.js';
 import {
+  algoParentId,
+  legacyAlgoParentId,
   presentAlgoProgress,
   SqlTwapParentStore,
   TwapEngine,
@@ -5430,18 +5432,24 @@ export class TradeService {
   }
 
   /**
-   * Same id formula as `TwapEngine.prepare`. Returns the caller's stored parent
+   * Same id formula as `TwapEngine.prepare` (`algoParentId`). Returns the caller's stored parent
    * when this clientAlgoId was already admitted. A foreign row is not returned.
    */
   private async replayStoredAlgo(userId: string, clientAlgoId: string | undefined): Promise<TwapParent | null> {
     const trimmed = clientAlgoId?.trim();
     if (!trimmed) return null;
-    const id = `algo-${userId.slice(0, 8)}-${trimmed}`;
-    const live = this.algo.get(id);
-    if (live) return live.userId === userId ? live : null;
-    const stored = await this.algoStore.load(id);
-    if (!stored || stored.parent.userId !== userId) return null;
-    return stored.parent;
+    // The current id first, then the pre-SP-conditional-algo-03 id so a retry of a
+    // create made before the change still returns its parent. Only the caller's own row.
+    for (const id of [algoParentId(userId, trimmed), legacyAlgoParentId(userId, trimmed)]) {
+      const live = this.algo.get(id);
+      if (live) {
+        if (live.userId === userId) return live;
+        continue;
+      }
+      const stored = await this.algoStore.load(id);
+      if (stored && stored.parent.userId === userId) return stored.parent;
+    }
+    return null;
   }
 
   /**
