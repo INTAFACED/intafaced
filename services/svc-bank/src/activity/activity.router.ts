@@ -5,6 +5,7 @@ import { throwBankProcedure } from '../bank-procedure.js';
 import { BankError } from '../errors.js';
 import { ActivityCursorInvalidError } from './activity-cursor.js';
 import { ACTIVITY_KINDS } from './activity-kind.js';
+import { TAX_EFFECT_MAP, TAX_EFFECT_TYPES, TAX_EFFECTS } from './activity-tax-effect.js';
 import {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
@@ -173,6 +174,32 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
           activityFailure(err);
         }
       }),
+
+    /**
+     * RC-portfolio-02: which ledger posting is a P2P sale or purchase, a card spend, a mining payout or a staking
+     * reward, and its effect. Labels only, read from the ledger's own reasons; no rates, no amounts, no user data.
+     */
+    taxEffectMap: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({}).strict())
+      .output(
+        z.object({
+          rows: z.array(
+            z.object({
+              type: z.enum(TAX_EFFECT_TYPES),
+              effect: z.enum(TAX_EFFECTS),
+              sourceEvent: z.string().nullable(),
+              direction: z.enum(['debit', 'credit']).nullable(),
+              rails: z.array(z.string()).nullable(),
+              blocker: z.string().nullable(),
+            }),
+          ),
+          unmappedCode: z.literal('portfolio.tax_effect_unmapped'),
+        }),
+      )
+      .query(() => ({
+        rows: TAX_EFFECT_MAP.map((row) => ({ ...row, rails: row.rails === null ? null : [...row.rails] })),
+        unmappedCode: 'portfolio.tax_effect_unmapped' as const,
+      })),
 
     note: router({
       set: scopedProcedure('bank:write', { module: 'bank' })
