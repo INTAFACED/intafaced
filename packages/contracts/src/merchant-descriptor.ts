@@ -6,7 +6,9 @@ import { z } from 'zod';
  *
  * Rules taken from the cited source (stripe-account-settings-020, docs.stripe.com statement descriptors):
  * 5 to 22 characters, Latin letters, digits, spaces and basic punctuation, at least one letter, none of `< > \ ' " *`.
- * They are a source reference recorded for the owner, not an owner decision; the owner confirms them in the PR.
+ * OPEN OWNER DECISION: the length limits and character set below are copied from that source, not set by the owner.
+ * The owner's values must be recorded in the PR before merge; until then these are the cited source's values.
+ * The character set is narrowed to letters, digits, space and `. , - &` (the source's "basic punctuation").
  */
 export const MERCHANT_DESCRIPTOR_INVALID = 'merchant.descriptor_invalid' as const;
 export const MERCHANT_DESCRIPTOR_MIN_LENGTH = 5;
@@ -14,7 +16,7 @@ export const MERCHANT_DESCRIPTOR_MAX_LENGTH = 22;
 
 export type MerchantDescriptorProblem = 'too_short' | 'too_long' | 'banned_character' | 'no_letter' | 'edge_whitespace';
 
-const ALLOWED = /^[A-Za-z0-9 .,\-&#/()+:;!?@_%$]*$/;
+const ALLOWED = /^[A-Za-z0-9 .,\-&]*$/;
 
 /** Returns the first problem, or null when the descriptor is valid. Exact characters, no trimming. */
 export function merchantDescriptorProblem(value: string): MerchantDescriptorProblem | null {
