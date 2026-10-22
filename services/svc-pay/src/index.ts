@@ -58,6 +58,8 @@ import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
 import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
+import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
@@ -766,6 +768,14 @@ registerPayStepUpGrantRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+/** svc-identity's sign-in read of the owner's team-wide require-MFA rule (M-plat-org-06). */
+registerMerchantMfaRuleRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  read: (userId) => mfaRuleForUser(sql, userId),
 });
 
 registerRestoreWatermarkRoute(app, {

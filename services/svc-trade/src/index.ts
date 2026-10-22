@@ -86,6 +86,8 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
 import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
+import { currentRiskForMarkets } from './admin/risk.js';
+import { presentPairRisk } from './spot/pair-rules.js';
 import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
@@ -732,6 +734,14 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  pairRiskForMarkets: async (markets) => {
+    const risks = await currentRiskForMarkets(
+      sql,
+      markets.map((m) => m.id),
+    );
+    return new Map(markets.map((m) => [m.id, presentPairRisk(m, risks.get(m.id) ?? null, env.TRADE_MARKET_SLIPPAGE_CAP_BPS)]));
+  },
+  onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;

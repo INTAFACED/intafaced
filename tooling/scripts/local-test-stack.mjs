@@ -220,6 +220,7 @@ const SECRET_NAMES = [
   'payCryptoWebhook',
   'payCardWebhook',
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
+  'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
 ];
 
 function loadOrCreateSecrets() {
@@ -803,6 +804,18 @@ function serviceDefs(secrets) {
         IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
         IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
         IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
+        // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
+        // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
+        // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
+        // journey can show the per-country switch refusing; it says nothing about any real country.
+        IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
+        IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
+        IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
+        IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
+        IDENTITY_SIGNUP_RESEND_SECONDS: '30',
+        IDENTITY_SIGNUP_REQUEST_MAX: '10',
+        IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
+        IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from

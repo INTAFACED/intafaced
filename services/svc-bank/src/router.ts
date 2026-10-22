@@ -53,6 +53,7 @@ import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from './ops/customer-balances.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
+import { authorizationGetProcedure } from './ops/authorization-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
@@ -314,6 +315,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_product_not_found':
       case 'bank.personal_transfer_not_found':
       case 'bank.ops_transfer_not_found':
+      case 'bank.ops_authorization_not_found':
       case 'bank.personal_request_not_found':
       case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
@@ -3411,6 +3413,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
+    /** BK-cops-01: one card authorisation for a compliance operator. Read-only. */
+    authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
@@ -4720,6 +4724,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
     spaces,
     transfers,
+    /**
+     * PP-money-balance-04: the published personal-send fee schedule. No rows → `published: false`
+     * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
+     */
+    fees: router({
+      schedule: router({
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({
+              published: z.boolean(),
+              entries: z.array(
+                z.object({
+                  assetId: z.string(),
+                  fee: amountString,
+                  free: z.boolean(),
+                  feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
+                  publishedAt: z.string(),
+                }),
+              ),
+            }),
+          )
+          .query(() => guard(() => bank.personalPay.feeSchedule())),
+      }),
+    }),
     earn,
     loans,
     cards,

@@ -858,7 +858,7 @@ describe('auth.register optional referrerId', () => {
   const REFERRER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   it('records the client address on the session, not the request id', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
     await requestIpAls.run('203.0.113.10', () =>
       api.auth.register({
         handle: 'newbie',
@@ -871,7 +871,7 @@ describe('auth.register optional referrerId', () => {
   });
 
   it('leaves the session address empty when no client address was seen', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
     await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -890,7 +890,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     const session = await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -909,7 +911,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -927,7 +931,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     const err = await api.auth
       .register({
         handle: 'newbie',

@@ -5,7 +5,17 @@ export type RefusalReason =
   'unauthorized' | 'forbidden' | 'not_mounted' | 'not_supported' | 'unreachable' | 'invalid_response' | 'aborted' | 'error' | 'uncertain';
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number; requestId?: string };
+  | {
+      ok: false;
+      reason: RefusalReason;
+      message: string;
+      messageCopy?: UiMessage;
+      code?: string;
+      status?: number;
+      requestId?: string;
+      /** Only on `auth.too_many_attempts`: whole seconds until a retry can help, as the service sent it. */
+      retryAfterSeconds?: number;
+    };
 export type RequestOptions = {
   signal?: AbortSignal;
   /**
@@ -53,6 +63,7 @@ const errorEnvelope = z
                 code: z.string().optional(),
                 intafacedCode: z.string().optional(),
                 requestId: z.string().optional(),
+                retryAfterSeconds: z.number().int().positive().optional(),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -199,6 +210,7 @@ export function createApiClient(
             : { ok: false as const, reason, message, status: response.status }),
           ...(code ? { code } : {}),
           ...(requestId ? { requestId } : {}),
+          ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);
