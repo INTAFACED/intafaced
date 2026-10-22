@@ -12,7 +12,7 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution) · svc-edge · a small Customer
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
  *   static server + reverse proxy on http://127.0.0.1:3210
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -105,6 +105,7 @@ const PORTS = {
   blueprint: 14514,
   quant: 14515,
   execution: 14516,
+  tax: 14517,
   customer: 3210,
 };
 const HOST = '127.0.0.1';
@@ -454,6 +455,7 @@ const BACKEND_PKGS = [
   'svc-blueprint',
   'svc-quant',
   'svc-execution',
+  'svc-tax',
 ];
 
 function gitHead() {
@@ -699,6 +701,7 @@ const EDGE_UPSTREAMS = {
   MARKET_URL: 'market',
   EXECUTION_URL: 'execution',
   QUANT_URL: 'quant',
+  TAX_URL: 'tax',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -708,7 +711,6 @@ const EDGE_ABSENT = {
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
-  TAX_URL: 'Tax reporting; the Customer app never calls /api/tax.',
   OPS_URL: 'Back-office CRM and analytics for operators; not a customer door.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
@@ -1010,6 +1012,12 @@ function serviceDefs(secrets) {
         EXECUTION_EMS_STORE_PATH: path.join(P.data, 'execution', 'ems-orders.ndjson'),
         // EXECUTION_VENUE_IDS empty: no outside venue, so nothing can route off-platform.
       }),
+    },
+    {
+      // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
+      // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
+      name: 'tax',
+      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
     },
     {
       name: 'edge',

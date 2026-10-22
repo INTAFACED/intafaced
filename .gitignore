@@ -87,3 +87,7 @@ __pycache__/
 /.graphify/
 /.agents/skills/graphify/
 /.cursor/rules/graphify.mdc
+
+# Private business files (audits, investor material) live in the private project-state repo, never in this public one.
+/audit/
+/docs/investor-product-audit-*/

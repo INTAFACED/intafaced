@@ -28,6 +28,7 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
+import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
@@ -53,6 +54,9 @@ function toTrpcError(err: unknown): TRPCError {
   }
   if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
     return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
+  if (err instanceof LedgerError && isWriteBlockCode(err.code)) {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.code, cause: err });
   }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });

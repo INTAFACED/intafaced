@@ -8,6 +8,7 @@
  * `bankTransfer` has no fee leg, and a second post could succeed without the
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
+import { grantedLimits } from './limit-requests.js';
 import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
@@ -330,16 +331,20 @@ export class PersonalPayService {
     }
     const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
     const fee = parseAmount(terms.fee);
+    // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
+    const grants = await grantedLimits(this.sql, actorUserId, assetId);
+    const per = grants.perTransfer ?? parseAmount(terms.per_transfer_limit);
+    const daily = grants.daily ?? parseAmount(terms.daily_limit);
     return {
       assetId,
       amount: formatAmount(amount),
-      perTransferLimit: formatAmount(parseAmount(terms.per_transfer_limit)),
-      dailyLimit: formatAmount(parseAmount(terms.daily_limit)),
+      perTransferLimit: formatAmount(per),
+      dailyLimit: formatAmount(daily),
       spentToday: formatAmount(spent),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
-      withinPerTransfer: amount <= parseAmount(terms.per_transfer_limit),
-      withinDaily: spent + amount <= parseAmount(terms.daily_limit),
+      withinPerTransfer: amount <= per,
+      withinDaily: spent + amount <= daily,
     };
   }
 
@@ -681,7 +686,8 @@ export class PersonalPayService {
         'bank.personal_transfer_fee_unwired',
       );
     }
-    const per = parseAmount(terms.per_transfer_limit);
+    const grants = await grantedLimits(tx, userId, assetId);
+    const per = grants.perTransfer ?? parseAmount(terms.per_transfer_limit);
     if (amount > per) {
       throw new BankError(
         `Amount is above the per-transfer limit of ${formatAmount(per)} ${assetId} (bank.personal_transfer_limit_exceeded)`,
@@ -689,7 +695,7 @@ export class PersonalPayService {
       );
     }
     const spent = await this.spentToday(tx, userId, assetId, utcDayStart(now));
-    const daily = parseAmount(terms.daily_limit);
+    const daily = grants.daily ?? parseAmount(terms.daily_limit);
     if (spent + amount > daily) {
       throw new BankError(
         `Amount would pass the daily limit of ${formatAmount(daily)} ${assetId} (bank.personal_transfer_daily_limit_exceeded)`,

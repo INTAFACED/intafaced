@@ -135,6 +135,30 @@ export const RECIPE_MATRIX = {
   businessApprovalSettle: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   businessPayroll: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   subAccountTransfer: { kind: 'live', module: 'identity', proof: 'services/svc-identity/src/router.ts' },
+  payReceivedHold: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): recipient available into a pot of its own per hold. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  payReceivedRelease: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): held funds back to the recipient at the release date or early by an agent. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  payReceivedReturn: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): held funds to the payer on a ruling. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  bankTransferReversal: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',
