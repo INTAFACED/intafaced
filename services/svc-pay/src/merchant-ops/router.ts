@@ -237,6 +237,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         send: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.send(await callerOf(ctx), input))),
+        /** M-bill-07: copy a draft into a new draft (same lines, no link, payer email not copied). */
+        duplicate: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.duplicate(await callerOf(ctx), input))),
         void: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
