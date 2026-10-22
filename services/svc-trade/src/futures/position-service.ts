@@ -430,6 +430,7 @@ export class PositionService {
       assertPositionIdle: (positionId) => this.sql.begin((tx) => this.assertLiquidationHold(tx, positionId, 'close')),
       lifecycleProof: matchedOrders?.lifecycleProof ?? null,
       assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
+      ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
     });

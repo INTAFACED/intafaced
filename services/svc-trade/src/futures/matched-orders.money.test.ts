@@ -181,6 +181,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       assertPositionIdle: async () => undefined,
       lifecycleProof: async () => PROOF,
       admission,
+      emailProof: { get: async () => 'accepted' },
       ...overrides,
     });
   }
@@ -277,6 +278,15 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await expect(
         svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'off-1' })),
       ).rejects.toMatchObject({ code: 'trade.futures_matching_disabled' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+    });
+
+    it('an account that has not proved its email is refused before any hold, like every other new order', async () => {
+      const svc = build({ emailProof: { get: async () => 'missing' } });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'no-email' })),
+      ).rejects.toMatchObject({ code: 'trade.email_proof_required' });
       expect(engine.submits).toHaveLength(0);
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
     });
@@ -1114,6 +1124,14 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await expect(svc.ownsFill({ makerOrderId: a.orderId, takerOrderId: randomUUID() })).rejects.toMatchObject({
         code: 'trade.futures_fill_crosses_order_paths',
       });
+    });
+
+    it('a spot OCO leg id (<parent>:tp, <parent>:sl) is not ours and does not reach the uuid column', async () => {
+      const svc = build();
+      const parent = randomUUID();
+      expect(await svc.ownsFill({ makerOrderId: `${parent}:tp`, takerOrderId: randomUUID() })).toBe(false);
+      expect(await svc.ownsFill({ makerOrderId: `${parent}:sl`, takerOrderId: `${randomUUID()}:tp` })).toBe(false);
+      expect(await svc.releaseEngineCancellation(`${parent}:sl`, '1')).toBe(false);
     });
 
     it('a resting order whose limit leaves the band around the new mark is cancelled and its hold returned', async () => {

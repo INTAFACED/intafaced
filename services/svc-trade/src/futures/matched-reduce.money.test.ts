@@ -174,6 +174,7 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       assertPositionIdle: async () => undefined,
       lifecycleProof: async () => PROOF,
       admission,
+      emailProof: { get: async () => 'accepted' },
       ...overrides,
     });
   }

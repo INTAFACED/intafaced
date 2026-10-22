@@ -1,5 +1,5 @@
 -- trade.futures_orders and trade.futures_order_fills · futures orders placed through svc-matching (futures ADR slice 6)
--- Reversal: 0081_futures_matched_orders.down.sql
+-- Reversal: 0095_futures_matched_orders.down.sql
 --
 -- docs/adr/2026-10-20-futures-matched-traders.md sections 1, 2 and 8. A row in trade.futures_orders is the
 -- ORDER's margin book: the order's terms (the hold it locked is computed from them, never stored as a figure of

@@ -287,6 +287,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       assertPositionIdle: async () => undefined,
       lifecycleProof: async () => PROOF,
       admission,
+      emailProof: { get: async () => 'accepted' },
       ...overrides,
     });
   }

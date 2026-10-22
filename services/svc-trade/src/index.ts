@@ -267,10 +267,6 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
-// Holds the futures fill sink until PositionService exists below. Fills arriving before it is set settle as spot,
-// which is correct: no futures order can have been placed before the process that places them is running.
-const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: null };
-const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
 const venueMarkSymbols = parseVenueMarkSymbols(env.TRADE_VENUE_MARK_SYMBOLS);
 const otcVenueSymbols = parseVenueMarkSymbols(env.TRADE_OTC_VENUE_SYMBOLS);
@@ -545,8 +541,11 @@ const positions = new PositionService(sql, ledger, {
     }
   },
 });
-// Matched futures fills settle into the position book this service owns (futures ADR slice 6).
-matchedFuturesFills.current = positions.matchedFills;
+// Matched futures fills settle into the position book this service owns (futures ADR slice 6). The matching events
+// are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
+// earlier process must reach the futures path, never fall through to spot (which ignores an order it does not know).
+const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting

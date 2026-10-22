@@ -1,5 +1,5 @@
 -- trade.futures_orders and trade.futures_order_fills · reduce-only futures orders through svc-matching (futures ADR slice 6b)
--- Reversal: 0084_futures_reduce_only_orders.down.sql
+-- Reversal: 0096_futures_reduce_only_orders.down.sql
 --
 -- docs/adr/2026-10-20-futures-matched-traders.md sections 1, 3 and 4. A reduce-only order names the open isolated
 -- position it shrinks and locks no margin: what it can lose is bounded by that position's bankruptcy price, which

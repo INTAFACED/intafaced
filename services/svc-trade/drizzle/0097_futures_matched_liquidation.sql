@@ -1,5 +1,5 @@
 -- trade.liquidation_rungs and trade.futures_orders · liquidation by a reduce-only IOC in the book (futures ADR slice 7)
--- Reversal: 0085_futures_matched_liquidation.down.sql
+-- Reversal: 0097_futures_matched_liquidation.down.sql
 --
 -- docs/adr/2026-10-20-futures-matched-traders.md section 5. While matched orders are on, a liquidation rung no longer
 -- closes its tranche at the mark. It is a rung of kind `matched`: it stays live (and holds the position, exactly as

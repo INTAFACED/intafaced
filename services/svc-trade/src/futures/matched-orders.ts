@@ -104,6 +104,7 @@ import {
   type PositionSide,
   type PriceBand,
 } from './matched-order-plan.js';
+import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 
 /** A refusal with a typed code. Shaped like `FuturesError` so the edge can map it the same way. */
 export class MatchedOrderError extends Error {
@@ -236,6 +237,8 @@ export interface MatchedOrdersDeps {
    * deployment wires none (tests); production always wires it, and with nothing published it refuses every order.
    */
   readonly assertDerivativesAccess?: DerivativesAccessGate | null;
+  /** The same email-proof gate as every other new order (RC-identity-01). Absent refuses an opening order. */
+  readonly emailProof?: EmailProofSource;
   /** The PX-S01 lifecycle proof for a PLACE on this market. Null is unset, and refuses. */
   readonly lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
   readonly admission?: TradingAdmissionPort;
@@ -324,6 +327,14 @@ interface MarketRow {
 }
 
 const ORDER_TERMINAL = ['filled', 'cancelled', 'rejected'] as const;
+
+/**
+ * A matched futures order id is a uuid. The engine also names orders that are not (spot OCO legs are
+ * `<parentId>:tp` and `<parentId>:sl`), and comparing one of those with the uuid column fails in Postgres (22P02)
+ * before the spot path runs, so the routing lookups only ask about ids that can be ours.
+ */
+const ORDER_ID_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const mayBeMatchedOrderId = (id: string): boolean => ORDER_ID_UUID.test(id);
 /** States in which the order may still be live at the engine, so a cancel must ask it. */
 const LIVE_OR_UNKNOWN = ['held', 'submitting', 'open', 'submit_unknown'] as const;
 
@@ -587,6 +598,7 @@ export class MatchedFuturesOrders {
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
     // agreement or rules version was published meanwhile (the same order as the at-mark open). A reduce-only order
     // is never gated: while matching is on it is the only way to close, and a lapsed acceptance must not trap a position.
+    if (input.reduceOnly !== true) await assertEmailProved(this.deps.emailProof, input.userId);
     if (this.deps.assertDerivativesAccess && input.reduceOnly !== true) {
       await this.deps.assertDerivativesAccess({ userId: input.userId, tier: principal.tier ?? null, region: context.region ?? null });
     }
@@ -2114,6 +2126,7 @@ export class MatchedFuturesOrders {
    * anything that is not one, so the caller can run its own path.
    */
   async releaseEngineCancellation(orderId: string, remainingQty: string): Promise<boolean> {
+    if (!mayBeMatchedOrderId(orderId)) return false;
     const rows = await this.deps.sql<{ status: string }[]>`SELECT status FROM trade.futures_orders WHERE id = ${orderId}`;
     if (!rows[0]) return false;
     await this.markLeftBook(orderId, parseAmount(remainingQty));
@@ -2201,9 +2214,9 @@ export class MatchedFuturesOrders {
    * since each side's money sits in a different kind of hold, so it refuses for an operator rather than settling half.
    */
   async ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean> {
-    const rows = await this.deps.sql<{ id: string }[]>`
-      SELECT id FROM trade.futures_orders WHERE id IN (${fill.makerOrderId}, ${fill.takerOrderId})
-    `;
+    const ids = [fill.makerOrderId, fill.takerOrderId].filter(mayBeMatchedOrderId);
+    const rows =
+      ids.length === 0 ? [] : await this.deps.sql<{ id: string }[]>`SELECT id FROM trade.futures_orders WHERE id IN ${this.deps.sql(ids)}`;
     const known = new Set(rows.map((r) => r.id));
     const maker = known.has(fill.makerOrderId);
     const taker = known.has(fill.takerOrderId);
