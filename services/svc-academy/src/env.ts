@@ -164,6 +164,15 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+
+      /**
+       * AC-roles-01: owner cap on the number of custom course roles. Blank is
+       * unpublished — createCustomRole refuses `academy.role_limit_unset`.
+       */
+      ACADEMY_CUSTOM_ROLE_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1_000)]),
+      ),
     }),
   );
 

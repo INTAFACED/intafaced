@@ -12,6 +12,7 @@ import { createStakeSource } from './stake-source.js';
 import { BusCertXpPublisher, NullCertXpPublisher, type CertXpPublisher } from './certs/xp-publish.js';
 import { streamProviderFromEnv, streamReadyAnswer, type StreamProvider } from './stream/provider.js';
 import { createAcademyRouter, type AcademyRouter } from './router.js';
+import { AcademyRoleStore } from './roles/store.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { videoGateFromEnv, videoStorageFromEnv } from './video/library.js';
 import { createTradePublicPaperFlagPort } from './paper/market-flag-verify.js';
@@ -158,6 +159,7 @@ export const appRouter = createAcademyRouter(
   env.ACADEMY_CERT_VERIFY_RATE_MAX !== undefined && env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS !== undefined
     ? { max: env.ACADEMY_CERT_VERIFY_RATE_MAX, windowSeconds: env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS }
     : null,
+  new AcademyRoleStore(sql, env.ACADEMY_CUSTOM_ROLE_LIMIT),
 );
 export type AppRouter = typeof appRouter;
 

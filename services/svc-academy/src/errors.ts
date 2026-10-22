@@ -150,7 +150,15 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
-  | 'academy.holder_name_invalid';
+  | 'academy.holder_name_invalid'
+  /** AC-roles-01 course team roles. */
+  | 'academy.permission_denied'
+  | 'academy.role_limit_unset'
+  | 'academy.role_limit_reached'
+  | 'academy.role_not_found'
+  | 'academy.role_escalation'
+  | 'academy.role_invalid'
+  | 'academy.role_holders_list_limit_unset';
 
 export class AcademyError extends Error {
   constructor(
@@ -244,6 +252,13 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
   'academy.holder_name_invalid',
+  'academy.permission_denied',
+  'academy.role_limit_unset',
+  'academy.role_limit_reached',
+  'academy.role_not_found',
+  'academy.role_escalation',
+  'academy.role_invalid',
+  'academy.role_holders_list_limit_unset',
 ] as const;
 
 /** L3 — catalog size. */

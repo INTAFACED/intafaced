@@ -11,6 +11,8 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import type { AcademyRoleStore } from './roles/store.js';
+import { ACADEMY_PERMISSIONS, BUILTIN_ROLE_PERMISSIONS, BUILTIN_ROLES } from './roles/catalog.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -762,6 +764,18 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.permission_denied':
+    case 'academy.role_escalation':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    case 'academy.role_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+    case 'academy.role_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    case 'academy.role_limit_unset':
+    case 'academy.role_limit_reached':
+    case 'academy.role_holders_list_limit_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
 }
 
@@ -770,6 +784,22 @@ const operatorApprovalIds = {
   approvalId: z.string().max(128).nullish(),
   operationId: z.string().max(128).nullish(),
 };
+
+const roleHolderOut = z.object({
+  courseScope: z.string(),
+  accountId: z.string(),
+  role: z.string(),
+  activation: z.number().int(),
+  active: z.boolean(),
+});
+
+const roleChangeIn = z.object({
+  courseScope: z.string().min(1).max(64),
+  accountId: z.string().uuid(),
+  role: z.string().min(1).max(80),
+  reason: z.string().max(500),
+  ...operatorApprovalIds,
+});
 
 /**
  * MFA first, then identity-issued action-bound approval.
@@ -831,7 +861,12 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  roleStore: AcademyRoleStore | null = null,
 ) {
+  const roles = (): AcademyRoleStore => {
+    if (!roleStore) throw new Error('role store is not wired');
+    return roleStore;
+  };
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
   const verifyLimiter = new VerifyRateLimiter();
@@ -2416,6 +2451,107 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      // ── AC-roles-01: course team roles, custom roles and the permission query ──
+      academyRoles: scopedProcedure('admin:read', { module: 'academy' })
+        .output(
+          z.object({
+            permissions: z.array(z.string()),
+            builtin: z.array(z.object({ id: z.string(), permissions: z.array(z.string()) })),
+            custom: z.array(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() })),
+          }),
+        )
+        .query(() =>
+          guard(async () => ({
+            permissions: [...ACADEMY_PERMISSIONS],
+            builtin: BUILTIN_ROLES.map((id) => ({ id, permissions: [...BUILTIN_ROLE_PERMISSIONS[id]] })),
+            custom: await roles().customRoles(),
+          })),
+        ),
+
+      roleHolders: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ courseScope: z.string().min(1).max(64), limit: z.number().optional() }))
+        .output(z.array(roleHolderOut))
+        .query(({ input }) =>
+          guard(() => {
+            const limit = input.limit;
+            if (limit === undefined || !Number.isInteger(limit) || limit < 1) {
+              throw new AcademyError('role holders list limit is unset', 'academy.role_holders_list_limit_unset');
+            }
+            return roles().holders(input.courseScope, Math.min(200, limit));
+          }),
+        ),
+
+      coursePermission: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ accountId: z.string().uuid(), courseScope: z.string().min(1).max(64), permission: z.enum(ACADEMY_PERMISSIONS) }))
+        .output(z.object({ allowed: z.boolean() }))
+        .query(({ input }) =>
+          guard(async () => ({
+            allowed: (await roles().permissionsOf(input.accountId, input.courseScope)).has(input.permission),
+          })),
+        ),
+
+      createCustomRole: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            slug: z.string().min(1).max(64),
+            label: z.string().min(1).max(120),
+            permissions: z.array(z.string().max(32)).max(32),
+            reason: z.string().max(500),
+            ...operatorApprovalIds,
+          }),
+        )
+        .output(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() }))
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.create', {
+              slug: input.slug,
+              permissions: [...input.permissions].sort().join(','),
+            });
+            return roles().createCustomRole({ ...input, actor: ctx.principal!.userId, approver });
+          }),
+        ),
+
+      setCustomRoleActive: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ roleId: z.string().min(1).max(80), active: z.boolean(), reason: z.string().max(500), ...operatorApprovalIds }))
+        .output(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() }))
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.activate', {
+              roleId: input.roleId,
+              active: String(input.active),
+            });
+            return roles().setCustomRoleActive({ ...input, actor: ctx.principal!.userId, approver });
+          }),
+        ),
+
+      assignRole: scopedProcedure('admin:write', { module: 'academy' })
+        .input(roleChangeIn)
+        .output(roleHolderOut)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.assign', {
+              courseScope: input.courseScope,
+              accountId: input.accountId,
+              role: input.role,
+            });
+            return roles().assign({ ...input, actor: ctx.principal!.userId, approver });
+          }),
+        ),
+
+      revokeRole: scopedProcedure('admin:write', { module: 'academy' })
+        .input(roleChangeIn)
+        .output(roleHolderOut)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.revoke', {
+              courseScope: input.courseScope,
+              accountId: input.accountId,
+              role: input.role,
+            });
+            return roles().revoke({ ...input, actor: ctx.principal!.userId, approver });
+          }),
+        ),
+
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
           z.object({
