@@ -6,7 +6,7 @@ import {
   supportSurveyListViewSchema,
   supportSurveyViewSchema,
 } from '@intafaced/contracts';
-import { SurveyCapError, SurveyNotFoundError, SurveyStaleError, type SurveyBook } from './survey-settings.js';
+import { SurveyCapError, SurveyIdConflictError, SurveyNotFoundError, SurveyStaleError, type SurveyBook } from './survey-settings.js';
 import { requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -38,6 +38,7 @@ export function surveyProcedures(book: SurveyBook, support: Pick<SupportService,
         } catch (err) {
           // User copy on `message`; the machine code rides on `cause.code`.
           if (err instanceof SurveyCapError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
+          if (err instanceof SurveyIdConflictError) throw new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
           if (err instanceof SurveyStaleError) throw new TRPCError({ code: 'CONFLICT', message: userCopy(err.code), cause: err });
           if (err instanceof SurveyNotFoundError) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(err.code), cause: err });
           throw err;

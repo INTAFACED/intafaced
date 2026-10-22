@@ -13,6 +13,8 @@ export const SUPPORT_SURVEY_CAP_REACHED = 'support.survey_cap_reached' as const;
 export const SUPPORT_SURVEY_SCALE_INVALID = 'support.survey_scale_invalid' as const;
 export const SUPPORT_SURVEY_REVISION_STALE = 'support.survey_revision_stale' as const;
 export const SUPPORT_SURVEY_NOT_FOUND = 'support.survey_not_found' as const;
+/** A client-chosen new survey id is already taken by a different configuration: refused, never overwritten. */
+export const SUPPORT_SURVEY_ID_CONFLICT = 'support.survey_id_conflict' as const;
 export const supportSurveyErrorCodeSchema = z.enum([SUPPORT_SURVEY_CAP_UNSET, SUPPORT_SURVEY_CAP_REACHED, SUPPORT_SURVEY_SCALE_INVALID]);
 /** Every code a survey door refuses with: the config codes plus the configure door's stale-revision and unknown-survey codes. */
 export const supportSurveyRefusalCodeSchema = z.enum([
@@ -71,12 +73,22 @@ export const SUPPORT_SURVEY_REASON_MAX = 500;
 export const supportSurveyConfigureInputSchema = z
   .object({
     surveyId: id.nullable(),
+    /**
+     * Create only (surveyId null, expectedRevision 0): the client-chosen id for the new survey, so a lost reply replays.
+     * The same id with the same config returns the original survey; with a different config it refuses
+     * `support.survey_id_conflict`. Absent, the service picks the id.
+     */
+    newSurveyId: id.optional(),
     expectedRevision: z.number().int().nonnegative().safe(),
     config: supportSurveyConfigSchema,
     /** Audit: why the operator changed it (spec Security row). */
     reason: z.string().trim().min(1).max(SUPPORT_SURVEY_REASON_MAX),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.newSurveyId === undefined || (v.surveyId === null && v.expectedRevision === 0), {
+    path: ['newSurveyId'],
+    message: 'newSurveyId is for a new survey only',
+  });
 export type SupportSurveyConfigureInput = z.infer<typeof supportSurveyConfigureInputSchema>;
 
 export const supportSurveyCapSchema = z.discriminatedUnion('status', [
