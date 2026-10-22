@@ -33,6 +33,7 @@ import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from './ops/asset-pause.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import { createLoanProductProcedure } from './ops/loan-products.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
@@ -416,6 +417,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_dispute_exists':
       case 'bank.asset_paused':
       case 'bank.ops_revision_conflict':
+      case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -492,6 +494,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.loan_params_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -3306,6 +3309,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
     assetPauses: assetPausesProcedure(() => bank.assetPauses, guard),
     setAssetPause: setAssetPauseProcedure(() => bank.assetPauses, consumeOpsApproval, guard),
+    createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),

@@ -643,7 +643,11 @@ export type BankErrorCode =
   /** The asset pause state could not be read, so a new borrow or deposit was refused rather than assumed open. */
   | 'bank.asset_pause_unreadable'
   /** An asset pause change named a revision that is no longer current, or reused a revision with different terms. */
-  | 'bank.ops_revision_conflict';
+  | 'bank.ops_revision_conflict'
+  /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
+  | 'bank.loan_params_invalid'
+  /** A product id was reused with different terms. */
+  | 'bank.loan_product_conflict';
 
 export class BankError extends Error {
   constructor(
