@@ -10,7 +10,10 @@ export const PREVIEW_REFUSAL_CODE = 'preview.engine_not_built' as const;
 export const PREVIEW_LABEL = 'Preview · sample data' as const;
 
 /** Engine id: `<module>.<engine>`, e.g. `bank.loan_schedule`, `bank.card_fraud_score`. */
-export const previewEngineIdSchema = z.string().regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/).max(80);
+export const previewEngineIdSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/)
+  .max(80);
 
 export const previewRefusalSchema = z
   .object({
@@ -19,7 +22,10 @@ export const previewRefusalSchema = z
     /** Which engine would serve this action; names the missing engine, never a vendor. */
     engine: previewEngineIdSchema,
     /** The action that was refused, e.g. `change_repayment_date`. */
-    action: z.string().regex(/^[a-z][a-z0-9_]*$/).max(64),
+    action: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(64),
     label: z.literal(PREVIEW_LABEL),
   })
   .strict();
