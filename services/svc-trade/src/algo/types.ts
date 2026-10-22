@@ -119,6 +119,8 @@ export interface AlgoProgressView {
   readonly parentId: string;
   readonly status: AlgoStatus;
   readonly haltReason: string | null;
+  /** Documented stop reason (CB-bots-01); null unless the parent stopped on its own. */
+  readonly stopReason: import('./stop-reason.js').AlgoStopReason | null;
   readonly childrenEmitted: number;
   readonly missesRecorded: number;
   readonly slicesPlanned: number;

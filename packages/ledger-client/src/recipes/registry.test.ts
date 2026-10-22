@@ -29,11 +29,12 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * depositReverse (rewritten deposit block, WAL-0070) → 66.
  * tradeFillFeeCorrection (posted fill fee, new key, TRD-0171) → 67.
  * futuresOrderMarginHold + futuresOrderMarginRelease + futuresOrderMarginApply (futures order margin, ADR 2026-10-20 slice 5) → 70.
+ * payReceivedHold + payReceivedRelease + payReceivedReturn (holds on received funds, pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05) → 73.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(70);
+    expect(names.length).toBe(73);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -50,7 +51,7 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('70');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('73');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();

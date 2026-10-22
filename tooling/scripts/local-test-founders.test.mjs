@@ -17,6 +17,7 @@ import {
   assertVaultShape,
   draftFounderVault,
   enrolTestStackFounders,
+  enrolledFounderPair,
   ensureFounderVaultDraft,
   founderIdentityEnv,
   founderPinStampFromEnv,
@@ -196,6 +197,39 @@ test('identity env pins exactly the two enrolled local-test ids and never a secr
   };
   assert.deepEqual(founderIdentityEnv(operatorVault), {});
   assert.equal(foundersEnrolled(operatorVault), false);
+});
+
+test('the approving founder pair is ready only when both have an account and a confirmed second factor', () => {
+  const draft = draftFounderVault();
+  assert.equal(enrolledFounderPair(draft), null, 'no accounts yet');
+  const enrol = (vault, overrides = {}) => ({
+    ...vault,
+    founders: vault.founders.map((f, i) => ({
+      ...f,
+      userId: `0000000${i}-0000-4000-8000-00000000000${i}`,
+      totpSecret: 'JBSWY3DPEHPK3PXP',
+      totpConfirmed: true,
+      ...overrides,
+    })),
+  });
+  const ready = enrolledFounderPair(enrol(draft));
+  assert.deepEqual(
+    ready?.map((f) => f.handle),
+    ['local_test_founder_a', 'local_test_founder_b'],
+  );
+  assert.equal(enrolledFounderPair(enrol(draft, { totpConfirmed: false })), null, 'second factor not confirmed');
+  assert.equal(enrolledFounderPair(enrol(draft, { userId: 'same-id-for-both' })), null, 'one account for both');
+  const swapped = enrol(draft);
+  swapped.founders = [...swapped.founders].reverse();
+  assert.deepEqual(
+    enrolledFounderPair(swapped)?.map((f) => f.key),
+    ['a', 'b'],
+    'always a then b',
+  );
+  const operators = enrol(draft);
+  operators.founders = operators.founders.map((f, i) => ({ ...f, handle: `local_test_operator_${'ab'[i]}` }));
+  assert.equal(enrolledFounderPair(operators), null, 'test operators are not founders');
+  assert.equal(enrolledFounderPair(null), null);
 });
 
 test('pin stamp records only the invite expiry and the two ids', () => {
