@@ -592,6 +592,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.personal_transfer_terms_unset':
       case 'bank.personal_transfer_fee_unwired':
       case 'bank.pay_request_notify_unwired':
+      case 'bank.transfer_notify_unwired':
       case 'bank.party_handles_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 

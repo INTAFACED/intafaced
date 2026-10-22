@@ -1,5 +1,5 @@
 /**
- * In-process timer for the three recovery jobs.
+ * In-process timer for the recovery jobs.
  *
  * POST /internal/jobs/resume-pending-loans, recover-loan-repayments and
  * resume-pending-earn re-drive rows whose ledger answer was lost. Nothing
@@ -12,6 +12,10 @@
  * run it together. The lock connection is not the pool the job bodies borrow
  * from: those bodies take their own session locks. A thrown tick backs off
  * and the next tick is still scheduled. The job functions are unchanged.
+ *
+ * A fourth job runs when the personal-pay port is given: it announces posted
+ * sends whose "money sent / money received" notice the bus never took (the
+ * posted row is that notice's outbox record).
  */
 import type { Sql } from 'postgres';
 import { assertEarnResumePendingLimit, assertLoanResumePendingLimit } from './job-batch-limit.js';
@@ -91,6 +95,10 @@ interface RecoveryEarn {
   resumePending(limit: number): Promise<readonly RecoveryJobResult[]>;
 }
 
+interface RecoveryTransferNotices {
+  announceUnannounced(limit: number): Promise<readonly RecoveryJobResult[]>;
+}
+
 export interface BankRecoveryJobsConfig {
   /** `null` or omitted = blank interval, timer disabled. */
   intervalMs: number | null | undefined;
@@ -104,6 +112,8 @@ export interface BankRecoveryJobsDeps {
   config: BankRecoveryJobsConfig;
   loans?: RecoveryLoans;
   earn?: RecoveryEarn;
+  /** Posted personal sends still owed their notice. Omitted = the three money jobs only. */
+  transferNotices?: RecoveryTransferNotices;
   /** Dedicated lock connection. Not the pool the job bodies borrow from. */
   lock?: Sql;
   /** Test double. Production uses `trySessionAdvisoryLock` on `lock`. */
@@ -134,13 +144,14 @@ const JOB_NAMES = [
   'bank.recovery.resume_pending_loans',
   'bank.recovery.recover_loan_repayments',
   'bank.recovery.resume_pending_earn',
+  'bank.recovery.announce_posted_transfers',
 ] as const;
 
 function unrefTimer(id: ReturnType<typeof setTimeout>): void {
   if (typeof id === 'object' && id !== null && 'unref' in id && typeof id.unref === 'function') id.unref();
 }
 
-/** Start the three recovery jobs, or warn and schedule nothing. */
+/** Start the recovery jobs, or warn and schedule nothing. */
 export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJobsHandle {
   const stopped = { stop() {}, list: () => [] as string[], tickOnce: async () => {} };
 
@@ -158,6 +169,7 @@ export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJ
   const intervalMs = deps.config.intervalMs;
   const loanBatch = assertLoanResumePendingLimit(deps.config.batchLimit);
   const earnBatch = assertEarnResumePendingLimit(deps.config.batchLimit);
+  const noticeBatch = deps.config.batchLimit;
   const setTimeoutFn = deps.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
   const loans = deps.loans;
@@ -174,6 +186,8 @@ export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJ
     { name: JOB_NAMES[1], run: () => loans.recoverRepayments(loanBatch) },
     { name: JOB_NAMES[2], run: () => earn.resumePending(earnBatch) },
   ];
+  const transferNotices = deps.transferNotices;
+  if (transferNotices) jobs.push({ name: JOB_NAMES[3], run: () => transferNotices.announceUnannounced(noticeBatch) });
 
   let stoppedFlag = false;
   let running = false;
@@ -240,7 +254,7 @@ export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJ
   arm();
 
   return {
-    list: () => [...JOB_NAMES],
+    list: () => jobs.map((job) => job.name),
     async tickOnce() {
       if (timer !== undefined) {
         clearTimeoutFn(timer);

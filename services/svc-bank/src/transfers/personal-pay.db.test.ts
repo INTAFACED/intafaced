@@ -260,6 +260,103 @@ describe('personal send and request (Postgres)', () => {
     expect(quiet.ledgerTxId).toEqual(expect.any(String));
     expect(await available(BOB)).toBe('13.5');
     expect(postedNotices).toHaveLength(1);
+    // The posted row is the outbox: the first send is announced, the second is still owed its notice.
+    expect(await owed()).toEqual(['send-notice-3']);
+  });
+
+  /** Posted sends the bus has not taken a notice for yet, by transfer id. */
+  async function owed(): Promise<string[]> {
+    const rows = await db.sql<Array<{ transfer_id: string }>>`
+      SELECT transfer_id FROM bank.personal_transfers WHERE status = 'posted' AND announced_at IS NULL ORDER BY transfer_id
+    `;
+    return rows.map((r) => r.transfer_id);
+  }
+
+  it('a retried send whose notice was lost announces it then, and once announced never again', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const send = { transferId: 'send-notice-retry', fromSpaceId: from.id, toUserId: BOB, amount: '5' };
+    postedFails = true;
+    const first = await ada.transfers.toUser(send);
+    expect(await owed()).toEqual(['send-notice-retry']);
+
+    postedFails = false;
+    const again = await ada.transfers.toUser(send);
+    expect(again.ledgerTxId).toBe(first.ledgerTxId);
+    expect(postedNotices.map((n) => [n.transferId, n.ledgerTxId])).toEqual([['send-notice-retry', first.ledgerTxId]]);
+    expect(await owed()).toEqual([]);
+    expect(await available(BOB)).toBe('5');
+
+    await ada.transfers.toUser(send);
+    expect(postedNotices).toHaveLength(1);
+  });
+
+  it('the recovery pass announces owed sends older than the grace, keeps failures owed, and leaves young ones alone', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    postedFails = true;
+    for (const transferId of ['send-owed-old', 'send-owed-young'])
+      await ada.transfers.toUser({ transferId, fromSpaceId: from.id, toUserId: BOB, amount: '2' });
+    await db.sql`UPDATE bank.personal_transfers SET posted_at = now() - interval '5 minutes' WHERE transfer_id = 'send-owed-old'`;
+    const postedAt = (
+      await db.sql<Array<{ posted_at: Date }>>`
+      SELECT posted_at FROM bank.personal_transfers WHERE transfer_id = 'send-owed-old'
+    `
+    )[0]!.posted_at;
+
+    // Still down: the pass says so and the row stays owed.
+    expect(await bank.personalPay.announceUnannounced(50)).toEqual([{ outcome: 'failed', reason: 'bank.transfer_notice_failed' }]);
+    expect(await owed()).toEqual(['send-owed-old', 'send-owed-young']);
+
+    postedFails = false;
+    expect(await bank.personalPay.announceUnannounced(50)).toEqual([{ outcome: 'completed' }]);
+    expect(postedNotices.map((n) => n.transferId)).toEqual(['send-owed-old']);
+    // The notice carries when the money moved, not when the pass ran.
+    expect(postedNotices[0]!.postedAt).toBe(postedAt.toISOString());
+    expect(await owed()).toEqual(['send-owed-young']);
+    expect(await bank.personalPay.announceUnannounced(50)).toEqual([]);
+    expect(postedNotices).toHaveLength(1);
+  });
+
+  it('a notice that hangs does not hold the send: it answers, and the row stays owed', async () => {
+    await ready();
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const personal = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+      transferNotices: { posted: () => new Promise<void>(() => undefined) },
+      noticeTimeoutMs: 50,
+    });
+    const sent = await personal.send({
+      actorUserId: ADA,
+      transferId: 'send-notice-hang',
+      fromSpaceId: from.id,
+      toUserId: BOB,
+      amount: parseAmount('3'),
+    });
+    expect(sent.status).toBe('posted');
+    expect(await available(BOB)).toBe('3');
+    expect(await owed()).toEqual(['send-notice-hang']);
+  });
+
+  it('with no notices wired, a send still posts and its notice stays owed', async () => {
+    await ready();
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const personal = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+    });
+    await personal.send({
+      actorUserId: ADA,
+      transferId: 'send-notice-unwired',
+      fromSpaceId: from.id,
+      toUserId: BOB,
+      amount: parseAmount('4'),
+    });
+    expect(await available(BOB)).toBe('4');
+    expect(await owed()).toEqual(['send-notice-unwired']);
+    await db.sql`UPDATE bank.personal_transfers SET posted_at = now() - interval '5 minutes'`;
+    expect(await personal.announceUnannounced(50)).toEqual([{ outcome: 'failed', reason: 'bank.transfer_notice_failed' }]);
   });
 
   it('refuses a control-character note and posts nothing', async () => {

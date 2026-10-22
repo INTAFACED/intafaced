@@ -617,6 +617,7 @@ const recoveryJobs = startBankRecoveryJobs({
   lock: recoveryLock,
   loans: bank.loans,
   earn: bank.earn,
+  transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>
