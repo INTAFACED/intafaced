@@ -8,6 +8,7 @@ import { type PrivateOrderHub, type PrivateStreamChannel } from './hub.js';
 import { EMPTY_PRIVATE_BOOK, type PrivateBookPort } from './book.js';
 import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.js';
 import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
+import { callerIpFromUpgrade } from './caller-ip.js';
 
 /**
  * Authenticated private stream (orders, fills, positions).
@@ -91,7 +92,7 @@ export interface PrivateWebSocketGatewayOptions {
   readonly scheduleCod?: (fn: () => void, delayMs: number) => () => void;
   /**
    * Injected live session/key check. Omitted/null = JWT `exp` only.
-   * Production wires this when IDENTITY_URL and IDENTITY_OWNERSHIP_SECRET are set.
+   * Production does not wire this — svc-ws must not hold INTERNAL_SERVICE_SECRET.
    */
   readonly liveCredential?: LiveCredentialPort | null;
 }
@@ -129,6 +130,7 @@ type PrivateSeat = {
   hasWrite: boolean;
   sessionId: string;
   apiKeyId?: string;
+  callerIp: string | null;
 };
 
 function sinkFor(socket: WebSocket, seat: PrivateSeat, live?: { assert: () => Promise<void>; onDead: () => void }): DepthSink {
@@ -340,9 +342,10 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           return;
         }
 
+        const callerIp = callerIpFromUpgrade(req);
         if (liveCredential) {
           try {
-            await assertLiveCredential(liveCredential, { userId, sessionId, apiKeyId });
+            await assertLiveCredential(liveCredential, { userId, sessionId, apiKeyId, callerIp });
           } catch {
             reject(socket, 401, 'Unauthorized');
             return;
@@ -364,6 +367,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             hasWrite,
             sessionId,
             apiKeyId,
+            callerIp,
           };
           const live = liveCredential
             ? {
@@ -372,6 +376,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                     userId: seat.userId,
                     sessionId: seat.sessionId,
                     apiKeyId: seat.apiKeyId,
+                    callerIp: seat.callerIp,
                   }).then(() => undefined),
                 onDead: () => {
                   cod.drop(ws);
@@ -426,6 +431,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                     userId: seat.userId,
                     sessionId: seat.sessionId,
                     apiKeyId: seat.apiKeyId,
+                    callerIp: seat.callerIp,
                   });
                 } catch {
                   cod.drop(ws);
@@ -507,6 +513,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           userId: seat.userId,
           sessionId: seat.sessionId,
           apiKeyId: seat.apiKeyId,
+          callerIp: seat.callerIp,
         }).then(
           () => undefined,
           () => {

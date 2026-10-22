@@ -3,24 +3,24 @@
  *
  * JWT `exp` is not enough: a revoked credential still verifies until expiry.
  * Ownership snapshots are `{ id, userId, revoked }` only — no scopes, no flatten.
+ * An API-key snapshot may also carry `ipAllowlist` when identity sends it.
  * Transport / parse failure is `unavailable` (fail-closed). Never treat a
  * non-OK identity response (including 401) as live.
  */
 
 import { apiKeyOwnershipSchema, sessionOwnershipSchema } from '@intafaced/contracts';
+import { apiKeyIpAllowed } from './caller-ip.js';
 
 export type OwnershipSnapshot = {
   readonly id: string;
   readonly userId: string;
   readonly revoked: boolean;
+  /** API-key only. Empty / omitted = open. Never invent CIDR. */
+  readonly ipAllowlist?: readonly string[];
 };
 
 export type LiveCredentialErrorCode =
-  | 'unavailable'
-  | 'auth.api_key_denied'
-  | 'auth.api_key_revoked'
-  | 'auth.session_denied'
-  | 'auth.session_revoked';
+  'unavailable' | 'auth.api_key_denied' | 'auth.api_key_revoked' | 'auth.ip_not_allowed' | 'auth.session_denied' | 'auth.session_revoked';
 
 export class LiveCredentialError extends Error {
   constructor(
@@ -41,6 +41,8 @@ export type LiveCredentialInput = {
   readonly userId: string;
   readonly sessionId: string;
   readonly apiKeyId?: string;
+  /** Upgrade / live-check caller. Session seats ignore it. */
+  readonly callerIp?: string | null;
 };
 
 function unavailable(cause?: unknown): LiveCredentialError {
@@ -71,6 +73,7 @@ function denySession(): never {
 /**
  * Kid present → API key. Otherwise session (`sid` is always on the token).
  * Missing / empty / unknown / user mismatch → denied. `revoked: true` → revoked.
+ * Bound key + caller IP not on the list → `auth.ip_not_allowed`.
  * Port `unavailable` propagates (fail-closed).
  */
 export async function assertLiveCredential(port: LiveCredentialPort, input: LiveCredentialInput): Promise<OwnershipSnapshot> {
@@ -81,6 +84,9 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
     if (!row || row.id !== id || row.userId !== input.userId) denyKey();
     if (row.revoked) {
       throw new LiveCredentialError('API key is revoked', 'auth.api_key_revoked');
+    }
+    if (!apiKeyIpAllowed(row.ipAllowlist ?? [], input.callerIp)) {
+      throw new LiveCredentialError('Caller IP is not on the API key', 'auth.ip_not_allowed');
     }
     return { id: row.id, userId: row.userId, revoked: false };
   }
@@ -97,15 +103,25 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
 
 export interface IdentityOwnershipClientOptions {
   readonly baseUrl: string;
-  /** Static headers or a factory — HMAC timestamps go stale, so call on every GET. */
-  readonly headers: HeadersInit | (() => HeadersInit);
+  readonly headers: HeadersInit;
   readonly fetch?: typeof globalThis.fetch;
+}
+
+/** Read an optional string[] off the raw body. Schema-unknown — not invented. */
+export function optionalIpAllowlist(body: unknown): readonly string[] | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const rec = body as Record<string, unknown>;
+  const raw = rec.ipAllowlist ?? rec.ip_allowlist;
+  if (!Array.isArray(raw)) return undefined;
+  if (!raw.every((entry) => typeof entry === 'string')) return undefined;
+  return raw;
 }
 
 /**
  * GET `/internal/sessions/:id` and `/internal/api-keys/:id`.
  * 404 → null. Non-OK (including 401) / transport / parse → `unavailable`.
  * Body is parsed with the published ownership schemas — no invented fields.
+ * A string[] `ipAllowlist` / `ip_allowlist` on the key body is kept locally.
  */
 export function createIdentityOwnershipClient(options: IdentityOwnershipClientOptions): LiveCredentialPort {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
@@ -114,8 +130,7 @@ export function createIdentityOwnershipClient(options: IdentityOwnershipClientOp
   async function get(path: string, parse: (body: unknown) => OwnershipSnapshot): Promise<OwnershipSnapshot | null> {
     let response: Response;
     try {
-      const headers = typeof options.headers === 'function' ? options.headers() : options.headers;
-      response = await fetchImpl(`${baseUrl}${path}`, { headers });
+      response = await fetchImpl(`${baseUrl}${path}`, { headers: options.headers });
     } catch (err) {
       throw unavailable(err);
     }
@@ -144,7 +159,10 @@ export function createIdentityOwnershipClient(options: IdentityOwnershipClientOp
     getApiKey(keyId) {
       return get(`/internal/api-keys/${encodeURIComponent(keyId)}`, (body) => {
         const parsed = apiKeyOwnershipSchema.parse(body);
-        return { id: parsed.id, userId: parsed.userId, revoked: parsed.revoked };
+        const ipAllowlist = optionalIpAllowlist(body);
+        return ipAllowlist === undefined
+          ? { id: parsed.id, userId: parsed.userId, revoked: parsed.revoked }
+          : { id: parsed.id, userId: parsed.userId, revoked: parsed.revoked, ipAllowlist };
       });
     },
   };
