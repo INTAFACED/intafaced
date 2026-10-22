@@ -80,5 +80,9 @@ export const PAY_DISPUTE_CODES = [
   'pay.dispute_reason_unknown',
   'pay.dispute_transition_refused',
   'pay.dispute_conflict',
+  /** A card or refund fact for the line is not known yet (fail closed). */
+  'pay.dispute_line_facts_unset',
+  /** The dispute service is not wired in this deployment. */
+  'pay.dispute_unwired',
 ] as const;
 export type PayDisputeCode = (typeof PAY_DISPUTE_CODES)[number];
