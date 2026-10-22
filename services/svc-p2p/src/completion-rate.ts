@@ -13,8 +13,8 @@ import type { Sql } from 'postgres';
 export const COMPLETION_DEFINITION = {
   numerator: 'Orders released (completed), including releases by a dispute ruling.',
   denominator:
-    'Orders that reached escrow: completed, cancelled after escrow, disputed and still open. ' +
-    'Orders cancelled before escrow do not count. An order excluded by an accepted appeal does not count.',
+    'Orders that reached escrow and have an outcome: completed, cancelled after escrow, or disputed. ' +
+    'Orders still in progress, orders cancelled before escrow, and an order excluded by an accepted appeal do not count.',
   window30d: 'Orders created in the last 30 days.',
 } as const;
 
@@ -45,6 +45,7 @@ export async function completionRates(sql: Sql, userId: string): Promise<Complet
       FROM p2p.p2p_trades t
      WHERE (t.seller_id = ${userId} OR t.buyer_id = ${userId})
        AND t.escrowed_at IS NOT NULL
+       AND t.status IN ('released', 'cancelled', 'disputed')
        AND NOT EXISTS (
          SELECT 1 FROM p2p.completion_appeals a
           WHERE a.user_id = ${userId} AND a.trade_id = t.id AND a.status = 'accepted'

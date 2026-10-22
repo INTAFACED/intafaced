@@ -2411,19 +2411,17 @@ export function createP2pRouter(
           guard(async () => {
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
+            const rates = await p2p.completionRatesOf(input.userId);
             const door = {
               ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
-              completionRate30d: '',
-              completionRateTotal: '',
+              completionRate30d: rates.completionRate30d,
+              completionRateTotal: rates.completionRateTotal,
               completionDefinition: COMPLETION_DEFINITION,
             };
             const trades30d = await p2p.tradesInWindow(input.userId);
-            const rates = await p2p.completionRatesOf(input.userId);
             if (!publicProfile) {
               return {
                 ...door,
-                completionRate30d: rates.completionRate30d,
-                completionRateTotal: rates.completionRateTotal,
                 handle: null,
                 memberSince: null,
                 profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
@@ -2434,8 +2432,6 @@ export function createP2pRouter(
             if (!found) {
               return {
                 ...door,
-                completionRate30d: rates.completionRate30d,
-                completionRateTotal: rates.completionRateTotal,
                 handle: null,
                 memberSince: null,
                 profile: { status: 'absent' as const, code: 'p2p.public_profile_absent' as const },
@@ -2444,8 +2440,6 @@ export function createP2pRouter(
             }
             return {
               ...door,
-              completionRate30d: rates.completionRate30d,
-              completionRateTotal: rates.completionRateTotal,
               handle: found.handle,
               memberSince: found.memberSince,
               profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },

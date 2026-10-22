@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS "p2p"."completion_appeals" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "user_id" text NOT NULL,
-  "trade_id" uuid NOT NULL,
+  "trade_id" uuid NOT NULL REFERENCES "p2p"."p2p_trades" ("id"),
   "reason" text NOT NULL,
   "status" text NOT NULL DEFAULT 'submitted',
   "submitted_at" timestamptz NOT NULL DEFAULT now(),

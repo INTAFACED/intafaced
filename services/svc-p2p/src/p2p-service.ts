@@ -3186,8 +3186,10 @@ export class P2pService {
     }
     const trade = await this.getTrade(input.tradeId);
     if (trade.buyerId !== input.userId && trade.sellerId !== input.userId) throw unknownTrade(input.tradeId);
-    if (trade.escrowedAt === null || trade.status === 'released') {
-      throw new P2pError('p2p.appeal_not_eligible: only an escrowed order that did not complete', 'p2p.appeal_not_eligible');
+    // Same set the denominator counts, minus completed: an escrowed order that
+    // ended cancelled or went to dispute.
+    if (trade.escrowedAt === null || (trade.status !== 'cancelled' && trade.status !== 'disputed')) {
+      throw new P2pError('p2p.appeal_not_eligible: only an escrowed order that was cancelled or disputed', 'p2p.appeal_not_eligible');
     }
     const inserted = await this.sql<AppealRow[]>`
       INSERT INTO p2p.completion_appeals (user_id, trade_id, reason, review_due_at)
@@ -3195,7 +3197,12 @@ export class P2pService {
       ON CONFLICT (user_id) DO NOTHING
       RETURNING *
     `;
-    if (!inserted[0]) throw new P2pError('p2p.appeal_used', 'p2p.appeal_used');
+    if (!inserted[0]) {
+      // Lost a race to a concurrent submit: an identical one is a replay.
+      const winner = await this.myCompletionAppeal(input.userId);
+      if (winner && winner.tradeId === trade.id && winner.reason === reason) return winner;
+      throw new P2pError('p2p.appeal_used', 'p2p.appeal_used');
+    }
     return toAppeal(inserted[0]);
   }
 

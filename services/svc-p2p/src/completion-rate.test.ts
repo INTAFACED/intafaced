@@ -172,14 +172,15 @@ describe('svc-p2p completion rates and appeal (P-trade-orders-21)', () => {
     // Age one completed trade out of the 30-day window (created_at is not frozen).
     await sql`UPDATE p2p.p2p_trades SET created_at = now() - interval '40 days' WHERE id = ${old.id}`;
     const all = await p2p.listTrades(TAKER, 50);
-    const counted = all.filter((t) => t.escrowedAt !== null);
+    const counted = all.filter((t) => t.escrowedAt !== null && ['released', 'cancelled', 'disputed'].includes(t.status));
     const done = counted.filter((t) => t.status === 'released');
     const recent = counted.filter((t) => t.createdAt.getTime() >= Date.now() - 30 * 86_400_000);
     const card = await caller(OTHER, ['p2p:read']).reputation.get({ userId: TAKER });
     expect(card.completionRateTotal).toBe(pct(done.length, counted.length));
     expect(card.completionRate30d).toBe(pct(recent.filter((t) => t.status === 'released').length, recent.length));
-    expect(card.completionRateTotal).toBe('60.00');
-    expect(card.completionRate30d).toBe('50.00');
+    // 3 of 4 finished (the open one is not counted); 2 of 3 in the window.
+    expect(card.completionRateTotal).toBe('75.00');
+    expect(card.completionRate30d).toBe('66.67');
     expect(card.completionDefinition.denominator).toContain('reached escrow');
   });
 
@@ -206,6 +207,18 @@ describe('svc-p2p completion rates and appeal (P-trade-orders-21)', () => {
     expect((await caller(TAKER).reputation.myAppeal())?.id).toBe(first.id);
   });
 
+  it('concurrent identical submits both return the one appeal', async () => {
+    await fund(MAKER, '1000');
+    const c = await trade('cancelled');
+    const [x, y] = await Promise.all([
+      caller(TAKER).reputation.appeal({ tradeId: c.id, reason: 'same click twice' }),
+      caller(TAKER).reputation.appeal({ tradeId: c.id, reason: 'same click twice' }),
+    ]);
+    expect(x.id).toBe(y.id);
+    const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.completion_appeals`;
+    expect(rows[0]?.n).toBe(1);
+  });
+
   it('an accepted appeal changes the rate once (decision step is left for later; set here in SQL)', async () => {
     await fund(MAKER, '1000');
     await trade('released');
@@ -229,6 +242,10 @@ describe('svc-p2p completion rates and appeal (P-trade-orders-21)', () => {
       cause: expect.objectContaining({ code: 'p2p.reason_required' }),
     });
     await expect(caller(TAKER).reputation.appeal({ tradeId: done.id, reason: 'x' })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'p2p.appeal_not_eligible' }),
+    });
+    const open = await trade('open');
+    await expect(caller(TAKER).reputation.appeal({ tradeId: open.id, reason: 'x' })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'p2p.appeal_not_eligible' }),
     });
     await expect(caller(OTHER).reputation.appeal({ tradeId: c.id, reason: 'x' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
