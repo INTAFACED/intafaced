@@ -380,6 +380,47 @@ if (!available) {
       return { primary, rent, schedule };
     }
 
+    it('refuses standing order to a dest user with no primary — no row, nothing posted', async () => {
+      const a = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await fund(USER_A, 'USDT', '50');
+      const journalBefore = ledger.journal().map((tx) => tx.idempotencyKey);
+      await expect(
+        bank.transfers.scheduleToUser({
+          userId: USER_A,
+          fromSpaceId: a.id,
+          toUserId: USER_C,
+          amount: amt('10'),
+          cadence: 'monthly',
+          startsAt: new Date('2026-01-01T09:00:00Z'),
+        }),
+      ).rejects.toMatchObject({ code: 'bank.dest_user_missing' });
+      const rows = await sql`SELECT id FROM bank.scheduled_transfers`;
+      expect(rows).toHaveLength(0);
+      expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+      expect(await availableOf(USER_A, 'USDT')).toBe('50');
+    });
+
+    it('schedules to the dest user and fires through ledger-client', async () => {
+      const a = await bank.spaces.ensurePrimary(USER_A, 'USDT');
+      await bank.spaces.ensurePrimary(USER_B, 'USDT');
+      await fund(USER_A, 'USDT', '100');
+      const schedule = await bank.transfers.scheduleToUser({
+        userId: USER_A,
+        fromSpaceId: a.id,
+        toUserId: USER_B,
+        amount: amt('25'),
+        cadence: 'monthly',
+        startsAt: new Date('2026-01-01T09:00:00Z'),
+      });
+      const now = new Date('2026-01-01T10:00:00Z');
+      const report = await bank.transfers.runDueTransfers({ now });
+      expect(report.settled).toBe(1);
+      expect(ledger.journal().some((tx) => tx.idempotencyKey.includes(schedule.id))).toBe(true);
+      expect(await availableOf(USER_A, 'USDT')).toBe('75');
+      expect(await availableOf(USER_B, 'USDT')).toBe('25');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('fires ONCE even when the job runs twice', async () => {
       const { rent, schedule } = await standingOrder('100');
       await fund(USER_A, 'USDT', '1000');

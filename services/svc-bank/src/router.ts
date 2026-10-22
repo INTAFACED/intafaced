@@ -596,6 +596,35 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         }),
       ),
 
+    scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          fromSpaceId: z.string().uuid(),
+          toUserId: z.string().min(1).max(64),
+          amount: amountString,
+          cadence: z.enum(['daily', 'weekly', 'monthly']),
+          startsAt: z.string().datetime({ offset: true }),
+          endsAt: z.string().datetime({ offset: true }).optional(),
+        }),
+      )
+      .output(z.object({ id: z.string(), nextRunAt: z.string() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const from = await bank.spaces.get(input.fromSpaceId);
+          assertSelf(ctx.principal.userId, from.userId);
+          const schedule = await bank.transfers.scheduleToUser({
+            userId: ctx.principal.userId,
+            fromSpaceId: input.fromSpaceId,
+            toUserId: input.toUserId,
+            amount: parseAmount(input.amount),
+            cadence: input.cadence,
+            startsAt: new Date(input.startsAt),
+            endsAt: input.endsAt ? new Date(input.endsAt) : null,
+          });
+          return { id: schedule.id, nextRunAt: schedule.nextRunAt.toISOString() };
+        }),
+      ),
+
     schedule: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
