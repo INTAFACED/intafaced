@@ -74,8 +74,12 @@ export interface BankTransferInput {
  *   p2p    a user paying another user (personal pay, pay-by-handle, a paid request)
  *   sched  one firing of one standing order (`transferId` is the schedule id)
  *   rail   a send to a payment rail boundary, and its reversal
+ *   cashback-rev  a cashback reversal (`transferId` is the refund id; RC-bank-02, its caller is held behind the owner's clawback decision)
+ *   recovery      an account-recovery transfer (RC-identity-08)
+ *
+ * No space is a prefix of another: `bank.transfer.<space>:` is followed by ':' so keys from two spaces never collide.
  */
-export const BANK_TRANSFER_KEY_SPACES = ['own', 'p2p', 'sched', 'rail'] as const;
+export const BANK_TRANSFER_KEY_SPACES = ['own', 'p2p', 'sched', 'rail', 'cashback-rev', 'recovery'] as const;
 export type BankTransferKeySpace = (typeof BANK_TRANSFER_KEY_SPACES)[number];
 
 function requireOccurrence(occurrence: number): void {
