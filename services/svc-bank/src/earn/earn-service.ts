@@ -115,6 +115,11 @@ function toPosition(row: PositionRow): PositionRecord {
 export interface EarnServiceOptions {
   /** The asset svc-token owns. Refused here. */
   nativeAssetId: string;
+  /**
+   * Desk pause of new supply (BK-loan-07). Checked inside `deposit`, before
+   * anything is written, so every caller (router, auto-invest) respects it.
+   */
+  supplyGate?: { assertSupplyOpen(assetId: string): Promise<void> };
 }
 
 export interface AccrualResult {
@@ -153,6 +158,7 @@ export interface AccrueAllReport {
 
 export class EarnService {
   private readonly nativeAssetId: string;
+  private readonly supplyGate: EarnServiceOptions['supplyGate'];
 
   constructor(
     private readonly sql: Sql,
@@ -160,6 +166,7 @@ export class EarnService {
     options: EarnServiceOptions = { nativeAssetId: 'IFC' },
   ) {
     this.nativeAssetId = options.nativeAssetId;
+    this.supplyGate = options.supplyGate;
   }
 
   // ── Pools ──────────────────────────────────────────────────────────────────
@@ -325,6 +332,8 @@ export class EarnService {
       },
       async () => {
         const pool = await this.pool(input.poolId);
+        // A desk pause on the pool's asset refuses before anything is written.
+        await this.supplyGate?.assertSupplyOpen(pool.assetId);
         if (pool.status !== 'open') throw new BankError(`Pool "${pool.name}" is closed`, 'bank.pool_closed');
         this.assertEarnable(pool.assetId);
         if (input.amount < pool.minDeposit) {

@@ -181,7 +181,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     handles: options.handles,
     notices: options.requestNotices,
   });
-  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
+  const assetPauses = new AssetPauseService(sql);
+  // The supply pause lives in the deposit path so auto-invest cannot go around it.
+  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC', supplyGate: assetPauses });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
   const activityRecords = new ActivityRecordService(sql);
@@ -197,7 +199,6 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
   const loans = new LoanService(sql, ledger, options.loans ?? { priceSource: fixedPriceSource({}) });
-  const assetPauses = new AssetPauseService(sql);
   // No convert port = DCA refuses rates-unset; threshold sweeps still work.
   // Constructed before cards so the capture hook can call applyRoundUp without
   // a setter or a circular constructor.

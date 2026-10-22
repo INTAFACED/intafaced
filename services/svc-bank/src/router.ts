@@ -1550,9 +1550,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
-          // Pre-flight: a desk pause on the pool's asset refuses before anything is written.
-          const pool = await bank.earn.pool(input.poolId);
-          await bank.assetPauses.assertSupplyOpen(pool.assetId);
+          // The desk supply pause is checked inside earn.deposit, so every caller respects it.
           const position = await bank.earn.deposit({
             poolId: input.poolId,
             userId: ctx.principal.userId,

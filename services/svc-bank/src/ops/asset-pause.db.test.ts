@@ -12,7 +12,7 @@ import type { Principal } from '@intafaced/auth';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, bankActionPayloadHash } from '../action-approval-consume.js';
 import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
@@ -124,7 +124,7 @@ describe('per-asset pause of new borrow and new supply (BK-loan-07)', () => {
 
   beforeEach(async () => {
     await sql`
-      TRUNCATE bank.asset_pause_history, bank.asset_pauses, bank.earn_positions, bank.earn_pools, bank.loans, bank.loan_products
+      TRUNCATE bank.auto_invest_runs, bank.auto_invest_rules, bank.asset_pause_history, bank.asset_pauses, bank.earn_positions, bank.earn_pools, bank.loans, bank.loan_products
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
@@ -299,6 +299,42 @@ describe('per-asset pause of new borrow and new supply (BK-loan-07)', () => {
     await pause(bank, approvals, 'USDT', true, false, 1);
     const position = await owner.earn.deposit({ poolId: pool.id, amount: '1', positionId: randomUUID() });
     expect(position.positionId).toBeTruthy();
+  });
+
+  it('a supply pause refuses auto-invest deposits too (threshold sweep and card round-up); nothing is staked', async () => {
+    const bank = services();
+    const approvals = deskApprovals();
+    const pool = await bank.earn.createPool({ assetId: 'USDT', kind: 'flexible', name: 'TEST cash', aprBps: 100 });
+    await ledger.post(recipes.deposit({ userId: OWNER, assetId: 'USDT', amount: parseAmount('10'), rail: 'test', railRef: randomUUID() }));
+    const sweep = await bank.autoInvest.createThresholdSweep({
+      userId: OWNER,
+      assetId: 'USDT',
+      threshold: parseAmount('4'),
+      targetPoolId: pool.id,
+    });
+    await bank.autoInvest.createCardRoundUp({ userId: OWNER, assetId: 'USDT', granularity: parseAmount('1'), targetPoolId: pool.id });
+
+    await pause(bank, approvals, 'USDT', false, true, 0);
+
+    const report = await bank.autoInvest.runDue({ limit: 10 });
+    expect(report.settled).toBe(0);
+    expect(report.rejected).toBe(1);
+    const runs = await bank.autoInvest.runsOf(sweep.id);
+    expect(runs.map((r) => r.status)).toEqual(['rejected']);
+    expect(await sql`SELECT rejection_code FROM bank.auto_invest_runs WHERE rule_id = ${sweep.id}::uuid`).toEqual([
+      { rejection_code: 'bank.asset_paused' },
+    ]);
+
+    const roundUp = await bank.autoInvest.applyRoundUp({
+      userId: OWNER,
+      assetId: 'USDT',
+      authorizationId: randomUUID(),
+      captured: parseAmount('2.5'),
+    });
+    expect(roundUp).toMatchObject({ status: 'refused', reason: 'bank.asset_paused' });
+
+    expect(await sql`SELECT 1 FROM bank.earn_positions`).toHaveLength(0);
+    expect((await ledger.balance(userAvailable(OWNER, 'USDT'))).amount).toBe(parseAmount('10'));
   });
 
   it('an unreadable pause state refuses the operation instead of assuming open', async () => {
