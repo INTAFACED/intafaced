@@ -168,6 +168,9 @@ describe('M-catalogue-01 product records (Postgres)', () => {
     expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: '2026-02-30T00:00:00.000Z', id: randomUUID() }) }))).toBe(
       'pay.catalog_cursor_invalid',
     );
+    expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: '+012026-01-01T00:00:00.000Z', id: randomUUID() }) }))).toBe(
+      'pay.catalog_cursor_invalid',
+    );
     expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: new Date().toISOString(), id: 'nope' }) }))).toBe(
       'pay.catalog_cursor_invalid',
     );
