@@ -24,6 +24,10 @@ test('J-ops-console-01 #2 a founder sees the console panel on /ops', async ({ pa
   await page.goto('/ops');
   await expect(page.getByRole('heading', { name: 'Open the operator console' })).toBeVisible();
   await expect(page.getByText('Nothing to open here')).toHaveCount(0);
+  // The stack's build sets no VITE_TEAM_URL, so the panel names that honestly; a build that sets it shows the link.
+  const link = page.getByTestId('team-desk-console');
+  if (await link.count()) await expect(link).toHaveAttribute('href', /\/ops$/);
+  else await expect(page.getByText('The Team deployment address is not configured.')).toBeVisible();
 });
 
 test('J-ops-console-01 #2 a customer who is not a founder gets the pointer and no founder control on /ops', async ({ page }) => {

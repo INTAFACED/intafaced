@@ -1,7 +1,7 @@
-import { accountOperatorEntitlementSchema } from '@intafaced/contracts/account-controls';
+import { accountOperatorEntitlementSchema, type AccountOperatorEntitlement } from '@intafaced/contracts/account-controls';
 import { z } from 'zod';
 import { useApi, useSession } from '../features/session/session';
-import { authoredRefusal } from '../shared/api';
+import { authoredRefusal, type ApiResult } from '../shared/api';
 import { contractProcedure, readContract } from '../shared/contract-call';
 import { useResource } from '../shared/resource';
 import { Button, EmptyState, Page } from '../shared/ui';
@@ -32,32 +32,36 @@ const operatorStatus = contractProcedure('identity', 'accountControls.operatorSt
 
 /** What this page knows about the signed-in person's founder entitlement. */
 export type FounderCheck =
-  | { kind: 'signed_out' }
-  | { kind: 'checking' }
-  | { kind: 'unread'; retry: () => void }
-  | { kind: 'enabled' | 'revoked' | 'unconfigured' | 'not_operator' };
+  { kind: 'signed_out' } | { kind: 'checking' } | { kind: 'unread'; retry: () => void } | { kind: AccountOperatorEntitlement['status'] };
+
+/** Identity compares ids without regard to case, so this does too. */
+const sameUser = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/** The answer must be about the signed-in account; one about anybody else is refused as unread, never trusted. */
+export function ownAnswer(result: ApiResult<AccountOperatorEntitlement>, userId: string): ApiResult<AccountOperatorEntitlement> {
+  return result.ok && !sameUser(result.data.userId, userId) ? authoredRefusal('invalid_response', { key: 'loadFailed' }) : result;
+}
 
 /**
  * `/ops` and `/platform`: this app has no operator tools. A founder whose entitlement identity reports as enabled gets the
  * console link; everyone else gets a pointer to where their own tools live, and never a founder control.
  */
 export function TeamDesk({ href }: { href: string | undefined }) {
-  const { userId, mode } = useSession();
-  return userId ? (
-    <SignedInTeamDesk href={href} userId={userId} mode={mode} />
-  ) : (
-    <TeamDeskView href={href} check={{ kind: 'signed_out' }} mode={mode} />
-  );
+  const { userId, mode, restoring, restoreFailed, retryRestore } = useSession();
+  if (userId) return <SignedInTeamDesk href={href} userId={userId} mode={mode} />;
+  // Until the boot refresh answers, a signed-in founder is not yet known; a refresh that failed is not a sign-out.
+  const check: FounderCheck = restoring
+    ? { kind: 'checking' }
+    : restoreFailed
+      ? { kind: 'unread', retry: retryRestore }
+      : { kind: 'signed_out' };
+  return <TeamDeskView href={href} check={check} mode={mode} />;
 }
 
 function SignedInTeamDesk({ href, userId, mode }: { href: string | undefined; userId: string; mode: 'Personal' | 'Business' }) {
   const api = useApi();
-  // The answer must be about this account; one about anybody else is unread, not trusted.
   const read = useResource(
-    (signal) =>
-      readContract(api, operatorStatus, {}, { signal }).then((result) =>
-        result.ok && result.data.userId !== userId ? authoredRefusal('invalid_response', { key: 'loadFailed' }) : result,
-      ),
+    (signal) => readContract(api, operatorStatus, {}, { signal }).then((result) => ownAnswer(result, userId)),
     `team-desk-operator:${userId}`,
   );
   const status = read.resource;

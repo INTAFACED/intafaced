@@ -6,7 +6,8 @@ vi.mock('../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { TeamDeskView, teamConsoleHref } from './TeamDesk';
+import { authoredRefusal } from '../shared/api';
+import { TeamDeskView, ownAnswer, teamConsoleHref } from './TeamDesk';
 
 describe('console address', () => {
   it('is read from the configured address and joined to the room path', () => {
@@ -83,5 +84,26 @@ describe('/ops and /platform room', () => {
     expect(html).toContain('could not be checked');
     expect(html).toContain('Retry');
     expect(html).not.toContain('Open Team');
+  });
+});
+
+describe('founder answer ownership', () => {
+  const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const enabled = {
+    ok: true as const,
+    data: { status: 'enabled' as const, userId: USER, version: '1', changedAt: '2026-10-22T00:00:00.000Z' },
+  };
+  it('keeps an answer about the signed-in account, whatever the id case', () => {
+    expect(ownAnswer(enabled, USER)).toBe(enabled);
+    expect(ownAnswer(enabled, USER.toUpperCase())).toBe(enabled);
+  });
+  it('refuses an answer about anybody else', () => {
+    const other = ownAnswer(enabled, '1b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b');
+    expect(other.ok).toBe(false);
+    expect(other.ok ? undefined : other.reason).toBe('invalid_response');
+  });
+  it('passes a refusal through unchanged', () => {
+    const refused = authoredRefusal('unreachable', { key: 'loadFailed' });
+    expect(ownAnswer(refused, USER)).toBe(refused);
   });
 });
