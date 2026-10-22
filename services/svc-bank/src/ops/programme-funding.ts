@@ -4,8 +4,12 @@
  * Only `jit` runs: the card is an access device and spend is held and captured from the customer's own ledger balance
  * (withdrawHold, then withdrawSettle or withdrawReverse; see cards/card-service.ts). There is no programme pool, so
  * `prefunded_pooled` and `credit` refuse `bank.funding_model_not_wired` until BK-cops-05 and LG-card-programme-01
- * land. The refusal comes before the approval is consumed, so a refused change never spends a second operator's
- * approval. Setting `jit` (the current model) needs the same action approval and changes nothing.
+ * land. Asking for the current model (`jit`) refuses `bank.funding_model_unchanged`: nothing would change, so nothing
+ * is recorded. Both refusals come before the approval is consumed, so a refused set never spends a second operator's
+ * approval. Today every set refuses; the approval path is there for the day a second model is wired.
+ *
+ * `changedAt` and `changedBy` are null because the model has never changed: `jit` is the only model there has been.
+ * They are not a missing record; the first real change (with a stored row) comes with BK-cops-05.
  */
 import {
   bankProgrammeFundingModelSetInputSchema,
@@ -25,6 +29,9 @@ type ConsumeOpsApproval = (
   fields: Record<string, string>,
 ) => Promise<string>;
 
+/** The model in force. Never changed so far; see the header. */
+export const CURRENT_FUNDING_MODEL: BankProgrammeFundingModel = 'jit';
+
 /** The models this deployment can run. Only `jit` until the pooled programme ledger lands. */
 export const WIRED_FUNDING_MODELS: readonly BankProgrammeFundingModel[] = ['jit'];
 
@@ -36,7 +43,7 @@ const JIT_EXPLANATION =
 
 export function programmeFundingModelView(): BankProgrammeFundingModelView {
   return bankProgrammeFundingModelViewSchema.parse({
-    current: 'jit',
+    current: CURRENT_FUNDING_MODEL,
     explanation: JIT_EXPLANATION,
     wired: [...WIRED_FUNDING_MODELS],
     changedAt: null,
@@ -44,7 +51,7 @@ export function programmeFundingModelView(): BankProgrammeFundingModelView {
   });
 }
 
-/** Refuses an unwired model first, then consumes the action approval bound to the model and reason. */
+/** Refuses an unwired model, then the current model (no change), then consumes the approval bound to model and reason. */
 export async function setProgrammeFundingModel(
   input: BankProgrammeFundingModelSetInput,
   consume: ConsumeOpsApproval,
@@ -54,6 +61,12 @@ export async function setProgrammeFundingModel(
     throw new BankError(
       `Funding model ${parsed.model} is not wired; only jit runs until BK-cops-05 and LG-card-programme-01 land (bank.funding_model_not_wired)`,
       'bank.funding_model_not_wired',
+    );
+  }
+  if (parsed.model === CURRENT_FUNDING_MODEL) {
+    throw new BankError(
+      `Funding model is already ${parsed.model}; nothing would change, so no approval is used (bank.funding_model_unchanged)`,
+      'bank.funding_model_unchanged',
     );
   }
   await consume(parsed, FUNDING_MODEL_SET_ACTION, { model: parsed.model, reason: parsed.reason });

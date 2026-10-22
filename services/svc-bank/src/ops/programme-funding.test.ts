@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { bankActionPayloadHash } from '../action-approval-consume.js';
 import type { BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import { FUNDING_MODEL_SET_ACTION } from './programme-funding.js';
@@ -81,26 +80,6 @@ describe('ops.programmeFundingModel (BK-cops-04)', () => {
       ).rejects.toMatchObject({ message: expect.stringMatching(/bank\.funding_model_not_wired/) });
     }
     expect(identity.seen).toHaveLength(0);
-  });
-
-  it('setting jit consumes an approval bound to the model and reason, and changes nothing', async () => {
-    const identity = fakeIdentity();
-    const view = await caller(['admin:treasury'], identity).ops.programmeFundingModelSet({
-      model: 'jit',
-      reason: REASON,
-      approvalId: 'appr-1',
-      operationId: 'op-1',
-    });
-    expect(view.current).toBe('jit');
-    expect(identity.seen).toEqual([
-      expect.objectContaining({
-        approvalId: 'appr-1',
-        operationId: 'op-1',
-        targetService: 'svc-bank',
-        targetId: FUNDING_MODEL_SET_ACTION,
-        payloadHash: bankActionPayloadHash(FUNDING_MODEL_SET_ACTION, { model: 'jit', reason: REASON }),
-      }),
-    ]);
   });
 
   it('with no identity wired the change refuses; set needs treasury; a short reason or missing approval is refused', async () => {

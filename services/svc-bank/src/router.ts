@@ -510,6 +510,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_programme_span_unset':
       case 'bank.card_programme_span_too_long':
       case 'bank.funding_model_not_wired':
+      case 'bank.funding_model_unchanged':
       case 'bank.ramp_health_window_unset':
       case 'bank.transfer_health_window_unset':
       case 'bank.failed_transfers_window_unset':

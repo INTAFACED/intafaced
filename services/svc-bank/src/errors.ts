@@ -595,6 +595,8 @@ export type BankErrorCode =
   | 'bank.card_programme_span_too_long'
   /** A card funding model other than jit was asked for; only jit runs until BK-cops-05 (BK-cops-04). */
   | 'bank.funding_model_not_wired'
+  /** A funding model set asked for the model already in force; refused before any approval is consumed (BK-cops-04). */
+  | 'bank.funding_model_unchanged'
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
   /** Transfer health window was omitted or outside 1..720 hours. */
