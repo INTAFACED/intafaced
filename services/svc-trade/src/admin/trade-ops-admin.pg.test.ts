@@ -814,6 +814,7 @@ describe('trade operator procedures', () => {
         expectedVersion: '0',
         reason: 'read only set',
         approvalId: 'router-risk',
+        operationId: 'op-router-risk',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const [risk] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_risk_limits`;
