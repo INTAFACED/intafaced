@@ -22,6 +22,7 @@ import {
   type DepthNotionalSource,
   type LiquidationTickResult,
   type MarkSource,
+  type MatchedLiquidationPort,
 } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
@@ -160,6 +161,12 @@ export interface FuturesJobsDeps {
   };
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  /**
+   * Liquidation through the book (futures ADR slice 7). Bound after the position service is built, which is after the
+   * jobs (it prices from their marks). The port's own switch decides whether NEW rungs go to the book; a live one is
+   * always worked to its end. Unbound: every rung closes at the mark, as before.
+   */
+  matchedLiquidation?: { readonly current: MatchedLiquidationPort | null };
 }
 
 export interface FuturesJobsHandle {
@@ -442,6 +449,10 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       publishedLiquidationLimits: null,
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
+      // The matched-order book also pulls a position's resting increasing orders before any rung (both paths).
+      ...(deps.matchedLiquidation?.current
+        ? { matched: deps.matchedLiquidation.current, increasingOrders: deps.matchedLiquidation.current.increasingOrders }
+        : {}),
     });
     reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });

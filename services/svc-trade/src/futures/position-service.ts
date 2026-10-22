@@ -214,6 +214,8 @@ export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
 export const OPEN_ROLLED_BACK = 'trade.open_rolled_back';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
+/** A margin outflow or leverage change refused while reduce-only orders on the position may still fill. */
+export const FUTURES_REDUCE_ORDERS_RESTING = 'trade.futures_reduce_orders_resting';
 /**
  * A liquidation rung is live (planned or posted) on this position: its loss is booked or
  * about to be, and the row has not caught up. Refused with 409, retryable once the rung
@@ -700,6 +702,25 @@ export class PositionService {
         409,
       );
     }
+    // A resting reduce-only order was bounded by the bankruptcy price of the margin at placement. Taking margin out
+    // moves that price toward entry, so a fill before the sweep could land past it and draw on the insurance fund for
+    // money the trader took out. The orders go first; adding margin moves the price away and is always allowed.
+    if (operation === 'reduce_margin' || operation === 'set_leverage') {
+      const [resting] = await tx<{ n: number }[]>`
+        SELECT 1 AS n FROM trade.futures_orders
+         WHERE position_id = ${positionId} AND reduce_only
+           AND (status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+                OR (status = 'cancelled' AND COALESCE(engine_filled_qty, qty) > filled_qty))
+         LIMIT 1
+      `;
+      if (resting) {
+        throw new FuturesError(
+          'this position has reduce-only orders that may still fill — cancel them before taking margin out or changing leverage',
+          FUTURES_REDUCE_ORDERS_RESTING,
+          409,
+        );
+      }
+    }
   }
 
   /**
@@ -905,6 +926,11 @@ export class PositionService {
     return this.matched.retryWaitingFills(limit);
   }
 
+  /** The port the liquidation tick works a liquidation through the book with (futures ADR slice 7). */
+  get matchedLiquidation() {
+    return this.matched.liquidationPort;
+  }
+
   /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
   async cancelMatchedOrdersOutsideBand() {
     return this.matched.cancelOutsideBand();
@@ -1045,15 +1071,16 @@ export class PositionService {
    */
   async open(input: OpenPositionInput, principal?: Principal, context: { readonly region?: string | null } = {}): Promise<Position> {
     /**
-     * WHILE MATCHED MODE IS ON, NO NEW AT-MARK POSITION.
+     * WHILE MATCHED MODE IS ON, NO AT-MARK OPEN AND NO AT-MARK REDUCE.
      *
      * A matched fill opens its row under a slot id and inserts it when the first fill lands. An at-mark open that
      * inserted an open row for the same (user, market, side) in between would make that insert violate the unique
      * open index after the ledger had already posted the fill's margin. So while matching is on, new at-mark opens
-     * refuse. Closing an at-mark position stays allowed, and so does the reduce-only close path. Slice 6b retires
-     * the at-mark open for good; this refusal is the part of that needed for the switch to be safe.
+     * refuse. A reduce-only open here is an at-mark close (`closeQuantity`), retired with the rest of the at-mark
+     * close path (slice 6b): a reduce goes through a reduce-only matched order, priced in the book.
      */
-    if (this.matched.matchingEnabled && input.reduceOnly !== true) {
+    if (this.matched.matchingEnabled) {
+      if (input.reduceOnly === true) this.refuseCloseAtMark();
       throw new FuturesError(
         'opening at the mark is retired while futures orders go through the matching engine — place a matched order',
         'trade.futures_open_at_mark_retired',
@@ -2042,6 +2069,7 @@ export class PositionService {
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        if (row.status === 'open' && this.matched.matchingEnabled) this.refuseCloseAtMark();
         // Under the row lock, before the mark read and before anything posts: a trader may not
         // close out from under a live rung or a parked position (see `assertLiquidationHold`).
         await this.assertLiquidationHold(tx, row.id, 'close');
@@ -2258,6 +2286,23 @@ export class PositionService {
   }
 
   /**
+   * WHILE MATCHED MODE IS ON, NO AT-MARK CLOSE (futures ADR slice 6b).
+   *
+   * With matching on, every position comes from a fill between two traders, and the clearing pot pays a winner only
+   * what some other trader lost (ADR section 3). A close at the mark has no counterparty: it would shrink one side
+   * of the market and pay from the pot with nobody on the other side, breaking long size = short size. So a close
+   * goes through a reduce-only matched order instead. Liquidation rungs and ADL keep their own paths. A row already
+   * `closing` (it asked to leave while the feed was dark, before the switch) still settles at its frozen mark.
+   */
+  private refuseCloseAtMark(): never {
+    throw new FuturesError(
+      'closing at the mark is retired while futures orders go through the matching engine — place a reduce-only order',
+      'trade.futures_close_at_mark_retired',
+      409,
+    );
+  }
+
+  /**
    * Post a close plan: the profit leg first through `payOrOweProfit` (paid from
    * the clearing pot, or owed until it holds it), then every other leg in plan
    * order. Runs under the position row lock, inside the close transaction.
@@ -2446,6 +2491,7 @@ export class PositionService {
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        if (row.status === 'open' && this.matched.matchingEnabled) this.refuseCloseAtMark();
         await this.assertLiquidationHold(tx, row.id, 'close');
         this.assertNoPendingMarginAdjustment(row);
 
@@ -2611,6 +2657,8 @@ export class PositionService {
       WHERE user_id = ${userId} AND client_batch_id = ${clientBatchId}
     `;
     if (stored[0]) return stored[0].result;
+    // Refused whole, before a batch is stored: a retry once the switch is off is a new close, not a stored refusal.
+    if (this.matched.matchingEnabled) this.refuseCloseAtMark();
 
     const market = input.market?.trim() || undefined;
     const open = await this.listOpen(userId, market);
