@@ -10,8 +10,8 @@ export const academyCurriculumPathSchema = z.enum(['foundations', 'markets', 'bu
 export type AcademyCurriculumPath = z.infer<typeof academyCurriculumPathSchema>;
 export const academyCurriculumKindSchema = z.enum(['playbook', 'workbook', 'lesson']);
 export type AcademyCurriculumKind = z.infer<typeof academyCurriculumKindSchema>;
+/** `progress` orders by the caller's own progress; a signed-out visitor has none (spec: catalogue shown, no progress). No refusal code is defined here. */
 export const academyCatalogueSortSchema = z.enum(['recommended', 'progress', 'name_asc', 'name_desc']);
-/** `progress` needs a signed-in learner; the service refuses it for a signed-out caller. */
 
 /** Input of `curriculum` and `publicCatalogue`. */
 export const academyCatalogueQuerySchema = z
