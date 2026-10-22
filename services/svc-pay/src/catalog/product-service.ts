@@ -29,7 +29,7 @@ export function roleHasCatalogPermission(role: MerchantRole, permission: Catalog
   return permission === 'catalog.read' ? true : CATALOG_WRITE_ROLES.has(role);
 }
 
-function assertCatalog(caller: MerchantCaller, permission: CatalogPermission): void {
+export function assertCatalog(caller: MerchantCaller, permission: CatalogPermission): void {
   if (!roleHasCatalogPermission(caller.role, permission)) throw new MerchantOpsError('pay.team_role_forbidden', 'forbidden');
 }
 
