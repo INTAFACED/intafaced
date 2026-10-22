@@ -23,6 +23,7 @@ import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
@@ -313,6 +314,22 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           wrapOps(async () => {
             if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.declineInvite(ctx.principal.userId, input.memberId);
+          }),
+        ),
+      }),
+
+      /** M-plat-org-03: the built-in roles and what each can do, read from the role table. Built-in roles have no write. */
+      permissions: router({
+        catalogue: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return permissionCatalogue();
+          }),
+        ),
+        updateRole: write.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return refuseBuiltInRoleEdit();
           }),
         ),
       }),
