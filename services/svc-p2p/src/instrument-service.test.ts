@@ -1138,6 +1138,8 @@ describe('svc-p2p payment instruments', () => {
         'reputation.get': { userId: SELLER },
         // Caller's own order page (P-trade-orders-13): trade rows + counts, no instrument join.
         'trades.page': { limit: 50 },
+        // Own counts and decimal volume sums only (P-ads-merchant-20); no instrument join.
+        'merchants.stats': {},
         'instruments.methods.list': { limit: 50 },
         'instruments.methods.register': { methodId: 'probe', country: 'DE', label: 'p', fields: [{ key: 'a', label: 'A' }] },
         'instruments.methods.setEnabled': { methodId: METHOD, country: ANY_COUNTRY, enabled: false },
