@@ -189,6 +189,9 @@
   .hp-activity .home-activity__row {
     margin: 0;
   }
+  .hp-started {
+    margin-top: 24px;
+  }
   .hp-panel__head {
     display: flex;
     align-items: center;
