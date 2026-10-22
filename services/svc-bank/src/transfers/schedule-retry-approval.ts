@@ -106,19 +106,28 @@ export class ScheduleRetryDesk {
     if (approver.toLowerCase() === requester.toLowerCase() || approver.toLowerCase() === actorId.toLowerCase()) {
       throw new BankError('the approver must be a second person, not the proposer or the actor', 'bank.schedule_retry_approval_refused');
     }
-    return this.retrier.retry({
-      scheduleId: input.scheduleId,
-      occurrence: input.occurrence,
-      now: input.now,
-      approved: { status: run.status, amount },
-      audit: async (tx: Sql, out) => {
-        await tx`
-          INSERT INTO bank.schedule_retry_audit
-            (schedule_id, occurrence, actor_id, requester_id, approver_id, approval_id, reason, payload_hash, outcome, ledger_tx_id, rejection_code)
-          VALUES (${input.scheduleId}, ${input.occurrence}, ${actorId}, ${requester}, ${approver}, ${approvalId}, ${reason},
-                  ${payloadHash}, ${out.status}, ${out.ledgerTxId}, ${out.rejectionCode ?? null})
-        `;
-      },
-    });
+    const write = (db: Sql, outcome: string, ledgerTxId: string | null, rejectionCode: string | null) => db`
+      INSERT INTO bank.schedule_retry_audit
+        (schedule_id, occurrence, actor_id, requester_id, approver_id, approval_id, reason, payload_hash, outcome, ledger_tx_id, rejection_code)
+      VALUES (${input.scheduleId}, ${input.occurrence}, ${actorId}, ${requester}, ${approver}, ${approvalId}, ${reason},
+              ${payloadHash}, ${outcome}, ${ledgerTxId}, ${rejectionCode})
+    `;
+    try {
+      return await this.retrier.retry({
+        scheduleId: input.scheduleId,
+        occurrence: input.occurrence,
+        now: input.now,
+        approved: { status: run.status, amount },
+        audit: async (tx: Sql, out) => {
+          await write(tx, out.status, out.ledgerTxId, out.rejectionCode ?? null);
+        },
+      });
+    } catch (err) {
+      // DR6 minor 2: the approval is already consumed in identity. A typed refusal inside the locked transaction
+      // (stale, paused, inactive, pending) rolled back, so record it here; nothing moved. A non-typed failure
+      // (database, ledger transport) is rethrown unrecorded: its outcome is unknown, not refused.
+      if (err instanceof BankError) await this.retrier.withSql((db) => write(db, 'refused', null, err.code).then(() => undefined));
+      throw err;
+    }
   }
 }

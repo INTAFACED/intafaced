@@ -89,7 +89,7 @@ describe('DR6 operator retry (Postgres, ledger in refuse mode)', () => {
   });
   const key = (id: string) => `bank.transfer.sched:${id}:0`;
 
-  it('M1: the run changing between the approval read and the lock refuses bank.schedule_retry_approval_stale; nothing posts or audits', async () => {
+  it('M1: the run changing between the approval read and the lock refuses bank.schedule_retry_approval_stale; nothing posts, and the consumed approval is audited as refused', async () => {
     let scheduleId = '';
     const consumer: ScheduleRetryApprovalConsumer = {
       async consume() {
@@ -103,14 +103,17 @@ describe('DR6 operator retry (Postgres, ledger in refuse mode)', () => {
     scheduleId = s.id;
     await expect(b.scheduleRetryDesk!.retry(req(s.id))).rejects.toMatchObject({ code: 'bank.schedule_retry_approval_stale' });
     expect(await ledger.getTxByKey(key(s.id))).toBeNull();
-    expect(await sql`SELECT 1 FROM bank.schedule_retry_audit`).toHaveLength(0);
+    const rows = await sql`SELECT outcome, rejection_code, ledger_tx_id, approver_id FROM bank.schedule_retry_audit`;
+    expect(rows).toEqual([
+      { outcome: 'refused', rejection_code: 'bank.schedule_retry_approval_stale', ledger_tx_id: null, approver_id: 'op-approver' },
+    ]);
   });
 
-  it('M1: a status change under the lock (settled by the runner meanwhile) also refuses as stale', async () => {
+  it('M1: a status change alone (amount unchanged; a settled run would otherwise return as settled) refuses as stale', async () => {
     let scheduleId = '';
     const consumer: ScheduleRetryApprovalConsumer = {
       async consume() {
-        await sql`UPDATE bank.transfer_executions SET status = 'pending', rejection_code = NULL WHERE schedule_id = ${scheduleId} AND occurrence = 0`;
+        await sql`UPDATE bank.transfer_executions SET status = 'settled', rejection_code = NULL, ledger_tx_id = 'tx-settled-elsewhere', settled_at = now() WHERE schedule_id = ${scheduleId} AND occurrence = 0`;
         return { status: 'CONSUMED', requesterId: 'op-proposer', approverId: 'op-approver' };
       },
     };

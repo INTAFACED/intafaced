@@ -192,6 +192,11 @@ export class ScheduleRunRetry {
     );
   }
 
+  /** Runs a write on the pool, outside any retry transaction (the refusal audit after a consumed approval). */
+  async withSql(write: (sql: Sql) => Promise<void>): Promise<void> {
+    await write(this.sql);
+  }
+
   /** Reads the run a retry would act on (for the approval payload); null when absent. */
   async runFor(scheduleId: string, occurrence: number): Promise<{ status: string; amount: string; scheduleStatus: string } | null> {
     const rows = await this.sql<Array<{ status: string; amount: string; scheduleStatus: string }>>`
