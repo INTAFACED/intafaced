@@ -44,18 +44,18 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
-import { FOUNDER_VAULT_NAME } from './local-test-founders.mjs';
+import { FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
-const PSQL =
-  process.env.LOCAL_STACK_PG_BIN !== undefined
-    ? `${process.env.LOCAL_STACK_PG_BIN}/psql`
-    : fs.existsSync('/opt/homebrew/bin/psql')
-      ? '/opt/homebrew/bin/psql'
-      : '/usr/lib/postgresql/16/bin/psql';
+const PSQL = process.env.LOCAL_STACK_PG_BIN
+  ? path.join(process.env.LOCAL_STACK_PG_BIN, 'psql')
+  : fs.existsSync('/opt/homebrew/bin/psql')
+    ? '/opt/homebrew/bin/psql'
+    : '/usr/lib/postgresql/16/bin/psql';
 const DB_NAME = 'intafaced_local_test';
+const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 
 export { GuardError };
 
@@ -385,30 +385,9 @@ export async function makeContext({ home = os.homedir(), log = say } = {}) {
 
 // ── Operators ───────────────────────────────────────────────────────────────
 
-/**
- * The stack's two enrolled founders (<state>/founders.json), when both have a confirmed second factor. Identity refuses
- * founder-only action types (opening a book, approving verification) from anyone else (action_approval.founder_only), so
- * when the founders exist they act as operators a and b. Their secrets stay in the founder vault and are never copied.
- */
-function enrolledFounders(ctx) {
-  const vault = readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), {});
-  const list = (vault.founders ?? []).filter((f) => f?.userId && f.password && f.totpSecret && f.totpConfirmed === true);
-  return list.length >= 2 ? list.slice(0, 2) : null;
-}
-
 function loadOperators(ctx) {
   const file = readJson(ctx.paths.operators, {});
   const out = {};
-  const founders = enrolledFounders(ctx);
-  if (founders) {
-    ['a', 'b'].forEach((l, i) => {
-      const f = founders[i];
-      out[l] = { handle: f.handle, email: f.email, password: f.password, userId: f.userId, totpSecret: f.totpSecret };
-      out[l].founder = true;
-      out[l].lastStep = file.operators?.[l]?.founder ? Number(file.operators[l].lastStep ?? 0) : 0;
-    });
-    return out;
-  }
   for (const l of ['a', 'b']) {
     const id = operatorIdentity(l);
     const have = file.operators?.[l];
@@ -419,19 +398,11 @@ function loadOperators(ctx) {
   return out;
 }
 function saveOperators(ctx, ops) {
-  // Founder-backed operators keep only their id (matching reads it as an operator seat) and last TOTP step here; their
-  // credentials live in the founder vault.
-  const stored = Object.fromEntries(
-    Object.entries(ops).map(([l, op]) => [
-      l,
-      op.founder ? { handle: op.handle, userId: op.userId, founder: true, lastStep: op.lastStep } : op,
-    ]),
-  );
   writePrivate(ctx.paths.operators, {
     kind: 'intafaced-local-test-operators',
     label: MARKERS.label,
     note: 'Two labelled LOCAL TEST operator accounts. Not people. Never valid anywhere but this stack.',
-    operators: stored,
+    operators: ops,
   });
 }
 
@@ -446,7 +417,7 @@ async function freshCode(ctx, op) {
 }
 
 async function operatorLogin(ctx, op) {
-  const input = { identifier: op.email, password: op.password };
+  const input = { identifier: op.email ?? op.handle, password: op.password };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
   const res = await ctx.edge.mutate('identity', 'auth.login', input);
   const d = data(res);
@@ -504,11 +475,34 @@ async function mintOperatorToken(ctx, op) {
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
 export async function operatorSessions(ctx) {
   const ops = await ensureOperators(ctx);
+  return signInPair(ctx, ops, () => saveOperators(ctx, ops));
+}
+
+/**
+ * The pair that approves founder-only actions (opening a book, approving a verification). Once the stack's founders
+ * are enrolled, identity refuses those from anyone else (action_approval.founder_only), so the founders sign in; on a
+ * stack without them the test operators do. Founder credentials are read from the vault and never copied; only each
+ * founder's last TOTP step is kept, in its own file, so a code is never replayed.
+ */
+export async function approverSessions(ctx) {
+  const pair = enrolledFounderPair(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (!pair) return operatorSessions(ctx);
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const steps = readJson(stepsFile, {});
+  const ops = {};
+  pair.forEach((f, i) => {
+    const l = ['a', 'b'][i];
+    ops[l] = { handle: f.handle, email: f.email, password: f.password, totpSecret: f.totpSecret, lastStep: Number(steps[l] ?? 0) };
+  });
+  return signInPair(ctx, ops, () => writePrivate(stepsFile, { a: ops.a.lastStep, b: ops.b.lastStep }));
+}
+
+async function signInPair(ctx, ops, saveSteps) {
   const sessions = {};
   for (const l of ['a', 'b']) {
     const op = ops[l];
     const loginToken = await operatorLogin(ctx, op);
-    saveOperators(ctx, ops);
+    saveSteps();
     sessions[l] = {
       op,
       /** Second-factor session token (what a signed-in operator holds). */
@@ -605,7 +599,7 @@ export async function openBooks(ctx) {
   const markets = openableMarkets(await listMarkets(ctx)).filter((m) => !have.has(m.id));
   const out = [];
   if (markets.length === 0) return out;
-  const sessions = await operatorSessions(ctx);
+  const sessions = await approverSessions(ctx);
   for (const m of markets) {
     const ids = await twoPerson(ctx, sessions, openProposal(m.id));
     const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
@@ -680,7 +674,7 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
   const todo = selectPendingForApproval(pending, userIds);
   const out = [];
   if (todo.length === 0) return out;
-  const s = sessions ?? (await operatorSessions(ctx));
+  const s = sessions ?? (await approverSessions(ctx));
   for (const r of todo) {
     const who = users.find((u) => u.id === r.userId)?.handle ?? r.userId;
     try {

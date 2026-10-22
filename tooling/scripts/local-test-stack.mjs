@@ -41,6 +41,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
+  FOUNDER_VAULT_NAME,
+  enrolledFounderPair,
   ensureFounderVaultDraft,
   enrolTestStackFounders,
   founderIdentityEnv,
@@ -238,17 +240,26 @@ const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
 const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
 
-/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+/**
+ * User ids of the two LOCAL TEST operators and, once enrolled, the two local founders (comma-separated), or '' while
+ * none exist yet. The founders approve founder-only actions such as opening a book, so matching must seat them too.
+ */
 function localOperatorIds() {
+  let ops = {};
   try {
-    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
-    return ['a', 'b']
-      .map((k) => ops[k]?.userId)
-      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
-      .join(',');
+    ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
   } catch {
-    return '';
+    /* no operators yet */
   }
+  let vault = null;
+  try {
+    vault = readJson(path.join(STATE, FOUNDER_VAULT_NAME));
+  } catch {
+    /* no founder vault yet */
+  }
+  const founders = enrolledFounderPair(vault) ?? [];
+  const ids = [...['a', 'b'].map((k) => ops[k]?.userId), ...founders.map((f) => f.userId)];
+  return [...new Set(ids.filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id)))].join(',');
 }
 
 // ── Process records (pid file + argv) ───────────────────────────────────────

@@ -125,6 +125,7 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
     ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fpn'],
     { encoding: 'utf8' },
   );
+  if (sockets.error) refuse(`cannot list listening ports (lsof: ${sockets.error.message})`);
   const listeners = new Map();
   let pid;
   for (const line of (sockets.stdout ?? '').split('\n')) {
