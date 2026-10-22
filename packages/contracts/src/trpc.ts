@@ -3,6 +3,7 @@ import type { Principal, Scope } from '@intafaced/auth';
 import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
+import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
 /**
@@ -119,6 +120,18 @@ const ALGO_DECIMAL = /^(0|[1-9]\d*)(\.\d+)?$/;
  * Any other key, or a value that is not that shape, is dropped so a sentence
  * cannot ride out on this field.
  */
+/**
+ * Only on `preview.engine_not_built`. The cause may arrive wrapped by tRPC,
+ * so the five fields are picked and re-checked against the schema; anything
+ * else on the cause is dropped.
+ */
+export function previewRefusalOf(cause: unknown): PreviewRefusal | undefined {
+  if (!cause || typeof cause !== 'object') return undefined;
+  const c = cause as Record<string, unknown>;
+  const picked = { kind: c.kind, code: c.code, engine: c.engine, action: c.action, label: c.label };
+  return isPreviewRefusal(picked) ? picked : undefined;
+}
+
 export function algoRefusalDetails(cause: unknown): Record<string, string> | undefined {
   if (!cause || typeof cause !== 'object' || !('code' in cause) || !('data' in cause)) return undefined;
   const code = (cause as { code?: unknown }).code;
@@ -196,6 +209,7 @@ const t = initTRPC.context<Context>().create({
     const blockers = errorBlockersOf(cause);
     const algo = algoRefusalDetails(cause);
     const allowance = withdrawalAllowanceOf(cause);
+    const preview = previewRefusalOf(cause);
     return {
       ...shape,
       data: {
@@ -220,6 +234,8 @@ const t = initTRPC.context<Context>().create({
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.
         ...(allowance ? { allowance } : {}),
+        // Only on `preview.engine_not_built`: kind, code, engine, action, label.
+        ...(preview ? { preview } : {}),
       },
     };
   },

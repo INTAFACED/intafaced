@@ -934,6 +934,9 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
+    kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
+    kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
+    kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
     ledgerTxPosted: {
       txId: uid(),
       module: 'trade',
@@ -983,6 +986,9 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       epoch: 0,
       resolvedAt: ts(),
     },
+    coreOpsAlertGroupOpened: { groupId: 'g1', chainId: null, labels: ['team:ops'], openedAt: ts() },
+    coreOpsAlertGroupUpdated: { groupId: 'g1', action: 'acknowledged', sequence: 1, actor: uid(), changedAt: ts() },
+    coreOpsAlertGroupResolved: { groupId: 'g1', sequence: 1, actor: 'auto', resolvedAt: ts() },
     coreOpsComplianceCaseCreated: {
       caseId: 'case-1',
       inboxId: 'inbox-1',

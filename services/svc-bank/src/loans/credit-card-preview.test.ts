@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import type { Principal } from '@intafaced/auth';
 import { PREVIEW_LABEL, previewRefusalSchema, type Context } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
@@ -100,6 +101,40 @@ describe('credit card preview', () => {
     ['choose_date', 'set_payment_date'],
   ] as const)('refuses repay %s as %s', async (option, action) => {
     await expectRefused(writer().repay({ option }), action);
+  });
+
+  it('carries kind, engine, action and label to the client in the formatted error, over the real wire', async () => {
+    const wire = async (path: string, input: unknown) => {
+      const res = await fetchRequestHandler({
+        endpoint: '/trpc',
+        req: new Request(`http://localhost/trpc/${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+        router: createBankRouter(untouched),
+        createContext: async () => context(['bank:read', 'bank:write']),
+      });
+      expect(res.status).toBe(412);
+      return ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    };
+    for (const [path, input, action] of [
+      ['creditCard.application', { variant: 'credit_card' }, 'apply'],
+      ['creditCard.limit', { change: 'request' }, 'change_limit'],
+      ['creditCard.repay', { option: 'choose_date' }, 'set_payment_date'],
+      ['creditCard.rules', { restriction: 'gambling' }, 'set_usage_rule'],
+      ['creditCard.dispute', { statementLine: 'TEST-LINE-A' }, 'open_dispute'],
+    ] as const) {
+      const data = await wire(path, input);
+      expect(data.cause).toEqual({ code: 'preview.engine_not_built' });
+      expect(data.preview).toEqual({
+        kind: 'preview',
+        code: 'preview.engine_not_built',
+        engine: 'bank.credit_card',
+        action,
+        label: PREVIEW_LABEL,
+      });
+    }
   });
 
   it('refuses unknown values and extra fields at validation', async () => {
