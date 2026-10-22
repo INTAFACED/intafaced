@@ -188,6 +188,7 @@ const messages = {
   'Checking the order': 'Checking the order…',
   'Trading mode': 'Trading mode',
   'Trading mode value': 'Cash spot · {state}',
+  'Trading mode no orders': 'Cash spot · {state}, no new orders on this desk',
   'Mode OPEN': 'Open',
   'Mode POST_ONLY': 'Post only',
   'Mode LIMIT_ONLY': 'Limit only',

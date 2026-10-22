@@ -454,6 +454,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await closed.locator('.dk-order [data-slot="state-block"]').waitFor();
   await expect(closed.locator('.dk-order')).toContainText('This market isn’t open');
   await expect(closed.locator('.dk-order')).toContainText('You can’t trade it right now');
+  await expect(closed.locator('.dk-stats')).toContainText('Cash spot · Not open for new orders');
   await shotBoth(closed, 'desk-market-closed');
   await closed.close();
 

@@ -3,7 +3,7 @@ import { registeredCopy } from '../../../shared/i18n';
 import './copy';
 import { NAMED_MODES, toDeskMarket, tradingMode, type DeskListing } from './market';
 
-const listing = (lifecycle: DeskListing['lifecycle']) =>
+const listing = (lifecycle: DeskListing['lifecycle'], over: Partial<DeskListing> = {}) =>
   ({
     symbol: 'BTC/USDT',
     base: 'BTC',
@@ -14,24 +14,30 @@ const listing = (lifecycle: DeskListing['lifecycle']) =>
     active: true,
     sessionOpen: true,
     lifecycle,
+    ...over,
   }) as unknown as DeskListing;
+const modeOf = (lifecycle: DeskListing['lifecycle'], over?: Partial<DeskListing>) => tradingMode(toDeskMarket(listing(lifecycle, over)));
 
 describe('trading mode', () => {
-  it('names the states the desk has words for', () => {
-    expect(tradingMode('OPEN')).toBe('OPEN');
-    expect(tradingMode('POST_ONLY')).toBe('POST_ONLY');
-    expect(tradingMode('HALTED')).toBe('HALTED');
+  it('reads open only when the desk takes orders', () => {
+    expect(modeOf({ state: 'OPEN' })).toEqual({ kind: 'open' });
+    expect(modeOf({ state: 'OPEN' }, { sessionOpen: false })).toEqual({ kind: 'closed' });
+    expect(modeOf({ state: 'OPEN' }, { orderable: false })).toEqual({ kind: 'closed' });
   });
 
-  it('any other listed state is "other", never shown raw and never open', () => {
-    expect(tradingMode('DELISTING')).toBe('other');
-    expect(toDeskMarket(listing({ state: 'DELISTING' })).open).toBe(false);
+  it('names a state the desk does not trade in, with no new orders', () => {
+    expect(modeOf({ state: 'POST_ONLY' })).toEqual({ kind: 'named', mode: 'POST_ONLY' });
+    expect(modeOf({ state: 'HALTED' })).toEqual({ kind: 'named', mode: 'HALTED' });
   });
 
-  it('a listing with no state, or a blank one, says the state is not listed', () => {
+  it('any other listed state is closed, never shown raw', () => {
+    expect(modeOf({ state: 'DELISTING' })).toEqual({ kind: 'closed' });
+  });
+
+  it('a blank state counts as none listed', () => {
     expect(toDeskMarket(listing(null)).state).toBeNull();
     expect(toDeskMarket(listing({ state: '  ' })).state).toBeNull();
-    expect(tradingMode(null)).toBeNull();
+    expect(tradingMode({ open: false, state: null })).toEqual({ kind: 'unlisted' });
   });
 
   it('every named mode has words', () => {

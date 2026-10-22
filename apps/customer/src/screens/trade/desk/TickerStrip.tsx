@@ -43,8 +43,13 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
   const colour = direction ?? (sign === 'up' || sign === 'down' ? sign : null);
   const loading = ticker.status === 'loading';
   const pair = `${market.base}/${market.quote}`;
-  const mode = tradingMode(market.state);
-  const modeText = mode === null ? t('Mode unlisted') : mode === 'other' ? t('Mode other') : t(`Mode ${mode}`);
+  const mode = tradingMode(market);
+  const modeText =
+    mode.kind === 'open'
+      ? t('Trading mode value', { state: t('Mode OPEN') })
+      : mode.kind === 'named'
+        ? t('Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
+        : t('Trading mode value', { state: mode.kind === 'unlisted' ? t('Mode unlisted') : t('Mode other') });
   return (
     <header className="dk-ticker" aria-label={t('Spot desk')}>
       <div className="dk-ticker-pair">
@@ -83,7 +88,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
       </div>
       <div className="dk-stats">
         {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
-        <Stat label={t('Trading mode')} value={t('Trading mode value', { state: modeText })} loading={false} />
+        <Stat label={t('Trading mode')} value={modeText} loading={false} />
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}

@@ -46,10 +46,19 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
 export const NAMED_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED'] as const;
 export type NamedMode = (typeof NAMED_MODES)[number];
 
-/** The trading mode the listing states: a named mode, 'other' for a state the desk has no words for (never shown raw), or null when none is listed. */
-export function tradingMode(state: string | null): NamedMode | 'other' | null {
-  if (state === null) return null;
-  return (NAMED_MODES as readonly string[]).includes(state) ? (state as NamedMode) : 'other';
+/**
+ * What the ticker says about trading here. 'open' only when the desk takes orders (market.open), so the strip never
+ * reads Open while the form refuses. A named state the desk does not trade in (POST_ONLY, HALTED ...) is named, with
+ * no new orders; any other state is 'closed' (never shown raw); a listing with no state is 'unlisted'.
+ */
+export type TradingMode =
+  { kind: 'open' } | { kind: 'named'; mode: Exclude<NamedMode, 'OPEN'> } | { kind: 'closed' } | { kind: 'unlisted' };
+export function tradingMode(market: Pick<DeskMarket, 'open' | 'state'>): TradingMode {
+  if (market.open) return { kind: 'open' };
+  if (market.state === null) return { kind: 'unlisted' };
+  if (market.state !== 'OPEN' && (NAMED_MODES as readonly string[]).includes(market.state))
+    return { kind: 'named', mode: market.state as Exclude<NamedMode, 'OPEN'> };
+  return { kind: 'closed' };
 }
 
 /** Real spot markets only (no paper markets). */
