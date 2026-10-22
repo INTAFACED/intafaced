@@ -134,6 +134,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   feeBps: env.P2P_FEE_BPS,
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
+  appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
   exportPolicy: {
     maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
     maxRows: env.P2P_EXPORT_MAX_ROWS,
