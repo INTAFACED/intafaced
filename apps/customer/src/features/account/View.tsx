@@ -163,6 +163,24 @@ export function View() {
             />
             <label className="field">
               <span>
+                <Text k="view.display.currency" />
+              </span>
+              <select
+                aria-label={copyText('view.display.currency')}
+                value={preferences.displayCurrency}
+                onChange={(event) => {
+                  save({ displayCurrency: event.target.value as 'USD' | 'BTC' });
+                }}
+              >
+                <option value="USD">USD</option>
+                <option value="BTC">BTC</option>
+              </select>
+              <small>
+                <Text k="view.display.currency.hint" />
+              </small>
+            </label>
+            <label className="field">
+              <span>
                 <Text k="view.time.zone" />
               </span>
               <select

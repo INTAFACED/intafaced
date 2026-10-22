@@ -7,6 +7,10 @@ const messages = {
   'Hide balances': 'Hide balances',
   'Show balances': 'Show balances',
   'How the total is worked out': 'How the total is worked out',
+  Assets: 'Assets',
+  'Shown in BTC': 'Shown in BTC at the current BTC price. In dollars: {usd}',
+  'Shown in BTC hidden': 'Shown in BTC at the current BTC price.',
+  'BTC price missing': 'There is no BTC price right now, so the total is shown in dollars.',
   'Total value rule':
     'USDT and USDC count as 1 USD. Other assets are valued at their last price against USDT, or USDC if there is no USDT market. Assets without a price are not counted.',
   Today: 'Today',
@@ -101,6 +105,10 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Hide balances': 'Ocultar saldos',
     'Show balances': 'Mostrar saldos',
     'How the total is worked out': 'Cómo se calcula el total',
+    Assets: 'Activos',
+    'Shown in BTC': 'En BTC al precio actual de BTC. En dólares: {usd}',
+    'Shown in BTC hidden': 'En BTC al precio actual de BTC.',
+    'BTC price missing': 'Ahora no hay precio de BTC, así que el total se muestra en dólares.',
     'Total value rule':
       'USDT y USDC cuentan como 1 USD. Los demás activos se valoran a su último precio frente a USDT, o a USDC si no hay mercado con USDT. Los activos sin precio no se cuentan.',
     Today: 'Hoy',
@@ -193,6 +201,10 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Hide balances': 'Masquer les soldes',
     'Show balances': 'Afficher les soldes',
     'How the total is worked out': 'Comment le total est calculé',
+    Assets: 'Actifs',
+    'Shown in BTC': 'En BTC au prix actuel du BTC. En dollars : {usd}',
+    'Shown in BTC hidden': 'En BTC au prix actuel du BTC.',
+    'BTC price missing': 'Aucun prix du BTC pour le moment, le total est donc affiché en dollars.',
     'Total value rule':
       'L’USDT et l’USDC comptent pour 1 USD. Les autres actifs sont valorisés à leur dernier prix contre l’USDT, ou l’USDC s’il n’y a pas de marché USDT. Les actifs sans prix ne sont pas comptés.',
     Today: 'Aujourd’hui',

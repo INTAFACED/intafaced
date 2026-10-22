@@ -13,10 +13,8 @@ import {
   isHiddenPath,
   Money,
   refusalCopy,
-  roundScaled,
   Skeleton,
   StateBlock,
-  toFixedString,
   useActivity,
   useFavorites,
   useMarkets,
@@ -39,6 +37,7 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { progress, readDismissed, writeDismissed } from './started';
 import { useGetStarted } from './started-data';
@@ -67,12 +66,6 @@ const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
 };
 /** Real pill widths, so the skeletons are the final size (critic M4). */
 const PILL_WIDTH: Record<ActionLabel, number> = { 'Add money': 112, Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
-
-/** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
-function cents(value: string | null): string | null {
-  const parsed = dec(value);
-  return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
-}
 
 function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
@@ -142,7 +135,7 @@ function HoldingsSkeleton() {
 
 function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
 
   if (portfolio.status === 'loading')
     return (
@@ -208,8 +201,9 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   return (
     <>
       <div className="home-total">
-        <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
+        <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
       </div>
+      <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" />
       {data.change24hUsd !== null && hasCrypto ? (
         <p className="home-change">
           <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -230,8 +224,8 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 /** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances, timeZone } = usePreferences();
-  const portfolio = useHomePortfolio();
+  const { hideBalances, timeZone, displayCurrency } = usePreferences();
+  const portfolio = useHomePortfolio(displayCurrency);
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);
@@ -319,6 +313,12 @@ function HomeSimple() {
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </button>
             <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+            {isHiddenPath('/money') ? null : (
+              <a className="home-tile-link" href="/money">
+                {t('Assets')}
+                <ChevronRight size={14} aria-hidden="true" />
+              </a>
+            )}
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />

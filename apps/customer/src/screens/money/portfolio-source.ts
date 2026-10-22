@@ -251,7 +251,11 @@ export function pickMoneyView(
 /** A holding as Home lists it: no spendable / in-orders split (Home never shows it, and the server summary does not give it). */
 export type HomeHolding = Omit<Holding, 'available' | 'inOrders'>;
 /** What Home reads: the same figures as `PortfolioSummary`, with holdings in the shape either source can fill. */
-export type HomePortfolio = Omit<PortfolioSummary, 'holdings'> & { holdings: HomeHolding[] };
+export type HomePortfolio = Omit<PortfolioSummary, 'holdings'> & {
+  holdings: HomeHolding[];
+  /** The total in BTC when Home asked for it (display unit BTC); null when it did not, or the bank's reason when no BTC price. */
+  btc?: MoneyView['btc'];
+};
 
 /** Re-shape the Money screen's view so Home shows exactly the numbers Money shows. */
 export function toHomePortfolio(view: MoneyView): HomePortfolio {
@@ -274,6 +278,7 @@ export function toHomePortfolio(view: MoneyView): HomePortfolio {
     source: view.source,
     asOf: view.asOf,
     windowStart: view.windowStart,
+    btc: view.btc,
   };
 }
 
@@ -282,8 +287,8 @@ export function toHomePortfolio(view: MoneyView): HomePortfolio {
  * two screens show one total. Only when the bank cannot give it does this use the data layer's derivation, and then
  * `source` is "derived" and the screens say so under the total (named spaces are not in that total).
  */
-export function useHomePortfolio(): Loadable<HomePortfolio> {
-  const money = useMoneyPortfolio();
+export function useHomePortfolio(unit: MoneyUnit = 'USD'): Loadable<HomePortfolio> {
+  const money = useMoneyPortfolio('combined', unit);
   return useMemo(
     () =>
       money.status === 'ready' ? { status: 'ready', data: toHomePortfolio(money.data), asOf: money.asOf } : (money as Loadable<never>),
