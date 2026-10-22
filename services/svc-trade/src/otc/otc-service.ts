@@ -42,6 +42,7 @@ import {
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
+import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 
@@ -60,6 +61,8 @@ export interface OtcDeskServiceOptions {
   convertBounds?: OtcConvertBounds;
   /** Durable quote table. Tests inject MemoryOtcQuoteStore; boot uses SQL. */
   store?: OtcQuoteStore;
+  /** Owner provider directory (CB-otc-01). Absent → "No providers set" and requests refuse. */
+  makerDirectory?: OtcMakerDirectory;
   now?: () => Date;
 }
 
@@ -72,6 +75,7 @@ export class OtcDeskService {
   private readonly midSource: OtcMidSource;
   private readonly liveObservationFeed: boolean;
   private readonly midFeedWiring: OtcMidFeedWiringStatus | null;
+  private readonly makerDirectory: OtcMakerDirectory;
   private readonly now: () => Date;
 
   constructor(
@@ -86,8 +90,22 @@ export class OtcDeskService {
     this.liveObservationFeed = options.liveObservationFeed === true;
     this.midFeedWiring = options.midFeedWiring ?? null;
     this.store = options.store ?? new MemoryOtcQuoteStore();
+    this.makerDirectory = options.makerDirectory ?? UNPUBLISHED_OTC_MAKER_DIRECTORY;
     this.convertBounds = options.convertBounds ?? NO_OTC_CONVERT_BOUNDS;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /** `trade.otc.makers.list` — the owner directory, or the honest empty state. */
+  listMakers() {
+    return listOtcMakers(this.makerDirectory);
+  }
+
+  /** `trade.otc.makers.select` — validates a provider pick against the list and the owner cap. */
+  selectMakers(makerIds: readonly string[]) {
+    return {
+      makers: selectOtcMakers(this.makerDirectory, makerIds),
+      selectCap: this.makerDirectory.published ? this.makerDirectory.selectCap : null,
+    };
   }
 
   deskStatus() {
@@ -147,6 +165,15 @@ export class OtcDeskService {
   ) {
     const law = requirePublishedOtcDeskLaw(this.law);
     const qty = parseRequiredOtcSize(input.qty);
+
+    // CB-otc-01: in maker mode the maker comes from the owner provider list, not
+    // free text. A blank list, an unknown provider or an outside provider refuses
+    // the request before any stake read or price lookup.
+    // A blank makerId is not skipped: it goes through the same selection, so a
+    // blank list refuses otc_makers_unset and a blank pick refuses otc_provider_required.
+    if (law.counterparty === 'maker') {
+      selectOtcMakers(this.makerDirectory, [input.makerId ?? '']);
+    }
 
     // Access gate before price lookup: an unstaked caller learns nothing about
     // what the desk can price, and a mid source that costs a round trip is not
