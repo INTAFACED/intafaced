@@ -11,6 +11,9 @@ import { chartsCopy } from './copy';
 import { defaultDeskPair, navigate, normalizePair, refusalCopy, Skeleton, StateBlock } from './deps';
 import { ChartGrid } from './ChartGrid';
 import type { WidgetProps } from './MarketChartWidget';
+import { DrawingsLayer } from './drawings/DrawingsLayer';
+import type { DrawingLimits } from './drawings/model';
+import { ownerValue, useChartOwnerValues } from './owner-values';
 import {
   DEFAULT_SETTING,
   chartsHref,
@@ -85,6 +88,14 @@ function Page({
   const setScheme = useCallback((scheme: ColourScheme) => setSetting((now) => ({ ...now, scheme })), [setSetting]);
   const unoffered = useMemo(() => unofferedInterval(search), [search]);
   const chooseMarket = useCallback((symbol: string) => navigate(chartsHref(pairOf(symbol), { workbench: id })), [id]);
+  // The owner's drawing caps. A blank, loading or failed read is null, and the drawing tools refuse with the typed reason.
+  const owner = useChartOwnerValues(market.symbol);
+  const drawingCap = ownerValue(owner, 'drawingCap');
+  const brushCap = ownerValue(owner, 'brushPointCap');
+  const limits: DrawingLimits = {
+    drawingCap: drawingCap.ok ? drawingCap.value : null,
+    brushPointCap: brushCap.ok ? brushCap.value : null,
+  };
   return (
     <div className="cw-page" data-market={market.symbol} data-workbench={id}>
       <header className="cw-head">
@@ -114,6 +125,9 @@ function Page({
         setMode={setMode}
         setScheme={setScheme}
         openSocket={openSocket}
+        mainAddons={(host, bars) => (
+          <DrawingsLayer key={id} host={host} bars={bars} workbench={id} symbol={market.symbol} tickSize={market.tickSize} limits={limits} />
+        )}
       />
     </div>
   );

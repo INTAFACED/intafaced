@@ -72,7 +72,7 @@ const messages = {
   'Text to place': 'Text',
   'Text label': 'Text to place or edit',
   'Object tree': 'Objects',
-  'Object tree empty': 'No drawings on this chart yet.',
+  'Object tree empty': 'No drawings on this chart.',
   'Object tree lead': 'Every drawing on this chart, with its bar times and prices. Indicators are listed here too.',
   'Group selected': 'Group checked',
   'Hide group': 'Hide group',

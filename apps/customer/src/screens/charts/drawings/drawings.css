@@ -4,6 +4,37 @@
  */
 @layer theme, base, components, utilities;
 @layer components {
+  /*
+   * The layer is a dock under the chart. The chart host is absolutely placed over its whole root, so while a layer is in
+   * the root the host stops above the dock instead of under it.
+   */
+  .wc-root:has(> .dw-layer) > .wc-host {
+    bottom: var(--dw-dock, 320px);
+  }
+  .dw-layer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    box-sizing: border-box;
+    height: var(--dw-dock, 320px);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 16px;
+    overflow: auto;
+    padding: 12px;
+    background: var(--if-bg);
+    border-top: 1px solid var(--if-line);
+  }
+  .dw-layer > .dw-toolbar {
+    flex: 1 1 480px;
+  }
+  .dw-layer > .dw-tree {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
   .dw-toolbar {
     display: flex;
     flex-direction: column;

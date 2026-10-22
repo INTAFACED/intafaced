@@ -7,13 +7,13 @@ export const WORKBENCH = '/charts/BTC-USDT';
 
 export async function openWorkbench(page) {
   await page.goto(WORKBENCH);
-  await expect(page.locator('.cw .pc-host')).toBeVisible();
+  await expect(page.locator('.cw .wc-host')).toBeVisible();
   await expect(page.getByRole('toolbar', { name: 'Drawing tools' })).toBeVisible();
 }
 
 /** A point on the chart as a fraction of its width and height, in page pixels. Bars are placed by fraction, not by index. */
 export async function plot(page, fx, fy) {
-  const box = await page.locator('.cw .pc-host').boundingBox();
+  const box = await page.locator('.cw .wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
   return { x: box.x + box.width * fx, y: box.y + box.height * fy };
 }
