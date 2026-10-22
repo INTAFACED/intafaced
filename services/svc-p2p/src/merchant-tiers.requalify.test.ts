@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTierPolicy, reassess, type MerchantTierRecord } from './merchant-tiers.js';
+import { applyUpgradeClock, parseTierPolicy, reassess, type MerchantTierRecord } from './merchant-tiers.js';
 
 /** P-ads-merchant-13 review MAJOR: qualify, drop, re-qualify must wait the delay again. */
 const policy = parseTierPolicy({
@@ -44,5 +44,48 @@ describe('upgrade clock reset (qualify, drop, re-qualify)', () => {
 
   it('a stale clock left after an upgrade is reset, not reused for the next rank', () => {
     expect(run(rec({ rank: 2, qualifiedSince: 10 }), silver, 2000)).toEqual({ kind: 'reset_upgrade_clock' });
+  });
+});
+
+describe('suspension, revoke and step-down reset the upgrade clock', () => {
+  for (const status of ['suspended', 'rejected', 'withdrawn', 'applied'] as const) {
+    it(`${status} with a clock set resets it; reinstated merchant waits the full delay`, () => {
+      const r = rec({ qualifiedSince: 10 });
+      expect(reassess({ policy, status, record: r, metrics: silver, now: 500 })).toEqual({ kind: 'reset_upgrade_clock' });
+      const reset = applyUpgradeClock(r, { kind: 'reset_upgrade_clock' });
+      expect(reassess({ policy, status: 'approved', record: reset, metrics: silver, now: 1_000_000 })).toEqual({
+        kind: 'start_upgrade_clock',
+        at: 1_000_000,
+      });
+    });
+  }
+  for (const state of ['revoked', 'downgrade_requested'] as const) {
+    it(`${state} with a clock set resets it; back to active waits the full delay`, () => {
+      const r = rec({ state, qualifiedSince: 10 });
+      expect(run(r, silver, 500)).toEqual({ kind: 'reset_upgrade_clock' });
+      const back = { ...applyUpgradeClock(r, { kind: 'reset_upgrade_clock' }), state: 'active' as const };
+      expect(run(back, silver, 1_000_000)).toEqual({ kind: 'start_upgrade_clock', at: 1_000_000 });
+      expect(run({ ...back, qualifiedSince: 1_000_000 }, silver, 1_000_999)).toEqual({ kind: 'none' });
+    });
+  }
+  it('suspended or revoked with no clock set is still a no-op', () => {
+    expect(reassess({ policy, status: 'suspended', record: rec(), metrics: silver, now: 5 })).toEqual({ kind: 'none' });
+    expect(run(rec({ state: 'revoked' }), silver, 5)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('applied upgrade clears the clock', () => {
+  it('upgrade sets the rank and clears qualifiedSince; the next sweep is a no-op', () => {
+    const r = rec({ qualifiedSince: 10 });
+    const move = run(r, silver, 1010);
+    expect(move).toEqual({ kind: 'upgrade', from: 1, to: 2 });
+    const after = applyUpgradeClock(r, move);
+    expect(after).toMatchObject({ rank: 2, qualifiedSince: null });
+    expect(run(after, silver, 2000)).toEqual({ kind: 'none' });
+  });
+  it('start and reset move the clock; other moves leave the record alone', () => {
+    expect(applyUpgradeClock(rec(), { kind: 'start_upgrade_clock', at: 7 }).qualifiedSince).toBe(7);
+    const r = rec({ qualifiedSince: 7 });
+    expect(applyUpgradeClock(r, { kind: 'none' })).toBe(r);
   });
 });

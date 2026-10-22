@@ -160,7 +160,8 @@ export interface MerchantTierRecord {
 
 /**
  * Applier contract: `upgrade` and `reset_upgrade_clock` both clear
- * `qualifiedSince`, so every upgrade waits the full owner delay again.
+ * `qualifiedSince` (see `applyUpgradeClock`), so every upgrade waits the full
+ * owner delay again.
  */
 export type TierMove =
   | { readonly kind: 'none' }
@@ -184,16 +185,19 @@ export function reassess(input: {
   now: number;
 }): TierMove {
   const { policy, record, metrics, now } = input;
-  if (policy === null || input.status !== 'approved') return { kind: 'none' };
-  if (record.state === 'revoked' || record.state === 'downgrade_requested') return { kind: 'none' };
+  if (policy === null) return { kind: 'none' };
+  const eligible = input.status === 'approved' && record.state !== 'revoked' && record.state !== 'downgrade_requested';
   const target = qualifyingRank(policy.ladder, metrics);
   const current = record.rank;
 
-  // The upgrade clock only runs while a HIGHER rank is met. Dropping back
-  // resets it, so a later re-qualification waits the full delay again.
-  if (record.qualifiedSince !== null && !(target !== null && (current === null || target > current))) {
+  // The upgrade clock only runs while an ELIGIBLE merchant meets a HIGHER rank.
+  // Dropping back, a suspension (any non-approved standing), a revoke or a
+  // requested step-down all reset it BEFORE the early exits, so a reinstated
+  // or re-qualifying merchant waits the full owner delay again.
+  if (record.qualifiedSince !== null && (!eligible || !(target !== null && (current === null || target > current)))) {
     return { kind: 'reset_upgrade_clock' };
   }
+  if (!eligible) return { kind: 'none' };
 
   if (record.state === 'assessment') {
     if (target !== null && current !== null && target >= current) return { kind: 'end_assessment' };
@@ -211,6 +215,24 @@ export function reassess(input: {
     if (now - record.qualifiedSince >= policy.upgradeDelayMs) return { kind: 'upgrade', from: current, to: target };
   }
   return { kind: 'none' };
+}
+
+/**
+ * Clock bookkeeping for the applier (no I/O). `upgrade` sets the new rank and
+ * CLEARS `qualifiedSince`; `reset_upgrade_clock` clears it; `start_upgrade_clock`
+ * sets it. State moves (assessment, downgrade) are the applier's, untouched here.
+ */
+export function applyUpgradeClock(record: MerchantTierRecord, move: TierMove): MerchantTierRecord {
+  switch (move.kind) {
+    case 'start_upgrade_clock':
+      return { ...record, qualifiedSince: move.at };
+    case 'reset_upgrade_clock':
+      return { ...record, qualifiedSince: null };
+    case 'upgrade':
+      return { ...record, rank: move.to, qualifiedSince: null };
+    default:
+      return record;
+  }
 }
 
 /** Merchant asks to step down a tier; a reason is required. */
