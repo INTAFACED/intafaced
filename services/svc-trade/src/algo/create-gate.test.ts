@@ -23,7 +23,14 @@ import { createTradeRouter, type TradeRouter } from '../router.js';
 import { ratesForFill } from '../spot/fees.js';
 import { type OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import { TradeService } from '../spot/trade-service.js';
-import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import {
+  PUBLISHED_TEST_FEE_SCHEDULE,
+  READY_MARKET_LIFECYCLE,
+  StubEmailProof,
+  StubMatching,
+  StubPerks,
+  principalFor,
+} from '../spot/testing.js';
 import { TradeError } from '../spot/types.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { ALGO_IMMATURE_KINDS, ALGO_VOLUME_IMMATURE_CODE, describeAlgoPolicy } from './algo-policy.js';
@@ -69,6 +76,7 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
     };
     const controls = new TradingControls(db.sql, { check: async () => 'enabled' }, identity);
     return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
+      emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       // CB-bots-10: the bot verification gate now fails closed when omitted; this suite tests other gates.

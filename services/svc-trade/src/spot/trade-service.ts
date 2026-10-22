@@ -97,6 +97,7 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
+import { assertEmailProved, type EmailProofSource } from './email-proof.js';
 import {
   MatchingNoBookError,
   type EngineAmendResult,
@@ -364,6 +365,11 @@ export interface TradeServiceOptions {
    * any supplied subAccountId is denied until a real client is injected).
    */
   subAccounts?: SubAccountOwnershipSource;
+  /**
+   * Identity email-proof read for new custodial orders (RC-identity-01).
+   * No default: unset refuses every new live order `trade.identity_unavailable`.
+   */
+  emailProof?: EmailProofSource;
   /** Override TWAP durable store (tests inject MemoryTwapParentStore). */
   algoStore?: TwapParentStore;
   /**
@@ -786,6 +792,7 @@ export class TradeService {
   private readonly algoJobsIntervalMs: number | null;
   private readonly now: () => Date;
   private readonly subAccounts: SubAccountOwnershipSource;
+  private readonly emailProof: EmailProofSource | undefined;
   /** D-S-04 TWAP scheduler — parent holds no value; children go through placeOrder. */
   private readonly algo: TwapEngine;
   /** Durable TWAP schedules — survives process restart (in-memory alone was residual). */
@@ -843,6 +850,7 @@ export class TradeService {
     this.algoJobsIntervalMs = options.algoJobsIntervalMs ?? null;
     this.now = options.now ?? (() => new Date());
     this.subAccounts = options.subAccounts ?? new NoSubAccounts();
+    this.emailProof = options.emailProof;
     this.algoStore = options.algoStore ?? new SqlTwapParentStore(sql);
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
@@ -1302,6 +1310,9 @@ export class TradeService {
           span.setAttribute('intafaced.fill_id', ids.fillId);
           return presentBoundConvertFill(stored.bound, { ...ids, settledAt: stored.settledAt });
         }
+        // A convert holds and swaps customer funds: same email-proof gate as an order (RC-identity-01),
+        // for the customer's accept and for a standing schedule alike. A settled replay returned above.
+        await assertEmailProved(this.emailProof, userId);
 
         if (input.symbol != null && input.symbol !== stored.quote.symbol) {
           throw new TradeError('convert accept must honour the quoted symbol', 'trade.convert_price_moved');
@@ -1658,6 +1669,9 @@ export class TradeService {
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
+    // An admitted original was granted only after the email-proof gate below passed.
+    // The decision was made at admission, so finishing it needs no second read even
+    // if the proof has lapsed since (an email change clears it).
     if (original) {
       const evidence = original.payload as Record<string, unknown>;
       if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');
@@ -1722,6 +1736,9 @@ export class TradeService {
     if (market.paper) {
       return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
     }
+    // RC-identity-01: a custodial order needs a proved email. Read per request,
+    // before any hold; retries of an existing clientOrderId returned above.
+    await assertEmailProved(this.emailProof, userId);
     assertQty(market, input.qty);
     await assertOperatorRiskOnPlace(
       this.sql,
@@ -2607,6 +2624,8 @@ export class TradeService {
         // Ownership is checked before the original is cancelled. A replacement
         // must never cancel a live order and then discover its new label is foreign.
         if (input.subAccountId != null) await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
+        // Email proof before the cancel too: a refused replacement leaves the original live.
+        if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
         const orderType = requireSupportedType(input.type);
         assertTradable(market, {
           futuresEnabled: this.futuresEnabled,
@@ -5223,6 +5242,8 @@ export class TradeService {
     if (input.subAccountId) {
       await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
     }
+    // Every child slice is a custodial order; refuse the schedule up front (RC-identity-01).
+    if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
 
     // Refuse at creation when mark feed is blank — never accept a schedule that cannot run.
     // Matching 404 (engine holds no book) is a named refusal, not a 500. Nothing

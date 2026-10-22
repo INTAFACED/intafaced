@@ -36,6 +36,8 @@ export const publicAuthCopy = defineCopy(
     registerPending: 'Creating your account…',
     pendingBody: 'Keep this view open while we check this attempt.',
     retained: 'The response was received, but its browser reference could not be updated safely. Earlier attempts remain separate.',
+    locked: 'Too many tries. You can try again in {minutes} min.',
+    lockedPlain: 'Too many tries. Wait a few minutes, then try again.',
   } as const,
   {
     es: {
@@ -74,6 +76,8 @@ export const publicAuthCopy = defineCopy(
       pendingBody: 'Mantén esta vista abierta mientras comprobamos este intento.',
       retained:
         'Se recibió la respuesta, pero no se pudo actualizar su referencia con seguridad. Los intentos anteriores siguen separados.',
+      locked: 'Demasiados intentos. Puedes volver a intentarlo en {minutes} min.',
+      lockedPlain: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
     },
     fr: {
       after: 'Après la connexion',
@@ -113,6 +117,8 @@ export const publicAuthCopy = defineCopy(
       pendingBody: 'Gardez cette vue ouverte pendant la vérification de cet essai.',
       retained:
         'La réponse a été reçue, mais sa référence n’a pas pu être mise à jour en sécurité. Les essais antérieurs restent distincts.',
+      locked: 'Trop d’essais. Vous pourrez réessayer dans {minutes} min.',
+      lockedPlain: 'Trop d’essais. Attendez quelques minutes, puis réessayez.',
     },
   },
 );

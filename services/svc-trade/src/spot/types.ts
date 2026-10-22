@@ -587,6 +587,10 @@ export type TradeErrorCode =
   | 'trade.sub_account_denied'
   /** Caller owns the id but it is soft-revoked */
   | 'trade.sub_account_revoked'
+  /** The user's email is not proved yet; a new custodial order waits for it (RC-identity-01) */
+  | 'trade.email_proof_required'
+  /** Identity could not answer the email-proof read in a form we trust — refuse, never guess */
+  | 'trade.identity_unavailable'
   /**
    * Two DIFFERENT matches claimed one `(market, sequence, role)`.
    *

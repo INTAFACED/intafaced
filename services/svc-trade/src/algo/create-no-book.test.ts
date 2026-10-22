@@ -22,7 +22,14 @@ import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable 
 import { TradingControls } from '../controls/trading-controls.js';
 import { createTradeRouter, type TradeRouter } from '../router.js';
 import { TradeService } from '../spot/trade-service.js';
-import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import {
+  PUBLISHED_TEST_FEE_SCHEDULE,
+  READY_MARKET_LIFECYCLE,
+  StubEmailProof,
+  StubMatching,
+  StubPerks,
+  principalFor,
+} from '../spot/testing.js';
 import { TradeError } from '../spot/types.js';
 import { MatchingNoBookError, MatchingUnavailableError, type EngineDepth } from '../spot/matching-client.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
@@ -68,6 +75,7 @@ describe('algo.createTwap with no matching book (isolated PostgreSQL)', () => {
     };
     const controls = new TradingControls(db.sql, { check: async () => 'enabled' }, identity);
     return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
+      emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,
       feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,

@@ -36,6 +36,7 @@ import { nativeRegistration, registrationFor, registrationPayload } from './secu
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './security.css';
+import { VerifyEmail } from './VerifyEmail';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = { owner: string; client: ApiClient; kind: SecurityKind; credential?: Passkey; limit: number; requestId: string };
@@ -473,6 +474,7 @@ export function Security() {
   return (
     <div lang={languageFor('title')} className="security">
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
+        <VerifyEmail />
         {uncertainty.map((record) => {
           const preparation = record.kind === 'options' || record.kind === 'setup';
           const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;

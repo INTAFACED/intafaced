@@ -74,6 +74,7 @@ import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircut
 import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
 import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
+import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
 
 /**
@@ -247,6 +248,8 @@ export function publishedListClosedLimit(value: number | undefined | null): numb
 
 export interface PositionServiceDeps {
   accountAdmission?: TradingAdmissionPort;
+  /** Identity email-proof read (RC-identity-01). Unset refuses every new position `trade.identity_unavailable`. */
+  emailProof?: EmailProofSource;
   /**
    * Where prices come from. Required, and required to be a port the caller
    * cannot reach: making this optional would put the old defect one missing
@@ -1016,6 +1019,9 @@ export class PositionService {
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
     }
+    // RC-identity-01: a new position locks customer margin, so it needs a proved email.
+    // Before any margin lock; reduce-only and close never come here.
+    await assertEmailProved(this.deps.emailProof, input.userId);
 
     /**
      * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is

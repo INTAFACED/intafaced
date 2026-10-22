@@ -541,7 +541,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.futures_disabled':
       case 'trade.fx_not_spot':
       case 'trade.paper_fill_refused':
+      // RC-identity-01: the person proves their email, then retries.
+      case 'trade.email_proof_required':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      // Identity could not answer the email-proof read; nothing moved, try again.
+      case 'trade.identity_unavailable':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
       case 'trade.perks_unavailable':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
       case 'trade.dust_fill':
