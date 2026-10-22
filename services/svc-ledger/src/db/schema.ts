@@ -97,40 +97,72 @@ export const accountKindEnum = ledger.enum('account_kind', ['available', 'hold',
 export const assetKindEnum = ledger.enum('asset_kind', ['crypto', 'fiat', 'native', 'commodity']);
 export const directionEnum = ledger.enum('direction', ['debit', 'credit']);
 
-export const assets = ledger.table('assets', {
-  id: text('id').primaryKey(),
-  kind: assetKindEnum('kind').notNull(),
-  /**
-   * DECLARED SCALE. NOTHING READS IT — and that is the honest description
-   * (STOP §4.2b #5).
-   *
-   * 0004 says this is "the scale the ledger reconciles the asset at, and it is
-   * not cosmetic". Both halves were false. Every balance is `numeric(38,18)`,
-   * reconciliation compares at 18 decimal places for every asset regardless of
-   * this column (`reconcile.ts`), and `mulBps` rounds `ceil` at 18 dp — so a fee
-   * on a 2 dp fiat or an 8 dp metal accrues a remainder below the asset's own
-   * smallest unit, which no rail can move out and no reconciliation flags.
-   *
-   * Setting `JPY` to 2 or to 18 changes nothing anywhere in the system today.
-   * The column is a declaration of intent that no code consults, which is the
-   * same shape as the refusal declared and never emitted (#1035) and the builder
-   * every post refuses (#1054) — with the difference that this one reads as a
-   * safety property, so anyone auditing the book would reasonably believe scale
-   * was enforced.
-   *
-   * NOT wired here on purpose. Enforcing it means choosing what happens to the
-   * sub-unit remainder — refuse the post, round to the asset's scale and send the
-   * dust somewhere named, or keep 18 dp internally and expose a rounded view —
-   * and every one of those is a fee/rounding policy with a house account and a
-   * user-visible consequence. There is no law in the doctrine to read it off, so
-   * an agent picking one would be inventing a fee policy. `assets-decimals.test.ts`
-   * pins the current state so that the day someone wires it, they have to decide
-   * deliberately rather than discover the dust later.
-   */
-  decimals: integer('decimals').notNull().default(18),
-  active: boolean('active').notNull().default(true),
-  createdAt: createdAt(),
-});
+export const assets = ledger.table(
+  'assets',
+  {
+    id: text('id').primaryKey(),
+    kind: assetKindEnum('kind').notNull(),
+    /**
+     * DECLARED SCALE. NOTHING READS IT — and that is the honest description
+     * (STOP §4.2b #5).
+     *
+     * 0004 says this is "the scale the ledger reconciles the asset at, and it is
+     * not cosmetic". Both halves were false. Every balance is `numeric(38,18)`,
+     * reconciliation compares at 18 decimal places for every asset regardless of
+     * this column (`reconcile.ts`), and `mulBps` rounds `ceil` at 18 dp — so a fee
+     * on a 2 dp fiat or an 8 dp metal accrues a remainder below the asset's own
+     * smallest unit, which no rail can move out and no reconciliation flags.
+     *
+     * Setting `JPY` to 2 or to 18 changes nothing anywhere in the system today.
+     * The column is a declaration of intent that no code consults, which is the
+     * same shape as the refusal declared and never emitted (#1035) and the builder
+     * every post refuses (#1054) — with the difference that this one reads as a
+     * safety property, so anyone auditing the book would reasonably believe scale
+     * was enforced.
+     *
+     * NOT wired here on purpose. Enforcing it means choosing what happens to the
+     * sub-unit remainder — refuse the post, round to the asset's scale and send the
+     * dust somewhere named, or keep 18 dp internally and expose a rounded view —
+     * and every one of those is a fee/rounding policy with a house account and a
+     * user-visible consequence. There is no law in the doctrine to read it off, so
+     * an agent picking one would be inventing a fee policy. `assets-decimals.test.ts`
+     * pins the current state so that the day someone wires it, they have to decide
+     * deliberately rather than discover the dust later.
+     */
+    decimals: integer('decimals').notNull().default(18),
+    active: boolean('active').notNull().default(true),
+    createdAt: createdAt(),
+    /**
+     * Registry fields (W-balances-05, 0025). `precision` is NULL until a founder edit sets it and is never read from
+     * `decimals`. `allowedActions` starts empty, so nothing is allowed until an edit lists it. See ledger/asset-registry.ts.
+     */
+    precision: integer('precision'),
+    networks: jsonb('networks')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    defaultNetworkId: text('default_network_id'),
+    allowedActions: text('allowed_actions')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    state: text('state').notNull().default('active'),
+    revision: integer('revision').notNull().default(0),
+    registryUpdatedAt: tstz('registry_updated_at').notNull().defaultNow(),
+    lastApprovalId: text('last_approval_id'),
+    lastOperationId: text('last_operation_id'),
+    lastEditedBy: text('last_edited_by'),
+    lastApprovedBy: text('last_approved_by'),
+  },
+  (t) => [
+    check('assets_precision_check', sql`${t.precision} BETWEEN 0 AND 18`),
+    check('assets_networks_check', sql`jsonb_typeof(${t.networks}) = 'array'`),
+    check('assets_allowed_actions_check', sql`${t.allowedActions} <@ ARRAY['deposit', 'withdraw', 'trade', 'transfer']::text[]`),
+    check('assets_state_check', sql`${t.state} IN ('active', 'halted', 'retired')`),
+    check('assets_revision_check', sql`${t.revision} >= 0`),
+    check('assets_registry_edit_named', sql`(${t.revision} = 0) = (${t.lastApprovalId} IS NULL)`),
+    unique('assets_last_approval_id_key').on(t.lastApprovalId),
+  ],
+);
 
 export const accounts = ledger.table(
   'accounts',

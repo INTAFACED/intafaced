@@ -144,9 +144,9 @@ export class AssetRegistry {
           WHERE id = ${edit.id}`;
       } else {
         await tx`
-          INSERT INTO assets (id, kind, decimals, precision, networks, default_network_id, allowed_actions, state, revision,
+          INSERT INTO assets (id, kind, precision, networks, default_network_id, allowed_actions, state, revision,
             last_approval_id, last_operation_id, last_edited_by, last_approved_by)
-          VALUES (${edit.id}, ${edit.kind}::asset_kind, ${edit.precision}, ${edit.precision}, ${networks},
+          VALUES (${edit.id}, ${edit.kind}::asset_kind, ${edit.precision}, ${networks},
             ${edit.defaultNetworkId}, ${edit.allowedActions}::text[], ${edit.state}, ${nextRevision},
             ${ids.approvalId}, ${ids.operationId}, ${actorId}, ${consumed.approverId ?? null})`;
       }
