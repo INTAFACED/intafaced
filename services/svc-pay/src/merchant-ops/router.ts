@@ -22,6 +22,7 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
 import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
 import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
@@ -361,6 +362,16 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           wrapOps(async () => {
             await callerOf(ctx);
             return refuseBuiltInRoleEdit();
+          }),
+        ),
+      }),
+
+      /** M-disp-05: the default risk rules in plain words, from fraud-policy.ts. Read only; enforces nothing. */
+      risk: router({
+        policy: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return merchantRiskPolicy();
           }),
         ),
       }),
