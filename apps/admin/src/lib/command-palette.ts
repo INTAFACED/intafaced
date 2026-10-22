@@ -3,8 +3,9 @@ import { MODULE_ROUTES, moduleForPage, type ModuleId } from './modules';
 
 /**
  * The command palette (Ctrl or Cmd K, OPS-admin-access-08, admin-access-036): every console page and the actions an operator
- * reaches for, searched by name. It lists only what the signed-in person may open: an entry whose page belongs to a module
- * that is switched off for this console (`ADMIN_MODULES`) is left out, exactly as the nav and the middleware leave it out.
+ * reaches for, searched by name. It lists only pages this console lets anyone open: an entry whose page belongs to a module
+ * that is switched off (`ADMIN_MODULES`) is left out, exactly as the nav and the middleware leave it out. Finer permissions
+ * (treasury, compliance) are each page's and service's to check, and a page says in words when it refuses the session.
  *
  * An action here opens the page where the action is done; it never runs a control itself. Every control keeps its own
  * two-founder flow on its page.

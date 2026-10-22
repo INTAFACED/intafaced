@@ -21,15 +21,19 @@ export function CommandPalette({ modules }: { modules: readonly ModuleId[] }) {
   const [ready, setReady] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const isOpen = useRef(false);
+  isOpen.current = open;
   const results = useMemo(() => searchPalette(entries, query), [entries, query]);
 
   useEffect(() => {
     setReady(true);
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+        // A native modal dialog owns the screen (and the top layer); the palette would open beneath it, unreachable.
+        if (document.querySelector('dialog[open]')) return;
         event.preventDefault();
-        opener.current = document.activeElement as HTMLElement | null;
-        setOpen((now) => !now);
+        if (!isOpen.current) opener.current = document.activeElement as HTMLElement | null;
+        setOpen(!isOpen.current);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -85,6 +89,16 @@ export function CommandPalette({ modules }: { modules: readonly ModuleId[] }) {
             className="adm-palette"
             data-testid="command-palette"
             onMouseDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              // Wherever focus is inside the panel, Escape closes it, and Tab stays on the search field (the one control here).
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setOpen(false);
+              } else if (event.key === 'Tab') {
+                event.preventDefault();
+                input.current?.focus();
+              }
+            }}
           >
             <input
               ref={input}
@@ -102,10 +116,7 @@ export function CommandPalette({ modules }: { modules: readonly ModuleId[] }) {
                 setNotice('');
               }}
               onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  setOpen(false);
-                } else if (event.key === 'ArrowDown') {
+                if (event.key === 'ArrowDown') {
                   event.preventDefault();
                   setActive((i) => (results.length === 0 ? 0 : (i + 1) % results.length));
                 } else if (event.key === 'ArrowUp') {
