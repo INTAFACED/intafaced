@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import {
+  InsufficientFundsError,
+  LedgerError,
+  bankTransferKey,
+  formatAmount,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
+import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { BankError } from '../errors.js';
 import { planDue, type ScheduleCadence } from './schedule.js';
 
@@ -89,6 +99,14 @@ export class ScheduleEditor {
         if (row.status !== 'active' && row.status !== 'paused') {
           throw new BankError(`Schedule ${input.scheduleId} is ${row.status}`, 'bank.schedule_inactive');
         }
+        // A claimed run that has not settled owns the next movement under its key. Editing now would leave the
+        // record and the re-drive disagreeing; refuse until the run finishes (review blocker 1).
+        const pending = await tx<Array<{ occurrence: number }>>`
+          SELECT occurrence FROM bank.transfer_executions WHERE schedule_id = ${input.scheduleId} AND status = 'pending' LIMIT 1
+        `;
+        if (pending[0]) {
+          throw new BankError(`Occurrence ${pending[0].occurrence} is still running; edit after it settles`, 'bank.schedule_run_pending');
+        }
         if (this.options.editCutoffMinutes === undefined) {
           throw new BankError('No edit cutoff is set; schedules cannot be edited', 'bank.schedule_cutoff_unset');
         }
@@ -131,6 +149,81 @@ export class ScheduleEditor {
           VALUES (${input.scheduleId}, ${input.revision}, ${hash})
         `;
         return { scheduleId: input.scheduleId, revision: row.revision + 1, nextRunAt: row.status === 'active' ? nextRunAt : null };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+}
+
+/**
+ * BK-xfer-10 operator retry of ONE failed (rejected) run. The retry ADOPTS the existing post: it re-uses the run's key
+ * `bank.transfer.sched:<scheduleId>:<occurrence>` and the run's STORED amount, so a post that already booked is
+ * recorded, never paid twice, and the key only ever carries one body. Only a `rejected` run may be retried; a settled
+ * one returns as is, a pending one belongs to the runner.
+ */
+export class ScheduleRunRetry {
+  constructor(
+    private readonly sql: Sql,
+    private readonly ledger: LedgerClient,
+    private readonly spaces: SpaceService,
+  ) {}
+
+  async retry(input: {
+    scheduleId: string;
+    occurrence: number;
+  }): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean }> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const sched = await tx<Array<{ from_space_id: string; to_space_id: string }>>`
+          SELECT from_space_id, to_space_id FROM bank.scheduled_transfers WHERE id = ${input.scheduleId} FOR UPDATE
+        `;
+        if (!sched[0]) throw new BankError(`Schedule ${input.scheduleId} not found`, 'bank.schedule_not_found');
+        const rows = await tx<Array<{ id: string; status: string; amount: string; ledger_tx_id: string | null }>>`
+          SELECT id, status, amount, ledger_tx_id FROM bank.transfer_executions
+           WHERE schedule_id = ${input.scheduleId} AND occurrence = ${input.occurrence} FOR UPDATE
+        `;
+        const run = rows[0];
+        if (!run) throw new BankError(`Run ${input.occurrence} of ${input.scheduleId} not found`, 'bank.schedule_not_found');
+        if (run.status === 'settled') return { status: 'settled' as const, ledgerTxId: run.ledger_tx_id, adopted: true };
+        if (run.status !== 'rejected') {
+          throw new BankError(`Run ${input.occurrence} is ${run.status}; only a rejected run can be retried`, 'bank.schedule_run_pending');
+        }
+        const key = bankTransferKey('sched', input.scheduleId, input.occurrence);
+        const prior = await this.ledger.getTxByKey(key);
+        let ledgerTxId: string;
+        let adopted = false;
+        if (prior) {
+          ledgerTxId = prior.id;
+          adopted = true;
+        } else {
+          const from = await this.spaces.get(sched[0].from_space_id, tx);
+          const to = await this.spaces.get(sched[0].to_space_id, tx);
+          try {
+            const posted = await this.ledger.post(
+              recipes.bankTransfer({
+                transferId: input.scheduleId,
+                occurrence: input.occurrence,
+                from: accountForSpace(from),
+                to: accountForSpace(to),
+                amount: parseAmount(run.amount),
+                kind: 'scheduled',
+                keySpace: 'sched',
+              }),
+            );
+            ledgerTxId = posted.id;
+          } catch (err) {
+            if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
+              return { status: 'rejected' as const, ledgerTxId: null, adopted: false };
+            }
+            throw err;
+          }
+        }
+        await tx`
+          UPDATE bank.transfer_executions SET status = 'settled', ledger_tx_id = ${ledgerTxId}, settled_at = now(), rejection_code = NULL
+           WHERE id = ${run.id}
+        `;
+        return { status: 'settled' as const, ledgerTxId, adopted };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );

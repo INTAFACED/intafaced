@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
-import { ScheduleEditor } from './transfers/schedule-edit.js';
+import { ScheduleEditor, ScheduleRunRetry } from './transfers/schedule-edit.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
@@ -48,6 +48,8 @@ export interface BankServices {
   readonly transfers: TransferService;
   /** BK-xfer-10 standing-order edits. Optional so partial test doubles still type. */
   readonly scheduleEdits?: ScheduleEditor;
+  /** BK-xfer-10 operator retry of one rejected run (adopts the existing key and stored amount). */
+  readonly scheduleRetry?: ScheduleRunRetry;
   readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
@@ -240,6 +242,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     spaces,
     transfers,
     scheduleEdits: new ScheduleEditor(sql, { editCutoffMinutes: options.scheduleEditCutoffMinutes }),
+    scheduleRetry: new ScheduleRunRetry(sql, ledger, spaces),
     personalPay,
     earn,
     analytics,

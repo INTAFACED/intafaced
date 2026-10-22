@@ -33,7 +33,7 @@ import {
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
-import { bankScheduleUpdateInputSchema, bankScheduleUpdateResultSchema } from '@intafaced/contracts';
+import { bankScheduleRetryRunInputSchema, bankScheduleUpdateInputSchema, bankScheduleUpdateResultSchema } from '@intafaced/contracts';
 import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
@@ -441,6 +441,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
       case 'bank.schedule_revision_conflict':
+      case 'bank.schedule_run_pending':
       case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
@@ -2690,6 +2691,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * not this door. Bank maker-checker is not this door.
    */
   const ops = router({
+    /** BK-xfer-10: operator retry of ONE rejected standing-order run; adopts the existing post (same key, stored amount). */
+    retryScheduleRun: scopedProcedure('admin:write')
+      .input(bankScheduleRetryRunInputSchema)
+      .output(z.object({ status: z.enum(['settled', 'rejected']), ledgerTxId: z.string().nullable(), adopted: z.boolean() }))
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          if (!bank.scheduleRetry) throw new BankError('Schedule retry is not wired', 'bank.schedule_not_found');
+          return bank.scheduleRetry.retry({ scheduleId: input.scheduleId, occurrence: input.occurrence });
+        }),
+      ),
     /**
      * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
      * and blurred; no authorisation carries a score until an engine exists.

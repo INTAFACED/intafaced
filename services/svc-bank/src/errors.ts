@@ -25,6 +25,8 @@ export type BankErrorCode =
   | 'bank.schedule_cutoff_unset'
   /** BK-xfer-10: an edit named a stale revision, or reused one with different terms. */
   | 'bank.schedule_revision_conflict'
+  /** BK-xfer-10: an edit while a claimed run of this schedule has not settled. */
+  | 'bank.schedule_run_pending'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'

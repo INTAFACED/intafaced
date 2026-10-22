@@ -33,6 +33,15 @@ const schema = serviceEnvSchema
       PAY_URL: z.string().url().optional(),
 
       /**
+       * BK-xfer-10 owner value: minutes before a standing order's next run when edits stop. No default: blank → every
+       * `transfers.schedules.update` refuses `bank.schedule_cutoff_unset` (fail closed). Set by the owner.
+       */
+      BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.coerce.number().int().min(0).max(10080).optional(),
+      ),
+
+      /**
        * The native asset. svc-bank refuses it in earn pools because native
        * staking lives in svc-token (§8.1) — one asset, one owner.
        *

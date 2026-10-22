@@ -147,6 +147,9 @@ export function planDue(input: {
   const windowEnd = lastOccurrenceBefore(startsAt, cadence, endsAt);
   const due = dueOccurrence(startsAt, cadence, now);
 
+  // A once schedule whose end is at or before its start has an empty window (-1): it never fires.
+  if (windowEnd !== null && windowEnd < 0) return { occurrences: [], nextRunAt: startsAt, completed: true };
+
   if (due === null) {
     // Not started. Look again when occurrence 0 lands.
     return { occurrences: [], nextRunAt: occurrenceStart(startsAt, cadence, 0), completed: false };

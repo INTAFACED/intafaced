@@ -924,26 +924,30 @@ export class TransferService {
             // row still `pending` means a process died in a way that committed the
             // claim without the post, so re-drive it — the ledger post is
             // idempotent, which makes re-driving strictly safe.
-            const existing = await tx<Array<{ id: string; status: string }>>`
-              SELECT id, status FROM bank.transfer_executions
+            const existing = await tx<Array<{ id: string; status: string; amount: string }>>`
+              SELECT id, status, amount FROM bank.transfer_executions
                WHERE schedule_id = ${schedule.id} AND occurrence = ${occurrence} FOR UPDATE
             `;
             const row = existing[0];
             if (!row || row.status !== 'pending') return 'already-fired' as const;
             executionId = row.id;
+            // BK-xfer-10 review blocker 1: a re-drive posts the amount the claim STORED, so the key
+            // `bank.transfer.sched:<id>:<n>` only ever carries one body, and the record equals the movement.
+            schedule = { ...schedule, amount: parseAmount(row.amount) };
           } else {
             executionId = claimed[0]!.id;
           }
         } else {
           // Cancel/pause is not a reversal: an already-pending claim still
           // finishes. Unclaimed future firings must not start.
-          const existing = await tx<Array<{ id: string; status: string }>>`
-            SELECT id, status FROM bank.transfer_executions
+          const existing = await tx<Array<{ id: string; status: string; amount: string }>>`
+            SELECT id, status, amount FROM bank.transfer_executions
              WHERE schedule_id = ${schedule.id} AND occurrence = ${occurrence} FOR UPDATE
           `;
           const row = existing[0];
           if (!row || row.status !== 'pending') return 'stopped' as const;
           executionId = row.id;
+          schedule = { ...schedule, amount: parseAmount(row.amount) };
         }
 
         let from: Awaited<ReturnType<SpaceService['get']>>;
