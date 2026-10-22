@@ -27,6 +27,7 @@ import {
   ABANDONED_PARKED,
   memoryLiquidationAttemptStore,
   runLiquidationTick,
+  feeLeftoverCollateral,
   rungFeeDecision,
   type LiquidationPositionRow,
   type LiquidationTickDeps,
@@ -226,6 +227,36 @@ describe('rung fee decision (D-margin-07)', () => {
     await runLiquidationTick({ ...b.deps, liquidationFeeFraction: amt('0.001') });
     expect([...b.booked.keys()]).toEqual([...a.booked.keys()]);
     expect(a.rungs.all()[0]!.plan.feeState).toBeUndefined();
+  });
+
+  it('a CLOSING rung decision (marginRemaining 0, leftover in residualRelease) plans a non-zero fee from that leftover (TEST)', () => {
+    // The shared harness ladder never produces a solvent full close, so this drives the exact composition the
+    // tick uses (rungFeeDecision over feeLeftoverCollateral) with a closing-shaped decision.
+    const closing = { marginRemaining: 0n, residualRelease: amt('40') };
+    expect(rungFeeDecision(amt('0.001'), 'rung-1', amt('10'), amt('94'), feeLeftoverCollateral(closing))).toEqual({
+      feeState: 'ledger_job_pending',
+      plannedFee: amt('0.94'),
+    });
+    // Before the fix the tick passed marginRemaining alone: the fee was capped to zero on every closing rung.
+    expect(rungFeeDecision(amt('0.001'), 'rung-1', amt('10'), amt('94'), closing.marginRemaining)).toEqual({
+      feeState: 'ledger_job_pending',
+      plannedFee: 0n,
+    });
+  });
+
+  it('a bankrupt closing rung from the tick (no leftover) plans a zero fee, never negative', async () => {
+    const h = harness();
+    h.price.current = '60';
+    const t = await runLiquidationTick({ ...h.deps, liquidationFeeFraction: amt('0.001') });
+    expect(t.items.map((i) => i.outcome)).toEqual(['liquidated']);
+    const r = h.rungs.all()[0]!;
+    expect(r.kind).toBe('closing');
+    expect(r.plan).toMatchObject({ feeState: 'ledger_job_pending', plannedFee: 0n });
+  });
+
+  it('feeLeftoverCollateral: closing uses residualRelease, partial uses marginRemaining', () => {
+    expect(feeLeftoverCollateral({ marginRemaining: 0n, residualRelease: amt('40') })).toBe(amt('40'));
+    expect(feeLeftoverCollateral({ marginRemaining: amt('60'), residualRelease: 0n })).toBe(amt('60'));
   });
 
   it('rungFeeDecision: planned fee is capped at leftover collateral, and omitted fraction records nothing', () => {

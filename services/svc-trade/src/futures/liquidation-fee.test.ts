@@ -5,6 +5,7 @@ import {
   LIQUIDATION_FEE_LEDGER_JOB_PENDING,
   LIQUIDATION_FEE_UNSET,
   LIQUIDATION_FEE_FRACTION_ENV,
+  LiquidationFeeConfigError,
   liquidationFeeKey,
   loadLiquidationFeeFraction,
   parseLiquidationFeeFraction,
@@ -91,7 +92,14 @@ describe('loadLiquidationFeeFraction (boot config)', () => {
 
   it('invalid config fails boot with the typed code, never read as no fee', () => {
     for (const raw of ['abc', '-0.1', '1.000000000000000001', '0.5%']) {
-      expect(() => loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: raw }), raw).toThrow(LIQUIDATION_FEE_FRACTION_INVALID);
+      let thrown: unknown;
+      try {
+        loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: raw });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown, raw).toBeInstanceOf(LiquidationFeeConfigError);
+      expect((thrown as LiquidationFeeConfigError).code).toBe(LIQUIDATION_FEE_FRACTION_INVALID);
     }
   });
 });

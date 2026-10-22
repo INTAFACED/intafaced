@@ -21,6 +21,7 @@ import {
   parseAmount,
   positionCollateralAccount,
   recipes,
+  SCALE,
   type Amount,
   type LedgerClient,
   type PostRequest,
@@ -28,8 +29,6 @@ import {
 import { type LiquidationPosition } from './liquidation-planner.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
 import { planLiquidationFee } from './liquidation-fee.js';
-
-const FEE_SCALE = 10n ** 18n;
 
 async function postGuarded(
   ledger: Pick<LedgerClient, 'post'>,
@@ -910,7 +909,7 @@ async function planAndDrive(
         reason: decision.reason,
         fromInsurance: decision.fromInsurance,
         marginAsset: row.marginAsset,
-        ...rungFeeDecision(deps.liquidationFeeFraction, rungId, decision.sizeClosed, markPrice, decision.marginRemaining),
+        ...rungFeeDecision(deps.liquidationFeeFraction, rungId, decision.sizeClosed, markPrice, feeLeftoverCollateral(decision)),
       },
     });
     if (begun.status === 'changed') {
@@ -1329,6 +1328,14 @@ export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
 }
 
 /**
+ * D-margin-07: collateral left after the rung's loss. A closing rung hands it back as `residualRelease`
+ * (its `marginRemaining` is 0); a partial rung keeps it as `marginRemaining` (its `residualRelease` is 0).
+ */
+export function feeLeftoverCollateral(decision: { marginRemaining: Amount; residualRelease: Amount }): Amount {
+  return decision.marginRemaining + decision.residualRelease;
+}
+
+/**
  * D-margin-07: the fee decision a new rung records. Charges nothing (no recipe until J-3); the plan's
  * recipes are unchanged. `undefined` fraction (not wired) records nothing.
  */
@@ -1343,7 +1350,7 @@ export function rungFeeDecision(
   const plan = planLiquidationFee({
     rungId,
     fraction,
-    notionalClosed: (sizeClosed * markPrice) / FEE_SCALE,
+    notionalClosed: (sizeClosed * markPrice) / SCALE,
     leftoverCollateral,
   });
   return plan.state === 'planned' ? { feeState: plan.chargeState, plannedFee: plan.fee } : { feeState: plan.state };
