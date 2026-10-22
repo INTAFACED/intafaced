@@ -61,9 +61,7 @@ export function listBlocks(
   facts: readonly ExplorerBlockFact[],
   { limit, cursor }: { limit: number; cursor?: number },
 ): { rows: ExplorerBlockRow[]; nextCursor: number | null } {
-  const heights = [...new Set(facts.map((f) => f.height))]
-    .filter((h) => cursor === undefined || h < cursor)
-    .sort((a, b) => b - a);
+  const heights = [...new Set(facts.map((f) => f.height))].filter((h) => cursor === undefined || h < cursor).sort((a, b) => b - a);
   const page = heights.slice(0, limit);
   const rows = page.flatMap((h) =>
     facts

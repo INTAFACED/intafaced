@@ -12,18 +12,21 @@
  * 6. RED: module absent.
  */
 import { describe, expect, it } from 'vitest';
-import {
-  INDEXER_EXPLORER_LIST_LIMIT_UNSET,
-  parseExplorerListLimit,
-  utilisation,
-  listBlocks,
-  type ExplorerBlockFact,
-} from './blocks.js';
+import { INDEXER_EXPLORER_LIST_LIMIT_UNSET, parseExplorerListLimit, utilisation, listBlocks, type ExplorerBlockFact } from './blocks.js';
 
 const fact = (height: number, over: Partial<ExplorerBlockFact> = {}): ExplorerBlockFact => ({
-  chainId: 1, height, hash: `0x${height.toString(16).padStart(64, '0')}`,
-  gasUsed: 15_000_000n, gasLimit: 30_000_000n, baseFeePerGas: 7n, miner: '0x' + '1'.repeat(40),
-  txCount: 3, size: 1000, timestamp: 1_700_000_000 + height, orphaned: null, ...over,
+  chainId: 1,
+  height,
+  hash: `0x${height.toString(16).padStart(64, '0')}`,
+  gasUsed: 15_000_000n,
+  gasLimit: 30_000_000n,
+  baseFeePerGas: 7n,
+  miner: '0x' + '1'.repeat(40),
+  txCount: 3,
+  size: 1000,
+  timestamp: 1_700_000_000 + height,
+  orphaned: null,
+  ...over,
 });
 
 describe('INDEXER_EXPLORER_LIST_LIMIT', () => {
