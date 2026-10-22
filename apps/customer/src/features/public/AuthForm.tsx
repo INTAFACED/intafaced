@@ -312,6 +312,15 @@ export function AuthForm({ register }: { register: boolean }) {
     void run(register ? 'register' : 'password');
   }
   const selected = journal.records.find((record) => record.localRef === selectedRef);
+  // The second step's own words, only for a definite answer on this page.
+  const secondStep =
+    result && !result.ok && result.reason !== 'uncertain'
+      ? result.code === 'auth.mfa_required'
+        ? ('needCode' as const)
+        : result.code === 'auth.mfa_invalid'
+          ? ('codeMismatch' as const)
+          : null
+      : null;
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
@@ -544,6 +553,11 @@ export function AuthForm({ register }: { register: boolean }) {
                   {result.retryAfterSeconds
                     ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                     : t('lockedPlain')}
+                </p>
+              ) : secondStep ? (
+                // The second step, on the page that asks for it. A wrong code and a used one read the same.
+                <p className="failure" role="alert" lang={languageFor(secondStep)}>
+                  {t(secondStep)}
                 </p>
               ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                 // Sent only after the password verified: name the state and the one way forward.
