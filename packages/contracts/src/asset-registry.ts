@@ -163,16 +163,35 @@ export const assetApplyEditInputSchema = z
   .strict();
 export type AssetApplyEditInput = z.infer<typeof assetApplyEditInputSchema>;
 
+/** JSON with object keys sorted at every depth, so key order never changes the encoding. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 /**
  * The one canonical payload hash for `ledger.asset_edit`, computed the same way by the admin form that proposes and by
- * svc-ledger that consumes. Same construction as `bankActionPayloadHash` (action type plus sorted fields, sha256);
- * non-string fields are JSON-encoded. Uses `node:crypto` like `customerStepUpPayloadHash`, so it is server-side.
+ * svc-ledger that consumes. Same construction as `bankActionPayloadHash` (action type plus sorted fields, sha256).
+ * Non-string fields are encoded with keys sorted at every depth. `networks` (unique by `networkId`) and
+ * `allowedActions` (unique) are sets, so both are sorted first: their order never changes the hash. Uses `node:crypto`
+ * like `customerStepUpPayloadHash`, so it is server-side.
  */
 export function assetEditPayloadHash(edit: AssetEditInput): string {
+  const canonical: Record<string, unknown> = {
+    ...edit,
+    networks: [...edit.networks].sort((a, b) => (a.networkId < b.networkId ? -1 : a.networkId > b.networkId ? 1 : 0)),
+    allowedActions: [...edit.allowedActions].sort(),
+  };
   const fields: Record<string, string> = {};
-  for (const [key, value] of Object.entries(edit)) {
+  for (const [key, value] of Object.entries(canonical)) {
     if (value === undefined) continue;
-    fields[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    fields[key] = typeof value === 'string' ? value : canonicalJson(value);
   }
   return customerStepUpPayloadHash(ASSET_EDIT_ACTION_TYPE, fields);
 }

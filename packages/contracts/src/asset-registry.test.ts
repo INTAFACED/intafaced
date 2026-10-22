@@ -102,6 +102,22 @@ describe('founder approval through action approval', () => {
     expect(assetEditPayloadHash({ ...parsed.value, state: 'halted' })).not.toBe(h);
     expect(assetEditPayloadHash({ ...parsed.value, networks: parsed.value.networks.slice(0, 1) })).not.toBe(h);
   });
+
+  it('the payload hash ignores nested key order and the order of networks and actions', () => {
+    const parsed = parseAssetEdit(edit);
+    if (!parsed.ok) throw new Error('fixture must parse');
+    const h = assetEditPayloadHash(parsed.value);
+    const shuffled = {
+      ...parsed.value,
+      networks: [...parsed.value.networks].reverse().map((n) => Object.fromEntries(Object.entries(n).reverse()) as typeof n),
+      allowedActions: [...parsed.value.allowedActions].reverse(),
+    };
+    expect(assetEditPayloadHash(shuffled)).toBe(h);
+    const [first, ...rest] = parsed.value.networks;
+    if (!first) throw new Error('fixture needs a network');
+    const renamed = { ...first, networkId: `${first.networkId}-x` };
+    expect(assetEditPayloadHash({ ...parsed.value, networks: [renamed, ...rest] })).not.toBe(h);
+  });
 });
 
 describe('registry rows', () => {
