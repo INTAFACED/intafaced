@@ -3,6 +3,7 @@ import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
 import {
   BADGE_ALREADY_CLAIMED,
+  BADGE_RECORD_UNREADABLE,
   BadgeRefusedError,
   type BadgeClaimRecord,
   type BadgeStore,
@@ -22,13 +23,17 @@ type Row = {
 };
 
 function toRecord(r: Row): BadgeClaimRecord {
+  const mintingSince = r.minting_at == null ? null : new Date(r.minting_at);
+  if (mintingSince && Number.isNaN(mintingSince.getTime())) {
+    throw new BadgeRefusedError(BADGE_RECORD_UNREADABLE, `claim ${r.key} has an unreadable mint-slot time`);
+  }
   return {
     key: r.key,
     accountId: r.account_id,
     chainId: r.chain_id,
     to: toChecksum(r.to_address),
     txHash: (r.tx_hash as Hex | null) ?? null,
-    mintingSince: r.minting_at == null ? null : new Date(r.minting_at),
+    mintingSince,
   };
 }
 
