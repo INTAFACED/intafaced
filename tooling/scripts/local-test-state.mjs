@@ -3,6 +3,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
+/** The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew, else Debian's 16. */
+export function localPgBin(env = process.env) {
+  if (env.LOCAL_STACK_PG_BIN) return env.LOCAL_STACK_PG_BIN;
+  return fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin';
+}
+
 /** One state root for the stack and every helper. Never silently fall back after a typo. */
 export function localStackState(home = os.homedir(), env = process.env) {
   if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');
@@ -120,7 +126,12 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
     const match = line.match(/^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
     if (match) processes.set(Number(match[1]), { startedAt: Date.parse(match[2]), command: match[3] });
   }
-  const sockets = spawnSync('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fpn'], { encoding: 'utf8' });
+  const sockets = spawnSync(
+    fs.existsSync('/usr/sbin/lsof') ? '/usr/sbin/lsof' : 'lsof',
+    ['-nP', '-a', '-p', pids.join(','), '-iTCP', '-sTCP:LISTEN', '-Fpn'],
+    { encoding: 'utf8' },
+  );
+  if (sockets.error) refuse(`cannot list listening ports (lsof: ${sockets.error.message})`);
   const listeners = new Map();
   let pid;
   for (const line of (sockets.stdout ?? '').split('\n')) {
