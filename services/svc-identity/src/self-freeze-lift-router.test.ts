@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { SecurityStepUpError, type SecurityStepUp } from './auth/security-step-up.js';
-import { SelfFreezeLift } from './auth/self-freeze-lift.js';
-import { SelfFreezeLiftError } from './auth/self-freeze-lift.js';
+import { SelfFreezeLift, SelfFreezeLiftError } from './auth/self-freeze-lift.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 
 const tokenConfig = {
