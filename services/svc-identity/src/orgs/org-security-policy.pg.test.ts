@@ -313,13 +313,13 @@ if (!(await postgresAvailable(DATABASE_URL))) {
     const refused = await refusal(stranger.assertOrgActor({ orgId }));
     expect(refused.code).not.toBe('identity.org_policy_2fa');
     expect((await refusal(stranger.orgSecurityPolicy.get({ orgId }))).code).toBe('org.membership_denied');
+  });
 
-    it('the service mount turns the policy gate on: index.ts enables it on its sql before building appRouter', () => {
-      const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-      const enable = src.indexOf('enforceOrgSecurityPolicyOn(sql);');
-      expect(enable).toBeGreaterThan(-1);
-      expect(enable).toBeLessThan(src.indexOf('export const appRouter = mergeRouters('));
-      expect(src).toMatch(/createOrgRouter\(sql,\s*dmaHierarchyLaw\)/);
-    });
+  it('the service mount turns the policy gate on: index.ts enables it on its sql before building appRouter', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
+    const enable = src.indexOf('enforceOrgSecurityPolicyOn(sql);');
+    expect(enable).toBeGreaterThan(-1);
+    expect(enable).toBeLessThan(src.indexOf('export const appRouter = mergeRouters('));
+    expect(src).toMatch(/createOrgRouter\(sql,\s*dmaHierarchyLaw\)/);
   });
 }
