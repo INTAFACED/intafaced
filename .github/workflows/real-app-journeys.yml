@@ -13,6 +13,10 @@ on:
       - 'services/**'
       - 'packages/**'
       - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'turbo.json'
+      - 'tsconfig*.json'
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/roadmap.mjs'
       - '.github/workflows/real-app-journeys.yml'
@@ -71,10 +75,13 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Start the local test stack (TEST funds only)
-        run: node tooling/scripts/local-test-stack.mjs start
+        run: |
+          df -h /
+          node tooling/scripts/local-test-stack.mjs start
 
+      # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
       - name: Journeys in the running app
-        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs
+        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
 
       - name: Scoreboard
         if: always()
@@ -85,7 +92,7 @@ jobs:
             echo "No journey report: the stack or the browser did not start. See the steps above." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # The report and the failure screenshots and traces only; the run's TEST account file stays on the runner.
+      # The report and the failure screenshots only; the run's TEST account file stays on the runner.
       - name: Keep the report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
