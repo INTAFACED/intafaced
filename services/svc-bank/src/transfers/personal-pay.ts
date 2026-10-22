@@ -61,6 +61,24 @@ export interface TransferQuote {
   readonly withinDaily: boolean;
 }
 
+/**
+ * One published personal-send fee row (PP-money-balance-04). `free` is true only for a published zero:
+ * zero is not blank, and an asset with no terms row is absent, never listed as free.
+ */
+export interface FeeScheduleEntry {
+  readonly assetId: string;
+  readonly fee: string;
+  readonly free: boolean;
+  readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
+  readonly publishedAt: string;
+}
+
+/** The published schedule. `published: false` (no rows) means the page says no schedule is published. */
+export interface FeeSchedule {
+  readonly published: boolean;
+  readonly entries: FeeScheduleEntry[];
+}
+
 export interface PersonalRequestView {
   readonly requestId: string;
   readonly payeeUserId: string;
@@ -346,6 +364,26 @@ export class PersonalPayService {
       withinPerTransfer: amount <= per,
       withinDaily: spent + amount <= daily,
     };
+  }
+
+  /** The published personal-send fee schedule. Reads the operator terms only; never seeds or invents a fee. */
+  async feeSchedule(): Promise<FeeSchedule> {
+    const rows = await this.sql<Array<{ asset_id: string; fee: string; published_at: Date }>>`
+      SELECT asset_id, fee::text, published_at
+        FROM bank.personal_transfer_terms
+       ORDER BY asset_id
+    `;
+    const entries = rows.map((row) => {
+      const fee = parseAmount(row.fee);
+      return {
+        assetId: row.asset_id,
+        fee: formatAmount(fee),
+        free: fee === 0n,
+        feeBlocker: fee > 0n ? ('bank.personal_transfer_fee_unwired' as const) : null,
+        publishedAt: row.published_at.toISOString(),
+      };
+    });
+    return { published: entries.length > 0, entries };
   }
 
   async factsFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>> {

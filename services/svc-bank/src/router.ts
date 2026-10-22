@@ -288,7 +288,7 @@ function publicDoorWireMessage(err: BankError): string {
   return facing;
 }
 
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   // An answer that has already been decided. Ownership refusals are thrown as
   // TRPCError from inside `guard`, and without this line every one of them was
   // re-wrapped as INTERNAL_SERVER_ERROR — a 500 that tells the caller to retry
@@ -383,6 +383,8 @@ function toTrpcError(err: unknown): TRPCError {
       // rules is 400.
       case 'bank.space_archived':
       case 'bank.space_locked':
+      // The caller's own space name collides with another of their spaces in that asset; rename and retry.
+      case 'bank.space_name_taken':
       case 'bank.schedule_inactive':
       case 'bank.pool_closed':
       case 'bank.position_closed':
@@ -4720,6 +4722,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
     spaces,
     transfers,
+    /**
+     * PP-money-balance-04: the published personal-send fee schedule. No rows → `published: false`
+     * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
+     */
+    fees: router({
+      schedule: router({
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({
+              published: z.boolean(),
+              entries: z.array(
+                z.object({
+                  assetId: z.string(),
+                  fee: amountString,
+                  free: z.boolean(),
+                  feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
+                  publishedAt: z.string(),
+                }),
+              ),
+            }),
+          )
+          .query(() => guard(() => bank.personalPay.feeSchedule())),
+      }),
+    }),
     earn,
     loans,
     cards,
