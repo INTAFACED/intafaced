@@ -32,6 +32,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
   if (resource.status === 'loading' && !shown) return <Loading />;
   const status = shown;
   if (!status) return null;
+  const hasSecondStep = status.checklist.some((item) => item.key === 'second_factor' && item.done);
   return (
     <section className="security__checklist security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
@@ -50,7 +51,9 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
           );
         })}
       </ul>
-      <h3>{t('requiredTitle')}</h3>
+      {/* With no second step on yet, the service lets the password alone change sign-in methods; say so plainly. */}
+      <h3>{hasSecondStep ? t('requiredTitle') : t('requiredTitleNoFactor')}</h3>
+      {!hasSecondStep && <p className="muted">{t('noFactorYet')}</p>}
       <ul className="security__rows">
         {status.secondStepRequired.floor.map((action) => (
           <li key={action} className="security__row">

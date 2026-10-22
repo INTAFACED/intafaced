@@ -19,6 +19,9 @@ export const securityChecklistCopy = defineCopy(
     codesLeft: '{count} left',
     required: 'Required',
     requiredTitle: 'Always needs a second step',
+    requiredTitleNoFactor: 'Needs a second step once you have one',
+    noFactorYet:
+      'Until a passkey or an authenticator app is on, your password alone can change how you sign in, and money cannot move out.',
     money_out: 'Moving money out',
     security_change: 'Changing how you sign in or secure your account',
     policyUnset: 'The owner has not set further actions that need a second step, so these two are the whole list.',
@@ -43,6 +46,9 @@ export const securityChecklistCopy = defineCopy(
       codesLeft: 'Quedan {count}',
       required: 'Obligatorio',
       requiredTitle: 'Siempre necesita un segundo paso',
+      requiredTitleNoFactor: 'Necesita un segundo paso cuando tengas uno',
+      noFactorYet:
+        'Hasta que actives una clave de acceso o una app de autenticación, tu contraseña sola puede cambiar cómo inicias sesión y no se puede sacar dinero.',
       money_out: 'Sacar dinero',
       security_change: 'Cambiar cómo inicias sesión o proteges tu cuenta',
       policyUnset: 'El propietario no ha fijado más acciones que necesiten un segundo paso, así que estas dos son la lista completa.',
@@ -66,6 +72,9 @@ export const securityChecklistCopy = defineCopy(
       codesLeft: '{count} restants',
       required: 'Obligatoire',
       requiredTitle: 'Demande toujours une deuxième étape',
+      requiredTitleNoFactor: 'Demande une deuxième étape dès que vous en avez une',
+      noFactorYet:
+        'Tant qu’aucune clé d’accès ni app d’authentification n’est active, votre mot de passe seul peut changer votre façon de vous connecter, et l’argent ne peut pas sortir.',
       money_out: 'Sortir de l’argent',
       security_change: 'Changer votre façon de vous connecter ou de protéger votre compte',
       policyUnset: 'Le propriétaire n’a pas fixé d’autres actions demandant une deuxième étape, ces deux-là sont donc toute la liste.',

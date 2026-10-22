@@ -144,6 +144,7 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('Moving money out')).toContainText('Required');
   await expect(item('Changing how you sign in or secure your account')).toContainText('Required');
   await expect(checklist).toContainText('The owner has not set further actions');
+  await expect(checklist).toContainText('your password alone can change how you sign in, and money cannot move out');
 
   // Turning on an authenticator ticks it, the second step and its recovery codes, on the same page.
   const { secret, step } = await addAuthenticator(page, totp);
@@ -151,6 +152,7 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(item('A second step at sign-in')).toContainText('Done');
   await expect(item('Recovery codes saved')).toContainText('Done');
   await expect(item('A passkey')).toContainText('Not yet');
+  await expect(checklist).toContainText('Always needs a second step');
 
   // A passkey after "Confirm it is you" with the code ticks the last one.
   await page.getByRole('button', { name: 'Add passkey' }).click();

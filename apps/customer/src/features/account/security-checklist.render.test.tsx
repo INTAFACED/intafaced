@@ -76,6 +76,13 @@ describe('Security checklist', () => {
     expect(host.textContent).toContain('The owner has not set further actions');
   });
 
+  it('before any second step is on, it says the password alone can change sign-in and money cannot move out', async () => {
+    await show({ ok: true, data: passwordOnly });
+    expect(host.querySelector('h3')?.textContent).toBe('Needs a second step once you have one');
+    expect(host.textContent).toContain('your password alone can change how you sign in, and money cannot move out');
+    expect(host.textContent).not.toContain('Always needs a second step');
+  });
+
   it('a passkey and an authenticator are both listed as done, with count, label and codes left', async () => {
     await show({
       ok: true,
@@ -93,6 +100,8 @@ describe('Security checklist', () => {
     expect(list[2]).toContain('Phone app');
     expect(list[3]).toContain('8 left');
     expect(host.textContent).not.toContain('phishing cannot take it');
+    expect(host.querySelector('h3')?.textContent).toBe('Always needs a second step');
+    expect(host.textContent).not.toContain('your password alone');
   });
 
   it('a failed read is an error with a retry, never "off"', async () => {
