@@ -931,6 +931,30 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+/**
+ * OPS-alerts-02. The notification routing tree (policies, grouping and timing, silences, mute
+ * timings, contact points) is one versioned document per platform: every save writes a new version
+ * row, so this event names the version and what kind of change produced it. It carries no matcher,
+ * contact or secret: secrets are write-only and a consumer re-reads the stored version.
+ */
+export const coreOpsAlertPolicyUpdated = defineEvent(
+  'core-ops',
+  'alert_policy',
+  'updated',
+  1,
+  z.object({
+    /** The routing tree's version after this change. */
+    version: z.number().int().min(1),
+    change: z.enum(['policy_tree', 'silence', 'mute_timing', 'contact_point']),
+    /** The changed silence, mute timing or contact point id; null for a policy-tree save. */
+    subjectId: z.string().min(1).max(128).nullable(),
+    /** The signed individual operator. Never a shared credential. */
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'The alert notification routing tree, a silence, a mute timing or a contact point changed. A new version row exists; business key ops:alert-policy:<version>.',
+);
+
 // ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
 
 export const coreOpsComplianceCaseCreated = defineEvent(
@@ -1018,6 +1042,7 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsAlertPolicyUpdated,
   coreOpsComplianceCaseCreated,
   coreOpsComplianceInboxUpdated,
   coreOpsRestoreStarted,
@@ -1537,6 +1562,20 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'coreOpsAlertPolicyUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-alerts-02 events PR. svc-ops publishes it when the routing tree store lands (svc-ops PR, next). The tree is a durable versioned row that /alerts/policies reads, so nothing waits on the event.',
+  },
+  {
+    event: 'coreOpsAlertPolicyUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Nothing has to react to a routing change: the router reads the stored tree version at send time. The subject exists for the audit trail and a later consumer.',
   },
 ] satisfies readonly WiringSocket[];
 

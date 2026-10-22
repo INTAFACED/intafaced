@@ -83,6 +83,7 @@ export const EVENT_BUS_MATRIX = {
   coreOpsAlertRuleUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertOpened: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertResolved: { kind: 'socket', socketClass: 'A' },
+  coreOpsAlertPolicyUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsComplianceCaseCreated: { kind: 'socket', socketClass: 'A' },
   coreOpsComplianceInboxUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsRestoreStarted: { kind: 'socket', socketClass: 'A' },
