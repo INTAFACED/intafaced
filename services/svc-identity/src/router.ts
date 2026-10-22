@@ -88,6 +88,8 @@ import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-fe
 import type { SubAccountFeatureService } from './sub-accounts/sub-account-features.js';
 import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { type SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-router.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -561,6 +563,7 @@ export function createIdentityRouter(
     subAccountDelete?: SubAccountDeleteService;
     /** Sub-account trading features. Absent → `subAccounts.setFeatures` refuses `identity.sub_account_features_unset`. */
     subAccountFeatures?: SubAccountFeatureService;
+    subAccountEdit?: SubAccountEditService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -2021,6 +2024,7 @@ export function createIdentityRouter(
     subAccounts: router({
       ...createSubAccountDeleteProcedures(options.subAccountDelete),
       ...createSubAccountFeatureProcedures(options.subAccountFeatures),
+      ...createSubAccountEditProcedures(options.subAccountEdit),
       create: scopedProcedure('identity:write')
         .input(
           z.object({
