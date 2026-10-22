@@ -27,6 +27,11 @@ describe('reserved tab slugs (AC-articles-02)', () => {
   it.each(RESERVED_TAB_SLUGS)('%s refuses academy.slug_reserved', (slug) => {
     expect(code(() => assertSlugNotReserved(slug))).toBe('academy.slug_reserved');
   });
+  it('case and whitespace variants are reserved too', () => {
+    expect(code(() => assertSlugNotReserved('Rooms'))).toBe('academy.slug_reserved');
+    expect(code(() => assertSlugNotReserved(' videos '))).toBe('academy.slug_reserved');
+    expect(code(() => assertSlugNotReserved('rooms-101'))).toBeUndefined();
+  });
   it('the start-up check names the colliding slug', () => {
     expect(() => assertNoReservedSlugs(['ok', 'rooms'])).toThrow(/rooms/);
     expect(code(() => assertNoReservedSlugs(['ok', 'rooms']))).toBe('academy.slug_reserved');

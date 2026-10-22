@@ -1,5 +1,5 @@
 /** AC-articles-02 — reserved academy tab slugs (IA-SPEC 2.9). */
-import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
+import { ACADEMY_RESERVED_TAB_SLUGS, academySlugIsReserved } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 
 /** IA-SPEC 2.9 tab slugs: never a lesson, course, topic or item slug. */
@@ -7,7 +7,8 @@ import { AcademyError } from '../errors.js';
 export const RESERVED_TAB_SLUGS: readonly string[] = ACADEMY_RESERVED_TAB_SLUGS;
 
 export function assertSlugNotReserved(slug: string): void {
-  if (RESERVED_TAB_SLUGS.includes(slug)) {
+  // Contracts check trims and lower-cases, so 'Rooms' and ' rooms ' are reserved too.
+  if (academySlugIsReserved(slug)) {
     throw new AcademyError(`slug "${slug}" is a reserved academy tab`, 'academy.slug_reserved');
   }
 }
