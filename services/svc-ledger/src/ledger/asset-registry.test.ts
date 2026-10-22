@@ -85,12 +85,9 @@ describe('asset registry on ledger.assets (0025)', () => {
     await db?.drop();
   });
   beforeEach(async () => {
-    await db.sql.unsafe(`ALTER TABLE asset_edits DISABLE TRIGGER asset_edits_append_only`);
-    await db.sql.unsafe(`DELETE FROM asset_edits`);
-    await db.sql.unsafe(`ALTER TABLE asset_edits ENABLE TRIGGER asset_edits_append_only`);
     await db.sql.unsafe(`DELETE FROM assets WHERE id LIKE 'TST%'`);
     await db.sql.unsafe(
-      `UPDATE assets SET precision = NULL, networks = '[]', default_network_id = NULL, allowed_actions = '{}', state = 'active', revision = 0`,
+      `UPDATE assets SET precision = NULL, networks = '[]', default_network_id = NULL, allowed_actions = '{}', state = 'active', revision = 0, last_approval_id = NULL, last_operation_id = NULL, last_edited_by = NULL, last_approved_by = NULL`,
     );
   });
 
@@ -118,8 +115,14 @@ describe('asset registry on ledger.assets (0025)', () => {
     // The same approval again: refused, and nothing changes.
     expect(await refusal(reg.applyEdit(consumer, { ...a, edit: edit() }, 'founder-a'))).toBe('action_approval.consume_failed');
     expect((await reg.get({ assetId: 'TSTA' })).revision).toBe(1);
-    const [audit] = await db.sql`SELECT asset_id, revision, actor_id, approver_id FROM asset_edits`;
-    expect(audit).toEqual({ asset_id: 'TSTA', revision: 1, actor_id: 'founder-a', approver_id: 'founder-b' });
+    const [named] =
+      await db.sql`SELECT last_approval_id, last_operation_id, last_edited_by, last_approved_by FROM assets WHERE id = 'TSTA'`;
+    expect(named).toEqual({
+      last_approval_id: a.approvalId,
+      last_operation_id: a.operationId,
+      last_edited_by: 'founder-a',
+      last_approved_by: 'founder-b',
+    });
     // The next edit is approved against revision 1.
     await reg.applyEdit(consumer, { ...ids(), edit: edit({ precision: 8 }) }, 'founder-a');
     expect(seen[2]?.expectedVersion).toBe('1');
@@ -191,13 +194,16 @@ describe('asset registry on ledger.assets (0025)', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('missing approval ids refuse; asset_edits is append-only', async () => {
+  it('missing approval ids refuse; one approval names at most one row', async () => {
     const { consumer } = fakeIdentity();
     expect(await refusal(reg.applyEdit(consumer, { approvalId: '', operationId: 'op', edit: edit() }, 'founder-a'))).toBe(
       'ledger.asset_edit_invalid',
     );
     await reg.applyEdit(consumer, { ...ids(), edit: edit() }, 'founder-a');
-    await expect(db.sql`DELETE FROM asset_edits`).rejects.toThrow(/append-only/);
-    await expect(db.sql`UPDATE asset_edits SET actor_id = 'x'`).rejects.toThrow(/append-only/);
+    const [row] = await db.sql<Array<{ last_approval_id: string }>>`SELECT last_approval_id FROM assets WHERE id = 'TSTA'`;
+    await expect(db.sql`UPDATE assets SET last_approval_id = ${row!.last_approval_id}, revision = 1 WHERE id = 'USD'`).rejects.toThrow(
+      /unique/i,
+    );
+    await expect(db.sql`UPDATE assets SET revision = 1 WHERE id = 'USD'`).rejects.toThrow(/assets_registry_edit_named/);
   });
 });

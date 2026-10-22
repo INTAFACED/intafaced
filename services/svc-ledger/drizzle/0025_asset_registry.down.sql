@@ -1,22 +1,24 @@
 -- intafaced:destructive — reversal of 0025_asset_registry.sql
 --
--- Dropping the registry columns discards founder-set precision, networks and actions, and dropping asset_edits
--- discards the record of who approved them. Refuse while any edit has been applied rather than silently drop it.
+-- Dropping the registry columns discards founder-set precision, networks and actions, and who approved
+-- them. Refuse while any asset carries an applied edit rather than silently drop it.
 
 DO $$
 DECLARE
   n bigint;
 BEGIN
-  LOCK TABLE "ledger"."asset_edits" IN SHARE ROW EXCLUSIVE MODE;
-  SELECT count(*) INTO n FROM "ledger"."asset_edits";
+  LOCK TABLE "ledger"."assets" IN SHARE ROW EXCLUSIVE MODE;
+  SELECT count(*) INTO n FROM "ledger"."assets" WHERE "revision" > 0;
   IF n > 0 THEN
-    RAISE EXCEPTION 'Cannot reverse 0025: % applied asset edit(s). Registry history must be preserved.', n;
+    RAISE EXCEPTION 'Cannot reverse 0025: % asset(s) carry a founder edit. Registry values must be preserved.', n;
   END IF;
 
-  DROP TRIGGER IF EXISTS "asset_edits_append_only" ON "ledger"."asset_edits";
-  DROP FUNCTION IF EXISTS "ledger"."asset_edits_append_only"();
-  DROP TABLE "ledger"."asset_edits";
   ALTER TABLE "ledger"."assets"
+    DROP CONSTRAINT "assets_registry_edit_named",
+    DROP COLUMN "last_approved_by",
+    DROP COLUMN "last_edited_by",
+    DROP COLUMN "last_operation_id",
+    DROP COLUMN "last_approval_id",
     DROP COLUMN "registry_updated_at",
     DROP COLUMN "revision",
     DROP COLUMN "state",

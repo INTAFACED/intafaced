@@ -138,18 +138,18 @@ export class AssetRegistry {
         await tx`
           UPDATE assets SET precision = ${edit.precision}, networks = ${networks},
             default_network_id = ${edit.defaultNetworkId}, allowed_actions = ${edit.allowedActions}::text[],
-            state = ${edit.state}, revision = ${nextRevision}, registry_updated_at = now()
+            state = ${edit.state}, revision = ${nextRevision}, registry_updated_at = now(),
+            last_approval_id = ${ids.approvalId}, last_operation_id = ${ids.operationId},
+            last_edited_by = ${actorId}, last_approved_by = ${consumed.approverId ?? null}
           WHERE id = ${edit.id}`;
       } else {
         await tx`
-          INSERT INTO assets (id, kind, decimals, precision, networks, default_network_id, allowed_actions, state, revision)
+          INSERT INTO assets (id, kind, decimals, precision, networks, default_network_id, allowed_actions, state, revision,
+            last_approval_id, last_operation_id, last_edited_by, last_approved_by)
           VALUES (${edit.id}, ${edit.kind}::asset_kind, ${edit.precision}, ${edit.precision}, ${networks},
-            ${edit.defaultNetworkId}, ${edit.allowedActions}::text[], ${edit.state}, ${nextRevision})`;
+            ${edit.defaultNetworkId}, ${edit.allowedActions}::text[], ${edit.state}, ${nextRevision},
+            ${ids.approvalId}, ${ids.operationId}, ${actorId}, ${consumed.approverId ?? null})`;
       }
-      await tx`
-        INSERT INTO asset_edits (approval_id, operation_id, asset_id, revision, payload_hash, edit, actor_id, approver_id)
-        VALUES (${ids.approvalId}, ${ids.operationId}, ${edit.id}, ${nextRevision}, ${payloadHash},
-          ${tx.json(edit as unknown as Parameters<typeof tx.json>[0])}, ${actorId}, ${consumed.approverId ?? null})`;
     });
     return this.get({ assetId: edit.id });
   }

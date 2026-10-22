@@ -13,8 +13,9 @@
 --   · default_network_id starts NULL (never guessed); networks starts empty.
 -- `state` starts 'active' because that is what every existing row already is: the posting path does not read it.
 --
--- asset_edits: one row per applied founder edit, keyed by the identity approval id, so an approval applies once.
--- Append-only by trigger, the same way the operator access log is.
+-- No new table (the one-book scan allows only the ledger's own tables). The last applied edit is named on the row
+-- itself: the identity approval id (unique, so one approval names at most one row), its operation id, who applied it
+-- and who approved it. The approval history itself is identity's.
 
 ALTER TABLE "ledger"."assets"
   ADD COLUMN "precision" integer NULL CHECK ("precision" BETWEEN 0 AND 18),
@@ -24,25 +25,9 @@ ALTER TABLE "ledger"."assets"
     CHECK ("allowed_actions" <@ ARRAY['deposit', 'withdraw', 'trade', 'transfer']::text[]),
   ADD COLUMN "state" text NOT NULL DEFAULT 'active' CHECK ("state" IN ('active', 'halted', 'retired')),
   ADD COLUMN "revision" integer NOT NULL DEFAULT 0 CHECK ("revision" >= 0),
-  ADD COLUMN "registry_updated_at" timestamptz NOT NULL DEFAULT now();
-
-CREATE TABLE "ledger"."asset_edits" (
-  "approval_id" text PRIMARY KEY,
-  "operation_id" text NOT NULL,
-  "asset_id" text NOT NULL REFERENCES "ledger"."assets" ("id"),
-  "revision" integer NOT NULL CHECK ("revision" >= 1),
-  "payload_hash" text NOT NULL,
-  "edit" jsonb NOT NULL,
-  "actor_id" text NOT NULL,
-  "approver_id" text NULL,
-  "applied_at" timestamptz NOT NULL DEFAULT now(),
-  UNIQUE ("asset_id", "revision")
-);
-
-CREATE FUNCTION "ledger"."asset_edits_append_only"() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  RAISE EXCEPTION 'ledger.asset_edits is append-only';
-END $$;
-
-CREATE TRIGGER "asset_edits_append_only" BEFORE UPDATE OR DELETE ON "ledger"."asset_edits"
-  FOR EACH ROW EXECUTE FUNCTION "ledger"."asset_edits_append_only"();
+  ADD COLUMN "registry_updated_at" timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN "last_approval_id" text NULL UNIQUE,
+  ADD COLUMN "last_operation_id" text NULL,
+  ADD COLUMN "last_edited_by" text NULL,
+  ADD COLUMN "last_approved_by" text NULL,
+  ADD CONSTRAINT "assets_registry_edit_named" CHECK (("revision" = 0) = ("last_approval_id" IS NULL));
