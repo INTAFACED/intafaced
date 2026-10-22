@@ -145,16 +145,10 @@ describe('chart workbench', () => {
     await act(async () =>
       socket.onmessage?.({
         data: JSON.stringify({
-          type: 'candle',
-          marketId: 'm1',
+          ch: 'candles',
+          market: 'm1',
           interval: '15m',
-          t: 60_000,
-          o: '1',
-          h: '9',
-          l: '1',
-          c: '9',
-          v: '5',
-          closed: false,
+          data: { type: 'candle', marketId: 'm1', interval: '15m', t: 60_000, o: '1', h: '9', l: '1', c: '9', v: '5', closed: false },
         }),
       }),
     );

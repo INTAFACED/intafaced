@@ -5,7 +5,7 @@
  * alone draws the chart and the page says so. A frame is state, not an event: the newest frame for a bar replaces
  * the one before it, so a dropped frame is repaired by the next. Prices stay decimal strings.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Candle } from '../../data/types';
 import type { ChartInterval } from '../trade/chart/candles';
 
@@ -41,8 +41,11 @@ export function parseIncoming(text: string): Incoming {
     return { kind: 'other' };
   }
   if (!isRecord(body)) return { kind: 'other' };
-  if (body.type === 'candle') {
-    const { marketId, interval, t, o, h, l, c, v, closed } = body;
+  // The door wraps every channel frame: `{ ch: 'candles', market, interval, data: <frame> }`. Only the acknowledgement
+  // and the errors are top level.
+  const inner = body.ch === 'candles' && isRecord(body.data) ? body.data : null;
+  if (inner?.type === 'candle') {
+    const { marketId, interval, t, o, h, l, c, v, closed } = inner;
     if (
       typeof marketId !== 'string' ||
       typeof interval !== 'string' ||
@@ -57,7 +60,7 @@ export function parseIncoming(text: string): Incoming {
       return { kind: 'other' };
     return { kind: 'candle', frame: { marketId, interval, closed: closed === true, candle: { t, o, h, l, c, v, filled: false } } };
   }
-  if (body.type === 'status' && body.code === 'candles.unavailable') return { kind: 'unavailable' };
+  if (inner?.type === 'status' && inner.code === 'candles.unavailable') return { kind: 'unavailable' };
   if (body.op === 'ack' && body.for === 'subscribe' && Array.isArray(body.results)) {
     const first = body.results[0];
     if (!isRecord(first)) return { kind: 'ack', ok: false, marketId: null };
@@ -96,14 +99,18 @@ export interface CandleStream {
   /** The newest frame for the symbol and interval, or null before one arrived. */
   live: Candle | null;
 }
+interface Held extends CandleStream {
+  symbol: string;
+  interval: ChartInterval;
+}
 
 /** Keeps one socket for `symbol` and `interval`; the poll stays the fallback whenever the socket is not delivering. */
 export function useCandleStream(symbol: string, interval: ChartInterval, open: OpenSocket = defaultOpen): CandleStream {
-  const [state, setState] = useState<CandleStream>({ mode: 'poll', live: null });
+  const [held, setState] = useState<Held>({ mode: 'poll', live: null, symbol, interval });
   const openRef = useRef(open);
   openRef.current = open;
   useEffect(() => {
-    setState({ mode: 'poll', live: null });
+    setState({ mode: 'poll', live: null, symbol, interval });
     if (!isStreamInterval(interval) || typeof WebSocket === 'undefined') return;
     let closed = false;
     let socket: SocketLike | null = null;
@@ -137,7 +144,7 @@ export function useCandleStream(symbol: string, interval: ChartInterval, open: O
         else if (incoming.kind === 'candle') {
           const { frame } = incoming;
           if (refused || frame.interval !== interval || (marketId !== null && frame.marketId !== marketId)) return;
-          setState({ mode: 'stream', live: frame.candle });
+          setState({ mode: 'stream', live: frame.candle, symbol, interval });
         }
       };
       const lost = () => {
@@ -158,5 +165,8 @@ export function useCandleStream(symbol: string, interval: ChartInterval, open: O
       current?.close();
     };
   }, [symbol, interval]);
-  return state;
+  // A frame held from another symbol or interval (the effect resets after the first render with new props) is never shown.
+  // One object per state, so the chart's memo on this value holds between ticks.
+  const current = held.symbol === symbol && held.interval === interval;
+  return useMemo(() => (current ? { mode: held.mode, live: held.live } : { mode: 'poll', live: null }), [current, held]);
 }
