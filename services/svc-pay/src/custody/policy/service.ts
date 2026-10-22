@@ -80,7 +80,8 @@ export class CustodyPolicyService {
 
   async current(): Promise<PolicyVersionView> {
     const rows = await this.deps.sql<Row[]>`SELECT * FROM pay.custody_policy_versions WHERE status = 'published'`;
-    if (!rows[0]) throw new CustodyPolicyError('custody_policy.unset', 'no custody policy is published; every withdrawal it guards refuses');
+    if (!rows[0])
+      throw new CustodyPolicyError('custody_policy.unset', 'no custody policy is published; every withdrawal it guards refuses');
     return view(rows[0]);
   }
 
@@ -98,7 +99,9 @@ export class CustodyPolicyService {
       }
       const rules = tx.json(input.rules as never);
       const rows = draft
-        ? await tx<Row[]>`UPDATE pay.custody_policy_versions SET rules = ${rules}, note = ${input.note}, edited_by = ${actor}, edited_at = now()
+        ? await tx<
+            Row[]
+          >`UPDATE pay.custody_policy_versions SET rules = ${rules}, note = ${input.note}, edited_by = ${actor}, edited_at = now()
                            WHERE version = ${draft.version} RETURNING *`
         : await tx<Row[]>`INSERT INTO pay.custody_policy_versions (version, rules, status, edited_by, note)
                            SELECT COALESCE(MAX(version), 0) + 1, ${rules}, 'draft', ${actor}, ${input.note} FROM pay.custody_policy_versions
@@ -119,7 +122,9 @@ export class CustodyPolicyService {
       const problems = validateRules(row.rules);
       if (problems.length > 0) throw new CustodyPolicyError('custody_policy.draft_invalid', 'the draft has invalid rules', problems);
       await tx`UPDATE pay.custody_policy_versions SET status = 'superseded' WHERE status = 'published'`;
-      const [done] = await tx<Row[]>`UPDATE pay.custody_policy_versions SET status = 'published', published_by = ${actor}, published_at = now()
+      const [done] = await tx<
+        Row[]
+      >`UPDATE pay.custody_policy_versions SET status = 'published', published_by = ${actor}, published_at = now()
                                      WHERE version = ${version} RETURNING *`;
       return view(done!);
     });

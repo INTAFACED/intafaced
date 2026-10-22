@@ -25,14 +25,17 @@ export const policyRuleSchema = z
         destinationsNotIn: list.optional(),
         txTypes: z.array(z.enum(POLICY_TX_TYPES)).max(POLICY_TX_TYPES.length).optional(),
         initiators: list.optional(),
-        amountOver: z.object({ amount: text, unit: z.enum(POLICY_UNITS) }).strict().optional(),
-        cumulativeOver: z.object({ amount: text, unit: z.enum(POLICY_UNITS), windowSeconds: z.number().int() }).strict().optional(),
+        amountOver: z
+          .object({ amount: text, unit: z.enum(POLICY_UNITS) })
+          .strict()
+          .optional(),
+        cumulativeOver: z
+          .object({ amount: text, unit: z.enum(POLICY_UNITS), windowSeconds: z.number().int() })
+          .strict()
+          .optional(),
       })
       .strict(),
-    approval: z
-      .object({ members: list, threshold: z.number().int(), initiatorMayApprove: z.boolean() })
-      .strict()
-      .optional(),
+    approval: z.object({ members: list, threshold: z.number().int(), initiatorMayApprove: z.boolean() }).strict().optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof policyRuleSchema>;

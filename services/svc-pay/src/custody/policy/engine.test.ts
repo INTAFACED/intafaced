@@ -21,7 +21,12 @@ const group = { members: ['founder-a', 'founder-b'], threshold: 2, initiatorMayA
 describe('custody policy engine (W-custody-ops-07)', () => {
   it('first matching rule applies', async () => {
     const rules: PolicyRule[] = [
-      { id: 'big-needs-approval', action: 'approve', match: { assets: ['USDT'], amountOver: { amount: '4', unit: 'native' } }, approval: group },
+      {
+        id: 'big-needs-approval',
+        action: 'approve',
+        match: { assets: ['USDT'], amountOver: { amount: '4', unit: 'native' } },
+        approval: group,
+      },
       allowAll,
     ];
     const big = await evaluatePolicy(rules, tx(), none);
@@ -43,7 +48,11 @@ describe('custody policy engine (W-custody-ops-07)', () => {
 
   it('matches destination deny lists, kinds, tx types and initiators', async () => {
     const rules: PolicyRule[] = [
-      { id: 'r', action: 'allow', match: { destinationsNotIn: ['0xbad'], destinationKinds: ['crypto'], txTypes: ['transfer'], initiators: ['user-1'] } },
+      {
+        id: 'r',
+        action: 'allow',
+        match: { destinationsNotIn: ['0xbad'], destinationKinds: ['crypto'], txTypes: ['transfer'], initiators: ['user-1'] },
+      },
     ];
     expect((await evaluatePolicy(rules, tx(), none)).outcome).toBe('allow');
     expect((await evaluatePolicy(rules, tx({ destinationRef: '0xbad' }), none)).outcome).toBe('no_match');

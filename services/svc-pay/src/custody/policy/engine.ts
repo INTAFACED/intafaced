@@ -88,7 +88,8 @@ export function validateRules(rules: readonly PolicyRule[]): PolicyProblem[] {
       const members = rule.approval.members;
       if (members.length === 0 || members.some((m) => m.trim() === '')) add('approval group needs named members');
       if (new Set(members).size !== members.length) add('approval group lists a member twice');
-      if (rule.approval.threshold < 1 || rule.approval.threshold > members.length) add('approval threshold must be between 1 and the number of members');
+      if (rule.approval.threshold < 1 || rule.approval.threshold > members.length)
+        add('approval threshold must be between 1 and the number of members');
     }
   }
   return problems;
