@@ -61,6 +61,19 @@ export function checkSurveyCap(cap: number | null, existing: number): void {
 export interface SurveyConfigure extends SupportSurveyConfigureInput {
   readonly by: string;
   readonly at: string;
+  /** The founder who approved this configure (consumed identity action approval). */
+  readonly approvedBy?: string | null;
+}
+
+/** One audit row per configure: who, why, and who approved. */
+export interface SurveyLogEntry {
+  readonly key: string;
+  readonly surveyId: string;
+  readonly revisionAfter: number;
+  readonly setBy: string;
+  readonly reason: string;
+  readonly approvedBy: string | null;
+  readonly approvalId: string | null;
 }
 
 export interface SurveyBook {
@@ -88,6 +101,8 @@ export class MemorySurveyBook implements SurveyBook {
   private readonly surveys = new Map<string, SupportSurvey>();
   /** key -> config written under it, so a lost reply replays. */
   private readonly byKey = new Map<string, SupportSurveyConfig>();
+  /** Append-only audit, as `support.survey_log`. */
+  readonly log: SurveyLogEntry[] = [];
   constructor(
     private readonly newId: () => string = randomUUID,
     private readonly cap: number | null = null,
@@ -118,6 +133,15 @@ export class MemorySurveyBook implements SurveyBook {
     for (const [id, s] of this.surveys) if (id !== surveyId && s.active) this.surveys.set(id, { ...s, active: false });
     this.surveys.set(surveyId, next);
     this.byKey.set(surveyKey(surveyId, next.revision), input.config);
+    this.log.push({
+      key: surveyKey(surveyId, next.revision),
+      surveyId,
+      revisionAfter: next.revision,
+      setBy: input.by,
+      reason: input.reason,
+      approvedBy: input.approvedBy ?? null,
+      approvalId: input.approvalId ?? null,
+    });
     return next;
   }
 }
@@ -190,8 +214,9 @@ export class SqlSurveyBook implements SurveyBook {
         ON CONFLICT (survey_id) DO UPDATE SET revision = EXCLUDED.revision, active = true, config = EXCLUDED.config,
           updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`;
       await tx`
-        INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, set_at)
-        VALUES (${surveyKey(surveyId, revision)}, ${surveyId}, ${revision}, ${tx.json(input.config as never)}, ${input.by}, ${input.reason}, ${input.at})`;
+        INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, approved_by, approval_id, set_at)
+        VALUES (${surveyKey(surveyId, revision)}, ${surveyId}, ${revision}, ${tx.json(input.config as never)}, ${input.by}, ${input.reason},
+          ${input.approvedBy ?? null}, ${input.approvalId ?? null}, ${input.at})`;
       return { surveyId, revision, active: true, config: input.config, updatedAt: new Date(input.at).toISOString() };
     }) as Promise<SupportSurvey>;
   }

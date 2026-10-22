@@ -3,6 +3,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { SUPPORT_SURVEY_CAP_UNSET, type Context } from '@intafaced/contracts';
 import { MemoryStaffBook } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
+import { founderApproves, withApprovalIds } from './survey-approval.fixture.js';
 import { MemorySupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 import { MemorySurveyBook } from './survey-settings.js';
@@ -40,8 +41,18 @@ async function desk(cap: number | null = null) {
   await staff.appoint({ userId: LEAD, role: 'lead', by: LEAD, at: AT });
   await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at: AT });
   const support = new SupportService(new MemorySupportStore(), undefined, undefined, staff);
-  const router = createSupportRouter(support, undefined, undefined, support, undefined, undefined, new MemorySurveyBook(undefined, cap));
-  return async (userId: string | null, scopes = ['support:ops', 'support:read']) => router.createCaller(await ctx(userId, scopes));
+  const router = createSupportRouter(
+    support,
+    undefined,
+    undefined,
+    support,
+    undefined,
+    undefined,
+    new MemorySurveyBook(undefined, cap),
+    founderApproves(),
+  );
+  return async (userId: string | null, scopes = ['support:ops', 'support:read']) =>
+    withApprovalIds(router.createCaller(await ctx(userId, scopes)));
 }
 
 describe('survey doors (SP-csat-02)', () => {

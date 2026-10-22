@@ -83,6 +83,9 @@ export const supportSurveyConfigureInputSchema = z
     config: supportSurveyConfigSchema,
     /** Audit: why the operator changed it (spec Security row). */
     reason: z.string().trim().min(1).max(SUPPORT_SURVEY_REASON_MAX),
+    /** Dual control (spec Security row): the identity-issued action approval the service consumes. */
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
   })
   .strict()
   .refine((v) => v.newSurveyId === undefined || (v.surveyId === null && v.expectedRevision === 0), {

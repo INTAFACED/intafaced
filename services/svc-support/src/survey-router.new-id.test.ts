@@ -3,6 +3,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { SUPPORT_SURVEY_ID_CONFLICT, type Context } from '@intafaced/contracts';
 import { MemoryStaffBook } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
+import { founderApproves, withApprovalIds } from './survey-approval.fixture.js';
 import { MemorySupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 import { MemorySurveyBook } from './survey-settings.js';
@@ -29,13 +30,22 @@ async function lead() {
   const staff = new MemoryStaffBook();
   await staff.appoint({ userId: LEAD, role: 'lead', by: LEAD, at: AT });
   const support = new SupportService(new MemorySupportStore(), undefined, undefined, staff);
-  const router = createSupportRouter(support, undefined, undefined, support, undefined, undefined, new MemorySurveyBook(undefined, 3));
+  const router = createSupportRouter(
+    support,
+    undefined,
+    undefined,
+    support,
+    undefined,
+    undefined,
+    new MemorySurveyBook(undefined, 3),
+    founderApproves(),
+  );
   const { token } = await issueAccessToken(
     { userId: LEAD, sessionId: '66666666-6666-4666-8666-666666666666', scopes: ['support:ops', 'support:read'], tier: 'none', mfa: true },
     authConfig,
   );
   const ctx: Context = { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-n' };
-  return router.createCaller(ctx);
+  return withApprovalIds(router.createCaller(ctx));
 }
 
 describe('configureSurvey newSurveyId (SP-csat-02)', () => {

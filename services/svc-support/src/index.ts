@@ -8,6 +8,7 @@ import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlSurveyBook } from './survey-settings.js';
+import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
@@ -163,6 +164,7 @@ const appRouter = createSupportRouter(
   new SqlContactBook(sql),
   attachmentSettings,
   new SqlSurveyBook(sql, undefined, env.SUPPORT_SURVEY_CAP ?? null),
+  createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
