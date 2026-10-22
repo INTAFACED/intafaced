@@ -15,9 +15,21 @@ describe('p2p access status (P-order-03-be)', () => {
   });
 
   it('local test KMS on -> localTestKms true, production key still pending', () => {
-    const s = accessStatus('local-test');
-    expect(s.localTestKms).toBe(true);
-    expect(s.productionInstrumentKey).toBe('owner_decision_pending');
+    expect(accessStatus('local-test')).toEqual({
+      productionInstrumentKey: 'owner_decision_pending',
+      localTestKms: true,
+      reason: 'p2p.owner_decision_pending',
+    });
+  });
+
+  it('unknown or future provider kind -> still owner_decision_pending (fail-closed)', () => {
+    for (const kind of ['kms', 'aws-kms', 'production', 'LOCAL-TEST', ''] as const) {
+      expect(accessStatus(kind as never)).toEqual({
+        productionInstrumentKey: 'owner_decision_pending',
+        localTestKms: false,
+        reason: 'p2p.owner_decision_pending',
+      });
+    }
   });
 
   it('never carries key material or the key label', () => {

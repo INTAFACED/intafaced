@@ -7,18 +7,30 @@
  * is active. No production (owner) KMS exists yet, so production key presence
  * is always `owner_decision_pending` — never inferred from a flag.
  */
+import { instrumentKeyHealth } from './instrument-key-provider.js';
+
 export type AccessStatus = {
-  productionInstrumentKey: 'owner_decision_pending' | 'set';
+  /**
+   * Narrowed to the pending literal until the owner KMS decision. Widening it
+   * (e.g. to a 'set' state) needs a DECISIONS entry first.
+   */
+  productionInstrumentKey: 'owner_decision_pending';
   /** True only for the local-test seal. Offers and methods carry a TEST label. */
   localTestKms: boolean;
   /** Present while the production key is pending, so controls show the allowlisted copy. */
   reason: 'p2p.owner_decision_pending' | null;
 };
 
-export function accessStatus(instrumentKeyProvider: 'none' | 'local-test' | null | undefined): AccessStatus {
+/**
+ * Fail-closed for every input: an unknown or future provider kind still
+ * reports the production key as pending. Only the exact 'local-test' kind sets
+ * localTestKms.
+ */
+export function accessStatus(instrumentKeyProvider: Parameters<typeof instrumentKeyHealth>[0]): AccessStatus {
   return {
     productionInstrumentKey: 'owner_decision_pending',
-    localTestKms: instrumentKeyProvider === 'local-test',
+    // Same source as the health endpoint, so the two can never disagree.
+    localTestKms: instrumentKeyHealth(instrumentKeyProvider).instrumentKeyProvider === 'local-test',
     reason: 'p2p.owner_decision_pending',
   };
 }
