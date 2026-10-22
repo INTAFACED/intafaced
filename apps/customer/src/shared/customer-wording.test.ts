@@ -28,10 +28,10 @@ import '../features/more/market-purchases-copy';
 import '../features/more/prediction-catalogue-copy';
 import '../features/more/quant-analysis-copy';
 import '../features/more/quant-library-copy';
-import '../features/more/quant-draft-copy';
 import '../features/more/support-events-copy';
 import '../features/more/token-governance-copy';
-import '../features/more/QuantMemoryNotice';
+import '../features/quant/algo-copy';
+import '../features/quant/studio-copy';
 import '../features/account/copy';
 import '../features/account/notifications-copy';
 import '../features/account/notification-targets-copy';
@@ -114,10 +114,8 @@ const CHECKED = new Set([
   'more.prediction.catalogue',
   'more.quant.analysis',
   'more.quant.library',
-  'more.quant.draft',
   'customer.supportEvents',
   'token-governance',
-  'quant-memory',
   'customer.account',
   'account.notifications',
   'account.notificationTargets',

@@ -28,3 +28,18 @@ export const quantStrategyListOutputSchema = z.object({
   strategies: z.array(quantStrategySummarySchema),
   nextCursor: z.string().nullable(),
 });
+
+const decimalText = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+
+/** A strategy's rules as Studio edits them: order blocks, the risk block and the simulated starting cash. */
+export const quantStrategyRulesSchema = z.object({
+  cash: decimalText,
+  blocks: z.array(z.object({ side: z.enum(['buy', 'sell']), symbol: z.string(), qty: decimalText })),
+  risk: z.object({ maxDrawdown: z.string(), maxNotional: z.string(), kill: z.string() }),
+});
+
+/** The head of one saved strategy with its rules: what `studio.save`, `studio.update` and `studio.get` answer. */
+export const quantStrategyHeadSchema = quantStrategySummarySchema.merge(quantStrategyRulesSchema).extend({
+  clientStrategyId: z.string(),
+});
+export type QuantStrategyHead = z.infer<typeof quantStrategyHeadSchema>;

@@ -1,5 +1,4 @@
 import { QuantDisclosure } from './QuantDisclosure';
-import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -25,7 +24,10 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { QuantLibraryClosed, QuantSaveOff } from './QuantSaveOff';
+import { StudioLibrary } from '../quant/StudioLibrary';
+import { StudioSave } from '../quant/StudioSave';
+import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
+import { studioCopy } from '../quant/studio-copy';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import { QuantRooms } from '../quant/QuantRooms';
@@ -69,6 +71,8 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [drawdown, setDrawdown] = useState(draftStart.drawdown),
     [notional, setNotional] = useState(draftStart.notional),
     [kill, setKill] = useState(draftStart.kill),
+    [link, setLink] = useState<StudioLink>(() => (mode === 'studio' ? readLink(userId ?? null) : newLink())),
+    [libraryRevision, setLibraryRevision] = useState(0),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
     [bt, setBt] = useState<HistoricalSnapshot | null>(null),
     [strategyId, setStrategyId] = useState(''),
@@ -131,10 +135,24 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   useEffect(() => {
     if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, drawdown, notional, kill });
   }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
+  useEffect(() => {
+    if (mode === 'studio') writeLink(userId ?? null, link);
+  }, [mode, userId, link]);
+  const rules = { name, cash, blocks, risk: { maxDrawdown: drawdown, maxNotional: notional, kill } };
+  /** Fill the form with saved rules (or a blank draft) and remember which strategy it is. */
+  const load = (next: { name: string; cash: string; blocks: typeof blocks; risk: typeof rules.risk } | null, nextLink: StudioLink) => {
+    const draft = next ?? { ...emptyDraft(), risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    setName(draft.name);
+    setCash(draft.cash);
+    setBlocks(draft.blocks.map((b) => ({ ...b })));
+    setDrawdown(draft.risk.maxDrawdown);
+    setNotional(draft.risk.maxNotional);
+    setKill(draft.risk.kill);
+    setLink(nextLink);
+  };
   return (
     <div className="more-grid">
       <QuantRooms active={mode} paper={paper} />
-      {mode !== 'sandbox' && <QuantMemoryNotice />}
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
@@ -327,10 +345,31 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 value={kill}
                 onChange={(e) => setKill(e.target.value)}
               />
-              <QuantSaveOff />
+              <StudioSave
+                rules={rules}
+                link={link}
+                onSaved={(head, saved) => {
+                  setLink({ clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved });
+                  setLibraryRevision((n) => n + 1);
+                }}
+              />
+              <Button variant="ghost" onClick={() => load(null, newLink())}>
+                {studioCopy.t('newStrategy')}
+              </Button>
             </form>
           </Panel>
-          <QuantLibraryClosed />
+          <StudioLibrary
+            revision={libraryRevision}
+            activeId={link.strategyId}
+            onOpen={(head) =>
+              load(head, {
+                clientStrategyId: head.clientStrategyId,
+                strategyId: head.id,
+                version: head.version,
+                saved: fingerprint(head),
+              })
+            }
+          />
           <QuantDisclosure />
         </div>
       ) : (
