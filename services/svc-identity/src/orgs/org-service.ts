@@ -285,29 +285,21 @@ export async function grantOrgRole(
     await requireDistinctAdminApprover(sql, org, actor, secondApproverId);
   }
 
-  if (existing[0].role === 'admin' && grant !== 'admin') {
-    // Demoting an admin must never leave the organization without one. Every admin
-    // seat is locked first, then the actor and the target are re-read under the lock.
-    return transaction(sql, async (tx) => {
-      const admins = await lockOrgAdmins(tx, org);
-      // A stale actor (demoted after the check above) cannot demote anyone.
-      if (!admins.includes(actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
-      const [target] = await tx<Array<{ role: string }>>`
-        SELECT role FROM organization_members WHERE org_id = ${org} AND user_id = ${member} FOR UPDATE`;
-      if (!target) throw new OrgError('Member not found', 'org.member_not_found');
-      // If the target was demoted meanwhile it is no longer an admin seat: plain role change.
-      if (target.role === 'admin') requireAnotherAdmin(admins, member);
-      await tx`
-        UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
-      `;
-      return { orgId: org, userId: member, role: grant };
-    });
-  }
-
-  await sql`
-    UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
-  `;
-  return { orgId: org, userId: member, role: grant };
+  // Every role change runs under one lock: every admin seat is locked first, then the actor
+  // and the target are re-read under the lock, so a decision is never made from a stale read
+  // (a target promoted meanwhile is counted as an admin; a demoted actor is refused).
+  return transaction(sql, async (tx) => {
+    const admins = await lockOrgAdmins(tx, org);
+    if (!admins.includes(actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
+    const [target] = await tx<Array<{ role: string }>>`
+      SELECT role FROM organization_members WHERE org_id = ${org} AND user_id = ${member} FOR UPDATE`;
+    if (!target) throw new OrgError('Member not found', 'org.member_not_found');
+    if (target.role === 'admin' && grant !== 'admin') requireAnotherAdmin(admins, member);
+    await tx`
+      UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
+    `;
+    return { orgId: org, userId: member, role: grant };
+  });
 }
 
 /**
