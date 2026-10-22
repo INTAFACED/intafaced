@@ -40,6 +40,49 @@ export function tool(script, ...args) {
   });
 }
 
+/** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */
+export function mailedCodes(email) {
+  const file = path.join(STATE, 'email-outbox.log');
+  if (!existsSync(file)) return [];
+  const wanted = email.replace(/\s+/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('purpose=signup-code') && line.includes(` email=${wanted} `))
+    .map((line) => /\bcode=(\d{6})\b/.exec(line)?.[1])
+    .filter(Boolean);
+}
+
+/** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
+export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const codes = mailedCodes(email);
+    if (codes.length > seen) return codes.at(-1);
+    if (Date.now() >= until) throw new Error(`no sign-up code reached ${email} within ${waitMs} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+/**
+ * Sign up through /register as a real person would: details, then the mailed code. `who` needs handle, email and
+ * password; the country and birth date are TEST answers. Lands signed in, off /register.
+ */
+export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
+  const seen = mailedCodes(who.email).length;
+  await page.goto('/register');
+  if (accountType === 'business') await page.getByLabel(/^Business/).check();
+  await page.getByLabel('Email address').fill(who.email);
+  await page.getByLabel('Handle').fill(who.handle);
+  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Country you live in').selectOption(country);
+  await page.getByLabel('Date of birth').fill(dateOfBirth);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.getByLabel('Code from the email').fill(await nextMailedCode(who.email, seen));
+  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await page.waitForURL((url) => url.pathname !== '/register');
+}
+
 /** TEST funding through the real ledger; `ref` makes a replay of the same deposit. */
 export function fund(email, asset, amount, ref) {
   const out = tool('local-test-stack.mjs', 'fund', email, asset, amount, ...(ref ? ['--ref', ref] : []));
