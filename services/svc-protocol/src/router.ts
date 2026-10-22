@@ -298,7 +298,11 @@ function toTrpcError(err: unknown): TRPCError {
   }
   if (err instanceof AttestationRefusedError) {
     const code =
-      err.code === 'protocol.attestation_registry_unset' || err.code === 'audit.external' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST';
+      err.code === 'protocol.attestation_registry_unset' ||
+      err.code === 'protocol.attestation_from_block_unset' ||
+      err.code === 'audit.external'
+        ? 'PRECONDITION_FAILED'
+        : 'BAD_REQUEST';
     return new TRPCError({ code, message: err.message, cause: err });
   }
   if (err instanceof TokenAddressError) {

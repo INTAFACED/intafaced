@@ -9,6 +9,7 @@ import {
   type AttestationRecord,
   type AttestationReader,
   type RevocationReader,
+  revocationReader,
 } from './attestation-build.js';
 
 const REGISTRY = '0x1111111111111111111111111111111111111111';
@@ -181,5 +182,41 @@ describe('buildRevoke and verify', () => {
       'live',
     );
     expect(logReads).toBe(0);
+  });
+
+  describe('revocationReader (owner-set scan start)', () => {
+    const args = {
+      address: '0x1111111111111111111111111111111111111111' as const,
+      commitment: ('0x' + '22'.repeat(32)) as `0x${string}`,
+      issuer: '0x3333333333333333333333333333333333333333' as const,
+    };
+
+    it('refuses protocol.attestation_from_block_unset before any RPC call when the start block is unset', async () => {
+      let calls = 0;
+      const reader = revocationReader(
+        () => undefined,
+        async () => {
+          calls += 1;
+          return [];
+        },
+      );
+      await expect(reader(args)).rejects.toMatchObject({ code: 'protocol.attestation_from_block_unset' });
+      expect(calls).toBe(0);
+    });
+
+    it('scans from the owner-set block and reports a Revoked log', async () => {
+      const seen: bigint[] = [];
+      const reader = (logs: unknown[]) =>
+        revocationReader(
+          () => 18234567n,
+          async (q) => {
+            seen.push(q.fromBlock);
+            return logs;
+          },
+        );
+      expect(await reader([{}])(args)).toBe(true);
+      expect(await reader([])(args)).toBe(false);
+      expect(seen).toEqual([18234567n, 18234567n]);
+    });
   });
 });

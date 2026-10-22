@@ -9,7 +9,11 @@ import { encodeFunctionData, isAddress, isHex, type Address, type Hex } from 'vi
 import { subjectCommitment } from './commitment.js';
 
 export type AttestationRefusalCode =
-  'protocol.attestation_registry_unset' | 'protocol.attestation_pii_field' | 'protocol.attestation_input' | 'audit.external';
+  | 'protocol.attestation_registry_unset'
+  | 'protocol.attestation_from_block_unset'
+  | 'protocol.attestation_pii_field'
+  | 'protocol.attestation_input'
+  | 'audit.external';
 
 export class AttestationRefusedError extends Error {
   constructor(
@@ -158,6 +162,29 @@ export type AttestationReader = (args: { address: Address; commitment: Hex; issu
 export type RevocationReader = (args: { address: Address; commitment: Hex; issuer: Address }) => Promise<boolean>;
 export type AttestationStatus =
   { status: 'none' | 'revoked' } | { status: 'live' | 'expired'; rank: string; issuedAt: string; expiresAt: string; schemaId: Hex };
+
+/** A log query from an owner-set block (the registry's deployment block) up to the latest block. */
+export type RevokedLogQuery = (args: {
+  address: Address;
+  commitment: Hex;
+  issuer: Address;
+  fromBlock: bigint;
+}) => Promise<readonly unknown[]>;
+
+/**
+ * The revocation reader, bounded by the owner-set `PROTOCOL_RANK_ATTESTATION_FROM_BLOCK`. Hosted RPCs cap log
+ * ranges, so a scan from block 0 fails; there is no default. Unset refuses `protocol.attestation_from_block_unset`
+ * before any RPC call.
+ */
+export function revocationReader(fromBlock: () => bigint | undefined, query: RevokedLogQuery): RevocationReader {
+  return async (args) => {
+    const from = fromBlock();
+    if (from === undefined) {
+      throw new AttestationRefusedError('protocol.attestation_from_block_unset', 'PROTOCOL_RANK_ATTESTATION_FROM_BLOCK is unset');
+    }
+    return (await query({ ...args, fromBlock: from })).length > 0;
+  };
+}
 
 /**
  * Reads `attestations(commitment, issuer)`. Zero `issuedAt` means no live record: the contract deletes a

@@ -136,6 +136,19 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * `protocol.attestation_registry_unset` at call time; a malformed address refuses boot.
      */
     PROTOCOL_RANK_ATTESTATION_ADDRESS: blankIsUnset(evmAddress.optional()),
+    /**
+     * First block of the RankAttestation registry's `Revoked` log scan (its deployment block), owner-set. Hosted RPCs
+     * cap log ranges, so there is no default 0: blank/unset stays undefined and a verify of an empty record refuses
+     * `protocol.attestation_from_block_unset`; anything but a non-negative integer refuses boot.
+     */
+    PROTOCOL_RANK_ATTESTATION_FROM_BLOCK: blankIsUnset(
+      z
+        .string()
+        .trim()
+        .regex(/^\d{1,20}$/, 'PROTOCOL_RANK_ATTESTATION_FROM_BLOCK must be a block number')
+        .transform((v) => BigInt(v))
+        .optional(),
+    ),
 
     /**
      * Public ERC-4337 bundler. Optional: without it the service still builds

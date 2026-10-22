@@ -1798,6 +1798,11 @@ services:
       # No default bps. Blank stays unset; the swap path refuses
       # protocol.swap_slippage_unset. Never invent 50 (or any other tolerance).
       PROTOCOL_SWAP_SLIPPAGE_BPS: ${PROTOCOL_SWAP_SLIPPAGE_BPS:-}
+      # RankAttestation (RC-identity-16). Blank stays unset: verify refuses
+      # protocol.attestation_registry_unset / protocol.attestation_from_block_unset.
+      # Never invent an address or a scan from block 0 (hosted RPCs cap log ranges).
+      PROTOCOL_RANK_ATTESTATION_ADDRESS: ${PROTOCOL_RANK_ATTESTATION_ADDRESS:-}
+      PROTOCOL_RANK_ATTESTATION_FROM_BLOCK: ${PROTOCOL_RANK_ATTESTATION_FROM_BLOCK:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4012']
     extra_hosts:
