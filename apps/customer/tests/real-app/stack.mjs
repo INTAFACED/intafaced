@@ -52,6 +52,19 @@ export function mailedCodes(email) {
     .filter(Boolean);
 }
 
+/** Every email-confirmation link mailed to `email` (an app path), oldest first, read from the LOCAL-TEST outbox like an inbox. */
+export function mailedConfirmLinks(email) {
+  const file = path.join(STATE, 'email-outbox.log');
+  if (!existsSync(file)) return [];
+  const wanted = email.replace(/\s+/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('purpose=email-confirm') && line.includes(` email=${wanted} `))
+    .map((line) => /\blink=(\S+)/.exec(line)?.[1])
+    .filter(Boolean)
+    .map((link) => `/${link}`);
+}
+
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
 export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
   const until = Date.now() + waitMs;

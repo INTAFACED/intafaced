@@ -96,12 +96,17 @@ function causeCode(cause: unknown): string | undefined {
   return undefined;
 }
 
+/** The refusals that carry the seconds to wait. No other error changes shape. */
+const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited']);
+
 /**
- * `retryAfterSeconds` of an `auth.too_many_attempts` refusal, so a client can show
- * "try again in N minutes". Only for that one code; no other error changes shape.
+ * `retryAfterSeconds` of an `auth.too_many_attempts` or `auth.email_confirm_rate_limited` refusal, so a client can
+ * show "try again in N minutes".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
-  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.too_many_attempts') return undefined;
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {
+    return undefined;
+  }
   const details = 'details' in cause ? cause.details : undefined;
   if (!details || typeof details !== 'object' || !('retryAfterSeconds' in details)) return undefined;
   const seconds = details.retryAfterSeconds;
@@ -250,7 +255,7 @@ const t = initTRPC.context<Context>().create({
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts`.
+        // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),

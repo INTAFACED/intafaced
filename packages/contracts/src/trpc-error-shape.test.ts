@@ -85,6 +85,8 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts'))).toBeUndefined();
     expect(retryAfterSecondsOf(undefined)).toBeUndefined();
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: 1.2 }))).toBe(2);
+    expect(retryAfterSecondsOf(new FakeAuthError('auth.email_confirm_rate_limited', { retryAfterSeconds: 90 }))).toBe(90);
+    expect(retryAfterSecondsOf(new FakeAuthError('auth.invalid_credentials', { retryAfterSeconds: 90 }))).toBeUndefined();
   });
 
   it('returns the current profile only on a version conflict', async () => {

@@ -130,9 +130,9 @@ if (!available) {
     const err = (await promise.then(
       () => undefined,
       (e: unknown) => e,
-    )) as { code?: string; message?: string; cause?: { code?: string } } | undefined;
+    )) as { code?: string; message?: string; cause?: { code?: string; details?: { retryAfterSeconds?: number } } } | undefined;
     expect(err).toBeDefined();
-    return { trpc: err!.code, code: err!.cause?.code, message: err!.message };
+    return { trpc: err!.code, code: err!.cause?.code, message: err!.message, retryAfterSeconds: err!.cause?.details?.retryAfterSeconds };
   };
 
   beforeEach(async () => {
@@ -277,11 +277,30 @@ if (!available) {
       await api.auth.requestEmailConfirmation();
       const limited = await refusal(api.auth.requestEmailConfirmation());
       expect(limited).toMatchObject({ trpc: 'TOO_MANY_REQUESTS', code: 'auth.email_confirm_rate_limited' });
+      // The wait is the time until the oldest request leaves the hour.
+      expect(limited.retryAfterSeconds).toBe(3600);
       expect(sent).toHaveLength(2);
       const proofs = await db.sql<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM email_confirmation_proofs WHERE user_id = ${user.userId}
       `;
       expect(proofs[0]!.n).toBe(2);
+    });
+
+    it('says the real wait after the owner lowers the budget: until enough requests leave the window', async () => {
+      const user = await register();
+      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 3, rateWindowSeconds: 3600 });
+      const api = await asUser(user.accessToken);
+      for (const offset of [0, 100, 200]) {
+        nowMs = T0 + offset * 1000;
+        await api.auth.requestEmailConfirmation();
+      }
+      auth.useEmailConfirmation({ mail, ttlSeconds: TTL, rateMax: 2, rateWindowSeconds: 3600 });
+      const limited = await refusal(api.auth.requestEmailConfirmation());
+      // Two of three must leave before one more fits: the request at +100 s leaves at +3700 s, 3500 s from now.
+      expect(limited).toMatchObject({ code: 'auth.email_confirm_rate_limited', retryAfterSeconds: 3500 });
+
+      nowMs = T0 + 3_701_000;
+      await expect(api.auth.requestEmailConfirmation()).resolves.toEqual({ accepted: true });
     });
 
     it('refuses when mail, lifetime, or the rate budget is unpublished, for every caller the same way', async () => {
