@@ -28,6 +28,7 @@ import {
 import { otcDeskLawStatusLine, UNPUBLISHED_OTC_DESK_LAW } from './otc/desk-law.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './otc/errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-routing.js';
+import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY } from './otc/maker-directory.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
 import { copyDetachOutput, copyFlattenOutput, copyPauseOutput, copyResumeOutput, copyStopOutput } from './copy/copy-control-wire.js';
@@ -469,9 +470,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.otc_stake_unavailable':
       case 'trade.otc_no_reference_price':
       case 'trade.otc_bad_spread':
+      case 'trade.convert_bounds_not_set':
       case 'trade.rfq_allocation_refused':
       case 'trade.rfq_give_up_refused':
       case 'trade.rfq_missing_price':
+      case 'trade.otc_makers_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -1070,6 +1073,23 @@ export function createTradeRouter(
         return otc.deskStatus();
       }),
 
+      /** Liquidity-provider directory and multi-select check (CB-otc-01). */
+      makers: router({
+        list: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
+          otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY),
+        ),
+        select: scopedProcedure('trade:read', { module: 'trade' })
+          .input(z.object({ makerIds: z.array(z.string().max(120)).max(50) }).strict())
+          .query(({ input }) =>
+            guard(async () => {
+              if (!otc) {
+                return { makers: selectOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY, input.makerIds), selectCap: null };
+              }
+              return otc.selectMakers(input.makerIds);
+            }),
+          ),
+      }),
+
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
           /**
@@ -1138,6 +1158,31 @@ export function createTradeRouter(
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.settle(ctx.principal, { quoteId: input.quoteId });
+          }),
+        ),
+
+      /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
+      convertBounds: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
+        otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null },
+      ),
+
+      /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
+      convertQuote: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z
+            .object({
+              flow: z.enum(['convert', 'oneClickBuy']),
+              side: orderSideSchema,
+              baseAsset: z.string().min(1).max(32),
+              quoteAsset: z.string().min(1).max(32),
+              qty: decimal,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
+            return otc.convertQuote(ctx.principal, input);
           }),
         ),
     }),
