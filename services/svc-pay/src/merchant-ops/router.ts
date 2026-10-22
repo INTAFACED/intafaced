@@ -142,88 +142,38 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
     .trim()
     .regex(/^[A-Za-z0-9._-]{1,64}$/);
   return router({
-    /** M-catalogue-01: product records. No price lives here. catalog.read: every role; catalog.write: owner and admin. */
-    catalog: router({
-      product: router({
-        create: write
-          .input(z.object({ requestId: id, productRef: productRefIn.nullish(), ...productFields }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input))),
-        get: read
-          .input(z.object({ productId: id }).strict())
-          .query(({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId))),
-        list: read
-          .input(
-            z
-              .object({
-                limit: z.number().int().min(1).max(100).default(25),
-                archived: z.boolean().optional(),
-                cursor: z.string().max(500).optional(),
-              })
-              .strict(),
-          )
-          .query(({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input))),
-        update: write
-          .input(z.object({ requestId: id, productId: id, ...productFields }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.update(await callerOf(ctx), input))),
-        archive: write
-          .input(z.object({ requestId: id, productId: id }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.archive(await callerOf(ctx), input))),
-        unarchive: write
-          .input(z.object({ requestId: id, productId: id }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.unarchive(await callerOf(ctx), input))),
-      }),
-      /** M-catalogue-02: prices on a product. Amount, asset, interval and model are fixed at create. */
-      price: router({
-        create: write
-          .input(
-            z
-              .object({
-                requestId: id,
-                productId: id,
-                assetId: z.string().min(1).max(16),
-                model: z.enum([...CATALOG_PRICE_MODELS, 'usage']),
-                unitAmount: z.string().max(40).nullish(),
-                tiers: z
-                  .array(
-                    z
-                      .object({
-                        upTo: z.number().int().positive().nullable(),
-                        unitAmount: z.string().max(40),
-                        flatAmount: z.string().max(40).nullish(),
-                      })
-                      .strict(),
-                  )
-                  .min(1)
-                  .max(TIERS_MAX)
-                  .nullish(),
-                recurring: z
-                  .object({ unit: z.enum(RECURRING_UNITS), count: z.number().int().min(1).max(365) })
-                  .strict()
-                  .nullish(),
-                taxBehavior: z.enum(TAX_BEHAVIORS),
-                description: z.string().max(500).nullish(),
-              })
-              .strict(),
-          )
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.create(await callerOf(ctx), input))),
-        get: read
-          .input(z.object({ priceId: id }).strict())
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.get(await callerOf(ctx), input.priceId))),
-        list: read
-          .input(z.object({ productId: id, includeArchived: z.boolean().optional() }).strict())
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.list(await callerOf(ctx), input))),
-        setDefault: write
-          .input(z.object({ requestId: id, priceId: id }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.setDefault(await callerOf(ctx), input))),
-        archive: write
-          .input(z.object({ requestId: id, priceId: id }).strict())
-          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.archive(await callerOf(ctx), input))),
-        quote: read
-          .input(z.object({ priceId: id, quantity: z.number().int().positive() }).strict())
-          .query(({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input))),
-      }),
-    }),
     merchantOps: router({
+      /** M-catalogue-01: product records (merchantOps.catalog.product.*). No price lives here. catalog.read: every role; catalog.write: owner and admin. */
+      catalog: router({
+        product: router({
+          create: write
+            .input(z.object({ requestId: id, productRef: productRefIn.nullish(), ...productFields }).strict())
+            .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input))),
+          get: read
+            .input(z.object({ productId: id }).strict())
+            .query(({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId))),
+          list: read
+            .input(
+              z
+                .object({
+                  limit: z.number().int().min(1).max(100).default(25),
+                  archived: z.boolean().optional(),
+                  cursor: z.string().max(500).optional(),
+                })
+                .strict(),
+            )
+            .query(({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input))),
+          update: write
+            .input(z.object({ requestId: id, productId: id, ...productFields }).strict())
+            .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.update(await callerOf(ctx), input))),
+          archive: write
+            .input(z.object({ requestId: id, productId: id }).strict())
+            .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.archive(await callerOf(ctx), input))),
+          unarchive: write
+            .input(z.object({ requestId: id, productId: id }).strict())
+            .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.unarchive(await callerOf(ctx), input))),
+        }),
+      }),
       disputes: router({
         list: read
           .input(
