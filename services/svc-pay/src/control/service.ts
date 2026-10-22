@@ -108,6 +108,11 @@ export class ControlService {
     if (!principal?.userId || !(await this.access.canViewMerchant(principal, merchantId))) throw new ControlError('pay.merchant_not_found');
   }
 
+  /** Any active role on the merchant (owner or team member, viewer included); a stranger gets the missing-merchant answer. */
+  async assertIsMember(principal: Principal, merchantId: string): Promise<void> {
+    if (!principal?.userId || (await this.roleOnMerchant(principal, merchantId)) === null) throw new ControlError('pay.merchant_not_found');
+  }
+
   /** Owner, else an active team role, else null. Does not grant anything by itself. */
   roleOnMerchant(principal: Principal, merchantId: string): Promise<MerchantRole | null> {
     return lookupRoleOnMerchant(this.sql, principal, merchantId);

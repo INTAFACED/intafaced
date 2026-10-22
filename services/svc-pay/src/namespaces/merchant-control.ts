@@ -153,7 +153,8 @@ export function createMerchantControlRouter(control?: ControlService) {
           .output(merchantFeeScheduleSchema)
           .query(({ ctx, input }) =>
             guarded(async () => {
-              await control.assertCanView(principalOf(ctx), input.merchantId);
+              // Every role reads the schedule (non-finance roles get the headline view), so gate on membership, not payout rights.
+              await control.assertIsMember(principalOf(ctx), input.merchantId);
               return control.feeSchedule(principalOf(ctx), input.merchantId);
             }),
           ),
