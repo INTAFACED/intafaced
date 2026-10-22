@@ -14,6 +14,7 @@ import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { securityCopy as copy } from './security-copy';
+import { refusalCopy } from '../../data/refusals';
 import {
   credentialId,
   familyBlocked,
@@ -37,9 +38,19 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
+import { WithdrawStepUp } from '../money/WithdrawStepUp';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
-type Original = { owner: string; client: ApiClient; kind: SecurityKind; credential?: Passkey; limit: number; requestId: string };
+type Original = {
+  owner: string;
+  client: ApiClient;
+  kind: SecurityKind;
+  credential?: Passkey;
+  limit: number;
+  requestId: string;
+  /** The five-minute token from "Confirm it's you" (`auth.stepUp`), for this one change only. Never persisted. */
+  bearer?: string;
+};
 type Setup = { original: Original; record: SecurityRecord; data: z.infer<typeof setupResponse>; confirmed: boolean };
 type Response = {
   original: Original;
@@ -49,6 +60,14 @@ type Response = {
   guardRetained?: boolean;
   unconfirmed?: boolean;
 };
+/**
+ * The change a "Confirm it is you" may send again after a second-factor refusal: adding or removing a passkey, or
+ * starting an authenticator. Not a confirmation (its code has likely expired by then) and not signing out everywhere.
+ */
+function stepUpKind(refused: Response): 'options' | 'remove' | 'setup' | null {
+  const kind = refused.record?.kind;
+  return kind === 'options' || kind === 'register' ? 'options' : kind === 'remove' || kind === 'setup' ? kind : null;
+}
 const emptyJournal: SecurityJournal = { records: [], failed: false };
 
 export function Security() {
@@ -74,6 +93,7 @@ export function Security() {
     original = useRef<Original | null>(null),
     controller = useRef<AbortController | null>(null);
   const setupHeading = useRef<HTMLHeadingElement | null>(null);
+  const [stepUp, setStepUp] = useState<Response | null>(null);
   const setupFocus = useRef<{
     intent: Original;
     origin: Element | null;
@@ -126,6 +146,7 @@ export function Security() {
     setShowKey(false);
     setReview(null);
     setActiveStage(null);
+    setStepUp(null);
     setupFocus.current = null;
     original.current = null;
     controller.current?.abort();
@@ -155,6 +176,11 @@ export function Security() {
     setupFocus.current = null;
     if (!waiting.moved && same(visibleSetup.original)) setupHeading.current?.focus();
   }, [visibleSetup?.record.requestId, api, userId]);
+  /** The call options for this change: its abort signal, and the step-up token when the person just confirmed it is them. */
+  const sending = (intent: Original, signal?: AbortSignal) => ({
+    ...(signal ? { signal } : {}),
+    ...(intent.bearer ? { bearer: intent.bearer } : {}),
+  });
   const blocked = (kind: SecurityKind) => !userId || busy || familyBlocked(journal, securityFamily(kind));
   function open(kind: SecurityKind, credential?: Passkey) {
     if (!userId || blocked(kind) || running.current || !api.canWrite()) return;
@@ -264,9 +290,13 @@ export function Security() {
     controller.current = abort;
     const preparation = makeRecord(intent, 'options');
     if (!save(intent, preparation)) return;
-    const options = await intent.client.mutate('identity', 'webauthn.registerOptions', {}, registrationFor(intent.owner), {
-      signal: abort.signal,
-    });
+    const options = await intent.client.mutate(
+      'identity',
+      'webauthn.registerOptions',
+      {},
+      registrationFor(intent.owner),
+      sending(intent, abort.signal),
+    );
     if (!same(intent)) {
       settleOriginalRefusal(preparation, options);
       return;
@@ -293,7 +323,7 @@ export function Security() {
       'webauthn.registerVerify',
       payload,
       z.object({ credentialId }).refine((value) => value.credentialId === payload!.rawId),
-      { signal: abort.signal },
+      sending(intent, abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(registration, answer);
@@ -329,7 +359,7 @@ export function Security() {
       'webauthn.remove',
       { credentialId: intent.credential.credentialId },
       z.object({ removed: z.boolean() }),
-      { signal: abort.signal },
+      sending(intent, abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
@@ -344,7 +374,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse);
+    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse, sending(intent));
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -361,6 +391,8 @@ export function Security() {
     const prepared = { ...record, state: 'prepared' as const };
     sync(intent.owner);
     if (setupFocus.current?.intent === intent) setupFocus.current.readyRequest = prepared.requestId;
+    // A setup started after "Confirm it is you" keeps that token for its own confirmation only: the factor gate checks
+    // the confirmation too. It stays in memory with this setup and expires in five minutes.
     setSetup({ original: intent, record: prepared, data: answer.data, confirmed: false });
     setResponse(null);
   }
@@ -387,6 +419,8 @@ export function Security() {
         'totp.confirm',
         { secret: prepared.data.secret, code: entered },
         z.object({ ok: z.literal(true) }),
+        // A wrong code is this form's answer, not the end of the sign-in.
+        { ...sending(intent), keepSessionFor: ['auth.mfa_invalid'] },
       );
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);
@@ -424,19 +458,38 @@ export function Security() {
       clear();
     }
   }
+  function dispatch(intent: Original) {
+    return intent.kind === 'options'
+      ? addPasskey(intent)
+      : intent.kind === 'remove'
+        ? removePasskey(intent)
+        : intent.kind === 'setup'
+          ? startSetup(intent)
+          : logoutAll(intent);
+  }
+  /**
+   * Sends the change the factor gate refused once more, with the step-up token as that call's own bearer. The token is
+   * never persisted; it stays in memory with this one intent (and a setup it starts, for that setup's confirmation), and
+   * a later change asks again. The change's own answer
+   * shows on the page, as any other answer does. A refused authenticator confirmation is not resent: its code has likely
+   * expired, so that refusal offers signing in again instead.
+   */
+  async function afterStepUp(refused: Response, token: string): Promise<ApiResult<null>> {
+    const kind = stepUpKind(refused);
+    if (!kind || !userId || running.current || !sameActor(refused.original)) {
+      return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
+    }
+    setStepUp(null);
+    const intent: Original = { ...refused.original, kind, requestId: crypto.randomUUID(), bearer: token };
+    original.current = intent;
+    await coordinated(intent, () => dispatch(intent));
+    return { ok: true, data: null };
+  }
   function confirmReview() {
     const intent = review;
     if (!intent) return;
     if (setupFocus.current?.intent === intent) setupFocus.current.pending = true;
-    void coordinated(intent, () =>
-      intent.kind === 'options'
-        ? addPasskey(intent)
-        : intent.kind === 'remove'
-          ? removePasskey(intent)
-          : intent.kind === 'setup'
-            ? startSetup(intent)
-            : logoutAll(intent),
-    );
+    void coordinated(intent, () => dispatch(intent));
   }
   function references(owner: string, request?: string, credential?: string) {
     return (
@@ -469,6 +522,7 @@ export function Security() {
   const kindLabel = (kind: SecurityKind) =>
     kind === 'remove' ? 'removeKind' : kind === 'confirm' ? 'confirmKind' : kind === 'logout' ? 'logoutKind' : kind;
   const currentResponse = response && sameActor(response.original) ? response : null;
+  const secondFactor = refusalCopy('auth.mfa_required');
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
   return (
@@ -736,7 +790,28 @@ export function Security() {
             )
           ) : (
             <div lang="und">
-              <Failure result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer} />
+              {currentResponse.answer.code === 'auth.mfa_required' &&
+              currentResponse.record &&
+              isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
+                // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
+                // them here sends the same change once more; signing in again with the code or a passkey also works.
+                <div className="failure" role="status">
+                  <h3>{secondFactor.title}</h3>
+                  {stepUpKind(currentResponse) ? <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p> : <p>{secondFactor.body}</p>}
+                  {stepUpKind(currentResponse) && (
+                    <Button onClick={() => setStepUp(currentResponse)}>
+                      <Copy k="stepUpConfirm" />
+                    </Button>
+                  )}
+                  <a className="text-link" href={`${secondFactor.action?.href ?? '/login'}?redirect=${encodeURIComponent('/uc/safe')}`}>
+                    {secondFactor.action?.label}
+                  </a>
+                </div>
+              ) : (
+                <Failure
+                  result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
+                />
+              )}
               {currentResponse.answer.code && (
                 <p className="security__ref" lang="zxx">
                   {currentResponse.answer.code}
@@ -744,6 +819,14 @@ export function Security() {
               )}
             </div>
           ))}
+        {stepUp && sameActor(stepUp.original) && (
+          <WithdrawStepUp
+            why={t('stepUpWhy')}
+            run={(token) => afterStepUp(stepUp, token)}
+            onDone={() => setStepUp(null)}
+            onCancel={() => setStepUp(null)}
+          />
+        )}
         <ApiKeyRecords />
         {review && sameActor(review) && (
           <Dialog
