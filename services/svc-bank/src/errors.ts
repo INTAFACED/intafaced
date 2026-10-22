@@ -19,6 +19,12 @@ export type BankErrorCode =
   | 'bank.schedule_id_required'
   /** Retry reused a schedule id with different user, spaces, amount, cadence, or start. */
   | 'bank.schedule_conflict'
+  /** BK-xfer-10: an edit inside the owner cutoff before the next run. */
+  | 'bank.schedule_cutoff'
+  /** BK-xfer-10: no owner edit cutoff is set; edits refuse. */
+  | 'bank.schedule_cutoff_unset'
+  /** BK-xfer-10: an edit named a stale revision, or reused one with different terms. */
+  | 'bank.schedule_revision_conflict'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'

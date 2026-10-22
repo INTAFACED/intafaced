@@ -51,7 +51,7 @@ export const bank = pgSchema('bank');
 export const spaceKindEnum = bank.enum('space_kind', ['primary', 'named']);
 
 /** §8.1 rails. Cadence is closed because the occurrence index must be derivable. */
-export const transferCadenceEnum = bank.enum('transfer_cadence', ['daily', 'weekly', 'monthly']);
+export const transferCadenceEnum = bank.enum('transfer_cadence', ['once', 'daily', 'weekly', 'monthly']);
 
 export const scheduleStatusEnum = bank.enum('schedule_status', ['active', 'paused', 'cancelled', 'completed']);
 
@@ -155,6 +155,9 @@ export const scheduledTransfers = bank.table(
     /** Scheduling index only — the truth of "did occurrence N fire" is the execution row. */
     nextRunAt: tstz('next_run_at').notNull(),
     status: scheduleStatusEnum('status').notNull().default('active'),
+    /** BK-xfer-10: applied edits; an edit names the revision it read. */
+    revision: integer('revision').notNull().default(0),
+    reference: text('reference'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -163,6 +166,20 @@ export const scheduledTransfers = bank.table(
     index('scheduled_transfers_due_idx').on(t.status, t.nextRunAt),
     index('scheduled_transfers_user_idx').on(t.userId),
   ],
+);
+
+/** BK-xfer-10: one row per applied edit, the idempotency record of (schedule, revision read). No amounts. */
+export const scheduleEdits = bank.table(
+  'schedule_edits',
+  {
+    scheduleId: uuid('schedule_id')
+      .notNull()
+      .references(() => scheduledTransfers.id),
+    fromRevision: integer('from_revision').notNull(),
+    payloadHash: text('payload_hash').notNull(),
+    editedAt: tstz('edited_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: 'schedule_edits_pkey', columns: [t.scheduleId, t.fromRevision] })],
 );
 
 /**

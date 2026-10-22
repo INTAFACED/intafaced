@@ -33,6 +33,7 @@ import {
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
+import { bankScheduleUpdateInputSchema, bankScheduleUpdateResultSchema } from '@intafaced/contracts';
 import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
@@ -390,6 +391,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_closed':
       case 'bank.position_locked':
       case 'bank.position_pending':
+      case 'bank.schedule_cutoff':
+      case 'bank.schedule_cutoff_unset':
       case 'bank.loan_product_closed':
       case 'bank.auto_invest_inactive':
       case 'bank.auto_invest_invalid_threshold':
@@ -437,6 +440,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
+      case 'bank.schedule_revision_conflict':
       case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
@@ -1291,7 +1295,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
-          cadence: z.enum(['daily', 'weekly', 'monthly']),
+          cadence: z.enum(['once', 'daily', 'weekly', 'monthly']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
@@ -1342,7 +1346,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toSpaceId: z.string().uuid(),
           amount: amountString,
-          cadence: z.enum(['daily', 'weekly', 'monthly']),
+          cadence: z.enum(['once', 'daily', 'weekly', 'monthly']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
@@ -1474,6 +1478,28 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
           return bank.transfers.executions(input.scheduleId, input.limit);
+        }),
+      ),
+
+    /** BK-xfer-10: edit amount, cadence, reference or end date in place, idempotent by (scheduleId, revision). */
+    update: scopedProcedure('bank:write', { module: 'bank' })
+      .input(bankScheduleUpdateInputSchema)
+      .output(bankScheduleUpdateResultSchema)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          if (!bank.scheduleEdits) throw new BankError('Schedule edits are not wired', 'bank.schedule_cutoff_unset');
+          const schedule = await bank.transfers.getSchedule(input.scheduleId);
+          assertSelf(ctx.principal.userId, schedule.userId);
+          const r = await bank.scheduleEdits.update({
+            scheduleId: input.scheduleId,
+            userId: ctx.principal.userId,
+            revision: input.revision,
+            ...(input.amount === undefined ? {} : { amount: parseAmount(input.amount) }),
+            ...(input.cadence === undefined ? {} : { cadence: input.cadence }),
+            ...(input.reference === undefined ? {} : { reference: input.reference }),
+            ...(input.endsAt === undefined ? {} : { endsAt: input.endsAt === null ? null : new Date(input.endsAt) }),
+          });
+          return { scheduleId: r.scheduleId, revision: r.revision, nextRunAt: r.nextRunAt?.toISOString() ?? null };
         }),
       ),
 

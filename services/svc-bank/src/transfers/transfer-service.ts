@@ -16,7 +16,7 @@ import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
 import { assertTransferDueLimit } from '../job-batch-limit.js';
 import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } from '../spaces/space-service.js';
-import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type Cadence } from './schedule.js';
+import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type ScheduleCadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 
 /**
@@ -56,7 +56,7 @@ export interface ScheduleRecord {
   fromSpaceId: string;
   toSpaceId: string;
   amount: Amount;
-  cadence: Cadence;
+  cadence: ScheduleCadence;
   startsAt: Date;
   endsAt: Date | null;
   nextRunAt: Date;
@@ -70,7 +70,7 @@ interface ScheduleRow {
   from_space_id: string;
   to_space_id: string;
   amount: string;
-  cadence: Cadence;
+  cadence: ScheduleCadence;
   starts_at: Date;
   ends_at: Date | null;
   next_run_at: Date;
@@ -305,7 +305,7 @@ export class TransferService {
     fromSpaceId: string;
     toUserId: string;
     amount: Amount;
-    cadence: Cadence;
+    cadence: ScheduleCadence;
     startsAt: Date;
     endsAt?: Date | null;
     scheduleId: string;
@@ -335,7 +335,7 @@ export class TransferService {
     fromSpaceId: string;
     toSpaceId: string;
     amount: Amount;
-    cadence: Cadence;
+    cadence: ScheduleCadence;
     startsAt: Date;
     endsAt?: Date | null;
     scheduleId: string;
@@ -901,11 +901,14 @@ export class TransferService {
         // here, no value moves, and the next pass picks the occurrence up again if
         // it is still owed. `driveSchedule` reads `busy` as "do not advance the
         // watermark": the pass that owns the lock may still roll back.
-        const live = await tx<Array<{ status: string }>>`
-          SELECT status FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE SKIP LOCKED
+        const live = await tx<Array<{ status: string; amount: string }>>`
+          SELECT status, amount FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE SKIP LOCKED
         `;
         if (live.length === 0) return 'busy' as const;
         const isActive = live[0]?.status === 'active';
+        // BK-xfer-10: an edit may have changed the amount since the pass read the row. The locked row is the
+        // instruction for this occurrence, never the pass's snapshot (an edit racing a due run must not pay the old one).
+        schedule = { ...schedule, amount: parseAmount(live[0]!.amount) };
 
         let executionId: string;
         if (isActive) {
@@ -1065,7 +1068,7 @@ export class TransferService {
   }
 
   /** When occurrence `n` of a schedule is due — exposed for operator tooling and tests. */
-  static occurrenceAt(startsAt: Date, cadence: Cadence, occurrence: number): Date {
+  static occurrenceAt(startsAt: Date, cadence: ScheduleCadence, occurrence: number): Date {
     return occurrenceStart(startsAt, cadence, occurrence);
   }
 }

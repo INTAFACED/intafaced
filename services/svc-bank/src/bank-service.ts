@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
+import { ScheduleEditor } from './transfers/schedule-edit.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
@@ -45,6 +46,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
 export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
+  /** BK-xfer-10 standing-order edits. Optional so partial test doubles still type. */
+  readonly scheduleEdits?: ScheduleEditor;
   readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
@@ -75,6 +78,8 @@ export interface BankServices {
 }
 
 export interface BankServiceOptions {
+  /** BK-xfer-10 owner value: minutes before a run when edits stop. Blank refuses every edit. */
+  scheduleEditCutoffMinutes?: number;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
   nativeAssetId?: string;
   /**
@@ -234,6 +239,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   return {
     spaces,
     transfers,
+    scheduleEdits: new ScheduleEditor(sql, { editCutoffMinutes: options.scheduleEditCutoffMinutes }),
     personalPay,
     earn,
     analytics,
