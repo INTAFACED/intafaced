@@ -186,18 +186,6 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     ...(options.activity ?? {}),
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
-    // RC-portfolio-02: svc-bank's own card authorisation rows, scoped to the caller's cards.
-    cardHolds: {
-      async holdTxIds(userId, txIds) {
-        const rows = await sql<{ hold_ledger_tx_id: string }[]>`
-          SELECT a.hold_ledger_tx_id
-            FROM bank.card_authorizations a
-            JOIN bank.cards c ON c.id = a.card_id
-           WHERE c.user_id = ${userId} AND a.hold_ledger_tx_id = ANY(${txIds as string[]})
-        `;
-        return new Set(rows.map((row) => row.hold_ledger_tx_id));
-      },
-    },
   });
   const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.

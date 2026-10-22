@@ -21,11 +21,6 @@ export const taxEffectRowSchema = z
     sourceEvent: z.string().nullable(),
     /** The leg on the user's own account that carries the effect (book convention: debit = in). */
     direction: z.enum(['debit', 'credit']).nullable(),
-    /**
-     * An extra fact the line must carry, beyond module/reason/direction. `card_authorization_hold`: the ledger tx is the
-     * hold svc-bank recorded on its own card authorisation (the ledger page passes no card rail). Null = none.
-     */
-    requires: z.enum(['card_authorization_hold']).nullable(),
     /** Why the row classifies nothing yet; null when it is live. */
     blocker: z.string().nullable(),
   })

@@ -216,71 +216,61 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
  * TAX EFFECT (RC-portfolio-02). Labels only what the ledger's own `module/reason` records on a line the feed actually
  * reads (the user's `available` pages). Rates, thresholds and country rules stay with PF-tax-01 and PF-cost-basis-05.
  * A posting with no row is `portfolio.tax_effect_unmapped`: never shown as taxable, never as non-taxable.
+ * Uncertain is never taxable: a row the feed cannot place reliably is BLOCKED with its blocker named.
  *
  * SOURCES (packages/ledger-client/src/recipes/index.ts):
- *   p2p_sale       `p2p/p2p.escrow.lock`, the seller's `available` leg (credit). `escrowRelease` credits the trade
- *                  escrow account, which the feed never reads, so the seller's only visible leg is the lock. A refunded
- *                  trade shows the lock and then a `p2p.escrow.refund` debit (unmapped); netting the two is left for
- *                  PF-cost-basis-05.
- *   p2p_purchase   `p2p/p2p.escrow.release`, the buyer's `available` leg (debit).
- *   card_spend     `ledger/withdraw.held` (credit) whose tx is the hold svc-bank recorded on its own card authorisation
- *                  (`bank.card_authorizations.hold_ledger_tx_id`, written by card-service commitHold). The ledger page
- *                  drops the card issuer rail (`none`/`card-sim` are not in svc-ledger `HISTORY_RAILS`), so the rail
- *                  cannot tell a card spend from a withdrawal; svc-bank's own row can. No such fact = unmapped.
+ *   p2p_purchase   `p2p/p2p.escrow.release`, the buyer's `available` leg (debit): value arrives only on release.
  *   staking_reward `token/token.yield.distributed` (rewardPay from svc-token), received as a debit.
- *   mining_payout  BLOCKED: no mining product posts a ledger reason yet; listed, classifies nothing.
+ *   p2p_sale       BLOCKED. The disposal happens at `escrowRelease`, which credits the trade escrow account; the feed
+ *                  reads only `available`, where the seller sees the lock (which a refund can undo). svc-bank holds no
+ *                  P2P trade state to tell a released lock from a refunded one.
+ *   card_spend     BLOCKED. A spend is the capture (`withdraw.settled`), which draws on the withdrawal hold account,
+ *                  not `available`; the feed sees only the hold, which a void or reversal (`withdraw.reversed`) undoes.
+ *                  The ledger page also drops the card issuer rail (`none`/`card-sim` are not in svc-ledger
+ *                  `HISTORY_RAILS`), so a card hold is not told from a withdrawal by the page alone.
+ *   mining_payout  BLOCKED: no mining product posts a ledger reason yet.
  */
 export const TAX_EFFECT_MAP: ReadonlyArray<TaxEffectRow> = [
-  { type: 'p2p_sale', effect: 'disposal', sourceEvent: 'p2p/p2p.escrow.lock', direction: 'credit', requires: null, blocker: null },
-  { type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release', direction: 'debit', requires: null, blocker: null },
+  {
+    type: 'p2p_sale',
+    effect: 'disposal',
+    sourceEvent: null,
+    direction: null,
+    blocker:
+      'The sale happens at escrow release, which posts to the escrow account the activity feed does not read; the seller lock alone may be refunded',
+  },
+  { type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release', direction: 'debit', blocker: null },
   {
     type: 'card_spend',
     effect: 'disposal',
-    sourceEvent: 'ledger/withdraw.held',
-    direction: 'credit',
-    requires: 'card_authorization_hold',
-    blocker: null,
+    sourceEvent: null,
+    direction: null,
+    blocker:
+      'A card spend is the capture, which posts from the hold account the activity feed does not read; the hold alone may be voided or reversed',
   },
   {
     type: 'mining_payout',
     effect: 'income',
     sourceEvent: null,
     direction: null,
-    requires: null,
     blocker: 'No mining product posts a ledger reason on this platform yet',
   },
-  {
-    type: 'staking_reward',
-    effect: 'income',
-    sourceEvent: 'token/token.yield.distributed',
-    direction: 'debit',
-    requires: null,
-    blocker: null,
-  },
+  { type: 'staking_reward', effect: 'income', sourceEvent: 'token/token.yield.distributed', direction: 'debit', blocker: null },
 ];
-
-/** Postings that are card holds only when svc-bank's own card authorisation says so. */
-export const CARD_HOLD_EVENT = 'ledger/withdraw.held';
 
 export interface TaxEffectInput {
   readonly module: string;
   readonly reason: string;
   readonly direction: EntryDirection;
-  /** True only when svc-bank recorded this ledger tx as the hold of one of its card authorisations. */
-  readonly cardAuthorizationHold?: boolean;
 }
 
 const UNMAPPED: LineTaxEffect = { code: TAX_EFFECT_UNMAPPED };
 
-/** Pure: the same posting always gets the same answer. An unknown posting is unmapped, never a guess. */
+/** Pure: the same posting always gets the same answer. An unknown or blocked posting is unmapped, never a guess. */
 export function classifyTaxEffect(input: TaxEffectInput): LineTaxEffect {
   const event = `${input.module}/${input.reason}`;
   const row = TAX_EFFECT_MAP.find(
-    (candidate) =>
-      candidate.blocker === null &&
-      candidate.sourceEvent === event &&
-      candidate.direction === input.direction &&
-      (candidate.requires === null || (candidate.requires === 'card_authorization_hold' && input.cardAuthorizationHold === true)),
+    (candidate) => candidate.blocker === null && candidate.sourceEvent === event && candidate.direction === input.direction,
   );
   if (row === undefined || row.sourceEvent === null) return UNMAPPED;
   return { type: row.type, effect: row.effect, sourceEvent: row.sourceEvent };

@@ -4,7 +4,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader, TAX_EFFECT_TYP
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
 import { TAX_EFFECT_MAP, classifyTaxEffect } from './activity-kind.js';
-import { ActivityService, type ActivityServiceOptions, type LedgerHistoryPages, type LedgerPageEntry } from './activity-service.js';
+import { ActivityService, type LedgerHistoryPages, type LedgerPageEntry } from './activity-service.js';
 import { formatAmount, parseAmount, recipes, type PostRequest } from '@intafaced/ledger-client';
 
 /** RC-portfolio-02: each feed line carries the tax effect the ledger's own reason says, from real ledger pages. */
@@ -91,27 +91,22 @@ const pages: LedgerHistoryPages = {
   },
 };
 
-/** svc-bank's own card authorisation rows: only tx-card is Alice's card hold. */
-const cardHolds = {
-  holdTxIds: async (userId: string, txIds: readonly string[]) => new Set(userId === ALICE ? txIds.filter((t) => t === 'tx-card') : []),
-};
-
-function service(holds: ActivityServiceOptions['cardHolds'] | null = cardHolds) {
-  return new ActivityService(
-    { allNamedSpaces: async () => [] },
-    { pages, cursorSecret: SECRET, ...(holds === null ? {} : { cardHolds: holds }) },
-  );
+function service() {
+  return new ActivityService({ allNamedSpaces: async () => [] }, { pages, cursorSecret: SECRET });
 }
 
 describe('tax effect on feed lines (bank.activity.list / get)', () => {
   const line = (items: { txId: string; taxEffect: unknown }[], txId: string) => items.filter((i) => i.txId === txId);
 
-  it('pages built from the real P2P recipes: the seller sees only the lock leg, which is the p2p_sale disposal', async () => {
-    expect(line(ALICE_ENTRIES as never, 'tx-p2p-sell-release')).toHaveLength(0);
+  it('p2p_sale is BLOCKED: the seller only sees the lock (the release posts to escrow), and lock and refund are never taxable', async () => {
+    expect(ALICE_ENTRIES.filter((e) => e.txId === 'tx-p2p-sell-release')).toHaveLength(0);
+    expect(TAX_EFFECT_MAP.find((row) => row.type === 'p2p_sale')).toMatchObject({
+      sourceEvent: null,
+      blocker: expect.stringContaining('escrow'),
+    });
     const { items } = await service().list(ALICE, {});
-    const sell = line(items, 'tx-p2p-sell');
-    expect(sell).toHaveLength(1);
-    expect(sell[0]!.taxEffect).toEqual({ type: 'p2p_sale', effect: 'disposal', sourceEvent: 'p2p/p2p.escrow.lock' });
+    expect(line(items, 'tx-p2p-sell').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
+    expect(line(items, 'tx-p2p-refund').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
   });
 
   it('the buyer leg of a real escrowRelease is the p2p_purchase acquisition, naming its source', async () => {
@@ -121,34 +116,20 @@ describe('tax effect on feed lines (bank.activity.list / get)', () => {
     expect(buy[0]!.taxEffect).toEqual({ type: 'p2p_purchase', effect: 'acquisition', sourceEvent: 'p2p/p2p.escrow.release' });
   });
 
-  it('a refund returns the seller’s own value and is unmapped', async () => {
-    const { items } = await service().list(ALICE, {});
-    expect(line(items, 'tx-p2p-refund').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
-  });
-
-  it('the ledger page drops the card-sim rail, and the card hold is still one card_spend via svc-bank’s own authorisation', async () => {
-    const cardPage = ALICE_ENTRIES.find((e) => e.txId === 'tx-card')!;
-    expect(cardPage.rail).toBeNull();
+  it('card_spend is BLOCKED: the commitHold shape arrives with the rail dropped, capture is off the feed, and hold or void are never taxable', async () => {
+    expect(ALICE_ENTRIES.find((e) => e.txId === 'tx-card')!.rail).toBeNull();
     expect(ALICE_ENTRIES.find((e) => e.txId === 'tx-withdraw')!.rail).toBe('crypto-native');
+    // withdrawSettle draws on the hold account: no available leg, so the capture never reaches the feed.
+    expect(ALICE_ENTRIES.filter((e) => e.txId === 'tx-card-capture')).toHaveLength(0);
+    expect(TAX_EFFECT_MAP.find((row) => row.type === 'card_spend')).toMatchObject({
+      sourceEvent: null,
+      blocker: expect.stringContaining('capture'),
+    });
     const { items } = await service().list(ALICE, {});
-    const card = items.filter((i) => 'type' in i.taxEffect && i.taxEffect.type === 'card_spend');
-    expect(card).toHaveLength(1);
-    expect(card[0]).toMatchObject({ txId: 'tx-card', postedAt: cardPage.postedAt.toISOString() });
-    expect(card[0]!.taxEffect).toEqual({ type: 'card_spend', effect: 'disposal', sourceEvent: 'ledger/withdraw.held' });
-    expect(line(items, 'tx-withdraw').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
-  });
-
-  it('without the card fact (no port, or the read fails) a withdraw hold is unmapped, never guessed, and still shown', async () => {
-    for (const holds of [null, { holdTxIds: async () => Promise.reject(new Error('db down')) }]) {
-      const { items } = await service(holds).list(ALICE, {});
-      expect(line(items, 'tx-card').map((i) => i.taxEffect)).toEqual([UNMAPPED]);
-    }
-  });
-
-  it('only the card hold candidates of the caller are asked about', async () => {
-    const asked: Array<[string, readonly string[]]> = [];
-    await service({ holdTxIds: async (u, t) => (asked.push([u, t]), new Set<string>()) }).list(ALICE, {});
-    expect(asked).toEqual([[ALICE, ['tx-card', 'tx-withdraw']]]);
+    for (const tx of ['tx-card', 'tx-withdraw']) expect(line(items, tx).map((i) => i.taxEffect)).toEqual([UNMAPPED]);
+    // A void returns the hold; whatever lines the feed shows for it carry no tax effect.
+    expect(line(items, 'tx-card-void').every((i) => JSON.stringify(i.taxEffect) === JSON.stringify(UNMAPPED))).toBe(true);
+    expect(items.some((i) => 'type' in i.taxEffect && (i.taxEffect.type === 'card_spend' || i.taxEffect.type === 'p2p_sale'))).toBe(false);
   });
 
   it('a staking reward from the real rewardPay is income at receipt', async () => {
@@ -178,6 +159,8 @@ describe('tax effect on feed lines (bank.activity.list / get)', () => {
     const sell = (await svc.list(ALICE, {})).items.find((i) => i.txId === 'tx-p2p-sell')!;
     const found = await svc.get(ALICE, sell.id);
     expect(found.item.taxEffect).toEqual(sell.taxEffect);
+    const buy = (await svc.list(ALICE, {})).items.find((i) => i.txId === 'tx-p2p-buy')!;
+    expect((await svc.get(ALICE, buy.id)).item.taxEffect).toEqual(buy.taxEffect);
   });
 
   it('mining is listed with its blocker named and classifies nothing', () => {
@@ -219,9 +202,9 @@ describe('over the router', () => {
     const out = await caller(['bank:read']).activity.taxEffects({});
     expect(out.unmappedCode).toBe('portfolio.tax_effect_unmapped');
     expect(out.rows.map((row) => [row.type, row.effect, row.sourceEvent])).toEqual([
-      ['p2p_sale', 'disposal', 'p2p/p2p.escrow.lock'],
+      ['p2p_sale', 'disposal', null],
       ['p2p_purchase', 'acquisition', 'p2p/p2p.escrow.release'],
-      ['card_spend', 'disposal', 'ledger/withdraw.held'],
+      ['card_spend', 'disposal', null],
       ['mining_payout', 'income', null],
       ['staking_reward', 'income', 'token/token.yield.distributed'],
     ]);
@@ -229,10 +212,10 @@ describe('over the router', () => {
 
   it('list rows carry taxEffect through the output schema', async () => {
     const out = await caller(['bank:read']).activity.list({});
-    expect(out.items.find((i) => i.txId === 'tx-p2p-sell')?.taxEffect).toEqual({
-      type: 'p2p_sale',
-      effect: 'disposal',
-      sourceEvent: 'p2p/p2p.escrow.lock',
+    expect(out.items.find((i) => i.txId === 'tx-p2p-buy')?.taxEffect).toEqual({
+      type: 'p2p_purchase',
+      effect: 'acquisition',
+      sourceEvent: 'p2p/p2p.escrow.release',
     });
     expect(out.items.find((i) => i.txId === 'tx-unknown')?.taxEffect).toEqual(UNMAPPED);
   });
