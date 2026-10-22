@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
+import { createIdentityTierReader } from './copy/identity-tier.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
@@ -132,7 +133,7 @@ import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
-import { CopyService } from './copy/copy-service.js';
+import { CopyService, parseCopyFollowTier } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -305,6 +306,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
+const copyFollowTier = parseCopyFollowTier(env.TRADE_COPY_FOLLOW_TIER);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -329,6 +331,8 @@ const copy = new CopyService(ledger, {
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
+  followTier: copyFollowTier,
+  readIdentityTier: createIdentityTierReader({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, s2s: outS2s }),
   store: copyStore,
   directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,

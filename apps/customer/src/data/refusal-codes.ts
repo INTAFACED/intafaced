@@ -110,6 +110,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.not_owner': 'noPermission',
   'bank.not_owner': 'noPermission',
   'tier.insufficient': 'verify',
+  'trade.tier_insufficient': 'verify',
+  'trade.copy_subaccount_refused': 'noPermission',
   'trade.account_restricted': 'accountOnHold',
   'ledger.frozen': 'accountOnHold',
   'ledger.freeze': 'accountOnHold',

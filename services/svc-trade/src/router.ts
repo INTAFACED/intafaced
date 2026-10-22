@@ -486,6 +486,8 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.copy_jurisdiction_blocked':
       case 'trade.copy_self_follow':
+      case 'trade.copy_subaccount_refused':
+      case 'trade.tier_insufficient':
       case 'trade.copy_fee_share_killed':
       case 'trade.copy_pnl_fee_forbidden':
       case 'trade.copy_ranking_forbidden':
@@ -493,6 +495,8 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.copy_fee_share_blank':
       case 'trade.copy_jurisdiction_blank':
+      case 'trade.copy_follow_tier_unset':
+      case 'trade.identity_unavailable':
       case 'trade.copy_law_blank':
       case 'trade.copy_settle_refused':
       case 'trade.copy_leader_fill_not_found':

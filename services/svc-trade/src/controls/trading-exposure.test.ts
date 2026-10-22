@@ -280,7 +280,11 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     expect(identityRows.size).toBe(1);
   });
   it('verified copy follow provenance still needs a fresh mirror decision; unknown/foreign follow ids cannot grant', async () => {
-    const copy = new CopyService(ledger, { accountAdmission: controls, jurisdictionLaw: { published: true, allowedRegions: ['SG'] } });
+    const copy = new CopyService(ledger, {
+      accountAdmission: controls,
+      followTier: 'off',
+      jurisdictionLaw: { published: true, allowedRegions: ['SG'] },
+    });
     const follow = await copy.follow(principalFor(user), {
       leaderId: operator,
       region: 'SG',

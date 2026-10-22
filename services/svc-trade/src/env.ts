@@ -668,6 +668,13 @@ const schema = serviceEnvSchema
       TRADE_COPY_JURISDICTION_LAW: z.string().default(''),
 
       /**
+       * Copy follow verification floor (CB-copy-03), set by compliance.
+       * basic | full | institutional, or `off`. Empty (default), `none` or unknown
+       * → every follow refuses `trade.copy_follow_tier_unset`.
+       */
+      TRADE_COPY_FOLLOW_TIER: z.string().default(''),
+
+      /**
        * Copy risk-disclosure law (trade.copy / TRD-0773). JSON or empty.
        *
        * Empty (default) = unpublished → accept and mirror refuse
