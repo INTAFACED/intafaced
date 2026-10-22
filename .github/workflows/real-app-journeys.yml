@@ -97,6 +97,32 @@ jobs:
           df -h /
           node tooling/scripts/local-test-stack.mjs start
 
+      # A fresh stack trades only after the TEST gates open the markets and verify the market maker's two TEST accounts
+      # (docs/LOCAL-TEST-STACK.md, "A fresh stack"). Matching reads its operator seats when it starts, so it restarts
+      # after the founders enrolled. The market maker refuses to start on closed markets and creates its accounts when it
+      # starts, so `verify` runs after it.
+      - name: Open the TEST markets and start the TEST market maker
+        run: |
+          node tooling/scripts/local-test-stack.mjs restart matching
+          node tooling/scripts/local-test-gates.mjs apply
+          node tooling/scripts/local-test-market.mjs
+          # The market maker registers its accounts in the background; verify only once both exist.
+          for _ in $(seq 1 30); do
+            grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
+            sleep 2
+          done
+          node tooling/scripts/local-test-gates.mjs verify
+
+      - name: Wait for the first BTC/USDT trade
+        run: |
+          for _ in $(seq 1 60); do
+            grep -q 'BTC/USDT crossing trade by test_taker: .* -> HTTP 201' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && exit 0
+            sleep 5
+          done
+          echo "::error::no BTC/USDT trade from the TEST market maker within 5 minutes"
+          tail -40 "$LOCAL_STACK_STATE/logs/market.log"
+          exit 1
+
       # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
       - name: Journeys in the running app
         run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
