@@ -31,6 +31,7 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
+  const quant = p === '/quant' || p.startsWith('/quant/') ? quantRoute(p, paper, userId ?? null) : null;
   let title: ReactNode = copyText('moreroutes.more'),
     description: ReactNode = undefined,
     content: ReactNode = (
@@ -90,8 +91,8 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
-  } else if ((p === '/quant' || p.startsWith('/quant/')) && quantRoute(p, paper, userId ?? null)) {
-    ({ title, description, content } = quantRoute(p, paper, userId ?? null)!);
+  } else if (quant) {
+    ({ title, description, content } = quant);
   } else if (p === '/support') {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');

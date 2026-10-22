@@ -22,6 +22,12 @@ const lake: BacktestLake = {
     { ts: '2026-05-01T00:00:00.000Z', symbol: 'BTC-USD', qty: '0.02', price: '51000' },
   ],
 };
+const walkForward = {
+  inSampleFrom: '2026-01-01T00:00:00.000Z',
+  inSampleTo: '2026-04-01T00:00:00.000Z',
+  outOfSampleFrom: '2026-04-01T00:00:00.000Z',
+  outOfSampleTo: '2026-07-01T00:00:00.000Z',
+};
 const body = {
   name: 'alpha',
   blocks: [{ side: 'buy' as const, symbol: 'BTC-USD', qty: '0.01' }],
@@ -60,15 +66,24 @@ describe('quick start', () => {
     const saved = await a.studio.save({ ...body, clientStrategyId: 'client-alpha', idempotencyKey: 'idem-create' });
     expect(await a.quickStart()).toEqual({ strategy: true, backtest: false, paperRun: false });
 
+    // A refused backtest is a stored run too, but not a done step.
+    await expect(
+      a.backtest.run({
+        strategyId: saved.id,
+        symbol: 'BTC-USD',
+        walkForward,
+        outOfSampleStatus: 'passed',
+        strategyVariantCount: 1,
+        environment: 'backtest',
+        idempotencyKey: 'idem-no-cost',
+      }),
+    ).rejects.toThrow(/missing_fee_model/);
+    expect(await a.quickStart()).toEqual({ strategy: true, backtest: false, paperRun: false });
+
     await a.backtest.run({
       strategyId: saved.id,
       symbol: 'BTC-USD',
-      walkForward: {
-        inSampleFrom: '2026-01-01T00:00:00.000Z',
-        inSampleTo: '2026-04-01T00:00:00.000Z',
-        outOfSampleFrom: '2026-04-01T00:00:00.000Z',
-        outOfSampleTo: '2026-07-01T00:00:00.000Z',
-      },
+      walkForward,
       outOfSampleStatus: 'passed',
       costModel: {
         fees: { kind: 'venue-schedule', source: 'fixture:fees' },

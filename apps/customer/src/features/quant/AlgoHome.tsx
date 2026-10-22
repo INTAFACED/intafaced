@@ -11,6 +11,12 @@ import './algo.css';
 /** How many saved strategies the home lists at once. A page size of this screen, not a product limit. */
 export const HOME_STRATEGY_PAGE = 20;
 
+/** A stored time to the minute in UTC, or the text as sent when it is not a time. */
+function utcMinute(value: string): string {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? value : `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
 /** The Algo dev home: every room, the quick start ticked from the account's own stored rows, and its saved strategies. */
 export function AlgoHome({ paper = false }: { paper?: boolean }) {
   const { userId } = useSession();
@@ -94,7 +100,7 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
                     <tr key={s.id}>
                       <td lang="und">{s.name}</td>
                       <td>{t('strategyVersion', { version: s.version })}</td>
-                      <td lang="zxx">{s.createdAt.slice(0, 16).replace('T', ' ')} UTC</td>
+                      <td lang="zxx">{utcMinute(s.createdAt)}</td>
                     </tr>
                   ))}
                 </DataTable>

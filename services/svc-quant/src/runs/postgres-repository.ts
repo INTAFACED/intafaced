@@ -298,13 +298,14 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
     },
 
     async okKinds(input) {
-      const rows = await query<{ kind: string }>(
+      const ok = (kind: RunKind) =>
+        `EXISTS (SELECT 1 FROM ${runs} WHERE user_id = $1::uuid AND kind = '${kind}' AND finished_at IS NOT NULL AND outcome_code = 'ok')`;
+      const rows = await query<{ backtest: boolean; sandbox: boolean }>(
         sql,
-        `SELECT DISTINCT kind FROM ${runs} WHERE user_id = $1::uuid AND finished_at IS NOT NULL AND outcome_code = 'ok'`,
+        `SELECT ${ok('backtest')} AS backtest, ${ok('sandbox')} AS sandbox`,
         [input.userId],
       );
-      const kinds = new Set(rows.map((row) => row.kind));
-      return { backtest: kinds.has('backtest'), sandbox: kinds.has('sandbox') };
+      return { backtest: rows[0]?.backtest === true, sandbox: rows[0]?.sandbox === true };
     },
 
     async counts(input) {
