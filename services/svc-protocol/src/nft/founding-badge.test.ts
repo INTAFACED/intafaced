@@ -23,6 +23,7 @@ function memStore(listed: string[]): BadgeStore & { rows: Map<string, BadgeClaim
     rows,
     isListed: async (id) => listed.includes(id),
     findClaim: async (k) => rows.get(k) ?? null,
+    findClaimByAddress: async (c, to) => [...rows.values()].find((r) => r.chainId === c && r.to.toLowerCase() === to.toLowerCase()) ?? null,
     putClaim: async (r) => {
       if (!rows.has(r.key)) rows.set(r.key, r);
       return rows.get(r.key)!;
@@ -115,21 +116,24 @@ describe('founding badge claim (RC-more-catalogue-04)', () => {
     expect(mints).toHaveLength(0);
   });
 
-  it('outside the window refuses badge.window_closed', async () => {
+  it('outside the window refuses badge.not_eligible', async () => {
     const { d } = deps({ now: () => new Date('2026-12-01T00:00:00Z') });
-    expect(await refusal(claimBadge(d, ACCOUNT, ADDR, TESTNET))).toBe('badge.window_closed');
+    expect(await refusal(claimBadge(d, ACCOUNT, ADDR, TESTNET))).toBe('badge.not_eligible');
   });
 
-  it('a stored key owned by another account refuses badge.already_claimed', async () => {
-    const { d, store } = deps();
-    store.rows.set(badgeClaimKey(ACCOUNT), {
-      key: badgeClaimKey(ACCOUNT),
-      accountId: OTHER,
-      chainId: 84532,
-      to: ADDR as Address,
-      txHash: null,
-    });
+  it('no registered own address refuses badge.not_eligible', async () => {
+    const { d, mints } = deps();
+    for (const a of [null, undefined, '', 'nope']) {
+      expect(await refusal(claimBadge(d, ACCOUNT, a, TESTNET))).toBe('badge.not_eligible');
+    }
+    expect(mints).toHaveLength(0);
+  });
+
+  it('a badge already claimed to the same address by another account refuses badge.already_claimed', async () => {
+    const { d, mints } = deps({}, [ACCOUNT, OTHER]);
+    await claimBadge(d, OTHER, ADDR, TESTNET);
     expect(await refusal(claimBadge(d, ACCOUNT, ADDR, TESTNET))).toBe('badge.already_claimed');
+    expect(mints).toHaveLength(1);
   });
 
   it('crash after mint submitted: retry reuses the stored tx', async () => {

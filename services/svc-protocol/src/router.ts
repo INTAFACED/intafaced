@@ -13,6 +13,8 @@ import {
   protocolOpsLabelsOutputSchema,
   protocolOpsMetricsInputSchema,
   protocolOpsMetricsOutputSchema,
+  protocolBadgeClaimOutputSchema,
+  protocolBadgeEligibilityOutputSchema,
   publicJurisdictionProcedure,
   publicProcedure,
   router,
@@ -60,6 +62,15 @@ import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
 import { labelsOutput, serviceLabelEntries } from './ops/labels.js';
 import { buildMetrics } from './ops/metrics.js';
+import {
+  badgeEligibility,
+  BadgeRefusedError,
+  claimBadge,
+  RAIL_CRYPTO,
+  type BadgeMinter,
+  type BadgeStore,
+  type BadgeWindow,
+} from './nft/founding-badge.js';
 
 /**
  * svc-protocol's API.
@@ -222,6 +233,9 @@ function toTrpcError(err: unknown): TRPCError {
    * message discarded.
    */
   if (err instanceof TRPCError) return err;
+  if (err instanceof BadgeRefusedError) {
+    return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
   /**
    * The chain being absent is not this service failing.
    *
@@ -315,6 +329,12 @@ export interface ProtocolRouterDeps {
   opsWindowSeconds?: () => number | undefined;
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
+  /**
+   * Founding badge (RC-more-catalogue-04). Absent = no signer wired for this network: claims refuse `rail.crypto`.
+   * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
+   * `mainnet()` is true only for a production network (claims refuse `audit.external`).
+   */
+  badge?: { store: BadgeStore; minter: BadgeMinter; window: () => BadgeWindow | null; mainnet: () => boolean; now?: () => Date };
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -861,6 +881,44 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           throw toTrpcError(err);
         }
       }),
+
+    // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
+    // Account = signed principal; address = that account's own registered smart account. Never a body field.
+    badge: router({
+      eligibility: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+        .output(protocolBadgeEligibilityOutputSchema)
+        .query(async ({ ctx }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${chain.config.chainId}`);
+            return await badgeEligibility(
+              { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
+              ctx.principal.userId,
+              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      claim: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+        .output(protocolBadgeClaimOutputSchema)
+        .mutation(async ({ ctx }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${chain.config.chainId}`);
+            const [own] = await registry.accountsOf(ctx.principal.userId, 1);
+            const r = await claimBadge(
+              { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
+              ctx.principal.userId,
+              own?.address ?? null,
+              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+            );
+            return { key: r.key, chainId: r.chainId, to: r.to, txHash: r.txHash, label: r.label, audited: r.audited };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
 
     // ── Registry (a read model, not custody) ──────────────────────────────
 

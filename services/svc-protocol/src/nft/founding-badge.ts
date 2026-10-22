@@ -25,17 +25,11 @@ import type { Address, Hex } from 'viem';
 export const BADGE_WINDOW_UNSET = 'badge.window_unset' as const;
 export const BADGE_NOT_ELIGIBLE = 'badge.not_eligible' as const;
 export const BADGE_ALREADY_CLAIMED = 'badge.already_claimed' as const;
-export const BADGE_WINDOW_CLOSED = 'badge.window_closed' as const;
 export const AUDIT_EXTERNAL = 'audit.external' as const;
 export const RAIL_CRYPTO = 'rail.crypto' as const;
 
 export type BadgeRefusalCode =
-  | typeof BADGE_WINDOW_UNSET
-  | typeof BADGE_NOT_ELIGIBLE
-  | typeof BADGE_ALREADY_CLAIMED
-  | typeof BADGE_WINDOW_CLOSED
-  | typeof AUDIT_EXTERNAL
-  | typeof RAIL_CRYPTO;
+  typeof BADGE_WINDOW_UNSET | typeof BADGE_NOT_ELIGIBLE | typeof BADGE_ALREADY_CLAIMED | typeof AUDIT_EXTERNAL | typeof RAIL_CRYPTO;
 
 export class BadgeRefusedError extends Error {
   constructor(
@@ -71,6 +65,8 @@ export interface BadgeStore {
   /** Founder-desk written list. */
   isListed(accountId: string): Promise<boolean>;
   findClaim(key: string): Promise<BadgeClaimRecord | null>;
+  /** The claim already minted to this address on this chain, by any account. */
+  findClaimByAddress(chainId: number, to: Address): Promise<BadgeClaimRecord | null>;
   /** Insert-if-absent on `key`; returns the stored row either way. */
   putClaim(record: BadgeClaimRecord): Promise<BadgeClaimRecord>;
   setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord>;
@@ -132,7 +128,7 @@ export async function badgeEligibility(deps: BadgeDeps, accountId: string, netwo
 export async function claimBadge(
   deps: BadgeDeps,
   accountId: string,
-  ownAddress: string,
+  ownAddress: string | null | undefined,
   network: BadgeNetwork,
 ): Promise<BadgeClaimRecord & { label: 'TEST'; audited: false }> {
   const window = requireBadgeWindow(deps.window);
@@ -145,24 +141,29 @@ export async function claimBadge(
 
   if (!existing) {
     const t = deps.now().getTime();
+    // Outside Drop phase I the account is not eligible (spec code; no extra refusal is invented).
     if (t < window.opensAt.getTime() || t >= window.closesAt.getTime()) {
-      throw new BadgeRefusedError(BADGE_WINDOW_CLOSED, 'outside the Drop phase I window');
+      throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'outside the Drop phase I window');
     }
     if (!(await deps.store.isListed(accountId))) {
       throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'account is not on the founding list');
     }
   }
-  if (!isAddress(ownAddress, { strict: false })) {
-    throw new Error('claimBadge: own address is not an EVM address');
+  // The address is the account's own registered smart account, resolved server side.
+  // No registered account means there is nowhere of its own to mint to.
+  if (!ownAddress || !isAddress(ownAddress, { strict: false })) {
+    throw new BadgeRefusedError(BADGE_NOT_ELIGIBLE, 'account has no registered smart account address');
+  }
+  // One badge per address: another account already claimed to this address.
+  const onAddress = await deps.store.findClaimByAddress(network.chainId, toChecksum(ownAddress));
+  if (onAddress && onAddress.accountId !== accountId) {
+    throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'a founding badge was already claimed to this address');
   }
   const signer = deps.minter.signerFor(network.chainId);
   if (!signer) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${network.chainId}`);
 
   const stored =
     existing ?? (await deps.store.putClaim({ key, accountId, chainId: network.chainId, to: toChecksum(ownAddress), txHash: null }));
-  if (stored.accountId !== accountId) {
-    throw new BadgeRefusedError(BADGE_ALREADY_CLAIMED, 'claim key belongs to another account');
-  }
   if (stored.txHash) return { ...stored, label: 'TEST', audited: false };
   const txHash = await signer.mint(stored.to, key);
   const done = await deps.store.setTxHash(key, txHash);

@@ -55,6 +55,7 @@ export * from './ui-view-preferences.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
 export * from './protocol-ops.js';
+export * from './protocol-badge.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
 export * from './pay-portal-reads.js';
