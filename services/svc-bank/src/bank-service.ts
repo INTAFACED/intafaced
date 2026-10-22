@@ -3,6 +3,7 @@ import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
+import { EarnPersonal } from './earn/earn-personal.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
@@ -47,6 +48,8 @@ export interface BankServices {
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
+  /** Personal earn (BK-earn-01): partial withdraw, availability, settings. Optional so partial test doubles still type. */
+  readonly earnPersonal?: EarnPersonal;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
@@ -236,6 +239,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transfers,
     personalPay,
     earn,
+    earnPersonal: new EarnPersonal(sql, ledger, earn),
     analytics,
     portfolio,
     activity,

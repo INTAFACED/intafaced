@@ -62,6 +62,17 @@ export type BankErrorCode =
    * from a stale column.
    */
   | 'bank.earn_principal_mismatch'
+  // ── Personal earn (BK-earn-01) ─────────────────────────────────────────
+  /** A withdraw claim is in flight on this position (`deallocating`); only the same key may re-drive it. */
+  | 'bank.position_deallocating'
+  /** Partial withdraw asked for more than the position's remaining principal. */
+  | 'bank.earn_withdraw_exceeds_principal'
+  /** The pool's owner availability rule does not offer it to this caller; a direct deposit refuses. */
+  | 'bank.earn_pool_not_offered'
+  /** Enabling an auto program with a blank per-asset cap. */
+  | 'bank.autoearn_cap_unset'
+  /** settings.set reused a commandId with a different payload. */
+  | 'bank.earn_settings_conflict'
   | 'bank.not_owner'
   // ── Loans (§8.1) ───────────────────────────────────────────────────────
   | 'bank.loan_product_not_found'

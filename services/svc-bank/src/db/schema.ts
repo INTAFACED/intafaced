@@ -77,7 +77,7 @@ export const executionStatusEnum = bank.enum('execution_status', ['pending', 'se
 
 export const poolKindEnum = bank.enum('pool_kind', ['flexible', 'fixed']);
 export const poolStatusEnum = bank.enum('pool_status', ['open', 'closed']);
-export const positionStatusEnum = bank.enum('position_status', ['pending', 'active', 'closed']);
+export const positionStatusEnum = bank.enum('position_status', ['pending', 'active', 'deallocating', 'closed']);
 
 /**
  * A SPACE — a name and a policy over a ledger account (§8.1).
@@ -302,6 +302,72 @@ export const interestAccruals = bank.table(
     uniqueIndex('interest_accruals_pool_date_idx').on(t.poolId, t.accrualDate),
     index('interest_accruals_date_idx').on(t.accrualDate),
   ],
+);
+
+/**
+ * ONE WITHDRAW REQUEST (whole or partial) FOR ONE POSITION (BK-earn-01, 0052).
+ *
+ * (position, clientEventId) is the retry key; the ledger key is `bank.earn.withdraw:<positionId>:<clientEventId>`.
+ * A `claimed` row is the in-flight deallocation; at most one per position.
+ */
+export const earnWithdrawals = bank.table(
+  'earn_withdrawals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    positionId: uuid('position_id')
+      .notNull()
+      .references(() => earnPositions.id),
+    clientEventId: text('client_event_id').notNull(),
+    amount: amount('amount').notNull(),
+    status: text('status').notNull().default('claimed'),
+    ledgerTxId: text('ledger_tx_id'),
+    createdAt: createdAt(),
+    postedAt: tstz('posted_at'),
+  },
+  (t) => [
+    uniqueIndex('earn_withdrawals_key_uq').on(t.positionId, t.clientEventId),
+    uniqueIndex('earn_withdrawals_one_claim_uq')
+      .on(t.positionId)
+      .where(sql`status = 'claimed'`),
+  ],
+);
+
+/** Owner-set per-pool availability on top of the module gate. No row or a null field follows the module gate. */
+export const earnPoolAvailability = bank.table('earn_pool_availability', {
+  poolId: uuid('pool_id')
+    .primaryKey()
+    .references(() => earnPools.id),
+  allowedCountries: text('allowed_countries').array(),
+  minVerificationTier: integer('min_verification_tier'),
+  updatedAt: updatedAt(),
+});
+
+/** One auto program per (user, asset). A null cap is blank and may only be stored disabled. */
+export const earnAutoPrograms = bank.table(
+  'earn_auto_programs',
+  {
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    poolId: uuid('pool_id')
+      .notNull()
+      .references(() => earnPools.id),
+    enabled: boolean('enabled').notNull(),
+    cap: amount('cap'),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ name: 'earn_auto_programs_pkey', columns: [t.userId, t.assetId] })],
+);
+
+/** settings.set replay guard. */
+export const earnSettingsCommands = bank.table(
+  'earn_settings_commands',
+  {
+    userId: text('user_id').notNull(),
+    commandId: text('command_id').notNull(),
+    payloadHash: text('payload_hash').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ name: 'earn_settings_commands_pkey', columns: [t.userId, t.commandId] })],
 );
 
 // ═════════════════════════════════════════════════════════════════════════════

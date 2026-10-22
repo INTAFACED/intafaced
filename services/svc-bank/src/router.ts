@@ -33,6 +33,15 @@ import {
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
+import type { AutoProgram, EarnPersonal, EarnViewer } from './earn/earn-personal.js';
+import {
+  bankEarnAvailabilitySchema,
+  bankEarnClientEventIdSchema,
+  bankEarnPoolSchema,
+  bankEarnPoolsInputSchema,
+  bankEarnSettingsSchema,
+  bankEarnSettingsSetInputSchema,
+} from '@intafaced/contracts';
 import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
@@ -386,6 +395,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_closed':
       case 'bank.position_locked':
       case 'bank.position_pending':
+      case 'bank.position_deallocating':
+      case 'bank.earn_pool_not_offered':
       case 'bank.loan_product_closed':
       case 'bank.auto_invest_inactive':
       case 'bank.auto_invest_invalid_threshold':
@@ -432,6 +443,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_dispute_exists':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
+      case 'bank.earn_settings_conflict':
       case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
@@ -444,6 +456,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_request_id_required':
       case 'bank.event_id_required':
       case 'bank.below_minimum':
+      case 'bank.earn_withdraw_exceeds_principal':
+      case 'bank.autoearn_cap_unset':
       case 'bank.native_asset_not_earnable':
       case 'bank.ltv_exceeded':
       /** Borrower short of collateral at open — same class as ltv_exceeded. */
@@ -1532,6 +1546,22 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
   });
 
+  const earnPersonal = (): EarnPersonal => {
+    if (!bank.earnPersonal) throw new BankError('Personal earn is not wired on this service', 'bank.earn_rate_unset');
+    return bank.earnPersonal;
+  };
+  /**
+   * Country is the edge-signed request region the module gate already reads (no new cross-service call). A region
+   * that is not a two-letter country (unknown, `XX`) fails closed against a pool country rule.
+   */
+  const earnViewer = (ctx: { region: string; principal: { tier: EarnViewer['tier'] } }): EarnViewer => ({
+    country: /^[A-Z]{2}$/.test(ctx.region) && ctx.region !== 'XX' ? ctx.region : null,
+    tier: ctx.principal.tier,
+  });
+  const settingsOut = (s: { autoPrograms: AutoProgram[] }) => ({
+    autoPrograms: s.autoPrograms.map((p) => ({ ...p, cap: p.cap === null ? null : formatAmount(p.cap) })),
+  });
+
   const earn = router({
     pools: scopedProcedure('bank:read', { module: 'bank' })
       .input(
@@ -1588,15 +1618,114 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     withdraw: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ positionId: z.string().uuid() }))
-      .output(z.object({ positionId: z.string(), principal: amountString }))
+      .input(
+        z.object({
+          positionId: z.string().uuid(),
+          /** BK-earn-01: omit for the whole position; a partial amount needs its own clientEventId per request. */
+          amount: amountString.optional(),
+          clientEventId: bankEarnClientEventIdSchema.optional(),
+        }),
+      )
+      .output(
+        z.object({
+          positionId: z.string(),
+          principal: amountString,
+          withdrawn: amountString.optional(),
+          remaining: amountString.optional(),
+          state: z.enum(['active', 'closed']).optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const existing = await bank.earn.position(input.positionId);
           assertSelf(ctx.principal.userId, existing.userId);
+          if (input.amount !== undefined || input.clientEventId !== undefined) {
+            if (input.clientEventId === undefined) {
+              throw new BankError('A partial withdraw needs a clientEventId', 'bank.event_id_required');
+            }
+            const r = await earnPersonal().withdraw({
+              positionId: input.positionId,
+              userId: ctx.principal.userId,
+              amount: input.amount === undefined ? await earnPersonal().openPrincipal(input.positionId) : parseAmount(input.amount),
+              clientEventId: input.clientEventId,
+            });
+            return {
+              positionId: r.positionId,
+              principal: formatAmount(r.remaining),
+              withdrawn: formatAmount(r.withdrawn),
+              remaining: formatAmount(r.remaining),
+              state: r.state,
+            };
+          }
           const closed = await bank.earn.withdraw(input.positionId);
           return { positionId: closed.id, principal: formatAmount(closed.principal) };
         }),
+      ),
+
+    /** BK-earn-01: pools offered to the caller (hidden ones filtered), with an optional kind filter. */
+    offeredPools: scopedProcedure('bank:read', { module: 'bank' })
+      .input(bankEarnPoolsInputSchema)
+      .output(z.array(bankEarnPoolSchema))
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const pools = await earnPersonal().offeredPools(earnViewer(ctx), input);
+          return pools.map((p) => ({
+            id: p.id,
+            assetId: p.assetId,
+            kind: p.kind,
+            name: p.name,
+            aprBps: p.aprBps,
+            termDays: p.termDays,
+            minDeposit: formatAmount(p.minDeposit),
+            availability: p.availability,
+          }));
+        }),
+      ),
+
+    /** BK-earn-01: "why not offered" for one pool. */
+    poolAvailability: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ poolId: z.string().uuid() }))
+      .output(bankEarnAvailabilitySchema)
+      .query(async ({ ctx, input }) => guard(async () => earnPersonal().availability(input.poolId, earnViewer(ctx)))),
+
+    /** BK-earn-01: a deposit that refuses pools the caller is not offered. */
+    depositOffered: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ poolId: z.string().uuid(), amount: amountString, positionId: z.string().uuid() }))
+      .output(z.object({ positionId: z.string(), maturesAt: z.string().nullable() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const position = await earnPersonal().deposit(earnViewer(ctx), {
+            poolId: input.poolId,
+            userId: ctx.principal.userId,
+            amount: parseAmount(input.amount),
+            positionId: input.positionId,
+          });
+          return { positionId: position.id, maturesAt: position.maturesAt?.toISOString() ?? null };
+        }),
+      ),
+
+    settingsGet: scopedProcedure('bank:read', { module: 'bank' })
+      .output(bankEarnSettingsSchema)
+      .query(async ({ ctx }) => guard(async () => settingsOut(await earnPersonal().settings(ctx.principal.userId)))),
+
+    settingsSet: scopedProcedure('bank:write', { module: 'bank' })
+      .input(bankEarnSettingsSetInputSchema)
+      .output(bankEarnSettingsSchema)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () =>
+          settingsOut(
+            await earnPersonal().setSettings(earnViewer(ctx), {
+              userId: ctx.principal.userId,
+              commandId: input.commandId,
+              autoPrograms: input.settings.autoPrograms.map((p) => ({
+                assetId: p.assetId,
+                poolId: p.poolId,
+                enabled: p.enabled,
+                cap: p.cap === null ? null : parseAmount(p.cap),
+              })),
+            }),
+          ),
+        ),
       ),
 
     positions: scopedProcedure('bank:read', { module: 'bank' })

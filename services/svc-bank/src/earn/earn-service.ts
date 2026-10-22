@@ -61,7 +61,7 @@ export interface PositionRecord {
   openedAt: Date;
   maturesAt: Date | null;
   /** `pending` is the claim before activate — not interest-eligible, not listable as open. */
-  status: 'pending' | 'active' | 'closed';
+  status: 'pending' | 'active' | 'deallocating' | 'closed';
 }
 
 interface PoolRow {
@@ -83,7 +83,7 @@ interface PositionRow {
   principal: string;
   opened_at: Date;
   matures_at: Date | null;
-  status: 'pending' | 'active' | 'closed';
+  status: 'pending' | 'active' | 'deallocating' | 'closed';
 }
 
 function toPool(row: PoolRow): PoolRecord {
@@ -270,7 +270,7 @@ export class EarnService {
    */
   async poolSize(poolId: string): Promise<Amount> {
     const rows = await this.sql<Array<{ id: string; user_id: string; asset_id: string; principal: string }>>`
-      SELECT id, user_id, asset_id, principal FROM bank.earn_positions
+      SELECT id, user_id, asset_id, (principal - COALESCE((SELECT SUM(w.amount) FROM bank.earn_withdrawals w WHERE w.position_id = earn_positions.id AND w.status = 'posted'), 0)) AS principal FROM bank.earn_positions
        WHERE pool_id = ${poolId} AND status = 'active'
        ORDER BY id ASC
     `;
@@ -533,7 +533,7 @@ export class EarnService {
   async positionsOf(userId: string, limit?: number): Promise<PositionRecord[]> {
     const page = assertEarnPositionsListLimit(limit);
     const rows = await this.sql<PositionRow[]>`
-      SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+      SELECT id, pool_id, user_id, asset_id, (principal - COALESCE((SELECT SUM(w.amount) FROM bank.earn_withdrawals w WHERE w.position_id = earn_positions.id AND w.status = 'posted'), 0)) AS principal, opened_at, matures_at, status
         FROM bank.earn_positions WHERE user_id = ${userId} AND status = 'active' ORDER BY opened_at DESC
        LIMIT ${page}
     `;
@@ -549,7 +549,7 @@ export class EarnService {
    */
   async principalOf(userId: string, assetId: string): Promise<Amount> {
     const rows = await this.sql<Array<{ id: string; principal: string }>>`
-      SELECT id, principal FROM bank.earn_positions
+      SELECT id, (principal - COALESCE((SELECT SUM(w.amount) FROM bank.earn_withdrawals w WHERE w.position_id = earn_positions.id AND w.status = 'posted'), 0)) AS principal FROM bank.earn_positions
        WHERE user_id = ${userId} AND asset_id = ${assetId} AND status = 'active'
        ORDER BY id ASC
     `;
@@ -607,7 +607,7 @@ export class EarnService {
       this.sql,
       async (tx) => {
         const rows = await tx<PositionRow[]>`
-          SELECT id, pool_id, user_id, asset_id, principal, opened_at, matures_at, status
+          SELECT id, pool_id, user_id, asset_id, (principal - COALESCE((SELECT SUM(w.amount) FROM bank.earn_withdrawals w WHERE w.position_id = earn_positions.id AND w.status = 'posted'), 0)) AS principal, opened_at, matures_at, status
             FROM bank.earn_positions WHERE id = ${positionId} FOR UPDATE
         `;
         const row = rows[0];
@@ -618,6 +618,10 @@ export class EarnService {
           // (funds may already be staked) under a user withdraw, and would race
           // the recovery job that is supposed to finish the claim.
           throw new BankError(`Position ${positionId} is still pending — resume the deposit before withdrawing`, 'bank.position_pending');
+        }
+        if (row.status === 'deallocating') {
+          // BK-earn-01: a partial withdraw is in flight. Its claim owns the position until it finishes.
+          throw new BankError(`Position ${positionId} has a withdraw in flight — retry it with its own key`, 'bank.position_deallocating');
         }
         if (row.matures_at && row.matures_at > now) {
           throw new BankError(`Fixed-term position is locked until ${row.matures_at.toISOString()}`, 'bank.position_locked');
@@ -641,6 +645,7 @@ export class EarnService {
 
         await tx`UPDATE bank.earn_positions SET status = 'closed', closed_at = now() WHERE id = ${positionId}`;
 
+        // `principal` here is the OPEN principal (deposit record less posted partial withdraws, BK-earn-01).
         return { ...toPosition(row), status: 'closed' as const };
       },
       { isolation: 'read committed', maxAttempts: 5 },
@@ -754,7 +759,7 @@ export class EarnService {
         // The money is the ledger earn stake pot. If the recorded principal
         // disagrees with that pot, refuse — a stale column must not size yield.
         const positions = await tx<Array<{ id: string; user_id: string; principal: string }>>`
-          SELECT id, user_id, principal FROM bank.earn_positions
+          SELECT id, user_id, (principal - COALESCE((SELECT SUM(w.amount) FROM bank.earn_withdrawals w WHERE w.position_id = earn_positions.id AND w.status = 'posted'), 0)) AS principal FROM bank.earn_positions
            WHERE pool_id = ${pool.id} AND status = 'active' AND opened_at < ${boundary}
            ORDER BY id ASC
         `;
