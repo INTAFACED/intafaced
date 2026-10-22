@@ -150,7 +150,9 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
-  | 'academy.holder_name_invalid';
+  | 'academy.holder_name_invalid'
+  /** AC-articles-02: a slug equal to a reserved academy tab. */
+  | 'academy.slug_reserved';
 
 export class AcademyError extends Error {
   constructor(
@@ -244,6 +246,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
   'academy.holder_name_invalid',
+  'academy.slug_reserved',
 ] as const;
 
 /** L3 — catalog size. */

@@ -500,6 +500,34 @@ describe('depth does not allocate a book', () => {
 
     expect(engine.markets).toHaveLength(0);
   });
+
+  /**
+   * An opened market with no orders 404'd here, so svc-trade's order preview read it as
+   * `trade.no_book` and the desk could never send a first order. It is a live, empty ladder.
+   */
+  it('serves an opened market with no orders as an empty ladder, without creating a book', async () => {
+    const { MatchingEngine } = await import('./engine/engine.js');
+    const { MemoryJournal } = await import('./engine/journal.js');
+    const engine = new MatchingEngine({ journal: new MemoryJournal(), snapshotEvery: 0 } as never);
+    await engine.open('BTC-USDT', { operatorId: 'ops-1', confirmOperatorId: 'ops-2' });
+    const app = Fastify({ logger: false });
+    registerRoutes(app, engine, 'matching-internal-service-secret-32c', {});
+    await app.ready();
+
+    const opened = await app.inject({ method: 'GET', url: '/markets/BTC-USDT/depth?limit=50' });
+    const openedL3 = await app.inject({ method: 'GET', url: '/markets/BTC-USDT/depth/l3?limit=50' });
+    const unknown = await app.inject({ method: 'GET', url: '/markets/NOT-A-MARKET/depth?limit=50' });
+    const unknownL3 = await app.inject({ method: 'GET', url: '/markets/NOT-A-MARKET/depth/l3?limit=50' });
+
+    expect(opened.statusCode).toBe(200);
+    expect(opened.json()).toMatchObject({ marketId: 'BTC-USDT', bids: [], asks: [], sequence: 0 });
+    expect(openedL3.statusCode).toBe(200);
+    expect(openedL3.json()).toMatchObject({ level: 'L3', marketId: 'BTC-USDT', bids: [], asks: [] });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknownL3.statusCode).toBe(404);
+    expect(engine.hasMarket('BTC-USDT')).toBe(false);
+    await app.close();
+  });
 });
 
 describe('cancel does not allocate a book', () => {
