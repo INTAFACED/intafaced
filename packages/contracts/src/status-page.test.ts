@@ -8,6 +8,7 @@ import {
   statusPageErrorCodeSchema,
   statusReadingSchema,
   statusTopLevel,
+  statusUptimeBps,
   statusUptimeSeriesSchema,
 } from './status-page.js';
 
@@ -59,11 +60,18 @@ describe('status page contracts (SP-status-01)', () => {
     const bucket = { start: reading.observedAt, samples: 10, operational: 9, uptimeBps: 9000 };
     const ok = { status: 'sampled', componentId: uuid, buckets: [bucket] };
     expect(statusUptimeSeriesSchema.safeParse(ok).success).toBe(true);
+    const empty = { ...bucket, samples: 0, operational: 0, uptimeBps: null };
+    const third = { ...bucket, samples: 3, operational: 2, uptimeBps: 6666 };
+    expect(statusUptimeSeriesSchema.safeParse({ ...ok, buckets: [empty, third] }).success).toBe(true);
+    expect(statusUptimeBps(2, 3)).toBe(6666);
+    expect(statusUptimeBps(0, 0)).toBeNull();
     for (const b of [
       { ...bucket, samples: 0 },
       { ...bucket, uptimeBps: 99.5 },
       { ...bucket, operational: 11 },
       { ...bucket, samples: 0, operational: 0, uptimeBps: 0 },
+      { ...bucket, uptimeBps: 10_000 },
+      { ...bucket, samples: 3, operational: 2, uptimeBps: 6667 },
     ])
       expect(statusUptimeSeriesSchema.safeParse({ ...ok, buckets: [b] }).success).toBe(false);
   });

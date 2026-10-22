@@ -96,6 +96,14 @@ export type StatusComponentsList = z.infer<typeof statusComponentsListSchema>;
 
 export const statusUptimeSeriesInputSchema = z.object({ componentId: id, from: timestamp, to: timestamp }).strict();
 
+/**
+ * ST-3: uptime in basis points from the stored counts, rounded down so a bucket never claims more uptime
+ * than its samples show. No samples means no percentage (null).
+ */
+export function statusUptimeBps(operational: number, samples: number): number | null {
+  return samples === 0 ? null : Math.floor((operational * 10_000) / samples);
+}
+
 /** ST-3: counts and basis points only; no samples means no percentage. */
 export const statusUptimeSeriesSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('sampling_unset'), code: z.literal(STATUS_SAMPLING_UNSET) }).strict(),
@@ -112,7 +120,7 @@ export const statusUptimeSeriesSchema = z.discriminatedUnion('status', [
             uptimeBps: z.number().int().min(0).max(10_000).nullable(),
           })
           .strict()
-          .refine((b) => b.operational <= b.samples && (b.samples === 0) === (b.uptimeBps === null), {
+          .refine((b) => b.operational <= b.samples && b.uptimeBps === statusUptimeBps(b.operational, b.samples), {
             message: 'Uptime only from samples',
           }),
       ),
