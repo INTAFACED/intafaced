@@ -9,6 +9,9 @@ import { MemoryLedger } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
 import { RailRegistry } from '../rails/registry.js';
 import type { MerchantCaller, MerchantRole } from '../merchant-ops/roles.js';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
+import type { Context } from '@intafaced/contracts';
+import { createMerchantOpsRouter, type MerchantOpsDeps } from '../merchant-ops/router.js';
 import { CatalogProductService, roleHasCatalogPermission } from './product-service.js';
 
 /** M-catalogue-01 product records against a real Postgres. */
@@ -155,5 +158,32 @@ describe('M-catalogue-01 product records (Postgres)', () => {
     const page2 = await catalog.list(c, { limit: 5, cursor: page1.nextCursor! });
     expect([...page1.items, ...page2.items].map((p) => p.id).sort()).toEqual([ids[0]!, ids[2]!].sort());
     expect((await catalog.list(c, { limit: 5, archived: true })).items.map((p) => p.id)).toEqual([ids[1]]);
+  });
+  it('a forged cursor with a bad timestamp or id is a typed refusal, not a 500', async () => {
+    const c = await owner();
+    const forge = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+    expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: 'not-a-date', id: randomUUID() }) }))).toBe(
+      'pay.catalog_cursor_invalid',
+    );
+    expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: new Date().toISOString(), id: 'nope' }) }))).toBe(
+      'pay.catalog_cursor_invalid',
+    );
+  });
+  it('route: merchantOps.catalog.product create/get is wired for the owner session', async () => {
+    const c = await owner();
+    const authConfig = {
+      secret: 'a-test-signing-secret-that-is-long-enough',
+      issuer: 'intafaced',
+      audience: 'intafaced.api',
+      accessTtlSeconds: 900,
+    };
+    const { token } = await issueAccessToken(
+      { userId: c.userId, sessionId: randomUUID(), scopes: ['pay:read', 'pay:write'], tier: 'full', mfa: true },
+      authConfig,
+    );
+    const ctx = { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-cat' } as Context;
+    const api = createMerchantOpsRouter({ sql } as unknown as MerchantOpsDeps).createCaller(ctx);
+    const made = await api.merchantOps.catalog.product.create({ requestId: randomUUID(), name: 'Route box', type: 'good' });
+    expect((await api.merchantOps.catalog.product.get({ productId: made.id })).name).toBe('Route box');
   });
 });
