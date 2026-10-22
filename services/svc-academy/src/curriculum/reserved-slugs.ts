@@ -1,8 +1,10 @@
 /** AC-articles-02 — reserved academy tab slugs (IA-SPEC 2.9). */
+import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 
 /** IA-SPEC 2.9 tab slugs: never a lesson, course, topic or item slug. */
-export const RESERVED_TAB_SLUGS: readonly string[] = ['learning', 'certificates', 'rooms', 'videos', 'programmes', 'progress'];
+/** Owned by packages/contracts (academy-articles.ts) so clients share the list. */
+export const RESERVED_TAB_SLUGS: readonly string[] = ACADEMY_RESERVED_TAB_SLUGS;
 
 export function assertSlugNotReserved(slug: string): void {
   if (RESERVED_TAB_SLUGS.includes(slug)) {

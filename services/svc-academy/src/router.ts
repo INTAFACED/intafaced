@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema, academyRelatedInputSchema } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -873,7 +873,7 @@ export function createAcademyRouter(
 
     /** AC-articles-02 — related items by shared path. None → []. */
     curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ slug: z.string().min(1).max(120), limit: z.number().optional() }))
+      .input(academyRelatedInputSchema)
       .output(z.array(curriculumSummaryOut))
       .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
 
