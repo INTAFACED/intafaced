@@ -66,16 +66,16 @@ export function parseBotPresetsSource(raw: string | null | undefined): BotPreset
   } catch {
     throw new BotPresetsSourceError(`${TRADE_BOTS_PRESETS_BACKTEST_ENV} is not valid JSON`);
   }
-  const result = sourceSchema.safeParse(parsed);
-  if (!result.success) {
+  const checked = sourceSchema.safeParse(parsed);
+  if (!checked.success) {
     throw new BotPresetsSourceError(
-      `${TRADE_BOTS_PRESETS_BACKTEST_ENV} is invalid: ${result.error.issues.map((i) => `${i.path.join('.') || '(root)'} ${i.message}`).join('; ')}`,
+      `${TRADE_BOTS_PRESETS_BACKTEST_ENV} is invalid: ${checked.error.issues.map((i) => `${i.path.join('.') || '(root)'} ${i.message}`).join('; ')}`,
     );
   }
   return Object.freeze({
     state: 'published' as const,
-    version: result.data.version,
-    backtestedAt: result.data.backtestedAt,
-    presets: Object.freeze(result.data.presets.map((p) => Object.freeze({ ...p }))),
+    version: checked.data.version,
+    backtestedAt: checked.data.backtestedAt,
+    presets: Object.freeze(checked.data.presets.map((p) => Object.freeze({ ...p }))),
   });
 }
