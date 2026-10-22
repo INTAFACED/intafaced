@@ -9,6 +9,12 @@
  */
 export type BankErrorCode =
   | 'bank.space_not_found'
+  /** PP-money-balance-05: no stored hold on received funds with that id. */
+  | 'bank.received_hold_not_found'
+  /** PP-money-balance-05: the hold is not in the state the action needs (one outcome per hold). */
+  | 'bank.received_hold_state'
+  /** PP-money-balance-05: svc-ledger has not granted the hold recipes to svc-bank yet; nothing posted. */
+  | 'bank.received_hold_not_granted'
   | 'bank.space_archived'
   | 'bank.space_locked'
   | 'bank.asset_mismatch'

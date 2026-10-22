@@ -574,6 +574,15 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_directory_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
+      // PP-money-balance-05 holds on received funds (no procedure wired yet).
+      case 'bank.received_hold_not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.received_hold_state':
+        return new TRPCError({ code: 'CONFLICT', message, cause: err });
+      // svc-ledger has not granted the recipes yet; nothing posted.
+      case 'bank.received_hold_not_granted':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
       case 'bank.business_directory_rate_limited':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
 
