@@ -33,7 +33,8 @@ const FOUNDER = '11111111-1111-4111-8111-111111111111';
 const MEMBER = '33333333-3333-4333-8333-333333333333';
 const COURSE = 'course-a';
 const meta = { actor: FOUNDER, approver: 'founder-2', reason: 'TEST' };
-const store = (...limit: [number | undefined] | []) => new AcademyRoleStore(sql, limit.length === 0 ? 5 : limit[0]);
+const store = (...limit: [number | undefined] | []) =>
+  new AcademyRoleStore(sql, { customRoleLimit: limit.length === 0 ? 5 : limit[0], holdersListLimit: 10 });
 
 afterAll(async () => {
   await db.drop();
@@ -69,7 +70,7 @@ describe('AcademyRoleStore (AC-roles-01)', () => {
     await store().createCustomRole({ slug: 'mods', label: 'TEST', permissions: ['moderate'], ...meta });
     await store().assign({ courseScope: COURSE, accountId: MEMBER, role: 'custom:mods', ...meta });
     await store().setCustomRoleActive({ roleId: 'custom:mods', active: false, ...meta });
-    expect(await store().holders(COURSE, 10)).toHaveLength(1);
+    expect(await store().holders(COURSE)).toHaveLength(1);
     expect((await store().permissionsOf(MEMBER, COURSE)).has('moderate')).toBe(false);
     const again = await store().setCustomRoleActive({ roleId: 'custom:mods', active: false, ...meta });
     expect(again.active).toBe(false);
@@ -157,6 +158,27 @@ const approved: ActionApprovalConsumer = {
   consume: async () => ({ approverId: 'founder-2', requesterId: FOUNDER }) as unknown as ActionApproval,
 };
 
+function ctxFor(userId: string, scopes: string[]) {
+  const p = {
+    sub: userId,
+    userId,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes,
+    tier: 'none',
+    mfa: true,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as unknown as Principal;
+  const raw = encodePrincipal(p);
+  return edge({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+      'x-intafaced-region': 'DE',
+    },
+    id: 'req-roles-ctx',
+  });
+}
+
 function caller(scopes: string[], approvals?: ActionApprovalConsumer) {
   const p = {
     sub: FOUNDER,
@@ -179,12 +201,37 @@ function caller(scopes: string[], approvals?: ActionApprovalConsumer) {
   return createAcademyRouter({} as AcademyService, {}, undefined, approvals, null, store()).createCaller(ctx);
 }
 
+const causeCode = (err: unknown) => (err as { cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
+
+async function refusal(p: Promise<unknown>): Promise<string | undefined> {
+  try {
+    await p;
+  } catch (err) {
+    return causeCode(err);
+  }
+  return undefined;
+}
+
 describe('admin role doors', () => {
   const change = { courseScope: COURSE, accountId: MEMBER, role: 'staff', reason: 'TEST', approvalId: 'a', operationId: 'o' };
 
-  it('one founder alone is refused until identity confirms a second founder', async () => {
-    await expect(caller(['admin:write']).admin.assignRole(change)).rejects.toBeTruthy();
-    expect(await store().holders(COURSE, 10)).toHaveLength(0);
+  it('one founder alone (no identity approval) is refused with action_approval.missing on every role write; nothing is written', async () => {
+    // The existing two-founder mechanism (consumeOperatorApproval, as #5764 / ambassador appoint) types a
+    // single-founder call as action_approval.missing; missing_operator is its code for a call with no operator at all.
+    const c = caller(['admin:write']);
+    const solo = { courseScope: COURSE, accountId: MEMBER, role: 'staff', reason: 'TEST' };
+    expect(await refusal(c.admin.assignRole(solo))).toBe('action_approval.missing');
+    expect(await refusal(c.admin.revokeRole(solo))).toBe('action_approval.missing');
+    expect(await refusal(c.admin.createCustomRole({ slug: 'x', label: 'x', permissions: ['comments'], reason: 'TEST' }))).toBe(
+      'action_approval.missing',
+    );
+    expect(await refusal(c.admin.setCustomRoleActive({ roleId: 'custom:x', active: false, reason: 'TEST' }))).toBe(
+      'action_approval.missing',
+    );
+    // Approval ids present but identity not wired: refused, typed.
+    expect(await refusal(c.admin.assignRole(change))).toBe('action_approval.identity_unwired');
+    expect(await store().holders(COURSE)).toHaveLength(0);
+    expect(await store().customRoles()).toHaveLength(0);
   });
 
   it('with an identity approval the role is assigned and the permission query sees it', async () => {
@@ -197,8 +244,77 @@ describe('admin role doors', () => {
     expect(revoked.active).toBe(false);
   });
 
-  it('roleHolders refuses a blank limit', async () => {
-    await expect(caller(['admin:read']).admin.roleHolders({ courseScope: COURSE })).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+  it('roleHolders refuses academy.role_holders_list_limit_unset when the owner page size is blank', async () => {
+    const r = createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, new AcademyRoleStore(sql, { customRoleLimit: 5 }));
+    expect(await refusal(r.createCaller(ctxFor(FOUNDER, ['admin:read'])).admin.roleHolders({ courseScope: COURSE }))).toBe(
+      'academy.role_holders_list_limit_unset',
+    );
+  });
+
+  it('createCustomRole past the owner limit refuses academy.role_limit_reached at the door', async () => {
+    const r = createAcademyRouter(
+      {} as AcademyService,
+      {},
+      undefined,
+      approved,
+      null,
+      new AcademyRoleStore(sql, { customRoleLimit: 1, holdersListLimit: 10 }),
+    );
+    const c = r.createCaller(ctxFor(FOUNDER, ['admin:write']));
+    await c.admin.createCustomRole({
+      slug: 'one',
+      label: 'TEST',
+      permissions: ['comments'],
+      reason: 'TEST',
+      approvalId: 'a',
+      operationId: 'o',
+    });
+    expect(
+      await refusal(
+        c.admin.createCustomRole({
+          slug: 'two',
+          label: 'TEST',
+          permissions: ['comments'],
+          reason: 'TEST',
+          approvalId: 'a',
+          operationId: 'o',
+        }),
+      ),
+    ).toBe('academy.role_limit_reached');
+  });
+
+  it('per-course gate: limited staff calling a reports procedure refuses academy.permission_denied; founder and data researcher pass', async () => {
+    await store().assign({ courseScope: '*', accountId: MEMBER, role: 'limited_staff', ...meta });
+    const asMember = createAcademyRouter(
+      { opsMetrics: async () => ({ from: 'a', to: 'b', days: [] }) } as unknown as AcademyService,
+      {},
+      undefined,
+      undefined,
+      null,
+      store(),
+    ).createCaller(ctxFor(MEMBER, ['admin:read']));
+    expect(await refusal(asMember.admin.opsMetrics({ from: '2026-10-01', to: '2026-10-02' }))).toBe('academy.permission_denied');
+    expect(await refusal(asMember.admin.grantAudit({ limit: 5 }))).toBe('academy.permission_denied');
+    const asFounder = createAcademyRouter(
+      { opsMetrics: async () => ({ from: 'a', to: 'b', days: [] }) } as unknown as AcademyService,
+      {},
+      undefined,
+      undefined,
+      null,
+      store(),
+    ).createCaller(ctxFor(FOUNDER, ['admin:read']));
+    await expect(asFounder.admin.opsMetrics({ from: '2026-10-01', to: '2026-10-02' })).resolves.toMatchObject({ days: [] });
+    await store().assign({ courseScope: '*', accountId: MEMBER, role: 'data_researcher', ...meta });
+    await expect(asMember.admin.opsMetrics({ from: '2026-10-01', to: '2026-10-02' })).resolves.toMatchObject({ days: [] });
+  });
+
+  it('activating a custom role is an escalation check for a staff actor', async () => {
+    await store().createCustomRole({ slug: 'big', label: 'TEST', permissions: ['delete'], ...meta });
+    await store().setCustomRoleActive({ roleId: 'custom:big', active: false, ...meta });
+    await store().assign({ courseScope: '*', accountId: MEMBER, role: 'limited_staff', ...meta });
+    await expect(
+      store().setCustomRoleActive({ roleId: 'custom:big', active: true, actor: MEMBER, approver: 'f2', reason: 'TEST' }),
+    ).rejects.toMatchObject({ code: 'academy.role_escalation' });
   });
 
   it('academyRoles lists permissions, built-ins and custom roles', async () => {

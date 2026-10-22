@@ -12,7 +12,7 @@ import {
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
 import type { AcademyRoleStore } from './roles/store.js';
-import { ACADEMY_PERMISSIONS, BUILTIN_ROLE_PERMISSIONS, BUILTIN_ROLES } from './roles/catalog.js';
+import { ACADEMY_PERMISSIONS, BUILTIN_ROLE_PERMISSIONS, BUILTIN_ROLES, type AcademyPermission } from './roles/catalog.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -866,6 +866,11 @@ export function createAcademyRouter(
   const roles = (): AcademyRoleStore => {
     if (!roleStore) throw new Error('role store is not wired');
     return roleStore;
+  };
+  /** AC-roles-01 per-course permission gate for academy.admin.* (founder pass-through in the store). */
+  const authorize = async (ctx: { principal?: Principal | null }, courseScope: string, permission: AcademyPermission) => {
+    if (!roleStore) return;
+    await roleStore.authorize(ctx.principal!.userId, courseScope, permission);
   };
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
@@ -2469,15 +2474,12 @@ export function createAcademyRouter(
         ),
 
       roleHolders: scopedProcedure('admin:read', { module: 'academy' })
-        .input(z.object({ courseScope: z.string().min(1).max(64), limit: z.number().optional() }))
+        .input(z.object({ courseScope: z.string().min(1).max(64) }))
         .output(z.array(roleHolderOut))
-        .query(({ input }) =>
-          guard(() => {
-            const limit = input.limit;
-            if (limit === undefined || !Number.isInteger(limit) || limit < 1) {
-              throw new AcademyError('role holders list limit is unset', 'academy.role_holders_list_limit_unset');
-            }
-            return roles().holders(input.courseScope, Math.min(200, limit));
+        .query(({ input, ctx }) =>
+          guard(async () => {
+            await authorize(ctx, input.courseScope, 'view_progress');
+            return roles().holders(input.courseScope);
           }),
         ),
 
@@ -2505,6 +2507,7 @@ export function createAcademyRouter(
           guard(async () => {
             const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.create', {
               slug: input.slug,
+              label: input.label,
               permissions: [...input.permissions].sort().join(','),
             });
             return roles().createCustomRole({ ...input, actor: ctx.principal!.userId, approver });
@@ -2574,14 +2577,15 @@ export function createAcademyRouter(
             nextCursor: z.string().nullable(),
           }),
         )
-        .query(({ input }) =>
-          guard(() =>
-            academy.grantAudit({
+        .query(({ input, ctx }) =>
+          guard(async () => {
+            await authorize(ctx, '*', 'certificates');
+            return academy.grantAudit({
               limit: input.limit,
               cursor: input.cursor ?? null,
               certificateId: input.certificateId ?? null,
-            }),
-          ),
+            });
+          }),
         ),
       opsMetrics: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string() }))
@@ -2599,7 +2603,12 @@ export function createAcademyRouter(
             ),
           }),
         )
-        .query(({ input }) => guard(() => academy.opsMetrics({ from: input.from, to: input.to }))),
+        .query(({ input, ctx }) =>
+          guard(async () => {
+            await authorize(ctx, '*', 'reports');
+            return academy.opsMetrics({ from: input.from, to: input.to });
+          }),
+        ),
       enrolments: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string() }))
         .output(
@@ -2610,7 +2619,12 @@ export function createAcademyRouter(
             paths: z.array(z.object({ pathSlug: z.string(), count: z.number().int().nonnegative() })),
           }),
         )
-        .query(({ input }) => guard(() => academy.enrolments({ from: input.from, to: input.to }))),
+        .query(({ input, ctx }) =>
+          guard(async () => {
+            await authorize(ctx, '*', 'view_progress');
+            return academy.enrolments({ from: input.from, to: input.to });
+          }),
+        ),
       completionsByItem: scopedProcedure('admin:read', { module: 'academy' })
         .input(z.object({ from: z.string(), to: z.string(), pathSlug: z.string().min(1).max(64).optional() }))
         .output(
@@ -2627,14 +2641,15 @@ export function createAcademyRouter(
             ),
           }),
         )
-        .query(({ input }) =>
-          guard(() =>
-            academy.completionsByItem({
+        .query(({ input, ctx }) =>
+          guard(async () => {
+            await authorize(ctx, input.pathSlug ?? '*', 'view_progress');
+            return academy.completionsByItem({
               from: input.from,
               to: input.to,
               pathSlug: input.pathSlug ?? null,
-            }),
-          ),
+            });
+          }),
         ),
     }),
   });

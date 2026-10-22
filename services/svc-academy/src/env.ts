@@ -173,6 +173,11 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(1_000)]),
       ),
+      /** AC-roles-01: owner page size for roleHolders. Blank refuses `academy.role_holders_list_limit_unset`. */
+      ACADEMY_ROLE_HOLDERS_LIST_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(200)]),
+      ),
     }),
   );
 

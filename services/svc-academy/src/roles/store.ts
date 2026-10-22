@@ -58,11 +58,26 @@ function assertReason(reason: string): string {
 }
 
 export class AcademyRoleStore {
-  /** `customRoleLimit` is the owner value; undefined = not set. */
+  /** Owner values; undefined = not set (the call that needs it refuses by name). */
   constructor(
     private readonly sql: Sql,
-    private readonly customRoleLimit: number | undefined,
+    private readonly limits: { readonly customRoleLimit?: number | undefined; readonly holdersListLimit?: number | undefined } = {},
   ) {}
+
+  private get customRoleLimit(): number | undefined {
+    return this.limits.customRoleLimit;
+  }
+
+  /**
+   * Gate for every academy.admin.* procedure. Founder pass-through: an account
+   * holding no academy role rows at all is a founder session (the founder
+   * scope `admin:*` is the outer gate and already checked). An account with
+   * any role row is narrowed to the permissions its roles grant on that course.
+   */
+  async authorize(accountId: string, courseScope: string, permission: AcademyPermission): Promise<void> {
+    if ((await this.assignerHeld(this.sql, accountId, courseScope)) === null) return;
+    await this.requirePermission(accountId, courseScope, permission);
+  }
 
   async customRoles(): Promise<CustomRole[]> {
     const rows = await this.sql<Array<{ id: string; label: string; permissions: string[]; active: boolean }>>`
@@ -86,7 +101,12 @@ export class AcademyRoleStore {
       WHERE account_id = ${accountId} AND revoked_at IS NULL AND course_scope IN (${courseScope}, ${ACADEMY_SCOPE})`;
     const out = new Set<AcademyPermission>();
     for (const { role } of rows) {
-      const { perms, active } = await this.rolePermissions(sql, role).catch(() => ({ perms: [], active: false }));
+      // A role row naming a role that no longer resolves grants nothing; any other failure propagates.
+      const { perms, active } = await this.rolePermissions(sql, role).catch((err: unknown) => {
+        if (err instanceof AcademyError && err.code === 'academy.role_not_found')
+          return { perms: [] as AcademyPermission[], active: false };
+        throw err;
+      });
       if (active) for (const p of perms) out.add(p);
     }
     return out;
@@ -100,7 +120,12 @@ export class AcademyRoleStore {
     }
   }
 
-  /** null when the assigner holds no academy role rows at all (a founder session; the founder scope is the outer gate). */
+  /**
+   * null when the account holds no active academy role rows at all. Assumption
+   * (documented in the PR): only founder sessions reach admin:* procedures today
+   * and founders hold no role rows, so zero rows = founder. Once staff sign in
+   * to the desk (ops-console staff accounts) this must read the session kind.
+   */
   private async assignerHeld(sql: Sql, actor: string, courseScope: string): Promise<Set<AcademyPermission> | null> {
     const any = await sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM academy.role_assignments WHERE account_id = ${actor} AND revoked_at IS NULL`;
@@ -152,6 +177,8 @@ export class AcademyRoleStore {
       if (c.active === input.active) {
         return { id: c.id, label: c.label, permissions: c.permissions as AcademyPermission[], active: c.active };
       }
+      // Activating turns the role's permissions back on for every holder: the actor must hold them.
+      if (input.active) assertNoEscalation(c.permissions as AcademyPermission[], await this.assignerHeld(tx, input.actor, ACADEMY_SCOPE));
       const n = await tx<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM academy.role_events
         WHERE role = ${input.roleId} AND action IN ('activate', 'deactivate')`;
@@ -223,7 +250,12 @@ export class AcademyRoleStore {
     });
   }
 
-  async holders(courseScope: string, limit: number): Promise<RoleHolder[]> {
+  async holders(courseScope: string): Promise<RoleHolder[]> {
+    const raw = this.limits.holdersListLimit;
+    if (raw === undefined || !Number.isInteger(raw) || raw < 1) {
+      throw new AcademyError('role holders list limit is unset', 'academy.role_holders_list_limit_unset');
+    }
+    const limit = Math.min(200, raw);
     const rows = await this.sql<AssignmentSql[]>`
       SELECT * FROM academy.role_assignments WHERE course_scope = ${courseScope}
       ORDER BY account_id, role LIMIT ${limit}`;
