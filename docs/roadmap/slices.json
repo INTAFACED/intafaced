@@ -3603,6 +3603,21 @@
     "order": 2
   },
   {
+    "id": "PH-bank-01",
+    "title": "Before real money: fiat top-ups and incoming transfers respect the exposure caps",
+    "module": "bank",
+    "group": "phantom-2026-10-22",
+    "spec": "modules/bank/specs/phantom-2026-10-22.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank"],
+    "depends": ["PH-ops-console-05"],
+    "journeys": [],
+    "outside": "`rail.bank` for external transfers.",
+    "size": "M",
+    "families": 0,
+    "order": 0
+  },
+  {
     "id": "RC-bank-01",
     "title": "Dormancy fee rule, pre-debit notice and no fee after a full withdrawal",
     "module": "bank",
@@ -14535,6 +14550,21 @@
     "order": 0
   },
   {
+    "id": "PH-merchant-21",
+    "title": "Before real money: merchant payment intake respects the business and platform exposure caps",
+    "module": "merchant",
+    "group": "phantom-2026-10-22",
+    "spec": "modules/merchant/specs/phantom-2026-10-22.md",
+    "lane": "svc-pay merchant",
+    "touches": ["svc-pay"],
+    "depends": ["PH-ops-console-05"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 0
+  },
+  {
     "id": "RC-merchant-01",
     "title": "Lane A merchant mode: acceptance address, split rules and auto-convert target",
     "module": "merchant",
@@ -16800,6 +16830,21 @@
     "size": "M",
     "families": 0,
     "order": 2
+  },
+  {
+    "id": "PH-ops-console-05",
+    "title": "Launch exposure caps: three owner settings and one exposure check",
+    "module": "ops-console",
+    "group": "phantom-2026-10-22",
+    "spec": "modules/ops-console/specs/phantom-2026-10-22.md",
+    "lane": "svc-ops",
+    "touches": ["svc-ops", "packages/contracts"],
+    "depends": [],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 0
   },
   {
     "id": "RC-ops-console-01",
@@ -20321,6 +20366,21 @@
     "depends": ["W-security-accounts-03"],
     "journeys": [],
     "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 0
+  },
+  {
+    "id": "PH-wallet-03",
+    "title": "Crypto deposits respect the exposure caps without losing money that arrives anyway",
+    "module": "wallet",
+    "group": "phantom-2026-10-22",
+    "spec": "modules/wallet/specs/phantom-2026-10-22.md",
+    "lane": "svc-pay wallet",
+    "touches": ["svc-pay", "customer: money"],
+    "depends": ["PH-ops-console-05"],
+    "journeys": [],
+    "outside": "`chain.go` where a chain is not live.",
     "size": "M",
     "families": 0,
     "order": 0
