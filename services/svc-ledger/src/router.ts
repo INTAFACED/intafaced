@@ -28,6 +28,12 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
+import {
+  operatorOwnerBalances,
+  operatorOwnerBalancesInputSchema,
+  operatorOwnerBalancesOutputSchema,
+} from './ledger/operator-owner-balances.js';
+import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -52,6 +58,9 @@ function toTrpcError(err: unknown): TRPCError {
   }
   if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
     return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+  }
+  if (err instanceof LedgerError && isWriteBlockCode(err.code)) {
+    return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.code, cause: err });
   }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: err });
@@ -437,6 +446,21 @@ export function createLedgerRouter(
             confirmOperatorId,
             ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),
           };
+        } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator account browser (OPS-ledger-desk-01): every balance an owner holds. Writes an access row first and refuses
+     * the read if it cannot.
+     */
+    ownerBalances: scopedProcedure('admin:treasury')
+      .input(operatorOwnerBalancesInputSchema)
+      .output(operatorOwnerBalancesOutputSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await operatorOwnerBalances(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
           throw toTrpcError(err);
         }

@@ -724,3 +724,33 @@ describe('session check refuses an unbounded swap from a fresh quote', () => {
     expect(decision).toMatchObject({ allowed: true, code: 'allowed' });
   });
 });
+
+describe('svc-protocol mount — founding badge claim needs the owner signature', () => {
+  it('refuses an unsigned claim from a signed principal and stores nothing', async () => {
+    let stored = false;
+    const deps = stubDeps({
+      registry: {
+        accountsOf: async () => [{ id: 'a', userId: USER, chainId: CHAIN_ID, address: OWNER, owner: OWNER, deployed: true }],
+      },
+      badge: {
+        store: {
+          isListed: async () => true,
+          findClaim: async () => null,
+          findClaimByAddress: async () => null,
+          putClaim: async (r: unknown) => {
+            stored = true;
+            return r;
+          },
+          setTxHash: async () => {
+            throw new Error('unreachable');
+          },
+        },
+        minter: { signerFor: () => ({ mint: async () => '0x' as Hex }) },
+        window: () => ({ opensAt: new Date(Date.now() - 60_000), closesAt: new Date(Date.now() + 60_000) }),
+        mainnet: () => false,
+      },
+    });
+    await expect(createProtocolRouter(deps).createCaller(signed()).badge.claim()).rejects.toThrow(/badge\.not_eligible/);
+    expect(stored).toBe(false);
+  });
+});

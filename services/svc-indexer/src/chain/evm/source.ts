@@ -357,6 +357,14 @@ export class EvmChainSource implements ChainSource {
       parentHash: header.parentHash.toLowerCase(),
       timestamp: timestampOf(header.timestamp, height, this.rpcUrl),
       events: decodeVenueLogs(logs),
+      header: {
+        gasUsed: header.gasUsed,
+        gasLimit: header.gasLimit,
+        baseFeePerGas: header.baseFeePerGas ?? null,
+        miner: header.miner.toLowerCase(),
+        txCount: header.transactions.length,
+        size: Number(header.size),
+      },
     };
 
     // The port's own validation, run on this adapter's output. An adapter is

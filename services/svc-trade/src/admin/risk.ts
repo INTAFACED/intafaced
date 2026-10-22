@@ -91,6 +91,25 @@ export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersi
   return row ? present(row) : null;
 }
 
+/**
+ * SP-order-entry-03: the latest approved version for many markets in ONE
+ * query (DISTINCT ON market_id, newest version first). A market with no row
+ * is absent from the map, never given a default.
+ */
+export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string[]): Promise<Map<string, RiskVersion>> {
+  const out = new Map<string, RiskVersion>();
+  if (marketIds.length === 0) return out;
+  const rows = await sql<RiskRow[]>`
+    SELECT DISTINCT ON (market_id)
+           market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
+           operator_id, approver_id, reason, approval_id, created_at
+      FROM trade.operator_risk_limits
+     WHERE market_id = ANY(${[...marketIds]}::uuid[])
+     ORDER BY market_id, version DESC`;
+  for (const row of rows) out.set(row.market_id, present(row));
+  return out;
+}
+
 export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersion[]> {
   const rows = await sql<RiskRow[]>`
     SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,

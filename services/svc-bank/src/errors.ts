@@ -608,6 +608,8 @@ export type BankErrorCode =
    * so the shape of the id is not an existence oracle.
    */
   | 'bank.ops_transfer_not_found'
+  /** Operator authorisation read (BK-cops-01): unknown or malformed id. */
+  | 'bank.ops_authorization_not_found'
   /** Operator business-approval page size unpublished. Blank is not 50. */
   | 'bank.ops_business_approvals_limit_unset'
   /** A transfer id was reused with a different note or reference. */
@@ -638,6 +640,14 @@ export type BankErrorCode =
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
   | 'bank.ops_audit_unavailable'
+  /** A saved activity filter name is blank or longer than 60 characters. */
+  | 'bank.activity_filter_name_invalid'
+  /** A saved activity filter carries no filter at all. */
+  | 'bank.activity_filter_empty'
+  /** That saved filter name already holds a different filter. */
+  | 'bank.activity_filter_conflict'
+  /** Saved filter page size unpublished. Blank is not 50. */
+  | 'bank.activity_filter_limit_unset'
   /** A limit-increase request reason is shorter than 10 characters (BK-acct-04). */
   | 'bank.limit_request_reason_too_short'
   /** A request of that kind for that asset is already open. */
