@@ -227,6 +227,7 @@ export class CatalogProductService {
         !at ||
         Number.isNaN(at.getTime()) ||
         at.toISOString() !== after.at ||
+        !/^\d{4}-/.test(after.at) ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(after.id)
       )
         throw new MerchantOpsError('pay.catalog_cursor_invalid', 'bad_request');
