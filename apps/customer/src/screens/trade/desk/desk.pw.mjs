@@ -140,6 +140,9 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   await expect(page.locator('.dk-stats')).toContainText('24h volume (BTC)');
   await expect(page.locator('.dk-stats')).toContainText('1.8894');
   await expect(page.locator('.dk-stats')).toContainText('24h turnover (USDT)');
+  // The trading mode is the listing's lifecycle state, not the ticker's
+  await expect(page.locator('.dk-stats')).toContainText('Trading mode');
+  await expect(page.locator('.dk-stats')).toContainText('Cash spot · Open');
 
   // Order book: 22 px rows, asks highest first, best ask next to the mid price, depth bars
   const row = page.locator('.dk-bk-row').first();
@@ -184,6 +187,9 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   // Bottom strip and the market list
   await expect(page.getByRole('tab', { name: 'Open orders' })).toBeVisible();
   await expect(page.getByText('No open orders.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
+  await page.getByRole('tab', { name: 'Open orders' }).click();
   await expect(page.locator('.dk-mk-row')).toHaveCount(4);
   await expect(page.locator('.dk-mk-row[data-selected] .dk-mk-pair')).toHaveText('BTC/USDT');
 
@@ -249,6 +255,11 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(dialog).toContainText('63,999.90 USDT');
   await expect(dialog).toContainText(`${expected.holdAmount} USDT`);
   await expect(dialog).toContainText(`${expected.estimatedFee} BTC (up to 0.10%)`);
+  // The order's fee role, and the client id a retry sends again (J-cex-spot-01 step 6).
+  // A resting GTC limit is only a taker if it fills at once: the server's taker rate is the worst case.
+  await expect(dialog).toContainText('Taker if it fills at once; any part that rests on the book pays the maker rate');
+  await expect(dialog).toContainText('A retry sends this same ID, so it can’t become a second order.');
+  const shownId = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
   await shotBoth(page, 'desk-review-limit');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing sent until the click
 
@@ -273,6 +284,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
     postOnly: false,
   });
   expect(sent.clientOrderId).toMatch(/^desk:/);
+  expect(sent.clientOrderId.endsWith(`:${shownId}`)).toBe(true); // the reference the review showed is the order sent
   // The marker that guards against a lost answer is gone once the outcome is known.
   expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
 
@@ -448,6 +460,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   await closed.locator('.dk-order [data-slot="state-block"]').waitFor();
   await expect(closed.locator('.dk-order')).toContainText('This market isn’t open');
   await expect(closed.locator('.dk-order')).toContainText('You can’t trade it right now');
+  await expect(closed.locator('.dk-stats')).toContainText('Cash spot · Not open for new orders');
   await shotBoth(closed, 'desk-market-closed');
   await closed.close();
 

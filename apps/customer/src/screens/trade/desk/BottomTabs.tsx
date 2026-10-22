@@ -13,7 +13,7 @@ import { CancelAll } from './CancelAll';
 import { EditOrder } from './EditOrder';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
-type Tab = 'open' | 'history' | 'trades' | 'assets';
+type Tab = 'open' | 'history' | 'trades' | 'assets' | 'positions';
 
 interface Props {
   market: DeskMarket;
@@ -27,7 +27,7 @@ interface Props {
 }
 export type { Tab as BottomTab };
 
-/** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history and Assets, Pro density (40 px rows). */
+/** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history, Assets and Positions (not applicable on cash spot), Pro density (40 px rows). */
 export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab }: Props) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
@@ -53,6 +53,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           <TabsTab value="history">{t('Order history')}</TabsTab>
           <TabsTab value="trades">{t('Trade history')}</TabsTab>
           <TabsTab value="assets">{t('Assets')}</TabsTab>
+          <TabsTab value="positions">{t('Positions')}</TabsTab>
         </TabsList>
         {tab === 'open' && openOrders.status === 'ready' ? (
           <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
@@ -126,6 +127,9 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
             );
           }}
         </LoadState>
+      </TabsPanel>
+      <TabsPanel value="positions" className="dk-bottom-body">
+        <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
       </TabsPanel>
       {editing && editingMarket ? (
         <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />

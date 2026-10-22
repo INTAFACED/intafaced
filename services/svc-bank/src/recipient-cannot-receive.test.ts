@@ -225,9 +225,10 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
   });
 
   describe('one answer for frozen, closed and no such account', () => {
-    it('toUser: a user with no primary space refuses exactly like a frozen one', async () => {
+    it('toUser: an id identity does not know refuses exactly like a frozen one, and opens no account', async () => {
       const from = await sender();
       identity.set(RECIPIENT, 'frozen');
+      identity.set(GHOST, 'not_found');
       const refusal = (toUserId: string, transferId: string) =>
         bank.transfers.transferToUser({ transferId, fromSpaceId: from.id, toUserId, amount: amt('10') }).then(
           () => null,
@@ -239,11 +240,33 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(ghost).toMatchObject(REFUSAL);
       expect(ghost?.message).toBe(frozen?.message);
       expect(blank).toMatchObject(REFUSAL);
+      expect(await bank.spaces.findPrimary(GHOST, 'USDT')).toBeNull();
+      expect(await available(SENDER)).toBe('100');
     });
 
-    it('scheduleToUser: no primary space refuses exactly like a frozen one', async () => {
+    it('toUser: a frozen member with no account yet is refused before any account is opened', async () => {
+      const from = await sender();
+      identity.set(GHOST, 'frozen');
+      await expect(
+        bank.transfers.transferToUser({ transferId: 'frozen-no-row-1', fromSpaceId: from.id, toUserId: GHOST, amount: amt('10') }),
+      ).rejects.toMatchObject(REFUSAL);
+      expect(await bank.spaces.findPrimary(GHOST, 'USDT')).toBeNull();
+    });
+
+    it('toUser: identity down for a member with no account yet is the retryable refusal, and opens no account', async () => {
+      const from = await sender();
+      identity.failWith(new RecipientStateUnavailableError('identity did not answer'));
+      await expect(
+        bank.transfers.transferToUser({ transferId: 'down-no-row-1', fromSpaceId: from.id, toUserId: GHOST, amount: amt('10') }),
+      ).rejects.toMatchObject({ code: 'bank.recipient_check_unavailable' });
+      expect(await bank.spaces.findPrimary(GHOST, 'USDT')).toBeNull();
+      expect(await available(SENDER)).toBe('100');
+    });
+
+    it('scheduleToUser: an id identity does not know refuses exactly like a frozen one', async () => {
       const from = await sender();
       identity.set(RECIPIENT, 'frozen');
+      identity.set(GHOST, 'not_found');
       const refusal = (toUserId: string) =>
         bank.transfers
           .scheduleToUser({

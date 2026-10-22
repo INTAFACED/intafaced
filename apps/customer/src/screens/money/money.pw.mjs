@@ -68,6 +68,8 @@ const bankDefaults = {
   'portfolio.summary': () => summary(),
   'spaces.list': () => spaces(),
   'activity.list': (input) => (input?.cursor ? activityPage2() : activityPage1()),
+  // The session asks for the person's business accounts on every page (HM-navigation-01); this person has none.
+  'business.list': () => [],
 };
 
 /**
@@ -223,7 +225,16 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/buy?asset=BTC&side=sell');
   await expect(btc.locator('.money-row__actions a').nth(2)).toHaveAttribute('href', '/pay/send?asset=BTC');
   expect(await texts(zed.locator('.money-row__actions > *'))).toEqual(['Send']);
-  expect(await texts(page.locator('#cash tr[data-asset="USDT"] .money-row__actions > *'))).toEqual(['Send']);
+  // A cash row also converts in place, with that coin as the one to give (PF-overview-03).
+  expect(await texts(page.locator('#cash tr[data-asset="USDT"] .money-row__actions > *'))).toEqual(['Convert', 'Send']);
+  await expect(page.locator('#cash tr[data-asset="USDT"] .money-row__actions a').nth(0)).toHaveAttribute(
+    'href',
+    '/trade/convert?from=USDT',
+  );
+  // The amount opens the entries behind that balance (PF-balances-01), and the cell still reads as the figure alone.
+  await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('href', '/money/balance/BTC');
+  await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('title', 'See the entries behind BTC');
+  await expect(btc.locator('td').nth(1).locator('a')).toHaveAttribute('aria-label', '0.1 BTC. See the entries behind BTC');
   // Rows are 64 px.
   expect(Math.round((await btc.boundingBox()).height)).toBe(64);
 
@@ -291,8 +302,17 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
     path
       .filter((stop) => stop.href)
       .map((stop) => stop.href)
-      .slice(0, 6),
-  ).toEqual(['/trade/buy?side=buy', '/trade/buy?side=sell', '/trade/convert', '/pay/send', '/pay/receive', '/pay/send?asset=USDT']);
+      .slice(0, 8),
+  ).toEqual([
+    '/trade/buy?side=buy',
+    '/trade/buy?side=sell',
+    '/trade/convert',
+    '/pay/send',
+    '/pay/receive',
+    '/money/balance/USDT',
+    '/trade/convert?from=USDT',
+    '/pay/send?asset=USDT',
+  ]);
 
   await snap(page, 'portfolio-loaded-1440x900');
   expect(errors).toEqual([]);
@@ -660,7 +680,7 @@ test('activity opens on All, with Trades one tab along', async ({ page }) => {
     'Deposits',
     'Transfers',
     'Fees',
-    'Ledger',
+    'Entries',
   ]);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
   await open(page, '/money/activity?tab=nonsense');
@@ -1195,6 +1215,14 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     expect(overflow, `${size.width}px, too wide: ${wide.join(' | ')}`).toBeLessThanOrEqual(0);
     await page.screenshot({ path: join(shots, `activity-${size.width}x${size.height}.png`) });
   }
+  // At 390 px the tab row scrolls on its own, and a link to the last tab opens with that tab in view.
+  await open(page, '/money/activity?tab=ledger');
+  const active = page.locator('[data-slot="tabs-tab"][data-active]');
+  await expect(active).toHaveText('Entries');
+  const [tabBox, rowBox] = [await active.boundingBox(), await page.locator('.money-tabs').boundingBox()];
+  // Within a pixel: the row scrolls by whole pixels and the tab edge can sit a fraction past it.
+  expect(tabBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  expect(tabBox.x + tabBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
   // The Trades and Orders tabs do not scroll sideways either.
   for (const tab of ['/money/activity?tab=trades', '/money/activity?tab=orders']) {
     await open(page, tab);
