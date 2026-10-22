@@ -1883,6 +1883,14 @@ export class BusinessService {
     return toMember(rows[0]);
   }
 
+  /**
+   * The same check for another business module (the bill inbox, BK-bill-01): one role table, never a second one.
+   * Refuses `bank.business_not_member` or `bank.business_role_forbidden`.
+   */
+  async requireCapability(accountId: string, userId: string, capability: BusinessCapability): Promise<void> {
+    await this.assertRole(accountId, userId, capability);
+  }
+
   /** The caller must hold `capability` now. A removed member is no longer a member, so holds none. */
   private async assertRole(accountId: string, userId: string, capability: BusinessCapability): Promise<void> {
     const member = await this.assertMember(accountId, userId);

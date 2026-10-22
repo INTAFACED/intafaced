@@ -34,6 +34,7 @@ import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
 import type { CardRecord } from './cards/card-service.js';
+import type { BusinessBillView } from './business/bills/bill-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
@@ -311,6 +312,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.auto_invest_not_found':
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
+      case 'bank.bill_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.not_owner':
       case 'bank.personal_request_not_payer':
@@ -423,6 +425,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
       case 'bank.loan_product_conflict':
+      // BK-bill-01: the bill's state forbids the step (already paid, not yet approved, an open duplicate flag).
+      case 'bank.bill_already_paid':
+      case 'bank.bill_not_approved':
+      case 'bank.bill_possible_duplicate':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -474,6 +480,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_list_limit_unset':
       case 'bank.business_pending_list_limit_unset':
       case 'bank.business_approvals_list_limit_unset':
+      case 'bank.business_bills_list_limit_unset':
+      case 'bank.bill_input_invalid':
+      case 'bank.bill_file_type':
+      case 'bank.bill_file_too_large':
       case 'bank.business_cursor_invalid':
       case 'bank.business_recipient_query':
       case 'bank.onramps_list_limit_unset':
@@ -549,6 +559,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_last_admin':
       case 'bank.business_close_blocked':
       case 'bank.business_member_has_pending':
+      // The owner has not published bill upload limits (BK-bill-01). Blank refuses, never the reference product's value.
+      case 'bank.bill_upload_limit_unset':
       // The client must run its step-up sheet (passkey or TOTP) and retry with `stepUpApprovalId`.
       case 'bank.step_up_required':
       case 'bank.step_up_mismatch':
@@ -3989,6 +4001,46 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     createdAt: z.string(),
   });
 
+  const businessBillOutput = z.object({
+    id: z.string(),
+    accountId: z.string(),
+    source: z.enum(['upload', 'email']),
+    status: z.enum(['unreviewed', 'reviewed', 'approved', 'paid']),
+    fileName: z.string(),
+    fileType: z.string(),
+    fileSize: z.number().int(),
+    receivedBy: z.string(),
+    receivedAt: z.string(),
+    payee: z.string().nullable(),
+    reference: z.string().nullable(),
+    amount: amountString.nullable(),
+    assetId: z.string().nullable(),
+    dueDate: z.string().nullable(),
+    reviewedBy: z.string().nullable(),
+    reviewedAt: z.string().nullable(),
+    possibleDuplicateOf: z.array(z.string()),
+  });
+
+  const billWire = (b: BusinessBillView): z.infer<typeof businessBillOutput> => ({
+    id: b.id,
+    accountId: b.accountId,
+    source: b.source,
+    status: b.status,
+    fileName: b.fileName,
+    fileType: b.fileType,
+    fileSize: b.fileSize,
+    receivedBy: b.receivedBy,
+    receivedAt: b.receivedAt.toISOString(),
+    payee: b.payee,
+    reference: b.reference,
+    amount: b.amount === null ? null : formatAmount(b.amount),
+    assetId: b.assetId,
+    dueDate: b.dueDate,
+    reviewedBy: b.reviewedBy,
+    reviewedAt: b.reviewedAt === null ? null : b.reviewedAt.toISOString(),
+    possibleDuplicateOf: [...b.possibleDuplicateOf],
+  });
+
   const business = router({
     policy: publicProcedure.query(() => describeBusinessPolicy()),
 
@@ -4623,6 +4675,107 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+
+    /**
+     * Business bill inbox, hand review and duplicate flags (BK-bill-01). No ledger write and no rail call: a bill is a
+     * document and an obligation record until BK-bill-03 pays it. Roles come from the one business role table: `view`
+     * reads, `propose` uploads and reviews, `manage_team` clears a duplicate flag. Inbound email (`vendor.email`) and
+     * the extraction preview are not built here.
+     */
+    bills: router({
+      inbox: router({
+        /** The owner's published upload limits, or `unset`. Never a default. */
+        limits: scopedProcedure('bank:read', { module: 'bank' })
+          .output(
+            z.object({ state: z.enum(['unset', 'published']), allowedTypes: z.array(z.string()), maxBytes: z.number().int().nullable() }),
+          )
+          .query(() => bank.businessBills.uploadLimitsStatus()),
+
+        upload: scopedProcedure('bank:write', { module: 'bank' })
+          .input(
+            z.object({
+              accountId: z.string().uuid(),
+              name: z.string().min(1).max(200),
+              type: z.string().min(1).max(128),
+              contentBase64: z.string().min(4).max(40_000_000),
+            }),
+          )
+          .output(businessBillOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => billWire(await bank.businessBills.upload({ ...input, actorUserId: ctx.principal.userId }))),
+          ),
+
+        list: scopedProcedure('bank:read', { module: 'bank' })
+          .input(
+            z.object({
+              accountId: z.string().uuid(),
+              /** Page size. Optional so omit reaches `bank.business_bills_list_limit_unset`; blank is not 50. */
+              limit: z.number().int().min(1).max(200).optional(),
+            }),
+          )
+          .output(z.array(businessBillOutput))
+          .query(async ({ ctx, input }) =>
+            guard(async () =>
+              (await bank.businessBills.list({ accountId: input.accountId, actorUserId: ctx.principal.userId, limit: input.limit })).map(
+                billWire,
+              ),
+            ),
+          ),
+
+        get: scopedProcedure('bank:read', { module: 'bank' })
+          .input(z.object({ accountId: z.string().uuid(), billId: z.string().uuid() }))
+          .output(businessBillOutput)
+          .query(async ({ ctx, input }) =>
+            guard(async () => billWire(await bank.businessBills.get({ ...input, actorUserId: ctx.principal.userId }))),
+          ),
+
+        document: scopedProcedure('bank:read', { module: 'bank' })
+          .input(z.object({ accountId: z.string().uuid(), billId: z.string().uuid() }))
+          .output(z.object({ name: z.string(), type: z.string(), contentBase64: z.string() }))
+          .query(async ({ ctx, input }) => guard(async () => bank.businessBills.document({ ...input, actorUserId: ctx.principal.userId }))),
+      }),
+
+      /** The customer types payee, reference, amount, asset and due date. An edit after approval resets the approval. */
+      review: scopedProcedure('bank:write', { module: 'bank' })
+        .input(
+          z.object({
+            accountId: z.string().uuid(),
+            billId: z.string().uuid(),
+            payee: z.string().min(1).max(200),
+            reference: z.string().max(200).nullable(),
+            amount: amountString,
+            assetId: z.string().min(1).max(16),
+            dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          }),
+        )
+        .output(businessBillOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            billWire(
+              await bank.businessBills.review({
+                accountId: input.accountId,
+                billId: input.billId,
+                actorUserId: ctx.principal.userId,
+                payee: input.payee,
+                reference: input.reference,
+                amount: parseAmount(input.amount),
+                assetId: input.assetId,
+                dueDate: input.dueDate,
+              }),
+            ),
+          ),
+        ),
+
+      dedupe: router({
+        /** An admin confirms the bill is not a duplicate of `otherBillId`. Repeating it changes nothing. */
+        markNotDuplicate: scopedProcedure('bank:write', { module: 'bank' })
+          .input(z.object({ accountId: z.string().uuid(), billId: z.string().uuid(), otherBillId: z.string().uuid() }))
+          .output(businessBillOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => billWire(await bank.businessBills.markNotDuplicate({ ...input, actorUserId: ctx.principal.userId }))),
+          ),
+      }),
+    }),
 
     /**
      * May this person approve for a team? Asked by svc-pay before it counts an approval on a multi-approval withdrawal

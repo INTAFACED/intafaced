@@ -53,6 +53,11 @@ export function assertAutoInvestListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.auto_invest_list_limit_unset', 'autoInvest.list');
 }
 
+/** business.bills.inbox.list page size (BK-bill-01). Blank refuses, never 50. */
+export function assertBusinessBillsListLimit(limit: number | undefined): number {
+  return assertOwnerListLimit(limit, 'bank.business_bills_list_limit_unset', 'business.bills.inbox.list');
+}
+
 /** business.list page size. Omit used to dump every account. */
 export function assertBusinessListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.business_list_limit_unset', 'business.list');

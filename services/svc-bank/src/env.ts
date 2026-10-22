@@ -287,6 +287,13 @@ const schema = serviceEnvSchema
       BANK_PROOF_LIMITS_JSON: z.string().optional(),
 
       /**
+       * Owner-published limits for a business bill upload (BK-bill-01), the same shape as the proof upload:
+       * `{ allowedTypes: ["application/pdf"], maxBytes: n }`. No default (the reference product's types and size are not
+       * ours). Blank / unset / not in shape → every bill upload refuses `bank.bill_upload_limit_unset`.
+       */
+      BANK_BILL_UPLOAD_LIMITS_JSON: z.string().optional(),
+
+      /**
        * Owner-published allowance for sends to crypto exchanges as JSON: `{ exchangeAccounts: ["..."], windowDays: 30,
        * limits: [{ asset: "USDT", maxAmount: "5000" }] }`. No default. Blank / unset / not in shape, or an exchange account with
        * no limit for the asset → the send refuses `bank.exchange_allowance_unset`; over the limit in the rolling window →

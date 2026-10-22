@@ -650,7 +650,11 @@ export type BankErrorCode =
   | 'bank.bill_file_too_large'
   | 'bank.bill_not_approved'
   | 'bank.bill_already_paid'
-  | 'bank.bill_possible_duplicate';
+  | 'bank.bill_possible_duplicate'
+  /** No bill with that id in this business account (another business's bill is not found, never forbidden). */
+  | 'bank.bill_not_found'
+  /** business.bills.inbox.list page size omitted: refuse, never 50. */
+  | 'bank.business_bills_list_limit_unset';
 
 export class BankError extends Error {
   constructor(

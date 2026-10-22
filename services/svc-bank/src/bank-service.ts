@@ -11,6 +11,7 @@ import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
+import { BusinessBillService } from './business/bills/bill-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -58,6 +59,8 @@ export interface BankServices {
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
+  /** Business bill inbox, review and duplicate flags (BK-bill-01). No ledger write. */
+  readonly businessBills: BusinessBillService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -169,6 +172,8 @@ export interface BankServiceOptions {
   exchangeAllowance?: string | undefined;
   /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
   proofLimits?: string | undefined;
+  /** Owner-published business bill upload limits (JSON, the proof-upload shape). Blank refuses every bill upload. */
+  billUploadLimits?: string | undefined;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -216,6 +221,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.directoryLookups,
   );
 
+  const businessBills = new BusinessBillService(sql, business, options.billUploadLimits);
+
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
   const globalSend = new GlobalSendService(
     sql,
@@ -245,6 +252,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     deposits,
     autoInvest,
     business,
+    businessBills,
     bills,
     globalSend,
     globalHolds,

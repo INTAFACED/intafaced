@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { BankError } from '../../errors.js';
+import type { ProofLimits } from '../../personal-pay/payee-controls.js';
 
 /**
  * BK-bill-01 (domain core): business bill inbox intake, review state and
@@ -12,8 +13,6 @@ import { BankError } from '../../errors.js';
 
 export type BillStatus = 'unreviewed' | 'reviewed' | 'approved' | 'paid';
 export type BillSource = 'upload' | 'email';
-
-export const BILL_MIME_TYPES: ReadonlySet<string> = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
 export interface BillRecord {
   readonly id: string;
@@ -38,29 +37,32 @@ export function billIntakeKey(accountId: string, file: Uint8Array): string {
 }
 
 /**
- * Upload gate. The size cap is an owner setting: the reference product's 3MB is
- * "not our value", so a blank cap refuses rather than defaulting.
+ * Upload gate. Which file types and how large are owner settings
+ * (`BANK_BILL_UPLOAD_LIMITS_JSON`, the same `{ allowedTypes, maxBytes }` shape and parser as the proof upload). The
+ * reference product's "PNG, JPEG or PDF under 3MB" is not our value, so blank or unreadable limits refuse rather than
+ * default.
  */
-export function checkBillFile(file: { mimeType: string; sizeBytes: number }, maxBytes: number | undefined): void {
-  if (maxBytes === undefined || !Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-    throw new BankError('The bill upload size limit is not set.', 'bank.bill_upload_limit_unset');
+export function checkBillFile(file: { mimeType: string; sizeBytes: number }, limits: ProofLimits | null): void {
+  if (limits === null) {
+    throw new BankError('The owner has not published bill upload limits, so no bill upload is accepted.', 'bank.bill_upload_limit_unset');
   }
-  if (!BILL_MIME_TYPES.has(file.mimeType)) {
-    throw new BankError('A bill must be a PDF, PNG or JPEG file.', 'bank.bill_file_type');
+  if (!limits.allowedTypes.includes(file.mimeType.trim().toLowerCase())) {
+    throw new BankError('That file type is not accepted for bills.', 'bank.bill_file_type');
   }
   if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes <= 0) {
     throw new BankError('The bill file is empty.', 'bank.bill_input_invalid');
   }
-  if (file.sizeBytes > maxBytes) {
+  if (file.sizeBytes > limits.maxBytes) {
     throw new BankError('The bill file is over the upload size limit.', 'bank.bill_file_too_large');
   }
 }
 
-const norm = (s: string | null): string | null => {
+/** The text the duplicate check compares: trimmed, inner spaces collapsed, lower-cased; blank is null. Stored as `*_norm`. */
+export function normBillText(s: string | null): string | null {
   if (s === null) return null;
   const t = s.trim().replace(/\s+/g, ' ').toLowerCase();
   return t === '' ? null : t;
-};
+}
 
 /**
  * Advisory duplicate flag: another bill of the same business, already received
@@ -69,13 +71,13 @@ const norm = (s: string | null): string | null => {
  * flagged. Blank fields never match.
  */
 export function findDuplicates(bill: BillRecord, others: readonly BillRecord[]): string[] {
-  const payee = norm(bill.payee);
-  const ref = norm(bill.reference);
+  const payee = normBillText(bill.payee);
+  const ref = normBillText(bill.reference);
   const out: string[] = [];
   for (const other of others) {
     if (other.id === bill.id || other.businessId !== bill.businessId) continue;
     if (bill.notDuplicateOf.includes(other.id) || other.notDuplicateOf.includes(bill.id)) continue;
-    const samePayeeRef = payee !== null && ref !== null && norm(other.payee) === payee && norm(other.reference) === ref;
+    const samePayeeRef = payee !== null && ref !== null && normBillText(other.payee) === payee && normBillText(other.reference) === ref;
     const sameAmountDue =
       bill.amount !== null &&
       bill.dueDate !== null &&
@@ -118,6 +120,13 @@ export function assertPayable(bill: BillRecord, others: readonly BillRecord[]): 
   }
 }
 
+/** `YYYY-MM-DD` that names a real day (no 30 February rolled into March). */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const at = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value;
+}
+
 /** Review edits. Editing a bill after approval resets it to reviewed (spec Failures row). */
 export function applyReviewEdit(
   bill: BillRecord,
@@ -127,8 +136,16 @@ export function applyReviewEdit(
   if (edit.payee.trim() === '' || edit.assetId.trim() === '')
     throw new BankError('Payee and asset are required.', 'bank.bill_input_invalid');
   if (edit.amount <= 0n) throw new BankError('The bill amount must be above zero.', 'bank.bill_input_invalid');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(edit.dueDate) || Number.isNaN(Date.parse(`${edit.dueDate}T00:00:00Z`))) {
+  if (!isCalendarDate(edit.dueDate)) {
     throw new BankError('The due date must be a calendar date.', 'bank.bill_input_invalid');
   }
-  return { ...bill, ...edit, reference: edit.reference?.trim() || null, status: 'reviewed' };
+  return {
+    ...bill,
+    payee: edit.payee.trim(),
+    reference: edit.reference?.trim() || null,
+    amount: edit.amount,
+    assetId: edit.assetId.trim(),
+    dueDate: edit.dueDate,
+    status: 'reviewed',
+  };
 }

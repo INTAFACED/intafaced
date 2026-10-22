@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { applyReviewEdit, assertPayable, billIntakeKey, checkBillFile, findDuplicates, sortInbox, type BillRecord } from './bill-intake.js';
+import {
+  applyReviewEdit,
+  assertPayable,
+  billIntakeKey,
+  checkBillFile,
+  findDuplicates,
+  isCalendarDate,
+  normBillText,
+  sortInbox,
+  type BillRecord,
+} from './bill-intake.js';
 
 const BIZ = 'biz-1';
 const bill = (id: string, over: Partial<BillRecord> = {}): BillRecord => ({
@@ -16,7 +26,9 @@ const bill = (id: string, over: Partial<BillRecord> = {}): BillRecord => ({
   ...over,
 });
 const TEST_BYTES = new TextEncoder().encode('TEST bill file');
-const LIMIT = 1_000_000; // TEST value, not an owner setting
+// TEST values, not owner settings.
+const LIMIT = 1_000_000;
+const LIMITS = { allowedTypes: ['application/pdf', 'image/png', 'image/jpeg'], maxBytes: LIMIT };
 
 describe('BK-bill-01 intake key', () => {
   it('is bill-in:<accountId>:<sha256>, the same file is the same key', () => {
@@ -35,29 +47,33 @@ describe('BK-bill-01 intake key', () => {
 });
 
 describe('BK-bill-01 upload gate', () => {
-  it('accepts pdf, png and jpeg under the cap', () => {
-    for (const mimeType of ['application/pdf', 'image/png', 'image/jpeg']) {
-      expect(() => checkBillFile({ mimeType, sizeBytes: 10 }, LIMIT)).not.toThrow();
+  it('accepts the owner-published types under the published cap', () => {
+    for (const mimeType of LIMITS.allowedTypes) {
+      expect(() => checkBillFile({ mimeType, sizeBytes: 10 }, LIMITS)).not.toThrow();
     }
+    expect(() => checkBillFile({ mimeType: ' Image/PNG ', sizeBytes: 10 }, LIMITS)).not.toThrow();
   });
-  it('refuses when the size cap is blank or invalid, never a default', () => {
-    for (const cap of [undefined, 0, -1, 1.5]) {
-      expect(() => checkBillFile({ mimeType: 'application/pdf', sizeBytes: 10 }, cap)).toThrow(
-        expect.objectContaining({ code: 'bank.bill_upload_limit_unset' }),
-      );
-    }
+  it('refuses every upload when the owner has published no limits, never a default', () => {
+    expect(() => checkBillFile({ mimeType: 'application/pdf', sizeBytes: 10 }, null)).toThrow(
+      expect.objectContaining({ code: 'bank.bill_upload_limit_unset' }),
+    );
   });
-  it('refuses another type, an empty file and an oversize file', () => {
-    expect(() => checkBillFile({ mimeType: 'text/html', sizeBytes: 10 }, LIMIT)).toThrow(
+  it('refuses a type the owner did not publish, even one the reference product accepts', () => {
+    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: 10 }, { allowedTypes: ['application/pdf'], maxBytes: LIMIT })).toThrow(
       expect.objectContaining({ code: 'bank.bill_file_type' }),
     );
-    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: 0 }, LIMIT)).toThrow(
+    expect(() => checkBillFile({ mimeType: 'text/html', sizeBytes: 10 }, LIMITS)).toThrow(
+      expect.objectContaining({ code: 'bank.bill_file_type' }),
+    );
+  });
+  it('refuses an empty file and an oversize file; the cap itself is allowed', () => {
+    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: 0 }, LIMITS)).toThrow(
       expect.objectContaining({ code: 'bank.bill_input_invalid' }),
     );
-    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: LIMIT + 1 }, LIMIT)).toThrow(
+    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: LIMIT + 1 }, LIMITS)).toThrow(
       expect.objectContaining({ code: 'bank.bill_file_too_large' }),
     );
-    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: LIMIT }, LIMIT)).not.toThrow();
+    expect(() => checkBillFile({ mimeType: 'image/png', sizeBytes: LIMIT }, LIMITS)).not.toThrow();
   });
 });
 
@@ -116,8 +132,19 @@ describe('BK-bill-01 payability and review', () => {
     expect(changed.status).toBe('reviewed');
     expect(changed.amount).toBe(251n);
   });
+  it('stores the typed text trimmed and a blank reference as none', () => {
+    const b = applyReviewEdit(bill('b1'), { ...edit, payee: '  TEST Payee  ', assetId: ' USD ', reference: '   ' });
+    expect([b.payee, b.assetId, b.reference]).toEqual(['TEST Payee', 'USD', null]);
+  });
   it('refuses a blank payee, a zero amount and a bad date', () => {
-    for (const bad of [{ payee: ' ' }, { assetId: '' }, { amount: 0n }, { dueDate: '2026-13-45' }, { dueDate: 'tomorrow' }]) {
+    for (const bad of [
+      { payee: ' ' },
+      { assetId: '' },
+      { amount: 0n },
+      { dueDate: '2026-13-45' },
+      { dueDate: '2026-02-30' },
+      { dueDate: 'tomorrow' },
+    ]) {
       expect(() => applyReviewEdit(bill('b1'), { ...edit, ...bad })).toThrow(expect.objectContaining({ code: 'bank.bill_input_invalid' }));
     }
   });
@@ -133,5 +160,19 @@ describe('BK-bill-01 inbox order', () => {
       bill('u1', { dueDate: '2026-02-15' }),
     ];
     expect(sortInbox(rows).map((r) => r.id)).toEqual(['u1', 'u2', 'u0', 'a', 'p']);
+  });
+});
+
+describe('BK-bill-01 text and date helpers', () => {
+  it('normalises compared text and treats blank as none', () => {
+    expect(normBillText('  TEST   Payee\tLtd ')).toBe('test payee ltd');
+    expect(normBillText('   ')).toBeNull();
+    expect(normBillText(null)).toBeNull();
+  });
+  it('accepts only real calendar days', () => {
+    expect(isCalendarDate('2028-02-29')).toBe(true);
+    expect(isCalendarDate('2026-02-29')).toBe(false);
+    expect(isCalendarDate('2026-04-31')).toBe(false);
+    expect(isCalendarDate('2026-4-01')).toBe(false);
   });
 });
