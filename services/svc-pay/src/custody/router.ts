@@ -31,6 +31,8 @@ import { CustodyStuckService, type DroppedReverser, type NonceChain, type TxRepl
 import { createCustodyTxRouters } from './tx/router.js';
 import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
+import { createCustodyPolicyRouters } from './policy/router.js';
+import { CustodyPolicyService } from './policy/service.js';
 import { createCustodySweepRouters } from './sweeps/router.js';
 import { CustodySweepService, SWEEP_POLICY_KIND, type SweepBroadcaster } from './sweeps/service.js';
 import { policyScopeApplier } from './approvals/policy-scope.js';
@@ -85,6 +87,7 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
  */
 export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
+  const policyService = new CustodyPolicyService({ sql: deps.sql });
   const sweepService = new CustodySweepService({
     sql: deps.sql,
     broadcaster: deps.sweepBroadcaster,
@@ -97,6 +100,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     new CustodyUtxoService({ sql: deps.sql, node: deps.utxoNode, estimator: deps.feeEstimator }),
     actorOf,
   );
+  const policyRouters = createCustodyPolicyRouters(founder, policyService, actorOf);
   const sweepRouters = createCustodySweepRouters(founder, sweepService, actorOf);
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
   const stuckRouters = createCustodyStuckRouters(
@@ -117,8 +121,13 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
       transactionExecutor: deps.transactionExecutor,
       configAppliers: {
         ...deps.configAppliers,
-        // Last, so a mount cannot replace it. `policy` tasks route by `payload.kind`.
-        policy: policyScopeApplier({ [SWEEP_POLICY_KIND]: sweepService.policyApplier }),
+        // Last, so a mount cannot replace it. A `policy` task with no `payload.kind` is a transaction policy publish
+        // (W-custody-ops-07, payload `{ version, rulesHash }`, checked by its own applier); any named kind routes by
+        // `payload.kind`, and an unknown kind fails the task.
+        policy: async (task) => {
+          if (task.payload.kind === undefined) return policyService.publishApplier(task);
+          return policyScopeApplier({ [SWEEP_POLICY_KIND]: sweepService.policyApplier })(task);
+        },
       },
     }),
     actorOf,
@@ -126,6 +135,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
   return router({
     ...approvalRouters,
     ...feeRouters,
+    ...policyRouters,
     ...sweepRouters,
     ...utxoRouters,
     ...txRouters,
