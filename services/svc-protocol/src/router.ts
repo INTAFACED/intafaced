@@ -4,6 +4,7 @@ import {
   buildRevoke as buildAttestationRevoke,
   verifyAttestation,
   type AttestationReader,
+  type RevocationReader,
 } from './attestations/attestation-build.js';
 import { z } from 'zod';
 import { getAddress as toChecksum, isAddress } from 'viem';
@@ -311,7 +312,7 @@ export interface ProtocolRouterDeps {
    * RankAttestation registry (RC-identity-16). Absent or 0x0 refuses `protocol.attestation_registry_unset`.
    * `read` is the chain read of `attestations(commitment, issuer)`; a failed read propagates, never "none".
    */
-  rankAttestation?: { registry: () => string | undefined; read: AttestationReader };
+  rankAttestation?: { registry: () => string | undefined; read: AttestationReader; readRevoked: RevocationReader };
   chain: ProtocolChain;
   registry: AccountRegistry;
   relay: SessionRelay;
@@ -744,7 +745,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             throw new AttestationRefusedError('protocol.attestation_registry_unset', 'PROTOCOL_RANK_ATTESTATION_ADDRESS is unset');
           });
         try {
-          return await verifyAttestation(attestationConfig(), input, read);
+          const readRevoked: RevocationReader =
+            deps.rankAttestation?.readRevoked ??
+            (async () => {
+              throw new AttestationRefusedError('protocol.attestation_registry_unset', 'PROTOCOL_RANK_ATTESTATION_ADDRESS is unset');
+            });
+          return await verifyAttestation(attestationConfig(), input, read, readRevoked);
         } catch (err) {
           throw toTrpcError(err);
         }

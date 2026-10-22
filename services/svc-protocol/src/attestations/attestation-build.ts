@@ -44,6 +44,14 @@ export const rankAttestationAbi = [
     ],
     outputs: [],
   },
+  {
+    type: 'event',
+    name: 'Revoked',
+    inputs: [
+      { name: 'commitment', type: 'bytes32', indexed: true },
+      { name: 'issuer', type: 'address', indexed: true },
+    ],
+  },
   { type: 'function', name: 'revoke', stateMutability: 'nonpayable', inputs: [{ name: 'commitment', type: 'bytes32' }], outputs: [] },
   {
     type: 'function',
@@ -150,13 +158,15 @@ export type AttestationStatus =
   { status: 'none' } | { status: 'live' | 'expired'; rank: string; issuedAt: string; expiresAt: string; schemaId: Hex };
 
 /**
- * Reads `attestations(commitment, issuer)`. Zero `issuedAt` is "none" (never issued, or revoked: the
- * contract deletes the record). A failed read propagates; it is never reported as "none".
+ * Reads `attestations(commitment, issuer)`. Zero `issuedAt` means no live record: the contract deletes a
+ * revoked record, so the `Revoked(commitment, issuer)` log tells "revoked" from "none" (never issued).
+ * A failed record or log read propagates; it is never reported as "none".
  */
 export async function verifyAttestation(
   config: AttestationConfig,
   input: { commitment: unknown; issuer: unknown },
   read: AttestationReader,
+  readRevoked: RevocationReader,
   nowSeconds: bigint = BigInt(Math.floor(Date.now() / 1000)),
 ): Promise<AttestationStatus> {
   const { to } = registryOf(config);
@@ -164,8 +174,9 @@ export async function verifyAttestation(
   if (typeof input.issuer !== 'string' || !isAddress(input.issuer)) {
     throw new AttestationRefusedError('protocol.attestation_input', 'issuer must be an address');
   }
-  const [rank, issuedAt, expiresAt, schemaId] = await read({ address: to, commitment, issuer: input.issuer as Address });
-  if (issuedAt === 0n) return { status: 'none' };
+  const args = { address: to, commitment, issuer: input.issuer as Address };
+  const [rank, issuedAt, expiresAt, schemaId] = await read(args);
+  if (issuedAt === 0n) return { status: (await readRevoked(args)) ? 'revoked' : 'none' };
   return {
     status: expiresAt !== 0n && expiresAt <= nowSeconds ? 'expired' : 'live',
     rank: rank.toString(),

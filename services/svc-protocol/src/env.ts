@@ -131,8 +131,11 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * it. Every launch path refuses on this check before any arithmetic runs.
      */
     PROTOCOL_TOKEN_FACTORY_ADDRESS: evmAddressDefaultZero,
-    /** RankAttestation registry (RC-identity-16). Unset/0x0 refuses `protocol.attestation_registry_unset`. */
-    PROTOCOL_RANK_ATTESTATION_ADDRESS: evmAddressDefaultZero,
+    /**
+     * RankAttestation registry (RC-identity-16). Blank/unset stays undefined and refuses
+     * `protocol.attestation_registry_unset` at call time; a malformed address refuses boot.
+     */
+    PROTOCOL_RANK_ATTESTATION_ADDRESS: blankIsUnset(evmAddress.optional()),
 
     /**
      * Public ERC-4337 bundler. Optional: without it the service still builds

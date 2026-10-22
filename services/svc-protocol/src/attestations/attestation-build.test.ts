@@ -8,6 +8,7 @@ import {
   verifyAttestation,
   type AttestationRecord,
   type AttestationReader,
+  type RevocationReader,
 } from './attestation-build.js';
 
 const REGISTRY = '0x1111111111111111111111111111111111111111';
@@ -16,6 +17,7 @@ const OTHER = '0x3333333333333333333333333333333333333333' as Address;
 const SALT = `0x${'ab'.repeat(32)}` as Hex;
 const SCHEMA = `0x${'01'.repeat(32)}` as Hex;
 const config = { registry: REGISTRY, chainId: 84532 };
+const noRevoke: RevocationReader = async () => false;
 const input = { schemaId: SCHEMA, rank: '12', expiresAt: '4102444800', salt: SALT };
 
 function refusal(fn: () => unknown): string {
@@ -97,37 +99,44 @@ describe('buildRevoke and verify', () => {
     expect(decoded.args).toEqual([keccak256(SALT)]);
   });
 
-  it('verify reads live, then none after the issuer revokes; another issuer is read separately', async () => {
+  it('verify reads live, then revoked after the issuer revokes (Revoked log); another issuer is none', async () => {
     const book = new Map<string, AttestationRecord>();
     const key = (c: Hex, i: Address) => `${c}:${i.toLowerCase()}`;
     const read: AttestationReader = async ({ address, commitment, issuer }) => {
       expect(address).toBe(REGISTRY);
       return book.get(key(commitment, issuer)) ?? [0n, 0n, 0n, `0x${'00'.repeat(32)}` as Hex];
     };
+    const revoked = new Set<string>();
+    const readRevoked: RevocationReader = async ({ address, commitment, issuer }) => {
+      expect(address).toBe(REGISTRY);
+      return revoked.has(key(commitment, issuer));
+    };
     const c = keccak256(SALT);
     book.set(key(c, ISSUER), [12n, 1000n, 4102444800n, SCHEMA]);
-    expect(await verifyAttestation(config, { commitment: c, issuer: ISSUER }, read, 2000n)).toEqual({
+    expect(await verifyAttestation(config, { commitment: c, issuer: ISSUER }, read, noRevoke, 2000n)).toEqual({
       status: 'live',
       rank: '12',
       issuedAt: '1000',
       expiresAt: '4102444800',
       schemaId: SCHEMA,
     });
-    expect(await verifyAttestation(config, { commitment: c, issuer: OTHER }, read, 2000n)).toEqual({ status: 'none' });
+    expect(await verifyAttestation(config, { commitment: c, issuer: OTHER }, read, readRevoked, 2000n)).toEqual({ status: 'none' });
     book.delete(key(c, ISSUER));
-    expect(await verifyAttestation(config, { commitment: c, issuer: ISSUER }, read, 2000n)).toEqual({ status: 'none' });
+    revoked.add(key(c, ISSUER));
+    expect(await verifyAttestation(config, { commitment: c, issuer: ISSUER }, read, readRevoked, 2000n)).toEqual({ status: 'revoked' });
+    expect(await verifyAttestation(config, { commitment: c, issuer: OTHER }, read, readRevoked, 2000n)).toEqual({ status: 'none' });
   });
 
   it('verify reports an attestation past its expiry as expired', async () => {
     const read: AttestationReader = async () => [12n, 1000n, 1500n, SCHEMA];
-    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, 2000n)).status).toBe('expired');
+    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, noRevoke, 2000n)).status).toBe('expired');
   });
 
   it('verify fails closed: a failed chain read propagates and is never reported as none', async () => {
     const read: AttestationReader = async () => {
       throw new Error('rpc down');
     };
-    await expect(verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read)).rejects.toThrow('rpc down');
+    await expect(verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, noRevoke)).rejects.toThrow('rpc down');
   });
 
   it('verify refuses unset registry, mainnet and a bad issuer before reading', async () => {
@@ -137,13 +146,32 @@ describe('buildRevoke and verify', () => {
       return [0n, 0n, 0n, SCHEMA];
     };
     const c = keccak256(SALT);
-    expect(await refusalAsync(verifyAttestation({ registry: undefined, chainId: 84532 }, { commitment: c, issuer: ISSUER }, read))).toBe(
+    expect(await refusalAsync(verifyAttestation({ registry: undefined, chainId: 84532 }, { commitment: c, issuer: ISSUER }, read, noRevoke))).toBe(
       'protocol.attestation_registry_unset',
     );
-    expect(await refusalAsync(verifyAttestation({ registry: REGISTRY, chainId: 1 }, { commitment: c, issuer: ISSUER }, read))).toBe(
+    expect(await refusalAsync(verifyAttestation({ registry: REGISTRY, chainId: 1 }, { commitment: c, issuer: ISSUER }, read, noRevoke))).toBe(
       'audit.external',
     );
-    expect(await refusalAsync(verifyAttestation(config, { commitment: c, issuer: 'nope' }, read))).toBe('protocol.attestation_input');
+    expect(await refusalAsync(verifyAttestation(config, { commitment: c, issuer: 'nope' }, read, noRevoke))).toBe('protocol.attestation_input');
     expect(reads).toBe(0);
+  });
+
+  it('verify fails closed when the Revoked log read fails: an error, never none', async () => {
+    const read: AttestationReader = async () => [0n, 0n, 0n, `0x${'00'.repeat(32)}` as Hex];
+    const readRevoked: RevocationReader = async () => {
+      throw new Error('log read failed');
+    };
+    await expect(verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked)).rejects.toThrow('log read failed');
+  });
+
+  it('verify does not read logs for a live record', async () => {
+    let logReads = 0;
+    const read: AttestationReader = async () => [12n, 1000n, 4102444800n, SCHEMA];
+    const readRevoked: RevocationReader = async () => {
+      logReads += 1;
+      return true;
+    };
+    expect((await verifyAttestation(config, { commitment: keccak256(SALT), issuer: ISSUER }, read, readRevoked, 2000n)).status).toBe('live');
+    expect(logReads).toBe(0);
   });
 });
