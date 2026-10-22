@@ -645,7 +645,11 @@ export type BankErrorCode =
   /** That saved filter name already holds a different filter. */
   | 'bank.activity_filter_conflict'
   /** Saved filter page size unpublished. Blank is not 50. */
-  | 'bank.activity_filter_limit_unset';
+  | 'bank.activity_filter_limit_unset'
+  /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
+  | 'bank.loan_params_invalid'
+  /** A product id was reused with different terms. */
+  | 'bank.loan_product_conflict';
 
 export class BankError extends Error {
   constructor(
