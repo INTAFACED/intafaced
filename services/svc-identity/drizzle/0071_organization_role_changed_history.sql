@@ -1,6 +1,6 @@
 -- Organisation role changes join the history (review #5825 follow-up). grantOrgRole writes one 'role_changed' row
 -- (subject, before role, after role) in the same transaction as the change. No balance, no ledger.
--- Reversal: 0070_organization_role_changed_history.down.sql
+-- Reversal: 0071_organization_role_changed_history.down.sql
 
 ALTER TABLE "identity"."organization_history" DROP CONSTRAINT IF EXISTS "organization_history_kind_check";
 ALTER TABLE "identity"."organization_history"
