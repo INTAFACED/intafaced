@@ -1635,6 +1635,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     function positions(ledgerPort: LedgerClient = ledger): PositionService {
       const marks = memoryMarkBook();
       marks.set({ marketId: MARKET, symbol: SYMBOL, price: '100', quality: 'mid', asOfMs: NOW.getTime() });
+      marks.set({ marketId: ETH_MARKET, symbol: ETH_SYMBOL, price: '100', quality: 'mid', asOfMs: NOW.getTime() });
       return new PositionService(sql, ledgerPort, {
         marks: marks.source(),
         profitSource: null,
@@ -1715,6 +1716,111 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       const figures = await svc.collateralFigures(ALICE, USDT);
       expect(figures.committed <= figures.credit!).toBe(true);
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('500') * BigInt(2 - refused.length));
+      await assertBooksAgree();
+    });
+
+    it('a leverage change counts what live opening orders hold and commit, so it cannot spend credit they rely on', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const svc = positions();
+      // Posted is 1000 (120 free, 20 in the position, 860 held), committed 880, credit 900: 20 of buying power left.
+      const target = await aliceWithRestingOrder(svc);
+      expect(await svc.collateralFigures(ALICE, USDT)).toMatchObject({ free: A('120'), committed: A('880'), buyingPower: A('20') });
+      // 2x needs 80 more. The 120 free covers it, and so would the haircut without the order (126 against 100), but not
+      // with it: 900 against 960. Nothing moves.
+      await expect(svc.setLeverage({ ...target, leverage: A('2'), clientAdjustmentId: 'lev-2x' }, principal(ALICE))).rejects.toMatchObject({
+        code: 'trade.haircut_credit_short',
+      });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('120'));
+      // 5x needs exactly the 20 left: it fits.
+      await svc.setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'lev-5x' }, principal(ALICE));
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
+      expect((await svc.collateralFigures(ALICE, USDT)).buyingPower).toBe(0n);
+      await assertBooksAgree();
+    });
+
+    /** Alice with a 2 at 100, 10x position (initial margin 20) and an opening order resting on 860: 20 of credit left. */
+    async function aliceWithRestingOrder(svc: PositionService) {
+      const buy = await svc.placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'pos-open' }),
+      );
+      const sell = await build().place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', qty: A('2'), limitPrice: A('100'), clientOrderId: 'pos-bob' }),
+      );
+      await build().settleFill({
+        marketId: MARKET,
+        makerOrderId: buy.orderId,
+        takerOrderId: sell.orderId,
+        price: '100',
+        qty: '2',
+        sequence: 1,
+      });
+      await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('86'), clientOrderId: 'pos-rest' }));
+      const [position] = await positionsOf(ALICE);
+      return { userId: ALICE, symbol: SYMBOL, positionId: position!.id };
+    }
+
+    const ETH_MARKET = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const ETH_SYMBOL = 'ETH/USDT-PERP';
+
+    it('an opening order checked while a leverage change is still writing waits for it, so both cannot take the last of the credit', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      await sql`
+        INSERT INTO trade.markets (
+          id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+          maker_bps, taker_bps, status, display_name, listed_at
+        ) VALUES (
+          ${ETH_MARKET}, ${ETH_SYMBOL}, 'ETH', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'ETH perpetual', now()
+        )
+      `;
+      const target = await aliceWithRestingOrder(positions());
+      // The leverage change has passed its check and stops at its margin post, its new initial margin not yet written.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let posting!: () => void;
+      const reachedPost = new Promise<void>((resolve) => (posting = resolve));
+      const slowPost = withLedger({
+        post: async (req: Parameters<LedgerClient['post']>[0]) => {
+          posting();
+          await gate;
+          return ledger.post(req);
+        },
+      });
+      // 5x needs 20 more; an order of 2 at 100, 10x, on another market holds 20. Either fits alone, both do not.
+      const leverage = positions(slowPost).setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'race-5x' }, principal(ALICE));
+      await reachedPost;
+      const placing = positions().placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, symbol: ETH_SYMBOL, side: 'buy', qty: A('2'), clientOrderId: 'race-eth' }),
+      );
+      // Given time, an order that did not wait would be placed on credit the leverage change has already taken.
+      await Promise.race([placing.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 500))]);
+      release();
+      await leverage;
+      await expect(placing).rejects.toMatchObject({ code: 'trade.haircut_credit_short' });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
+      const figures = await positions().collateralFigures(ALICE, USDT);
+      expect(figures).toMatchObject({ committed: A('900'), credit: A('900'), buyingPower: 0n });
+      await assertBooksAgree();
+    });
+
+    it('a leverage change whose collateral read fails refuses trade.collateral_unreadable (503) and moves nothing', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const target = await aliceWithRestingOrder(positions());
+      const down = positions(withLedger({ balances: async () => Promise.reject(new Error('ledger down')) }));
+      await expect(
+        down.setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'down-5x' }, principal(ALICE)),
+      ).rejects.toMatchObject({
+        code: 'trade.collateral_unreadable',
+        status: 503,
+      });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('120'));
+      // The same request goes through once the ledger reads again.
+      await positions().setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'down-5x' }, principal(ALICE));
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
       await assertBooksAgree();
     });
 

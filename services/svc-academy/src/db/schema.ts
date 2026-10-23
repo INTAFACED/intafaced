@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -512,6 +512,35 @@ export const plannerTodos = academy.table(
   (t) => [uniqueIndex('planner_todos_key_uq').on(t.userId, t.clientKey)],
 );
 
+/** AC-videos-01: the video staff attach to one curriculum item; the item then completes by the `watch` rule. */
+export const itemVideos = academy.table(
+  'item_videos',
+  {
+    itemSlug: text('item_slug').primaryKey(),
+    videoSlug: text('video_slug').notNull(),
+    reason: text('reason').notNull(),
+    setBy: uuid('set_by').notNull(),
+    setAt: tstz('set_at').notNull(),
+  },
+  (t) => [index('item_videos_video_idx').on(t.videoSlug)],
+);
+
+/** AC-videos-01: one caption track per video and language (WebVTT text), in the order staff listed them. */
+export const videoTracks = academy.table(
+  'video_tracks',
+  {
+    videoSlug: text('video_slug').notNull(),
+    language: text('language').notNull(),
+    label: text('label').notNull(),
+    vtt: text('vtt').notNull(),
+    position: integer('position').notNull(),
+    reason: text('reason').notNull(),
+    setBy: uuid('set_by').notNull(),
+    setAt: tstz('set_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.videoSlug, t.language] })],
+);
+
 /** AC-progress-02: one weekly goal per learner. */
 export const learningGoals = academy.table('learning_goals', {
   userId: uuid('user_id').primaryKey(),
@@ -523,6 +552,8 @@ export const learningGoals = academy.table('learning_goals', {
 export const schema = {
   plannerTodos,
   learningGoals,
+  itemVideos,
+  videoTracks,
   rooms,
   roomInvites,
   sessions,

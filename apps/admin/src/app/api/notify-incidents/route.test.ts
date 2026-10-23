@@ -107,6 +107,21 @@ const PROPOSAL = {
   expectedVersion: '1',
   payloadHash: 'b'.repeat(64),
 };
+const PUBLISHED = {
+  ...NOTICE,
+  id: '55555555-5555-4555-8555-555555555555',
+  status: 'published',
+  publishedAt: '2026-10-23T10:05:00.000Z',
+};
+const POSTMORTEM = {
+  incidentId: PUBLISHED.id,
+  body: 'TEST what happened',
+  version: 1,
+  status: 'draft',
+  writtenBy: USER_ID,
+  writtenAt: '2026-10-23T11:00:00.000Z',
+  publishedAt: null,
+};
 const DEFINITION = {
   components: [{ id: 'payments', name: 'Payments', group: 'Platform', source: null }],
   componentCap: 5,
@@ -134,25 +149,33 @@ describe('incident desk BFF', () => {
     expect((await GET(get())).status).toBe(404);
   });
 
-  it('reads incidents, templates, components and only the publish approvals, once each, as the founder', async () => {
+  it('reads incidents, postmortems, templates, components and only the publish approvals, once each, as the founder', async () => {
     configure();
     const c = upstream({
-      'notify.operatorNotices': () => ok([NOTICE]),
+      'notify.operatorNotices': () => ok([NOTICE, PUBLISHED]),
+      'statusPage.postmortems.forIncidents': () => ok([POSTMORTEM]),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
       'actionApproval.list': () =>
         ok({
           approvals: [
             approval({}),
+            approval({ approvalId: 'pm', actionType: 'notify.postmortem.publish', targetId: `postmortem:${NOTICE_ID}` }),
             approval({ approvalId: 'other', actionType: 'treasury.payout.release', targetService: 'svc-treasury' }),
           ],
         }),
     });
     const body = await (await GET(get())).json();
-    expect(body.notices).toEqual({ kind: 'ok', data: [NOTICE] });
+    expect(body.notices).toEqual({ kind: 'ok', data: [NOTICE, PUBLISHED] });
+    expect(body.postmortems).toEqual({ kind: 'ok', data: [POSTMORTEM] });
+    // Asked for by the published incidents shown, never the whole table; a draft incident has none.
+    const asked = calls(c).filter((x) => x.url.includes('statusPage.postmortems.forIncidents'));
+    expect(asked).toHaveLength(1);
+    expect(decodeURIComponent(asked[0]!.url)).toContain(PUBLISHED.id);
+    expect(decodeURIComponent(asked[0]!.url)).not.toContain(NOTICE_ID);
     expect(body.templates).toEqual({ kind: 'ok', data: [] });
     expect(body.components).toEqual({ kind: 'ok', data: [{ id: 'payments', name: 'Payments' }] });
-    expect(body.approvals.data.map((a: { approvalId: string }) => a.approvalId)).toEqual(['appr-1']);
+    expect(body.approvals.data.map((a: { approvalId: string }) => a.approvalId)).toEqual(['appr-1', 'pm']);
     expect(body.me).toBe(USER_ID);
     for (const call of calls(c)) expect((call.init.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
   });
@@ -166,6 +189,18 @@ describe('incident desk BFF', () => {
       'actionApproval.list': () => ok({ approvals: 'x' }),
     });
     expect((await (await GET(get())).json()).approvals.kind).toBe('failed');
+  });
+
+  it('postmortems that cannot be read are a failed part, never "none written"', async () => {
+    configure();
+    upstream({
+      'notify.operatorNotices': () => ok([PUBLISHED]),
+      'statusPage.postmortems.forIncidents': () => refusal('notify.status_page_unavailable', 412),
+      'statusPage.templates.list': () => ok([]),
+      'statusPage.definition': () => ok(DEFINITION),
+      'actionApproval.list': () => ok({ approvals: [] }),
+    });
+    expect((await (await GET(get())).json()).postmortems.kind).toBe('failed');
   });
 
   it('a draft that is not complete is refused before any service call', async () => {
@@ -255,6 +290,49 @@ describe('incident desk BFF', () => {
       operationId: 'op-1',
       clientRequestId: 'incident-publish:appr-1',
     });
+  });
+
+  it('writes a postmortem naming the version it read; an open incident is refused in words with its code', async () => {
+    configure();
+    const c = upstream({ 'statusPage.postmortems.write': () => refusal('status.postmortem_requires_resolved', 412) });
+    const res = await POST(post({ op: 'write-postmortem', incidentId: NOTICE_ID, body: ' TEST what happened ', expectedVersion: 0 }));
+    expect(res.status).toBe(412);
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      title: 'The incident is not resolved yet',
+      code: 'status.postmortem_requires_resolved',
+    });
+    expect(sent(c, 'statusPage.postmortems.write')).toEqual({ incidentId: NOTICE_ID, body: 'TEST what happened', expectedVersion: 0 });
+    for (const bad of [
+      { incidentId: 'x', body: 'TEST', expectedVersion: 0 },
+      { incidentId: NOTICE_ID, body: ' ', expectedVersion: 0 },
+      { incidentId: NOTICE_ID, body: 'TEST', expectedVersion: -1 },
+      { incidentId: NOTICE_ID, body: 'TEST' },
+    ])
+      expect((await POST(post({ op: 'write-postmortem', ...bad }))).status).toBe(400);
+    expect(calls(c)).toHaveLength(1);
+  });
+
+  it('a postmortem publish asks, approves and spends against the postmortem proposal, never a notice one', async () => {
+    configure();
+    const proposal = { ...PROPOSAL, actionType: 'notify.postmortem.publish', targetId: `postmortem:${NOTICE_ID}` };
+    const c = upstream({
+      'statusPage.postmortems.proposal': () => ok(proposal),
+      'actionApproval.propose': () => ok(approval({ actionType: proposal.actionType, targetId: proposal.targetId })),
+      'actionApproval.approve': () =>
+        ok(approval({ actionType: proposal.actionType, targetId: proposal.targetId, status: 'APPROVED', approverId: USER_ID })),
+      'statusPage.postmortems.publish': () => ok({ ...POSTMORTEM, status: 'published', publishedAt: '2026-10-23T12:00:00.000Z' }),
+    });
+    expect(await (await POST(post({ op: 'request-postmortem', incidentId: NOTICE_ID }))).json()).toEqual({ ok: true, what: 'requested' });
+    expect(sent(c, 'actionApproval.propose')).toEqual({ ...proposal, policyVersion: 'v1' });
+    const approved = await (await POST(post({ op: 'approve-postmortem', incidentId: NOTICE_ID, approvalId: 'appr-1' }))).json();
+    expect(approved).toMatchObject({ ok: true, approval: { targetId: proposal.targetId, status: 'APPROVED' } });
+    expect(sent(c, 'actionApproval.approve')).toEqual({ approvalId: 'appr-1', expectedPayloadHash: proposal.payloadHash });
+    expect(
+      await (await POST(post({ op: 'publish-postmortem', incidentId: NOTICE_ID, approvalId: 'appr-1', operationId: 'op-1' }))).json(),
+    ).toEqual({ ok: true, what: 'postmortem published' });
+    expect(sent(c, 'statusPage.postmortems.publish')).toEqual({ incidentId: NOTICE_ID, approvalId: 'appr-1', operationId: 'op-1' });
+    expect(calls(c).some((x) => x.url.includes('notify.noticeProposal'))).toBe(false);
   });
 
   it('defines a template with a blank group as none, and refuses a malformed template id to retire', async () => {

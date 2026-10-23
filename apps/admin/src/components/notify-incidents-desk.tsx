@@ -5,11 +5,14 @@ import { useCallback, useState } from 'react';
 import { Chip, type ChipTone } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
+import { ApprovalActions, noticeTarget, postmortemPublish, type Submit } from '@/components/notify-approval-actions';
 import { fetchIncidentDesk, postIncidentChange } from '@/lib/notify/incidents-browser';
 import {
   IMPACTS,
+  POSTMORTEM_BODY_MAX,
   approvalFor,
   checkIncidentDraft,
+  checkPostmortem,
   incidentsFrom,
   newestEntry,
   templateGroups,
@@ -19,7 +22,9 @@ import {
   type IncidentDeskView,
   type IncidentTemplate,
   type OperatorNotice,
+  type Postmortem,
   type PublishApproval,
+  postmortemTarget,
 } from '@/lib/notify/incidents-model';
 
 /**
@@ -29,9 +34,8 @@ import {
  * founder's request, publish, post updates and resolve. svc-notify publishes nothing one person decided alone: identity
  * refuses a founder approving their own request, and svc-notify refuses the approver publishing. A published entry is
  * never edited, and a resolved incident takes no further update. Templates are the founders' own wording; none is seeded.
+ * A resolved incident takes one postmortem, published the same four-eyes way.
  */
-
-type Submit = (body: Record<string, unknown>) => void;
 
 const STATE: Record<Incident['state'], { label: string; tone: ChipTone }> = {
   draft: { label: 'Draft', tone: 'neutral' },
@@ -261,55 +265,102 @@ function EntryActions({
         Not published before the incident was resolved, so it never will be.
       </p>
     );
-  const live = approval && (approval.status === 'PENDING' || approval.status === 'APPROVED') ? approval : null;
-  if (!live)
-    return (
-      <div className="dk-row">
-        {approval && <span className="dk-muted">The last approval is {approval.status.toLowerCase()}.</span>}
-        <button type="button" className="adm-btn" onClick={() => onSubmit({ op: 'request', noticeId: entry.id })} disabled={busy}>
-          Ask for approval
-        </button>
-      </div>
-    );
-  const askedBy = live.requesterId === me ? 'you' : 'another founder';
-  if (live.status === 'PENDING')
-    return (
-      <div className="dk-row" data-testid="incident-approval" data-status="PENDING" data-approval-id={live.approvalId}>
-        <span className="dk-muted">Waiting for a founder other than the one who asked (asked by {askedBy}).</span>
-        <button
-          type="button"
-          className="adm-btn"
-          onClick={() => onSubmit({ op: 'approve', noticeId: entry.id, approvalId: live.approvalId })}
-          disabled={busy}
-        >
-          Approve
-        </button>
-      </div>
-    );
-  if (live.approverId === me)
-    return (
-      <div className="dk-row" data-testid="incident-approval" data-status="APPROVED" data-approval-id={live.approvalId}>
-        <span className="dk-muted">Approved by you. The founder who asked publishes it: svc-notify refuses the approver.</span>
-      </div>
-    );
+  return <ApprovalActions target={noticeTarget(entry.id)} approval={approval} me={me} busy={busy} onSubmit={onSubmit} />;
+}
+
+/**
+ * The incident's postmortem. On an open incident the form is there and svc-notify refuses it until a published update
+ * resolves the incident (`status.postmortem_requires_resolved`); a draft is edited by version; a published one is final.
+ */
+function PostmortemSection({
+  incident,
+  postmortem,
+  approvals,
+  me,
+  busy,
+  onSubmit,
+}: {
+  incident: Incident;
+  postmortem: Postmortem | null;
+  approvals: readonly PublishApproval[];
+  me: string;
+  busy: boolean;
+  onSubmit: Submit;
+}) {
+  const incidentId = incident.root.id;
+  const [body, setBody] = useState(postmortem?.body ?? '');
+  const [why, setWhy] = useState<string | null>(null);
+  const id = `postmortem-${incidentId}`;
+  const status = postmortem?.status ?? 'none';
+  const save = () => {
+    const check = checkPostmortem(body);
+    if (!check.ok) return setWhy(check.why);
+    setWhy(null);
+    onSubmit({ op: 'write-postmortem', incidentId, body, expectedVersion: postmortem?.version ?? 0 });
+  };
   return (
-    <div
-      className="dk-row"
-      data-testid="incident-approval"
-      data-status="APPROVED"
-      data-approval-id={live.approvalId}
-      data-operation-id={live.operationId}
-    >
-      <span className="dk-muted">Approved by another founder. Publishing spends the approval once.</span>
-      <button
-        type="button"
-        className="adm-btn"
-        onClick={() => onSubmit({ op: 'publish', noticeId: entry.id, approvalId: live.approvalId, operationId: live.operationId })}
-        disabled={busy}
-      >
-        Publish
-      </button>
-    </div>
+    <section className="dk-stack" data-testid="incident-postmortem" data-status={status} aria-labelledby={`${id}-head`}>
+      <h4 id={`${id}-head`}>Postmortem</h4>
+      {postmortem?.status === 'published' ? (
+        <>
+          <p className="dk-muted">
+            Published {formatWhen(postmortem.publishedAt)} (version {postmortem.version}). A published postmortem is never edited.
+          </p>
+          <p data-testid="postmortem-body">{postmortem.body}</p>
+        </>
+      ) : (
+        <>
+          {postmortem ? (
+            <p className="dk-muted">
+              Draft, version {postmortem.version}
+              {postmortem.writtenBy === me ? ', last written by you' : ', last written by another founder'}. Not public until a second
+              founder approves and it is published.
+            </p>
+          ) : incident.state === 'resolved' ? (
+            <p className="dk-muted">No postmortem is written yet.</p>
+          ) : (
+            <p className="dk-muted">svc-notify takes a postmortem once a published update has resolved the incident.</p>
+          )}
+          {postmortem && body !== postmortem.body && (
+            <div data-testid="postmortem-saved">
+              <p className="dk-muted">Saved version {postmortem.version} reads (your edit below is not saved):</p>
+              <p>{postmortem.body}</p>
+            </div>
+          )}
+          <div className="adm-field">
+            <label htmlFor={`${id}-body`}>{postmortem ? 'Edit the postmortem' : 'What happened, why, and what changes'}</label>
+            <textarea
+              id={`${id}-body`}
+              className="adm-textarea"
+              rows={4}
+              value={body}
+              maxLength={POSTMORTEM_BODY_MAX}
+              onChange={(e) => setBody(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          {why && (
+            <p className="dk-why" role="alert">
+              {why}
+            </p>
+          )}
+          <div className="dk-row">
+            <button type="button" className="adm-btn" onClick={save} disabled={busy}>
+              Save postmortem draft
+            </button>
+          </div>
+          {postmortem && (
+            <ApprovalActions
+              target={postmortemPublish(incidentId)}
+              approval={approvalFor(postmortemTarget(incidentId), approvals)}
+              me={me}
+              busy={busy}
+              onSubmit={onSubmit}
+            />
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -364,6 +415,7 @@ function UpdateForm({ incident, busy, onSubmit }: { incident: Incident; busy: bo
 
 function IncidentCard({
   incident,
+  postmortem,
   approvals,
   names,
   me,
@@ -371,6 +423,8 @@ function IncidentCard({
   onSubmit,
 }: {
   incident: Incident;
+  /** Undefined when postmortems could not be read: the section names that instead of offering a form over nothing. */
+  postmortem: Postmortem | null | undefined;
   approvals: readonly PublishApproval[];
   names: ReadonlyMap<string, string>;
   me: string;
@@ -410,6 +464,22 @@ function IncidentCard({
       </ol>
       {state === 'open' && <UpdateForm incident={incident} busy={busy} onSubmit={onSubmit} />}
       {state === 'resolved' && <p className="dk-muted">Resolved, and final. If it happens again, declare a new incident.</p>}
+      {state !== 'draft' && postmortem === undefined && (
+        <section className="dk-stack" data-testid="incident-postmortem" data-status="unread">
+          <h4>Postmortem</h4>
+          <p className="dk-why">
+            The postmortem could not be read from svc-notify, so it cannot be written or published here now. Read the desk again.
+          </p>
+          <div className="dk-row">
+            <button type="button" className="adm-btn" disabled>
+              Save postmortem draft
+            </button>
+          </div>
+        </section>
+      )}
+      {state !== 'draft' && postmortem !== undefined && (
+        <PostmortemSection incident={incident} postmortem={postmortem} approvals={approvals} me={me} busy={busy} onSubmit={onSubmit} />
+      )}
     </article>
   );
 }
@@ -569,6 +639,7 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
         <Failed title="The status page components could not be read" message={view.components.message} />
       )}
       {view.approvals.kind === 'failed' && <Failed title="Approvals could not be read" message={view.approvals.message} />}
+      {view.postmortems.kind === 'failed' && <Failed title="Postmortems could not be read" message={view.postmortems.message} />}
       <div key={generation} className="dk-stack">
         {view.templates.kind === 'ok' ? (
           <DeclareForm
@@ -594,6 +665,11 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
               <IncidentCard
                 key={incident.root.id}
                 incident={incident}
+                postmortem={
+                  view.postmortems.kind === 'ok'
+                    ? (view.postmortems.data.find((p) => p.incidentId === incident.root.id) ?? null)
+                    : undefined
+                }
                 approvals={approvals}
                 names={names}
                 me={view.me}

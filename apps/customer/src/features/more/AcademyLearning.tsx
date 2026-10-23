@@ -14,7 +14,8 @@ import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
-import { LessonVideoLink, LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { ItemVideo } from './AcademyVideoPlayer';
 import { academyCodeOf, missingItems } from './academy-flows';
 import './academy-learning.css';
 
@@ -120,15 +121,15 @@ export function AcademyLearning({
   certId,
   chooseCertificate,
   action,
-  onQuizFinished,
+  onProgress,
 }: {
   slug?: string;
   initialPath?: string;
   certId: string;
   chooseCertificate: (id: string) => void;
   action: ActionControls;
-  /** A quiz attempt on this item was scored, so its course rule may now be met. */
-  onQuizFinished?: () => void;
+  /** A quiz attempt was scored or a watched video completed an item, so a course rule may now be met. */
+  onProgress?: () => void;
 }) {
   const api = useApi(),
     { userId } = useSession(),
@@ -465,7 +466,7 @@ export function AcademyLearning({
                         <Read resource={overview.resource} retry={overview.reload}>
                           {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
                         </Read>
-                        <LessonVideoLink slug={lesson.slug} />
+                        <ItemVideo itemSlug={lesson.slug} onCompleted={onProgress} />
                         {lesson.fellBack && (
                           <p className="muted">
                             <Copy
@@ -495,7 +496,7 @@ export function AcademyLearning({
                             <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
                           </div>
                         </section>
-                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} onFinished={onQuizFinished} />
+                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} onFinished={onProgress} />
                         {receiptMatches && receipt?.success && (
                           <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
                             <h3>

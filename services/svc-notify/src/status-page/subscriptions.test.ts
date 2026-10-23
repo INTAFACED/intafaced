@@ -166,6 +166,43 @@ describe('status subscriptions', () => {
     expect(outbox.mail.filter((m) => m.subject.includes('n3'))).toHaveLength(0);
   });
 
+  it('a maintenance reminder reaches each subscriber it concerns once per offset, however often it is sent', async () => {
+    const h = await harness();
+    const outbox = h.mailer as Outbox;
+    await h.subscribe('trading@example.com', ['trading']);
+    await h.subscribe('deposits@example.com', ['deposits']);
+    for (const mail of [...outbox.mail]) await h.subs.confirm(linkIn(mail, '/status/confirm'));
+    const window = { id: 'm1', title: 'TEST upgrade', startsAt: new Date('2026-10-24T02:00:00.000Z'), components: ['trading'] };
+    await h.subs.remind(window, 30);
+    await h.subs.remind(window, 30);
+    await h.subs.remind(window, 10);
+    const reminders = outbox.mail.filter((m) => m.subject === 'Scheduled maintenance: TEST upgrade');
+    expect(reminders.map((m) => m.to)).toEqual(['trading@example.com', 'trading@example.com']);
+    expect(reminders[0]!.text).toContain('2026-10-24T02:00:00.000Z');
+    expect(linkIn(reminders[0]!, '/status/unsubscribe')).toBeTruthy();
+  });
+
+  it('a maintenance reminder answers how many sends did not go out, and a send again reaches only those', async () => {
+    let failing = true;
+    class Flaky extends Outbox {
+      override async send(mail: StatusMail): Promise<MailOutcome> {
+        if (failing && mail.subject.startsWith('Scheduled maintenance') && mail.to === 'first@example.com') throw new Error('disk full');
+        return super.send(mail);
+      }
+    }
+    const mailer = new Flaky();
+    const h = await harness({ mailer });
+    await h.subscribe('first@example.com');
+    await h.subscribe('second@example.com');
+    for (const mail of [...mailer.mail]) await h.subs.confirm(linkIn(mail, '/status/confirm'));
+    const window = { id: 'm2', title: 'TEST upgrade', startsAt: new Date('2026-10-24T02:00:00.000Z'), components: [] };
+    expect(await h.subs.remind(window, 30)).toEqual({ undelivered: 1 });
+    failing = false;
+    expect(await h.subs.remind(window, 30)).toEqual({ undelivered: 0 });
+    const sent = mailer.mail.filter((m) => m.subject === 'Scheduled maintenance: TEST upgrade').map((m) => m.to);
+    expect(sent.sort()).toEqual(['first@example.com', 'second@example.com']);
+  });
+
   it('refuses a private webhook, and posts a public one once per notice', async () => {
     const h = await harness();
     const outbox = h.mailer as Outbox;

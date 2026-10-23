@@ -184,6 +184,117 @@ test(`${J} #3 an item that needs an earlier one is locked with a link to it, and
   }
 });
 
+/** The spine video staff attach to the fifth item for #4 and #5, with two TEST caption tracks, all taken off at the end. */
+const VIDEO = 'foundations-risk-first';
+const cueEvery2s = (words) =>
+  `WEBVTT\n\n${words.map((word, i) => `00:${String(i * 2).padStart(2, '0')}.000 --> 00:${String(i * 2 + 2).padStart(2, '0')}.000\nTEST: ${word}\n`).join('\n')}`;
+const TRACKS = [
+  { language: 'en', label: 'TEST English', vtt: cueEvery2s(['one', 'two', 'three', 'four', 'five', 'six']) },
+  { language: 'es', label: 'TEST Español', vtt: cueEvery2s(['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis']) },
+];
+async function videoOn(item, tracks = TRACKS) {
+  await staff('admin.setItemVideo', { itemSlug: item, videoSlug: VIDEO, reason: `${J} TEST video item` });
+  await staff('admin.setVideoTracks', { videoSlug: VIDEO, tracks, reason: `${J} TEST captions` });
+}
+async function videoOff(item) {
+  await staff('admin.setItemVideo', { itemSlug: item, videoSlug: null, reason: `${J} TEST video item off` });
+  await staff('admin.setVideoTracks', { videoSlug: VIDEO, tracks: [], reason: `${J} TEST captions off` });
+}
+const player = (page) => page.locator(`[data-video-player="${VIDEO}"]`);
+const media = (page) => player(page).locator('video');
+const mediaTime = (page) => media(page).evaluate((video) => video.currentTime);
+/** A menu's choices, as the select lists them. */
+const choices = (select) => select.evaluate((menu) => [...menu.options].map((option) => option.textContent));
+async function storedPosition(who) {
+  const res = await (
+    await api(who)
+  ).get(`/api/academy/trpc/videoProgress.get?input=${encodeURIComponent(JSON.stringify({ videoSlug: VIDEO }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data.positionSeconds;
+}
+
+test(`${J} #4 a video plays with our controls, captions by language with a transcript that follows, and resumes after leaving`, async ({
+  page,
+}) => {
+  const { who, items } = state('who', 'items');
+  const item = items[4];
+  expect(item, 'the course needs a fifth item for the video').toBeTruthy();
+  await videoOn(item, []);
+  try {
+    await signIn(page, who);
+    await page.goto(`/academy/${item}`);
+    // With no captions the menu says so, and no empty track is attached.
+    await expect(player(page).locator('[data-video-captions="none"]')).toContainText('No captions for this video');
+    await expect(player(page).locator('track')).toHaveCount(0);
+    await expect(player(page).getByText('This video has no transcript.')).toBeVisible();
+    // The item completes by watching, so its button says what it needs instead.
+    await expect(completion(page, item).getByText('Watch this item’s video past the course threshold to complete it.')).toBeVisible();
+
+    await videoOn(item);
+    await page.reload();
+    const captions = player(page).getByRole('combobox', { name: 'Captions', exact: true });
+    expect(await choices(captions)).toEqual(['Off', 'TEST English', 'TEST Español']);
+    await captions.selectOption('es');
+    await expect
+      .poll(() => media(page).evaluate((video) => [...video.textTracks].map((track) => `${track.language}:${track.mode}`)))
+      .toEqual(['en:disabled', 'es:showing']);
+    await expect(player(page).locator('[data-transcript="es"] li')).toHaveCount(6);
+    // Speed and the one quality that exists.
+    const speed = player(page).getByRole('combobox', { name: 'Speed', exact: true });
+    await speed.selectOption('1.5');
+    await expect.poll(() => media(page).evaluate((video) => video.playbackRate)).toBe(1.5);
+    await speed.selectOption('1');
+    expect(await choices(player(page).getByRole('combobox', { name: 'Quality', exact: true }))).toEqual(['Original file']);
+    await expect(player(page).getByRole('button', { name: 'Full screen', exact: true })).toBeEnabled();
+
+    // Play two seconds: the transcript follows; pausing stores the place, below the course threshold.
+    await player(page).getByRole('button', { name: 'Play', exact: true }).click();
+    await expect.poll(() => mediaTime(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(2.2);
+    await player(page).getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect(player(page).locator('[data-transcript="es"] li[aria-current="true"]')).toContainText('TEST: dos');
+    await expect(player(page).locator('[data-video-status="saved"]')).toBeVisible();
+    const stored = await storedPosition(who);
+    expect(stored).toBeGreaterThanOrEqual(2);
+    expect(stored).toBeLessThan(4);
+
+    // Leave and return: playback resumes at the stored place.
+    await page.goto('/academy/learning');
+    await page.goto(`/academy/${item}`);
+    await expect(player(page).locator(`[data-video-resumed="${stored}"]`)).toBeVisible();
+    expect(Math.floor(await mediaTime(page))).toBe(stored);
+    expect((await completions(who)).some((row) => row.itemSlug === item)).toBe(false);
+  } finally {
+    await videoOff(item);
+  }
+});
+
+test(`${J} #5 watching past the course threshold completes the video item without a button`, async ({ page }) => {
+  const { who, course, items } = state('who', 'course', 'items');
+  const item = items[4];
+  await videoOn(item);
+  try {
+    await signIn(page, who);
+    const pressed = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/academy/trpc/markCurriculumComplete')) pressed.push(request.url());
+    });
+    await page.goto(`/academy/${item}`);
+    await expect(player(page).locator('[data-video-threshold="4"]')).toHaveText('Watching past 0:04 completes this item.');
+    await player(page).getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(player(page).locator('[data-video-status="completed"]')).toHaveText(
+      'You watched past the course threshold, so this item is complete.',
+      { timeout: 20_000 },
+    );
+    await expect(outline(page, course).locator(`[data-outline-item="${item}"]`)).toHaveAttribute('data-outline-state', 'completed');
+    await expect(completion(page, item).getByText(/^Completed on /)).toBeVisible();
+    expect(pressed).toHaveLength(0);
+    expect((await completions(who)).filter((row) => row.itemSlug === item)).toHaveLength(1);
+    expect(await storedPosition(who)).toBeGreaterThanOrEqual(4);
+  } finally {
+    await videoOff(item);
+  }
+});
+
 test(`${J} #6 a timed quiz keeps one attempt and its clock on the server: Start with the reply lost, autosave, refresh`, async ({
   page,
 }) => {

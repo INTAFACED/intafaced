@@ -48,6 +48,7 @@ import {
   reputationOnPublicDoor,
 } from './merchant-programme.js';
 import { snapshotOf, type ReputationCounters } from './reputation.js';
+import { metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local fixture for downstream doors; never a production screening declaration.
 beforeEach(() => {
@@ -209,6 +210,7 @@ async function mountStub(
       moderatorUserIds: opts.moderatorUserIds ?? [],
       offerLimits: opts.offerLimits,
       approvals: stubApprovalConsumer('99999999-9999-4999-8999-999999999999'),
+      takeGate: metTakeGate(),
     },
     opts.merchants as never,
   );
@@ -821,7 +823,7 @@ describe('D26-P2-01f public doors money', () => {
       },
     });
 
-    const router = createP2pRouter(p2p, instruments, undefined, { moderatorUserIds });
+    const router = createP2pRouter(p2p, instruments, undefined, { moderatorUserIds, takeGate: metTakeGate() });
     app = Fastify({ logger: false });
     installP2pS2sRawBody(app);
     await app.register(fastifyTRPCPlugin, {

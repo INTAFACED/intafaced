@@ -11,7 +11,11 @@ export async function fetchIncidentDesk(): Promise<IncidentDeskView | null> {
     const res = await fetch('/api/notify-incidents', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.notices) && isRecord(body.approvals)
+    return isRecord(body) &&
+      typeof body.asOf === 'string' &&
+      isRecord(body.notices) &&
+      isRecord(body.postmortems) &&
+      isRecord(body.approvals)
       ? (body as unknown as IncidentDeskView)
       : null;
   } catch {
@@ -28,8 +32,17 @@ const unknown = (body: string): IncidentDeskReply => ({
   changed: 'unknown',
 });
 
-/** One change. A dropped connection is an unknown outcome: the desk reads again, never repeats the change with a new key. */
-export async function postIncidentChange(body: Record<string, unknown>): Promise<IncidentDeskReply> {
+/** One change on the incident desk. */
+export const postIncidentChange = (body: Record<string, unknown>) => postNotifyChange('/api/notify-incidents', body);
+
+/**
+ * One change through a notify desk's route. A dropped connection is an unknown outcome: the desk reads again, never
+ * repeats the change with a new key.
+ */
+export async function postNotifyChange(
+  path: '/api/notify-incidents' | '/api/notify-maintenance',
+  body: Record<string, unknown>,
+): Promise<IncidentDeskReply> {
   let headers: Record<string, string>;
   try {
     headers = await founderMutationHeaders();
@@ -44,7 +57,7 @@ export async function postIncidentChange(body: Record<string, unknown>): Promise
     };
   }
   try {
-    const res = await fetch('/api/notify-incidents', {
+    const res = await fetch(path, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

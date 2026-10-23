@@ -10,6 +10,7 @@ import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
+import { P2PEligibilityPanel } from './Eligibility';
 import {
   checkTake,
   exceedsAvailable,
@@ -58,6 +59,12 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failVerify');
     case 'region':
       return t('failRegion');
+    case 'contact':
+      return t('failContact');
+    case 'risk':
+      return t('failRisk');
+    case 'unchecked':
+      return t('failUnchecked');
     case 'viewChanged':
       return t('failViewChanged');
     case 'noService':
@@ -413,6 +420,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
           </Button>
         </section>
       ) : null}
+      <P2PEligibilityPanel pay={pay} userId={userId} compact />
       <form
         onSubmit={(event) => {
           event.preventDefault();

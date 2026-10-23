@@ -31,6 +31,10 @@ import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
 import { IncidentTemplates } from './status-page/templates.js';
 import { SqlTemplateStore } from './status-page/templates.pg.js';
+import { Postmortems } from './status-page/postmortems.js';
+import { MAINTENANCE_SWEEP_INTERVAL_MS, MaintenanceLifecycle } from './notices/maintenance.js';
+import { SqlMaintenanceStore } from './notices/maintenance.pg.js';
+import { SqlPostmortemStore } from './status-page/postmortems.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -204,6 +208,7 @@ const statusSubscriptions = new StatusSubscriptions({
   linkTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES ?? null,
   webhookTimeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
 });
+const maintenanceStore = new SqlMaintenanceStore(sql);
 const notices = new NoticeBoard(
   new PostgresNoticeStore(sql),
   noticeApprovalConsumerFromProcessEnv(s2sKey),
@@ -211,7 +216,14 @@ const notices = new NoticeBoard(
   undefined,
   async () => (await statusBook.definition()).components.map((component) => component.id),
   (row) => statusSubscriptions.fanOut(row),
+  (ids) => maintenanceStore.closedAmong(ids),
 );
+const maintenance = new MaintenanceLifecycle({
+  store: maintenanceStore,
+  notice: (id) => notices.maintenanceNotice(id),
+  upcoming: (at, limit) => notices.upcomingMaintenance(at, limit),
+  remind: (notice, offset) => statusSubscriptions.remind(notice, offset),
+});
 const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
 const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
 const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprovals, commandLog, {
@@ -338,11 +350,14 @@ const loadVenueIncident = async () =>
 const incidentTemplates = new IncidentTemplates(new SqlTemplateStore(sql), async () =>
   (await statusBook.definition()).components.map((component) => component.id),
 );
+const postmortems = new Postmortems(new SqlPostmortemStore(sql), (id) => notices.incidentState(id), opsApprovals);
 const statusPageDeps = {
   book: statusBook,
   notices,
   subscriptions: statusSubscriptions,
   templates: incidentTemplates,
+  postmortems,
+  maintenance,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
 export const appRouter = createNotifyRouter(
@@ -532,6 +547,18 @@ const alertSweep = setInterval(() => {
   void runAlertSweepPass(alerts, alertSweepRecorder);
 }, ALERT_SWEEP_INTERVAL_MS);
 alertSweep.unref();
+
+/**
+ * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
+ * Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next; a reminder it took and did not
+ * settle is taken again when its lease runs out, and its delivery rows keep anyone from getting it twice.
+ */
+const maintenanceSweep = setInterval(() => {
+  void maintenance.sweep().catch((err) => {
+    app.log.error({ err }, 'svc-notify maintenance reminder sweep failed — due reminders wait for the next tick');
+  });
+}, MAINTENANCE_SWEEP_INTERVAL_MS);
+maintenanceSweep.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 

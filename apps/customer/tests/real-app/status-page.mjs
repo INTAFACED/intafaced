@@ -30,6 +30,12 @@ export async function statusRead() {
   return data(await ctx.edge.query('notify', 'statusPage.read'), 'statusPage.read');
 }
 
+/** Published postmortems as a signed-out visitor reads them, newest first. */
+export async function publishedPostmortems() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'statusPage.postmortems.published'), 'statusPage.postmortems.published');
+}
+
 /** The founders' active incident templates. */
 export async function incidentTemplates() {
   const { ctx, pair } = await founders();

@@ -20,6 +20,11 @@
       "service": "p2p",
       "value": "5",
       "note": "Downloads of one P2P receipt per person."
+    },
+    "P2P_RISK_NOTICE_VERSION": {
+      "service": "p2p",
+      "value": "TEST-2026-10-23",
+      "note": "P2P risk notice version a taker accepts before the first take. TEST label, not a published notice."
     }
   }
 }

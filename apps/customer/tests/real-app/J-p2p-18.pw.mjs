@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { api, fund, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { p2p, readyTaker } from './p2p.mjs';
 
 // J-p2p-18, in the running app (docs/roadmap/journeys.json): I export my P2P order history and keep a receipt. One test
 // per step, titled "J-p2p-18 #<n>", run in order on one verified TEST account. The journey starts "signed in with a few
@@ -33,31 +34,6 @@ function journey() {
   return state;
 }
 
-// Edge allows 1200 requests a minute per address on the stack: keep the setup well under it.
-const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
-
-/** svc-p2p through Edge as `who` (an api() session): queries as GET, mutations as POST; the answer or a thrown refusal. */
-function p2p(who) {
-  const unwrap = (what, res) => {
-    if (res.status !== 200) throw new Error(`${what} refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
-    return res.body.result.data;
-  };
-  return {
-    raw: {
-      query: (proc, input) => who.get(`/api/p2p/trpc/${proc}?input=${encodeURIComponent(JSON.stringify(input))}`),
-      mutate: (proc, input) => who.post(`/api/p2p/trpc/${proc}`, input),
-    },
-    async query(proc, input) {
-      await pace();
-      return unwrap(proc, await this.raw.query(proc, input));
-    },
-    async mutate(proc, input) {
-      await pace();
-      return unwrap(proc, await this.raw.mutate(proc, input));
-    },
-  };
-}
-
 const ordersTable = (page) => page.getByRole('region', { name: 'Your P2P orders' });
 const orderRows = (page) => ordersTable(page).locator('tbody tr');
 
@@ -72,7 +48,8 @@ test('J-p2p-18 #1 the order list counts every order exactly, pages back to the o
   await verify(page, buyer);
   run.reset({ seller, buyer });
   const s = p2p(await api(seller));
-  const b = p2p(await api(buyer));
+  // The buyer meets every take requirement: email confirmed by the sign-up code, the TEST risk notice accepted.
+  const b = await readyTaker(await api(buyer), buyer);
   await s.mutate('instruments.create', {
     instrumentId: randomUUID(),
     methodId: METHOD,

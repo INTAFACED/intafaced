@@ -425,3 +425,75 @@ export const academyRemoveTodoInputSchema = z.object({ todoId: z.string().uuid()
 export const academySetGoalInputSchema = z.object({ itemsPerWeek: z.number().int(), reminder: z.boolean() }).strict();
 /** Sending the goal reminder now: `sent` is false and `mail` names the missing dependency while Academy has no mail sender. */
 export const academyGoalReminderSchema = z.object({ sent: z.literal(false), mail: z.literal('vendor.email') });
+
+/**
+ * AC-videos-01: the video staff attach to one curriculum item. An item with a video completes by the `watch` rule: the
+ * stored watch position reaching the owner's threshold completes it without a button. `videoSlug` null: no video.
+ */
+export const academyItemVideoSchema = z.object({ itemSlug: z.string().min(1), videoSlug: z.string().min(1).nullable() });
+export type AcademyItemVideo = z.infer<typeof academyItemVideoSchema>;
+export const academySetItemVideoInputSchema = z
+  .object({
+    itemSlug: z.string().min(1).max(120),
+    videoSlug: z.string().min(1).max(120).nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+/** One caption cue, in whole milliseconds from the start of the video. */
+export const academyVideoCueSchema = z.object({
+  startMs: z.number().int().nonnegative(),
+  endMs: z.number().int().positive(),
+  text: z.string().min(1).max(1000),
+});
+export type AcademyVideoCue = z.infer<typeof academyVideoCueSchema>;
+/** A BCP 47 language tag, such as `en` or `pt-BR`. */
+const languageTag = z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/);
+export const academyVideoTrackSchema = z.object({
+  language: languageTag,
+  label: z.string().min(1).max(60),
+  cues: z.array(academyVideoCueSchema),
+});
+export type AcademyVideoTrack = z.infer<typeof academyVideoTrackSchema>;
+
+/**
+ * AC-videos-01: what the player needs besides the signed playback URL. Caption tracks come as cues (the transcript is the
+ * same cues, so it follows the chosen language); an empty list means the video has no captions. `renditions` lists only
+ * the files that exist. `saveEverySeconds` is the owner's position save interval (null: unset, so the position is saved
+ * on pause and on leaving only); `watchThresholdSeconds` is the owner's watch threshold (null: unset, and a watch item
+ * cannot complete). Behind the same tier and stake gate as playback.
+ */
+export const academyVideoPlayerSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  renditions: z.array(z.object({ id: z.literal('original') })).min(1),
+  tracks: z.array(academyVideoTrackSchema),
+  saveEverySeconds: z.number().int().positive().nullable(),
+  watchThresholdSeconds: z.number().int().positive().nullable(),
+});
+export type AcademyVideoPlayer = z.infer<typeof academyVideoPlayerSchema>;
+/** Staff replace every caption track of one video, with a reason. Each track is a WebVTT file in UTF-8; `[]` removes them. */
+export const academySetVideoTracksInputSchema = z
+  .object({
+    videoSlug: z.string().min(1).max(120),
+    tracks: z
+      .array(z.object({ language: languageTag, label: z.string().trim().min(1).max(60), vtt: z.string().min(1).max(200_000) }))
+      .max(12),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+/** The learner's stored watch position. `completedItems`: the watch items this save completed (a set only says so). */
+export const academyVideoPositionSchema = z.object({
+  videoSlug: z.string().min(1),
+  positionSeconds: z.number().int().nonnegative().nullable(),
+});
+export const academyVideoPositionSavedSchema = academyVideoPositionSchema.extend({ completedItems: z.array(z.string().min(1)) });
+/** A signed, expiring playback URL for one video, as the wire carries it; `grant` binds it to the caller. */
+export const academyVideoPlaybackSchema = z.object({
+  slug: z.string().min(1),
+  playbackUrl: z.string().url(),
+  expiresAt: isoInstant,
+  grant: z.string().min(1),
+});
+export type AcademyVideoPlayback = z.infer<typeof academyVideoPlaybackSchema>;
