@@ -872,6 +872,9 @@ function serviceDefs(secrets) {
         IDENTITY_SIGNUP_REQUEST_MAX: '10',
         IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
         IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+        // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
+        // for, so a journey can see the lock still holding with its end time.
+        IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
