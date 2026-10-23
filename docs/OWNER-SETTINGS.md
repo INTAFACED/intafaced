@@ -4,19 +4,11 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-<<<<<<< HEAD
-167 env settings, 233 owner values read elsewhere, 216 page sizes the caller sends. 565 distinct `_unset` codes in all.
+169 env settings, 233 owner values read elsewhere, 216 page sizes the caller sends. 567 distinct `_unset` codes in all.
 
 ## TEST profile
 
-`tooling/profiles/test-owner-values.json` holds 63 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
-=======
-169 env settings, 232 owner values read elsewhere, 216 page sizes the caller sends. 566 distinct `_unset` codes in all.
-
-## TEST profile
-
-`tooling/profiles/test-owner-values.json` holds 64 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
->>>>>>> origin/main
+`tooling/profiles/test-owner-values.json` holds 65 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
 
 ## Env settings
 
