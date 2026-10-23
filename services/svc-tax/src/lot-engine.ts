@@ -8,7 +8,8 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_UNDERFLOW } from './codes.js';
  * another account) and a basis that is either a dollar amount or null. Null is never zero: a sale that draws on a lot with
  * no basis has an unknown cost for that part, and the rest of the sale keeps its known figures (this is finer than the
  * year pack's matcher, which stops at the first unknown lot). Under HIFO a lot with no basis cannot be ranked, so a sale
- * that would have to rank it is unknown as a whole.
+ * that would have to rank it is unknown as a whole: its quantity is still drawn (oldest first) so the open quantity stays
+ * right, and the lots left have an unknown basis, since which of them is open is not known.
  *
  * AVERAGE keeps one running cost per asset: a sale takes quantity at the current average cost per coin and leaves the
  * average unchanged. The lots list still shows which arrivals are left, oldest first, each at that average.
@@ -194,6 +195,7 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   let remaining = m.qty;
   let proceedsLeft = m.proceedsUsd;
   let unknown = false;
+  let unranked = false;
 
   // AVERAGE: one cost per coin for the whole open quantity, fixed for this sale.
   let averagePool: { qty: Amount; cost: Amount | null } | null = null;
@@ -208,16 +210,21 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   }
 
   while (remaining > 0n && open.length > 0) {
-    const idx = pick(open, method);
+    let idx = pick(open, method);
     if (idx === null) {
+      // HIFO cannot rank a lot with no basis. The coins still left: draw the quantity oldest first so the open quantity stays
+      // right, but which lot really went is not known, so this sale's cost and the cost of every lot left are unknown.
       unknown = true;
+      unranked = true;
       residuals.add(TAX_COST_BASIS_UNAVAILABLE);
-      break;
+      idx = 0;
     }
     const lot = open[idx]!;
     const take = remaining < lot.remaining ? remaining : lot.remaining;
     let cost: Amount | null;
-    if (averagePool !== null) {
+    if (unranked) {
+      cost = null;
+    } else if (averagePool !== null) {
       cost = averagePool.cost === null ? null : share(averagePool.cost, averagePool.qty, take);
     } else {
       cost = lot.remainingCost === null ? null : share(lot.remainingCost, lot.remaining, take);
@@ -257,6 +264,7 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
       });
     }
   }
+  if (unranked) for (const lot of open) lot.remainingCost = null;
   if (remaining > 0n && open.length === 0) residuals.add(TAX_LOT_UNDERFLOW);
 
   const covered = remaining === 0n && !unknown;

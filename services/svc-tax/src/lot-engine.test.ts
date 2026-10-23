@@ -81,6 +81,20 @@ describe('runLotEngine', () => {
     expect(runLotEngine(history, 'AVERAGE').sales[0]).toMatchObject({ costUsd: null, realizedUsd: null });
   });
 
+  it('HIFO with a lot of unknown basis still draws the quantity: open quantity is bought minus sold, and what is left has no basis', () => {
+    // TEST: 1 bought at 100, 1 deposited with no basis, 1 bought at 300; sell 2.
+    const run = runLotEngine(
+      [buy('b1', 1, '1', '100'), buy('d1', 2, '1', null, 'deposit'), buy('b3', 3, '1', '300'), sell('s1', 4, '2', '400')],
+      'HIFO',
+    );
+    expect(run.sales[0]).toMatchObject({ unmatchedQty: 0n, costUsd: null, realizedUsd: null });
+    expect(run.sales[0]!.matches.reduce((sum, x) => sum + x.qty, 0n)).toBe(amt('2'));
+    expect(run.lots.reduce((sum, l) => sum + l.remaining, 0n)).toBe(amt('1'));
+    expect(run.lots.filter((l) => l.remaining > 0n).every((l) => l.remainingCostUsd === null)).toBe(true);
+    expect(run.residuals).toContain(TAX_COST_BASIS_UNAVAILABLE);
+    expect(run.residuals).not.toContain(TAX_LOT_UNDERFLOW);
+  });
+
   it('a sale bigger than every open lot names the shortfall', () => {
     const run = runLotEngine([buy('b1', 1, '1', '100'), sell('s1', 2, '3', '600')], 'FIFO');
     expect(run.sales[0]).toMatchObject({ unmatchedQty: amt('2'), costUsd: null, realizedUsd: null });
