@@ -5,14 +5,16 @@ import {
   quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
+  type QuantBacktestMetrics,
   type QuantBacktestResult,
+  type QuantMetric,
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { utcInput } from '../more/quant-analysis';
 import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
@@ -259,13 +261,85 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
+const RESULT_TABS = ['summary', 'metrics'] as const;
+type ResultTab = (typeof RESULT_TABS)[number];
+
 function BacktestResult({ result }: { result: QuantBacktestResult }) {
   const { t } = backtestCopy.useCopy();
-  const { totals, coverage } = result;
+  const [tab, setTab] = useState<ResultTab>('summary');
   return (
     <section aria-label={t('resultTitle')} data-testid="quant-bar-result" data-run-id={result.runId}>
       <h3>{t('resultTitle')}</h3>
       <p className="muted">{t('simulated')}</p>
+      <Tabs
+        items={RESULT_TABS}
+        value={tab}
+        onChange={(next) => setTab(next as ResultTab)}
+        label={t('resultTabs')}
+        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics') }}
+      />
+      {tab === 'summary' ? <ResultSummary result={result} /> : <MetricsTab metrics={result.metrics} />}
+    </section>
+  );
+}
+
+type MetricKey = keyof QuantBacktestMetrics['returns'] | keyof QuantBacktestMetrics['risk'] | keyof QuantBacktestMetrics['trades'];
+const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_equity_points', 'zero_base'] as const;
+
+/**
+ * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
+ * could not define shows the reason in words, never a zero.
+ */
+function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
+  const { t } = backtestCopy.useCopy();
+  const reasonText = (reason: string) =>
+    reason === 'quant.risk_free_unset'
+      ? t('r_risk_free_unset')
+      : (REASONS as readonly string[]).includes(reason)
+        ? t(`r_${reason as (typeof REASONS)[number]}`)
+        : t('r_other', { reason });
+  const shown = (key: MetricKey, value: QuantMetric | number) => {
+    if (typeof value === 'number') return { text: String(value), value: String(value), reason: '' };
+    if (value.value === null) return { text: reasonText(value.reason ?? ''), value: '', reason: value.reason ?? '' };
+    // Holding time arrives in milliseconds and reads in whole seconds.
+    const text = key === 'averageHoldingMs' ? String(Math.floor(Number(value.value) / 1_000)) : value.value;
+    return { text, value: value.value, reason: '' };
+  };
+  const groups = [
+    ['groupReturns', metrics.returns],
+    ['groupRisk', metrics.risk],
+    ['groupTrades', metrics.trades],
+  ] as const;
+  return (
+    <div data-testid="quant-bar-metrics">
+      <p className="muted">{t('metricsIntro')}</p>
+      {groups.map(([group, figures]) => (
+        <section key={group} aria-label={t(group)}>
+          <h4>{t(group)}</h4>
+          <dl className="quant-bar-totals">
+            {Object.entries(figures).map(([key, figure]) => {
+              const name = key as MetricKey;
+              const view = shown(name, figure as QuantMetric | number);
+              return (
+                <div key={key} data-testid={`quant-metric-${key}`} data-value={view.value} data-reason={view.reason}>
+                  <dt>{t(`m_${name}`)}</dt>
+                  <dd lang={view.reason ? undefined : 'zxx'}>{view.text}</dd>
+                  <dd className="muted">{t(`m_${name}_help`)}</dd>
+                </div>
+              );
+            })}
+          </dl>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ResultSummary({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const { totals, coverage } = result;
+  return (
+    <>
       <h4>{t('assumptionsTitle')}</h4>
       <ul data-testid="quant-bar-assumptions">
         {result.assumptions.map((name) => (
@@ -345,6 +419,6 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       </details>
-    </section>
+    </>
   );
 }

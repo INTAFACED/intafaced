@@ -425,6 +425,68 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
   // The same inputs again: the same stored run, not a second one.
   await room.getByTestId('quant-backtest-run').click();
   await expect(result).toHaveAttribute('data-run-id', runId);
+  run.write({ backtest: { runId, net, trades: trades.length } });
   await page.goto('/quant');
   await expect(page.getByTestId('quant-quick-start-count')).toHaveText('2 of 3 steps done');
+});
+
+/** Fills the backtest form with the inputs #6 ran, for a window, and presses Run. */
+async function runBacktest(page, window) {
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('5');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  return result;
+}
+
+test(`${J} #7 opens the Metrics tab: net, drawdown, run-up, profit factor and trade statistics from the run's own trades; win rate reads "no trades" on an empty run and Sharpe is not set while the risk-free rate is blank`, async ({
+  page,
+}) => {
+  const { window, backtest } = run.read();
+  if (!window || !backtest) throw new Error(`${J} #6 stored no run, so this step has no metrics to read`);
+  await signIn(page, developer());
+
+  // The same inputs read back #6's stored run; its Metrics tab reports on that run's own trades.
+  const result = await runBacktest(page, window);
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+  await result.getByRole('button', { name: 'Metrics' }).click();
+  const metrics = result.getByTestId('quant-bar-metrics');
+  const figure = (key) => metrics.getByTestId(`quant-metric-${key}`);
+  await expect(figure('net')).toHaveAttribute('data-value', backtest.net);
+  for (const key of ['maxDrawdown', 'maxDrawdownPercent', 'maxRunUp', 'maxRunUpPercent']) {
+    await expect(figure(key)).toHaveAttribute('data-value', /^\d/);
+  }
+  const roundTrips = Math.floor(backtest.trades / 2);
+  await expect(figure('roundTrips')).toHaveAttribute('data-value', String(roundTrips));
+  const wins = Number(await figure('wins').getAttribute('data-value'));
+  const losses = Number(await figure('losses').getAttribute('data-value'));
+  expect(wins + losses).toBeLessThanOrEqual(roundTrips);
+  // Profit factor is gross profit over gross loss, or "not defined" with its reason when nothing lost.
+  await expect(figure('profitFactor')).toHaveAttribute(losses ? 'data-value' : 'data-reason', losses ? /^\d/ : 'no_losing_trades');
+  // Sharpe and Sortino need the owner's risk-free rate, which is blank: they say so, and nothing reads 0.
+  for (const key of ['sharpe', 'sortino']) {
+    await expect(figure(key)).toHaveAttribute('data-reason', 'quant.risk_free_unset');
+    await expect(figure(key)).toContainText('Not set: the risk-free rate is not published');
+  }
+
+  // An empty run: a window of the first two closed bars has no cross, so no trade. Win rate reads "no trades", not 0.
+  const [first] = await closedBarsSince(window.from);
+  if (!first) throw new Error('the TEST tape has no closed bar in the window');
+  const from = new Date(first[0]).toISOString().slice(0, 16);
+  const to = new Date(first[0] + 2 * 60_000).toISOString().slice(0, 16);
+  const empty = await runBacktest(page, { from, to });
+  await expect(empty).not.toHaveAttribute('data-run-id', backtest.runId);
+  await expect(empty.getByTestId('quant-bar-trade')).toHaveCount(0);
+  await empty.getByRole('button', { name: 'Metrics' }).click();
+  const winRate = empty.getByTestId('quant-metric-winRate');
+  await expect(winRate).toHaveAttribute('data-reason', 'no_trades');
+  await expect(winRate.locator('dd').first()).toHaveText('No trades');
 });
