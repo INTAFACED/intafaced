@@ -76,6 +76,7 @@ import { bindCollar, installCollarPlace } from './spot/collar-place.js';
 import { bindCombo, installComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
+import { resolveAdmissionLimits } from './futures/pretrade-limits.js';
 import { registerGreeksWhatIfRest } from './greeks/what-if-rest.js';
 import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
@@ -100,7 +101,7 @@ import {
   readEligibilityState,
   sqlEligibilityStore,
 } from './futures/derivatives-eligibility.js';
-import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
+import { assertOperatorRiskOnPlace, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
 import {
   acceptAgreement,
@@ -549,6 +550,8 @@ const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =>
+  (await operatorSlippageCapBps(sql, marketId)) ?? env.TRADE_MARKET_SLIPPAGE_CAP_BPS ?? null;
 /** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
 const futuresFeeRates = async (userId: string) =>
   perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
@@ -571,6 +574,8 @@ const positions = new PositionService(sql, ledger, {
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
     // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
     feeRates: futuresFeeRates,
+    // As spot reads it: the operator's per-market cap, else the owner's; both blank refuses every market open.
+    slippageCapBps: futuresSlippageCapBps,
   },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
@@ -883,6 +888,13 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The band, slippage cap and max-order the order path holds an open to, read the same way it reads them.
+  priceBand: futuresPriceBand,
+  slippageCapBps: futuresSlippageCapBps,
+  maxOrder: () => {
+    const resolved = resolveAdmissionLimits();
+    return 'refusal' in resolved ? null : resolved.limits.maxOrder;
+  },
   // The rate an opening order would keep as taker, from the same schedule the order path reads.
   takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
   // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is
@@ -1105,6 +1117,7 @@ registerPrivateRest(app, {
     ? {
         futuresOrders: {
           place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+          placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
         },
