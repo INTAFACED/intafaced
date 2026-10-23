@@ -762,10 +762,25 @@ function txFromRow(row: ExplorerTxRow, logs: readonly ExplorerTxLogRow[]): Chain
   };
 }
 
-/** Replace this block's transaction rows. Absent `transactions` leaves them alone. */
+/**
+ * Replace this block's transaction rows. Absent `transactions` leaves them alone.
+ *
+ * Unwind only marks the block orphaned, so a hash this block re-includes still
+ * sits on the orphan. Delete that row here, before insert, or the primary key
+ * rolls the winning block back. A hash this block does not carry stays on the
+ * orphan, and its logs stay with it. Logs of a deleted row cascade.
+ */
 async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
   if (!block.transactions) return;
-  await sql`DELETE FROM explorer_txs WHERE chain_id = ${chainId} AND block_hash = ${block.hash}`;
+  const hashes = block.transactions.map((row) => row.hash.toLowerCase());
+  await sql`
+    DELETE FROM explorer_txs
+    WHERE chain_id = ${chainId}
+      AND (
+        block_hash = ${block.hash}
+        ${hashes.length > 0 ? sql`OR hash = ANY(${sql.array(hashes)}::text[])` : sql``}
+      )
+  `;
   for (const row of block.transactions) {
     await sql`
       INSERT INTO explorer_txs (
