@@ -10,6 +10,7 @@ import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
+import { CancelMany } from './CancelMany';
 import { EditOrder } from './EditOrder';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
@@ -40,9 +41,28 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
   // answer must stay on screen either way.
   const [editing, setEditing] = useState<Order | null>(null);
   const editingMarket = editing ? precision.marketOf(editing.symbol) : undefined;
+  // Orders ticked for a batch cancel. An id no longer in Open orders is never sent.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const listed = openOrders.status === 'ready' ? new Set(openOrders.data.map((order) => order.id)) : null;
+  const selected = listed ? new Set([...ticked].filter((id) => listed.has(id))) : ticked;
+  const onSelect = (id: string, on: boolean) =>
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   const orderTable = (rows: Order[], withAction: boolean) => (
-    <OrdersTable rows={rows} withAction={withAction} precision={precision} onChanged={refresh} desk onEdit={setEditing} />
+    <OrdersTable
+      rows={rows}
+      withAction={withAction}
+      precision={precision}
+      onChanged={refresh}
+      desk
+      onEdit={setEditing}
+      {...(withAction ? { selected, onSelect } : {})}
+    />
   );
 
   return (
@@ -56,7 +76,17 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           <TabsTab value="positions">{t('Positions')}</TabsTab>
         </TabsList>
         {tab === 'open' && openOrders.status === 'ready' ? (
-          <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
+          <>
+            <CancelAll symbol={market.symbol} orders={openOrders.data} onDone={refresh} />
+            <CancelMany
+              orders={openOrders.data}
+              selected={selected}
+              onDone={() => {
+                setTicked(new Set());
+                refresh();
+              }}
+            />
+          </>
         ) : null}
         {showAll && userId ? (
           <a className="dk-viewall" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>

@@ -110,6 +110,27 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     }
   });
 
+  it("cancel-all narrowed to spot cancels only spot markets' orders and leaves another product's alone", async () => {
+    await rest(alice, btc, 'kind-spot');
+    await rest(alice, eth, 'kind-other');
+    // Stand-in for another product: the filter reads the market's kind, nothing else about it.
+    await db.sql`UPDATE trade.markets SET kind = 'futures' WHERE id = ${eth.id}`;
+    const cancelled = await trade.cancelAllOrders(alice, undefined, 'spot');
+    expect(cancelled.map((o) => o.clientOrderId)).toEqual(['kind-spot']);
+    const left = await db.sql<Array<{ client_order_id: string; status: string }>>`
+      SELECT client_order_id, status FROM trade.orders WHERE user_id = ${ALICE} ORDER BY client_order_id`;
+    expect(left).toEqual([
+      { client_order_id: 'kind-other', status: 'open' },
+      { client_order_id: 'kind-spot', status: 'cancelled' },
+    ]);
+    // With no kind, every market's orders go.
+    expect((await trade.cancelAllOrders(alice)).map((o) => o.clientOrderId)).toEqual(['kind-other']);
+  });
+
+  it('a cancel of an id that is not an order id is not found, never a database error', async () => {
+    await expect(trade.cancelOrder(alice, 'not-an-order')).rejects.toMatchObject({ code: 'trade.order_not_found' });
+  });
+
   it('with no cap published nothing is compared', async () => {
     for (let i = 0; i < 6; i += 1) await rest(alice, btc, `free-${i}`);
     expect(await db.sql`SELECT id FROM trade.orders WHERE user_id = ${ALICE}`).toHaveLength(6);

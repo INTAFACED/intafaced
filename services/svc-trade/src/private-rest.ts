@@ -204,7 +204,7 @@ export interface PrivateRestDeps {
   /** Native matching PATCH. Qty-down same price only. */
   amendOrder?(principal: Principal, orderId: string, input: AmendOrderInput): Promise<AmendOrderOutcome>;
   /** Cancel every open/pending order (optional market). Sequential money path. */
-  cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]>;
+  cancelAllOrders(principal: Principal, marketId?: string, kind?: 'spot' | 'futures' | 'options'): Promise<OrderRecord[]>;
   /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
   armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
@@ -2860,14 +2860,20 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   // ── Cancel all (static path — before :id is fine; Fastify matches exact) ──
 
   /**
-   * DELETE /api/v1/orders[?symbol=] → TradeService.cancelAllOrders.
+   * DELETE /api/v1/orders[?symbol=][&kind=spot|futures|options] → TradeService.cancelAllOrders.
    * Same money path as single cancel (engine first, finalize second), sequential.
    * trade:write is enforced inside TradeService; jurisdiction here matches create/cancel.
+   * `kind` keeps the cancel to one product ("spot only"); any other value is refused, never read as "all".
    */
-  app.delete<{ Querystring: { symbol?: string } }>('/api/v1/orders', async (req, reply) => {
+  app.delete<{ Querystring: { symbol?: string; kind?: string } }>('/api/v1/orders', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
+
+    const kindRaw = req.query.kind;
+    if (kindRaw !== undefined && kindRaw !== 'spot' && kindRaw !== 'futures' && kindRaw !== 'options') {
+      return sendCcxt(reply, badRequest('kind must be spot, futures or options', 'trade.invalid_filter'));
+    }
 
     let marketId: string | undefined;
     const symbolRaw = req.query.symbol;
@@ -2881,7 +2887,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const cancelled = await deps.cancelAllOrders(principal, marketId);
+      const cancelled = await deps.cancelAllOrders(principal, marketId, kindRaw);
       const symbolByMarket = new Map<string, string>();
       const wire = [];
       for (const order of cancelled) {

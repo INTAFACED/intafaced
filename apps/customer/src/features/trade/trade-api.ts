@@ -40,6 +40,23 @@ export const orderSchema = contractOrderSchema.extend({
 });
 export type Order = z.infer<typeof orderSchema>;
 export type ReviewedOrder = Pick<Order, 'id' | 'symbol'>;
+/** One answer per id of a batch cancel, in the order sent: cancelled, refused with the service's reason, or unknown. */
+export const batchCancelSchema = z.object({
+  atomic: z.literal(false),
+  results: z.array(
+    z.object({
+      index: z.number().int().nonnegative(),
+      orderId: z.string().nullable(),
+      status: z.enum(['success', 'refused', 'unknown']),
+      order: orderSchema.optional(),
+      error: z
+        .object({ code: z.string().optional(), message: z.string().optional(), intafacedCode: z.string().optional() })
+        .passthrough()
+        .optional(),
+    }),
+  ),
+});
+export type BatchCancel = z.infer<typeof batchCancelSchema>;
 export function isTerminalOrder(order: Order) {
   return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
 }
@@ -375,6 +392,20 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         : api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
     /** Cancel every open order in every market (DELETE /orders with no symbol). The reply lists the orders it cancelled. */
     cancelAllMarkets: (): Promise<ApiResult<Order[]>> => api.rest('/orders', z.array(orderSchema), { method: 'DELETE' }),
+    /** Cancel every open order in every spot market, and none of another product's (DELETE /orders?kind=spot). */
+    cancelAllSpot: (): Promise<ApiResult<Order[]>> =>
+      api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { kind: 'spot' } }),
+    /** Cancel these orders by id in one request (POST /orders/batch-cancel). A reply that does not answer each id, in order, is refused. */
+    async cancelBatch(ids: readonly string[]): Promise<ApiResult<BatchCancel>> {
+      if (ids.length === 0) return { ok: false as const, reason: 'error' as const, message: 'no orders chosen' };
+      const result = await api.rest('/orders/batch-cancel', batchCancelSchema, { method: 'POST', body: { ids } });
+      if (
+        result.ok &&
+        (result.data.results.length !== ids.length || result.data.results.some((row, i) => row.index !== i || row.orderId !== ids[i]))
+      )
+        return tradeRefusal('cancellationDoesNotConfirmTheOriginalOrderSTerminalOutcomeCheck', { reason: 'uncertain' });
+      return result;
+    },
     async amend(reviewed: ReviewedOrder, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });

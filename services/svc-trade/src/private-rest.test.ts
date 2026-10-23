@@ -1765,6 +1765,30 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  it('DELETE /orders?kind=spot: passes the product; an unknown kind is refused without cancelAll', async () => {
+    let seenKind: string | undefined = 'unset';
+    let cancelled = false;
+    const app = await build(
+      deps({
+        cancelAllOrders: async (_p, _marketId, kind) => {
+          cancelled = true;
+          seenKind = kind;
+          return [];
+        },
+      }),
+    );
+    const ok = await app.inject({ method: 'DELETE', url: '/api/v1/orders?kind=spot', headers: signedHeaders() });
+    expect(ok.statusCode).toBe(200);
+    expect(seenKind).toBe('spot');
+
+    cancelled = false;
+    const bad = await app.inject({ method: 'DELETE', url: '/api/v1/orders?kind=margin', headers: signedHeaders() });
+    expect(bad.statusCode).toBe(400);
+    expect(JSON.stringify(bad.json())).toContain('trade.invalid_filter');
+    expect(cancelled).toBe(false);
+    await app.close();
+  });
+
   it('DELETE /orders?symbol=: filters market; unknown symbol → 404 without cancelAll', async () => {
     let seenMarket: string | undefined = 'unset';
     let cancelled = false;

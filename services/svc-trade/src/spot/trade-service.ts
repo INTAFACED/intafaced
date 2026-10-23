@@ -766,6 +766,7 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
   return value;
 }
 
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class TradeService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
@@ -2848,19 +2849,22 @@ export class TradeService {
    * Cancel every open/pending order for the principal (optional market filter).
    * Sequential on purpose: each cancel is its own hold-release money path.
    */
-  async cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]> {
+  async cancelAllOrders(principal: Principal, marketId?: string, kind?: MarketKind): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:write');
     // Mutation, not a list door: pull every rest for this principal. openOrders is a
     // published page and must not silently leave orders past LIMIT uncancelled.
+    // `kind` narrows to one product's markets ("spot only" leaves futures and options orders alone).
     const rows = marketId
       ? await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `
       : await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `;
     const open = rows.map(toOrder);
@@ -4887,6 +4891,9 @@ export class TradeService {
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {
+    // Order ids are uuids. Anything else is no order (not found), never a database error that reads as an unknown
+    // outcome: a batch cancel answers such an id as refused and still cancels the rest.
+    if (!UUID_SHAPE.test(orderId)) return null;
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];
     return row ? toOrder(row) : null;

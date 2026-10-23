@@ -987,7 +987,7 @@ registerPrivateRest(app, {
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   replaceOrder: (principal, orderId, input) => trade.replaceOrder(principal, orderId, input),
   amendOrder: (principal, orderId, input) => trade.amendOrder(principal, orderId, input),
-  cancelAllOrders: (principal, marketId) => trade.cancelAllOrders(principal, marketId),
+  cancelAllOrders: (principal, marketId, kind) => trade.cancelAllOrders(principal, marketId, kind),
   armCancelAllAfter: (principal, timeoutSec) =>
     (trade as unknown as CancelAllAfterHost).armCancelAllAfter(
       principal,
