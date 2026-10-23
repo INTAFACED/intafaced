@@ -9,12 +9,14 @@ import { EDGE } from './stack.mjs';
 // from the formula, not read from the page.
 
 const MARKET = 'BTC-USDT';
+// The public routes name the pair with a slash (BTC/USDT), url-encoded in the path.
+const MARKET_PATH = encodeURIComponent('BTC/USDT');
 const CHART = `/charts/${MARKET}`;
 const BAR_LIMIT = 200;
 
 /** The public candles, oldest first: [t, o, h, l, c, v] as decimal strings. */
 async function candles(timeframe = '15m', limit = BAR_LIMIT) {
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${MARKET}?timeframe=${timeframe}&limit=${limit}`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${MARKET_PATH}?timeframe=${timeframe}&limit=${limit}`);
   if (!res.ok) throw new Error(`the public candle route answered ${res.status}`);
   return res.json();
 }
@@ -30,7 +32,7 @@ async function openChart(page, query = '') {
 async function addStudy(page, search, name) {
   await page.getByRole('button', { name: 'Indicators' }).click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill(search);
-  await page.getByRole('button', { name: `Add ${name}` }).click();
+  await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
 const legend = (page) => page.getByTestId('study-legend');
@@ -64,9 +66,10 @@ test('J-charts-desk-03 #2 adds a moving average with period 50 on High and sets 
   await openChart(page);
   await addStudy(page, 'sma', 'Simple moving average');
   await page.getByRole('button', { name: 'Settings for Simple moving average' }).click();
-  await page.getByLabel('Source').selectOption('high');
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox', { name: /^Source/ }).selectOption('high');
   await page.getByRole('textbox', { name: 'Period' }).fill('50');
-  await page.getByLabel('Colour').selectOption('ma-2');
+  await dialog.getByRole('combobox', { name: /^Colour/ }).selectOption('ma-2');
   await page.getByRole('button', { name: 'Apply' }).click();
   await expect(page.getByRole('button', { name: 'SMA 50' })).toBeVisible();
   await expect(row(page, 'sma-1')).toContainText('SMA 50 high');

@@ -8,16 +8,18 @@ import { EDGE } from './stack.mjs';
 
 const MARKET = 'BTC-USDT';
 const MARKET_NAME = 'BTC/USDT';
+// The public routes name the pair with a slash, url-encoded in the path.
+const MARKET_PATH = encodeURIComponent(MARKET_NAME);
 const CHART = `/charts/${MARKET}`;
 
 async function candles(timeframe, limit) {
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${MARKET}?timeframe=${timeframe}&limit=${limit}`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${MARKET_PATH}?timeframe=${timeframe}&limit=${limit}`);
   if (!res.ok) throw new Error(`the public candle route answered ${res.status}`);
   return res.json();
 }
 
 async function trades(limit = 500) {
-  const res = await fetch(`${EDGE}/api/v1/trades/${MARKET}?limit=${limit}`);
+  const res = await fetch(`${EDGE}/api/v1/trades/${MARKET_PATH}?limit=${limit}`);
   if (!res.ok) throw new Error(`the public trades route answered ${res.status}`);
   return res.json();
 }
@@ -31,7 +33,7 @@ async function openChart(page, query = '') {
 async function addStudy(page, search, name) {
   await page.getByRole('button', { name: 'Indicators' }).click();
   await page.getByRole('searchbox', { name: 'Search indicators' }).fill(search);
-  await page.getByRole('button', { name: `Add ${name}` }).click();
+  await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
 const legend = (page) => page.getByTestId('study-legend');
@@ -40,12 +42,11 @@ const row = (page, id) => page.locator(`[data-study="${id}"]`);
 test('J-charts-desk-04 #1 adds Ichimoku with 40 bars loaded: the lines that need 52 bars are absent and the legend says so', async ({
   page,
 }) => {
-  // The 52-bar rule is about the loaded bars, so the chart is set to the weekly interval, which a fresh stack has few of.
-  // Precondition for this draft: at least 26 weekly bars (the Kijun needs them) and fewer than 52 (span B needs 52).
-  const weekly = await candles('1w', 240);
-  expect(weekly.length).toBeGreaterThanOrEqual(26);
-  expect(weekly.length).toBeLessThan(52);
-  await openChart(page, '?interval=1w');
+  // The 52-bar rule is about the loaded bars, so the chart is set to the hourly interval. Precondition: fewer than 52
+  // hourly bars are loaded (span B needs 52); the count is read from the public route, not assumed.
+  const hourly = await candles('1h', 240);
+  expect(hourly.length).toBeLessThan(52);
+  await openChart(page, '?interval=1h');
   await addStudy(page, 'ichimoku', 'Ichimoku Cloud');
   await expect(row(page, 'ichimoku-1')).toContainText('Leading B: Needs 52 bars');
 });
@@ -105,10 +106,15 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
   await openChart(page, '?interval=15m');
   await addStudy(page, 'htf', 'Higher-timeframe moving average');
   await page.getByRole('button', { name: 'Settings for Higher-timeframe moving average' }).click();
-  await page.getByLabel('Interval').selectOption('1h');
+  await page
+    .getByRole('dialog')
+    .getByRole('combobox', { name: /^Interval/ })
+    .selectOption('1h');
   await page.getByRole('button', { name: 'Apply' }).click();
-  // The desk's candle source sends up to 240 hourly bars; the study reads the closed ones only (no look-ahead).
-  await expect(row(page, 'htf-sma-1')).toContainText('Higher bars read: 240');
+  // The study reads the closed hourly bars only (no look-ahead). The count is worked from the public hourly route.
+  const hourly = await candles('1h', 240);
+  const closed = hourly.filter((bar) => Number(bar[0]) + 3_600_000 <= Date.now()).length;
+  await expect(row(page, 'htf-sma-1')).toContainText(`Higher bars read: ${closed}`);
 });
 
 test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: each is refused by name on a spot market, nothing drawn', async ({
