@@ -129,6 +129,36 @@ describe('LOCAL TEST tape retime (PG-hard)', () => {
     expect((await fillRows()).map((r) => r.ts.getTime())).toEqual(after.map((r) => r.ts.getTime()));
   });
 
+  it('retimes two markets at once: a serialization conflict is tried again, not returned', async () => {
+    const OTHER = '88888888-8888-4888-8888-888888888888';
+    await db.sql`
+      INSERT INTO trade.markets (id, symbol, display_name, base_asset, quote_asset, tick_size, lot_size, min_qty, max_qty, min_notional, maker_bps, taker_bps)
+      VALUES (${OTHER}, 'ETH/USDT', 'ETH/USDT', 'ETH', 'USDT', '0.01', '0.0001', '0.0001', '1000', '1', 10, 20)`;
+    for (const seq of [1, 2, 3]) await match(seq);
+    await db.sql`
+      INSERT INTO trade.orders (id, user_id, market_id, client_order_id, side, type, price, qty, filled_qty, status, hold_asset, hold_amount)
+      SELECT gen_random_uuid(), user_id, ${OTHER}, client_order_id || '-eth', side, type, price, qty, filled_qty, status, hold_asset, hold_amount
+        FROM trade.orders`;
+    await db.sql`
+      INSERT INTO trade.fills (id, order_id, counter_order_id, market_id, user_id, side, liquidity, price, qty, quote_amount,
+                               fee_asset, fee_amount, fee_bps, sequence, ts)
+      SELECT gen_random_uuid(), eo.id, ec.id, ${OTHER}, f.user_id, f.side, f.liquidity, f.price, f.qty, f.quote_amount,
+             f.fee_asset, f.fee_amount, f.fee_bps, f.sequence, f.ts
+        FROM trade.fills f
+        JOIN trade.orders o ON o.id = f.order_id
+        JOIN trade.orders c ON c.id = f.counter_order_id
+        JOIN trade.orders eo ON eo.market_id = ${OTHER} AND eo.client_order_id = o.client_order_id || '-eth'
+        JOIN trade.orders ec ON ec.market_id = ${OTHER} AND ec.client_order_id = c.client_order_id || '-eth'`;
+    const startMs = NOW.getTime() - 3 * STEP;
+    const runs = Array.from({ length: 6 }, (_, i) =>
+      retimeLocalTestTape(db.sql, { marketId: i % 2 === 0 ? MARKET : OTHER, startMs, stepMs: STEP }, NOW),
+    );
+    const results = await Promise.all(runs);
+    expect(results.map((r) => r.fills)).toEqual([6, 6, 6, 6, 6, 6]);
+    const moved = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.fills WHERE ts < ${NOW}`;
+    expect(moved[0]?.n).toBe('12');
+  });
+
   it('refuses a market with any fill that is not a tape trade, and moves nothing', async () => {
     await match(1);
     await match(2, { takerClient: 'customer-order-1' });
