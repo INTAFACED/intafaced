@@ -11,6 +11,7 @@ import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
 import { kbArticleText } from './kb-text';
+import { canonicalUiLocale } from '../../shared/locale';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
 import '../more/support-desk.css';
@@ -47,7 +48,19 @@ export function PublicHelp() {
   const [window, setWindow] = useState({ actor, limit: 100 }),
     [retry, setRetry] = useState(0);
   const [read, setRead] = useState<Read | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const helpCentre = useHelpCentre();
+  // The owner's offered languages. None offered (blank) draws no picker: the reader reads in the site language.
+  const settings = helpCentre.status === 'ready' ? helpCentre.data : null;
+  const offered = settings?.languages?.length ? settings.languages : null;
+  const reading = !offered
+    ? null
+    : picked && offered.includes(picked)
+      ? picked
+      : offered.includes(requestedLocale)
+        ? requestedLocale
+        : (offered.find((tag) => tag === settings?.defaultLanguage) ?? offered[0]!);
+  const readingLocale = (selection.kind === 'article' && reading && canonicalUiLocale(reading)) || requestedLocale;
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
@@ -106,7 +119,7 @@ export function PublicHelp() {
     if (visible && (selection.kind !== 'browse' || visible.status === 'failed')) heading.current?.focus();
   }, [context, read]);
 
-  const rendered = (article: HelpArticle) => kbArticleText(article, requestedLocale);
+  const rendered = (article: HelpArticle) => kbArticleText(article, readingLocale);
   /** Paragraphs as the reader sees them: a stored body by its blank lines, a catalogue body by its sentences. */
   const paragraphs = (article: HelpArticle) => {
     const text = rendered(article);
@@ -117,6 +130,11 @@ export function PublicHelp() {
     const text = rendered(article);
     if (text.stored) return false;
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
+  };
+  /** The language the reader actually sees an answer in: its body's, or its title's when it has no body text. */
+  const shownIn = (article: HelpArticle) => {
+    const text = rendered(article);
+    return text.bodyLanguage ?? text.titleLanguage ?? null;
   };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
   const typed = filterText.trim();
@@ -221,7 +239,27 @@ export function PublicHelp() {
             </span>
           </p>
         )}
-        {article && !switchedOff && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
+        {article && !switchedOff && offered && reading && (
+          <div className="help__language">
+            <label>
+              <span>{t('articleLanguage')}</span>{' '}
+              <select name="help-language" value={reading} onChange={(event) => setPicked(event.target.value)}>
+                {offered.map((tag) => (
+                  <option key={tag} value={tag} lang={tag}>
+                    {languageName(tag, tag)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {shownIn(article) !== reading && (
+              <p className="help__caption" role="status" data-testid="help-language-fallback">
+                {t('notTranslatedInto')} <span lang={reading}>{languageName(reading, requestedLocale)}</span>. {t('shownIn')}{' '}
+                <span lang={shownIn(article) ?? 'und'}>{shownIn(article) ? languageName(shownIn(article)!, requestedLocale) : '—'}</span>.
+              </p>
+            )}
+          </div>
+        )}
+        {article && !switchedOff && !offered && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
       </header>
       {settingsLoading ? (
         <Loading label={t('loadingCatalogue')} />
@@ -430,4 +468,13 @@ export function PublicHelp() {
       )}
     </div>
   );
+}
+
+/** A language tag by its name, written in the given language; the tag itself when the runtime has no name for it. */
+function languageName(tag: string, inLanguage: string): string {
+  try {
+    return new Intl.DisplayNames([inLanguage], { type: 'language' }).of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
 }

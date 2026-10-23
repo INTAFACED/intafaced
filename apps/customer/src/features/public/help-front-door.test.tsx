@@ -190,3 +190,58 @@ describe('the help centre front door', () => {
     expect(host.querySelector('[data-testid="request-sign-in"] a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport%3Fq%3Dpasskey');
   });
 });
+
+describe('an answer in the languages the owner offers', () => {
+  const stored = {
+    id: 'withdraw-time',
+    titleKey: 'support.kb.stored.title',
+    bodyKey: 'support.kb.stored.body',
+    title: 'How long a withdrawal takes',
+    body: 'Paste <script>alert(1)</script> nowhere.',
+    language: 'en',
+    published: true,
+    version: 1,
+  };
+  const settings = (languages: string[] | null) => ({
+    name: null,
+    address: null,
+    defaultLanguage: null,
+    languages,
+    setupMode: null,
+    published: null,
+    revision: 1,
+    updatedAt: null,
+  });
+  const open = async (languages: string[] | null) => {
+    world.query = async (_module, procedure) =>
+      procedure === 'getKb'
+        ? { ok: true, data: stored }
+        : procedure === 'helpCentre'
+          ? { ok: true, data: settings(languages) }
+          : { ok: true, data: [] };
+    history.replaceState(null, '', '/helpdetail?id=withdraw-time');
+    await mount();
+  };
+
+  it('offers a picker; another language shows the answer with a label naming the language it is shown in', async () => {
+    await open(['en', 'es']);
+    const picker = host.querySelector<HTMLSelectElement>('select[name="help-language"]')!;
+    expect([...picker.options].map((o) => o.value)).toEqual(['en', 'es']);
+    expect(host.querySelector('[data-testid="help-language-fallback"]')).toBeNull();
+    await act(async () => {
+      picker.value = 'es';
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const label = host.querySelector('[data-testid="help-language-fallback"]')!;
+    expect(label.textContent).toContain('Spanish');
+    expect(label.textContent).toContain('English');
+    expect(host.querySelector('.help__body')!.textContent).toContain('<script>alert(1)</script>');
+    expect(host.querySelector('.help__body script')).toBeNull();
+  });
+
+  it('draws no picker while the owner offers no language', async () => {
+    await open(null);
+    expect(host.querySelector('select[name="help-language"]')).toBeNull();
+    expect(host.querySelector('.help__body')!.textContent).toContain('Paste');
+  });
+});
