@@ -44,6 +44,7 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
+import type { GatedContract, GatedListSubject } from './futures/gated-list.js';
 import { attachMatchedOrderRoutes, type MatchedOrdersRestDeps } from './futures/matched-orders-rest.js';
 import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
 import { resolveOpenPositionMode } from './futures/account-mode.js';
@@ -106,6 +107,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
  *   GET    /api/v1/account/agreements         scope: trade:read  (current risk agreement + margin terms for the caller's region, accepted or not)
  *   POST   /api/v1/account/agreements/accept  scope: trade:write + jurisdiction (accept the named current version; idempotent per user+kind+version)
+ *   GET    /api/v1/account/gated-list         scope: trade:read  (each futures contract open or blocked for the caller, with every reason)
  *   GET    /api/v1/account/derivatives-eligibility        scope: trade:read  (level state, quiz questions without answers)
  *   POST   /api/v1/account/derivatives-eligibility/assess scope: trade:write + jurisdiction (submit quiz answers; idempotent on clientSubmissionId)
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
@@ -167,6 +169,8 @@ export interface PrivateRestDeps {
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
+  /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
+  gatedList?: (subject: GatedListSubject) => Promise<readonly GatedContract[]>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
@@ -1770,6 +1774,27 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(200).send(accepted);
     } catch (err) {
       if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** D-ops-01: each futures contract open or blocked for this account, with every reason. A read; it opens nothing. */
+  app.get('/api/v1/account/gated-list', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+      if (!deps.gatedList)
+        return reply.code(503).send({ error: 'trade.gated_list_unmounted', message: 'The gated list is not wired on this deployment.' });
+      const contracts = await deps.gatedList({
+        userId: principal.userId,
+        tier: principal.tier ?? null,
+        region: contextFrom(req).region ?? null,
+      });
+      return reply.code(200).send({ contracts });
+    } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;

@@ -1,6 +1,6 @@
 /**
  * Unit card — live host does not inject placeholder D3 ladder into jobs
- * 1. Promise: startFuturesJobs omits ladderPolicy until owner names D3 rungs
+ * 1. Promise: startFuturesJobs takes no ladder until the owner names D3 rungs (TRADE_FUTURES_LADDER_POLICY)
  * 2. Break: index.ts passes DEFAULT_FUTURES_LADDER_POLICY or a maintenanceBps number
  * 3. Done bar: source has neither; omitted policy stays skip (skipped_d3_unset)
  * 4. Class N
@@ -22,9 +22,11 @@ describe('live host does not invent D3 ladder numbers', () => {
     expect(indexSource).not.toMatch(/DEFAULT_FUTURES_LADDER_POLICY/);
   });
 
-  it('startFuturesJobs omits ladderPolicy and maintenanceBps', () => {
+  it('startFuturesJobs takes no ladder but the owner\u2019s published one, and no maintenanceBps', () => {
     expect(indexSource).toMatch(/startFuturesJobs\(/);
-    expect(indexSource).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}ladderPolicy:/);
+    // The only ladder is TRADE_FUTURES_LADDER_POLICY as the owner set it (blank: none). Never a table in code.
+    const ladders = [...indexSource.matchAll(/ladderPolicy:\s*([^\n]+)/g)].map((m) => m[1]!.trim());
+    expect(ladders).toEqual(['ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),']);
     expect(indexSource).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}maintenanceBps:/);
   });
 });

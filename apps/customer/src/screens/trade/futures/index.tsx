@@ -6,6 +6,7 @@ import { navigate } from '../../../app/location';
 import { useSession } from '../../../features/session/session';
 import { useBalances } from '../desk/data';
 import { useNow } from '../desk/hooks';
+import { AccessPanel } from './AccessPanel';
 import { AdlTab } from './AdlTab';
 import { ContractStrip } from './ContractStrip';
 import { EmptyDesk } from './EmptyDesk';
@@ -25,6 +26,7 @@ import {
   useClosedPositions,
   useFundingRate,
   useFuturesMarkets,
+  useFuturesOrders,
   useFuturesRefresh,
   useMarginCalls,
   useOpenPositions,
@@ -57,6 +59,8 @@ export default function FuturesScreen({ search }: ScreenProps) {
   const balances = useBalances();
   const disclosure = useAdlDisclosure();
   const events = useAdlEvents(tab === 'adl');
+  const openOrders = useFuturesOrders('open', tab === 'orders');
+  const allOrders = useFuturesOrders('all', tab === 'orders');
 
   const planeOff = (positions.status === 'refused' && isPlaneOff(positions.code)) || (strip.status === 'refused' && isPlaneOff(strip.code));
   const selected: Position | null = useMemo(
@@ -92,6 +96,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
     );
     side = (
       <>
+        {userId ? <AccessPanel symbol={market.symbol} onChanged={refresh} /> : null}
         <Ticket
           market={market}
           strip={strip}
@@ -99,9 +104,10 @@ export default function FuturesScreen({ search }: ScreenProps) {
           disclosure={disclosure}
           planeOff={planeOff}
           now={now}
-          onOpened={() => {
+          onOpened={(order) => {
             refresh();
-            setTab('positions');
+            // An order that rests (or rests in part) is found under Orders; a filled one opened a position.
+            setTab(order && order.status === 'open' ? 'orders' : 'positions');
           }}
         />
       </>
@@ -148,7 +154,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
           />
         </TabsPanel>
         <TabsPanel value="orders">
-          <OrdersTab />
+          <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
         </TabsPanel>
         <TabsPanel value="history">
           <HistoryTab closed={closed} />

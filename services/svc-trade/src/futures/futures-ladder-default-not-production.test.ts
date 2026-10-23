@@ -33,7 +33,9 @@ describe('production ladder module does not ship invented D3 rungs', () => {
     expect(harness).toMatch(/Test-only ladder numbers/);
   });
 
-  it('live host still omits ladderPolicy', () => {
-    expect(jobsHost).not.toMatch(/startFuturesJobs\([\s\S]{0,1500}ladderPolicy:/);
+  it('live host passes no ladder but the owner\u2019s published setting', () => {
+    expect(jobsHost).not.toMatch(
+      /startFuturesJobs\([\s\S]{0,1500}ladderPolicy:(?!\s*ownerLadderPolicy\(env\.TRADE_FUTURES_LADDER_POLICY\))/,
+    );
   });
 });
