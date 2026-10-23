@@ -130,7 +130,12 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
       .withUsername('intafaced')
       .withPassword('intafaced')
       .start();
-    return { url: container.getConnectionUri(), stop: async () => container.stop() };
+    return {
+      url: container.getConnectionUri(),
+      stop: async () => {
+        await container.stop();
+      },
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`MC-token-01 is PG-hard. TEST_DATABASE_URL unset and Testcontainers failed: ${msg}`);
