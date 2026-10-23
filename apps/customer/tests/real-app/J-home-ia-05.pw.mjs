@@ -86,3 +86,69 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
   await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   expect(await page.locator('main').innerText()).not.toMatch(uuidText);
 });
+
+/** Counts the browser's permission prompts on this page, from before the app loads. */
+async function countPrompts(page) {
+  await page.addInitScript(() => {
+    window.__prompts = 0;
+    const ask = Notification.requestPermission.bind(Notification);
+    Notification.requestPermission = (...args) => {
+      window.__prompts += 1;
+      return ask(...args);
+    };
+  });
+  return () => page.evaluate(() => window.__prompts);
+}
+
+const pushCard = (page) => page.locator('.nf-channelcard[data-channel="push"]');
+
+test(`${J} #4 Allow notifications on this device asks the browser only on the press, and a block says what is lost and how to change it`, async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const prompts = await countPrompts(page);
+  await signIn(page, who);
+  await page.goto('/notifications?view=settings');
+  const card = pushCard(page);
+  await expect(card.getByRole('button', { name: 'Allow notifications on this device' })).toBeVisible();
+  // Nothing is asked, and no state is claimed, on load.
+  expect(await prompts()).toBe(0);
+  await expect(card.locator('.nf-push__state')).toHaveCount(0);
+  // This browser answers the prompt with a block (no grant was given to the context).
+  await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  await expect(card.locator('.nf-push__state')).toHaveText('Blocked on this device.');
+  expect(await prompts()).toBe(1);
+  await expect(card).toContainText('No alert reaches this device while notifications are blocked; your in-app inbox still works.');
+  await expect(card).toContainText('open this site’s settings in your browser, allow notifications');
+  // Nothing was registered: the device is not on the account.
+  const stored = await (await api(who)).get('/api/notify/trpc/notify.targets');
+  expect(stored.body.result.data.filter((row) => row.channel === 'push')).toEqual([]);
+  await context.close();
+});
+
+test(`${J} #5 allowed while the push gateway is not configured: the service-off sentence with vendor.push, nothing registered, and an empty inbox stays an empty state`, async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  await context.grantPermissions(['notifications']);
+  const page = await context.newPage();
+  const prompts = await countPrompts(page);
+  await signIn(page, who);
+  await page.goto('/notifications?view=settings');
+  const card = pushCard(page);
+  await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  await expect(card.locator('.nf-push__state')).toHaveText('Allowed on this device, not registered.');
+  // Already allowed: the browser is not asked again.
+  expect(await prompts()).toBe(0);
+  const off = card.locator('[data-not-connected="vendor.push"]');
+  await expect(off).toHaveText('Registering this device needs a push delivery gateway. It is switched off in this build. vendor.push');
+  const stored = await (await api(who)).get('/api/notify/trpc/notify.targets');
+  expect(stored.body.result.data.filter((row) => row.channel === 'push')).toEqual([]);
+  // The inbox (all read since #3) shows its empty Unread state, never the service-off notice.
+  await page.goto('/notifications');
+  await page.getByRole('tab', { name: 'Unread' }).click();
+  await expect(page.getByText("You're all caught up.")).toBeVisible();
+  await expect(page.locator('[data-not-connected]')).toHaveCount(0);
+  await context.close();
+});
