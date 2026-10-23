@@ -41,6 +41,7 @@ import { DISPLAY_STATUSES, ORDER_TABS, displayStatus, tabOf } from './order-list
 import { EXPORT_FORMATS } from './export-receipt.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
+import type { ReviewRecord } from './reviews.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 
@@ -310,8 +311,16 @@ const reputationOutput = z.object({
   completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() }),
   /** Buyer side: average seconds from escrow lock to "marked paid". Null with no sample, never 0-as-fast. */
   avgPaySecs: z.number().int().nonnegative().nullable(),
-  /** Order reviews arrive with P-ads-merchant-21. Until then there is no rating, and none is invented. */
-  rating: z.null(),
+  /**
+   * P-ads-merchant-21: visible good/bad counts about this person.
+   * Null when nothing is visible. A hidden review is not a zero.
+   */
+  rating: z
+    .object({
+      good: z.number().int().nonnegative(),
+      bad: z.number().int().nonnegative(),
+    })
+    .nullable(),
   /** Identity verification level only (no documents). Null when identity has not published it. */
   verification: z.object({ level: z.string().min(1) }).nullable(),
   /**
@@ -459,6 +468,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.security_change_lock_unset':
       case 'p2p.invalid_security_change_lock':
       case 'p2p.security_change_lock_unwired':
+      case 'p2p.review_list_limit_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -486,6 +496,7 @@ function toTrpcError(err: unknown): TRPCError {
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
       case 'p2p.appeal_used':
+      case 'p2p.review_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -522,6 +533,8 @@ function toTrpcError(err: unknown): TRPCError {
       // The caller can fix it — by being a person. Reachable only from a
       // principal whose user id is not a canonical UUID, which is a wiring
       // fault or a machine wearing a moderator's session.
+      case 'p2p.review_not_eligible':
+      case 'p2p.explanation_required':
       case 'p2p.ruling_not_attributed':
         // `offer_method_unsupported` is no longer reachable from `trades.take`
         // — that refusal goes through `refuseTake` so it is indistinguishable
@@ -624,6 +637,40 @@ const merchantEventOutput = z.object({
   actorScope: z.string(),
   createdAt: z.string(),
 });
+
+const reviewOutput = z.object({
+  id: z.string().uuid(),
+  tradeId: z.string().uuid(),
+  authorId: z.string(),
+  subjectId: z.string(),
+  rating: z.enum(['good', 'bad']),
+  comment: z.string(),
+  explanation: z.string().nullable(),
+  reply: z.string().nullable(),
+  repliedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  hidden: z.boolean(),
+  hiddenReason: z.string().nullable(),
+});
+
+function toReviewOut(row: ReviewRecord): z.infer<typeof reviewOutput> {
+  return {
+    id: row.id,
+    tradeId: row.tradeId,
+    authorId: row.authorId,
+    subjectId: row.subjectId,
+    rating: row.rating,
+    comment: row.comment,
+    explanation: row.explanation,
+    reply: row.reply,
+    repliedAt: row.repliedAt ? row.repliedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    hidden: row.hidden,
+    hiddenReason: row.hiddenReason,
+  };
+}
 
 export function createP2pRouter(
   p2p: P2pService,
@@ -2559,6 +2606,104 @@ export function createP2pRouter(
         ),
     }),
 
+    /**
+     * P-ads-merchant-21. One review per party on a released trade. The order
+     * page and the counterparty card read these. A second leave returns the
+     * first. Edit needs an owner window; a blank window refuses.
+     */
+    reviews: router({
+      leave: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            tradeId: z.string().uuid(),
+            rating: z.enum(['good', 'bad']),
+            comment: z.string().max(2000).optional(),
+            explanation: z.string().max(2000).optional(),
+          }),
+        )
+        .output(reviewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toReviewOut(
+              await p2p.leaveOrderReview({
+                tradeId: input.tradeId,
+                authorId: requireUser(ctx),
+                rating: input.rating,
+                ...(input.comment === undefined ? {} : { comment: input.comment }),
+                ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
+              }),
+            ),
+          ),
+        ),
+
+      edit: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            tradeId: z.string().uuid(),
+            rating: z.enum(['good', 'bad']).optional(),
+            comment: z.string().max(2000).optional(),
+            explanation: z.string().max(2000).optional(),
+          }),
+        )
+        .output(reviewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toReviewOut(
+              await p2p.editOrderReview({
+                tradeId: input.tradeId,
+                authorId: requireUser(ctx),
+                ...(input.rating === undefined ? {} : { rating: input.rating }),
+                ...(input.comment === undefined ? {} : { comment: input.comment }),
+                ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
+              }),
+            ),
+          ),
+        ),
+
+      reply: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().uuid(), text: z.string().max(2000) }))
+        .output(reviewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toReviewOut(await p2p.replyOrderReview({ tradeId: input.tradeId, subjectId: requireUser(ctx), text: input.text })),
+          ),
+        ),
+
+      list: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            userId: z.string().uuid(),
+            /** Omitted so a missing page reaches `p2p.review_list_limit_unset`, not a Zod "Required". Blank is not 50. */
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(200).nullable().optional(),
+          }),
+        )
+        .output(z.object({ reviews: z.array(reviewOutput), nextCursor: z.string().nullable() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const page = await p2p.listOrderReviews({
+              subjectId: input.userId,
+              viewerId: requireUser(ctx),
+              ...(input.limit === undefined ? {} : { limit: input.limit }),
+              ...(input.cursor ? { cursor: input.cursor } : {}),
+            });
+            return { reviews: page.reviews.map(toReviewOut), nextCursor: page.nextCursor };
+          }),
+        ),
+
+      moderate: merchantApiProcedure('p2p:read')
+        .input(z.object({ reviewId: z.string().uuid(), reason: z.string().min(1).max(2000) }))
+        .output(reviewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            assertModerator(ctx.principal, moderatorUserIds);
+            return toReviewOut(
+              await p2p.moderateOrderReview({ reviewId: input.reviewId, actorId: requireUser(ctx), reason: input.reason }),
+            );
+          }),
+        ),
+    }),
+
     reputation: router({
       /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
       myAppeal: merchantApiProcedure('p2p:read')
@@ -2597,7 +2742,8 @@ export function createP2pRouter(
             };
             const trades30d = await p2p.tradesInWindow(input.userId);
             const { avgPaySecs } = await p2p.payTimingOf(input.userId);
-            const door = { ...reputationDoor, avgPaySecs, rating: null, verification: null as { level: string } | null };
+            const rating = await p2p.reviewRating(input.userId);
+            const door = { ...reputationDoor, avgPaySecs, rating, verification: null as { level: string } | null };
             if (!publicProfile) {
               return {
                 ...door,

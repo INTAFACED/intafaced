@@ -63,6 +63,18 @@ import {
   type ExportPolicy,
 } from './export-receipt.js';
 import { ownStats, payTiming, type OwnStats } from './user-center.js';
+import {
+  ReviewError,
+  editReview,
+  leaveReview,
+  listReviews,
+  moderateReview,
+  replyReview,
+  reviewRatingOf,
+  type ReviewRating,
+  type ReviewRatingCounts,
+  type ReviewRecord,
+} from './reviews.js';
 import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
 import {
   isVerificationTier,
@@ -274,7 +286,12 @@ export type P2pErrorCode =
   // No identity event carries the change time. A published duration is not 24h.
   | 'p2p.security_change_lock_unset'
   | 'p2p.invalid_security_change_lock'
-  | 'p2p.security_change_lock_unwired';
+  | 'p2p.security_change_lock_unwired'
+  // P-ads-merchant-21. A second leave returns the first; a different reply does not.
+  | 'p2p.review_not_eligible'
+  | 'p2p.review_exists'
+  | 'p2p.explanation_required'
+  | 'p2p.review_list_limit_unset';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -319,6 +336,18 @@ export class P2pError extends Error {
  */
 export function unknownTrade(tradeId: string): P2pError {
   return new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+}
+
+/** reviews.list page size. Blank / non-finite / <1 refuses. Never invent 50. */
+export function assertReviewListLimit(limit: number | undefined): number {
+  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit)) {
+    throw new P2pError(resolveP2pCopy(P2P_COPY.reviewListLimitUnset), 'p2p.review_list_limit_unset');
+  }
+  const n = Math.floor(limit);
+  if (n < 1) {
+    throw new P2pError(resolveP2pCopy(P2P_COPY.reviewListLimitUnset), 'p2p.review_list_limit_unset');
+  }
+  return Math.min(200, n);
 }
 
 /** Owner-published offers.list page size. Blank / non-finite / <1 refuses. Never invent 50. */
@@ -623,6 +652,11 @@ export interface P2pServiceOptions {
    * publish the change time, and 24 hours is not assumed.
    */
   securityChangeLockSeconds?: number | null;
+  /**
+   * P-ads-merchant-21: seconds after a review is left during which the author
+   * may edit it. Unset refuses `p2p.config_unset`. Never invent a window.
+   */
+  reviewEditWindowSeconds?: number;
 }
 
 /**
@@ -904,6 +938,7 @@ export class P2pService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly verificationLimits: VerificationLimitConfig;
   private readonly securityChangeLockSeconds: number | null;
+  private readonly reviewEditWindowSeconds: number | undefined;
   private tradingEnabled: boolean;
 
   constructor(
@@ -930,6 +965,7 @@ export class P2pService {
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.verificationLimits = options.verificationLimits ?? { status: 'absent' };
     this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
+    this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
   }
 
   /**
@@ -3552,6 +3588,67 @@ export class P2pService {
       throw new P2pError('p2p.appeal_used', 'p2p.appeal_used');
     }
     return toAppeal(inserted[0]);
+  }
+
+  private async asReview<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof ReviewError) throw new P2pError(err.message, err.code);
+      throw err;
+    }
+  }
+
+  /** P-ads-merchant-21: one review per party. A second leave returns the first. */
+  async leaveOrderReview(input: {
+    tradeId: string;
+    authorId: string;
+    rating: ReviewRating;
+    comment?: string;
+    explanation?: string;
+  }): Promise<ReviewRecord> {
+    return this.asReview(() => leaveReview(this.sql, input));
+  }
+
+  /** P-ads-merchant-21: edit only inside the owner window. Blank window refuses. */
+  async editOrderReview(input: {
+    tradeId: string;
+    authorId: string;
+    rating?: ReviewRating;
+    comment?: string;
+    explanation?: string;
+  }): Promise<ReviewRecord> {
+    const windowSeconds = this.reviewEditWindowSeconds;
+    if (windowSeconds === undefined || !Number.isInteger(windowSeconds) || windowSeconds < 1) {
+      throw new P2pError('p2p.config_unset: P2P_REVIEW_EDIT_WINDOW_SECONDS', 'p2p.config_unset');
+    }
+    return this.asReview(() => editReview(this.sql, { ...input, windowSeconds }));
+  }
+
+  /** P-ads-merchant-21: the person reviewed writes one reply. */
+  async replyOrderReview(input: { tradeId: string; subjectId: string; text: string }): Promise<ReviewRecord> {
+    return this.asReview(() => replyReview(this.sql, input));
+  }
+
+  /** P-ads-merchant-21: hide a review. The audit row commits with the hide. */
+  async moderateOrderReview(input: { reviewId: string; actorId: string; reason: string }): Promise<ReviewRecord> {
+    return this.asReview(() => moderateReview(this.sql, input));
+  }
+
+  /** P-ads-merchant-21: reviews about one person. Hidden rows stay with their author. */
+  async listOrderReviews(input: {
+    subjectId: string;
+    viewerId: string;
+    limit?: number;
+    cursor?: string | null;
+  }): Promise<{ reviews: ReviewRecord[]; nextCursor: string | null }> {
+    const limit = assertReviewListLimit(input.limit);
+    return this.asReview(() => listReviews(this.sql, { ...input, limit }));
+  }
+
+  /** Visible good/bad counts. Null when nothing is visible — not 0 and 0. */
+  async reviewRating(subjectId: string): Promise<ReviewRatingCounts | null> {
+    return reviewRatingOf(this.sql, subjectId);
   }
 
   /** P-ads-merchant-20: own performance, recomputed from trades. */
