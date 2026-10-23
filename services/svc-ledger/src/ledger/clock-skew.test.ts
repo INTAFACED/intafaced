@@ -1,14 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
-import postgres from 'postgres';
 import { issueAccessToken } from '@intafaced/auth';
+import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { LedgerError, parseAmount, recipes } from '@intafaced/ledger-client';
+import { IDEMPOTENCY_CONFLICT_CODE, LedgerError, parseAmount, recipes } from '@intafaced/ledger-client';
 import { registerOperatorHttp } from '../operator-http.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { LedgerService } from '../service.js';
 import { httpError } from '../s2s-http.js';
-import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW, assessClockSkew, parseClockSkewBoundMs } from './clock-skew.js';
+import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW, assessClockSkew, parseClockSkewBoundMs, readDatabaseNow } from './clock-skew.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const migrations = readdirSync(join(here, '..', '..', 'drizzle'))
+  .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
+  .sort()
+  .map((name) => readFileSync(join(here, '..', '..', 'drizzle', name), 'utf8'));
 
 const APP = new Date('2026-10-23T00:00:00.000Z');
 const DB = new Date('2026-10-23T00:00:00.000Z');
@@ -101,19 +110,7 @@ describe('LedgerService clock skew', () => {
     expect(reads).toBe(1);
   });
 
-  it('refuses the post before booking when an explicit bound is exceeded', async () => {
-    let reads = 0;
-    const service = new LedgerService({} as never, new MemoryEventBus(), {
-      clockSkewBoundMs: 0,
-      now: () => APP,
-      readDatabaseNow: async () => {
-        reads += 1;
-        return new Date(APP.getTime() + 5);
-      },
-    });
-    await expect(service.post(deposit)).rejects.toBeInstanceOf(LedgerError);
-    await expect(service.post(deposit)).rejects.toMatchObject({ code: WRITES_BLOCKED_CLOCK_SKEW });
-    expect(reads).toBe(2);
+  it('maps the skew refusal to 503', () => {
     expect(httpError(new LedgerError('blocked', WRITES_BLOCKED_CLOCK_SKEW))).toEqual({
       status: 503,
       body: { message: WRITES_BLOCKED_CLOCK_SKEW, code: WRITES_BLOCKED_CLOCK_SKEW },
@@ -170,38 +167,102 @@ describe('GET /operator/integrity/clock', () => {
 
 describe('clock skew against postgres', () => {
   const url = process.env.TEST_DATABASE_URL?.trim();
+  let db: TestDb | undefined;
+
+  beforeAll(async () => {
+    if (!url) throw new Error('TEST_DATABASE_URL is required for the clock-skew postgres proof');
+    db = await createTestDb({
+      service: 'ledgerclock',
+      url,
+      migrations: migrations.map((body) => (schema: string) => rewriteSchemaSql(body, 'ledger', schema)),
+    });
+  }, 120_000);
+
+  afterAll(async () => {
+    await db?.drop();
+  }, 30_000);
+
+  function opened(): TestDb {
+    if (!db) throw new Error('TEST_DATABASE_URL is required for the clock-skew postgres proof');
+    return db;
+  }
 
   it('refuses a blank bound and blocks an explicit zero against a shifted app clock', async () => {
-    if (!url) throw new Error('TEST_DATABASE_URL is required for the clock-skew postgres proof');
-    const sql = postgres(url, { max: 1, onnotice: () => undefined });
-    try {
-      const blank = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: null });
-      const unset = await blank.clockSkew();
-      expect(unset.ok).toBe(false);
-      if (unset.ok) return;
-      expect(unset.code).toBe(SKEW_BOUND_UNSET);
-      expect(unset.boundMs).toBeNull();
-      expect(unset.skewMs).toMatch(/^\d+$/);
+    const { sql } = opened();
+    const blank = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: null });
+    const unset = await blank.clockSkew();
+    expect(unset.ok).toBe(false);
+    if (unset.ok) return;
+    expect(unset.code).toBe(SKEW_BOUND_UNSET);
+    expect(unset.boundMs).toBeNull();
+    expect(unset.skewMs).toMatch(/^\d+$/);
 
-      const wide = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: 86_400_000 });
-      await expect(wide.clockSkew()).resolves.toMatchObject({ ok: true, code: null, boundMs: '86400000' });
+    const booked = recipes.deposit({
+      userId: USER,
+      assetId: 'USDT',
+      amount: parseAmount('1'),
+      rail: 'test',
+      railRef: 'clock-skew-blank',
+    });
+    await expect(blank.post(booked)).resolves.toMatchObject({ idempotencyKey: booked.idempotencyKey });
 
-      const zero = new LedgerService(sql, new MemoryEventBus(), {
-        clockSkewBoundMs: 0,
-        now: () => new Date(Date.now() + 60_000),
-      });
-      const blocked = await zero.clockSkew();
-      expect(blocked).toMatchObject({ ok: false, code: WRITES_BLOCKED_CLOCK_SKEW, boundMs: '0' });
-      const deposit = recipes.deposit({
-        userId: USER,
-        assetId: 'USDT',
-        amount: parseAmount('1'),
-        rail: 'test',
-        railRef: 'clock-skew-pg',
-      });
-      await expect(zero.post(deposit)).rejects.toMatchObject({ code: WRITES_BLOCKED_CLOCK_SKEW });
-    } finally {
-      await sql.end({ timeout: 1 });
-    }
+    const wide = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: 86_400_000 });
+    await expect(wide.clockSkew()).resolves.toMatchObject({ ok: true, code: null, boundMs: '86400000' });
+
+    const zero = new LedgerService(sql, new MemoryEventBus(), {
+      clockSkewBoundMs: 0,
+      now: () => new Date(Date.now() + 60_000),
+    });
+    const blocked = await zero.clockSkew();
+    expect(blocked).toMatchObject({ ok: false, code: WRITES_BLOCKED_CLOCK_SKEW, boundMs: '0' });
+    const deposit = recipes.deposit({
+      userId: USER,
+      assetId: 'USDT',
+      amount: parseAmount('1'),
+      rail: 'test',
+      railRef: 'clock-skew-pg',
+    });
+    await expect(zero.post(deposit)).rejects.toMatchObject({ code: WRITES_BLOCKED_CLOCK_SKEW });
+  });
+
+  it('replays a committed key after the app clock passes the bound, and conflicts a different body', async () => {
+    const { sql } = opened();
+    const databaseNow = await readDatabaseNow(sql);
+    let appNow = databaseNow;
+    const service = new LedgerService(sql, new MemoryEventBus(), {
+      clockSkewBoundMs: 1_000,
+      now: () => appNow,
+    });
+    const deposit = recipes.deposit({
+      userId: USER,
+      assetId: 'USDT',
+      amount: parseAmount('1'),
+      rail: 'test',
+      railRef: 'clock-skew-replay',
+    });
+    const posted = await service.post(deposit);
+    appNow = new Date(databaseNow.getTime() + 60_000);
+
+    const replay = await service.post(deposit);
+    expect(replay.id).toBe(posted.id);
+    expect(replay.hash).toBe(posted.hash);
+    expect(replay.idempotencyKey).toBe(posted.idempotencyKey);
+
+    const different = { ...deposit, reason: 'deposit.other-body' };
+    await expect(service.post(different)).rejects.toMatchObject({ code: IDEMPOTENCY_CONFLICT_CODE });
+
+    const fresh = recipes.deposit({
+      userId: USER,
+      assetId: 'USDT',
+      amount: parseAmount('2'),
+      rail: 'test',
+      railRef: 'clock-skew-fresh-while-skewed',
+    });
+    await expect(service.post(fresh)).rejects.toMatchObject({ code: WRITES_BLOCKED_CLOCK_SKEW });
+
+    const [row] = await sql<{ n: string }[]>`
+      select count(*)::text as n from ledger_tx where idempotency_key = ${deposit.idempotencyKey}
+    `;
+    expect(row?.n).toBe('1');
   });
 });

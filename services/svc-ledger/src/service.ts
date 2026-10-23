@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
-import { toWriteBlockError, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/write-block.js';
+import { toWriteBlockError } from './ledger/write-block.js';
 import { assessClockSkew, readDatabaseNow, type ClockSkewView } from './ledger/clock-skew.js';
 import {
   LedgerError,
@@ -46,9 +46,10 @@ import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type Operator
  *
  * The freeze switch OWNS no state. It reads and writes `posting_freeze`, and
  * `post()` is gated inside the engine's chain-tip transaction rather than here
- * (see postgres-ledger.ts). This class holds no cached copy on purpose: a cache
- * would be right until the moment a second replica moved the switch, which is
- * exactly the moment it matters.
+ * (see postgres-ledger.ts). Clock skew is the same gate: a committed key is
+ * answered before a new write is refused. This class holds no cached copy on
+ * purpose: a cache would be right until the moment a second replica moved the
+ * switch, which is exactly the moment it matters.
  */
 export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
@@ -70,6 +71,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       readDatabaseNow?: (sql: Sql) => Promise<Date>;
     } & IdempotencyConflictOptions = {},
   ) {
+    this.bootPostingEnabled = options.postingEnabled ?? true;
+    this.reconcileStatementTimeoutMs = options.reconcileStatementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS;
+    this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
+    this.now = options.now ?? (() => new Date());
+    this.readDatabaseNow = options.readDatabaseNow ?? readDatabaseNow;
     this.engine = new PostgresLedger(sql, {
       ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
       onIdempotencyMismatch:
@@ -77,12 +83,10 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         ((info) =>
           // One greppable line per mismatch: the alert for "a job re-ran under a booked key with a different body".
           console.warn(JSON.stringify({ level: 'warn', service: 'svc-ledger', event: 'ledger.idempotency_mismatch', ...info }))),
+      clockSkewBoundMs: this.clockSkewBoundMs,
+      now: this.now,
+      readDatabaseNow: this.readDatabaseNow,
     });
-    this.bootPostingEnabled = options.postingEnabled ?? true;
-    this.reconcileStatementTimeoutMs = options.reconcileStatementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS;
-    this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
-    this.now = options.now ?? (() => new Date());
-    this.readDatabaseNow = options.readDatabaseNow ?? readDatabaseNow;
   }
 
   /**
@@ -109,12 +113,6 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       async (span) => {
         let tx: LedgerTx;
         try {
-          if (this.clockSkewBoundMs !== null) {
-            const skew = await this.clockSkew();
-            if (!skew.ok && skew.code === WRITES_BLOCKED_CLOCK_SKEW) {
-              throw new LedgerError(`ledger writes are blocked: ${skew.code}`, skew.code);
-            }
-          }
           tx = await this.engine.post(request);
         } catch (err) {
           throw toWriteBlockError(err);

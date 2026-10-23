@@ -10,8 +10,10 @@ export { WRITES_BLOCKED_CLOCK_SKEW };
  * milliseconds. Blank is not a bound: the integrity read refuses
  * `ledger.skew_bound_unset` and does not treat blank as 0 (every write blocked)
  * or as unlimited (every write allowed). Explicit `0` is a real bound: any
- * positive difference blocks. A set bound that the clocks exceed refuses a post
- * with `ledger.writes_blocked_clock_skew` before the engine books anything.
+ * positive difference blocks. A set bound that the clocks exceed refuses a new
+ * write with `ledger.writes_blocked_clock_skew` after both idempotency lookups
+ * miss, before anything new is booked. A key that already committed replays,
+ * or returns `ledger.idempotency_conflict` when the body differs.
  */
 
 export const SKEW_BOUND_UNSET = 'ledger.skew_bound_unset' as const;

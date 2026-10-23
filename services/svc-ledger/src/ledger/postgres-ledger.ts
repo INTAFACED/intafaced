@@ -21,6 +21,7 @@ import {
   type PostRequest,
   type PostedEntry,
 } from '@intafaced/ledger-client';
+import { assessClockSkew, readDatabaseNow, WRITES_BLOCKED_CLOCK_SKEW } from './clock-skew.js';
 import { frozenMessage } from './freeze.js';
 import {
   HISTORY_MAX_ENTRIES,
@@ -36,6 +37,17 @@ import {
 } from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 import type { FeeRevenueRow } from './fee-revenue.js';
+
+export interface PostgresLedgerOptions extends IdempotencyConflictOptions {
+  /**
+   * Owner bound in milliseconds. Null or omitted is unset, not zero.
+   * Explicit 0 is a real bound. A blank bound must not be passed as 0.
+   */
+  readonly clockSkewBoundMs?: number | null;
+  readonly now?: () => Date;
+  /** Defaults to `clock_timestamp()`. Tests pass the service's reader. */
+  readonly readDatabaseNow?: (sql: Sql) => Promise<Date>;
+}
 
 /**
  * THE LEDGER, on Postgres.
@@ -64,7 +76,7 @@ import type { FeeRevenueRow } from './fee-revenue.js';
 export class PostgresLedger implements LedgerClient {
   constructor(
     private readonly sql: Sql,
-    private readonly options: IdempotencyConflictOptions = {},
+    private readonly options: PostgresLedgerOptions = {},
   ) {}
 
   async post(request: PostRequest): Promise<LedgerTx> {
@@ -89,6 +101,7 @@ export class PostgresLedger implements LedgerClient {
     assertIdempotencyKey(request.idempotencyKey);
 
     // Fast path — a retry that has already committed needs no lock at all.
+    // Clock skew is not consulted here: the value already moved.
     const existing = await this.loadClaimedTxByKey(this.sql, request.idempotencyKey);
     if (existing) return this.replayOf(existing, request);
 
@@ -129,6 +142,10 @@ export class PostgresLedger implements LedgerClient {
         // not the truth about old ones.
         const inTx = await this.loadClaimedTxByKey(tx, request.idempotencyKey);
         if (inTx) return this.replayOf(inTx, request);
+
+        // Both lookups missed, so this key has not committed. Same place as the
+        // freeze: a drifted clock refuses a new write and must not hide a retry.
+        await this.refuseNewWriteOnClockSkew(tx);
 
         const freezeRows = await tx<Array<{ frozen: boolean; reason: string | null }>>`
           SELECT frozen, reason FROM posting_freeze WHERE id = true
@@ -608,6 +625,25 @@ export class PostgresLedger implements LedgerClient {
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
+
+  /**
+   * New writes only. Caller has already missed both idempotency lookups.
+   * A blank bound reads no clock and is not treated as 0.
+   */
+  private async refuseNewWriteOnClockSkew(tx: Sql): Promise<void> {
+    const bound = this.options.clockSkewBoundMs;
+    if (bound === undefined || bound === null) return;
+    const now = this.options.now ?? (() => new Date());
+    const readNow = this.options.readDatabaseNow ?? readDatabaseNow;
+    const skew = assessClockSkew({
+      boundMs: bound,
+      appNow: now(),
+      databaseNow: await readNow(tx),
+    });
+    if (!skew.ok && skew.code === WRITES_BLOCKED_CLOCK_SKEW) {
+      throw new LedgerError(`ledger writes are blocked: ${skew.code}`, skew.code);
+    }
+  }
 
   private async upsertAccount(tx: Sql, ref: AccountRef): Promise<{ id: string; balance: bigint }> {
     // ON CONFLICT DO UPDATE (rather than DO NOTHING) so RETURNING always yields

@@ -111,9 +111,10 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['true', 'yes', 'on', '1'].includes(v.trim().toLowerCase()))),
 
       /**
-       * Milliseconds the app clock may differ from `clock_timestamp()` before posts refuse
-       * `ledger.writes_blocked_clock_skew`. Blank / unset stays unset (`ledger.skew_bound_unset`
-       * on the integrity read). No default. Explicit 0 is a real bound.
+       * Milliseconds the app clock may differ from `clock_timestamp()` before a new post
+       * refuses `ledger.writes_blocked_clock_skew`. A committed key still replays. Blank /
+       * unset stays unset (`ledger.skew_bound_unset` on the integrity read). No default.
+       * Explicit 0 is a real bound.
        */
       LEDGER_CLOCK_SKEW_BOUND_MS: z.preprocess((v) => (v === undefined || v === null ? undefined : v), z.string().optional()),
 
