@@ -1,0 +1,15 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "NOTIFY_INBOX_PAGE_SIZE": {
+      "service": "notify",
+      "value": "20",
+      "note": "Inbox page size, so the notification centre lists (J-home-ia-05)."
+    },
+    "NOTIFY_INBOX_UNREAD_CAP": {
+      "service": "notify",
+      "value": "99",
+      "note": "Bell badge ceiling (J-home-ia-05)."
+    }
+  }
+}
