@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import type { StepUpBegin } from '../account/security-step-up';
 import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
 import type { transferQuoteSchema } from '../pay/schemas';
 import { termsVerdict } from '../../screens/pay/send-terms';
@@ -61,4 +62,22 @@ export async function readPersonSendTerms(api: ApiClient, assetId: string, sent:
   const value = sent.trim();
   const answer = await api.query('bank', 'transfers.quote', { assetId, amount: value }, bankReads['transfers.quote'], { signal });
   return personSendReview(answer, value, assetId);
+}
+
+/**
+ * The `stepUp.begin` request for one send to a person (`bank.step_up.transfers.toUser`): the same strings the send carries,
+ * so identity's hash and the bank's are the same bytes. The note and reference are named only when the send has them.
+ */
+export function personSendStepUp(assetId: string, input: Record<string, unknown>): StepUpBegin {
+  const text = (key: string) => (typeof input[key] === 'string' ? (input[key] as string) : '');
+  const fields: Record<string, string> = {
+    transferId: text('transferId'),
+    fromSpaceId: text('fromSpaceId'),
+    toUserId: text('toUserId'),
+    assetId,
+    amount: text('amount'),
+    ...(text('note') ? { note: text('note') } : {}),
+    ...(text('reference') ? { reference: text('reference') } : {}),
+  };
+  return { scope: 'bank.step_up.transfers.toUser', purpose: 'transfers.toUser', target: fields.toUserId, amount: fields.amount, fields };
 }

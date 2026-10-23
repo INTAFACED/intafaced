@@ -18,6 +18,8 @@ import {
   type PendingReservation,
 } from './pending-outcomes';
 import { settleRefusal } from './money-refusal-copy';
+import { StepUpConfirm } from './StepUpConfirm';
+import type { StepUpBegin } from '../account/security-step-up';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -140,6 +142,14 @@ export type ActionSpec = {
   reviewTerms?: {
     checking: string;
     read: (input: Record<string, unknown>, signal: AbortSignal) => Promise<{ rows: [string, string][]; blocked: string | null }>;
+  };
+  /**
+   * A fresh second factor for this exact request (a send to another person): the `stepUp.begin` request naming its
+   * fields, and the words around it. Confirm becomes the code or passkey, and the single-use approval goes with the request.
+   */
+  stepUp?: {
+    request: (input: Record<string, unknown>) => StepUpBegin;
+    words: { why: string; code: string; codeHint: string; codeShort: string };
   };
   submit?: string;
   unit?: string;
@@ -406,11 +416,14 @@ export function MutationDialog({
     setReviewInput(input);
     setStage('review');
   }
-  async function submit() {
+  async function submit(stepUpApprovalId?: string) {
     if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput || termsHold) return;
+    if (spec.stepUp && !stepUpApprovalId) return;
     const run = {};
     sending.current = run;
     const input = reviewInput;
+    // The approval is spent by this one call. It is sent, never journaled and never kept for a retry.
+    const sent = stepUpApprovalId ? { ...input, stepUpApprovalId } : input;
     setStage('sending');
     const currentRun = () => current() && sending.current === run && reviewed.current === input;
     const dispatch = async (): Promise<ApiResult<unknown>> => {
@@ -460,11 +473,11 @@ export function MutationDialog({
       let outcome: ApiResult<unknown>;
       try {
         outcome = spec.transferSpaces
-          ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
+          ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
           : await api.mutate(
               'bank',
               spec.procedure,
-              input,
+              sent,
               bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
             );
       } catch {
@@ -660,9 +673,18 @@ export function MutationDialog({
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
               <div className="actions">
-                <Button disabled={termsHold} onClick={() => void submit()}>
-                  {spec.submit ?? copyText('components.confirm')}
-                </Button>
+                {spec.stepUp ? (
+                  <StepUpConfirm
+                    request={() => spec.stepUp!.request(reviewInput!)}
+                    words={spec.stepUp.words}
+                    disabled={termsHold}
+                    onApproved={(approval) => void submit(approval)}
+                  />
+                ) : (
+                  <Button disabled={termsHold} onClick={() => void submit()}>
+                    {spec.submit ?? copyText('components.confirm')}
+                  </Button>
+                )}
                 {Boolean(spec.fields?.length) && (
                   <Button variant="secondary" onClick={edit}>
                     <Text k="components.edit" />

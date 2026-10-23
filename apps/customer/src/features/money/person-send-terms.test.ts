@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { personSendReview, type PersonSendQuote } from './person-send-terms';
+import { personSendReview, personSendStepUp, type PersonSendQuote } from './person-send-terms';
 
 const quote = (over: Partial<PersonSendQuote> = {}): PersonSendQuote => ({
   assetId: 'USDT',
@@ -54,5 +54,25 @@ describe('the review of a send to a person (J-bank-04 #3)', () => {
   });
   it('names any other refusal by the service’s own code', () => {
     expect(personSendReview(refused('bank.account_frozen'), '40', 'USDT').blocked).toContain('(bank.account_frozen)');
+  });
+});
+
+describe('the step-up for a send to a person (J-bank-04 #4)', () => {
+  const input = { transferId: 't-1', fromSpaceId: 'space-a', toUserId: 'user-b', amount: '40' };
+  it('names exactly the strings the send carries, so identity and the bank hash the same bytes', () => {
+    expect(personSendStepUp('USDT', input)).toEqual({
+      scope: 'bank.step_up.transfers.toUser',
+      purpose: 'transfers.toUser',
+      target: 'user-b',
+      amount: '40',
+      fields: { transferId: 't-1', fromSpaceId: 'space-a', toUserId: 'user-b', assetId: 'USDT', amount: '40' },
+    });
+  });
+  it('adds the note and reference only when the send has them', () => {
+    expect(personSendStepUp('USDT', { ...input, note: 'Lunch', reference: 'INV-1' }).fields).toMatchObject({
+      note: 'Lunch',
+      reference: 'INV-1',
+    });
+    expect(Object.keys(personSendStepUp('USDT', { ...input, note: '' }).fields)).not.toContain('note');
   });
 });

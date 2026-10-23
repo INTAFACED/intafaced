@@ -48,6 +48,10 @@ const en = {
   reviewOverDaily: 'Only {left} {asset} is left to send today, so Confirm stays off.',
   reviewUnreadable: 'The fee and limits for this transfer could not be read, so Confirm stays off. Go back and review again.',
   reviewRefused: 'The bank refused this transfer before anything was sent ({code}), so Confirm stays off.',
+  stepUpWhy: 'Money to another person needs a fresh check that it’s you. Nothing is sent until you confirm.',
+  stepUpCode: 'Authenticator code',
+  stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
+  stepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
   periodCustom: 'Choose dates',
 } as const;
 const es = {
@@ -99,6 +103,10 @@ const es = {
   reviewUnreadable:
     'No se pudieron leer la comisión y los límites de esta transferencia, así que Confirmar está desactivado. Vuelve y revisa otra vez.',
   reviewRefused: 'El banco rechazó esta transferencia antes de enviar nada ({code}), así que Confirmar está desactivado.',
+  stepUpWhy: 'El dinero a otra persona necesita una comprobación nueva de que eres tú. No se envía nada hasta que confirmes.',
+  stepUpCode: 'Código del autenticador',
+  stepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
+  stepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
   periodCustom: 'Elegir fechas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -151,6 +159,11 @@ const fr = {
   reviewUnreadable:
     'Les frais et les plafonds de ce virement n’ont pas pu être lus, donc Confirmer reste désactivé. Revenez et vérifiez à nouveau.',
   reviewRefused: 'La banque a refusé ce virement avant tout envoi ({code}), donc Confirmer reste désactivé.',
+  stepUpWhy:
+    'L’argent envoyé à une autre personne demande une nouvelle vérification que c’est vous. Rien ne part avant votre confirmation.',
+  stepUpCode: 'Code d’authentification',
+  stepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre app d’authentification.',
+  stepUpCodeShort: 'Saisissez les 6 chiffres de votre app d’authentification.',
   periodCustom: 'Choisir des dates',
 } satisfies Record<keyof typeof en, string>;
 

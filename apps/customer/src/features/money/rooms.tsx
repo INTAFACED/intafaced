@@ -61,7 +61,7 @@ import { rampDepthCopy } from './ramp-depth-copy';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
-import { readPersonSendTerms } from './person-send-terms';
+import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 
@@ -711,6 +711,15 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                               reviewTerms: {
                                 checking: depth.t('reviewChecking'),
                                 read: (input, signal) => readPersonSendTerms(api, from.assetId, String(input.amount), signal),
+                              },
+                              stepUp: {
+                                request: (input) => personSendStepUp(from.assetId, input),
+                                words: {
+                                  why: depth.t('stepUpWhy'),
+                                  code: depth.t('stepUpCode'),
+                                  codeHint: depth.t('stepUpCodeHint'),
+                                  codeShort: depth.t('stepUpCodeShort'),
+                                },
                               },
                             }
                           : {}),
