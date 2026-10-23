@@ -179,6 +179,8 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
+  lookalikeConfirmedAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */

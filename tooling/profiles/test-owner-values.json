@@ -140,6 +140,16 @@
       "service": "bank",
       "value": "EUR,GBP,USD",
       "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "BANK_ADDRESS_BOOK_CAP": {
+      "service": "bank",
+      "value": "10",
+      "note": "How many withdrawal addresses one person may save (J-wallet-04)."
+    },
+    "BANK_OFFRAMP_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
     }
   }
 }
