@@ -50,6 +50,22 @@ export class SelfFreezeLift {
     assertLiftWaitSet(this.waitSeconds);
   }
 
+  /**
+   * Read-only due check, run before the router spends a step-up: an open freeze still inside the wait
+   * refuses `identity.self_freeze_lift_too_soon` now, so no approval is burnt on a lift that cannot happen.
+   * `lift` re-checks under the row lock; this is not the authority.
+   */
+  async assertDue(userId: string): Promise<void> {
+    const wait = this.waitSeconds;
+    assertLiftWaitSet(wait);
+    const open = await this.sql<Array<{ available_at: Date; due: boolean }>>`
+      SELECT since + make_interval(secs => ${wait}) AS available_at,
+             since + make_interval(secs => ${wait}) <= now() AS due
+        FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
+    const row = open[0];
+    if (row && !row.due) throw new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', row.available_at);
+  }
+
   async lift(userId: string): Promise<SelfFreezeLiftResult> {
     const wait = this.waitSeconds;
     assertLiftWaitSet(wait);
