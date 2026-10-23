@@ -852,6 +852,11 @@ describe('svc-token mount — governance close', () => {
     expect(userCopy('token.proposal_list_limit_unset')).not.toMatch(/50/);
     await expect(caller.listProposals({ limit: 50 })).resolves.toEqual([]);
   });
+
+  it('does not let a reader open another author draft', () => {
+    const procedures = createTokenRouter(stubToken())._def.procedures as Record<string, unknown>;
+    expect(procedures.openDueProposals).toBeUndefined();
+  });
 });
 
 describe('svc-token mount — the public surface', () => {

@@ -1140,9 +1140,6 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    openDueProposals: scopedProcedure('token:read', { module: 'token' })
-      .output(z.object({ opened: z.number().int().nonnegative() }))
-      .mutation(async () => guard(() => token.openDueProposals())),
   });
 }
 
