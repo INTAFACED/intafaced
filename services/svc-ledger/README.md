@@ -30,6 +30,7 @@ tRPC procedures above are exported for their type; **nothing mounts the tRPC plu
 | Method | Path                           | Effect                                                                      |
 | ------ | ------------------------------ | --------------------------------------------------------------------------- |
 | `GET`  | `/operator/freeze`             | Durable `posting_freeze` row                                                |
+| `GET`  | `/operator/integrity/clock`    | App clock vs `clock_timestamp()`. Blank bound is `ledger.skew_bound_unset`  |
 | `POST` | `/operator/freeze`             | Halt posting (`reason` ≥ 12 chars + distinct `confirmOperatorId`)           |
 | `POST` | `/operator/unfreeze`           | Resume posting (distinct `confirmOperatorId`)                               |
 | `POST` | `/operator/reconcile`          | Full three-check run (balances · chain · totalsByAsset); freezes on failure |
@@ -37,6 +38,8 @@ tRPC procedures above are exported for their type; **nothing mounts the tRPC plu
 | `GET`  | `/operator/trace?businessKey=` | The transaction a business key booked, or `found: false`                    |
 | `GET`  | `/operator/assets`             | Every asset registry row, published or not (W-balances-05)                  |
 | `POST` | `/operator/assets/apply-edit`  | Apply one founder-approved registry edit (`ledger.asset_edit`)              |
+
+`LEDGER_CLOCK_SKEW_BOUND_MS` is the owner's millisecond bound between this process's clock and `clock_timestamp()`. Blank or unset is not a number: the integrity read refuses `ledger.skew_bound_unset`, and posts are not blocked by an invented 0 or an invented open window. Explicit `0` is a real bound. When a set bound is exceeded, `post` refuses `ledger.writes_blocked_clock_skew` before anything is booked (503 on the service door).
 
 Operator freeze/unfreeze is dual-control: the signed treasury principal plus a distinct `confirmOperatorId`. Missing or same-as-operator confirm refuses (`missing_operator`) — the ledger does not invent a second caller. Reconciliation and boot `LEDGER_POSTING_ENABLED=false` still freeze through `LedgerService` without a confirmer (not operator doors).
 

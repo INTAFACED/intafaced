@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
-import { toWriteBlockError } from './ledger/write-block.js';
+import { toWriteBlockError, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/write-block.js';
+import { assessClockSkew, readDatabaseNow, type ClockSkewView } from './ledger/clock-skew.js';
 import {
   LedgerError,
   type AccountRef,
@@ -53,11 +54,21 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
   private readonly bootPostingEnabled: boolean;
   private readonly reconcileStatementTimeoutMs: number;
+  private readonly clockSkewBoundMs: number | null;
+  private readonly now: () => Date;
+  private readonly readDatabaseNow: (sql: Sql) => Promise<Date>;
 
   constructor(
     private readonly sql: Sql,
     private readonly bus: EventBus,
-    options: { postingEnabled?: boolean; reconcileStatementTimeoutMs?: number } & IdempotencyConflictOptions = {},
+    options: {
+      postingEnabled?: boolean;
+      reconcileStatementTimeoutMs?: number;
+      /** Null or omitted: the owner has not set a bound. Not zero. */
+      clockSkewBoundMs?: number | null;
+      now?: () => Date;
+      readDatabaseNow?: (sql: Sql) => Promise<Date>;
+    } & IdempotencyConflictOptions = {},
   ) {
     this.engine = new PostgresLedger(sql, {
       ...(options.idempotencyConflict ? { idempotencyConflict: options.idempotencyConflict } : {}),
@@ -69,6 +80,21 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     });
     this.bootPostingEnabled = options.postingEnabled ?? true;
     this.reconcileStatementTimeoutMs = options.reconcileStatementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS;
+    this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
+    this.now = options.now ?? (() => new Date());
+    this.readDatabaseNow = options.readDatabaseNow ?? readDatabaseNow;
+  }
+
+  /**
+   * App clock against `clock_timestamp()`. A blank bound refuses here. It does
+   * not block posts: that would be the same as inventing a bound of 0.
+   */
+  async clockSkew(): Promise<ClockSkewView> {
+    return assessClockSkew({
+      boundMs: this.clockSkewBoundMs,
+      appNow: this.now(),
+      databaseNow: await this.readDatabaseNow(this.sql),
+    });
   }
 
   async post(request: PostRequest): Promise<LedgerTx> {
@@ -83,6 +109,12 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       async (span) => {
         let tx: LedgerTx;
         try {
+          if (this.clockSkewBoundMs !== null) {
+            const skew = await this.clockSkew();
+            if (!skew.ok && skew.code === WRITES_BLOCKED_CLOCK_SKEW) {
+              throw new LedgerError(`ledger writes are blocked: ${skew.code}`, skew.code);
+            }
+          }
           tx = await this.engine.post(request);
         } catch (err) {
           throw toWriteBlockError(err);
