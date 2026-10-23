@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema, academyRelatedInputSchema } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  TRPCError,
+  rankPerksSchema,
+  academyRelatedInputSchema,
+  academyPublicCatalogueInputSchema,
+  academyPublicVideoSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -12,6 +21,7 @@ import {
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
 import { relatedItems } from './curriculum/related.js';
+import { searchPublicCurriculum } from './curriculum/public-catalogue.js';
 import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
@@ -763,6 +773,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.verify_rate_limited':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
 
+    case 'academy.sign_in_required':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+
     case 'academy.assessment_invalid':
     case 'academy.holder_name_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -899,6 +912,44 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
       .query(({ input, ctx }) => guard(() => academy.readCurriculumItem({ userId: ctx.principal!.userId, slug: input.slug }))),
+
+    // ── Signed-out Academy (AC-catalogue-01) ─────────────────────────────────
+    //
+    // The published spine for a visitor with no account: no progress, no
+    // learner rows, no touch written. Per-address limits on these reads are
+    // svc-edge's (EDGE_RATE_LIMIT_MAX, an owner value that refuses while
+    // blank): only the edge sees the caller's address.
+
+    publicCurriculum: publicProcedure
+      .input(academyPublicCatalogueInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) =>
+        guard(async () => {
+          const limit = assertCurriculumPageLimit(input.limit);
+          return searchPublicCurriculum({
+            limit,
+            ...(input.q !== undefined ? { q: input.q } : {}),
+            ...(input.path ? { path: input.path } : {}),
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.sort ? { sort: input.sort } : {}),
+          });
+        }),
+      ),
+
+    publicCurriculumItem: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(curriculumItemOut)
+      .query(({ input }) => guard(() => academy.readPublicCurriculumItem({ slug: input.slug }))),
+
+    publicCurriculumRelated: publicProcedure
+      .input(academyRelatedInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug.trim(), assertCurriculumPageLimit(input.limit)))),
+
+    /** The video list a visitor sees: the same refusal as signed in when storage is not configured. */
+    publicVideos: publicProcedure
+      .output(z.array(academyPublicVideoSchema))
+      .query(() => guard(async () => listAcademyVideos(video).map(({ slug, title, path }) => ({ slug, title, path })))),
 
     /**
      * Stage-1 import pipeline inventory: content source decision + count gate.

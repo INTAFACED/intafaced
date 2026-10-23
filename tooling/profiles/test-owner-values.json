@@ -101,6 +101,11 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "86400",
+      "note": "A security lock ends one day after its unlock is asked for."
+    },
     "SUPPORT_ATTACHMENT_STORE": {
       "service": "support",
       "value": "local-test-memory",
@@ -165,6 +170,11 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "IDENTITY_API_KEYS_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
     },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",

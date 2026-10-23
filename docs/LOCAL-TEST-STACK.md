@@ -29,7 +29,7 @@ Open **http://127.0.0.1:3210** for everything except passkeys.
 
 ## Ports
 
-Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Mining pool 14518 · Customer 3210 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
+Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Identity 14502 · Token 14503 · Trade 14504 · Matching 14505 · Pay 14506 · Agents 14507 · P2P 14508 · Bank 14509 · Notify 14510 · Academy 14511 · Support 14512 · Market 14513 · Blueprint 14514 · Quant 14515 · Execution 14516 · Tax 14517 · Mining pool 14518 · Ops 14519 · Customer 3210 · Invitation site (apps/invitation) 3220 · Founder console (apps/admin) 3100. Ports 3200, 3401, 3162, 3340, 5432, 15440 and 15444 are not used.
 
 State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
 
@@ -120,6 +120,8 @@ The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub
 ## Founder console
 
 `pnpm local:stack` also builds the founder console (`apps/admin`, a production Next build, rebuilt only when `apps/admin`, `packages` or the lockfile change) and serves it on http://127.0.0.1:3100 against the stack's Edge, with `APP_ENV=dev` (a local http origin is accepted only in dev or test) and a session key generated once into `secrets.json` (`adminSession`). The local test founders sign in with their entries in `founders.json`; operator journeys use `apps/customer/tests/real-app/admin.mjs`, which reads `JOURNEY_ADMIN_URL` (default http://127.0.0.1:3100). `--only admin`, `restart admin` and `stop admin` work like the services. Log: `logs/admin.log`.
+
+**Invitation site and the outreach intake.** `pnpm local:stack` also builds the public invitation site (`apps/invitation`, built once and again on `--rebuild`) and serves it on http://127.0.0.1:3220 like the Customer app, with `/api/*` passed to Edge. Its join and partner enquiry forms reach svc-ops (port 14519, schema `ops`), which runs here with a LOCAL TEST `OPS_OUTREACH_CONFIG`: the local test founder pair, a one-day continuation and Monday to Friday 09:00 Europe/London review, none of them owner decisions. svc-ops starts before the founders enrol on a fresh stack, so it restarts once after they do (and again if the pair changes). Its founder notifications are not wired here (no `NOTIFY_URL` or `OPS_NOTIFY_SERVICE_SECRET`), so an enquiry is recorded in the CRM and its notification stays unsent. A founder's CRM token (`ops:read`, `ops:write`) is `crmToken()` on `local-test-gates.mjs` `approverSessions`; `apps/customer/tests/real-app/outreach.mjs` creates an invite campaign and its source key and reads a campaign's totals. `--only invitation`, `restart invitation` and `stop invitation` work like the services. Log: `logs/invitation.log`.
 
 ## Screening
 

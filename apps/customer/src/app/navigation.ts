@@ -638,6 +638,24 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
+  // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
+  ...(
+    [
+      ['learning', 'Academy learning'],
+      ['certificates', 'Academy certificates'],
+      ['rooms', 'Academy rooms'],
+      ['videos', 'Academy videos'],
+      ['programmes', 'Academy programmes'],
+      ['progress', 'Academy progress'],
+    ] as const
+  ).map(([slug, title]) => ({
+    path: `/academy/${slug}`,
+    title,
+    description: 'Rooms, learning and certifications' as const,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -765,6 +783,20 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/api-keys',
+    title: 'API keys',
+    description: 'Keys for your own programs to read and trade',
+    area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/new',
+    title: 'Create an API key',
+    description: 'A new key with only the permissions it needs',
+    area: 'person',
+    screen: 'account',
+  },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
   { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
   { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },

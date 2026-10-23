@@ -180,7 +180,14 @@ export type RefusalKey =
   | 'refEnrollmentNotFound'
   | 'refProgrammeInvalid'
   | 'refPrerequisite'
-  | 'refPrerequisiteUnnamed';
+  | 'refPrerequisiteUnnamed'
+  | 'refVideoStorageUnconfigured'
+  | 'refVideoUrlTtlUnset'
+  | 'refVideoRegionUnset'
+  | 'refVideoGrantRequired'
+  | 'refVideoNotFound'
+  | 'refSignInRequired'
+  | 'refCurriculumNotFound';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -212,6 +219,20 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refProgrammeInvalid';
     case 'academy.prerequisite_unmet':
       return missingProgrammes(failure.message).length > 0 ? 'refPrerequisite' : 'refPrerequisiteUnnamed';
+    case 'academy.video_storage_unconfigured':
+      return 'refVideoStorageUnconfigured';
+    case 'academy.video_url_ttl_unset':
+      return 'refVideoUrlTtlUnset';
+    case 'academy.video_s3_region_unset':
+      return 'refVideoRegionUnset';
+    case 'academy.video_grant_required':
+      return 'refVideoGrantRequired';
+    case 'academy.video_not_found':
+      return 'refVideoNotFound';
+    case 'academy.sign_in_required':
+      return 'refSignInRequired';
+    case 'academy.curriculum_not_found':
+      return 'refCurriculumNotFound';
     default:
       return null;
   }
