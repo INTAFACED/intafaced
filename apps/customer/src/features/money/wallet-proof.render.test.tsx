@@ -221,18 +221,19 @@ describe('proving a saved wallet', () => {
     expect(document.querySelector('[data-testid="wallet-proof"] [role="alert"]')).toBeNull();
   });
 
-  it.each([
-    ['bank.wallet_proof_signature_invalid', 'That is not a signature of this message.'],
-  ])('refuses %s in plain words', async (code, words) => {
-    rows = [ROW];
-    mutate.mockResolvedValueOnce({ ok: true, data: OFFER }).mockResolvedValueOnce({ ok: false, code, message: 'x' });
-    await mount();
-    await click('Prove ownership');
-    await paste(SIGNATURE);
-    await submit(proofForm());
-    expect(document.body.textContent).toContain(words);
-    expect(reloads.book).toBe(0);
-  });
+  it.each([['bank.wallet_proof_signature_invalid', 'That is not a signature of this message.']])(
+    'refuses %s in plain words',
+    async (code, words) => {
+      rows = [ROW];
+      mutate.mockResolvedValueOnce({ ok: true, data: OFFER }).mockResolvedValueOnce({ ok: false, code, message: 'x' });
+      await mount();
+      await click('Prove ownership');
+      await paste(SIGNATURE);
+      await submit(proofForm());
+      expect(document.body.textContent).toContain(words);
+      expect(reloads.book).toBe(0);
+    },
+  );
 
   it('says proofs are not open while the owner window is unset, and shows no message', async () => {
     rows = [ROW];
