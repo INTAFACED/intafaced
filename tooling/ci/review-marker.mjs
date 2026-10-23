@@ -9,7 +9,10 @@
  *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name node tooling/ci/review-marker.mjs
  *
  * The sign-off workflow re-runs a failed seal after it posts the status, so nobody re-runs it by hand. The seal also
- * looks a few times, for the seconds between a comment and its status.
+ * waits up to REVIEW_WAIT_MS for the review before it fails. Measured 2026-10-22/23: 106 of about 146 red first
+ * attempts of PR CI runs were only this step, and 44 of 74 such reviews landed within 20 minutes of the red. Each red
+ * wakes the author's thread, which then reads it; waiting turns most of them into one green. Same requirement, later
+ * verdict: a head without the review still fails.
  *
  * The seal also accepts the comment itself: a PASS for this exact head by a login listed in reviewers.json on the
  * default branch (never the pull request's copy). The sign-off workflow can wait 30 minutes for a runner when the
@@ -24,6 +27,10 @@
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+
+/** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
+const REVIEW_WAIT_MS = 20 * 60_000;
+const REVIEW_POLL_MS = 60_000; // two reads a minute per waiting seal, far under the token's hourly limit
 
 /** The comment line the sign-off workflow accepts, on its own line. */
 export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
@@ -301,20 +308,24 @@ async function main() {
     }
     console.log(`independent review required (${reason})`);
   }
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  const config = PR_NUMBER ? await readReviewConfig(REPO, GH_TOKEN) : null;
+  const deadline = Date.now() + REVIEW_WAIT_MS;
+  for (let attempt = 1; ; attempt++) {
     if (hasSignoff(await readStatuses(REPO, HEAD_SHA, GH_TOKEN))) {
       console.log(`review sign-off found for ${HEAD_SHA}`);
       return;
     }
     if (PR_NUMBER) {
-      const config = await readReviewConfig(REPO, GH_TOKEN);
       const comments = await readComments(REPO, PR_NUMBER, GH_TOKEN);
       if (hasCommentSignoff({ comments, sha: HEAD_SHA, author: PR_AUTHOR, ...config })) {
         console.log(`review sign-off comment found for ${HEAD_SHA}`);
         return;
       }
     }
-    if (attempt < 4) await new Promise((r) => setTimeout(r, 20_000));
+    if (Date.now() + REVIEW_POLL_MS > deadline) break;
+    if (attempt === 1)
+      console.log(`no review sign-off yet; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
+    await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
   console.error(
     `::error title=Review sign-off missing::No success status "${STATUS_CONTEXT}" on ${HEAD_SHA}. This change needs one (${reason}). Get an independent review of this exact head; a listed reviewer comments "Independent review: PASS ${HEAD_SHA}" and the status follows (see AGENTS.md).`,

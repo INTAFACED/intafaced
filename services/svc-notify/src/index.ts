@@ -23,6 +23,7 @@ import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
 import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
+import { SqlStatusPageBook } from './status-page/book.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -181,7 +182,14 @@ const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), command
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door and the approval call stay on the shared secrets alone.
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
-const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(s2sKey), commandLog);
+const statusBook = new SqlStatusPageBook(sql);
+const notices = new NoticeBoard(
+  new PostgresNoticeStore(sql),
+  noticeApprovalConsumerFromProcessEnv(s2sKey),
+  commandLog,
+  undefined,
+  async () => (await statusBook.definition()).components.map((component) => component.id),
+);
 const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
 const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
 const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprovals, commandLog, {
@@ -285,6 +293,8 @@ const alerts = new AlertService(
     triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
     maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
     repeatFrequencies: env.NOTIFY_ALERT_FREQUENCIES ?? [],
+    burstWindowMinutes: env.NOTIFY_ALERT_BURST_WINDOW_MINUTES ?? null,
+    burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
 );
@@ -303,11 +313,18 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests, {
-  pageSize: env.NOTIFY_INBOX_PAGE_SIZE ?? null,
-  unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
-  retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
-});
+export const appRouter = createNotifyRouter(
+  notify,
+  alerts,
+  loadVenueIncident,
+  guests,
+  {
+    pageSize: env.NOTIFY_INBOX_PAGE_SIZE ?? null,
+    unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
+    retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
+  },
+  { book: statusBook, notices },
+);
 export type AppRouter = typeof appRouter;
 
 const edgeContext = createGuestIngressContext({

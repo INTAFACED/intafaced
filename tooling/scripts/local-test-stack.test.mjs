@@ -42,6 +42,36 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
+// Every service file in local-stack-services/ is started, once, under its own name.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const files = readdirSync(join(here, 'local-stack-services'))
+    .filter((f) => f.endsWith('.mjs'))
+    .map((f) => f.replace(/\.mjs$/, ''))
+    .sort();
+  assert.deepEqual(
+    localTestServiceEnvs()
+      .map((service) => service.name)
+      .sort(),
+    files,
+  );
+  console.log('local-test-stack: one service file per started service');
+}
+
+// The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
+// stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  const profile = loadProfile().values;
+  for (const name of ['BANK_PAYEE_CONTROLS_JSON', 'BANK_EXCHANGE_ALLOWANCE_JSON', 'BANK_PROOF_LIMITS_JSON']) {
+    assert.equal(profile[name]?.service, 'bank', `${name} is not in the bank profile`);
+    assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
+  }
+  console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
   return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 }
@@ -87,7 +117,16 @@ try {
 
 // 6. The script never writes a sanctions value of its own: every assignment of the two
 // screening variables comes from the caller's environment or the machine-local file.
-const source = readFileSync(script, 'utf8');
+// The per-service env files are part of the script for these checks.
+const serviceDir = join(here, 'local-stack-services');
+const source = [
+  script,
+  ...readdirSync(serviceDir)
+    .filter((f) => f.endsWith('.mjs'))
+    .map((f) => join(serviceDir, f)),
+]
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n');
 for (const name of ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE']) {
   const literal = new RegExp(`${name}\\s*[:=]\\s*['"\`]`);
   assert.equal(literal.test(source), false, `${name} is given a literal value in the script`);
@@ -112,13 +151,16 @@ console.log('local-test-stack: 6 refusal checks passed');
 // journal with resting orders boots closed (matching.hold_check_unwired). Ledger already starts
 // before matching; this only pins the env the matching process is given.
 {
-  const marker = "name: 'matching'";
-  const start = source.indexOf(marker);
-  assert.ok(start >= 0, 'matching service block missing');
-  const next = source.indexOf("name: '", start + marker.length);
-  assert.ok(next > start, 'matching service block has no following service');
-  const block = source.slice(start, next);
-  assert.ok(block.includes("LEDGER_URL: urlOf('ledger')"), "matching env must contain LEDGER_URL: urlOf('ledger')");
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const ledger = envs.find((service) => service.name === 'ledger');
+  const matching = envs.find((service) => service.name === 'matching');
+  assert.ok(matching, 'matching service missing');
+  assert.equal(
+    matching.env.LEDGER_URL,
+    `http://${ledger.env.HTTP_HOST}:${ledger.env.HTTP_PORT}`,
+    "matching env must contain LEDGER_URL: urlOf('ledger')",
+  );
   console.log('local-test-stack: matching ledger hold wiring check passed');
 }
 
@@ -209,13 +251,9 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, each with a reason in EDGE_ABSENT: protocol, indexer and dex are called by the Protocol rooms
-  // (#4835) and stay unwired. mining is started (svc-mining-pool binds HTTP_HOST since #5907).
-  assert.deepEqual(
-    [...absentButUsed].sort(),
-    ['dex', 'indexer', 'protocol'],
-    `unexpected Customer modules without a service: ${absentButUsed}`,
-  );
+  // Absent on purpose, each with a reason in EDGE_ABSENT: indexer and dex are called by the Protocol rooms (#4835) and
+  // stay unwired. protocol is started (J-dex-protocol-01) and mining too (svc-mining-pool binds HTTP_HOST since #5907).
+  assert.deepEqual([...absentButUsed].sort(), ['dex', 'indexer'], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }

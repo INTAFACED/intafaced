@@ -3,12 +3,17 @@ import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import { knownMode, maintenanceFetcher, marketModesFetcher, type MaintenanceWindow, type MarketMode } from './status';
 import { statusCopy } from './status-copy';
+import { StatusComponents } from './StatusComponents';
+import './status-page.css';
 
 const whenUtc = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
 
-/** /status: public, signed-out. Every row is the market's own reported mode; the page keeps no status of its own. */
+/**
+ * /status: public, signed-out. Components come from the founders' status page (readings and published notices); each
+ * market row is the market's own reported mode. The page keeps no status of its own.
+ */
 export function StatusPage() {
   const copy = statusCopy.useCopy();
   const env = useDataEnv();
@@ -28,6 +33,7 @@ export function StatusPage() {
         <h1>{copy.t('title')}</h1>
         <p>{copy.t('lead')}</p>
       </header>
+      <StatusComponents />
       <section className="pub-card" aria-labelledby="status-modes">
         <h2 id="status-modes">{copy.t('modesTitle')}</h2>
         {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}

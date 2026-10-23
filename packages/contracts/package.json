@@ -78,6 +78,10 @@
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
     },
+    "./status-page": {
+      "types": "./dist/status-page.d.ts",
+      "default": "./dist/status-page.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"
@@ -105,6 +109,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./watchlists-preferences": {
+      "types": "./dist/watchlists-preferences.d.ts",
+      "default": "./dist/watchlists-preferences.js"
     },
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",

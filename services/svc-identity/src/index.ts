@@ -580,7 +580,14 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
-  createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createPreferencesRouter(sql, {
+    displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
+    watchlists: {
+      listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
+      symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
+      savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+  }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),

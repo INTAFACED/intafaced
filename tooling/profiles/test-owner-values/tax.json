@@ -1,0 +1,10 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "TAX_DEPOSIT_BASIS": {
+      "service": "tax",
+      "value": "customer",
+      "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
+    }
+  }
+}
