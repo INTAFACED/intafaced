@@ -28,7 +28,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 - One PR per slice: its contracts or events, one service and that service's screen together. Title: `<service>: <slice id> <what a user gets>`, for example `svc-trade: SP-order-entry-02 market order by value`. Two slices of the same journey may share a PR when they touch the same files.
 - Prefer new files over edits to shared ones, and register them through the area's own routes or router file, so a shared root file changes by one import line. Threads that share a service then rarely conflict.
 - Before push: affected tests, typecheck, `pnpm exec prettier --check` on changed files, the running-app proof (bar 7), and an automated code review of the diff (for example `/code-review`; a money, security or gate-file PR also `/security-review`). Fix their findings or say in the PR body why not.
-- Open as ready, turn auto-merge on (AGENTS.md "Check, then merge" item 8), subscribe to the PR, ask for the independent review if it needs one (below), end the turn. No check-ins, no polling.
+- Open as ready, turn auto-merge on (AGENTS.md "Check, then merge" item 8), ask for the independent review if it needs one (below), end the turn. Subscribe to the PR only if no PR-watch notice (`subscription.created`) has reached you for it: in cloud project threads, opening the PR subscribes you, and subscribing again delivers the same long notice twice (checked 2026-10-23). No check-ins, no polling.
 - The slice counts as built when its journey steps pass on the real stack built from main, not when the PR merges. A slice you could only part-build stays open: say which rows are left in the PR body.
 
 ## Independent review
