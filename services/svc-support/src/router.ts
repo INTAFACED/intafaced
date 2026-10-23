@@ -39,6 +39,8 @@ import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
+import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
+import { helpCentreProcedures } from './help-centre-router.js';
 import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
@@ -173,11 +175,13 @@ export function createSupportRouter(
   attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
   surveys: SurveyBook = new MemorySurveyBook(),
   surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
 ) {
   return router({
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
+    ...helpCentreProcedures(helpCentre, support),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

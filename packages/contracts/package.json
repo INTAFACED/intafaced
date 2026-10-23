@@ -74,6 +74,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-help-centre": {
+      "types": "./dist/support-help-centre.d.ts",
+      "default": "./dist/support-help-centre.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"

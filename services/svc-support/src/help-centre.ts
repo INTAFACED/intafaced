@@ -1,0 +1,451 @@
+/**
+ * Help centre settings (SP-help-centre-03).
+ *
+ * The publish switch, the name, the address, the default language, the offered languages and the setup mode are each
+ * null until the owner sets them. A read never turns a blank switch into on or off. Asking for a language while none
+ * are offered refuses `support.languages_unset`. A translation the owner has not recorded reads as missing; the gap
+ * is not stored until someone records it.
+ */
+import { createHash } from 'node:crypto';
+import type { Sql } from 'postgres';
+import {
+  SUPPORT_HELP_CENTRE_LIST_LIMIT_MAX,
+  SUPPORT_HELP_CENTRE_SETTING_INVALID,
+  SUPPORT_LANGUAGES_UNSET,
+  SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
+  SUPPORT_HELP_CENTRE_REVISION_STALE,
+  supportHelpCentreSetKey,
+  supportHelpCentreTranslationKey,
+  type SupportHelpCentre,
+  type SupportHelpCentreLanguage,
+  type SupportHelpCentreSetInput,
+  type SupportHelpCentreTranslation,
+  type SupportHelpCentreTranslationList,
+  type SupportHelpCentreTranslationState,
+} from '@intafaced/contracts';
+import { PLATFORM_KB_SPINE } from './kb-catalog.js';
+
+export class HelpCentreStaleError extends Error {
+  constructor() {
+    super(SUPPORT_HELP_CENTRE_REVISION_STALE);
+    this.name = 'HelpCentreStaleError';
+  }
+}
+
+export class HelpCentreInvalidError extends Error {
+  constructor() {
+    super(SUPPORT_HELP_CENTRE_SETTING_INVALID);
+    this.name = 'HelpCentreInvalidError';
+  }
+}
+
+export class HelpCentreLanguagesUnsetError extends Error {
+  constructor() {
+    super(SUPPORT_LANGUAGES_UNSET);
+    this.name = 'HelpCentreLanguagesUnsetError';
+  }
+}
+
+export class HelpCentreLimitUnsetError extends Error {
+  constructor() {
+    super(SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET);
+    this.name = 'HelpCentreLimitUnsetError';
+  }
+}
+
+export class HelpCentreNotFoundError extends Error {
+  constructor() {
+    super('support.not_found');
+    this.name = 'HelpCentreNotFoundError';
+  }
+}
+
+type Values = Pick<SupportHelpCentre, 'name' | 'address' | 'defaultLanguage' | 'languages' | 'setupMode' | 'published'>;
+
+const FIELDS = ['name', 'address', 'defaultLanguage', 'languages', 'setupMode', 'published'] as const;
+
+export interface HelpCentreChange {
+  readonly changes: Partial<Values>;
+  readonly expectedRevision: number;
+  readonly by: string;
+  readonly reason: string;
+  readonly at: string;
+}
+
+export interface HelpCentreTranslationChange {
+  readonly articleId: string;
+  readonly version: number;
+  readonly language: string;
+  readonly state: SupportHelpCentreTranslationState;
+  readonly clientRequestId: string;
+  readonly by: string;
+  readonly reason: string;
+  readonly at: string;
+}
+
+const blank = (): SupportHelpCentre => ({
+  name: null,
+  address: null,
+  defaultLanguage: null,
+  languages: null,
+  setupMode: null,
+  published: null,
+  revision: 0,
+  updatedAt: null,
+});
+
+/** The trimmed changes of an operator call, with fields left out staying `undefined`. */
+export function helpCentreChangesOf(input: SupportHelpCentreSetInput): Partial<Values> {
+  const out: { -readonly [K in keyof Values]?: Values[K] } = {};
+  if (input.name !== undefined) out.name = input.name;
+  if (input.address !== undefined) out.address = input.address;
+  if (input.defaultLanguage !== undefined) out.defaultLanguage = input.defaultLanguage;
+  if (input.languages !== undefined) out.languages = input.languages === null ? null : [...input.languages];
+  if (input.setupMode !== undefined) out.setupMode = input.setupMode;
+  if (input.published !== undefined) out.published = input.published;
+  return out;
+}
+
+function applyChanges(prior: SupportHelpCentre, changes: Partial<Values>): Values {
+  return {
+    name: changes.name === undefined ? prior.name : changes.name,
+    address: changes.address === undefined ? prior.address : changes.address,
+    defaultLanguage: changes.defaultLanguage === undefined ? prior.defaultLanguage : changes.defaultLanguage,
+    languages: changes.languages === undefined ? prior.languages : changes.languages,
+    setupMode: changes.setupMode === undefined ? prior.setupMode : changes.setupMode,
+    published: changes.published === undefined ? prior.published : changes.published,
+  };
+}
+
+const sameList = (a: readonly string[] | null, b: readonly string[] | null): boolean => {
+  if (a === null || b === null) return a === b;
+  return a.length === b.length && a.every((tag, i) => tag === b[i]);
+};
+
+const sameValues = (a: Values, b: Values): boolean =>
+  a.name === b.name &&
+  a.address === b.address &&
+  a.defaultLanguage === b.defaultLanguage &&
+  sameList(a.languages, b.languages) &&
+  a.setupMode === b.setupMode &&
+  a.published === b.published;
+
+/** A set default must be one of the offered languages. An unset list does not invent a default, and the reverse is allowed. */
+export function helpCentreCombinationProblem(values: Values): string | null {
+  if (values.defaultLanguage !== null && values.languages !== null && !values.languages.includes(values.defaultLanguage)) {
+    return 'default_not_offered';
+  }
+  return null;
+}
+
+/** What identifies one change: the fields it sets, in a fixed order, and the reason. The actor and the time are not part of it. */
+export function helpCentreFingerprint(changes: Partial<Values>, reason: string): string {
+  const parts = FIELDS.map((field) => (changes[field] === undefined ? null : [field, changes[field]]));
+  return createHash('sha256')
+    .update(JSON.stringify([parts, reason]))
+    .digest('hex');
+}
+
+type VersionRef = { readonly articleId: string; readonly version: number };
+
+export interface HelpCentreBook {
+  get(): Promise<SupportHelpCentre>;
+  set(change: HelpCentreChange): Promise<SupportHelpCentre>;
+  language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage>;
+  setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation>;
+  listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList>;
+}
+
+type SettingsLogRow = {
+  key: string;
+  before: SupportHelpCentre;
+  after: SupportHelpCentre;
+  by: string;
+  reason: string;
+  at: string;
+};
+
+const spineVersions = (): VersionRef[] => PLATFORM_KB_SPINE.map((article) => ({ articleId: article.id, version: article.version ?? 1 }));
+
+export class MemoryHelpCentreBook implements HelpCentreBook {
+  private state: SupportHelpCentre = blank();
+  private readonly byKey = new Map<string, string>();
+  private readonly versions: VersionRef[] = spineVersions();
+  private readonly translations = new Map<string, SupportHelpCentreTranslationState>();
+  private readonly receipts = new Map<string, SupportHelpCentreTranslationState>();
+  readonly log: SettingsLogRow[] = [];
+  readonly translationLog: {
+    key: string;
+    articleId: string;
+    version: number;
+    language: string;
+    state: SupportHelpCentreTranslationState;
+  }[] = [];
+
+  async get(): Promise<SupportHelpCentre> {
+    return this.state;
+  }
+
+  async set(change: HelpCentreChange): Promise<SupportHelpCentre> {
+    const key = supportHelpCentreSetKey(change.expectedRevision);
+    const fingerprint = helpCentreFingerprint(change.changes, change.reason);
+    if (change.expectedRevision !== this.state.revision) {
+      if (this.byKey.get(key) === fingerprint) return this.state;
+      throw new HelpCentreStaleError();
+    }
+    const next = applyChanges(this.state, change.changes);
+    if (helpCentreCombinationProblem(next) !== null) throw new HelpCentreInvalidError();
+    if (sameValues(this.state, next)) return this.state;
+    const after: SupportHelpCentre = { ...next, revision: this.state.revision + 1, updatedAt: change.at };
+    this.log.push({ key, before: this.state, after, by: change.by, reason: change.reason, at: change.at });
+    this.byKey.set(key, fingerprint);
+    this.state = after;
+    return after;
+  }
+
+  async language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage> {
+    if (this.state.languages === null) throw new HelpCentreLanguagesUnsetError();
+    if (!this.state.languages.includes(input.language)) throw new HelpCentreInvalidError();
+    const translation = await this.translationOf(input.articleId, input.version, input.language);
+    return {
+      language: input.language,
+      defaultLanguage: this.state.defaultLanguage,
+      languages: [...this.state.languages],
+      published: this.state.published,
+      setupMode: this.state.setupMode,
+      name: this.state.name,
+      address: this.state.address,
+      translation,
+    };
+  }
+
+  async setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation> {
+    this.requireOffered(change.language);
+    if (!this.versions.some((row) => row.articleId === change.articleId && row.version === change.version)) {
+      throw new HelpCentreNotFoundError();
+    }
+    const key = supportHelpCentreTranslationKey(change);
+    const stored = this.receipts.get(key);
+    if (stored !== undefined) {
+      return { articleId: change.articleId, version: change.version, language: change.language, state: stored };
+    }
+    this.translations.set(translationMapKey(change), change.state);
+    this.receipts.set(key, change.state);
+    this.translationLog.push({
+      key,
+      articleId: change.articleId,
+      version: change.version,
+      language: change.language,
+      state: change.state,
+    });
+    return { articleId: change.articleId, version: change.version, language: change.language, state: change.state };
+  }
+
+  async listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList> {
+    assertLimit(limit);
+    if (this.state.languages === null) return { languages: null, total: null, rows: [] };
+    const languages = this.state.languages;
+    const rows: SupportHelpCentreTranslation[] = [];
+    const versions = [...this.versions].sort((a, b) => a.articleId.localeCompare(b.articleId) || a.version - b.version);
+    for (const version of versions) {
+      for (const language of languages) {
+        const state = this.translations.get(`${version.articleId}:${version.version}:${language}`) ?? 'missing';
+        rows.push({ articleId: version.articleId, version: version.version, language, state });
+      }
+    }
+    return { languages: [...languages], total: rows.length, rows: rows.slice(0, limit) };
+  }
+
+  private requireOffered(language: string): void {
+    if (this.state.languages === null) throw new HelpCentreLanguagesUnsetError();
+    if (!this.state.languages.includes(language)) throw new HelpCentreInvalidError();
+  }
+
+  private async translationOf(
+    articleId: string | undefined,
+    version: number | undefined,
+    language: string,
+  ): Promise<SupportHelpCentreLanguage['translation']> {
+    if (articleId === undefined || version === undefined) return null;
+    if (!this.versions.some((row) => row.articleId === articleId && row.version === version)) throw new HelpCentreNotFoundError();
+    const state = this.translations.get(`${articleId}:${version}:${language}`) ?? 'missing';
+    return { articleId, version, state };
+  }
+}
+
+function translationMapKey(input: { articleId: string; version: number; language: string }): string {
+  return `${input.articleId}:${input.version}:${input.language}`;
+}
+
+function assertLimit(limit: number | undefined): asserts limit is number {
+  if (limit === undefined) throw new HelpCentreLimitUnsetError();
+  if (!Number.isInteger(limit) || limit < 1 || limit > SUPPORT_HELP_CENTRE_LIST_LIMIT_MAX) throw new HelpCentreInvalidError();
+}
+
+type SettingsRow = {
+  name: string | null;
+  address: string | null;
+  default_language: string | null;
+  languages: string[] | null;
+  setup_mode: 'setup' | 'live' | null;
+  published: boolean | null;
+  revision: number;
+  updated_at: Date | string | null;
+};
+
+const fromRow = (row: SettingsRow | undefined): SupportHelpCentre =>
+  row
+    ? {
+        name: row.name,
+        address: row.address,
+        defaultLanguage: row.default_language,
+        languages: row.languages,
+        setupMode: row.setup_mode,
+        published: row.published,
+        revision: row.revision,
+        updatedAt: row.updated_at === null ? null : new Date(row.updated_at).toISOString(),
+      }
+    : blank();
+
+export class SqlHelpCentreBook implements HelpCentreBook {
+  constructor(private readonly sql: Sql) {}
+
+  async get(): Promise<SupportHelpCentre> {
+    const rows = await this.sql<SettingsRow[]>`
+      SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+      FROM support.help_centre
+    `;
+    return fromRow(rows[0]);
+  }
+
+  async set(change: HelpCentreChange): Promise<SupportHelpCentre> {
+    const key = supportHelpCentreSetKey(change.expectedRevision);
+    const fingerprint = helpCentreFingerprint(change.changes, change.reason);
+    return this.sql.begin(async (tx) => {
+      await tx`INSERT INTO support.help_centre (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
+      const [locked] = await tx<SettingsRow[]>`
+        SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+        FROM support.help_centre WHERE singleton FOR UPDATE
+      `;
+      const prior = fromRow(locked);
+      if (change.expectedRevision !== prior.revision) {
+        const [logged] = await tx<{ fingerprint: string }[]>`SELECT fingerprint FROM support.help_centre_log WHERE key = ${key}`;
+        if (logged?.fingerprint === fingerprint) return prior;
+        throw new HelpCentreStaleError();
+      }
+      const next = applyChanges(prior, change.changes);
+      if (helpCentreCombinationProblem(next) !== null) throw new HelpCentreInvalidError();
+      if (sameValues(prior, next)) return prior;
+      const after: SupportHelpCentre = { ...next, revision: prior.revision + 1, updatedAt: change.at };
+      await tx`
+        UPDATE support.help_centre
+        SET name = ${after.name}, address = ${after.address}, default_language = ${after.defaultLanguage},
+            languages = ${after.languages}, setup_mode = ${after.setupMode}, published = ${after.published},
+            revision = ${after.revision}, updated_by = ${change.by}, updated_at = ${change.at}
+        WHERE singleton
+      `;
+      await tx`
+        INSERT INTO support.help_centre_log (key, fingerprint, revision_after, before, after, set_by, reason, set_at)
+        VALUES (
+          ${key}, ${fingerprint}, ${after.revision}, ${tx.json(prior as never)}, ${tx.json(after as never)},
+          ${change.by}, ${change.reason}, ${change.at}
+        )
+      `;
+      return after;
+    }) as Promise<SupportHelpCentre>;
+  }
+
+  async language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage> {
+    const settings = await this.get();
+    if (settings.languages === null) throw new HelpCentreLanguagesUnsetError();
+    if (!settings.languages.includes(input.language)) throw new HelpCentreInvalidError();
+    let translation: SupportHelpCentreLanguage['translation'] = null;
+    if (input.articleId !== undefined && input.version !== undefined) {
+      const [version] = await this.sql<{ id: string }[]>`
+        SELECT id FROM support.kb_article_versions WHERE id = ${input.articleId} AND version = ${input.version}
+      `;
+      if (!version) throw new HelpCentreNotFoundError();
+      const [row] = await this.sql<{ state: SupportHelpCentreTranslationState }[]>`
+        SELECT state FROM support.help_centre_translation
+        WHERE article_id = ${input.articleId} AND version = ${input.version} AND language = ${input.language}
+      `;
+      translation = { articleId: input.articleId, version: input.version, state: row?.state ?? 'missing' };
+    }
+    return {
+      language: input.language,
+      defaultLanguage: settings.defaultLanguage,
+      languages: [...settings.languages],
+      published: settings.published,
+      setupMode: settings.setupMode,
+      name: settings.name,
+      address: settings.address,
+      translation,
+    };
+  }
+
+  async setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation> {
+    const key = supportHelpCentreTranslationKey(change);
+    return this.sql.begin(async (tx) => {
+      // Share-lock the settings row so a language list cleared in the same moment cannot be written past.
+      const [settings] = await tx<{ languages: string[] | null }[]>`
+        SELECT languages FROM support.help_centre WHERE singleton FOR SHARE
+      `;
+      if (!settings || settings.languages === null) throw new HelpCentreLanguagesUnsetError();
+      if (!settings.languages.includes(change.language)) throw new HelpCentreInvalidError();
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${change.articleId}), ${change.version})`;
+      const [version] = await tx<{ id: string }[]>`
+        SELECT id FROM support.kb_article_versions
+        WHERE id = ${change.articleId} AND version = ${change.version}
+        FOR SHARE
+      `;
+      if (!version) throw new HelpCentreNotFoundError();
+      const [existing] = await tx<{ state: SupportHelpCentreTranslationState }[]>`
+        SELECT state FROM support.help_centre_translation_log WHERE key = ${key}
+      `;
+      if (existing) {
+        return { articleId: change.articleId, version: change.version, language: change.language, state: existing.state };
+      }
+      await tx`
+        INSERT INTO support.help_centre_translation (article_id, version, language, state, set_by, set_at)
+        VALUES (${change.articleId}, ${change.version}, ${change.language}, ${change.state}, ${change.by}, ${change.at})
+        ON CONFLICT (article_id, version, language)
+        DO UPDATE SET state = EXCLUDED.state, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
+      `;
+      await tx`
+        INSERT INTO support.help_centre_translation_log (key, article_id, version, language, state, set_by, reason, set_at)
+        VALUES (
+          ${key}, ${change.articleId}, ${change.version}, ${change.language}, ${change.state},
+          ${change.by}, ${change.reason}, ${change.at}
+        )
+      `;
+      return { articleId: change.articleId, version: change.version, language: change.language, state: change.state };
+    }) as Promise<SupportHelpCentreTranslation>;
+  }
+
+  async listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList> {
+    assertLimit(limit);
+    const settings = await this.get();
+    if (settings.languages === null) return { languages: null, total: null, rows: [] };
+    const languages = settings.languages;
+    const tags = this.sql.array(languages);
+    const [count] = await this.sql<{ total: number }[]>`
+      SELECT count(*)::int AS total
+      FROM support.kb_article_versions
+      CROSS JOIN unnest(${tags}::text[]) AS lang(language)
+    `;
+    const rows = await this.sql<{ article_id: string; version: number; language: string; state: SupportHelpCentreTranslationState }[]>`
+      SELECT v.id AS article_id, v.version, l.language, COALESCE(t.state, 'missing') AS state
+      FROM support.kb_article_versions v
+      CROSS JOIN unnest(${tags}::text[]) WITH ORDINALITY AS l(language, ordinality)
+      LEFT JOIN support.help_centre_translation t
+        ON t.article_id = v.id AND t.version = v.version AND t.language = l.language
+      ORDER BY v.id, v.version, l.ordinality
+      LIMIT ${limit}
+    `;
+    return {
+      languages: [...languages],
+      total: count?.total ?? 0,
+      rows: rows.map((row) => ({ articleId: row.article_id, version: row.version, language: row.language, state: row.state })),
+    };
+  }
+}
