@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
 import { useSession } from '../session/session';
 import { invitationCopy as copy } from './invitation-copy';
 import {
+  attachWindowSchema,
   currentReferrerFor,
   finishInvitation,
   invitationKey,
@@ -13,6 +15,7 @@ import {
   invitationReply,
   isInvitationRefusal,
   readInvitations,
+  referralRefusal,
   saveInvitation,
   type CurrentReferrer,
   type InvitationJournal,
@@ -99,9 +102,19 @@ export function Invitation() {
   const unknowns = journal.records.filter((record) => !visibleReceipts.some((receipt) => receipt.record.localRef === record.localRef));
   const visibleRead = privateVisible && read && sameContext(read.context) ? read : null;
   const latestReceipt = visibleReceipts.at(-1);
-  const knownTitle = (receipt: Receipt) => (!receipt.answer.ok ? 'refused' : receipt.answer.data.attributed ? 'attributed' : 'checked');
-  const knownBody = (receipt: Receipt) =>
-    !receipt.answer.ok ? 'refusedBody' : receipt.answer.data.attributed ? 'attributedBody' : 'checkedBody';
+  const knownTitle = (receipt: Receipt) =>
+    !receipt.answer.ok
+      ? referralRefusal(receipt.answer.code)
+        ? 'referralRefused'
+        : 'refused'
+      : receipt.answer.data.attributed
+        ? 'attributed'
+        : 'checked';
+  const knownBody = (receipt: Receipt) => {
+    if (receipt.answer.ok) return receipt.answer.data.attributed ? 'attributedBody' : 'checkedBody';
+    const refusal = referralRefusal(receipt.answer.code);
+    return refusal ? (`refusal.${refusal}` as const) : 'refusedBody';
+  };
 
   function discardPrivate() {
     original.current = null;
@@ -531,12 +544,46 @@ export function Invitation() {
                 <p>{t('readBoundary')}</p>
               </div>
             )}
+            <AttachWindowNote key={userId} />
             <a href="/uc/promotion" className="invitation__link text-link">
               {t('account')}
             </a>
           </section>
         )}
       </div>
+    </div>
+  );
+}
+
+/** How long this account may still attach a referrer through a link, as the service measures it (J-campaigns-05 #4-#5). */
+function AttachWindowNote() {
+  const { api } = useSession();
+  const { t, requestedLocale } = copy.useCopy();
+  const { resource, reload } = useResource(
+    (signal) => api.query('identity', 'affiliates.attachWindow', undefined, attachWindowSchema, { signal }),
+    'referral-attach-window',
+  );
+  const when = (value: string) =>
+    `${new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value))} UTC`;
+  return (
+    <div className="invitation__window" aria-label={t('windowTitle')}>
+      <h3>{t('windowTitle')}</h3>
+      {resource.status === 'loading' ? (
+        <Loading />
+      ) : resource.status === 'failed' ? (
+        <div lang="und">
+          <Failure result={resource.failure} retry={reload} />
+        </div>
+      ) : (
+        <>
+          <p role="status" data-window={resource.data.state}>
+            {resource.data.state === 'unset'
+              ? t('windowUnset')
+              : t(resource.data.state === 'open' ? 'windowOpen' : 'windowClosed', { closesAt: when(resource.data.closesAt!) })}
+          </p>
+          <p className="muted">{t('windowCreated', { createdAt: when(resource.data.accountCreatedAt) })}</p>
+        </>
+      )}
     </div>
   );
 }

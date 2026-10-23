@@ -20,6 +20,7 @@ import type { BindProviderRefInput, BindProviderRefResult } from './kyc/provider
 import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
+import { ReferralError } from './affiliates/referral-tree.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -2134,6 +2135,84 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     expect(codeOf(err)).toBe('FORBIDDEN');
     expect((err as { message?: string }).message).toContain('share.revoked');
     expect(attributeCalls).toHaveLength(0);
+  });
+
+  it('the link owner opening their own link is refused (referral.self) after the visit counts', async () => {
+    const { api, attributeCalls } = shareRouter();
+    const owner = api.createCaller(await ctx(['identity:write']));
+    const created = await owner.affiliates.createShare();
+    const err = await owner.affiliates.shareHits({ token: created.token }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
+    expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('referral.self');
+    expect(attributeCalls).toHaveLength(0);
+  });
+
+  it('a link attach runs under the owner attach window; same referrer again is the same relationship', async () => {
+    const store = new MemoryShareStore();
+    store.rememberUser(USER);
+    const OTHER_REF = '88888888-8888-4888-8888-888888888888';
+    store.rememberUser(OTHER_REF);
+    const edges = new Map<string, string>();
+    const windows: Array<number | undefined> = [];
+    const share = {
+      createShare: async (referrerId: string) => store.createShare(referrerId),
+      shareHits: async (token: string) => store.shareHits(token),
+    } as unknown as import('./affiliates/share-service.js').ShareService;
+    const referral = {
+      attribute: async (input: { userId: string; referrerId: string }, late?: { windowSeconds: number | undefined }) => {
+        windows.push(late?.windowSeconds);
+        if (edges.has(input.userId)) throw new ReferralError('Referral already set for this user', 'referral.already_set');
+        edges.set(input.userId, input.referrerId);
+        return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
+      },
+      edgeOf: async (userId: string) => (edges.has(userId) ? { userId, referrerId: edges.get(userId)!, attributedAt: new Date() } : null),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral, referralAttachWindowSeconds: 600 });
+    const mine = await api.createCaller(await ctx(['identity:write'])).affiliates.createShare();
+    const theirs = await api.createCaller(await ctx(['identity:write'], { userId: OTHER_REF })).affiliates.createShare();
+    const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
+
+    expect((await visitor.affiliates.shareHits({ token: mine.token })).attributed).toBe(true);
+    expect((await visitor.affiliates.shareHits({ token: mine.token })).attributed).toBe(true);
+    const err = await visitor.affiliates.shareHits({ token: theirs.token }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
+    expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('referral.already_set');
+    expect(edges.get(VISITOR)).toBe(USER);
+    expect(windows).toEqual([600, 600, 600]);
+  });
+
+  it('attachWindow reads unset while the owner window is blank, and open or closed from the account age', async () => {
+    const created = new Date(Date.now() - 120_000);
+    const referral = { accountCreatedAt: async () => created } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const unset = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral });
+    expect(await unset.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'unset',
+      windowSeconds: null,
+      closesAt: null,
+    });
+    const short = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 60 });
+    expect((await short.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).state).toBe('closed');
+    const long = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 600 });
+    expect(await long.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'open',
+      windowSeconds: 600,
+      closesAt: new Date(created.getTime() + 600_000).toISOString(),
+    });
+  });
+
+  it('createCode refuses with referral.code_length_unset while the owner length is blank', async () => {
+    const referralCodes = new (await import('./affiliates/referral-code.js')).ReferralCodeService(
+      { unsafe: () => undefined } as never,
+      undefined,
+    );
+    referralCodes.codeOf = async () => null;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referralCodes });
+    const err = await api
+      .createCaller(await ctx(['identity:write']))
+      .affiliates.createCode()
+      .catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect((err as { message?: string }).message).toContain('referral.code_length_unset');
   });
 
   it('deleted profile refuses shareHits (share.profile_gone)', async () => {

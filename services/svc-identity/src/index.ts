@@ -20,6 +20,8 @@ import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './au
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
+import { ReferralCodeService, parseReferralCodeLength } from './affiliates/referral-code.js';
+import { parseAttachWindowSeconds } from './affiliates/attach-window.js';
 import { FreezeService } from './affiliates/freeze-service.js';
 import { SqlAccrualStore } from './affiliates/accrual-store.js';
 import { parseAccrualTierLawJson } from './affiliates/commission-rate-law.js';
@@ -382,6 +384,8 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
+const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
+const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const freeze = new FreezeService(sql);
 const accruals = new SqlAccrualStore(sql);
 /** Fail boot on malformed owner rates — never invent commission percentages. */
@@ -530,6 +534,8 @@ export const appRouter = mergeRouters(
     social: new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS }),
     referral,
     share,
+    referralCodes,
+    referralAttachWindowSeconds,
     freeze,
     accruals,
     accrualTierLaw,

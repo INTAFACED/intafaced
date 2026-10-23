@@ -71,6 +71,21 @@ export const invitationCopy = defineCopy(
     changed: 'This review context changed. No further acceptance was sent from it.',
     preflight:
       'The current account could not be checked before acceptance. No acceptance was sent. You can read current status and review again.',
+    referralRefused: 'Visit recorded.\nNo referral attached.',
+    'refusal.referral.self': 'This is your own invitation link. You cannot refer yourself.',
+    'refusal.referral.already_set':
+      'Your account already has a referrer from another invitation. One account keeps one referral relationship, so this one was not attached.',
+    'refusal.referral.cycle': 'This person is already in your own referral chain, so they cannot also refer you.',
+    'refusal.referral.depth': 'This referral chain is already as deep as we track, so this one was not attached.',
+    'refusal.referral.attach_window_closed':
+      'The time to join through an invitation link has passed for your account. Nothing was attached.',
+    'refusal.referral.attach_window_unset':
+      'Joining through an invitation link is closed: the owner has not set how long after sign-up it is allowed. Nothing was attached.',
+    windowTitle: 'Time to join through a link',
+    windowOpen: 'Your account can still attach a referrer through an invitation link until {closesAt}.',
+    windowClosed: 'The time to attach a referrer through a link ended at {closesAt}.',
+    windowUnset: 'Not set: the owner has not set how long after sign-up a referrer can be attached through a link.',
+    windowCreated: 'Your account was created {createdAt}. The time is measured by the service, not this device.',
   } as const,
   {
     es: {
