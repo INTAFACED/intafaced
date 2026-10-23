@@ -113,8 +113,10 @@ describe.skipIf(!available)('merchant.rooms.access', () => {
     const view = await caller(finance).merchant.rooms.access({ merchantId: merchantA });
     expect(view.role).toBe('finance');
     const payout = view.rooms.find((room) => room.room === 'payout-new')?.actions.find((row) => row.action === 'payout.request');
+    const send = view.rooms.find((room) => room.room === 'payout-new')?.actions.find((row) => row.action === 'payout.send');
     const refund = view.rooms.find((room) => room.room === 'refund-new')?.actions.find((row) => row.action === 'refund');
-    expect(payout).toEqual({ action: 'payout.request', allowed: true, reason: null });
+    expect(payout).toEqual({ action: 'payout.request', allowed: true, reason: 'step_up' });
+    expect(send).toEqual({ action: 'payout.send', allowed: false, reason: 'role' });
     expect(refund).toEqual({ action: 'refund', allowed: false, reason: 'role' });
 
     const missingId = id();

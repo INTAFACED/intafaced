@@ -28,13 +28,16 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
     }
   });
 
-  it('lets finance request a payout and refuses a refund for the role', () => {
-    expect(action('finance', 'payout-new', 'payout.request')).toEqual({ action: 'payout.request', allowed: true, reason: null });
+  it('lets finance request a payout with step-up and keeps refund and send off for the role', () => {
+    expect(action('finance', 'payout-new', 'payout.request')).toEqual({ action: 'payout.request', allowed: true, reason: 'step_up' });
+    expect(action('finance', 'payout-new', 'payout.send')).toEqual({ action: 'payout.send', allowed: false, reason: 'role' });
     expect(action('finance', 'refund-new', 'refund')).toEqual({ action: 'refund', allowed: false, reason: 'role' });
     expect(action('viewer', 'payout-new', 'payout.request')).toEqual({ action: 'payout.request', allowed: false, reason: 'role' });
+    expect(action('viewer', 'payout-new', 'payout.send')).toEqual({ action: 'payout.send', allowed: false, reason: 'role' });
+    expect(action('viewer', 'refund-new', 'refund')).toEqual({ action: 'refund', allowed: false, reason: 'role' });
   });
 
-  it('refuses money while KYB is not approved and still opens the room', () => {
+  it('refuses writes while KYB is not approved and still opens the room', () => {
     expect(action('owner', 'refund-new', 'open', { kybStatus: 'none' })).toEqual({ action: 'open', allowed: true, reason: null });
     expect(action('owner', 'refund-new', 'refund', { kybStatus: 'none' })).toEqual({ action: 'refund', allowed: false, reason: 'kyb' });
     expect(action('owner', 'payout-new', 'payout.request', { kybStatus: 'pending' })).toEqual({
@@ -42,12 +45,70 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
       allowed: false,
       reason: 'kyb',
     });
+    const writes = [
+      ['settings', 'profile.manage'],
+      ['team', 'team.manage'],
+      ['links', 'link.create'],
+      ['invoices', 'invoice.create'],
+      ['developer-webhooks', 'webhook.manage'],
+      ['approvals', 'payout.approve'],
+      ['checkout-settings', 'checkout.save'],
+    ] as const;
+    for (const [room, id] of writes) {
+      expect(action('owner', room, id, { kybStatus: 'none' })).toEqual({ action: id, allowed: false, reason: 'kyb' });
+    }
   });
 
-  it('names step-up on an allowed refund and session when the caller is not interactive', () => {
+  it('keeps a pending account in onboarding and names a suspended or closed account inactive', () => {
+    const writes = [
+      ['settings', 'profile.manage'],
+      ['team', 'team.manage'],
+      ['links', 'link.create'],
+      ['invoices', 'invoice.create'],
+      ['developer-webhooks', 'webhook.manage'],
+      ['approvals', 'payout.approve'],
+      ['checkout-settings', 'checkout.save'],
+    ] as const;
+    for (const [room, id] of writes) {
+      expect(action('owner', room, id, { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
+        action: id,
+        allowed: false,
+        reason: 'kyb',
+      });
+      expect(action('owner', room, id, { accountStatus: 'pending' })).toEqual({ action: id, allowed: true, reason: null });
+      expect(action('owner', room, id, { accountStatus: 'suspended' })).toEqual({ action: id, allowed: false, reason: 'inactive' });
+      expect(action('owner', room, id, { accountStatus: 'closed' })).toEqual({ action: id, allowed: false, reason: 'inactive' });
+    }
+    expect(action('owner', 'settings', 'profile.manage', { accountStatus: 'suspended', kybStatus: 'none' })).toEqual({
+      action: 'profile.manage',
+      allowed: false,
+      reason: 'inactive',
+    });
+    expect(action('owner', 'payments', 'refund', { accountStatus: 'pending' })).toEqual({
+      action: 'refund',
+      allowed: false,
+      reason: 'inactive',
+    });
+    expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
+      action: 'payout.request',
+      allowed: false,
+      reason: 'inactive',
+    });
+  });
+
+  it('names step-up on an allowed refund or payout and session when the caller is not interactive', () => {
     expect(action('owner', 'payments', 'refund')).toEqual({ action: 'refund', allowed: true, reason: 'step_up' });
+    expect(action('owner', 'payout-new', 'payout.request')).toEqual({ action: 'payout.request', allowed: true, reason: 'step_up' });
+    expect(action('owner', 'payout-new', 'payout.send')).toEqual({ action: 'payout.send', allowed: true, reason: 'step_up' });
     expect(action('owner', 'payments', 'refund', { sessionInteractive: false })).toEqual({
       action: 'refund',
+      allowed: false,
+      reason: 'session',
+    });
+    expect(
+      action('owner', 'settings', 'profile.manage', { sessionInteractive: false, accountStatus: 'suspended', kybStatus: 'none' }),
+    ).toEqual({
+      action: 'profile.manage',
       allowed: false,
       reason: 'session',
     });

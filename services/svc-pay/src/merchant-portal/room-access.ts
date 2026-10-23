@@ -8,10 +8,12 @@ import { PortalError } from './errors.js';
 /**
  * Room access for one business (M-adv-phantom-order-01).
  *
- * Every portal room is returned for every role. A control is on or off from the
- * same permission table the writes use. Money controls also name KYB, an
- * inactive account, and step-up. Nothing here moves money, and a missing KYB
- * status is refused rather than treated as verified.
+ * Every portal room is returned for every role. Open stays on. Every other
+ * action names a suspended or closed account, then KYB that is not approved,
+ * before the role table. A pending account is not inactive: onboarding still
+ * holds pay:write once KYB is approved. Money still requires an active account,
+ * and an allowed refund or payout names step-up. Nothing here moves money, and
+ * a missing KYB status is refused rather than treated as verified.
  */
 
 export type RoomActionReason = 'role' | 'kyb' | 'step_up' | 'inactive' | 'session';
@@ -73,6 +75,12 @@ export interface RoomAccessContext {
 export function decideRoomAction(ctx: RoomAccessContext, need: ActionNeed): { allowed: boolean; reason: RoomActionReason | null } {
   if (need.kind === 'open') return { allowed: true, reason: null };
   if (!ctx.sessionInteractive) return { allowed: false, reason: 'session' };
+  // Money refuses pending as well as suspended and closed. Other writes leave a
+  // pending account in onboarding, and only a suspended or closed one is inactive.
+  const inactive =
+    need.kind === 'money' ? ctx.accountStatus !== 'active' : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
+  if (inactive) return { allowed: false, reason: 'inactive' };
+  if (ctx.kybStatus !== 'approved') return { allowed: false, reason: 'kyb' };
   if (need.kind === 'permission') {
     const flags = capabilityFlagsForSession(ctx.role, true);
     return flags[need.permission] ? { allowed: true, reason: null } : { allowed: false, reason: 'role' };
@@ -80,15 +88,13 @@ export function decideRoomAction(ctx: RoomAccessContext, need: ActionNeed): { al
   if (need.kind === 'owner') {
     return ctx.role === 'owner' ? { allowed: true, reason: null } : { allowed: false, reason: 'role' };
   }
-  if (ctx.accountStatus !== 'active') return { allowed: false, reason: 'inactive' };
-  if (ctx.kybStatus !== 'approved') return { allowed: false, reason: 'kyb' };
   if (need.money === 'refund' || need.act === 'send') {
     if (ctx.role !== 'owner') return { allowed: false, reason: 'role' };
     return { allowed: true, reason: 'step_up' };
   }
   const flags = capabilityFlagsForSession(ctx.role, true);
   const may = ctx.role === 'owner' || flags['payout.request'] || flags['payout.approve'];
-  return may ? { allowed: true, reason: null } : { allowed: false, reason: 'role' };
+  return may ? { allowed: true, reason: 'step_up' } : { allowed: false, reason: 'role' };
 }
 
 export function projectRoomAccess(ctx: RoomAccessContext & { merchantId: string }): MerchantRoomAccess {
