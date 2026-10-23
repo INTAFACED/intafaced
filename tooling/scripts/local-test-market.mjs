@@ -596,12 +596,16 @@ async function runLoop(opts, home) {
   const assets = [...new Set(markets.flatMap((m) => [m.base, m.quote]))];
   await ensureFunds(maker, 'maker', assets, 1);
   await ensureFunds(taker, 'taker', assets, 10);
-  const acceptedTiers = markets.some((m) => m.swap)
-    ? await prepareFuturesMaker(
-        maker,
-        markets.filter((m) => m.swap),
-      )
-    : new Map();
+  if (markets.some((m) => m.swap)) await prepareFuturesMaker(maker);
+  /** The top TEST margin tier the maker accepts per perp, read again on a later quote while the tiers were unreadable. */
+  const acceptedTiers = new Map();
+  const acceptedTier = async (m) => {
+    if (!acceptedTiers.has(m.symbol)) {
+      const top = await topMarginTier(maker, m);
+      if (top > 0) acceptedTiers.set(m.symbol, top);
+    }
+    return acceptedTiers.get(m.symbol);
+  };
 
   let saved = {};
   try {
@@ -632,7 +636,7 @@ async function runLoop(opts, home) {
   const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
-      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, acceptedTiers.get(m.symbol))
+      ? acceptedTier(m).then((tier) => placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, tier))
       : client.http('POST', '/api/v1/orders', {
           symbol: m.symbol,
           type: 'limit',
@@ -938,11 +942,10 @@ const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_u
  * the quotes then refuse with the same code.
  *
  * The maker's quotes are most of the TEST book's depth, so they sit in the top margin tier of the stack's TEST ladder,
- * and an order that crosses into a higher tier must name it (`confirmTier`, svc-trade `risk-tier-confirm.ts`). The
- * maker accepts the top published tier of each market; with no tiers published nothing is accepted and the quotes
- * refuse with the ladder's own code. Answers the accepted tier per market symbol.
+ * and an order that crosses into a higher tier must name it (`confirmTier`, svc-trade `risk-tier-confirm.ts`): the
+ * maker accepts the top published tier of each perp (`topMarginTier`).
  */
-async function prepareFuturesMaker(maker, swaps) {
+async function prepareFuturesMaker(maker) {
   const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
   const mode = await maker.http('PUT', '/api/v1/futures/position-mode', { mode: 'hedge', clientModeId: 'LTEST-maker-position-mode-hedge' });
   say('position mode hedge', mode, mode.status === 200);
@@ -963,14 +966,17 @@ async function prepareFuturesMaker(maker, swaps) {
   say('TEST quiz', quiz, quiz.status === 200);
   const adl = await maker.http('POST', '/api/v1/futures/adl-disclosure/ack', {});
   say('ADL notice acknowledged', adl, adl.status === 200);
-  const accepted = new Map();
-  for (const m of swaps) {
-    const tiers = await maker.http('GET', `/api/v1/futures/tiers?symbol=${encodeURIComponent(m.symbol)}`);
-    const top = tiers.status === 200 && Array.isArray(tiers.json?.tiers) ? tiers.json.tiers.length : 0;
-    say(`accepts TEST margin tier ${top} on ${m.symbol}`, tiers, top > 0);
-    if (top > 0) accepted.set(m.symbol, top);
-  }
-  return accepted;
+}
+
+/**
+ * The top margin tier the TEST ladder publishes for one perp, which the maker accepts for its quotes; 0 while the tiers
+ * cannot be read (unpublished, or the read failed), and the quotes then refuse with the service's own code.
+ */
+async function topMarginTier(maker, m) {
+  const r = await maker.http('GET', `/api/v1/futures/tiers?symbol=${encodeURIComponent(m.symbol)}`);
+  const top = r.status === 200 && Array.isArray(r.json?.tiers) ? r.json.tiers.length : 0;
+  log(`maker accepts TEST margin tier on ${m.symbol}: ${top > 0 ? `tier ${top}` : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
+  return top;
 }
 
 function placeFutures(client, m, side, price, amount, clientOrderId, confirmTier) {

@@ -1901,6 +1901,49 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect((await tiered().place(principal(ALICE), { ...big, confirmTier: 3 })).status).toBe('open');
     });
 
+    it('two orders placed together cannot each stay inside the tier and together cross it: the later rating refuses', async () => {
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        ladder: { depth: { depthNotional: async () => A('1000') }, policy: POLICY },
+      });
+      // Order B (0.3) is placed in full while order A (0.3) is between its first rating and writing its row: each alone
+      // stays in tier 1 (30 of 50), together they are 60, tier 2.
+      let racing = true;
+      const svc: MatchedFuturesOrders = build({
+        riskTier: async (input) => {
+          const crossing = await positions.riskTierCrossing(input);
+          if (racing && input.excludeOrderId === undefined) {
+            racing = false;
+            await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-b' }));
+          }
+          return crossing;
+        },
+      });
+      const a = order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-a' });
+      await expect(svc.place(principal(ALICE), a)).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required', status: 409 });
+      // A's row is kept, refused before its hold posted; only B rests and holds.
+      const rows = await sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${ALICE} ORDER BY client_order_id
+      `;
+      expect(rows).toEqual([
+        { client_order_id: 'race-a', status: 'refused', refusal_code: 'trade.risk_limit_confirm_required' },
+        { client_order_id: 'race-b', status: 'open', refusal_code: null },
+      ]);
+      expect(engine.submits).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
+    it('a confirmTier above the ladder names no tier and refuses before any hold', async () => {
+      await expect(
+        tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'tier-9', confirmTier: 9 })),
+      ).rejects.toMatchObject({ code: 'trade.confirm_tier_invalid', status: 400 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+    });
+
     it('an unreadable depth refuses before any hold: no tier can be named', async () => {
       depth = null;
       await expect(

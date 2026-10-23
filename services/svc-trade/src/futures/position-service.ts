@@ -481,6 +481,10 @@ export class PositionService {
     side: 'long' | 'short';
     qty: Amount;
     mark: Amount;
+    /** The order being rated once its own row is written: left out of the exposure, since `qty` is that order. */
+    excludeOrderId?: string;
+    /** The depth an earlier rating in the same request read; absent reads it now. */
+    depthNotional?: Amount;
   }): Promise<RiskTierCrossing> {
     const ladder = this.deps.ladder;
     if (!ladder?.policy) {
@@ -490,11 +494,13 @@ export class PositionService {
         503,
       );
     }
-    let depthNotional: Amount | null;
-    try {
-      depthNotional = await ladder.depth.depthNotional({ marketId: input.marketId, side: input.side, symbol: input.symbol });
-    } catch {
-      depthNotional = null;
+    let depthNotional: Amount | null = input.depthNotional ?? null;
+    if (depthNotional === null) {
+      try {
+        depthNotional = await ladder.depth.depthNotional({ marketId: input.marketId, side: input.side, symbol: input.symbol });
+      } catch {
+        depthNotional = null;
+      }
     }
     if (depthNotional == null || depthNotional <= 0n) {
       throw new FuturesError('the book depth the margin tiers are rated against is unreadable — nothing was held', DEPTH_UNKNOWN, 503);
@@ -507,7 +513,8 @@ export class PositionService {
             AND status IN ('open', 'closing'))::text AS position,
         (SELECT sum(qty - filled_qty) FROM trade.futures_orders
           WHERE user_id = ${input.userId} AND market_id = ${input.marketId} AND side = ${bookSide} AND NOT reduce_only
-            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown'))::text AS orders
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+            ${input.excludeOrderId ? this.sql`AND id <> ${input.excludeOrderId}` : this.sql``})::text AS orders
     `;
     const exposure = parseAmount(row?.position ?? '0') + parseAmount(row?.orders ?? '0');
     return tierCrossing({ policy: ladder.policy, depthNotional, mark: input.mark, exposure: exposure as Amount, qty: input.qty });

@@ -331,7 +331,17 @@ export interface MatchedOrdersDeps {
     readonly side: PositionSide;
     readonly qty: Amount;
     readonly mark: Amount;
+    /** Once the order's row is written: that row, left out of the exposure since `qty` is that order. */
+    readonly excludeOrderId?: string;
+    /** The depth an earlier rating in the same request read; absent reads it now. */
+    readonly depthNotional?: Amount;
   }) => Promise<RiskTierCrossing>;
+}
+
+/** What an opening order's request said about margin tiers, carried to the rating after its row is written. */
+interface TierContext {
+  readonly confirmTier?: number | undefined;
+  readonly depthNotional?: Amount | undefined;
 }
 
 export interface OrderRow {
@@ -912,7 +922,7 @@ export class MatchedFuturesOrders {
       if (!sameRequest(existing, input)) {
         refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
       }
-      return this.resume(existing);
+      return this.resume(existing, input.confirmTier);
     }
 
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
@@ -988,7 +998,7 @@ export class MatchedFuturesOrders {
     if (pretrade) {
       throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
     }
-    await this.refuseUnconfirmedTier(input, market, input.qty, mark);
+    const rated = await this.refuseUnconfirmedTier(input, market, input.qty, mark);
 
     if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
     const proof = await this.deps.lifecycleProof(market.id);
@@ -1025,19 +1035,24 @@ export class MatchedFuturesOrders {
     if (inserted.length === 0) {
       const raced = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
       if (!raced || !sameRequest(raced, input)) refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
-      return this.resume(raced);
+      return this.resume(raced, input.confirmTier);
     }
 
     const row = await this.loadOrder(orderId);
-    return this.continueOrder(row, market, proof);
+    return this.continueOrder(row, market, proof, { confirmTier: input.confirmTier, depthNotional: rated?.depthNotional });
   }
 
   /**
    * An opening order that carries its side into a higher margin tier than it sits in now refuses until `confirmTier`
    * names that tier (`risk-tier-confirm.ts`). Before anything is held or written, so the refusal locks nothing.
    */
-  private async refuseUnconfirmedTier(input: PlaceMatchedOrderInput, market: MarketRow, qty: Amount, mark: Amount): Promise<void> {
-    if (!this.deps.riskTier) return;
+  private async refuseUnconfirmedTier(
+    input: PlaceMatchedOrderInput,
+    market: MarketRow,
+    qty: Amount,
+    mark: Amount,
+  ): Promise<RiskTierCrossing | null> {
+    if (!this.deps.riskTier) return null;
     const crossing = await this.deps.riskTier({
       userId: input.userId,
       marketId: market.id,
@@ -1047,7 +1062,35 @@ export class MatchedFuturesOrders {
       mark,
     });
     const refusal = unconfirmedTierRefusal(crossing, input.confirmTier, input.leverage, this.deps.maxLeverage);
-    if (refusal) refuse(refusal.code, refusal.message, 409);
+    if (refusal) refuse(refusal.code, refusal.message, refusal.status);
+    return crossing;
+  }
+
+  /**
+   * The same rating again once the order's row is written, before its hold posts, as the haircut is checked: the row
+   * counts in the side's exposure from the moment it exists, so of two opens placed together the later rating sees
+   * both, and they cannot each stay "inside the tier" while together crossing one nobody named. A crossing refuses the
+   * order on its code (the row is kept, refused, as an unfunded hold is). A rating that cannot be read leaves the order
+   * pending, and a retry rates it again.
+   */
+  private async refuseUnconfirmedTierOnRow(row: OrderRow, market: MarketRow, tier: TierContext): Promise<void> {
+    const crossing = await this.deps.riskTier!({
+      userId: row.user_id,
+      marketId: market.id,
+      symbol: market.symbol,
+      side: positionSideOf(row.side),
+      qty: parseAmount(row.qty),
+      mark: parseAmount(row.mark_price),
+      excludeOrderId: row.id,
+      ...(tier.depthNotional !== undefined ? { depthNotional: tier.depthNotional } : {}),
+    });
+    const refusal = unconfirmedTierRefusal(crossing, tier.confirmTier, parseAmount(row.leverage), this.deps.maxLeverage);
+    if (!refusal) return;
+    await this.deps.sql`
+      UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()
+       WHERE id = ${row.id} AND status = 'pending'
+    `;
+    refuse(refusal.code, refusal.message, refusal.status);
   }
 
   /**
@@ -1257,12 +1300,12 @@ export class MatchedFuturesOrders {
   }
 
   /** A retry of an order whose placement stopped part-way: continue from what the row says, with its stored numbers. */
-  private async resume(row: OrderRow): Promise<MatchedOrderView> {
+  private async resume(row: OrderRow, confirmTier?: number): Promise<MatchedOrderView> {
     if (row.status === 'pending' || row.status === 'held') {
       const market = await this.loadMarketById(row.market_id);
       if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
       const proof = await this.deps.lifecycleProof(market.id);
-      return this.continueOrder(row, market, proof);
+      return this.continueOrder(row, market, proof, { confirmTier });
     }
     if (row.status === 'submitting' || row.status === 'submit_unknown') {
       refuse(
@@ -1297,13 +1340,19 @@ export class MatchedFuturesOrders {
     }
   }
 
-  private async continueOrder(row: OrderRow, market: MarketRow, proof: LifecycleAdmissionProof): Promise<MatchedOrderView> {
+  private async continueOrder(
+    row: OrderRow,
+    market: MarketRow,
+    proof: LifecycleAdmissionProof,
+    tier: TierContext = {},
+  ): Promise<MatchedOrderView> {
     if (row.status === 'pending' && row.reduce_only) {
       // Nothing to lock: a reduce-only order's loss is bounded by its position's bankruptcy price, not by a hold.
       await this.deps.sql`
         UPDATE trade.futures_orders SET status = 'held', updated_at = now() WHERE id = ${row.id} AND status = 'pending'
       `;
     } else if (row.status === 'pending') {
+      if (this.deps.riskTier) await this.refuseUnconfirmedTierOnRow(row, market, tier);
       if (this.deps.assertCollateralCredit) await this.refuseShortOfCredit(row);
       try {
         await this.deps.ledger.post(

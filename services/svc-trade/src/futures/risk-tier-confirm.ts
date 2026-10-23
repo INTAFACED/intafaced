@@ -22,6 +22,8 @@ import { tierOf } from './risk-calculator.js';
 
 export const RISK_LIMIT_CONFIRM_REQUIRED = 'trade.risk_limit_confirm_required';
 export const CONFIRM_TIER_INVALID = 'trade.confirm_tier_invalid';
+/** The preview's tier line when the rating failed for a reason that is not the ladder's own. */
+export const RISK_TIER_UNAVAILABLE = 'trade.risk_tier_unavailable';
 
 export interface RiskTierCrossing {
   /** The tier the side's position and live opening orders sit in now; null when there are none. */
@@ -34,6 +36,10 @@ export interface RiskTierCrossing {
   readonly notional: Amount;
   /** True when the projected tier is above the current one (above tier 1 when there is nothing yet). */
   readonly confirmRequired: boolean;
+  /** How many tiers the ladder publishes: a `confirmTier` above it names no tier. */
+  readonly tiers: number;
+  /** The depth the side was rated against, so a second rating in the same request reads the same book. */
+  readonly depthNotional: Amount;
 }
 
 /**
@@ -56,6 +62,8 @@ export function tierCrossing(input: {
     maintenanceBps: projected.maintenanceBps,
     notional,
     confirmRequired: projected.tier > (currentTier ?? 1),
+    tiers: input.policy.tiers.length,
+    depthNotional: input.depthNotional,
   };
 }
 
@@ -71,18 +79,29 @@ function bpsPercent(bps: number): string {
   return `${Math.floor(bps / 100)}.${String(bps % 100).padStart(2, '0')}%`;
 }
 
-/** The refusal an order meets when it crosses into a tier the trader has not named, or null. */
+/**
+ * The refusal an order meets when it crosses into a tier the trader has not named, or null. A `confirmTier` above the
+ * ladder's last tier names no tier the trader could have been shown, so it refuses rather than waiving every crossing.
+ */
 export function unconfirmedTierRefusal(
   crossing: RiskTierCrossing,
   confirmTier: number | undefined,
   leverage: Amount,
   leverageCap: Amount | null,
-): { code: string; message: string } | null {
+): { code: string; message: string; status: number } | null {
+  if (confirmTier !== undefined && confirmTier > crossing.tiers) {
+    return {
+      code: CONFIRM_TIER_INVALID,
+      message: `confirmTier ${confirmTier} names no published tier; the ladder has ${crossing.tiers}`,
+      status: 400,
+    };
+  }
   if (!crossing.confirmRequired || (confirmTier !== undefined && confirmTier >= crossing.projectedTier)) return null;
   const from = crossing.currentTier === null ? 'opens the position in' : `moves the position from tier ${crossing.currentTier} into`;
   const cap = leverageCap === null ? 'the listing cap is unset' : `every tier answers to the listing cap of ${formatAmount(leverageCap)}x`;
   return {
     code: RISK_LIMIT_CONFIRM_REQUIRED,
+    status: 409,
     message:
       `this order ${from} tier ${crossing.projectedTier} (maintenance ${bpsPercent(crossing.maintenanceBps)}) at ` +
       `${formatAmount(leverage)}x leverage; ${cap}. Send confirmTier ${crossing.projectedTier} to place it`,

@@ -247,7 +247,15 @@ describe('POST /api/v1/positions/preview', () => {
       liquidation: '80',
       riskTierFor: async (input) => {
         asked.push({ userId: input.userId, market: input.market.id, side: input.side, size: input.size, mark: input.markPrice });
-        return { currentTier: 1, projectedTier: 2, maintenanceBps: 100, notional: parseAmount('200'), confirmRequired: true };
+        return {
+          currentTier: 1,
+          projectedTier: 2,
+          maintenanceBps: 100,
+          notional: parseAmount('200'),
+          confirmRequired: true,
+          tiers: 4,
+          depthNotional: parseAmount('1000'),
+        };
       },
     });
     const response = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
@@ -289,6 +297,23 @@ describe('POST /api/v1/positions/preview', () => {
     const none = await markless.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
     expect(none.json().riskTier).toBeNull();
     expect(called).toBe(false);
+    // Any other failure is named on the tier line too; the rest of the preview still answers.
+    const broken = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async () => {
+        throw new Error('connection reset');
+      },
+    });
+    const named = await broken.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({
+      initialMargin: '50',
+      riskTier: null,
+      refusals: [{ code: 'trade.risk_tier_unavailable', field: 'tier' }],
+    });
+    await broken.close();
     await unread.close();
     await markless.close();
   });

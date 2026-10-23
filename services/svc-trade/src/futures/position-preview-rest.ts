@@ -21,7 +21,7 @@ import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 import { bpsToRate } from '../public-rest.js';
 import { FuturesError } from './position-service.js';
-import type { RiskTierCrossing } from './risk-tier-confirm.js';
+import { RISK_TIER_UNAVAILABLE, type RiskTierCrossing } from './risk-tier-confirm.js';
 
 export interface PositionPreviewRefusal {
   code: string;
@@ -352,8 +352,9 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
           confirmRequired: crossing.confirmRequired,
         };
       } catch (err) {
-        if (!(err instanceof FuturesError)) throw err;
-        refusals.push({ code: err.code, field: 'tier', message: err.message });
+        // The ladder's own refusals (unset, depth unknown) by their code; anything else is named, never a failed preview.
+        if (err instanceof FuturesError) refusals.push({ code: err.code, field: 'tier', message: err.message });
+        else refusals.push({ code: RISK_TIER_UNAVAILABLE, field: 'tier', message: 'the margin tier could not be rated' });
       }
     }
 
