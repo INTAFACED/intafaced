@@ -214,6 +214,10 @@ export function identityUnfreezePayloadHash(input: { readonly userId: string; re
   return identityActionPayloadHash(input.userId.toLowerCase(), { reason: input.reason.trim() });
 }
 
+type UnfreezeApproval =
+  | { readonly approverId: string; readonly refusal: null }
+  | { readonly approverId?: undefined; readonly refusal: 'restriction_approval_mismatch' | 'restriction_approval_consumed' };
+
 export class FounderControls {
   private configured = false;
   constructor(
@@ -372,6 +376,7 @@ export class FounderControls {
             current: AccountControlState | null = null,
           ) => accountControlResultSchema.parse({ ...common, outcome: 'refused', changed: false, code, current });
           let approverId: string | null = null;
+          let unfreeze: UnfreezeApproval | undefined;
           let result: AccountControlResult;
           if (actor.refusal) {
             result = refused(actor.refusal);
@@ -406,15 +411,11 @@ export class FounderControls {
               else if (input.action === 'restore' && !input.approvalId) result = refused('restriction_no_four_eyes', before);
               else if (
                 input.action === 'restore' &&
-                (approverId = await this.consumeUnfreezeApproval(tx, input, targetId, actorId!, clock!.at)) === null
+                (unfreeze = await this.consumeUnfreezeApproval(tx, input, targetId, actorId!, clock!.at)).refusal
               )
-                result = refused(
-                  (await sqlGetApprovalForUpdate(tx, input.approvalId!))?.status === 'CONSUMED'
-                    ? 'restriction_approval_consumed'
-                    : 'restriction_approval_mismatch',
-                  before,
-                );
+                result = refused(unfreeze.refusal, before);
               else {
+                if (unfreeze?.approverId) approverId = unfreeze.approverId;
                 await tx`UPDATE users SET status = ${input.action === 'restrict' ? 'frozen' : 'active'}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
                 if (input.action === 'restrict') {
                   await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
@@ -433,9 +434,10 @@ export class FounderControls {
               }
             }
           }
+          // An approval is named in the audit only when it was looked at (a restore); a freeze ignores one.
           await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, {
             fourEyes: approverId !== null,
-            ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            ...(input.action === 'restore' && input.approvalId ? { approvalId: input.approvalId } : {}),
           });
           if (!previous)
             await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
@@ -608,7 +610,7 @@ export class FounderControls {
    * unexpired, unconsumed `identity.account_unfreeze` four-eyes row filed against svc-identity for this account,
    * at the version the founder read, over the reason the approver read. The requester must be the founder restoring,
    * the approver someone else, and neither may be the account being restored. It is spent in this transaction.
-   * Returns the approver, or null when the row does not bind (the caller refuses and nothing changes).
+   * Returns the approver, or the refusal when the row does not bind or was spent (the caller refuses and nothing changes).
    */
   private async consumeUnfreezeApproval(
     tx: Sql,
@@ -616,9 +618,10 @@ export class FounderControls {
     targetId: string,
     actorId: string,
     now: Date,
-  ): Promise<string | null> {
+  ): Promise<UnfreezeApproval> {
     const approval = await sqlGetApprovalForUpdate(tx, input.approvalId!);
-    if (!approval) return null;
+    if (!approval) return { refusal: 'restriction_approval_mismatch' };
+    if (approval.status === 'CONSUMED') return { refusal: 'restriction_approval_consumed' };
     const payloadHash = identityUnfreezePayloadHash({ userId: targetId, reason: input.reason });
     const requester = approval.requesterId.toLowerCase();
     const approver = approval.approverId?.toLowerCase() ?? null;
@@ -636,7 +639,7 @@ export class FounderControls {
       requester !== targetId &&
       approver !== targetId &&
       approval.expiresAt.getTime() > now.getTime();
-    if (!bound) return null;
+    if (!bound) return { refusal: 'restriction_approval_mismatch' };
     const consumed = await sqlCasConsume(tx, {
       approvalId: approval.approvalId,
       operationId: approval.operationId,
@@ -649,7 +652,7 @@ export class FounderControls {
       consumedByService: 'svc-identity',
       consumedByPrincipal: actorId,
     });
-    return consumed ? approver : null;
+    return consumed ? { approverId: approver, refusal: null } : { refusal: 'restriction_approval_consumed' };
   }
 
   private tradeOpsRefusal(context: Context): 'operator.denied' | 'mfa.required' | null {

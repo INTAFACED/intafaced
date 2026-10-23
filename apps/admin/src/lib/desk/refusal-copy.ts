@@ -70,7 +70,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   restriction_approval_consumed: {
     title: 'That approval was already used',
     body: 'An approval runs once. Nothing was changed by this attempt.',
-    next: 'Read the account again. If it still needs doing, make a new request.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the change is already there. If it still needs doing, make a new request.',
   },
   'restriction.version_conflict': {
     title: 'The account changed since you read it',

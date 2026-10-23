@@ -143,7 +143,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
                   reasonLabel: 'Why (kept in the account’s control history, 12 to 500 characters)',
                   build: (why) => ({ kind: 'identity.account.unfreeze', userId: id.toLowerCase(), reason: why, version: state.version }),
                 }}
-                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then either of you runs it. Identity spends the approval once and refuses a founder approving their own request."
+                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity spends the approval once and refuses anyone approving their own request; it also accepts another operator as the approver, so check who approved before you run it."
                 blockedButtonLabel="Restore unavailable"
                 onChanged={() => {
                   void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
