@@ -10,7 +10,8 @@ import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useApi } from '../session/session';
+import { useApi, useSession } from '../session/session';
+import { leaveReceipt, newLeaveId } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
@@ -37,6 +38,7 @@ export const closedReasonText = (t: T, reason: AcademyEnrolmentClosedReason) => 
  */
 export function AcademyCourseEnrol({ slug }: { slug: string }) {
   const api = useApi();
+  const { userId } = useSession();
   const terms = useResource(
     (signal) => api.query('academy', 'courseEnrolment', { slug }, academyCourseEnrolmentSchema, { signal }),
     `course-enrolment:${slug}`,
@@ -44,31 +46,38 @@ export function AcademyCourseEnrol({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false);
   // A second press before React re-renders still finds the first one in flight: one press, one request.
   const inFlight = useRef(false);
-  const [refusal, setRefusal] = useState<Failure | null>(null);
-  const enrol = async (track: AcademyEnrolmentTrack) => {
+  const [refusal, setRefusal] = useState<{ kind: 'enrol' | 'leave'; failure: Failure } | null>(null);
+  const send = async (kind: 'enrol' | 'leave', request: () => Promise<ApiResult<unknown>>) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setSending(true);
     setRefusal(null);
     try {
-      const sent = await api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema);
-      if (!sent.ok) setRefusal(sent);
+      const sent = await request();
+      if (!sent.ok) setRefusal({ kind, failure: sent });
     } finally {
       inFlight.current = false;
       setSending(false);
       terms.reload();
     }
   };
+  const enrol = (track: AcademyEnrolmentTrack) =>
+    send('enrol', () => api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema));
+  // One reference per leave press: the service answers a repeat of it with the first leave, so a resend cannot leave twice.
+  const leave = () =>
+    send('leave', () =>
+      api.mutate('academy', 'leaveCertPath', { pathSlug: slug, clientRequestId: newLeaveId() }, leaveReceipt(userId, slug)),
+    );
   if (terms.resource.status === 'loading') return <Loading />;
   if (terms.resource.status === 'failed')
     return (
       <>
         {/* A refused enrolment keeps its own reason even when the read after it fails too. */}
-        {refusal && <AcademyRefusal failure={refusal} />}
+        {refusal && <AcademyRefusal failure={refusal.failure} />}
         <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />
       </>
     );
-  return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} />;
+  return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} onLeave={leave} />;
 }
 
 /** The enrol block as data says it. Pure: state arrives as props. */
@@ -77,11 +86,13 @@ export function CourseEnrolView({
   sending,
   refusal,
   onEnrol,
+  onLeave,
 }: {
   terms: AcademyCourseEnrolment;
   sending: boolean;
-  refusal: Failure | null;
+  refusal: { kind: 'enrol' | 'leave'; failure: Failure } | null;
   onEnrol: (track: AcademyEnrolmentTrack) => void;
+  onLeave: () => void;
 }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
@@ -131,6 +142,17 @@ export function CourseEnrolView({
             </time>
           </p>
           {terms.activationMail && <ServiceOffNotice code={terms.activationMail} action={t('enrolActivationMail')} role="status" />}
+          <GuardedButton
+            variant="secondary"
+            reason={sending ? t('courseLeaving') : null}
+            reasonId={`academy-leave-${terms.slug}-reason`}
+            onClick={onLeave}
+          >
+            <Copy k="courseLeave" />
+          </GuardedButton>
+          <small className="muted">
+            <Copy k="courseLeaveNote" />
+          </small>
         </>
       ) : (
         <>
@@ -177,8 +199,8 @@ export function CourseEnrolView({
           </GuardedButton>
         </>
       )}
-      {/* A lost reply after the enrolment was stored reads back as enrolled: the stored state wins over the failed send. */}
-      {refusal && !enrolled && <AcademyRefusal failure={refusal} />}
+      {/* A lost reply whose change was stored reads back as done: the stored state wins over the failed send. */}
+      {refusal && (refusal.kind === 'enrol') === !enrolled && <AcademyRefusal failure={refusal.failure} />}
     </div>
   );
 }

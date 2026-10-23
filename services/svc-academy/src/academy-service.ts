@@ -41,8 +41,8 @@ import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
-import { assertTrackOpen, courseEnrolmentView, publishedCourse } from './curriculum/course-enrolment.js';
-import type { AcademyCourseEnrolment, AcademyEnrolmentTrack } from '@intafaced/contracts';
+import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
+import type { AcademyAccessGrant, AcademyCourseEnrolment, AcademyEnrolmentTrack, AcademyMyCourse } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -72,7 +72,7 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import type { VideoSpineEntry } from './video/catalog.js';
@@ -1680,6 +1680,19 @@ export class AcademyService {
       ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
     });
     return courseEnrolmentView(path, row);
+  }
+
+  /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
+  async myLearning(userId: string): Promise<AcademyMyCourse[]> {
+    const enrolments = (await this.customer.myEnrollments(userId)).filter((row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0);
+    if (enrolments.length === 0) return [];
+    const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
+    return enrolments.map((row) => myCourseView(row.pathSlug as CurriculumPath, row, completed, state.lastItemSlug));
+  }
+
+  /** AC-access-grants-01: the caller's access records, one per active enrolment. */
+  async myAccessGrants(userId: string): Promise<AcademyAccessGrant[]> {
+    return (await this.customer.myEnrollments(userId)).map(accessGrantView);
   }
 
   myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {

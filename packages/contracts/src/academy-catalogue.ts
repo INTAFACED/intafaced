@@ -128,3 +128,36 @@ export const academyEnrolCourseInputSchema = z
   .object({ slug: z.string().min(1).max(64), track: z.enum(ACADEMY_ENROLMENT_TRACKS) })
   .strict();
 export type AcademyEnrolCourseInput = z.infer<typeof academyEnrolCourseInputSchema>;
+
+/**
+ * AC-catalogue-02: My learning, one row per course the caller is enrolled in. `completed` counts the course's items the
+ * caller has completed; `resumeItemSlug` is null until they have opened or completed something in it, and then names
+ * where Continue goes. `firstItemSlug` is where Start course goes.
+ */
+export const ACADEMY_MY_COURSE_STATUSES = ['in_progress', 'completed', 'future_start'] as const;
+export const academyMyCourseSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    status: z.enum(ACADEMY_MY_COURSE_STATUSES),
+    enrolledAt: isoInstant,
+    startsAt: isoInstant.nullable(),
+    items: z.number().int().positive(),
+    completed: z.number().int().nonnegative(),
+    firstItemSlug: z.string().min(1),
+    resumeItemSlug: z.string().min(1).nullable(),
+  })
+  .refine((row) => row.completed <= row.items, { message: 'more items completed than the course has' });
+export type AcademyMyCourse = z.infer<typeof academyMyCourseSchema>;
+
+/**
+ * AC-access-grants-01: the caller's access records, one per course they may learn in. `source` says how the access was
+ * given; `expiresAt` null means it does not expire. Free enrolment is the only source today.
+ */
+export const ACADEMY_ACCESS_SOURCES = ['free', 'purchase', 'staff', 'invitation'] as const;
+export const academyAccessGrantSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  source: z.enum(ACADEMY_ACCESS_SOURCES),
+  grantedAt: isoInstant,
+  expiresAt: isoInstant.nullable(),
+});
+export type AcademyAccessGrant = z.infer<typeof academyAccessGrantSchema>;

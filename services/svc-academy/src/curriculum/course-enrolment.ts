@@ -7,7 +7,13 @@
  * certificate track has no published price (AC-commerce-01), so it is closed with `no_price` and refuses. The academy
  * has no mail sender, so the activation mail names `vendor.email`; enrolment never waits on it.
  */
-import { ACADEMY_CURRICULUM_PATHS, type AcademyCourseEnrolment, type AcademyEnrolmentTrack } from '@intafaced/contracts';
+import {
+  ACADEMY_CURRICULUM_PATHS,
+  type AcademyAccessGrant,
+  type AcademyCourseEnrolment,
+  type AcademyEnrolmentTrack,
+  type AcademyMyCourse,
+} from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import type { EnrollmentRow } from '../learning/customer-store.js';
 import { listCurriculum, type CurriculumPath } from './catalog.js';
@@ -45,4 +51,37 @@ export function assertTrackOpen(track: AcademyEnrolmentTrack): void {
   const row = TRACKS.find((candidate) => candidate.track === track);
   if (!row) throw new AcademyError(`academy.enrolment_closed track=${track} reason=unpublished`, 'academy.enrolment_closed');
   if (row.closed) throw new AcademyError(`academy.enrolment_closed track=${track} reason=${row.closed}`, 'academy.enrolment_closed');
+}
+
+/**
+ * AC-catalogue-02: one My learning row. Continue resumes at the last item opened in this course, else the first item
+ * not completed; with nothing opened or completed there is no Continue, only Start course. No course has a start date
+ * yet, so nothing is a future start.
+ */
+export function myCourseView(
+  path: CurriculumPath,
+  enrolment: EnrollmentRow,
+  completed: ReadonlySet<string>,
+  lastItemSlug: string | null,
+): AcademyMyCourse {
+  const items = listCurriculum({ path });
+  const done = items.filter((row) => completed.has(row.slug)).length;
+  const opened = lastItemSlug !== null && items.some((row) => row.slug === lastItemSlug) ? lastItemSlug : null;
+  const started = opened !== null || done > 0;
+  const resume = opened ?? items.find((row) => !completed.has(row.slug))?.slug ?? items[items.length - 1]!.slug;
+  return {
+    slug: path,
+    status: done === items.length ? 'completed' : 'in_progress',
+    enrolledAt: enrolment.enrolledAt.toISOString(),
+    startsAt: null,
+    items: items.length,
+    completed: done,
+    firstItemSlug: items[0]!.slug,
+    resumeItemSlug: started ? resume : null,
+  };
+}
+
+/** AC-access-grants-01: an active free enrolment is the access record; it was given free and does not expire. */
+export function accessGrantView(enrolment: EnrollmentRow): AcademyAccessGrant {
+  return { slug: enrolment.pathSlug as CurriculumPath, source: 'free', grantedAt: enrolment.enrolledAt.toISOString(), expiresAt: null };
 }

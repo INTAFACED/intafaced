@@ -13,6 +13,8 @@ import {
   academyPublicCourseSchema,
   academyCourseEnrolmentSchema,
   academyEnrolCourseInputSchema,
+  academyMyCourseSchema,
+  academyAccessGrantSchema,
   academyPublicHubSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -2203,6 +2205,16 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(64) }).strict())
       .output(academyCourseEnrolmentSchema)
       .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
+    myLearning: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyMyCourseSchema))
+      .query(({ ctx }) => guard(() => academy.myLearning(ctx.principal.userId))),
+
+    /** AC-access-grants-01: the caller's access records, with source and expiry. */
+    myAccessGrants: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyAccessGrantSchema))
+      .query(({ ctx }) => guard(() => academy.myAccessGrants(ctx.principal.userId))),
 
     markCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))

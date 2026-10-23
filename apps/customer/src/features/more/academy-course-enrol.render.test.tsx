@@ -10,6 +10,7 @@ vi.mock('../../shared/preferences', async (original) => {
 import type { AcademyCourseEnrolment } from '@intafaced/contracts/academy-catalogue';
 import { SessionProvider } from '../session/session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
+import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const terms: AcademyCourseEnrolment = {
@@ -28,7 +29,9 @@ const terms: AcademyCourseEnrolment = {
 const button = /<button[^>]*><span[^>]*>Enrol now<\/span><\/button>/;
 const buttonOff = /<button[^>]*disabled=""[^>]*><span[^>]*>Enrol now/;
 const view = (over: Partial<AcademyCourseEnrolment>, sending = false) =>
-  html(<CourseEnrolView terms={{ ...terms, ...over }} sending={sending} refusal={null} onEnrol={() => undefined} />);
+  html(
+    <CourseEnrolView terms={{ ...terms, ...over }} sending={sending} refusal={null} onEnrol={() => undefined} onLeave={() => undefined} />,
+  );
 
 describe('course page Enrol now (AC-enrolment-01)', () => {
   it('offers the free track, keeps the unpriced certificate track closed with its reason, and says seats are not set', () => {
@@ -64,5 +67,40 @@ describe('course page Enrol now (AC-enrolment-01)', () => {
     expect(out).toContain('data-not-connected="vendor.email"');
     expect(out).toContain('The activation mail needs an email delivery provider. It is switched off in this build.');
     expect(out).not.toContain('Enrol now');
+    expect(out).toContain('Leave course');
+    expect(out).toContain('Your progress is kept if you enrol again.');
+  });
+});
+
+const course = {
+  slug: 'markets' as const,
+  status: 'in_progress' as const,
+  enrolledAt: '2026-10-23T09:00:00.000Z',
+  startsAt: null,
+  items: 4,
+  completed: 0,
+  firstItemSlug: 'markets-one',
+  resumeItemSlug: null,
+};
+
+describe('My learning and course access (AC-catalogue-02, AC-access-grants-01)', () => {
+  it('offers Start course until something is read, then Continue at the resume item, with real counts', () => {
+    const fresh = html(<MyLearningView courses={[course]} />);
+    expect(fresh).toContain('0 of 4 items done');
+    expect(fresh).toMatch(/href="\/academy\/markets-one"[^>]*>Start course</);
+    expect(fresh).not.toContain('Continue');
+    expect(fresh).toContain('No course completed.');
+    expect(fresh).toContain('No course with a later start date.');
+    const started = html(<MyLearningView courses={[{ ...course, completed: 1, resumeItemSlug: 'markets-two' }]} />);
+    expect(started).toMatch(/href="\/academy\/markets-two"[^>]*>Continue</);
+    expect(started).not.toContain('Start course');
+    expect(html(<MyLearningView courses={[]} />)).toContain('You are not enrolled in any course.');
+  });
+
+  it('lists a free access record with no expiry, and says when there is none', () => {
+    const out = html(<AccessGrantsView grants={[{ slug: 'markets', source: 'free', grantedAt: course.enrolledAt, expiresAt: null }]} />);
+    expect(out).toContain('Free enrolment');
+    expect(out).toContain('No expiry');
+    expect(html(<AccessGrantsView grants={[]} />)).toContain('You have no course access records.');
   });
 });

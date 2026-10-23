@@ -234,6 +234,47 @@ describe('academy customer learning reads and writes', () => {
     });
   });
 
+  it('My learning shows real progress, Start course before anything is read, and keeps progress across leave and re-enrol', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    expect(await academy.myLearning(USER)).toEqual([]);
+    expect(await academy.myAccessGrants(USER)).toEqual([]);
+    const enrolled = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    const [fresh] = await academy.myLearning(USER);
+    expect(fresh).toEqual({
+      slug: 'markets',
+      status: 'in_progress',
+      enrolledAt: enrolled.enrolment!.enrolledAt,
+      startsAt: null,
+      items: items.length,
+      completed: 0,
+      firstItemSlug: items[0]!.slug,
+      resumeItemSlug: null,
+    });
+    expect(await academy.myAccessGrants(USER)).toEqual([
+      { slug: 'markets', source: 'free', grantedAt: enrolled.enrolment!.enrolledAt, expiresAt: null },
+    ]);
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
+    const [started] = await academy.myLearning(USER);
+    expect(started).toMatchObject({ completed: 1, resumeItemSlug: items[1]?.slug ?? items[0]!.slug });
+    await academy.touchLesson({ userId: USER, slug: items[items.length - 1]!.slug, clientRequestId: 'touch-1' });
+    expect((await academy.myLearning(USER))[0]!.resumeItemSlug).toBe(items[items.length - 1]!.slug);
+    expect(await academy.myLearning(OTHER)).toEqual([]);
+
+    await academy.leaveCertPath({ userId: USER, pathSlug: 'markets', clientRequestId: 'leave-ml' });
+    expect(await academy.myLearning(USER)).toEqual([]);
+    expect(await academy.myAccessGrants(USER)).toEqual([]);
+    await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect((await academy.myLearning(USER))[0]).toMatchObject({ completed: 1, status: 'in_progress' });
+
+    for (const row of items) await academy.markCurriculumComplete({ userId: USER, itemSlug: row.slug });
+    expect((await academy.myLearning(USER))[0]).toMatchObject({ completed: items.length, status: 'completed' });
+    const caller = createAcademyRouter(academy).createCaller(signed());
+    expect((await caller.myLearning()).map((row) => row.slug)).toEqual(['markets']);
+    expect((await caller.myAccessGrants()).map((row) => row.source)).toEqual(['free']);
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
