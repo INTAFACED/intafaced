@@ -198,4 +198,27 @@ describe('stop-limit placement', () => {
     expect(closed.json()[0]).toMatchObject({ type: 'stop_limit', stopPrice: '100' });
     await app.close();
   });
+
+  it('says when the stop fired and the price that reached it, and null while it waits', async () => {
+    const { app, triggers } = await build();
+    await post(app, ALICE, STOP);
+    const id = orderIdFor(ALICE, market.id, 'stop-1');
+    const waiting = await app.inject({ method: 'GET', url: `/api/v1/orders/${id}`, headers: signed(ALICE) });
+    expect(waiting.json()).toMatchObject({ type: 'stop_limit', stopPrice: '100', triggered: null });
+
+    const fired = { at: '2026-10-23T03:00:00.000Z', by: 'last' as const, referencePrice: '99.5', sequence: 41 };
+    expect(await triggers!.recordFired(id, fired)).toBe(true);
+    // A redelivery (or a later event) never moves the first record.
+    expect(await triggers!.recordFired(id, { ...fired, referencePrice: '90', sequence: 99 })).toBe(true);
+    const read = await app.inject({ method: 'GET', url: `/api/v1/orders/${id}`, headers: signed(ALICE) });
+    expect(read.json().triggered).toEqual({ at: fired.at, by: 'last', referencePrice: '99.5' });
+
+    // A price the table would refuse is not recorded (and so never retried forever).
+    const other = orderIdFor(ALICE, market.id, 'stop-2');
+    await post(app, ALICE, { ...STOP, clientOrderId: 'stop-2' });
+    expect(await triggers!.recordFired(other, { ...fired, referencePrice: '0' })).toBe(false);
+    // An order with no stop here (a futures stop, the house) is not recorded.
+    expect(await triggers!.recordFired('44444444-4444-4444-8444-444444444444', fired)).toBe(false);
+    await app.close();
+  });
 });

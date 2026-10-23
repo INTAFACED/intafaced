@@ -108,6 +108,8 @@ export function HistoryTab({ closed }: { closed: Loadable<Position[]> }) {
       numeric: true,
       cell: (p) => <ChangeText value={p.realizedPnl === null ? null : signedAmount(p.realizedPnl)} />,
     },
+    // What the position's fills paid in trading fees; a dash where the service recorded none.
+    { id: 'fees', header: t('Fees'), numeric: true, cell: (p) => <Amount value={fmtAmount(p.fees, { places: 8 })} /> },
     {
       id: 'status',
       header: t('Status'),

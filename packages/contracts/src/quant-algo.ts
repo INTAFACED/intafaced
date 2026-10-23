@@ -151,7 +151,34 @@ export const QUANT_BACKTEST_ASSUMPTIONS = [
   'take_profit_without_slippage',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
+  'stop_out_before_exits',
+  'margin_level_at_bar_low',
+  'loss_beyond_margin',
 ] as const;
+
+/**
+ * The simulated account's rules (ENGINE RK-5): one netting position, the leverage the developer picks up to the
+ * owner's maximum, and the owner's margin-call and stop-out levels as a percent of the margin used. Blank is not set.
+ */
+export const quantAccountRulesSchema = z.object({
+  mode: z.literal('netting'),
+  maxLeverage: z.string().nullable(),
+  marginCallPercent: z.string().nullable(),
+  stopOutPercent: z.string().nullable(),
+});
+export type QuantAccountRules = z.infer<typeof quantAccountRulesSchema>;
+export const QUANT_MARGIN_EVENTS = ['margin_call', 'stop_out'] as const;
+/**
+ * A margin call or stop-out on a backtest, at the bar price that reached its level (the bar's open when it gapped past),
+ * with the margin level there. A stop-out's sell fills at that bar price less slippage, as its trade row shows.
+ */
+export const quantMarginEventSchema = z.object({
+  ts: z.string(),
+  kind: z.enum(QUANT_MARGIN_EVENTS),
+  price: z.string(),
+  marginLevelPercent: z.string(),
+});
+export type QuantMarginEvent = z.infer<typeof quantMarginEventSchema>;
 
 /**
  * A bar backtest of a saved signal-rules strategy (AL-backtest-01, AL-backtest-02). Every cost is a string so a blank
@@ -166,14 +193,84 @@ export const quantBacktestInputSchema = z.object({
   to: z.string(),
   fillTiming: z.string(),
   costs: z.object({ feeRole: z.string(), slippageBps: z.string(), delayBars: z.string() }),
+  /** The out-of-sample split of the window (AL-backtest-04). Absent, the run has no out-of-sample section to judge. */
+  split: z.object({ preset: z.string(), outOfSampleFrom: z.string().optional() }).optional(),
+  /** Whether the run keeps clear of the owner's holdout. Absent or false, the result says the holdout is not enforced. */
+  enforceHoldout: z.boolean().optional(),
+  /**
+   * Trade on margin (AL-backtest-02): the leverage, a string so a blank one refuses by name. Absent, the run is a cash
+   * account that cannot spend more than it holds. The margin rules are the owner's, never the caller's.
+   */
+  simulatedAccount: z.object({ leverage: z.string() }).optional(),
+  /**
+   * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
+   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
+   */
+  outOfSampleStatus: z.unknown().optional(),
+  strategyVariantCount: z.unknown().optional(),
 });
 export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
+
+/** How the window splits into an in-sample part and the latest, out-of-sample part (ENGINE BT-9). */
+export const QUANT_SPLIT_PRESETS = ['1/2', '1/3', '1/4', 'custom'] as const;
+export type QuantSplitPreset = (typeof QUANT_SPLIT_PRESETS)[number];
+
+/**
+ * Where the out-of-sample part starts: the latest half, third or quarter of the window, or a chosen instant, moved up to
+ * the next bar open so both parts hold whole bars. Null when the split leaves either part without a whole bar.
+ */
+export function quantOutOfSampleFrom(
+  window: { readonly fromMs: number; readonly toMs: number },
+  preset: QuantSplitPreset,
+  spanMs: number,
+  customMs?: number,
+): number | null {
+  const share = preset === '1/2' ? 2 : preset === '1/3' ? 3 : preset === '1/4' ? 4 : null;
+  const raw = share === null ? customMs : window.toMs - Math.floor((window.toMs - window.fromMs) / share);
+  if (raw === undefined || !Number.isFinite(raw)) return null;
+  const at = Math.ceil(raw / spanMs) * spanMs;
+  return at - window.fromMs >= spanMs && window.toMs - at >= spanMs ? at : null;
+}
+
+/** The owner's out-of-sample criteria a verdict is judged against (ENGINE MT-7). Each null one is not set. */
+export const QUANT_VERDICT_CRITERIA = ['minTrades', 'minReturnPercent', 'maxDrawdownPercent', 'maxShortfallPercent'] as const;
+export const quantVerdictCriteriaSchema = z.object({
+  minTrades: z.string().nullable(),
+  minReturnPercent: z.string().nullable(),
+  maxDrawdownPercent: z.string().nullable(),
+  maxShortfallPercent: z.string().nullable(),
+});
+export type QuantVerdictCriteria = z.infer<typeof quantVerdictCriteriaSchema>;
+export const QUANT_VERDICT_STATUSES = ['passed', 'failed', 'inconclusive'] as const;
+
+/**
+ * The checks a result carries (ENGINE BT-9): what was measured, against the owner's threshold where one applies. A
+ * blank threshold reads `not_set` and raises no warning; a check the run cannot make reads `not_applicable` with why.
+ * Look-ahead and repainting cannot happen by how the engine is built, and say so.
+ */
+export const QUANT_CHECKS = ['sample_gap', 'variant_count', 'bar_offset', 'bar_type', 'look_ahead', 'repainting'] as const;
+export const QUANT_CHECK_STATUSES = ['warning', 'clear', 'not_set', 'not_applicable', 'by_construction'] as const;
+export const quantCheckThresholdsSchema = z.object({
+  maxSampleGapPercent: z.string().nullable(),
+  maxVariants: z.string().nullable(),
+  maxOffsetShiftPercent: z.string().nullable(),
+});
+export type QuantCheckThresholds = z.infer<typeof quantCheckThresholdsSchema>;
+export const quantCheckSchema = z.object({
+  name: z.enum(QUANT_CHECKS),
+  status: z.enum(QUANT_CHECK_STATUSES),
+  /** The owner's threshold as it stood when the run finished; null when the check has none or it is blank. */
+  threshold: z.string().nullable(),
+  /** What the check measured, by name. A null figure is not defined for this run. */
+  evidence: z.record(z.string(), z.string().nullable()),
+});
+export type QuantCheck = z.infer<typeof quantCheckSchema>;
 
 /** One fill of a backtest. `barPrice` is the bar's own price; `price` is after slippage. */
 export const quantBacktestTradeSchema = z.object({
   ts: z.string(),
   side: z.enum(['buy', 'sell']),
-  reason: z.enum(['signal', 'stop_loss', 'take_profit']),
+  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'stop_out']),
   qty: decimalText,
   barPrice: decimalText,
   price: decimalText,
@@ -278,6 +375,18 @@ export const quantBacktestLogLineSchema = z.object({
 });
 export type QuantBacktestLogLine = z.infer<typeof quantBacktestLogLineSchema>;
 
+/** One part of a split run: its window, its own return and drawdown, and the round trips entered inside it. */
+export const quantSampleSectionSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  startEquity: decimalText,
+  endEquity: decimalText,
+  returnPercent: quantMetricSchema,
+  maxDrawdownPercent: quantMetricSchema,
+  roundTrips: z.number().int().nonnegative(),
+});
+export type QuantSampleSection = z.infer<typeof quantSampleSectionSchema>;
+
 export const quantBacktestResultSchema = z.object({
   runId: z.string(),
   runKey: z.string(),
@@ -297,7 +406,8 @@ export const quantBacktestResultSchema = z.object({
   trades: z.array(quantBacktestTradeSchema),
   rejected: z.array(z.object({ ts: z.string(), side: z.enum(['buy', 'sell']), reason: z.enum(QUANT_BACKTEST_REJECT_REASONS) })),
   assumptions: z.array(z.enum(QUANT_BACKTEST_ASSUMPTIONS)),
-  equity: z.array(z.object({ ts: z.string(), equity: decimalText })),
+  /** One point per bar. `marginLevelPercent`: equity over the margin used, on a margin run while a position is held. */
+  equity: z.array(z.object({ ts: z.string(), equity: decimalText, marginLevelPercent: decimalText.nullable().optional() })),
   totals: z.object({
     startCash: decimalText,
     gross: decimalText,
@@ -309,6 +419,37 @@ export const quantBacktestResultSchema = z.object({
   }),
   /** Derived from the stored trades and equity on every read, so a run stored before the report existed has one too. */
   metrics: quantBacktestMetricsSchema,
+  /** The split the run was asked for, with the instant the out-of-sample part starts. Null: the run was not split. */
+  split: z.object({ preset: z.enum(QUANT_SPLIT_PRESETS), outOfSampleFrom: z.string() }).nullable(),
+  /** In-sample and out-of-sample figures, derived from the stored equity and trades. Null when the run was not split. */
+  sections: z.object({ inSample: quantSampleSectionSchema, outOfSample: quantSampleSectionSchema }).nullable(),
+  /**
+   * Computed by the service from the out-of-sample section against the owner's criteria as they stood when the run
+   * finished. Any blank criterion makes it inconclusive and is named in `unset`; it never reads passed.
+   */
+  verdict: z.object({
+    status: z.enum(QUANT_VERDICT_STATUSES),
+    reasons: z.array(z.string()),
+    unset: z.array(z.enum(QUANT_VERDICT_CRITERIA)),
+    criteria: quantVerdictCriteriaSchema,
+  }),
+  /** How many distinct runs of this strategy, symbol and bar size the account had finished, this one included. */
+  variantCount: z.number().int().positive().nullable(),
+  /** Whether the run kept clear of the owner's holdout, and where the holdout began when it did. */
+  holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
+  /** Fields the request sent that only the service may set; they were ignored. */
+  ignoredInputs: z.array(z.string()),
+  /** The margin account the run simulated, with the owner's rules as they stood. Null: a cash account. */
+  account: quantAccountRulesSchema.extend({ leverage: z.string() }).nullable(),
+  /** Margin calls and stop-outs, in the order they happened. */
+  marginEvents: z.array(quantMarginEventSchema),
+  /**
+   * The same rules and costs run again from one bar after the window opens, to show how much the result leans on where
+   * it starts. Null when it was not made; the `bar_offset` check says why (too few bars, or a run stored before it).
+   */
+  offsetRun: z.object({ from: z.string(), returnPercent: quantMetricSchema, trades: z.number().int().nonnegative() }).nullable(),
+  /** Overfitting, look-ahead and repainting checks, derived on every read; every check is listed, none is hidden. */
+  checks: z.array(quantCheckSchema),
   log: z.array(quantBacktestLogLineSchema),
   simulated: z.literal(true),
   live: z.literal(false),

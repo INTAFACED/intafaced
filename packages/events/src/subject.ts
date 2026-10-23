@@ -58,6 +58,7 @@ export const VERBS = [
   'attested',
   'sent',
   'escalated',
+  'triggered',
 ] as const;
 
 export type Verb = (typeof VERBS)[number];

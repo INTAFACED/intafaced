@@ -56,6 +56,83 @@ export const adlEventSchema = z.object({
 });
 export type AdlEvent = z.infer<typeof adlEventSchema>;
 
+/** What counts as futures margin for the account (`GET /futures/collateral`): cash with the haircut, and refused classes. */
+export const collateralSchema = z.object({
+  assets: z.array(
+    z.object({
+      asset: z.string(),
+      collateralClass: z.literal('cash'),
+      counts: z.literal(true),
+      haircutBps: z.number().int().nullable(),
+      haircutReason: z.string().nullable(),
+      free: decimalSchema,
+      posted: decimalSchema,
+      committed: decimalSchema,
+      credit: decimalSchema.nullable(),
+      buyingPower: decimalSchema.nullable(),
+      buyingPowerReason: z.string().nullable(),
+    }),
+  ),
+  refusedClasses: z.array(
+    z.object({ collateralClass: z.string(), counts: z.literal(false), code: z.string().nullable(), message: z.string().nullable() }),
+  ),
+});
+export type Collateral = z.infer<typeof collateralSchema>;
+
+/** The owner's maintenance tiers (`GET /futures/tiers`): the bound as a share of depth, and the notional it takes today. */
+export const riskTiersSchema = z.object({
+  symbol: z.string(),
+  tiers: z.array(
+    z.object({
+      tier: z.number().int(),
+      uptoDepthBps: z.number().int().nullable(),
+      maintenanceBps: z.number().int(),
+      maintenanceRate: decimalSchema,
+      notionalUpto: z.object({ long: decimalSchema.nullable(), short: decimalSchema.nullable() }),
+    }),
+  ),
+  depth: z.object({ long: decimalSchema.nullable(), short: decimalSchema.nullable() }),
+  maxLeverage: decimalSchema.nullable(),
+  leverageBasis: z.string(),
+  formula: z.string(),
+});
+export type RiskTiers = z.infer<typeof riskTiersSchema>;
+
+/** The margin and P&L calculator (`POST /futures/calculator`): arithmetic on typed inputs, nothing stored. */
+export const calculatorSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  entryPrice: decimalSchema,
+  exitPrice: decimalSchema.nullable(),
+  leverage: decimalSchema,
+  leverageCap: decimalSchema.nullable(),
+  notional: decimalSchema,
+  initialMargin: decimalSchema,
+  tier: z.number().int().nullable(),
+  maintenanceBps: z.number().int().nullable(),
+  maintenanceMargin: decimalSchema.nullable(),
+  liquidationPrice: decimalSchema.nullable(),
+  pnl: decimalSchema.nullable(),
+  roePercent: decimalSchema.nullable(),
+  takerFeeBps: z.number().int().nullable(),
+  entryFee: decimalSchema.nullable(),
+  exitFee: decimalSchema.nullable(),
+  netPnl: decimalSchema.nullable(),
+  formulas: z.record(z.string(), z.string()),
+  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+});
+export type CalculatorResult = z.infer<typeof calculatorSchema>;
+
+export interface CalculatorInput {
+  symbol: string;
+  side: 'long' | 'short';
+  size: string;
+  entryPrice: string;
+  leverage: string;
+  exitPrice?: string;
+}
+
 /** One futures order through the book (`POST /futures/orders`): an open, or a reduce-only close. */
 export const futuresOrderSchema = z.object({
   orderId: z.string(),
@@ -72,6 +149,8 @@ export const futuresOrderSchema = z.object({
   filledQty: decimalSchema,
   appliedAmount: decimalSchema,
   releasedAmount: decimalSchema,
+  /** What the order's fills paid in trading fees from its hold. */
+  feesPaid: decimalSchema.optional(),
   status: z.string(),
   refusalCode: z.string().nullable(),
   reduceOnly: z.boolean(),
@@ -163,6 +242,8 @@ export interface OpenInput {
   side: 'long' | 'short';
   size: string;
   leverage: string;
+  /** Absent is cash. Another class is sent as chosen, and the service refuses it on its own code. */
+  collateralClass?: string;
   /** Market (IOC at the band edge) or limit (rests GTC at `price`). */
   type: 'market' | 'limit';
   price?: string;
@@ -178,6 +259,7 @@ export interface PlaceOrderInput {
   leverage?: string;
   reduceOnly?: boolean;
   clientOrderId: string;
+  collateralClass?: string;
 }
 
 export function createFuturesApi(api: ApiClient) {
@@ -186,8 +268,14 @@ export function createFuturesApi(api: ApiClient) {
     ticker: (symbol: string, signal?: AbortSignal) => api.rest('/futures/ticker', tickerStripSchema, { query: { symbol }, signal }),
     fundingRate: (symbol: string, signal?: AbortSignal) =>
       api.rest(`/funding-rate/${encodeURIComponent(symbol)}`, fundingRateSchema, { signal }),
-    preview: (input: { symbol: string; side: 'long' | 'short'; size: string; leverage: string }, signal?: AbortSignal) =>
-      api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
+    preview: (
+      input: { symbol: string; side: 'long' | 'short'; size: string; leverage: string; collateralClass?: string },
+      signal?: AbortSignal,
+    ) => api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
+    collateral: (signal?: AbortSignal) => api.rest('/futures/collateral', collateralSchema, { signal }),
+    tiers: (symbol: string, signal?: AbortSignal) => api.rest('/futures/tiers', riskTiersSchema, { query: { symbol }, signal }),
+    calculate: (input: CalculatorInput) =>
+      api.rest('/futures/calculator', calculatorSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
     /** Futures orders go through the book (futures ADR): an open is an order, a close is a reduce-only order. */
     placeOrder: (input: PlaceOrderInput) =>
       api.rest('/futures/orders', futuresOrderSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),

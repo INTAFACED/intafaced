@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseAmount, formatAmount, mul } from '@intafaced/ledger-client/money';
+import { parseAmount, formatAmount, mul } from '@intafaced/money-math';
 import { z } from 'zod';
 import { createApiClient } from '../shared/api';
 import { fmtAmount, fmtPct, fmtPrice, fmtUsd, fmtUsdChange } from './format';

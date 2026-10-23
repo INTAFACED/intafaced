@@ -77,7 +77,15 @@ export function AddressTable({
                 const cooling = coolingOf(row, now);
                 return (
                   <tr key={row.destinationId}>
-                    <td lang={row.label ? 'und' : undefined}>{row.label ?? t('aNoLabel')}</td>
+                    <td>
+                      <span lang={row.label ? 'und' : undefined}>{row.label ?? t('aNoLabel')}</span>
+                      {row.lookalikeConfirmedAt && (
+                        <>
+                          <br />
+                          <small>{t('aLookalikeChecked', { time: date(row.lookalikeConfirmedAt) })}</small>
+                        </>
+                      )}
+                    </td>
                     <td>{row.kind === 'bank' ? t('aKindBank') : t('aKindCrypto')}</td>
                     <td lang="und">
                       {row.assetId || row.network
