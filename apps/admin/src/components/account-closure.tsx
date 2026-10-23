@@ -119,7 +119,7 @@ export function AccountClosure({
                     version: state.version,
                   }),
                 }}
-                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity first asks the bank, trading and P2P services whether anything is still open for this account and refuses while it is. Only an account closed at the customer’s request can be reopened."
+                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity also accepts another operator as the approver, so check who approved before you run it. Identity first asks the bank, trading and P2P services whether anything is still open for this account and refuses while it is. Only an account closed at the customer’s request can be reopened."
                 blockedButtonLabel="Close unavailable"
                 onChanged={refresh}
               />
@@ -150,7 +150,7 @@ export function AccountClosure({
                     }
                   : null
               }
-              consequence="Two different people must agree: you make the request, a different founder approves it on their own console, and you run it. The owner signs in again; revoked sessions, API keys and sub-accounts stay revoked."
+              consequence="Two different people must agree: you make the request, a different founder approves it on their own console, and you run it (identity also accepts another operator as the approver). The owner signs in again; revoked sessions, API keys and sub-accounts stay revoked."
               blockedButtonLabel="Reopen unavailable"
               onChanged={refresh}
             />
