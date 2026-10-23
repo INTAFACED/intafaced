@@ -62,6 +62,9 @@ describe('Home work items (HM-dashboard-03)', () => {
     expect(workItemSchema.safeParse({ ...frozenCard, link: '/bankrupt' }).success).toBe(false);
     expect(workItemSchema.safeParse({ ...frozenCard, link: '/bank' }).success).toBe(true);
     expect(workItemSchema.safeParse({ ...frozenCard, link: '/bank?tab=cards' }).success).toBe(true);
+    for (const link of ['/bank/../admin/ops', '/bank/%2e%2e/pay', '/bank/./cards', '/bank/%2E%2E', '/bank/..'])
+      expect(workItemSchema.safeParse({ ...frozenCard, link }).success, link).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, link: '/bank/cards?note=a%20b' }).success).toBe(true);
     expect(workItemSchema.safeParse({ ...frozenCard, id: 'margin_health:card-1' }).success).toBe(false);
     expect(workItemSchema.safeParse({ ...frozenCard, id: 'card_frozen:' }).success).toBe(false);
     const verify = { ...frozenCard, id: 'verification:me', kind: 'verification', source: 'identity', link: '/verification' };

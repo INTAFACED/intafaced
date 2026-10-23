@@ -65,12 +65,19 @@ const code = z
   .max(120)
   .regex(/^[a-z][a-z0-9]*([._][a-z0-9]+)*$/, 'code, not a sentence');
 
-/** A customer room path: one leading slash, no scheme, no `//`, no backslash, no space. */
+/**
+ * A customer room path: one leading slash, no scheme, no `//`, no backslash, no space. The path (before any query) has
+ * no `.` or `..` segment and no percent escape, so the owner-room prefix check below cannot be walked out of.
+ */
 const roomLink = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path');
+  .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path')
+  .refine((link) => {
+    const path = link.split(/[?#]/)[0] ?? '';
+    return !path.includes('%') && !path.split('/').some((segment) => segment === '.' || segment === '..');
+  }, 'customer room path without dot segments or escapes');
 
 /** The fields of one item, before the cross-field rules (extend this, then apply `workItemRules`). */
 export const workItemFieldsSchema = z
