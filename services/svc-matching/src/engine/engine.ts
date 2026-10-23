@@ -98,6 +98,7 @@ import type {
   OrderSide,
   PriceLevelState,
   SubmitResult,
+  TriggerFact,
   TriggerOutcome,
 } from './types.js';
 
@@ -164,6 +165,7 @@ type PendingEvent =
   | { readonly sequence: number; readonly name: 'orderAccepted'; readonly payload: PayloadOf<'orderAccepted'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'orderFilled'; readonly payload: PayloadOf<'orderFilled'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string }
+  | { readonly sequence: number; readonly name: 'orderTriggered'; readonly payload: PayloadOf<'orderTriggered'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'spreadFilled'; readonly payload: SpreadFillEvent; readonly key: string };
 
 /**
@@ -1596,8 +1598,14 @@ export class MatchingEngine {
       for (const cancellation of cancellations) events.push(cancelledEvent(marketId, cancellation));
     };
 
+    if (result.arrivalTrigger && result.sequence !== null) {
+      events.push(triggeredEvent(marketId, orderId, result.sequence, result.arrivalTrigger, at));
+    }
     collect(result.fills, result.cancellations);
-    for (const triggered of result.triggered as readonly TriggerOutcome[]) collect(triggered.fills, triggered.cancellations);
+    for (const triggered of result.triggered as readonly TriggerOutcome[]) {
+      if (triggered.trigger) events.push(triggeredEvent(marketId, triggered.orderId, triggered.sequence, triggered.trigger, at));
+      collect(triggered.fills, triggered.cancellations);
+    }
 
     return events.sort((a, b) => a.sequence - b.sequence);
   }
@@ -1607,6 +1615,7 @@ export class MatchingEngine {
     for (const cancellation of result.cancellations) events.push(cancelledEvent(marketId, cancellation));
     for (const fill of result.fills) events.push(fillEvent(marketId, fill, at));
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
+      if (triggered.trigger) events.push(triggeredEvent(marketId, triggered.orderId, triggered.sequence, triggered.trigger, at));
       for (const fill of triggered.fills) events.push(fillEvent(marketId, fill, at));
       for (const cancellation of triggered.cancellations) events.push(cancelledEvent(marketId, cancellation));
     }
@@ -1630,6 +1639,8 @@ export class MatchingEngine {
         return this.bus.publish('orderFilled', event.payload, opts);
       case 'orderCancelled':
         return this.bus.publish('orderCancelled', event.payload, opts);
+      case 'orderTriggered':
+        return this.bus.publish('orderTriggered', event.payload, opts);
       case 'spreadFilled':
         // Admission refuses spreads without a publisher, so only a journal written by a build that had one reaches
         // here. Fail the boot rather than drop a maker's fill.
@@ -1729,6 +1740,24 @@ function cancelledEvent(marketId: MarketId, cancellation: CancelledRef): Pending
       reason: cancellation.reason,
     },
     key: `matching.order.cancelled:${marketId}:${cancellation.sequence}`,
+  };
+}
+
+/** A stop fired: which price it watched, its stop price and the price that reached it. Its fills and cancels follow. */
+function triggeredEvent(marketId: MarketId, orderId: OrderId, sequence: number, trigger: TriggerFact, at: string): PendingEvent {
+  return {
+    sequence,
+    name: 'orderTriggered',
+    payload: {
+      orderId,
+      marketId,
+      sequence,
+      triggerBy: trigger.by,
+      stopPrice: formatAmount(trigger.stopPrice),
+      referencePrice: formatAmount(trigger.reference),
+      ts: at,
+    },
+    key: `matching.order.triggered:${marketId}:${sequence}`,
   };
 }
 

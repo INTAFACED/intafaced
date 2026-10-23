@@ -437,8 +437,17 @@ export interface EngineSurveillanceCase {
 }
 
 /** What a stop order did once its trigger fired. */
+/** Why a stop fired: the reference it watches, its stop price, and the reference price that reached it. */
+export interface TriggerFact {
+  readonly by: 'last' | 'mark' | 'index';
+  readonly stopPrice: Amount;
+  readonly reference: Amount;
+}
+
 export interface TriggerOutcome {
   readonly orderId: OrderId;
+  /** Present when the book activated the stop; the event that says why it fired is built from it. */
+  readonly trigger?: TriggerFact;
   /** Sequence assigned at activation — the resting remainder's time priority starts here, not when the stop was accepted. */
   readonly sequence: number;
   readonly fills: readonly Fill[];
@@ -468,6 +477,8 @@ export interface SubmitResult {
   readonly rejected?: RejectReason;
   readonly cancellations: readonly CancelledRef[];
   readonly triggered: readonly TriggerOutcome[];
+  /** Present when the submitted stop was already at or through its stop price, so it went to the book on arrival. */
+  readonly arrivalTrigger?: TriggerFact;
   /** Present when this submit expired a self-rest. Evidence only — not a fine. */
   readonly surveillanceCases?: readonly EngineSurveillanceCase[];
 }

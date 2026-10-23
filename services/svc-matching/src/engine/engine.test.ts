@@ -413,6 +413,70 @@ describe('events', () => {
     expect(result.surveillanceCases![0]).not.toHaveProperty('amount');
   });
 
+  it('publishes orderTriggered when a trade reaches a resting stop, before the fills it then makes', async () => {
+    const { bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'b1', side: 'buy', qty: '1', price: '99' }));
+    await engine.submit(MARKET, order({ account: 'b2', side: 'buy', qty: '5', price: '98' }));
+    const stop = uuid();
+    await engine.submit(MARKET, order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '99' }));
+    expect(bus.emitted('orderTriggered')).toHaveLength(0);
+
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '1', price: '99' }));
+
+    const triggered = bus.emitted('orderTriggered');
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]!.payload).toMatchObject({
+      orderId: stop,
+      marketId: MARKET,
+      triggerBy: 'last',
+      stopPrice: '99',
+      referencePrice: '99',
+    });
+    const at = (triggered[0]!.payload as { sequence: number }).sequence;
+    const fill = bus.emitted('orderFilled').find((e) => (e.payload as { takerOrderId: string }).takerOrderId === stop);
+    expect(fill!.payload).toMatchObject({ price: '98', qty: '1' });
+    expect((fill!.payload as { sequence: number }).sequence).toBeGreaterThan(at);
+    // Published in sequence order: the trigger comes before the fill it led to.
+    const published = bus.published.map((e) => e.payload);
+    expect(published.indexOf(triggered[0]!.payload)).toBeLessThan(published.indexOf(fill!.payload));
+  });
+
+  it('publishes orderTriggered for a stop already through its price on arrival, with the last price it met', async () => {
+    const { bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'mm', side: 'buy', qty: '5', price: '100' }));
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '1', price: '100' }));
+    bus.reset();
+
+    const stop = uuid();
+    const result = await engine.submit(MARKET, order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '101' }));
+
+    expect(result.fills).toHaveLength(1);
+    const triggered = bus.emitted('orderTriggered');
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]!.payload).toMatchObject({
+      orderId: stop,
+      sequence: result.sequence,
+      triggerBy: 'last',
+      stopPrice: '101',
+      referencePrice: '100',
+    });
+  });
+
+  it('publishes orderTriggered when an amend moves a stop through the last price', async () => {
+    const { bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'mm', side: 'buy', qty: '5', price: '100' }));
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '1', price: '100' }));
+    const stop = uuid();
+    await engine.submit(MARKET, order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '90' }));
+    bus.reset();
+
+    await engine.amend(MARKET, { orderId: stop, expectedVersion: 1, stopPrice: parseAmount('100') });
+
+    const triggered = bus.emitted('orderTriggered');
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]!.payload).toMatchObject({ orderId: stop, stopPrice: '100', referencePrice: '100' });
+  });
+
   it('publishes nothing at all for a rejected order', async () => {
     const { bus, engine } = build();
     await engine.submit(MARKET, order({ account: 'mm', side: 'sell', qty: '1', price: '100' }));
