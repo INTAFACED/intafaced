@@ -956,6 +956,7 @@ export function createP2pRouter(
                 ...(input.terms === undefined ? {} : { terms: input.terms }),
                 ...(input.offerId === undefined ? {} : { offerId: input.offerId }),
                 ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+                makerTier: ctx.principal.tier,
               }),
             );
           }),

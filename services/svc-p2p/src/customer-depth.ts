@@ -24,6 +24,8 @@ export interface BoardOffer {
   remainingAmt: Amount;
   methods: unknown[];
   terms: string;
+  /** Maker verification tier at create. Null when the row never stored one. */
+  makerTier: string | null;
   status: 'active' | 'paused' | 'closed';
   createdAt: Date;
   /** Postgres `to_char` instant, microsecond precision. Cursor keyset uses this, not a JS Date. */
@@ -161,6 +163,7 @@ interface BoardRow {
   remaining_amt: string;
   methods: unknown[];
   terms: string;
+  maker_tier: string | null;
   status: 'active' | 'paused' | 'closed';
   created_at: Date;
   created_at_exact: string;
@@ -181,6 +184,7 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
     remainingAmt: parseAmount(row.remaining_amt),
     methods: Array.isArray(row.methods) ? row.methods : [],
     terms: row.terms,
+    makerTier: row.maker_tier ?? null,
     status: row.status,
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     createdAtExact: row.created_at_exact,

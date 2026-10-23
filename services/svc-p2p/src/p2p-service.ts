@@ -667,6 +667,8 @@ export interface OfferRecord {
   remainingAmt: Amount;
   methods: unknown[];
   terms: string;
+  /** Maker verification tier at create. Null when it was never stored. */
+  makerTier: string | null;
   status: 'active' | 'paused' | 'closed';
   createdAt: Date;
 }
@@ -773,6 +775,7 @@ interface OfferRow {
   remaining_amt: string;
   methods: unknown[];
   terms: string;
+  maker_tier: string | null;
   status: 'active' | 'paused' | 'closed';
   created_at: Date;
 }
@@ -1094,6 +1097,21 @@ export class P2pService {
     throw new P2pError(message, code);
   }
 
+  /**
+   * The taker's signed-in tier counts only when the taker is the buyer.
+   * On a buy ad the maker is the buyer, so the tier stored at create is the cap.
+   * A row that never stored one is `undefined`, which a published table refuses.
+   */
+  private buyerLimitTier(input: {
+    takerId: string;
+    buyerId: string;
+    takerTier: string | undefined;
+    makerTier: string | null;
+  }): string | undefined {
+    if (input.takerId === input.buyerId) return input.takerTier;
+    return input.makerTier ?? undefined;
+  }
+
   // ── Offers (§6.2) ──────────────────────────────────────────────────────────
 
   async createOffer(input: {
@@ -1111,6 +1129,8 @@ export class P2pService {
     offerId?: string;
     /** Client-chosen key. A retry with the same key and the same body returns the first offer. */
     idempotencyKey?: string;
+    /** Signed-in maker tier at create. Anything else is stored as never-set. */
+    makerTier?: string;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -1195,6 +1215,7 @@ export class P2pService {
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
+    const makerTier = isVerificationTier(input.makerTier) ? input.makerTier : null;
     const createHashValue = requestHash([
       input.makerId,
       input.side,
@@ -1208,6 +1229,7 @@ export class P2pService {
       JSON.stringify(input.methods ?? []),
       input.terms ?? '',
       clientOfferId ?? '',
+      makerTier ?? '',
     ]);
 
     let replayId: string | null = null;
@@ -1229,7 +1251,7 @@ export class P2pService {
           } else if (clientOfferId) {
             const existing = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`;
             if (existing[0]) {
-              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt)) {
+              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt, makerTier)) {
                 throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
               }
               return { replayId: clientOfferId };
@@ -1239,14 +1261,14 @@ export class P2pService {
           const rows = await tx<OfferRow[]>`
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
-              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status
+              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
               ${input.priceType}, ${formatAmount(input.price)}::numeric,
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
-              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active'
+              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier}
             )
             RETURNING *
           `;
@@ -1427,6 +1449,9 @@ export class P2pService {
    */
   async resumeOffer(offerId: string, makerId: string): Promise<OfferRecord> {
     this.assertTradingEnabled();
+    const preview = await this.loadOfferRaw(offerId);
+    if (preview.makerId !== makerId) throw new P2pError('Only the maker can resume an offer', 'p2p.not_a_party');
+    if (preview.side === 'sell') this.assertSellNotLocked(true);
     const rows = await this.sql<OfferRow[]>`
       UPDATE p2p.offers SET status = 'active', updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused'
@@ -1615,12 +1640,17 @@ export class P2pService {
           // Before inventory moves: a dust take that cannot post a release would
           // lock value into a trade that can never settle.
           assertReleasePostable(input.amount, feeBps);
-          if (input.takerId === buyerId) {
+          if (this.verificationLimits.status !== 'absent') {
             await this.assertBuyerVerificationLimit(tx, {
               buyerId,
               fiatCurrency: offer.fiatCurrency,
               fiatAmount: priced.fiatAmount,
-              tier: input.tier,
+              tier: this.buyerLimitTier({
+                takerId: input.takerId,
+                buyerId,
+                takerTier: input.tier,
+                makerTier: offer.makerTier,
+              }),
               excludeTradeId: input.tradeId,
               lock: true,
             });
@@ -3253,6 +3283,9 @@ export class P2pService {
     }
     const idempotencyKey = input.idempotencyKey.trim();
     if (!idempotencyKey) throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+    const previewForLock = await this.loadOfferRaw(input.offerId);
+    if (previewForLock.makerId !== input.makerId) throw new P2pError('Only the maker can edit an offer', 'p2p.not_a_party');
+    if (previewForLock.side === 'sell') this.assertSellNotLocked(true);
     const hash = requestHash([
       input.offerId,
       input.price === undefined ? '' : formatAmount(input.price),
@@ -3394,12 +3427,17 @@ export class P2pService {
     });
     const feeBps = publishedFeeBps(this.feeBps);
     assertReleasePostable(input.amount, feeBps);
-    if (input.takerId === buyerId) {
+    if (this.verificationLimits.status !== 'absent') {
       await this.assertBuyerVerificationLimit(this.sql, {
         buyerId,
         fiatCurrency: offer.fiatCurrency,
         fiatAmount: priced.fiatAmount,
-        tier: input.tier,
+        tier: this.buyerLimitTier({
+          takerId: input.takerId,
+          buyerId,
+          takerTier: input.tier,
+          makerTier: offer.makerTier,
+        }),
         excludeTradeId: null,
         lock: false,
       });
@@ -3915,6 +3953,7 @@ function toOffer(row: OfferRow): OfferRecord {
     remainingAmt: parseAmount(row.remaining_amt),
     methods: Array.isArray(row.methods) ? row.methods : [],
     terms: row.terms,
+    makerTier: row.maker_tier ?? null,
     status: row.status,
     createdAt: row.created_at,
   };
@@ -4132,6 +4171,7 @@ function sameCreate(
   },
   fiatCurrency: string,
   totalAmt: Amount,
+  makerTier: string | null,
 ): boolean {
   return (
     offer.makerId === input.makerId &&
@@ -4144,7 +4184,8 @@ function sameCreate(
     offer.maxAmt === input.maxAmt &&
     offer.totalAmt === totalAmt &&
     offer.terms === (input.terms ?? '') &&
-    JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? [])
+    JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? []) &&
+    (offer.makerTier ?? null) === makerTier
   );
 }
 

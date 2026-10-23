@@ -127,6 +127,23 @@ describe('svc-p2p verification limits and security-change sell lock (P-disputes-
     });
   }
 
+  async function buy(p2p: P2pService, makerTier?: string) {
+    return p2p.createOffer({
+      makerId: MAKER,
+      side: 'buy',
+      asset: ASSET,
+      fiatCurrency: 'USD',
+      priceType: 'fixed',
+      price: parseAmount('1'),
+      minAmt: parseAmount('1'),
+      maxAmt: parseAmount('100'),
+      totalAmt: parseAmount('500'),
+      methods: ['sepa'],
+      terms: 'pay the named amount',
+      ...(makerTier === undefined ? {} : { makerTier }),
+    });
+  }
+
   const SECRET = 'p2p-limits-edge-secret-long-enough';
   function caller(p2p: P2pService, userId: string) {
     vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
@@ -302,5 +319,113 @@ describe('svc-p2p verification limits and security-change sell lock (P-disputes-
     expect(() => p2p.securityChangeLock()).toThrow(expect.objectContaining({ code: 'p2p.security_change_lock_unwired' }));
     const zero = service({ securityChangeLockSeconds: 0 });
     expect(() => zero.securityChangeLock()).toThrow(expect.objectContaining({ code: 'p2p.invalid_security_change_lock' }));
+  });
+
+  it('caps the maker when a seller fills their buy ad, and refuses a numeric table', async () => {
+    const capped = service({ verificationLimits: limits(row('0', '25', '30', '40')) });
+    const offer = await buy(capped, 'basic');
+    await fund(TAKER, '100');
+    const under = await capped.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount('10'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+      tier: 'institutional',
+    });
+    expect(under.status).toBe('escrowed');
+    await expect(
+      capped.quoteTake({
+        offerId: offer.id,
+        takerId: TAKER,
+        amount: parseAmount('26'),
+        method: 'sepa',
+        tier: 'institutional',
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_order_max' });
+    await expect(
+      capped.takeOffer({
+        offerId: offer.id,
+        takerId: TAKER,
+        amount: parseAmount('26'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+        tier: 'institutional',
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_order_max' });
+
+    const broken = service({ verificationLimits: parseVerificationLimits('1') });
+    const untyped = await buy(broken, 'basic');
+    await expect(
+      broken.quoteTake({ offerId: untyped.id, takerId: TAKER, amount: parseAmount('26'), method: 'sepa', tier: 'institutional' }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_limits_invalid' });
+    await expect(
+      broken.takeOffer({
+        offerId: untyped.id,
+        takerId: TAKER,
+        amount: parseAmount('26'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+        tier: 'institutional',
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_limits_invalid' });
+
+    const missing = service({ verificationLimits: limits(row('0', '1000', '1000', '1000')) });
+    const bare = await buy(missing);
+    await expect(
+      missing.takeOffer({
+        offerId: bare.id,
+        takerId: TAKER,
+        amount: parseAmount('10'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+        tier: 'full',
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_level_unwired' });
+  });
+
+  it('locks resume and update of a sell, and still resumes a buy and lets a buyer take an active sell', async () => {
+    const open = service();
+    await fund(MAKER, '100');
+    const pausedSell = await sell(open);
+    await open.pauseOffer(pausedSell.id, MAKER);
+    const locked = service({ securityChangeLockSeconds: 86_400 });
+    await expect(locked.resumeOffer(pausedSell.id, MAKER)).rejects.toMatchObject({ code: 'p2p.security_change_lock_unwired' });
+    await expect(
+      locked.updateOffer({
+        offerId: pausedSell.id,
+        makerId: MAKER,
+        idempotencyKey: 'lock-sell-price',
+        price: parseAmount('2'),
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.security_change_lock_unwired' });
+    const still = await open.getOffer(pausedSell.id);
+    expect(still.status).toBe('paused');
+    expect(still.price).toBe(parseAmount('1'));
+
+    const buyOffer = await locked.createOffer({
+      makerId: MAKER,
+      side: 'buy',
+      asset: ASSET,
+      fiatCurrency: 'USD',
+      priceType: 'fixed',
+      price: parseAmount('1'),
+      minAmt: parseAmount('1'),
+      maxAmt: parseAmount('10'),
+      totalAmt: parseAmount('10'),
+      methods: ['sepa'],
+    });
+    await locked.pauseOffer(buyOffer.id, MAKER);
+    expect((await locked.resumeOffer(buyOffer.id, MAKER)).status).toBe('active');
+
+    const liveSell = await sell(open);
+    const trade = await locked.takeOffer({
+      offerId: liveSell.id,
+      takerId: TAKER,
+      amount: parseAmount('5'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+    });
+    expect(trade.status).toBe('escrowed');
   });
 });
