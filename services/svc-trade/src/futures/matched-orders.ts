@@ -61,9 +61,10 @@
  *
  * Nothing here holds a balance. Every amount is recomputed from the order row, the intent row, or the ledger.
  */
+import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
@@ -71,7 +72,7 @@ import { checkCloseQuantity } from './desk-quantity.js';
 import { checkLeverage, LEVERAGE_STEP } from './initial-margin.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET } from './haircut-credit.js';
-import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limits.js';
+import { checkOpenAdmission, LIMIT_MAX_ORDER, limitAmount, PRETRADE_LIMIT_HTTP_STATUS, resolveAdmissionLimits } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
@@ -98,6 +99,11 @@ import {
   priceBandAround,
   liquidationSettlementRoot,
   protectiveLimit,
+  marketOpenLimit,
+  correctToBand,
+  splitPlan,
+  SPLIT_MAX_CHILDREN,
+  honouredSlippageCapBps,
   reduceFillProfitId,
   reduceFillRecipes,
   reducingSide,
@@ -189,6 +195,19 @@ export interface PlaceMatchedOrderInput {
   readonly marginMode?: 'isolated';
   /** What the margin is posted from. Omitted is cash in the market's settle asset; any other class refuses. */
   readonly collateralClass?: unknown;
+  /**
+   * A limit outside the price band: `reject` (the default) refuses it; `adjust` moves it to the nearer band edge and
+   * the order rests or fills there. Any other value refuses.
+   */
+  readonly priceCorrection?: unknown;
+}
+
+/** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
+export interface SplitPlacement {
+  readonly parts: number;
+  readonly orders: MatchedOrderView[];
+  /** The child (1-based) a typed refusal stopped at; the children before it are live. Null when every child placed. */
+  readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
 }
 
 export interface MatchedOrderView {
@@ -285,7 +304,14 @@ export interface MatchedOrdersDeps {
    * the one being placed (its row is written first). Blank refuses `trade.haircut_unset`; short refuses
    * `trade.haircut_credit_short`. Absent in tests that do not wire it; production always wires it (PositionService).
    */
-  readonly assertCollateralCredit?: (input: { userId: string; asset: string }) => Promise<void>;
+  readonly assertCollateralCredit?: (input: { userId: string; asset: string; additionalHold?: Amount }) => Promise<void>;
+  /**
+   * The slippage cap of a market open, in bps of the mark: the operator's per-market cap, else the owner's
+   * `TRADE_MARKET_SLIPPAGE_CAP_BPS`, as spot reads it. Null is unset, and every market open refuses
+   * `trade.slippage_cap_unset`; a set cap brings the protective limit nearer the mark than the band edge when tighter.
+   * Absent in tests that do not wire it (the band edge alone); production always wires it.
+   */
+  readonly slippageCapBps?: (marketId: string) => Promise<number | null>;
 }
 
 export interface OrderRow {
@@ -637,6 +663,205 @@ export class MatchedFuturesOrders {
     return this.deps.enabled;
   }
 
+  /**
+   * The price an opening order is held and sent at: a market open at the band edge or nearer the mark under the
+   * slippage cap (blank refuses), a limit as sent or, with `priceCorrection: 'adjust'`, moved to the band edge. A limit
+   * still outside the band refuses with the band's edges.
+   */
+  private async openingLimit(
+    input: PlaceMatchedOrderInput,
+    marketId: string,
+    mark: Amount,
+    band: Amount,
+  ): Promise<{ bandAt: PriceBand; limit: Amount }> {
+    const bandAt: PriceBand = priceBandAround(mark, band);
+    let limit: Amount;
+    if (input.type === 'market') {
+      if (this.deps.slippageCapBps) {
+        const cap = honouredSlippageCapBps(await this.deps.slippageCapBps(marketId));
+        if (cap === null) {
+          refuse(
+            'trade.slippage_cap_unset',
+            'no slippage cap is published for this market, so a market open has no protection price; use a limit',
+            503,
+          );
+        }
+        limit = marketOpenLimit(input.side, mark, bandAt, cap);
+      } else {
+        limit = protectiveLimit(input.side, bandAt);
+      }
+    } else {
+      limit = input.priceCorrection === 'adjust' ? correctToBand(input.limitPrice as Amount, bandAt) : (input.limitPrice as Amount);
+    }
+    if (!limitWithinBand(limit, bandAt)) {
+      refuse(
+        'trade.futures_price_outside_band',
+        `the limit is outside the price band around the mark (${formatAmount(bandAt.low)} to ${formatAmount(bandAt.high)}); send priceCorrection adjust to move it to the edge`,
+        400,
+      );
+    }
+    return { bandAt, limit };
+  }
+
+  /**
+   * An opening order above the owner's max-order (`TRADE_MAX_ORDER`) placed as children of at most the cap each
+   * (`splitPlan`), keyed `<clientOrderId>:<n>:<tag>`, where the tag is a digest of the request (`splitRequestTag`), so a
+   * key names one request: the same clientOrderId with any other size, side, price or leverage refuses
+   * `trade.client_order_id_conflict` before anything is placed, and so does a clientOrderId that already names a single
+   * order. Before any child is placed, the whole order must be a lot multiple and the children not yet placed must
+   * together pass what one order would: max-position and max-loss on their total, and the free balance and the haircut
+   * credit for their total hold. Then each child goes through `place` with every check of its own.
+   *
+   * A crash after child k leaves children 1..k as ordinary orders the trader can see and cancel; the same request again
+   * replays those by key and places the rest, never one twice. A child refused on its own check (the mark moved past
+   * the band it was sized at, say) stops the request there: the answer lists every child placed and names the refusal
+   * in `stopped`, so nothing live is reported as nothing placed. The same request later plans again and finishes.
+   */
+  async placeSplit(
+    principal: Principal,
+    input: PlaceMatchedOrderInput,
+    context: { readonly region?: string | null } = {},
+  ): Promise<SplitPlacement> {
+    if (!this.deps.enabled) {
+      refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
+    }
+    if (principal.userId !== input.userId) refuse('auth.credential_denied', 'the order must be placed by its own account', 403);
+    if (input.reduceOnly === true) {
+      refuse('trade.split_opening_only', 'only an opening order is split; a reduce-only order closes what is already open');
+    }
+    const base = input.clientOrderId?.trim() ?? '';
+    if (base.length === 0) refuse('trade.client_order_id_required', 'clientOrderId is required: each child is keyed by it');
+    const tag = splitRequestTag(input);
+    const key = (n: number) => `${base}:${n}:${tag}`;
+    if (key(SPLIT_MAX_CHILDREN).length > 64) {
+      refuse('trade.client_order_id_required', `clientOrderId is too long to key the children (64 chars with the ":<n>:${tag}" suffix)`);
+    }
+    refuseMalformedOrder(input);
+    // The precheck below sizes the children's hold with this leverage, so it is checked first; each child checks it again.
+    if (this.deps.maxLeverage == null || this.deps.maxLeverage <= 0n) {
+      refuse('trade.leverage_cap_unset', 'the leverage cap is unset on this deployment — refuse rather than invent one');
+    }
+    const leverageCheck = checkLeverage(input.leverage, this.deps.maxLeverage);
+    if (!leverageCheck.ok) refuse(leverageCheck.code ?? 'trade.leverage_invalid', leverageCheck.reason ?? 'leverage refused');
+    const resolved = resolveAdmissionLimits();
+    if ('refusal' in resolved) throw new MatchedOrderError(resolved.refusal.message, resolved.refusal.code, 400);
+    const maxOrder = resolved.limits.maxOrder;
+    const band = this.deps.priceBand;
+    if (band === null) {
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    }
+    const market = await this.loadMarket(input.symbol);
+    const lotSize = market.lot_size == null ? null : parseAmount(market.lot_size);
+    // Every full child is a lot multiple, so a whole order off the lot step would only fail on its last child.
+    const lot = checkCloseQuantity({ quantity: input.qty, size: input.qty, lotSize });
+    if (!lot.ok) refuse(lot.code, lot.reason);
+
+    if (await this.findOrderByClientId(input.userId, input.symbol, base)) {
+      refuse('trade.client_order_id_conflict', 'this clientOrderId names a single order, not a split', 409);
+    }
+    const children = await this.findSplitChildren(input.userId, market.id, base);
+    if (children.some((row) => row.tag !== tag)) {
+      refuse('trade.client_order_id_conflict', 'this clientOrderId names a different split order', 409);
+    }
+    const placedByKey = new Map(children.map((row) => [row.row.client_order_id, row.row]));
+    // A retry plans with the child size its first attempt used, so every key names the same child as before.
+    const first = placedByKey.get(key(1));
+    // The plan's mark sizes the children and prechecks them together; it authorises no size. Each child's own `place`
+    // reads a mark the book's depth backs for that child's size, as any single order does.
+    const mark = await this.deps.markFor(market.id, market.symbol, this.deps.now(), null);
+    // Sized at the band's high edge, so a child's own max-order check passes while the mark stays inside the band.
+    const plan =
+      maxOrder === null
+        ? { ok: true as const, parts: [input.qty] }
+        : splitPlan({
+            qty: input.qty,
+            sizedAt: priceBandAround(mark, band).high,
+            maxOrderNotional: limitAmount(maxOrder),
+            lotSize,
+            ...(first ? { childSize: parseAmount(first.qty) } : {}),
+          });
+    if (!plan.ok) {
+      refuse(
+        LIMIT_MAX_ORDER,
+        plan.reason === 'lot_over_cap'
+          ? `one lot at the mark is already above the max-order limit of ${maxOrder} ${market.quote_asset}`
+          : `the order would take ${plan.children} orders of at most ${maxOrder} ${market.quote_asset} each, and one request places at most ${SPLIT_MAX_CHILDREN}`,
+        PRETRADE_LIMIT_HTTP_STATUS,
+      );
+    }
+    const ids = plan.parts.map((_, n) => key(n + 1));
+
+    const waiting = plan.parts.filter((_, n) => !placedByKey.has(ids[n]!));
+    if (waiting.length > 0) {
+      const total = waiting.reduce((sum, part) => sum + part, 0n);
+      const pretrade = await checkOpenAdmission({
+        sql: this.deps.sql,
+        userId: input.userId,
+        marketId: market.id,
+        quoteAsset: market.quote_asset,
+        side: positionSideOf(input.side),
+        size: total,
+        orderSize: plan.parts[0],
+        entryPrice: mark,
+        positionMode: undefined,
+        markFor: async (marketId, symbol) => this.deps.markFor(marketId, symbol, this.deps.now(), null),
+      });
+      if (pretrade) {
+        throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
+      }
+      const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
+      const rates = await this.openingFeeRates(input.userId);
+      const hold = waiting.reduce(
+        (sum, qty) =>
+          sum +
+          orderHoldAmount({ side: input.side, qty, limit, mark, leverage: input.leverage }) +
+          orderFeeReserve({ side: input.side, qty, limit, bandHigh: bandAt.high, rates }),
+        0n,
+      );
+      const free = (await this.deps.ledger.balance(userAvailable(input.userId, market.quote_asset))).amount;
+      if (free < hold) {
+        refuse(
+          'trade.futures_margin_insufficient',
+          `the ${waiting.length} orders together hold ${formatAmount(hold)} ${market.quote_asset} and ${formatAmount(free)} is free; nothing was placed`,
+          400,
+        );
+      }
+      if (this.deps.assertCollateralCredit) {
+        await this.deps.assertCollateralCredit({ userId: input.userId, asset: market.quote_asset, additionalHold: hold });
+      }
+    }
+
+    const orders: MatchedOrderView[] = [];
+    for (const [n, qty] of plan.parts.entries()) {
+      try {
+        orders.push(await this.place(principal, { ...input, qty, clientOrderId: ids[n]! }, context));
+      } catch (err) {
+        // A typed refusal after a child is live is an answer, not a failure: the children placed are named with it.
+        // Anything else (an engine or ledger answer that never came) leaves the outcome unknown, so it is thrown.
+        const refusal = typedRefusal(err);
+        if (orders.length > 0 && refusal) return { parts: plan.parts.length, orders, stopped: { child: n + 1, ...refusal } };
+        throw err;
+      }
+    }
+    return { parts: plan.parts.length, orders, stopped: null };
+  }
+
+  /** The children of a split already written under `base` on this market, with the request tag their key carries. */
+  private async findSplitChildren(userId: string, marketId: string, base: string): Promise<{ row: OrderRow; tag: string }[]> {
+    const prefix = `${base.replace(/[\\%_]/g, (c) => `\\${c}`)}:%`;
+    const rows = await this.deps.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE user_id = ${userId} AND market_id = ${marketId} AND client_order_id LIKE ${prefix} ESCAPE '\\'
+    `;
+    const out: { row: OrderRow; tag: string }[] = [];
+    for (const row of rows) {
+      // Only `<base>:<n>:<tag>` is a child of this base; `<base>:x:...` is some other key that shares the prefix.
+      const child = /^(\d+):([0-9a-f]{8})$/.exec(row.client_order_id.slice(base.length + 1));
+      if (child) out.push({ row, tag: child[2]! });
+    }
+    return out;
+  }
+
   // ── placement ─────────────────────────────────────────────────────────────
 
   async place(
@@ -658,15 +883,7 @@ export class MatchedFuturesOrders {
     // product. A reduce-only order posts none, so it is never refused for this.
     const classCheck = input.reduceOnly === true ? { ok: true as const } : checkCollateralClassForMargin(input.collateralClass);
     if (!classCheck.ok) refuse(classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS, classCheck.reason ?? 'collateral class refused');
-    if (input.side !== 'buy' && input.side !== 'sell') refuse('trade.side_invalid', 'side must be buy or sell');
-    if (input.type !== 'limit' && input.type !== 'market') refuse('trade.order_type_invalid', 'type must be limit or market');
-    if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
-    if (input.type === 'limit' && (input.limitPrice === undefined || input.limitPrice <= 0n)) {
-      refuse('trade.invalid_price', 'a limit order needs a positive limitPrice');
-    }
-    if (input.type === 'market' && input.limitPrice !== undefined) {
-      refuse('trade.limit_price_on_market_order', 'a market order takes no limitPrice: its protective limit is the band edge');
-    }
+    refuseMalformedOrder(input);
 
     const existing = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
     if (existing) {
@@ -713,11 +930,7 @@ export class MatchedFuturesOrders {
 
     const at = this.deps.now();
     const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
-    const bandAt: PriceBand = priceBandAround(mark, band);
-    const limit = input.type === 'market' ? protectiveLimit(input.side, bandAt) : (input.limitPrice as Amount);
-    if (!limitWithinBand(limit, bandAt)) {
-      refuse('trade.futures_price_outside_band', 'the limit is outside the price band around the mark', 400);
-    }
+    const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
 
     const slot = await this.deps.sql<{ id: string; leverage: string }[]>`
       SELECT id, leverage FROM trade.positions
@@ -2508,12 +2721,62 @@ export class MatchedFuturesOrders {
   }
 }
 
+/**
+ * The request a split's keys name: a short digest of everything that decides its children, so the same clientOrderId
+ * with another size, side, price, correction, leverage or collateral never replays or adds to the first one's children.
+ */
+export function splitRequestTag(input: PlaceMatchedOrderInput): string {
+  const parts = [
+    input.symbol,
+    input.side,
+    input.type,
+    formatAmount(input.qty),
+    input.limitPrice === undefined ? '' : formatAmount(input.limitPrice),
+    input.priceCorrection === 'adjust' ? 'adjust' : 'reject',
+    formatAmount(input.leverage),
+    typeof input.collateralClass === 'string' ? input.collateralClass : 'cash',
+  ];
+  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 8);
+}
+
+/** A typed refusal (a code and a 4xx status) from a child's own checks; null for anything that left the outcome unknown. */
+function typedRefusal(err: unknown): { code: string; message: string } | null {
+  if (!(err instanceof Error)) return null;
+  const { code, status } = err as Error & { code?: unknown; status?: unknown };
+  if (typeof code !== 'string' || typeof status !== 'number' || status >= 500) return null;
+  return { code, message: err.message };
+}
+
+/** The order's own shape, before anything is read: the same refusals for a single order and a split. */
+function refuseMalformedOrder(input: PlaceMatchedOrderInput): void {
+  if (input.priceCorrection !== undefined && input.priceCorrection !== 'reject' && input.priceCorrection !== 'adjust') {
+    refuse('trade.price_correction_invalid', 'priceCorrection is reject or adjust');
+  }
+  if (input.side !== 'buy' && input.side !== 'sell') refuse('trade.side_invalid', 'side must be buy or sell');
+  if (input.type !== 'limit' && input.type !== 'market') refuse('trade.order_type_invalid', 'type must be limit or market');
+  if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
+  if (input.type === 'limit' && (input.limitPrice === undefined || input.limitPrice <= 0n)) {
+    refuse('trade.invalid_price', 'a limit order needs a positive limitPrice');
+  }
+  if (input.type === 'market' && input.limitPrice !== undefined) {
+    refuse('trade.limit_price_on_market_order', 'a market order takes no limitPrice: its protective limit is the band edge');
+  }
+}
+
 function sameRequest(row: OrderRow, input: PlaceMatchedOrderInput): boolean {
   if (row.user_id !== input.userId || row.side !== input.side || row.order_type !== input.type) return false;
   if (parseAmount(row.qty) !== input.qty) return false;
   if (row.reduce_only !== (input.reduceOnly === true)) return false;
   // A reduce-only order carries its position's leverage, whatever the request said.
   if (!row.reduce_only && parseAmount(row.leverage) !== input.leverage) return false;
-  if (input.type === 'limit' && parseAmount(row.limit_price) !== input.limitPrice) return false;
+  if (input.type === 'limit') {
+    if (input.limitPrice === undefined) return false;
+    // An adjusted order stored the band edge it was moved to: the same request moves to the same edge of its own band.
+    const asked =
+      input.priceCorrection === 'adjust'
+        ? correctToBand(input.limitPrice, { low: parseAmount(row.band_low), high: parseAmount(row.band_high) })
+        : input.limitPrice;
+    if (parseAmount(row.limit_price) !== asked) return false;
+  }
   return true;
 }
