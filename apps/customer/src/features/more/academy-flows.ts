@@ -160,6 +160,12 @@ export function academyCodeOf(failure: Pick<Failure, 'code' | 'message'>): strin
   return /\bacademy\.[a-z_]+\b/.exec(failure.message)?.[0] ?? null;
 }
 
+/** Curriculum item slugs from "academy.prerequisite_unmet missing=a-lesson,another" (an item's own prerequisite). */
+export function missingItems(message: string): string[] {
+  const list = /\bmissing=(\S+)/.exec(message)?.[1];
+  return list ? list.split(',').filter(Boolean) : [];
+}
+
 /** Programme names from "academy.prerequisite_unmet missing=foundations,markets". */
 export function missingProgrammes(message: string): string[] {
   const list = /\bmissing=([a-z0-9,-]+)/.exec(message)?.[1];

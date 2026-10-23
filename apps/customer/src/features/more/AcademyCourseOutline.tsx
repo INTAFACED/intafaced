@@ -114,7 +114,7 @@ function useItemCompletion(current: string, reload: () => void) {
       const sent = await api.mutate(
         'academy',
         'undoCurriculumComplete',
-        { itemSlug: current, clientRequestId: `undo:${current}:${completedAt}` },
+        { itemSlug: current, completedAt, clientRequestId: `undo:${current}:${completedAt}` },
         academyUndoCompletionSchema,
       );
       if (!sent.ok) setFailure(sent);

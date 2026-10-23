@@ -1727,24 +1727,22 @@ export class AcademyService {
       ),
       this.assessments.passedSlugs(input.userId),
     ]);
-    const items = await Promise.all(
-      releases.map(async ({ row, view }) => {
-        const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
-        const rule = this.completionRule(row.slug);
-        return {
-          slug: row.slug,
-          title: row.title,
-          kind: row.kind,
-          state: view.state,
-          lock: view.lock,
-          missing: [...view.missing],
-          opensAt: opensLater ? view.availableFrom!.toISOString() : null,
-          rule,
-          ruleMet: await this.completionRuleMet(input.userId, row.slug, rule, passed),
-          completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
-        };
-      }),
-    );
+    const items = releases.map(({ row, view }) => {
+      const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
+      const rule = this.completionRule(row.slug);
+      return {
+        slug: row.slug,
+        title: row.title,
+        kind: row.kind,
+        state: view.state,
+        lock: view.lock,
+        missing: [...view.missing],
+        opensAt: opensLater ? view.availableFrom!.toISOString() : null,
+        rule,
+        ruleMet: this.completionRuleMet(row.slug, rule, passed),
+        completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
+      };
+    });
     return { slug: path, items };
   }
 
@@ -1938,7 +1936,10 @@ export class AcademyService {
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
     const rule = this.completionRule(slug);
-    if (!(await this.completionRuleMet(input.userId, slug, rule))) {
+    if (rule === 'score' && this.assessments.definition(slug)!.passMark === null) {
+      throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
+    }
+    if (rule !== 'view' && !this.completionRuleMet(slug, rule, await this.assessments.passedSlugs(input.userId))) {
       throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
     }
     const now = input.now ?? new Date();
@@ -1964,13 +1965,16 @@ export class AcademyService {
   }
 
   /**
-   * AC-progress-01 Undo: the item is no longer complete, so course progress drops and a prerequisite it met locks again.
-   * The history keeps both events; completing again appends a new one. A replay of the same request answers as the
-   * first did; a request id reused for another item is refused. Nothing complete to undo answers `undoneAt: null`.
+   * AC-progress-01 Undo of one completion, named by its `completedAt`: the item is no longer complete, so course progress
+   * drops and items that need it, and are not complete themselves, lock again (a later item already completed stays so).
+   * The history keeps both events; completing again appends a new one with a new `completedAt`, which an old or replayed
+   * Undo does not match. A replay of the same request answers as the first did; a request id reused for another item is
+   * refused. Nothing matching to undo answers `undoneAt: null`.
    */
   async undoCurriculumComplete(input: {
     userId: string;
     itemSlug: string;
+    completedAt: string;
     clientRequestId: string;
     now?: Date;
   }): Promise<AcademyUndoCompletion> {
@@ -1979,9 +1983,11 @@ export class AcademyService {
       throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
     }
     const clientRequestId = input.clientRequestId.trim();
-    if (!clientRequestId) throw new AcademyError('clientRequestId is required', 'academy.request_reused');
+    const completedAt = new Date(input.completedAt);
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
+      // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
       const replay = await tx<Array<{ item_slug: string; recorded_at: Date }>>`
         SELECT item_slug, recorded_at FROM academy.item_completion_events
@@ -1995,7 +2001,7 @@ export class AcademyService {
       }
       const removed = await tx<Array<{ item_slug: string }>>`
         DELETE FROM academy.cert_item_completions
-         WHERE user_id = ${input.userId} AND item_slug = ${slug}
+         WHERE user_id = ${input.userId} AND item_slug = ${slug} AND completed_at = ${completedAt}
         RETURNING item_slug
       `;
       if (!removed[0]) return { userId: input.userId, itemSlug: slug, undoneAt: null };
@@ -2023,9 +2029,9 @@ export class AcademyService {
     return this.assessments.definition(slug) ? 'score' : 'view';
   }
 
-  private async completionRuleMet(userId: string, slug: string, rule: AcademyCompletionRule, passed?: Set<string>): Promise<boolean> {
-    if (rule === 'view') return true;
-    return (passed ?? (await this.assessments.passedSlugs(userId))).has(slug);
+  /** `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why. */
+  private completionRuleMet(slug: string, rule: AcademyCompletionRule, passed: ReadonlySet<string>): boolean {
+    return rule === 'view' || passed.has(slug);
   }
 
   private async completionTimes(userId: string, slugs: readonly string[]): Promise<Map<string, Date>> {

@@ -2245,6 +2245,7 @@ export function createAcademyRouter(
           academy.undoCurriculumComplete({
             userId: ctx.principal.userId,
             itemSlug: input.itemSlug,
+            completedAt: input.completedAt,
             clientRequestId: input.clientRequestId,
           }),
         ),

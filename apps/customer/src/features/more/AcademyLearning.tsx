@@ -15,7 +15,7 @@ import { academyLmsCopy } from './academy-lms-copy';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
 import { LessonVideoLink, LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
-import { academyCodeOf, missingProgrammes } from './academy-flows';
+import { academyCodeOf, missingItems } from './academy-flows';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -223,12 +223,15 @@ export function AcademyLearning({
   );
   const overview = useAcademyTracking();
   const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
+  // One reader on screen is one visit: the key is this reader's mount, so an effect run twice for the same lesson
+  // (a remount check, a session refresh) is one opening, and opening the lesson again later is another.
+  const visit = useRef(`${Date.now().toString(36)}`);
   useEffect(() => {
     if (!openedLesson) return;
     rememberLastLesson(userId, openedLesson);
-    // Academy keeps where this account last read, so Continue opens the same item on any device. One key per opening:
-    // a replay of this request is not counted twice. A failed write leaves the lesson readable and Continue where it was.
-    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${Date.now()}` }, touched);
+    // Academy keeps where this account last read, so Continue opens the same item on any device. A failed write leaves
+    // the lesson readable and Continue where it was; it is not worth a notice on the lesson.
+    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${visit.current}` }, touched);
   }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
@@ -435,7 +438,7 @@ export function AcademyLearning({
               {/* A lesson held by its course start or window is refused in words; the outline beside it says when it opens. */}
               {reader.resource.status === 'failed' && academyCodeOf(reader.resource.failure) === 'academy.prerequisite_unmet' ? (
                 <LockedItemNotice
-                  missing={missingProgrammes(reader.resource.failure.message)}
+                  missing={missingItems(reader.resource.failure.message)}
                   lessons={overview.resource.status === 'ready' ? overview.resource.data.lessons : []}
                 />
               ) : reader.resource.status === 'failed' ? (

@@ -199,9 +199,12 @@ export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;
 export const academyItemCompletionSchema = z.object({ userId: z.string().uuid(), itemSlug: z.string().min(1), completedAt: isoInstant });
 export type AcademyItemCompletion = z.infer<typeof academyItemCompletionSchema>;
 
-/** AC-progress-01 Undo. The request id is the learner's own key for this one press; a replay answers the same. */
+/**
+ * AC-progress-01 Undo of the completion recorded at `completedAt` (as the outline gave it), so a late replay never undoes a
+ * newer completion. The request id is the learner's own key for this one press; a replay answers the same.
+ */
 export const academyUndoCompletionInputSchema = z
-  .object({ itemSlug: z.string().min(1).max(120), clientRequestId: z.string().min(1).max(200) })
+  .object({ itemSlug: z.string().min(1).max(120), completedAt: isoInstant, clientRequestId: z.string().trim().min(1).max(200) })
   .strict();
 /** `undoneAt` null: nothing was complete, so nothing changed. */
 export const academyUndoCompletionSchema = z.object({
