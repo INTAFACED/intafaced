@@ -64,10 +64,11 @@ describe('historyRows and historyCsv', () => {
     expect(liquidatedRows(rows).map((p) => p.id)).toEqual(['b']);
   });
   it('builds the csv with a header, protected negative cells and blanks for unknowns', () => {
-    const csv = historyCsv([row({ realizedPnl: '-30', markPrice: null })]);
-    const [head, line] = csv.split('\r\n');
-    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Status,Opened at');
-    expect(line).toBe('BTC/USDT:USDT,long,1.5,100,,-30,closed,2026-01-01T00:00:00.000Z');
+    const csv = historyCsv([row({ realizedPnl: '-30', markPrice: null }), row({ realizedPnl: '7', fees: '0.4' })]);
+    const [head, line, paid] = csv.split('\r\n');
+    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Fees,Status,Opened at');
+    expect(line).toBe('BTC/USDT:USDT,long,1.5,100,,-30,,closed,2026-01-01T00:00:00.000Z');
+    expect(paid).toBe('BTC/USDT:USDT,long,1.5,100,110,7,0.4,closed,2026-01-01T00:00:00.000Z');
   });
 });
 

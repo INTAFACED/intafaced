@@ -23,8 +23,8 @@
     },
     "TRADE_FEE_SCHEDULE": {
       "service": "trade",
-      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\"}",
-      "note": "Zero fee schedule, so the order path posts no fee."
+      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
+      "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
     },
     "TRADE_MAX_ORDER": {
       "service": "trade",

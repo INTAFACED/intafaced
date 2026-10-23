@@ -949,11 +949,15 @@ function serviceDefs(secrets) {
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
         // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
+        // The perpetual block is LOCAL TEST too: the regular-tier perpetual rates OKX is widely reported to publish,
+        // maker 2 bps and taker 5 bps (not checked against its own page). Futures orders keep these rates; without the
+        // block they refuse trade.fee_product_unpublished (svc-trade futures/matched-order-plan.ts perpetualFeeRates).
         TRADE_FEE_SCHEDULE: JSON.stringify({
           published: true,
           version: 'local-test:okx-regular-spot-reference',
           makerBps: '8',
           takerBps: '10',
+          perpetual: { makerBps: '2', takerBps: '5' },
         }),
         // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
         // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
