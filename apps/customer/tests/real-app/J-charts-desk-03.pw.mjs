@@ -152,3 +152,71 @@ test('J-charts-desk-03 #6 with the data window open, moving the crosshair over a
   await expect(windowText).toContainText('EMA 20');
   await expect(windowText.getByText(/^\d+\.\d\d$/).first()).toBeVisible();
 });
+
+test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change is saved for this device and read back after a reload', async ({
+  page,
+}) => {
+  await openChart(page);
+  await page.getByRole('button', { name: 'Chart settings', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  for (const tab of ['Symbol', 'Status line', 'Scales', 'Canvas', 'Trading', 'Alerts']) {
+    await expect(dialog.getByRole('tab', { name: tab, exact: true })).toBeVisible();
+  }
+  // Status line: the time in the legend is switched off and the choice is kept on this device.
+  await dialog.getByRole('tab', { name: 'Status line', exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Show the time in the legend' }).uncheck();
+  // Scales: a logarithmic price scale; the chart says so on its host.
+  await dialog.getByRole('tab', { name: 'Scales', exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Logarithmic price scale' }).check();
+  // Canvas: grid lines off.
+  await dialog.getByRole('tab', { name: 'Canvas', exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Show grid lines' }).uncheck();
+  // Trading and Alerts link to the controls; the chart places no order and sets no alert itself.
+  await dialog.getByRole('tab', { name: 'Trading', exact: true }).click();
+  await expect(dialog.getByRole('link', { name: 'Open the trading desk for BTC/USDT' })).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await dialog.getByRole('tab', { name: 'Alerts', exact: true }).click();
+  await expect(dialog.getByRole('link', { name: 'Open price alerts' })).toHaveAttribute('href', '/notifications?view=alerts');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('chart-legend').first()).not.toContainText(/\d{1,2} [A-Za-z]{3} \d{4}/);
+  await expect(host(page)).toHaveAttribute('data-log', 'on');
+  await expect(host(page)).toHaveAttribute('data-grid', 'off');
+  // Saved for this device, read back after a reload.
+  await page.reload();
+  await expect(host(page)).toHaveAttribute('data-log', 'on');
+  await expect(host(page)).toHaveAttribute('data-grid', 'off');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('charts-chart-settings:guest') ?? 'null'));
+  expect(saved).toMatchObject({ showTime: false, logScale: true, gridLines: false });
+});
+
+test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that exact price, a refused off-tick price adds nothing', async ({
+  page,
+}) => {
+  // The level is a real trade price the public tape printed, so it sits on the market's tick grid.
+  const tape = await (await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=1`)).json();
+  const level = tape[0].price;
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const tick = markets.find((m) => m.symbol === 'BTC/USDT').precision.price;
+  await openChart(page);
+  await page.getByRole('button', { name: 'Price line', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Add a price line' });
+  // A price off the tick grid is refused by name and draws nothing.
+  // One decimal place finer than the tick: a price the market cannot take.
+  const off = level.includes('.') ? `${level}5` : `${level}.5`;
+  expect(tick).toBe('0.01');
+  await form.getByLabel('Price', { exact: true }).fill(off);
+  await form.getByRole('button', { name: 'Add line' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'whole multiple of the tick size' })).toBeVisible();
+  await expect(host(page)).toHaveAttribute('data-price-lines', '');
+  // The level on the grid, with a label, draws one line at exactly that price.
+  await form.getByLabel('Price').fill(level);
+  await form.getByLabel('Label (optional)').fill('Support');
+  await form.getByRole('button', { name: 'Add line' }).click();
+  await expect(host(page)).toHaveAttribute('data-price-lines', level);
+  await expect(page.getByRole('list', { name: 'Price lines' })).toContainText(`Support at ${level}`);
+  // Kept for this market on this device; removing it takes it off the chart.
+  await page.reload();
+  await expect(host(page)).toHaveAttribute('data-price-lines', level);
+  await page.getByRole('button', { name: `Remove the line at ${level}` }).click();
+  await expect(host(page)).toHaveAttribute('data-price-lines', '');
+});
