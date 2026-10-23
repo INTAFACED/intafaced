@@ -1043,7 +1043,7 @@ export const withdrawDestinationRemovals = bank.table(
 );
 
 /**
- * Signed-message proofs that a customer controls a saved wallet (W-withdraw-17, migration 0055). `pending` until the
+ * Signed-message proofs that a customer controls a saved wallet (W-withdraw-17, migration 0057). `pending` until the
  * saved address signs the message; then `verified` with the signature and how long the proof holds.
  */
 export const walletOwnershipProofs = bank.table(
@@ -1156,6 +1156,19 @@ export const linkedBankAccounts = bank.table(
     index('linked_bank_accounts_user_idx').on(t.userId, t.createdAt),
   ],
 );
+
+/** One cash-out request to a linked bank account (J-bank-03, migration 0056). Kept refused with its code; never held or posted. */
+export const cashOutRequests = bank.table('cash_out_requests', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  linkedAccountId: uuid('linked_account_id').notNull(),
+  rail: text('rail').notNull().default('rail.bank'),
+  status: text('status').notNull(),
+  refusalCode: text('refusal_code'),
+  createdAt: createdAt(),
+});
 
 /** Address custody issued. Not a locally derived key and not a balance. */
 export const depositAddresses = bank.table(

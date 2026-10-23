@@ -63,6 +63,7 @@ import { createAccountDetailsRouter, createEligibilityRouter } from './account-d
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
+import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
@@ -593,6 +594,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.wallet_proof_window_unset':
       case 'bank.wallet_proof_validity_unset':
       case 'bank.linked_accounts_full':
+      case 'bank.cash_out_over_available':
+      case 'bank.linked_account_unverified':
       case 'rail.bank':
       case 'bank.account_details_currencies_unset':
       case 'bank.eligibility_unset':
@@ -4987,6 +4990,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     workItems: createWorkItemsRouter(() => bank.transferOps.sql, guard),
     eligibility: createEligibilityRouter(bank, guard),
     linkedAccounts: createLinkedAccountsRouter(bank, guard),
+    cashOut: createCashOutRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),
