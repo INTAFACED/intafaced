@@ -12,10 +12,12 @@ import { floorToLot } from './order-math';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
 import { CancelMany } from './CancelMany';
+import { DeadMan } from './DeadMan';
+import { LedgerTab } from './LedgerTab';
 import { EditOrder } from './EditOrder';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
-type Tab = 'open' | 'history' | 'trades' | 'assets' | 'positions';
+type Tab = 'open' | 'history' | 'trades' | 'assets' | 'ledger' | 'positions';
 
 interface Props {
   market: DeskMarket;
@@ -31,7 +33,7 @@ interface Props {
 }
 export type { Tab as BottomTab };
 
-/** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history, Assets and Positions (not applicable on cash spot), Pro density (40 px rows). */
+/** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history, Assets, Ledger (signed in) and Positions (not applicable on cash spot), Pro density (40 px rows). */
 export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab, onFlatten }: Props) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
@@ -76,6 +78,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           <TabsTab value="history">{t('Order history')}</TabsTab>
           <TabsTab value="trades">{t('Trade history')}</TabsTab>
           <TabsTab value="assets">{t('Assets')}</TabsTab>
+          {userId ? <TabsTab value="ledger">{t('Ledger tab')}</TabsTab> : null}
           <TabsTab value="positions">{t('Positions')}</TabsTab>
         </TabsList>
         {tab === 'open' && openOrders.status === 'ready' ? (
@@ -91,6 +94,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
             />
           </>
         ) : null}
+        {userId ? <DeadMan onChanged={refresh} /> : null}
         {showAll && userId ? (
           <a className="dk-viewall" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>
             {t('View all')}
@@ -178,6 +182,11 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
           }}
         </LoadState>
       </TabsPanel>
+      {userId ? (
+        <TabsPanel value="ledger" className="dk-bottom-body">
+          {tab === 'ledger' ? <LedgerTab balances={balances} /> : null}
+        </TabsPanel>
+      ) : null}
       <TabsPanel value="positions" className="dk-bottom-body">
         <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
       </TabsPanel>

@@ -453,6 +453,13 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
 
       /**
+       * The futures collateral haircut, in whole bps of posted cash (0 to 10000). An opening order's hold, and an at-mark
+       * open, must fit inside the account's posted cash less this cut. NO DEFAULT — empty refuses an opening order with
+       * `trade.haircut_unset`, and the Collateral read shows "haircut not set". Read by futures/haircut-credit.ts.
+       */
+      TRADE_COLLATERAL_HAIRCUT_BPS: z.string().default(''),
+
+      /**
        * The futures price band (slice 6): a decimal fraction of the mark, for example 0.05 for five per cent either
        * side. EMPTY BY DEFAULT — and empty refuses a matched futures order with `trade.futures_price_band_unset`.
        * The number is the owner's; a value that is not a fraction strictly between 0 and 1 fails boot.
