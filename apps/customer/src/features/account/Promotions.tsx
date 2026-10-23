@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import type { ApiClient } from '../../shared/api';
 import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
+import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { promotionsCopy as copy } from './promotions-copy';
 import {
@@ -554,6 +555,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
               </p>
             </section>
           )}
+          {view !== 'records' && <ReferralCode />}
           {view !== 'link' && (
             <div id="promotion-referrals">
               <ReferralRecords />

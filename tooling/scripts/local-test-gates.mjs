@@ -559,6 +559,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
       },
+      /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
+      async crmToken() {
+        return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
+      },
     };
   }
   return sessions;

@@ -336,6 +336,8 @@ export interface PositionServiceDeps {
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
     /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
     feeRates?: ((userId: string) => Promise<FeeRates>) | null;
+    /** A market open's slippage cap in bps (operator per market, else the owner's); null refuses market opens. */
+    slippageCapBps?: (marketId: string) => Promise<number | null>;
   };
 }
 
@@ -459,6 +461,7 @@ export class PositionService {
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
       feeRates: matchedOrders?.feeRates ?? null,
+      ...(matchedOrders?.slippageCapBps ? { slippageCapBps: matchedOrders.slippageCapBps } : {}),
       assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
     });
   }
@@ -581,7 +584,7 @@ export class PositionService {
    * must cover everything it has committed, the new order's hold included. Blank refuses `trade.haircut_unset`; short
    * refuses `trade.haircut_credit_short`; a read that fails refuses `trade.collateral_unreadable` (503). Nothing is held.
    */
-  private async assertMatchedCollateralCredit(input: { userId: string; asset: string }): Promise<void> {
+  private async assertMatchedCollateralCredit(input: { userId: string; asset: string; additionalHold?: Amount }): Promise<void> {
     let figures: Awaited<ReturnType<PositionService['collateralFigures']>>;
     try {
       figures = await this.collateralFigures(input.userId, input.asset);
@@ -594,7 +597,12 @@ export class PositionService {
       throw new FuturesError('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut', HAIRCUT_UNSET, 400);
     }
     // The same rule as the at-mark open: posted cash, cut, covers everything committed (this order's hold included).
-    const decision = decideOpenCredit({ postedCash: figures.posted, initialMargin: figures.committed, haircutBps: figures.haircutBps });
+    // A split order's children not yet written are passed as `additionalHold`; a written row already counts its own.
+    const decision = decideOpenCredit({
+      postedCash: figures.posted,
+      initialMargin: (figures.committed + (input.additionalHold ?? 0n)) as Amount,
+      haircutBps: figures.haircutBps,
+    });
     if (!decision.ok) {
       throw new FuturesError(
         'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
@@ -1062,6 +1070,11 @@ export class PositionService {
   /** `context.region` is the request's edge region, read only by the derivatives gate (see `open`). */
   async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
     return this.matched.place(principal, input, context);
+  }
+
+  /** An opening order above the max-order, placed as children of at most the cap (`MatchedFuturesOrders.placeSplit`). */
+  async placeMatchedSplit(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.matched.placeSplit(principal, input, context);
   }
 
   /** The caller's own matched futures orders (`MatchedFuturesOrders.listForUser`). */

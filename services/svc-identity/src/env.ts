@@ -226,6 +226,17 @@ const schema = serviceEnvSchema
        * refuses. A tier with a null term cannot be assigned (`identity.tier_terms_unset`).
        */
       IDENTITY_ACCOUNT_TIERS: z.string().optional(),
+      /**
+       * Owner setting: how long after sign-up a person may still attach a referrer through a link, in whole seconds
+       * (CM-referral-01, J-campaigns-05 #4-#5). NO DEFAULT. Blank refuses every link attach (`referral.attach_window_unset`);
+       * past it, `referral.attach_window_closed`. Parsed at start by `parseAttachWindowSeconds`; malformed stops the service.
+       */
+      IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: how many characters a short referral code has, 4 to 16 (CM-referral-01, J-campaigns-05 #1).
+       * NO DEFAULT. Blank refuses making a code (`referral.code_length_unset`); the share link still works.
+       */
+      IDENTITY_REFERRAL_CODE_LENGTH: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
