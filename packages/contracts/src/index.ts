@@ -60,6 +60,7 @@ export * from './protocol-ops.js';
 export * from './protocol-badge.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
+export * from './merchant-room-access.js';
 export * from './pay-portal-reads.js';
 export * from './pay-payment-links.js';
 export * from './founder-admin.js';
