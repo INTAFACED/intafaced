@@ -12,7 +12,8 @@ export function deadManChoices(published: readonly number[] | null | undefined):
 export function otherSeconds(text: string): number | null {
   const trimmed = text.trim();
   if (!/^[1-9][0-9]{0,6}$/.test(trimmed)) return null;
-  return Number(trimmed);
+  // Seven digits at most, so the sum is exact; seconds are not money, but the desk never parses a float.
+  return [...trimmed].reduce((n, d) => n * 10 + (d.charCodeAt(0) - 48), 0);
 }
 
 export type DeadManRefusal = 'timeout' | 'session' | 'unset' | 'other';

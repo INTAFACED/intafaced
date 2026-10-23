@@ -18,6 +18,10 @@ import { clockSeconds } from './time';
 
 type Note = { tone: 'good' | 'bad'; text: string };
 
+/** After the deadline, how often and how many times the desk reads the switch while the sweep has not run yet. */
+const SWEEP_CHECK_MS = 2000;
+const SWEEP_CHECKS = 15;
+
 /**
  * The dead-man switch (cancel-all-after). The person picks one of the published timeouts (or types another, which the
  * service refuses in words), turns it on and sees the time it fires; refreshing pushes that time out, and "off" sends 0.
@@ -36,6 +40,9 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
   const [keepAlive, setKeepAlive] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  // A keep-alive refresh on its way. It never blocks the person: their action waits for it, then goes, so a late
+  // refresh can never re-arm a switch they just turned off.
+  const quietRef = useRef<Promise<unknown> | null>(null);
   const [note, setNote] = useState<Note | null>(null);
 
   const load = useCallback(async () => {
@@ -55,31 +62,41 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
 
   const send = useCallback(
     async (timeout: number, quiet = false): Promise<boolean> => {
+      if (quiet) {
+        // A person's action wins over a refresh, and one refresh is on its way at a time.
+        if (busyRef.current || quietRef.current) return false;
+        const pending = api.armCancelAllAfter(timeout);
+        quietRef.current = pending;
+        const answer = await pending;
+        quietRef.current = null;
+        if (busyRef.current || !answer.ok) return false;
+        setState((prev) => ({ ...answer.data, timeouts: answer.data.timeouts ?? prev?.timeouts ?? null }));
+        onChanged();
+        return true;
+      }
       if (busyRef.current) return false;
       busyRef.current = true;
-      if (!quiet) setBusy(true);
+      setBusy(true);
+      if (quietRef.current) await quietRef.current.catch(() => undefined);
       const result = await api.armCancelAllAfter(timeout);
       busyRef.current = false;
       setBusy(false);
       if (result.ok) {
         setState((prev) => ({ ...result.data, timeouts: result.data.timeouts ?? prev?.timeouts ?? null }));
-        if (!quiet)
-          setNote({ tone: 'good', text: timeout === 0 ? t('Dead man disarmed') : t('Dead man armed', { time: at(result.data) }) });
+        setNote({ tone: 'good', text: timeout === 0 ? t('Dead man disarmed') : t('Dead man armed', { time: at(result.data) }) });
         onChanged();
         return true;
       }
-      if (!quiet) {
-        const kind = deadManRefusal(result.code, timeout, state?.timeouts);
-        const text =
-          kind === 'timeout'
-            ? t('Dead man refused timeout', { list: choices.join(', ') })
-            : kind === 'session'
-              ? t('Dead man refused session')
-              : kind === 'unset'
-                ? t('Dead man refused unset')
-                : t('Dead man refused other', { reason: result.code ? refusalCopy(result.code).title : result.message });
-        setNote({ tone: 'bad', text });
-      }
+      const kind = deadManRefusal(result.code, timeout, state?.timeouts);
+      const text =
+        kind === 'timeout'
+          ? t('Dead man refused timeout', { list: choices.join(', ') })
+          : kind === 'session'
+            ? t('Dead man refused session')
+            : kind === 'unset'
+              ? t('Dead man refused unset')
+              : t('Dead man refused other', { reason: result.code ? refusalCopy(result.code).title : result.message });
+      setNote({ tone: 'bad', text });
       return false;
     },
     // `at` reads the zone; `choices` and `state` are read for the refusal words only.
@@ -94,25 +111,46 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
     return () => clearInterval(id);
   }, [keepAlive, armedTimeout, send]);
 
-  // A deadline that has passed fires on the service's sweep; read the switch again shortly after it.
+  // A deadline that has passed fires on the service's next sweep: read the switch after the deadline, and again every
+  // couple of seconds while it still reads armed for that same deadline, then show what the sweep cancelled.
   const trigger = state?.armed && state.triggerTime ? Date.parse(state.triggerTime) : null;
   useEffect(() => {
     if (trigger === null) return;
-    const id = setTimeout(
-      () => {
-        void load();
-        onChanged();
-      },
-      Math.max(0, trigger - Date.now()) + 1500,
-    );
-    return () => clearTimeout(id);
-  }, [trigger, load, onChanged]);
+    let stopped = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      const result = await api.cancelAllAfter();
+      if (stopped) return;
+      tries += 1;
+      if (result.ok) {
+        setState(result.data);
+        setUnreadable(false);
+        if (!result.data.armed || tries === 1) onChanged();
+        if (!result.data.armed) return;
+      }
+      if (tries < SWEEP_CHECKS) timer = setTimeout(() => void check(), SWEEP_CHECK_MS);
+    };
+    timer = setTimeout(() => void check(), Math.max(0, trigger - Date.now()) + 1500);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [trigger, api, onChanged]);
 
   function at(s: CancelAllAfter): string {
     return s.triggerTime ? clockSeconds(Date.parse(s.triggerTime), timeZone) : '';
   }
   const passed = trigger !== null && trigger <= Date.now();
-  const label = state?.armed ? t('Dead man on', { time: at(state) }) : t('Dead man off');
+  // Never "off" before the switch has been read: an unread switch may be on.
+  const label =
+    state === null
+      ? unreadable
+        ? t('Dead man unknown')
+        : t('Dead man checking')
+      : state.armed
+        ? t('Dead man on', { time: at(state) })
+        : t('Dead man off');
 
   function close() {
     if (busyRef.current) return;

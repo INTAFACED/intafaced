@@ -201,16 +201,18 @@ const parseCsv = (text) => {
 test(`${J} #5 requests a statement of orders, trades and ledger lines for a date range: one job, the file lists exactly the range's rows`, async ({
   page,
 }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);
   const who = account();
   // A trade of its own, so the file has a trade row: a market buy that fills against the TEST book.
   const bought = await (
     await client(who)
   ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: '0.0002', clientOrderId: `${J}-mbuy-${Date.now()}` });
   expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
-  // A statement that ends today ends at the minute it is asked; wait for the next minute so the trade is inside it.
-  const placedMinute = Math.floor(Date.now() / 60_000);
-  await expect.poll(() => Math.floor(Date.now() / 60_000), { timeout: 70_000, intervals: [1000] }).toBeGreaterThan(placedMinute);
+  // A statement that ends today ends at the last whole minute that has been over for a minute (the service lists only
+  // settled time); wait until that end is past the trade, so the trade is inside the range.
+  const placedAt = Date.now();
+  const settledEnd = () => Math.floor((Date.now() - 60_000) / 60_000) * 60_000;
+  await expect.poll(settledEnd, { timeout: 130_000, intervals: [1000] }).toBeGreaterThan(placedAt);
 
   await signIn(page, who);
   await page.goto(deskPath(SYMBOL));

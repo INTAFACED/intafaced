@@ -19,6 +19,14 @@ import { ledgerLinesInRange, LedgerRangeTooLargeError, type LedgerLine, type Led
 /** Database-protection bounds, not commercial limits: a year per file, and at most this many rows of each kind. */
 export const STATEMENT_WINDOW_MAX_MS = 366 * 24 * 60 * 60 * 1000;
 export const STATEMENT_ROWS_MAX = 10_000;
+/**
+ * How long a range must have been over. A fill or a ledger line is stamped when its transaction starts and is seen only
+ * once it commits; a ledger call is bounded at 25s (LEDGER_CALL_DEADLINE_MS), so a minute after the range ends every row
+ * stamped inside it has landed, and a file built then cannot be missing one.
+ */
+export const STATEMENT_SETTLE_MS = 60_000;
+/** New statement jobs one person may start in a day: a database-protection bound (each keeps its file). */
+export const STATEMENT_JOBS_PER_DAY = 50;
 
 export const STATEMENT_CODES = {
   rangeInvalid: 'trade.statement_range_invalid',
@@ -29,6 +37,7 @@ export const STATEMENT_CODES = {
   notFound: 'trade.statement_not_found',
   notFinished: 'trade.statement_not_finished',
   tooLarge: 'trade.statement_too_large',
+  tooMany: 'trade.statement_too_many',
 } as const;
 
 export type StatementCode = (typeof STATEMENT_CODES)[keyof typeof STATEMENT_CODES];
@@ -37,7 +46,7 @@ export class StatementError extends Error {
   constructor(
     message: string,
     readonly code: StatementCode,
-    readonly status: 400 | 404 | 409,
+    readonly status: 400 | 404 | 409 | 429,
   ) {
     super(message);
     this.name = 'StatementError';
@@ -148,8 +157,8 @@ export function parseStatementRequest(input: StatementRequest, now: Date): { fro
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
     throw new StatementError('to must be after from', STATEMENT_CODES.rangeInvalid, 400);
   }
-  if (end > now) {
-    throw new StatementError('the range must be over: to cannot be in the future', STATEMENT_CODES.rangeNotOver, 400);
+  if (end.getTime() > now.getTime() - STATEMENT_SETTLE_MS) {
+    throw new StatementError('the range must have ended at least a minute ago', STATEMENT_CODES.rangeNotOver, 400);
   }
   if (end.getTime() - start.getTime() > STATEMENT_WINDOW_MAX_MS) {
     throw new StatementError('a statement covers at most 366 days', STATEMENT_CODES.rangeTooWide, 400);
@@ -167,10 +176,26 @@ export class StatementExports {
   /** Create the job for this key (or find it), build its file if it is not built yet, and answer it. */
   async request(principal: Principal, input: StatementRequest): Promise<StatementJob> {
     requireScope(principal, 'trade:read');
-    const { from, to, requestKey } = parseStatementRequest(input, this.now());
+    const now = this.now();
+    const { from, to, requestKey } = parseStatementRequest(input, now);
+    // A new key counts against the day's jobs; asking again with a key already used does not.
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const [count] = await this.sql<Array<{ started: number; known: boolean }>>`
+      SELECT count(*) FILTER (WHERE created_at > ${since})::int AS started,
+             bool_or(request_key = ${requestKey}) AS known
+        FROM trade.statement_exports
+       WHERE user_id = ${principal.userId}
+    `;
+    if (!count?.known && (count?.started ?? 0) >= STATEMENT_JOBS_PER_DAY) {
+      throw new StatementError(
+        `at most ${STATEMENT_JOBS_PER_DAY} new statements a day; ask again with a key already used, or tomorrow`,
+        STATEMENT_CODES.tooMany,
+        429,
+      );
+    }
     await this.sql`
-      INSERT INTO trade.statement_exports (user_id, request_key, range_from, range_to)
-      VALUES (${principal.userId}, ${requestKey}, ${from}, ${to})
+      INSERT INTO trade.statement_exports (user_id, request_key, range_from, range_to, created_at)
+      VALUES (${principal.userId}, ${requestKey}, ${from}, ${to}, ${now})
       ON CONFLICT (user_id, request_key) DO NOTHING
     `;
     const [row] = await this.sql<JobRow[]>`
@@ -336,9 +361,12 @@ export function statementCsv(
   return `${out.join('\n')}\n`;
 }
 
-/** RFC 4180 quoting, and a leading formula character neutralised so a spreadsheet shows the text instead of running it. */
+/**
+ * RFC 4180 quoting, and a leading formula character neutralised so a spreadsheet shows the text instead of running it.
+ * Only a plain number is left as it is (a negative amount); any other text starting with one, "-2+3" included, is not.
+ */
 export function csvCell(value: string): string {
-  const safe = /^[=+\-@\t\r]/.test(value) && !/^-\d/.test(value) ? `'${value}` : value;
+  const safe = /^[=+\-@\t\r]/.test(value) && !/^-?\d+(\.\d+)?$/.test(value) ? `'${value}` : value;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 

@@ -32,11 +32,19 @@ export function dayStart(day: string): Date | null {
 export type StatementRange = { from: string; to: string; requestKey: string; endsToday: boolean };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The service lists a range only once it has been over this long (svc-trade STATEMENT_SETTLE_MS). */
+const SETTLE_MS = 60_000;
+
+/** Where a statement that includes today ends: the last whole minute that has been over for the settling time. */
+export function todayEnd(asOf: Date): Date {
+  return new Date(Math.floor((asOf.getTime() - SETTLE_MS) / 60_000) * 60_000);
+}
 
 /**
  * The range a statement covers for the days picked, both included, in UTC: from the first day's start to the start of
- * the day after the last. When the last day is today, the range ends at `asOf` instead (the minute the person opened the
- * statement, so asking twice from the same dialog is the same range), because the service lists only time that is over.
+ * the day after the last. When the last day is today, the range ends at `todayEnd(asOf)` instead (from the moment the
+ * person opened the statement, so asking twice from the same dialog is the same range), because the service lists only
+ * time that has been over for a minute.
  * The request key is the range itself, so the same range is the same job.
  */
 export function statementRange(
@@ -49,7 +57,7 @@ export function statementRange(
   if (!start || !last) return { ok: false, why: 'days' };
   if (last < start) return { ok: false, why: 'order' };
   const dayAfter = new Date(last.getTime() + DAY_MS);
-  const minute = new Date(Math.floor(asOf.getTime() / 60_000) * 60_000);
+  const minute = todayEnd(asOf);
   if (last > minute) return { ok: false, why: 'future' };
   const endsToday = dayAfter > minute;
   const end = endsToday ? minute : dayAfter;

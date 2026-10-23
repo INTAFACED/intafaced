@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LedgerEntry } from '../../../features/trade/trade-api';
-import { dayStart, sameAmount, sha256Hex, statementRange, sumByAsset } from './ledger';
+import { dayStart, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 
 function entry(currency: string, direction: 'in' | 'out', amount: string): LedgerEntry {
   return {
@@ -57,13 +57,13 @@ describe('statementRange', () => {
     });
   });
 
-  it('ends at the minute it was asked when the last day is today, and that minute is in the key', () => {
+  it('ends a settled minute before it was asked when the last day is today, and that end is in the key', () => {
     expect(statementRange('2026-10-20', '2026-10-20', now)).toEqual({
       ok: true,
       range: {
         from: '2026-10-20T00:00:00.000Z',
-        to: '2026-10-20T12:34:00.000Z',
-        requestKey: 'statement:2026-10-20:2026-10-20T12:34:00.000Z',
+        to: '2026-10-20T12:33:00.000Z',
+        requestKey: 'statement:2026-10-20:2026-10-20T12:33:00.000Z',
         endsToday: true,
       },
     });
@@ -75,7 +75,8 @@ describe('statementRange', () => {
 
   it('refuses a day after today, today’s first minute, days the wrong way round, and a day that is not one', () => {
     expect(statementRange('2026-10-01', '2026-10-21', now)).toEqual({ ok: false, why: 'future' });
-    expect(statementRange('2026-10-20', '2026-10-20', new Date('2026-10-20T00:00:30.000Z'))).toEqual({ ok: false, why: 'future' });
+    expect(statementRange('2026-10-20', '2026-10-20', new Date('2026-10-20T00:01:30.000Z'))).toEqual({ ok: false, why: 'future' });
+    expect(todayEnd(new Date('2026-10-20T00:02:00.000Z')).toISOString()).toBe('2026-10-20T00:01:00.000Z');
     expect(statementRange('2026-10-05', '2026-10-01', now)).toEqual({ ok: false, why: 'order' });
     expect(statementRange('', '2026-10-01', now)).toEqual({ ok: false, why: 'days' });
     expect(dayStart('2026-02-30')).toBeNull();

@@ -85,6 +85,13 @@ describe('ledgerLinesInRange', () => {
     await expect(ledgerLinesInRange(pager(lines), USER, range, 3)).resolves.toHaveLength(3);
   });
 
+  it('refuses a range that takes more pages than a walk may read to reach, instead of holding the request open', async () => {
+    // Two lines a page; the range's line sits behind three newer pages.
+    const lines = [line(1, '2026-10-01T05:00:00Z'), ...Array.from({ length: 6 }, (_, i) => line(i + 2, '2026-10-05T00:00:00Z'))];
+    await expect(ledgerLinesInRange(pager(lines), USER, range, 100, 3)).rejects.toMatchObject({ why: 'depth' });
+    await expect(ledgerLinesInRange(pager(lines), USER, range, 100, 5)).resolves.toHaveLength(1);
+  });
+
   it('passes a ledger failure on: an unreachable ledger is never an empty history', async () => {
     const down: LedgerPages = {
       async page() {

@@ -14,7 +14,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import type { LedgerLine, LedgerPages } from './ledger-history.js';
-import { STATEMENT_CODES, STATEMENT_COLUMNS, StatementError, StatementExports } from './statement-export.js';
+import {
+  csvCell,
+  STATEMENT_CODES,
+  STATEMENT_COLUMNS,
+  STATEMENT_JOBS_PER_DAY,
+  StatementError,
+  StatementExports,
+} from './statement-export.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -209,6 +216,9 @@ describe('statement export', () => {
       );
     expect(await refusal({ from: FROM, to: '2026-10-03T00:00:00.000Z', requestKey: 'stmt-key-one' })).toBe(STATEMENT_CODES.keyReused);
     expect(await refusal({ from: FROM, to: '2026-10-21T00:00:00.000Z', requestKey: 'stmt-key-two' })).toBe(STATEMENT_CODES.rangeNotOver);
+    // A range must have ended a minute ago, so a fill or line stamped inside it has landed before the file is built.
+    expect(await refusal({ from: FROM, to: '2026-10-20T11:59:30.000Z', requestKey: 'stmt-key-two' })).toBe(STATEMENT_CODES.rangeNotOver);
+    expect(await refusal({ from: FROM, to: '2026-10-20T11:59:00.000Z', requestKey: 'stmt-key-three' })).toBeNull();
     expect(await refusal({ from: TO, to: FROM, requestKey: 'stmt-key-two' })).toBe(STATEMENT_CODES.rangeInvalid);
     expect(await refusal({ from: '2025-01-01T00:00:00.000Z', to: TO, requestKey: 'stmt-key-two' })).toBe(STATEMENT_CODES.rangeTooWide);
     expect(await refusal({ from: FROM, to: TO, requestKey: 'short' })).toBe(STATEMENT_CODES.keyInvalid);
@@ -219,6 +229,37 @@ describe('statement export', () => {
     ).resolves.toMatchObject({
       status: 'finished',
     });
+  });
+
+  it('caps the new statements one person starts in a day; asking again with a used key still answers', async () => {
+    const exports = new StatementExports(db.sql, ledgerOf({}, { n: 0 }), () => NOW);
+    for (let i = 0; i < STATEMENT_JOBS_PER_DAY; i += 1) {
+      await exports.request(principal(ALICE), { from: FROM, to: TO, requestKey: `stmt-cap-${String(i).padStart(3, '0')}` });
+    }
+    await expect(exports.request(principal(ALICE), { from: FROM, to: TO, requestKey: 'stmt-cap-new' })).rejects.toMatchObject({
+      code: STATEMENT_CODES.tooMany,
+      status: 429,
+    });
+    await expect(exports.request(principal(ALICE), { from: FROM, to: TO, requestKey: 'stmt-cap-000' })).resolves.toMatchObject({
+      status: 'finished',
+    });
+    // Jobs older than a day do not count; another person is not capped by Alice's.
+    await db.sql`UPDATE trade.statement_exports SET created_at = created_at - interval '25 hours' WHERE request_key = 'stmt-cap-001'`;
+    await expect(exports.request(principal(ALICE), { from: FROM, to: TO, requestKey: 'stmt-cap-new' })).resolves.toMatchObject({
+      status: 'finished',
+    });
+    await expect(exports.request(principal(BOB), { from: FROM, to: TO, requestKey: 'stmt-cap-new' })).resolves.toMatchObject({
+      status: 'finished',
+    });
+  });
+
+  it('writes text that would run as a spreadsheet formula as plain text; plain numbers stay numbers', () => {
+    expect(csvCell('=1+1')).toBe("'=1+1");
+    expect(csvCell('-2+3+cmd|calc')).toBe("'-2+3+cmd|calc");
+    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvCell('-12.5')).toBe('-12.5');
+    expect(csvCell('49000')).toBe('49000');
+    expect(csvCell('a,"b"')).toBe('"a,""b"""');
   });
 
   it('keeps a job to its owner: another person reads not found, and a read needs trade:read', async () => {

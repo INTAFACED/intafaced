@@ -18,12 +18,15 @@ import {
   StateBlock,
   type Loadable,
 } from './deps';
-import { sameAmount, sha256Hex, statementRange, sumByAsset } from './ledger';
+import { sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
 import { clockMinutes, dayTime } from './time';
 
 const PAGE = 50;
 
-type Read = { status: 'loading' } | { status: 'error' } | { status: 'ready'; entries: LedgerEntry[]; next: string | null; more: boolean };
+type Read =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; entries: LedgerEntry[]; next: string | null; more: boolean; failed: boolean };
 
 type KindKey =
   | 'Ledger kind fill'
@@ -62,17 +65,32 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
   const { timeZone } = usePreferences();
   const api = useDeskApi();
   const [read, setRead] = useState<Read>({ status: 'loading' });
-  const live = useRef(true);
-  useEffect(() => () => void (live.current = false), []);
+  // Only the newest request may answer: a Reload makes any older page that lands later moot.
+  const latest = useRef(0);
+  useEffect(() => {
+    const mounted = latest;
+    return () => void (mounted.current += 1);
+  }, []);
 
   const load = useCallback(
     async (after: LedgerEntry[] | null, cursor: string | null) => {
-      if (after) setRead({ status: 'ready', entries: after, next: cursor, more: true });
+      const mine = (latest.current += 1);
+      if (after) setRead({ status: 'ready', entries: after, next: cursor, more: true, failed: false });
       else setRead({ status: 'loading' });
       const result = await api.ledger({ limit: PAGE, ...(cursor ? { cursor } : {}) });
-      if (!live.current) return;
-      if (!result.ok) return setRead({ status: 'error' });
-      setRead({ status: 'ready', entries: [...(after ?? []), ...result.data.entries], next: result.data.nextCursor, more: false });
+      if (latest.current !== mine) return;
+      if (!result.ok) {
+        // An older page that fails keeps the lines already shown, and says so.
+        if (after) return setRead({ status: 'ready', entries: after, next: cursor, more: false, failed: true });
+        return setRead({ status: 'error' });
+      }
+      setRead({
+        status: 'ready',
+        entries: [...(after ?? []), ...result.data.entries],
+        next: result.data.nextCursor,
+        more: false,
+        failed: false,
+      });
     },
     [api],
   );
@@ -123,6 +141,11 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
               ))}
             </tbody>
           </table>
+          {read.failed ? (
+            <p className="dk-note dk-note--bad" role="alert">
+              {t('Ledger more failed')}
+            </p>
+          ) : null}
           {read.next ? (
             <Button variant="secondary" size={32} loading={read.more} onClick={() => void load(read.entries, read.next)}>
               {t('Ledger more')}
@@ -157,9 +180,9 @@ function Totals({ entries, balances }: { entries: LedgerEntry[]; balances: Loada
             <tr key={asset} data-asset={asset}>
               <td>{asset}</td>
               <td className="dk-num if-num">
-                <Amount value={fmtAmount(sum, { places: 8 })} />
+                <Amount value={fmtAmount(sum, { places: 18 })} />
               </td>
-              <td className="dk-num if-num">{free === null ? '—' : <Amount value={fmtAmount(free, { places: 8 })} />}</td>
+              <td className="dk-num if-num">{free === null ? '—' : <Amount value={fmtAmount(free, { places: 18 })} />}</td>
               <td>
                 {free === null ? t('Ledger check unknown') : sameAmount(sum, free) ? t('Ledger check matches') : t('Ledger check differs')}
               </td>
@@ -249,7 +272,7 @@ function Statement() {
                 <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
-            <p className="dk-note">{t('Statement today', { time: clockMinutes(asOf.getTime(), 'UTC') })}</p>
+            <p className="dk-note">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
               <p className="dk-note dk-note--bad" role="alert">
                 {asked.text}

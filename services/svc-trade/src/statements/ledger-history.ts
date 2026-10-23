@@ -123,27 +123,43 @@ export function presentLedgerLine(l: LedgerLine) {
 
 /** Raised when a range holds more ledger lines than one statement may carry. */
 export class LedgerRangeTooLargeError extends Error {
-  constructor(readonly max: number) {
-    super(`more than ${max} ledger lines in this range; ask for a shorter range`);
+  constructor(
+    readonly max: number,
+    readonly why: 'lines' | 'depth' = 'lines',
+  ) {
+    super(
+      why === 'lines'
+        ? `more than ${max} ledger lines in this range; ask for a shorter range`
+        : `more than ${max} ledger pages to read back to this range; ask for a more recent range`,
+    );
     this.name = 'LedgerRangeTooLargeError';
   }
 }
 
 /**
+ * The most pages one walk reads (40 000 lines at the page cap). The ledger's history door has no time filter, so a range
+ * far in the past costs every line posted since; past this the walk refuses instead of holding the request open.
+ */
+export const LEDGER_WALK_PAGES_MAX = 200;
+
+/**
  * Every ledger line posted in [from, to), oldest first. The ledger pages newest first (by posting sequence) with no time
  * filter, so this walks back from the newest line and stops after a page whose every line is before `from`: one page past
- * the boundary, so a line stamped a moment out of sequence near it is still read. More than `max` lines in the range
- * refuses rather than cutting the list short: a statement missing lines would look complete.
+ * the boundary, so a line stamped a moment out of sequence near it is still read. More than `max` lines in the range, or
+ * more than `maxPages` pages to reach it, refuses rather than cutting the list short: a statement missing lines would
+ * look complete.
  */
 export async function ledgerLinesInRange(
   pages: LedgerPages,
   userId: string,
   range: { from: Date; to: Date },
   max: number,
+  maxPages: number = LEDGER_WALK_PAGES_MAX,
 ): Promise<LedgerLine[]> {
   const inRange: LedgerLine[] = [];
   let cursor: string | undefined;
-  for (;;) {
+  for (let read = 0; ; read += 1) {
+    if (read >= maxPages) throw new LedgerRangeTooLargeError(maxPages, 'depth');
     const page = await pages.page({ userId, limit: LEDGER_PAGE_MAX, ...(cursor === undefined ? {} : { cursor }) });
     for (const line of page.entries) {
       if (line.postedAt < range.from || line.postedAt >= range.to) continue;

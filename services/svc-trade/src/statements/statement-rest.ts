@@ -34,7 +34,14 @@ export function attachStatementRoutes(
   function refused(reply: FastifyReply, err: unknown) {
     if (err instanceof AuthError) return reply.code(403).send({ code: 'PermissionDenied', message: err.message, intafacedCode: err.code });
     if (err instanceof StatementError) {
-      const code = err.status === 404 ? 'OrderNotFound' : err.status === 409 ? 'InvalidOrder' : 'BadRequest';
+      const code =
+        err.status === 404
+          ? 'OrderNotFound'
+          : err.status === 409
+            ? 'InvalidOrder'
+            : err.status === 429
+              ? 'RateLimitExceeded'
+              : 'BadRequest';
       return reply.code(err.status).send({ code, message: err.message, intafacedCode: err.code });
     }
     return null;
