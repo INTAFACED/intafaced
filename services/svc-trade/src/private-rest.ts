@@ -1425,6 +1425,34 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
+  /**
+   * The published spot schedule for anyone, signed in or not: the same regular-tier maker and taker rates
+   * `/account/fees` answers (that read has no rank personalisation either), with the schedule version. Strategy
+   * backtests in svc-quant price their simulated fills with it. Unpublished refuses `trade.fee_schedule_blank`; a
+   * market whose row refuses is left out, never shown at zero. An empty listing answers an empty `fees` map.
+   */
+  app.get('/api/v1/fees/published', async (_req, reply) => {
+    try {
+      const schedule = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
+      if (!schedule || schedule.published !== true) {
+        return reply.code(503).send({
+          code: 'ExchangeNotAvailable',
+          message: 'published fee schedule is unavailable',
+          intafacedCode: 'trade.fee_schedule_blank',
+        });
+      }
+      const fees: Record<string, { makerBps: number; takerBps: number }> = {};
+      for (const [symbol, row] of Object.entries(presentAccountFees(await deps.markets(MARKETS_LIMIT_MAX), schedule))) {
+        fees[symbol] = { makerBps: row.makerBps, takerBps: row.takerBps };
+      }
+      return reply.code(200).send({ version: schedule.version, fees });
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
   app.get<{ Params: { symbol: string } }>('/api/v1/account/market-lifecycle/:symbol', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
