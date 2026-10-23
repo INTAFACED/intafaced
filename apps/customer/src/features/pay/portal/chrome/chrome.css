@@ -277,7 +277,8 @@
 .pfo-drawer .pfo-menu a {
   min-height: 44px;
 }
-.pfo-drawer-back {
+.pfo-drawer-back,
+.pfo-drawer-link {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -287,6 +288,9 @@
   color: var(--if-fg-2);
   font-size: 13px;
   text-decoration: none;
+}
+.pfo-drawer-link {
+  margin: 16px 0 0;
 }
 
 /* One calm card for a part that is not live yet. Its first line names what it is waiting for. */

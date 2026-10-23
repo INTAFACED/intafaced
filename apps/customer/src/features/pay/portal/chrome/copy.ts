@@ -48,6 +48,7 @@ const en = {
   backToPersonal: 'Back to personal',
   goToHome: 'Go to Home',
   notifications: 'Notifications',
+  helpSupport: 'Help and support',
   searchPlaceholder: 'Search pages or paste a payment ID',
   searchLabel: 'Search the business pages',
   searchHint: 'Press Ctrl K or ⌘K to search',
