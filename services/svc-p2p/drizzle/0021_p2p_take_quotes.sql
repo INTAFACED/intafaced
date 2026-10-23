@@ -1,5 +1,6 @@
 -- P-trade-orders-06: a locked take quote. The taker asks for one before placing;
--- it holds the price, the fee and the coin and fiat amounts until expires_at,
+-- it holds the price (a floating ad's resolved price too), the fee and the coin
+-- and fiat amounts until expires_at,
 -- and trades.take with its quote_id refuses p2p.quote_expired after that, or
 -- p2p.quote_changed when the price or the fee moved. No balance is stored here:
 -- nothing is reserved until the take.
@@ -9,6 +10,8 @@ CREATE TABLE IF NOT EXISTS "p2p"."take_quotes" (
   "taker_id" text NOT NULL,
   "offer_id" uuid NOT NULL,
   "method" text NOT NULL,
+  -- The ad's own price when quoted (fiat per coin, or the floating multiplier): an edit in between is a changed quote.
+  "offer_price" numeric(38, 18) NOT NULL CHECK ("offer_price" > 0),
   "amount" numeric(38, 18) NOT NULL CHECK ("amount" > 0),
   "price" numeric(38, 18) NOT NULL CHECK ("price" > 0),
   "fiat_amount" numeric(38, 18) NOT NULL CHECK ("fiat_amount" > 0),

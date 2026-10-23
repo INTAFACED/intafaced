@@ -283,7 +283,7 @@ export const takeQuoteSchema = z.object({
 /** What `trades.lockQuote` returns: the quote held until `expiresAt`. */
 export const lockedQuoteSchema = takeQuoteSchema
   .omit({ reservationExpiresAt: true, quoteId: true })
-  .extend({ quoteId: id, expiresAt: z.string().datetime({ offset: true }) });
+  .extend({ quoteId: id, expiresAt: z.string().datetime({ offset: true }), expiresInMs: z.number().int().nonnegative() });
 export const p2pStandingSchema = z.object({
   userId: z.string(),
   status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),

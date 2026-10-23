@@ -116,10 +116,11 @@ describe('svc-p2p locked take quote (P-trade-orders-06)', () => {
     expect(window).toBeGreaterThan(110_000);
     expect(window).toBeLessThan(130_000);
 
-    // A retry returns the first quote; the same id for another method or person refuses.
-    expect(await p2p.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', fiatAmount: parseAmount('20') })).toEqual(
-      locked,
-    );
+    // A retry returns the first quote (its time left read again); the same id for another person refuses.
+    const { expiresInMs: _left, ...first } = locked;
+    expect(
+      await p2p.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', fiatAmount: parseAmount('20') }),
+    ).toMatchObject(first);
     await expect(
       p2p.lockQuote({ quoteId, offerId: offer.id, takerId: OTHER, method: 'sepa', amount: parseAmount('10') }),
     ).rejects.toMatchObject({ code: 'p2p.idempotency_conflict' });
@@ -204,6 +205,88 @@ describe('svc-p2p locked take quote (P-trade-orders-06)', () => {
       }),
     ).rejects.toMatchObject({ code: 'p2p.quote_changed' });
     await nothingReserved(offer.id);
+  });
+
+  it('a floating ad is placed at the price it was quoted at while the quote holds, and a re-margined ad refuses', async () => {
+    let reference = parseAmount('0.90');
+    const fed = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments,
+      feeBps: 100,
+      referencePrices: { price: async () => reference },
+      deadlines: {
+        escrowSeconds: 120,
+        paymentSeconds: 900,
+        releaseSeconds: 1800,
+        disputeSeconds: 604_800,
+        escalationRecheckSeconds: 3_600,
+      },
+    });
+    const offer = await fed.createOffer({
+      makerId: MAKER,
+      side: 'sell',
+      asset: ASSET,
+      fiatCurrency: 'EUR',
+      priceType: 'float',
+      price: parseAmount('1.02'),
+      minAmt: parseAmount('10'),
+      maxAmt: parseAmount('50'),
+      totalAmt: parseAmount('100'),
+      methods: ['sepa'],
+    });
+    const quoteId = crypto.randomUUID();
+    const locked = await fed.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('10') });
+    expect(formatAmount(locked.price)).toBe('0.918');
+    reference = parseAmount('0.95'); // the feed ticks inside the window
+    const trade = await fed.takeOffer({
+      offerId: offer.id,
+      takerId: TAKER,
+      amount: parseAmount('10'),
+      method: 'sepa',
+      tradeId: crypto.randomUUID(),
+      quoteId,
+    });
+    expect(formatAmount(trade.price)).toBe('0.918');
+    expect(formatAmount(trade.fiatAmount)).toBe('9.18');
+
+    const second = crypto.randomUUID();
+    await fed.lockQuote({ quoteId: second, offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('10') });
+    await sql`UPDATE p2p.offers SET price = 1.05 WHERE id = ${offer.id}`;
+    await expect(
+      fed.takeOffer({
+        offerId: offer.id,
+        takerId: TAKER,
+        amount: parseAmount('10'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+        quoteId: second,
+      }),
+    ).rejects.toMatchObject({ code: 'p2p.quote_changed' });
+  });
+
+  it('a retry under the same quote id with another size refuses; fiat finer than the currency unit refuses', async () => {
+    const offer = await sellOffer();
+    const quoteId = crypto.randomUUID();
+    const locked = await p2p.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('10') });
+    expect(locked.expiresInMs).toBeGreaterThan(110_000);
+    expect(locked.expiresInMs).toBeLessThanOrEqual(120_000);
+    await expect(
+      p2p.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('40') }),
+    ).rejects.toMatchObject({ code: 'p2p.idempotency_conflict' });
+    await expect(
+      p2p.lockQuote({ quoteId, offerId: offer.id, takerId: TAKER, method: 'sepa', fiatAmount: parseAmount('20') }),
+    ).rejects.toMatchObject({ code: 'p2p.idempotency_conflict' });
+    await expect(
+      p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', fiatAmount: parseAmount('20.005') }),
+    ).rejects.toMatchObject({ code: 'p2p.invalid_amount' });
+  });
+
+  it('locking prunes this taker’s quotes that ended over a day ago', async () => {
+    const offer = await sellOffer();
+    const old = crypto.randomUUID();
+    await p2p.lockQuote({ quoteId: old, offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('10') });
+    await sql`UPDATE p2p.take_quotes SET created_at = now() - interval '3 days', expires_at = now() - interval '2 days'`;
+    await p2p.lockQuote({ quoteId: crypto.randomUUID(), offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('10') });
+    expect((await sql`SELECT quote_id FROM p2p.take_quotes`).map((row) => row.quote_id)).not.toContain(old);
   });
 
   it('a quote is the taker’s own and for the take it names', async () => {

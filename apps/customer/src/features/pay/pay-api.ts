@@ -779,20 +779,20 @@ export function createPersonalPayApi(
       if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
       if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
       if (!p2pCurrent()) return p2pDeparted();
+      // A new quote each time the order is reviewed: the id names this quote, it is not a retry key for a money step.
       let quoteId: string;
       try {
         quoteId = globalThis.crypto.randomUUID();
       } catch {
-        return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
-          code: 'pay.recovery_journal_unavailable',
-          reason: 'not_supported',
-        });
+        return takeRefusal('pay.take_quote_invalid', 'not_supported');
       }
       const result = await api.mutate('p2p', 'trades.lockQuote', { ...request, quoteId }, s.lockedQuoteSchema, { signal });
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
-      const { expiresAt, ...figures } = result.data;
-      const held: s.TakeQuote = { ...figures, reservationExpiresAt: expiresAt };
+      // Count down from the time left the service gave, on this device's clock: a device clock that runs fast or slow
+      // must not end the quote early or keep it open late.
+      const { expiresAt: _serverEnd, expiresInMs, ...figures } = result.data;
+      const held: s.TakeQuote = { ...figures, reservationExpiresAt: new Date(Date.now() + expiresInMs).toISOString() };
       return quoteIsConsistent(offer, request, held) && held.quoteId === quoteId
         ? { ok: true, data: held }
         : takeRefusal('pay.take_quote_invalid', 'invalid_response');
@@ -813,7 +813,11 @@ export function createPersonalPayApi(
         { signal },
       );
       if (!p2pCurrent()) return p2pDeparted();
-      return result.ok ? { ok: true, data: result.data.amount } : result;
+      if (!result.ok) return result;
+      // The reply must price exactly the fiat asked for; anything else is not this conversion.
+      return parseAmount(result.data.fiatAmount) === parseAmount(input.fiatAmount)
+        ? { ok: true, data: result.data.amount }
+        : takeRefusal('pay.take_quote_invalid', 'invalid_response');
     },
     /**
      * Place the order: `trades.take`, which locks the seller's asset in escrow. Money moves, so:

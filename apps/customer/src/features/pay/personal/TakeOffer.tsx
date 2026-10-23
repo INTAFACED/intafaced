@@ -380,6 +380,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     reviewToken.current++;
     setReview(null);
     setOutcome(null);
+    setLockFailure(null);
   };
   // The review holds the service's figures for the quote's window: the order names this quote, and an ended one refuses.
   async function lockAndReview(asked: TakeRequest) {
@@ -538,6 +539,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             onChange={(event) => {
               setAmount(event.target.value);
               setFiat('');
+              setLockFailure(null);
             }}
             aria-invalid={problem !== null && check.kind !== 'empty'}
           />
@@ -549,7 +551,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             inputMode="decimal"
             autoComplete="off"
             value={fiat}
-            onChange={(event) => setFiat(event.target.value)}
+            onChange={(event) => {
+              // The coin amount waits for this fiat amount's conversion, so a stale one can't be reviewed meanwhile.
+              setFiat(event.target.value);
+              setAmount('');
+              setLockFailure(null);
+            }}
             data-testid="take-fiat-amount"
           />
           <small className="muted">
@@ -559,7 +566,13 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         </label>
         <label className="field">
           <span>{t('takeMethod')}</span>
-          <select value={method} onChange={(event) => setMethod(event.target.value)}>
+          <select
+            value={method}
+            onChange={(event) => {
+              setMethod(event.target.value);
+              setLockFailure(null);
+            }}
+          >
             <option value="">{methods.length ? '—' : t('takeNoMethods')}</option>
             {methods.map((id) => (
               <option key={id} value={id}>
@@ -588,7 +601,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             </>
           )}
         </div>
-        {lockFailure ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
+        {lockFailure && !review ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
         <Button type="submit" variant="primary" disabled={ready === null || busy || locking} data-testid="take-review">
           {locking ? t('quoteLocking') : t('takeReview')}
         </Button>

@@ -1403,6 +1403,8 @@ export function createP2pRouter(
             fee: amountString,
             netAmount: amountString,
             expiresAt: z.string(),
+            /** Time left by the service's clock when answered: count down from receipt, not from the device clock. */
+            expiresInMs: z.number().int().nonnegative(),
           }),
         )
         .mutation(async ({ ctx, input }) =>
@@ -1424,6 +1426,7 @@ export function createP2pRouter(
               fee: formatAmount(locked.fee),
               netAmount: formatAmount(locked.netAmount),
               expiresAt: locked.expiresAt.toISOString(),
+              expiresInMs: locked.expiresInMs,
             };
           }),
         ),
