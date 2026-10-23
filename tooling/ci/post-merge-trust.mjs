@@ -121,7 +121,7 @@ export function issueSteps(texts) {
 export function commitLines(commits, max = 30) {
   const lines = commits.slice(-max).map((c) => {
     const subject = (c.commit?.message ?? '').split('\n')[0];
-    const who = c.author?.login ? ` by @${c.author.login}` : '';
+    const who = c.author?.login ? ` by ${c.author.login}` : '';
     return `- \`${c.sha.slice(0, 10)}\` ${subject}${who}`;
   });
   if (commits.length > max) lines.unshift(`- … ${commits.length - max} older commits (see the compare link)`);
@@ -130,7 +130,7 @@ export function commitLines(commits, max = 30) {
 
 // ── GitHub API ────────────────────────────────────────────────────────────
 const API = 'https://api.github.com';
-async function gh(method, path, body) {
+async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
   if (process.env.DRY_RUN === '1' && method !== 'GET') {
     console.log(`DRY_RUN ${method} ${path}${body ? `\n${JSON.stringify(body, null, 2)}` : ''}`);
     return { status: 0, json: null };
@@ -145,11 +145,13 @@ async function gh(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  const text = await res.text();
+  // AGENTS.md's one exception: "403 This workflow is already running" on a re-run only means the run is in progress.
+  if (alreadyRunningOk && res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
   if (res.status === 403 || res.status === 429) {
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
     throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
   }
-  const text = await res.text();
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
@@ -235,8 +237,12 @@ async function wholeRunCheck(ctx) {
   const action = decideCheck({ conclusion, attempt, previous: prev?.conclusion });
   console.log(`${name} run ${runId} attempt ${attempt}: ${conclusion} (previous: ${prev?.conclusion ?? 'none'}) -> ${action}`);
   if (action === 'rerun') {
-    const r = await gh('POST', `/repos/${repo}/actions/runs/${runId}/rerun-failed-jobs`);
-    console.log(`re-run of failed jobs requested (${r.status}); no further action until it finishes`);
+    const r = await gh('POST', `/repos/${repo}/actions/runs/${runId}/rerun-failed-jobs`, undefined, { alreadyRunningOk: true });
+    console.log(
+      r.alreadyRunning
+        ? 'a re-run of this run is already in progress; no further action until it finishes'
+        : `re-run of failed jobs requested (${r.status}); no further action until it finishes`,
+    );
     return;
   }
   if (action === 'broken') {
@@ -401,7 +407,7 @@ function selfTest() {
   const c = (sha, message, login) => ({ sha, commit: { message }, author: login ? { login } : null });
   eq(
     commitLines([c('a'.repeat(40), 'feat: one (#1)\n\nbody', 'alice'), c('b'.repeat(40), 'fix: two (#2)')]),
-    ['- `aaaaaaaaaa` feat: one (#1) by @alice', '- `bbbbbbbbbb` fix: two (#2)'],
+    ['- `aaaaaaaaaa` feat: one (#1) by alice', '- `bbbbbbbbbb` fix: two (#2)'],
     'commit lines',
   );
   eq(
