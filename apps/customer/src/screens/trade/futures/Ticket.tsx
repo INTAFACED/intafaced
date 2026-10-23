@@ -40,7 +40,7 @@ import {
   type KeyValueItem,
 } from '@intafaced/ui';
 import { dec, fractionDigits, isPositive, str } from '../../../data/decimal';
-import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
+import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
@@ -58,6 +58,7 @@ import {
   reviewBlock,
   sameForm,
   sizeInBase,
+  splitPreview,
   sizePlaces,
   type FormKey,
   type OpenBlock,
@@ -91,6 +92,8 @@ interface Confirm {
   data: PositionPreview;
   changed: boolean;
   checking: boolean;
+  /** Placed as the children the review named (`split`), not as one order. */
+  split: boolean;
 }
 
 /** The two types the futures book takes; everything else the catalogue lists is shown with its refusal. */
@@ -127,6 +130,7 @@ export function Ticket(props: TicketProps) {
   const [side, setSide] = useState<Side>('long');
   const [orderType, setOrderType] = useState<BookType>('market');
   const [limitRaw, setLimitRaw] = useState('');
+  const [adjust, setAdjust] = useState(false);
   const catalogue = useOrderTypes();
   const [unit, setUnit] = useState<SizeUnit>('base');
   const [sizeRaw, setSizeRaw] = useState('');
@@ -152,8 +156,17 @@ export function Ticket(props: TicketProps) {
     return key ? t(key) : id;
   };
   const form: FormKey | null =
-    size !== null && isPositive(size) && isPositive(lev)
-      ? { symbol: market.symbol, side, size, leverage: lev, ...(collateral === 'cash' ? {} : { collateralClass: collateral }) }
+    size !== null && isPositive(size) && isPositive(lev) && (orderType === 'market' || limitPrice !== null)
+      ? {
+          symbol: market.symbol,
+          side,
+          size,
+          leverage: lev,
+          ...(collateral === 'cash' ? {} : { collateralClass: collateral }),
+          type: orderType,
+          ...(limitPrice !== null ? { limitPrice } : {}),
+          ...(orderType === 'limit' && adjust ? { priceCorrection: 'adjust' as const } : {}),
+        }
       : null;
   const formRef = useRef(form);
   formRef.current = form;
@@ -210,7 +223,12 @@ export function Ticket(props: TicketProps) {
     });
   const typeOff = !offered.includes(orderType) ? 'typeUnavailable' : orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null;
   const openOff = gate(shown) ?? typeOff;
-  const reviewOff = reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev });
+  // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
+  const splitShown = splitPreview(shown);
+  const splitOff = splitShown ? (gate(splitShown) ?? typeOff) : null;
+  const reviewOff =
+    reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
+    (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null);
 
   if (planeOff)
     return (
@@ -278,16 +296,23 @@ export function Ticket(props: TicketProps) {
       if (!previewsEqual(result.data, confirm.data)) {
         setCap(result.data.leverageCap);
         setReview({ status: 'ready', form: asked, data: result.data, at: Date.now() });
-        setConfirm({ data: result.data, changed: true, checking: false });
+        setConfirm({ data: result.data, changed: true, checking: false, split: confirm.split });
         return;
       }
     }
     setConfirm(null);
     if (typeOff !== null) return;
+    const { limitPrice: askedPrice, ...rest } = asked;
     finish(
       await writer.run({
         op: 'open',
-        input: { ...asked, type: orderType, ...(limitPrice !== null ? { price: limitPrice } : {}), clientOpenId: openId(nonce) },
+        input: {
+          ...rest,
+          type: orderType,
+          ...(askedPrice !== undefined ? { price: askedPrice } : {}),
+          ...(confirm.split ? { split: true as const } : {}),
+          clientOpenId: openId(nonce),
+        },
       }),
     );
   }
@@ -331,7 +356,35 @@ export function Ticket(props: TicketProps) {
         hint: t('Distance hint'),
       },
       { label: t('Leverage cap'), value: p.leverageCap === null ? null : `${fmtAmount(p.leverageCap)}x` },
+      ...controlItems(p),
     ];
+  };
+  /** The band, the price the order is held and sent at, the slippage cap and the max-order: the limits this order meets. */
+  const controlItems = (p: PositionPreview): KeyValueItem[] => {
+    if (p.band === undefined) return [];
+    const items: KeyValueItem[] = [
+      {
+        label: t('Price band'),
+        value: p.band === null ? t('Not set') : t('Band range', { low: price(p.band.low) ?? '', high: price(p.band.high) ?? '' }),
+        hint: p.band === null ? t('Band unset hint') : t('Band hint', { pct: fmtPct(p.band.fraction, { signed: false }) }),
+      },
+      { label: p.type === 'limit' ? t('Order price limit') : t('Order price market'), value: price(p.orderPrice ?? null) },
+    ];
+    if (p.type !== 'limit') {
+      items.push({
+        label: t('Slippage cap'),
+        value: p.slippageCapBps == null ? t('Not set') : t('Slippage bps', { bps: String(p.slippageCapBps) }),
+        hint: p.slippageCapBps == null ? t('Slippage unset hint') : t('Slippage hint'),
+      });
+    }
+    if (p.priceCorrection) {
+      items.push({
+        label: t('Price corrected'),
+        value: t('Corrected from to', { asked: price(p.priceCorrection.asked) ?? '', applied: price(p.priceCorrection.applied) ?? '' }),
+      });
+    }
+    items.push({ label: t('Max order'), value: p.maxOrderNotional == null ? t('Not set') : money(p.maxOrderNotional) });
+    return items;
   };
 
   const offWords: Record<Exclude<OpenBlock | ReviewBlock | typeof typeOff, null>, string> = {
@@ -480,6 +533,27 @@ export function Ticket(props: TicketProps) {
             trailing={asset}
           />
         </Field>
+      ) : null}
+      {orderType === 'limit' ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <span id="ticket-correct" className="text-sm text-fg-2">
+              {t('Price correction')}
+            </span>
+            <Switch
+              checked={adjust}
+              onCheckedChange={(on) => {
+                setAdjust(on);
+                touch();
+              }}
+              aria-labelledby="ticket-correct"
+              aria-describedby="ticket-correct-why"
+            />
+          </div>
+          <p id="ticket-correct-why" className={note}>
+            {adjust ? t('Price correction on') : t('Price correction off')}
+          </p>
+        </div>
       ) : null}
 
       <div className="flex items-center justify-between gap-2" aria-live="polite">
@@ -632,6 +706,27 @@ export function Ticket(props: TicketProps) {
               </p>
             );
           })}
+          {shown.split && splitShown ? (
+            <section aria-label={t('Split title')} className="flex flex-col gap-2 rounded-lg border border-line p-3">
+              <h4 className="text-sm font-medium">{t('Split title')}</h4>
+              <p className={note}>
+                {t('Split body', {
+                  max: money(shown.maxOrderNotional ?? null) ?? '—',
+                  parts: String(shown.split.parts),
+                  sizes: shown.split.sizes.map((x) => `${fmtAmount(x)} ${market.base}`).join(', '),
+                })}
+              </p>
+              <Button
+                variant="secondary"
+                size={32}
+                disabled={splitOff !== null}
+                onClick={() => setConfirm({ data: shown, changed: false, checking: false, split: true })}
+              >
+                {t('Split button', { parts: String(shown.split.parts) })}
+              </Button>
+              {splitOff !== null ? <p className={note}>{offWords[splitOff]}</p> : null}
+            </section>
+          ) : null}
         </>
       ) : review.status === 'idle' || (review.status === 'ready' && !shown) ? (
         <p className={note}>{t('Review to see cost')}</p>
@@ -653,7 +748,7 @@ export function Ticket(props: TicketProps) {
         fullWidth
         disabled={openOff !== null}
         loading={writer.busy}
-        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false })}
+        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false, split: false })}
       >
         {side === 'long' ? t('Open long') : t('Open short')}
       </Button>
@@ -689,6 +784,9 @@ export function Ticket(props: TicketProps) {
               items={[
                 { label: t('Direction'), value: sideWord },
                 { label: t('Size row'), value: form ? `${fmtAmount(form.size)} ${market.base}` : null },
+                ...(confirm.split && confirm.data.split
+                  ? [{ label: t('Split row'), value: t('Split as', { parts: String(confirm.data.split.parts) }) }]
+                  : []),
                 { label: t('Leverage row'), value: form ? `${fmtAmount(form.leverage)}x` : null },
                 {
                   label: t('Order type'),
@@ -704,7 +802,7 @@ export function Ticket(props: TicketProps) {
               <Button
                 variant={side === 'long' ? 'buy' : 'sell'}
                 loading={confirm.checking}
-                disabled={gate(confirm.data) !== null}
+                disabled={(confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null}
                 onClick={() => void confirmOpen()}
               >
                 {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
@@ -739,7 +837,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
         ) : null}
         {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
           <>
-            <p className={note}>{t('Not found body')}</p>
+            <p className={note}>{outcome.found ? t('Split partly found', { count: String(outcome.found.length) }) : t('Not found body')}</p>
             <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
               {t('Send same request again')}
             </Button>
@@ -756,6 +854,35 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
     // What the book did: filled (a position is open), resting (a limit waits on the book), or partly filled.
     const resting = order?.status === 'open';
     const partly = order !== undefined && order.status === 'cancelled' && isPositive(order.filledQty);
+    if (outcome.orders && (outcome.orders.length > 1 || outcome.stopped)) {
+      const stopped = outcome.stopped ? futuresRefusal({ code: outcome.stopped.code, message: outcome.stopped.message }) : null;
+      return (
+        <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
+          <h3 className="text-sm font-medium">
+            {stopped
+              ? t('Split stopped title', { placed: String(outcome.orders.length) })
+              : t('Split placed title', { parts: String(outcome.orders.length) })}
+          </h3>
+          {stopped ? (
+            <p className="text-xs text-warn" data-code={stopped.code ?? undefined}>
+              {t('Split stopped body', { reason: `${stopped.title}. ${stopped.body}` })}
+            </p>
+          ) : null}
+          <ul className="flex flex-col gap-1 text-sm">
+            {outcome.orders.map((child) => (
+              <li key={child.orderId} className="if-num">
+                {child.status === 'open'
+                  ? t('Split child resting', { qty: fmtAmount(child.qty), price: fmtAmount(child.limitPrice) })
+                  : t('Split child filled', { filled: fmtAmount(child.filledQty), qty: fmtAmount(child.qty) })}
+              </li>
+            ))}
+          </ul>
+          <Button variant="secondary" size={32} onClick={onAgain}>
+            {t('Open another')}
+          </Button>
+        </div>
+      );
+    }
     return (
       <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
         <h3 className="text-sm font-medium">{resting ? t('Resting title') : partly ? t('Partly title') : t('Opened title')}</h3>

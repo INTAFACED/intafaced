@@ -923,6 +923,12 @@ function serviceDefs(secrets) {
         // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
         IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
           .value,
+        // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
+        // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
+        IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values
+          .IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS.value,
+        IDENTITY_REFERRAL_CODE_LENGTH: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values
+          .IDENTITY_REFERRAL_CODE_LENGTH.value,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
@@ -965,7 +971,8 @@ function serviceDefs(secrets) {
         // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
         // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
         TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
-        TRADE_MAX_ORDER: '1000000',
+        // 100,000: an order above it is still one the TEST book's depth can mark when split (J-derivatives-02 #5).
+        TRADE_MAX_ORDER: '100000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',
         // LOCAL TEST, not an owner decision (option B, 2026-10-13): realistic retail-exchange commercial values.
