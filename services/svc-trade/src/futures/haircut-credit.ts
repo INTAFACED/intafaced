@@ -14,6 +14,8 @@ import { parseOwnerIntegerEnv } from '../owner-int-env.js';
 
 export const HAIRCUT_UNSET = 'trade.haircut_unset' as const;
 export const HAIRCUT_CREDIT_SHORT = 'trade.haircut_credit_short' as const;
+/** The account's collateral could not be read: a service failure, retried, never the owner's answer. */
+export const COLLATERAL_UNREADABLE = 'trade.collateral_unreadable' as const;
 
 export function readOwnerHaircutBps(env: NodeJS.ProcessEnv = process.env): unknown {
   return env.TRADE_COLLATERAL_HAIRCUT_BPS;
