@@ -4,7 +4,7 @@
 -- freeze across a close: a reopen of an account closed while frozen returns it frozen, and lifting that freeze still
 -- needs its own unfreeze approval. The closure history is kept in
 -- founder_control_audit under its own kind, beside the freeze history.
--- Reversal: 0068_staff_account_closure.down.sql
+-- Reversal: 0069_staff_account_closure.down.sql
 
 ALTER TABLE "identity"."users"
   ADD COLUMN IF NOT EXISTS "closed_reason" text
