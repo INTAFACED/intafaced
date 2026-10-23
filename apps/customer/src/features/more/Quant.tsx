@@ -28,6 +28,10 @@ import { StudioLibrary } from '../quant/StudioLibrary';
 import { StudioSave } from '../quant/StudioSave';
 import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
 import { studioCopy } from '../quant/studio-copy';
+import { builderCopy } from '../quant/builder-copy';
+import { SignalBuilder } from '../quant/SignalBuilder';
+import { emptySignalRules } from '../quant/signal-rules';
+import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import { QuantRooms } from '../quant/QuantRooms';
@@ -68,6 +72,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [cash, setCash] = useState(draftStart.cash),
     [name, setName] = useState(draftStart.name),
     [blocks, setBlocks] = useState<{ side: 'buy' | 'sell'; symbol: string; qty: string }[]>(draftStart.blocks),
+    [modules, setModules] = useState<QuantSignalRules | null>(draftStart.modules),
     [drawdown, setDrawdown] = useState(draftStart.drawdown),
     [notional, setNotional] = useState(draftStart.notional),
     [kill, setKill] = useState(draftStart.kill),
@@ -134,13 +139,19 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   );
   const validCash = signedDecimalSchema.safeParse(cash).success;
   useEffect(() => {
-    if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, drawdown, notional, kill });
-  }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
+    if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, modules, drawdown, notional, kill });
+  }, [mode, userId, name, cash, blocks, modules, drawdown, notional, kill]);
   useEffect(() => {
     if (mode === 'studio') writeLink(userId ?? null, link);
   }, [mode, userId, link]);
-  const rules = { name, cash, blocks, risk: { maxDrawdown: drawdown, maxNotional: notional, kill } };
-  const blankRules = fingerprint({ name: '', cash: '', blocks: emptyDraft().blocks, risk: { maxDrawdown: '', maxNotional: '', kill: '' } });
+  const rules = { name, cash, blocks, modules, risk: { maxDrawdown: drawdown, maxNotional: notional, kill } };
+  const blankRules = fingerprint({
+    name: '',
+    cash: '',
+    blocks: emptyDraft().blocks,
+    modules: null,
+    risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+  });
   /** Unsaved rules are never replaced on one press: the first press warns, a second press of the same control goes on. */
   const confirmReplace = (control: string): boolean => {
     const current = fingerprint(rules);
@@ -152,11 +163,16 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     return false;
   };
   /** Fill the form with saved rules (or a blank draft) and remember which strategy it is. */
-  const load = (next: { name: string; cash: string; blocks: typeof blocks; risk: typeof rules.risk } | null, nextLink: StudioLink) => {
+  const load = (
+    next: { name: string; cash: string; blocks: typeof blocks; modules: QuantSignalRules | null; risk: typeof rules.risk } | null,
+    nextLink: StudioLink,
+  ) => {
     const draft = next ?? { ...emptyDraft(), risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
     setName(draft.name);
     setCash(draft.cash);
-    setBlocks(draft.blocks.map((b) => ({ ...b })));
+    // A strategy of signal rules has no blocks; the form still keeps one blank block row for switching back.
+    setBlocks(draft.blocks.length ? draft.blocks.map((b) => ({ ...b })) : emptyDraft().blocks);
+    setModules(draft.modules ? structuredClone(draft.modules) : null);
     setDrawdown(draft.risk.maxDrawdown);
     setNotional(draft.risk.maxNotional);
     setKill(draft.risk.kill);
@@ -307,41 +323,54 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 onChange={(e) => setCash(e.target.value)}
                 inputMode="decimal"
               />
-              {blocks.map((b, i) => (
-                <fieldset key={i}>
-                  <legend>
-                    <Text k="quant.order.block" />
-                    {i + 1}
-                  </legend>
-                  <Select
-                    label={copyText('quant.block.side', { value1: i + 1 })}
-                    value={b.side}
-                    onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                    options={['buy', 'sell']}
-                  />
-                  <Field
-                    label={copyText('quant.block.symbol', { value1: i + 1 })}
-                    value={b.symbol}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
-                    maxLength={32}
-                  />
-                  <Field
-                    label={copyText('quant.block.quantity', { value1: i + 1 })}
-                    value={b.qty}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
-                    inputMode="decimal"
-                  />
-                  {blocks.length > 1 && (
-                    <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
-                      <Text k="quant.remove.block" />
+              <Select
+                label={builderCopy.t('rulesKind')}
+                value={modules ? 'signal' : 'blocks'}
+                onChange={(v) => setModules(v === 'signal' ? (modules ?? emptySignalRules()) : null)}
+                options={[
+                  { value: 'blocks', label: builderCopy.t('kindBlocks') },
+                  { value: 'signal', label: builderCopy.t('kindSignal') },
+                ]}
+              />
+              {modules && <SignalBuilder value={modules} onChange={setModules} />}
+              {!modules &&
+                blocks.map((b, i) => (
+                  <fieldset key={i}>
+                    <legend>
+                      <Text k="quant.order.block" />
                       {i + 1}
-                    </Button>
-                  )}
-                </fieldset>
-              ))}
-              <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
-                <Text k="quant.add.block" />
-              </Button>
+                    </legend>
+                    <Select
+                      label={copyText('quant.block.side', { value1: i + 1 })}
+                      value={b.side}
+                      onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
+                      options={['buy', 'sell']}
+                    />
+                    <Field
+                      label={copyText('quant.block.symbol', { value1: i + 1 })}
+                      value={b.symbol}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
+                      maxLength={32}
+                    />
+                    <Field
+                      label={copyText('quant.block.quantity', { value1: i + 1 })}
+                      value={b.qty}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
+                      inputMode="decimal"
+                    />
+                    {blocks.length > 1 && (
+                      <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
+                        <Text k="quant.remove.block" />
+                        {i + 1}
+                      </Button>
+                    )}
+                  </fieldset>
+                ))}
+              {!modules && (
+                <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
+                  <Text k="quant.add.block" />
+                </Button>
+              )}
               <Field
                 label={copyText('quant.max.drawdown.service.unit.unspecified')}
                 value={drawdown}

@@ -11,7 +11,9 @@ import {
   quantDisclosurePublishOutputSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
+  quantCompileOutputSchema,
   quantQuickStartOutputSchema,
+  quantSignalRulesSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -31,6 +33,7 @@ import {
   QUANT_DATABASE_POOL_MAX_UNSET,
   QUANT_DATABASE_URL_UNSET,
   QUANT_DISCLOSURE_UNSET,
+  QUANT_SIGNAL_RULES_SANDBOX,
   QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
@@ -66,6 +69,7 @@ import { trackRun } from './runs/track.js';
 import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
+import { compileSignalRules } from './studio/modules.js';
 import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
@@ -130,6 +134,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_RUN_RESULT_TOO_LARGE ||
             err.code === QUANT_CLAIM_PNL_UNSET ||
             err.code === QUANT_DISCLOSURE_UNSET ||
+            err.code === QUANT_SIGNAL_RULES_SANDBOX ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -181,6 +186,7 @@ const strategyVersionRecord = z
     source: z.string(),
     cash: z.string(),
     blocks: z.array(studioBlock),
+    modules: quantSignalRulesSchema.nullable(),
     risk: z.object({
       maxDrawdown: z.string(),
       maxNotional: z.string(),
@@ -343,7 +349,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           z
             .object({
               name: z.string().min(1).max(128),
-              blocks: z.array(studioBlock).min(1),
+              blocks: z.array(studioBlock),
+              modules: quantSignalRulesSchema.optional().nullable(),
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
@@ -372,6 +379,24 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
         ),
+
+      /**
+       * The no-code builder's check: the source the signal rules generate and the inputs they declare. A blank
+       * required input refuses by name (`quant.param_unset`, `quant.sizing_rule_unset`); nothing runs and nothing is
+       * stored.
+       */
+      compile: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ modules: quantSignalRulesSchema, ...accountField }))
+        .output(quantCompileOutputSchema)
+        .query(({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            const compiled = compileSignalRules(input.modules);
+            return { source: compiled.source, inputs: compiled.inputs.map((row) => ({ ...row })) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
 
       /**
        * Saved strategies for the caller's account. `limit` is optional so omit
@@ -420,7 +445,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             .object({
               id: z.string().min(1),
               name: z.string().min(1).max(128),
-              blocks: z.array(studioBlock).min(1),
+              blocks: z.array(studioBlock),
+              modules: quantSignalRulesSchema.optional().nullable(),
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
@@ -500,6 +526,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               {
                 name,
                 blocks: found.blocks,
+                modules: found.modules,
                 risk: found.risk,
                 cash: found.cash,
                 environment: input.environment ?? found.environment,
@@ -528,6 +555,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               const accountId = accountOf(ctx, input.accountId);
               const found = await strategies.get({ accountId, id: input.id });
               if (!found) missingStrategy();
+              // Signal rules are data for the bar engine; their generated source is a view and names helpers the
+              // sandbox does not have, so it is never run here.
+              if (found.modules) {
+                throw new QuantError(QUANT_SIGNAL_RULES_SANDBOX, 'signal rules run on bars in a backtest, not in the sandbox');
+              }
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               return await trackRun(
                 runs,

@@ -31,6 +31,7 @@ import '../features/more/support-events-copy';
 import '../features/more/token-governance-copy';
 import '../features/quant/algo-copy';
 import '../features/quant/studio-copy';
+import '../features/quant/builder-copy';
 import '../features/account/copy';
 import '../features/account/notifications-copy';
 import '../features/account/notification-targets-copy';
@@ -114,6 +115,7 @@ const CHECKED = new Set([
   'more.quant.analysis',
   'quant.algo',
   'quant.studio',
+  'quant.builder',
   'customer.supportEvents',
   'token-governance',
   'customer.account',

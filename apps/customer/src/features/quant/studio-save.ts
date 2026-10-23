@@ -1,3 +1,5 @@
+import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { trimSignalRules } from './signal-rules';
 /**
  * Which saved strategy the Studio form is, kept on this device next to the draft. The write keys are derived from it,
  * so a press of Save after a lost reply sends the same key and the service answers with the first result: never a
@@ -7,6 +9,8 @@ export type StudioRules = {
   name: string;
   cash: string;
   blocks: { side: 'buy' | 'sell'; symbol: string; qty: string }[];
+  /** Signal rules from the no-code builder; null when the strategy trades by order blocks. */
+  modules: QuantSignalRules | null;
   risk: { maxDrawdown: string; maxNotional: string; kill: string };
 };
 export type StudioLink = {
@@ -32,7 +36,8 @@ export function fingerprint(rules: StudioRules): string {
   return JSON.stringify([
     rules.name.trim(),
     rules.cash.trim(),
-    rules.blocks.map((b) => [b.side, b.symbol.trim(), b.qty.trim()]),
+    rules.modules ? [] : rules.blocks.map((b) => [b.side, b.symbol.trim(), b.qty.trim()]),
+    rules.modules ? trimSignalRules(rules.modules) : null,
     [rules.risk.maxDrawdown.trim(), rules.risk.maxNotional.trim(), rules.risk.kill.trim()],
   ]);
 }

@@ -35,6 +35,10 @@ export const QUANT_OPS_RUNS_FROM_UNSET = 'quant.ops_runs_from_unset' as const;
 export const QUANT_OPS_RUNS_TO_UNSET = 'quant.ops_runs_to_unset' as const;
 export const QUANT_DISCLOSURE_UNSET = 'quant.disclosure_unset' as const;
 export const QUANT_DISCLOSURE_VERSION_STALE = 'quant.disclosure_version_stale' as const;
+export const QUANT_PARAM_UNSET = 'quant.param_unset' as const;
+export const QUANT_PARAM_OUT_OF_RANGE = 'quant.param_out_of_range' as const;
+export const QUANT_SIZING_RULE_UNSET = 'quant.sizing_rule_unset' as const;
+export const QUANT_SIGNAL_RULES_SANDBOX = 'quant.signal_rules_sandbox' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -74,6 +78,10 @@ export type QuantCode =
   | typeof QUANT_OPS_RUNS_TO_UNSET
   | typeof QUANT_DISCLOSURE_UNSET
   | typeof QUANT_DISCLOSURE_VERSION_STALE
+  | typeof QUANT_PARAM_UNSET
+  | typeof QUANT_PARAM_OUT_OF_RANGE
+  | typeof QUANT_SIZING_RULE_UNSET
+  | typeof QUANT_SIGNAL_RULES_SANDBOX
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

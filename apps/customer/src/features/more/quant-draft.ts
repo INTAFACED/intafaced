@@ -1,11 +1,15 @@
 /**
  * The Studio draft, kept on this device until it is saved to the account's library (`features/quant/studio-save.ts`).
  */
+import { quantSignalRulesSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+
 export type DraftBlock = { side: 'buy' | 'sell'; symbol: string; qty: string };
 export type StudioDraft = {
   name: string;
   cash: string;
   blocks: DraftBlock[];
+  /** Signal rules from the no-code builder; null when the strategy trades by order blocks. */
+  modules: QuantSignalRules | null;
   drawdown: string;
   notional: string;
   kill: string;
@@ -23,6 +27,7 @@ export const emptyDraft = (): StudioDraft => ({
   name: '',
   cash: '',
   blocks: [{ side: 'buy', symbol: '', qty: '' }],
+  modules: null,
   drawdown: '',
   notional: '',
   kill: '',
@@ -59,7 +64,10 @@ export function parseDraft(raw: string | null): StudioDraft | null {
       if ((side !== 'buy' && side !== 'sell') || text(symbol) === null || text(qty) === null) return null;
       blocks.push({ side, symbol: symbol as string, qty: qty as string });
     }
-    return { name, cash, blocks, drawdown, notional, kill };
+    // A draft kept before the builder existed has no signal rules; damaged rules are dropped, not guessed.
+    const parsedModules = row.modules == null ? null : quantSignalRulesSchema.safeParse(row.modules);
+    const modules = parsedModules?.success ? parsedModules.data : null;
+    return { name, cash, blocks, modules, drawdown, notional, kill };
   } catch {
     return null;
   }
