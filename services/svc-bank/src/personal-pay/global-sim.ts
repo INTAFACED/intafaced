@@ -16,6 +16,10 @@ import { emptyGlobalPorts, type GlobalPorts } from './ports.js';
  * refuses to start, and so it does over a blank or unreadable catalogue, so a misconfigured stand-in is never silent.
  * Its ports carry the catalogue's TEST label (`standIn`), which every screen and the ops summary show beside its numbers.
  *
+ * Screening: a send of an asset at or over the catalogue's TEST `reviewFrom` amount for it is put on hold before anything
+ * is posted (`GlobalHoldService.screen`), so the compliance queue, the information request, the proof upload and the
+ * release can be proved on the stack. Absent, or no entry for the asset, nothing is screened.
+ *
  * Numbers: corridors, bounds, rates, quote validity and delivery time come only from the typed catalogue. The fee is
  * zero because a global send posts the amount alone: a fee shown here would never be charged.
  */
@@ -49,6 +53,8 @@ const catalogueShape = z
         z.object({ asset: z.string().regex(/^[A-Z0-9]{2,16}$/), toCurrency: z.string().regex(/^[A-Z]{3,8}$/), rate: decimal }).strict(),
       )
       .min(1),
+    // TEST: a send of an asset at or over its amount here is put on hold before anything is posted. Absent: none is.
+    reviewFrom: z.array(z.object({ asset: z.string().regex(/^[A-Z0-9]{2,16}$/), amount: decimal }).strict()).optional(),
     quoteValidSeconds: z.number().int().min(1).max(3600),
     etaHours: z.number().int().min(0).max(240),
     banks: z.array(
@@ -76,6 +82,7 @@ export function parseGlobalSim(json: string | undefined): GlobalSimCatalogue | n
   // A rate of zero or a bound the ledger cannot hold is an unreadable catalogue, not a send that fails later.
   try {
     for (const rate of parsed.data.rates) if (parseAmount(rate.rate) <= 0n) return null;
+    for (const line of parsed.data.reviewFrom ?? []) if (parseAmount(line.amount) <= 0n) return null;
     for (const corridor of parsed.data.corridors) {
       for (const bound of [corridor.minAmount, corridor.maxAmount]) if (bound !== null && parseAmount(bound) <= 0n) return null;
     }
@@ -97,6 +104,16 @@ function receive(amount: string, rate: string): string {
 export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = () => new Date()): GlobalPorts {
   return {
     standIn: { label: catalogue.label },
+    ...(catalogue.reviewFrom?.length
+      ? {
+          review: {
+            waits: ({ assetId, amount }: { assetId: string; amount: string }) => {
+              const line = catalogue.reviewFrom!.find((one) => one.asset === assetId);
+              return line !== undefined && parseAmount(amount) >= parseAmount(line.amount);
+            },
+          },
+        }
+      : {}),
     corridors: {
       status: live,
       list: async () => catalogue.corridors.map((corridor) => ({ ...corridor, deliveryMethods: [...corridor.deliveryMethods] })),

@@ -24,6 +24,7 @@ import { createBankRouter } from '../router.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
 import type { BillPorts, GlobalPorts } from './ports.js';
 import { GLOBAL_SIM_RAIL, globalSimPorts, parseGlobalSim } from './global-sim.js';
+import { SCREENING_OPERATOR } from './holds.js';
 import { billPayStepUp } from './step-up-fields.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1130,7 +1131,11 @@ describe('personal bill pay and global send', () => {
     async function ready() {
       const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'));
       if (!catalogue) throw new Error('the bank profile catalogue does not parse');
-      const { ledger, bank } = mount({ sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'), global: globalSimPorts(catalogue) });
+      const { ledger, bank } = mount({
+        sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'),
+        proofLimits: stackValue('BANK_PROOF_LIMITS_JSON'),
+        global: globalSimPorts(catalogue),
+      });
       const space = await funded(bank, ledger);
       const me = caller(bank, USER, write);
       const saved = await me.global.recipients.add({
@@ -1150,7 +1155,7 @@ describe('personal bill pay and global send', () => {
       };
       const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
       const rail = async () => (await ledger.balance(railBoundary(GLOBAL_SIM_RAIL, 'USDT'))).amount;
-      return { ledger, me, body, balance, rail };
+      return { ledger, bank, me, body, balance, rail };
     }
 
     it('posts the send once to the stand-in rail boundary, keeps its TEST quote, and a retry posts nothing', async () => {
@@ -1166,6 +1171,63 @@ describe('personal bill pay and global send', () => {
       expect(await me.global.send(body)).toMatchObject({ id: sent.id, status: 'sent' });
       expect(transfers(ledger)).toHaveLength(1);
       expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a USDT send at or over its TEST review amount is put on hold with nothing posted; asked for a file; released, it posts once', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready();
+      // The profile's TEST review amount is 500 USDT; the TEST deposit is 100, so fund the rest.
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const big = { ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` };
+      const waiting = await me.global.send(big);
+      expect(waiting).toMatchObject({ status: 'held', ledgerTxId: null });
+      expect(transfers(ledger)).toHaveLength(0);
+      // It waits in the compliance queue, placed by the screening, and the customer sees the hold with nothing asked yet.
+      const ops = caller(bank, OP_A, compliance);
+      const queue = await ops.global.ops.holds({ limit: 10 });
+      expect(queue.find((one) => one.sendId === waiting.id)).toMatchObject({ heldBy: SCREENING_OPERATOR, infoRequest: null });
+      expect(await me.global.hold.get({ id: waiting.id })).toMatchObject({ state: 'requested', infoRequest: null });
+      // The same request again is the same held send: nothing is posted.
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'held', ledgerTxId: null });
+      expect(await balance()).toBe(parseAmount('600'));
+      // A smaller send is not screened.
+      expect(await me.global.send(body)).toMatchObject({ status: 'sent' });
+      expect(await rail()).toBe(parseAmount('40'));
+      // Compliance asks for a document; the customer uploads once; an operator releases it and it posts, once.
+      await ops.global.ops.requestInfo({ sendId: waiting.id, infoRequest: 'TEST: a bank statement' });
+      expect(await me.global.hold.get({ id: waiting.id })).toMatchObject({ state: 'requested', infoRequest: 'TEST: a bank statement' });
+      const file = Buffer.from('%PDF-1.4 TEST').toString('base64');
+      expect(
+        await me.global.hold.uploadProof({ id: waiting.id, name: 'statement.pdf', type: 'application/pdf', contentBase64: file }),
+      ).toMatchObject({ state: 'under_review', proofUploaded: true });
+      expect(transfers(ledger)).toHaveLength(1);
+      const released = await caller(bank, OP_B, compliance).global.ops.release({ sendId: waiting.id });
+      expect(released).toMatchObject({ status: 'sent', ledgerTxId: expect.any(String) });
+      expect(transfers(ledger)).toHaveLength(2);
+      expect(await rail()).toBe(parseAmount('540'));
+      expect(await balance()).toBe(parseAmount('60'));
+      // Screened once: a replay after the release is the same sent send, never a second hold or posting.
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(2);
+    });
+
+    it('a screened send whose balance was spent while it waited fails on release with nothing posted', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready();
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const waiting = await me.global.send({ ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` });
+      expect(waiting).toMatchObject({ status: 'held' });
+      // Nothing is reserved while it waits, as for any hold: the customer spends 200 of the 600 elsewhere.
+      expect(await me.global.send({ ...body, amount: '200', idempotencyKey: `send-${randomUUID()}` })).toMatchObject({ status: 'sent' });
+      await expect(caller(bank, OP_A, compliance).global.ops.release({ sendId: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_insufficient_funds' },
+      });
+      expect(await me.global.get({ id: waiting.id })).toMatchObject({ status: 'failed', ledgerTxId: null });
+      expect(await rail()).toBe(parseAmount('200'));
+      expect(await balance()).toBe(parseAmount('400'));
+      expect(transfers(ledger)).toHaveLength(1);
     });
 
     it('refuses a delivery method or corridor the catalogue does not hold, and an amount outside its TEST bounds, posting nothing', async () => {

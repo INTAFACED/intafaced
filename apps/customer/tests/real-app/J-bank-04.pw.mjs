@@ -8,7 +8,9 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // One test per step, titled "J-bank-04 #<n>", run in order on TEST accounts: A sends (with an authenticator app), B
 // receives, and C is frozen by staff. The stack's gates publish TEST send terms for USDT and USDC with a zero fee
 // (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack, and balances
-// are read through each person's own API. Not here yet: #5 to #7 (each lands with its own slice).
+// are read through each person's own API. #5 sends abroad through Pay's global send on the TEST stand-in, whose TEST
+// catalogue puts a USDT send of 500 or more on hold for a compliance look: staff ask for a document and release it by
+// API with the stack's founder sessions. Not here yet: #6 and #7 (each lands with its own slice).
 const J = 'J-bank-04';
 const AMOUNT = '40';
 const NOTE = 'Lunch, TEST';
@@ -324,4 +326,120 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(refused).toContainText('That person cannot receive this right now. Nothing was sent.', { timeout: 30_000 });
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
+});
+
+let founderSessions;
+/** The stack's founder sessions, signed in once for the file. */
+function founders() {
+  founderSessions ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  return founderSessions;
+}
+
+/** Staff act on a global send by API, as the ops desk would: founder `a` or `b` of the local stack. */
+async function staff(procedure, input, founder) {
+  const { ctx, sessions } = await founders();
+  const res = await ctx.edge.mutate('bank', `global.ops.${procedure}`, input, sessions[founder].token);
+  if (!res.json?.result?.data) throw new Error(`staff ${procedure} refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
+/** A's global sends, newest first, through A's own API. */
+async function globalSends() {
+  const res = await fetch(`${EDGE}/api/bank/trpc/global.list?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`, {
+    headers: { origin: ORIGIN, authorization: `Bearer ${await senderToken()}` },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.result?.data) throw new Error(`global.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data.items;
+}
+
+/** Pay's global send to Germany with a recipient saved for it, the amount quoted (TEST rate 2), and confirmed. */
+async function globalSend(page, { name, account, value, receive }) {
+  await page.goto('/pay/global');
+  const card = page.getByTestId('global-card');
+  const where = card.getByLabel('Where it goes');
+  await expect(where.locator('option', { hasText: 'DE · EUR · sepa' })).toHaveCount(1, { timeout: 30_000 });
+  await where.selectOption({ label: 'DE · EUR · sepa' });
+  const recipients = card.getByLabel('Recipient', { exact: true });
+  if ((await recipients.locator('option', { hasText: name }).count()) === 0) {
+    await card.getByLabel('Recipient’s full name').fill(name);
+    await card.getByLabel('Account number or IBAN').fill(account);
+    await card.getByTestId('global-recipient-save').click();
+    await expect(recipients.locator('option', { hasText: name })).toHaveCount(1, { timeout: 30_000 });
+  }
+  await recipients.selectOption((await recipients.locator('option', { hasText: name }).first().getAttribute('value')) ?? '');
+  await card.getByLabel('You send').fill(value);
+  await card.getByRole('button', { name: 'Get a quote' }).click();
+  await expect(card.getByTestId('global-quote')).toContainText(`${receive} EUR`, { timeout: 30_000 });
+  await card.getByRole('button', { name: 'Review and send' }).click();
+  const confirm = card.getByTestId('global-confirm');
+  await confirm.getByLabel('Authenticator code').fill(await code());
+  await confirm.getByRole('button', { name: 'Confirm with a code' }).click();
+  return card;
+}
+
+test(`${J} #5 meets a compliance hold: the send waits, the bank asks for a document, the upload is taken once, and a blocked payee is refused`, async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  const { sender } = await people(page);
+  expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
+  await signInSender(page);
+  const before = await senderUsdt();
+
+  // 500 USDT reaches the stand-in's TEST screening line: the send is recorded on hold, and nothing leaves the balance.
+  let card = await globalSend(page, { name: 'Cara TEST', account: 'DE89 3704 0044 0532 0130 00', value: '500', receive: '1000' });
+  await expect(card.getByTestId('global-sent')).toBeVisible({ timeout: 30_000 });
+  const first = card.getByTestId('global-history').locator('li').first();
+  await expect(first).toHaveAttribute('data-status', 'held', { timeout: 30_000 });
+  await expect(first).toContainText('500 USDT to EUR · On hold');
+  await expect(first.getByTestId('global-hold')).toContainText('This send is on hold');
+  await expect(first.getByTestId('global-hold-ask')).toHaveCount(0);
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before));
+  const waiting = (await globalSends()).find((one) => one.amount === '500' && one.status === 'held');
+  expect(waiting).toBeTruthy();
+
+  // Staff ask for a document. The person sees the ask and one upload box.
+  const ask = 'TEST: a payslip or an invoice that shows where this money comes from.';
+  await staff('requestInfo', { sendId: waiting.id, infoRequest: ask }, 'a');
+  await page.reload();
+  card = page.getByTestId('global-card');
+  const row = card.getByTestId('global-history').locator('li[data-status="held"]').first();
+  const hold = row.getByTestId('global-hold');
+  await expect(hold.getByTestId('global-hold-ask')).toHaveText(`We need one more thing from you: ${ask}`);
+  await hold.getByLabel('Upload a file').setInputFiles({
+    name: 'proof-TEST.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% TEST proof for a local journey\n%%EOF\n'),
+  });
+  await expect(hold).toContainText('Thanks. Your file is with our team and the send is under review.', { timeout: 30_000 });
+  // Taken once: the box is gone, and after a reload it stays gone.
+  await expect(hold.locator('input[type=file]')).toHaveCount(0);
+  await page.reload();
+  const again = page
+    .getByTestId('global-card')
+    .getByTestId('global-history')
+    .locator('li[data-status="held"]')
+    .first()
+    .getByTestId('global-hold');
+  await expect(again).toContainText('Thanks. Your file is with our team and the send is under review.', { timeout: 30_000 });
+  await expect(again.locator('input[type=file]')).toHaveCount(0);
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before));
+
+  // Another person releases it: only now does the money leave, once.
+  // (Each balance read signs in with a fresh code, one per 30 seconds, so the release's own answer is read, not polled.)
+  expect(await staff('release', { sendId: waiting.id }, 'b')).toMatchObject({ id: waiting.id, status: 'sent' });
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('500'));
+
+  // The stack's TEST payee controls block one made-up account: a send to it is refused before anything is posted.
+  card = await globalSend(page, { name: 'Dan TEST', account: '999000000001', value: '10', receive: '20' });
+  await expect(card.getByTestId('global-failure')).toHaveText(
+    'We can’t send this payment This payment can’t be sent to that recipient right now. Nothing was taken from your balance.',
+    { timeout: 30_000 },
+  );
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('500'));
 });

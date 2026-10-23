@@ -289,6 +289,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.exchangeAllowance,
   );
   const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
+  globalSend.screenWith((sendId) => globalHolds.screen(sendId));
 
   return {
     spaces,
