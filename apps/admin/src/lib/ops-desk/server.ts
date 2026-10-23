@@ -27,6 +27,7 @@ import type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './typ
 
 const SERVICE: Readonly<Record<ReadSpec['module'], string>> = {
   identity: 'svc-identity',
+  trade: 'svc-trade',
   pay: 'svc-pay',
   support: 'svc-support',
   notify: 'svc-notify',
