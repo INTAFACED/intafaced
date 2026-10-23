@@ -42,6 +42,7 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
@@ -295,6 +296,7 @@ function HomeSimple() {
   return (
     <div className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
       <div className="home-grid">
         <div className="home-main">
           <div className="home-label">
