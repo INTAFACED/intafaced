@@ -31,7 +31,7 @@ export function DerivedTotalNote({ source, className }: { source: 'server' | 'de
 
 /**
  * The same warning sized for a line that already exists: a short label with the full sentence behind an info tip. Home
- * puts it in the change line, whose height the loading skeleton keeps, so the page does not move when it appears (#6038).
+ * puts it in the change line, whose height the loading skeleton keeps, so the page does not move when it appears.
  */
 export function DerivedTotalTag({ source, className }: { source: 'server' | 'derived'; className: string }) {
   const { t } = totalNoteCopy.useCopy();
