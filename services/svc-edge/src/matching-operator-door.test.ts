@@ -53,7 +53,7 @@ describe('edge founder matching door', () => {
 
   it('refuses in-flight when EDGE_PRINCIPAL_SECRET is unset', async () => {
     const indexSrc = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
-    expect(indexSrc).toMatch(/env\.MATCHING_URL && env\.EDGE_PRINCIPAL_SECRET/);
+    expect(indexSrc).toMatch(/env\.MATCHING_URL && edgeSigningKey/);
     const app = Fastify({ logger: false });
     registerAdminRoutes(app, admin(), null);
     await app.ready();

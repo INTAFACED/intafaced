@@ -122,7 +122,7 @@ const appRouter = createExecutionRouter(
 );
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
 });

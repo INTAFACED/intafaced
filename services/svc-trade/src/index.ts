@@ -149,7 +149,7 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
-  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET }),
   createIdentityOperationDecisionClient({
     owner: 'svc-trade',
     identityUrl: env.IDENTITY_URL,
@@ -343,7 +343,7 @@ export const appRouter = createTradeRouter(
   }),
 );
 export type AppRouter = typeof appRouter;
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);
@@ -640,7 +640,7 @@ registerPublicRest(app, {
   },
 });
 registerConditionalOrdersRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   orders: conditionalOrders,
 });
@@ -651,36 +651,36 @@ registerFuturesTickerRest(app, {
   factsForMarket: (marketId, nowMs) => readFuturesTickerFacts(sql, marketId, new Date(nowMs)),
 });
 registerPositionPreviewRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
 });
 registerGreeksWhatIfRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
 });
 registerDeltaHedgeRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   target: env.TRADE_DELTA_HEDGE_TARGET,
   range: env.TRADE_DELTA_HEDGE_RANGE,
   instrument: env.TRADE_DELTA_HEDGE_INSTRUMENT,
 });
 registerQuantLiveDeployRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   pin: env.TRADE_QUANT_LIVE_DEPLOY_PIN,
 });
 registerPromoRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   budget: env.TRADE_PROMO_BUDGET,
   end: env.TRADE_PROMO_END,
 });
 registerSpotOrderPreviewRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   now: () => new Date(),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -728,7 +728,7 @@ registerCopyLeaderFixturesRoutes(app, {
   installRawBody: false,
 });
 registerOutcomesRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   installRawBody: false,
@@ -773,7 +773,7 @@ attachCollarStash(app);
 installComboPlace(TradeService);
 attachComboStash(app);
 registerPrivateRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   openOrders: (principal, marketId, limit) => trade.openOrders(principal, marketId, limit),
   adminOpenOrders: (principal, limit) => trade.adminOpenOrders(principal, limit),

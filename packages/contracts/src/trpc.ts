@@ -39,6 +39,16 @@ export class JurisdictionError extends Error {
   }
 }
 
+/**
+ * Exact bytes svc-edge signed. Forward these. Do not rebuild them.
+ * Rebuilding is a chance to add a scope, and only edge can sign.
+ */
+export interface ForwardedPrincipal {
+  readonly raw: string;
+  readonly signature: string;
+  readonly region: string;
+}
+
 export interface Context {
   /** Null for anonymous calls. */
   principal: Principal | null;
@@ -61,7 +71,14 @@ export interface Context {
    * anything other than `dedicated` as a claim.
    */
   serviceAuth?: 'dedicated' | 'shared';
-  /** Resolved at the edge from IP / account region. Drives the matrix. */
+  /**
+   * The edge-signed principal bytes, present only when verification succeeded.
+   * A service that acts for this user forwards these bytes unchanged. It does
+   * not re-encode them: re-encoding is how a scope would be widened, and a
+   * non-edge service has no key that could sign the wider set.
+   */
+  forwardedPrincipal?: ForwardedPrincipal;
+  /** Resolved at the edge from IP / account region. Drives the matrix. Trusted only when the edge signature covers it. */
   region: string;
   /** W3C traceparent so a call keeps its trace across services (§9). */
   traceparent?: string;

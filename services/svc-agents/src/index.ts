@@ -169,7 +169,7 @@ const appRouter = createAgentsRouter({
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
-  ...(supportDesk ? { supportDesk, edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
+  ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),
@@ -185,7 +185,7 @@ const appRouter = createAgentsRouter({
 // must fail to start, not start and serve every request as anonymous.
 const internalSecret = env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
 });

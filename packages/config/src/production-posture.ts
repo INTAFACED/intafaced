@@ -239,6 +239,14 @@ export function productionPostureIssues(env: Env = process.env): string[] {
     if (PLACEHOLDER.test(value)) {
       issues.push(`${key} holds a dev/test placeholder value ("dev-only-", "test-only-", "replace-me" or "change-me")`);
     }
+    if (key === 'EDGE_PRINCIPAL_SECRET') {
+      issues.push(
+        'EDGE_PRINCIPAL_SECRET is set. User principals are signed only by svc-edge with EDGE_PRINCIPAL_PRIVATE_KEY; other services hold EDGE_PRINCIPAL_PUBLIC_KEY.',
+      );
+    }
+    if (key === 'EDGE_PRINCIPAL_PRIVATE_KEY' && env.SERVICE_NAME !== 'svc-edge') {
+      issues.push('EDGE_PRINCIPAL_PRIVATE_KEY is set on a service other than svc-edge. Only svc-edge may sign user principals.');
+    }
     if (KNOWN_DEV_KEYS_LOWER.some((k) => lower.includes(k))) {
       issues.push(`${key} holds a well-known Anvil/Hardhat private key (public, anyone can spend from it)`);
     }

@@ -455,7 +455,7 @@ const identityRequestContext = createIdentityRequestContext({
     'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET,
     'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET,
   },
-  secret: env.EDGE_PRINCIPAL_SECRET,
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   // The tRPC door has no v1 callers (every outbound client signs v2), so it is
@@ -503,7 +503,7 @@ app.get('/ready', async () => ({
   operationAdmission: configuredIdentityOperationOwners({
     privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
     edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,
-    secret: env.EDGE_PRINCIPAL_SECRET,
+    secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
     serviceName: env.SERVICE_NAME,
     internalSecret: env.INTERNAL_SERVICE_SECRET,
     operationAdmissionSecrets: { 'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET, 'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET },

@@ -411,7 +411,6 @@ const actionApprovals = env.IDENTITY_URL
 const founderAuthority = createFounderAuthority({
   identityUrl: env.IDENTITY_URL,
   serviceSecret: env.INTERNAL_SERVICE_SECRET,
-  principalSecret: env.EDGE_PRINCIPAL_SECRET,
 });
 
 /** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */
@@ -510,7 +509,7 @@ retainRawBody(app);
  * Built before the listener opens: a service that cannot authenticate the edge
  * must fail to start, not start and serve every caller as anonymous.
  */
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 
@@ -647,7 +646,7 @@ registerMerchantWatchMetricsRoutes(app, {
  * Not Class X go-live. Not sandbox-key routing (step 4). Not a live acquirer.
  */
 await registerPublicPayRest(app, {
-  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   pay,
   idempotency: new PostgresRestIdempotencyStore(sql),

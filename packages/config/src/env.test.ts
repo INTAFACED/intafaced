@@ -48,17 +48,18 @@ describe('loadEnv', () => {
     expect(() => loadEnv(authEnvSchema, { JWT_ACCESS_SECRET: 'a'.repeat(32) })).not.toThrow();
   });
 
-  it('refuses a missing or short EDGE_PRINCIPAL_SECRET', () => {
-    for (const source of [{}, { EDGE_PRINCIPAL_SECRET: 'short' }]) {
+  it('accepts a public key or a test seed, and refuses a short or malformed one', () => {
+    expect(() => loadEnv(edgeEnvSchema, {})).not.toThrow();
+    expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: 'a'.repeat(32) })).not.toThrow();
+    expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_PUBLIC_KEY: 'CAulhhCYaMwJuz_ZSQeSr0xdTJaAFjRxEBrPV2uVWl8' })).not.toThrow();
+    for (const source of [{ EDGE_PRINCIPAL_SECRET: 'short' }, { EDGE_PRINCIPAL_PUBLIC_KEY: 'not-a-key' }]) {
       try {
         loadEnv(edgeEnvSchema, source);
         expect.unreachable('should have thrown');
       } catch (e) {
         expect(e).toBeInstanceOf(EnvError);
-        expect((e as EnvError).issues.some((i) => i.startsWith('EDGE_PRINCIPAL_SECRET'))).toBe(true);
       }
     }
-    expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: 'a'.repeat(32) })).not.toThrow();
   });
 
   it('refuses a missing or short INTERNAL_SERVICE_SECRET', () => {

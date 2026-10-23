@@ -287,7 +287,7 @@ export function attachBoundClosePosition(app: FastifyInstance): void {
   if (!boundTrade) return;
   const trade = boundTrade;
   attachClosePosition(app, {
-    edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+    edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
     serviceName: env.SERVICE_NAME,
     closeSpotPosition: (principal, input) => closeSpotPosition(trade, principal, input),
   });

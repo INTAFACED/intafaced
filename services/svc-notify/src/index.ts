@@ -230,7 +230,7 @@ const loadVenueIncident = async () =>
 export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
 export type AppRouter = typeof appRouter;
 
-const edgeContext = createGuestIngressContext({ edgeSecret: env.EDGE_PRINCIPAL_SECRET, opsSecret: env.NOTIFY_OPS_SERVICE_SECRET });
+const edgeContext = createGuestIngressContext({ edgeSecret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, opsSecret: env.NOTIFY_OPS_SERVICE_SECRET });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);

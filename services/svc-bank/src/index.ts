@@ -182,7 +182,7 @@ const bank = createBankServices(sql, ledger, history, {
       ? {
           convert: tradeConvertPort({
             baseUrl: env.TRADE_URL,
-            edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+            serviceSecret: env.INTERNAL_SERVICE_SECRET,
             marketsLimit: env.CONVERT_MARKETS_LIMIT,
           }),
         }
@@ -232,7 +232,7 @@ export type AppRouter = typeof appRouter;
 // must fail to start, not start and serve every request as anonymous.
 const internalSecret = env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
 });

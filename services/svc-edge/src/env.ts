@@ -17,11 +17,16 @@ import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } f
 const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(otelEnvSchema)
-  // Signs the principal it forwards. Same value as every mounted service.
+  // Verifies with the public key. Signs with the private key below. No shared HMAC.
   .merge(edgeEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-edge'),
+      /**
+       * Ed25519 PKCS8, base64url, or a dev seed of at least 32 characters.
+       * Only this service may hold it. Other services verify with the public key.
+       */
+      EDGE_PRINCIPAL_PRIVATE_KEY: z.string().min(32).optional(),
       HTTP_PORT: z.coerce.number().int().default(4000),
 
       /**

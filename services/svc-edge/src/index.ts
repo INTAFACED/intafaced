@@ -23,6 +23,7 @@ import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperator
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
+import { EdgeTrustError, edgePrincipalPublicKeyOf } from '@intafaced/contracts';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
@@ -32,6 +33,14 @@ import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
 import { registerWidgetRampRoute } from './widget-ramp.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+
+const edgeSigningKey = env.EDGE_PRINCIPAL_PRIVATE_KEY ?? env.EDGE_PRINCIPAL_SECRET ?? '';
+if (!edgeSigningKey) {
+  throw new EdgeTrustError('svc-edge: EDGE_PRINCIPAL_PRIVATE_KEY is required to sign user principals');
+}
+if (env.EDGE_PRINCIPAL_PUBLIC_KEY && edgePrincipalPublicKeyOf(edgeSigningKey) !== env.EDGE_PRINCIPAL_PUBLIC_KEY) {
+  throw new EdgeTrustError('svc-edge: EDGE_PRINCIPAL_PUBLIC_KEY does not match the signing key');
+}
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -204,7 +213,7 @@ const admin = createAdminApi(killSwitches, {
   reconcileLastPath: env.EDGE_RECONCILE_LAST_PATH,
   approvals: createHttpEdgeApprovalConsumer({
     identityUrl: env.IDENTITY_URL,
-    edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+    edgeSecret: edgeSigningKey,
     region: env.DEFAULT_REGION,
   }),
 });
@@ -296,8 +305,8 @@ registerNetworkAccessGuard(app);
 registerAdminRoutes(
   app,
   admin,
-  env.MATCHING_URL && env.EDGE_PRINCIPAL_SECRET
-    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, env.EDGE_PRINCIPAL_SECRET)
+  env.MATCHING_URL && edgeSigningKey
+    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, edgeSigningKey)
     : null,
 );
 
@@ -393,7 +402,7 @@ await app.register(async (api) => {
           : Buffer.alloc(0);
     const exchanged = await exchangePrincipal(req.headers, {
       tokens: tokenConfig,
-      edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+      edgeSecret: edgeSigningKey,
       region: regionRes.region,
       // Direct to identity for `ifc_…` API keys — never via this edge (loop).
       identityUrl: env.IDENTITY_URL,

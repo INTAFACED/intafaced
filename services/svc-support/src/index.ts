@@ -62,7 +62,7 @@ const support = new SupportService(store, accounts, undefined, new SqlStaffBook(
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
 });
 

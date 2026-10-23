@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Principal } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { ConvertPort } from './auto-invest-service.js';
@@ -15,8 +14,13 @@ import type { ConvertPort } from './auto-invest-service.js';
 
 export interface TradeConvertPortOptions {
   baseUrl: string;
-  /** Shared edge HMAC — the same secret svc-trade verifies on /trpc. */
-  edgeSecret: string;
+  /**
+   * Ignored. Auto-invest acts as svc-bank. It does not mint a user principal.
+   * Kept so existing callers compile while the wiring moves to `serviceSecret`.
+   */
+  edgeSecret?: string;
+  /** Service identity for the convert call. The user id travels in the body. */
+  serviceSecret?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   region?: string;
@@ -123,25 +127,11 @@ function unwrapTrpc<T>(body: unknown): T {
 export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort {
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const region = options.region ?? 'XX';
   const baseUrl = options.baseUrl.replace(/\/$/, '');
 
-  const principalHeaders = (userId: string): Record<string, string> => {
-    const principal = {
-      sub: userId,
-      userId,
-      sid: '00000000-0000-4000-8000-0000000000d1',
-      scopes: ['trade:read', 'trade:write'],
-      tier: 'full',
-      mfa: true,
-      expiresAt: new Date(Date.now() + 60_000),
-    } as Principal;
-    const raw = encodePrincipal(principal);
-    return {
-      [EDGE_PRINCIPAL_HEADER]: raw,
-      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, options.edgeSecret, region),
-      'x-intafaced-region': region,
-    };
+  const serviceHeaders = (body: string | undefined): Record<string, string> => {
+    if (!options.serviceSecret || options.serviceSecret.length < 32 || body === undefined) return {};
+    return serviceAuthHeadersForBody('svc-bank', options.serviceSecret, body);
   };
 
   async function call<T>(input: {
@@ -214,11 +204,12 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
   }
 
   async function quote(userId: string, symbol: string, side: 'buy' | 'sell', qty: Amount): Promise<ConvertQuoteWire> {
+    const body = { userId, symbol, side, qty: formatAmount(qty) };
     const q = await call<ConvertQuoteWire>({
       method: 'GET',
       path: '/trpc/convert.quote',
-      body: { symbol, side, qty: formatAmount(qty) },
-      headers: principalHeaders(userId),
+      body,
+      headers: serviceHeaders(JSON.stringify(body)),
     });
     if (!q || typeof q.avgPrice !== 'string' || typeof q.userNotional !== 'string' || typeof q.filledQty !== 'string') {
       rateUnset('convert quote missing amounts');
@@ -237,17 +228,19 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     clientConvertId: string,
     maxAvgPrice: Amount,
   ): Promise<ConvertExecuteWire> {
+    const body = {
+      userId,
+      symbol,
+      side,
+      qty: formatAmount(qty),
+      clientConvertId: convertClientId(clientConvertId),
+      maxAvgPrice: formatAmount(maxAvgPrice),
+    };
     const order = await call<ConvertExecuteWire>({
       method: 'POST',
       path: '/trpc/convert.execute',
-      body: {
-        symbol,
-        side,
-        qty: formatAmount(qty),
-        clientConvertId: convertClientId(clientConvertId),
-        maxAvgPrice: formatAmount(maxAvgPrice),
-      },
-      headers: principalHeaders(userId),
+      body,
+      headers: serviceHeaders(JSON.stringify(body)),
     });
     if (!order || typeof order.filled !== 'string' || typeof order.id !== 'string') {
       rateUnset('convert execute missing fill');

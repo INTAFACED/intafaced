@@ -86,7 +86,7 @@ const actionApprovals = env.IDENTITY_URL
 const reviews = new ReviewsService(sql);
 const appRouter = createMarketRouter(vendors, commerce, perpProposals, actionApprovals, reviews);
 
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 

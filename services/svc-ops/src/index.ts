@@ -88,7 +88,6 @@ const appRouter = createOpsRouter(
     authority: createFounderAuthority({
       identityUrl: env.IDENTITY_URL,
       serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
-      principalSecret: env.EDGE_PRINCIPAL_SECRET,
     }),
   },
   {
@@ -98,7 +97,7 @@ const appRouter = createOpsRouter(
       env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   },
 );
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 
 const resolveClientIp = createClientIpResolver(process.env.OPS_TRUSTED_PROXY_CIDRS);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, trustProxy: false });

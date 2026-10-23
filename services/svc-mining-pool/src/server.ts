@@ -12,7 +12,7 @@ const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
-const edgeSecret = process.env.EDGE_PRINCIPAL_SECRET;
+const edgeSecret = process.env.EDGE_PRINCIPAL_PUBLIC_KEY ?? process.env.EDGE_PRINCIPAL_SECRET;
 const ledger: (Pick<LedgerClient, 'post'> & Pick<LedgerClient, 'getTxByKey'>) | null =
   ledgerUrl && internalSecret ? createLedgerClient(ledgerUrl, internalSecret) : null;
 const sql = databaseUrl

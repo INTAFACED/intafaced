@@ -71,8 +71,27 @@ export const httpEnvSchema = z.object({
  * and accepts whatever principal the caller claims — which looks healthy right
  * up until the first forged withdrawal.
  */
+function isRawEd25519PublicKey(value: string): boolean {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(value)) return false;
+  const raw = Buffer.from(value, 'base64url');
+  return raw.length === 32 && raw.toString('base64url') === value;
+}
+
+/**
+ * Verify material for an edge-signed user principal.
+ *
+ * Production sets `EDGE_PRINCIPAL_PUBLIC_KEY` (raw 32-byte Ed25519, base64url).
+ * That key cannot mint. `EDGE_PRINCIPAL_SECRET` stays optional so a test seed
+ * still loads; production posture refuses the secret when it is set. svc-edge
+ * signs with `EDGE_PRINCIPAL_PRIVATE_KEY`, which is not in this slice. A
+ * process with neither value fails when it builds the edge context.
+ */
 export const edgeEnvSchema = z.object({
-  EDGE_PRINCIPAL_SECRET: z.string().min(32),
+  EDGE_PRINCIPAL_PUBLIC_KEY: z
+    .string()
+    .refine(isRawEd25519PublicKey, { message: 'must be canonical base64url of exactly 32 bytes' })
+    .optional(),
+  EDGE_PRINCIPAL_SECRET: z.string().min(32).optional(),
 });
 
 /**

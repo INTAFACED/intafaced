@@ -70,7 +70,7 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 // though every procedure is permissionless: a signed principal may arrive (a
 // user who also holds a Fiat Plane account), and if one does, it must be
 // verified rather than believed.
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
 
 app.get('/health', async () =>
   dexHealthHonesty({

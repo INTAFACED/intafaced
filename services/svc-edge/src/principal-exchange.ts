@@ -3,6 +3,7 @@ import {
   encodePrincipal,
   serviceAuthHeadersForBody,
   signPrincipalHeader,
+  signRegionAttestation,
   EDGE_PRINCIPAL_HEADER,
   EDGE_SIGNATURE_HEADER,
 } from '@intafaced/contracts';
@@ -288,6 +289,9 @@ export async function exchangePrincipal(
 ): Promise<ExchangeResult> {
   const forward = stripReserved(headers);
   forward['x-intafaced-region'] = options.region;
+  // Every proxied request is signed. Anonymous requests carry a region
+  // attestation; a user request replaces it with the principal signature.
+  forward[EDGE_SIGNATURE_HEADER] = signRegionAttestation(options.region, options.edgeSecret);
 
   const origin = requestOrigin(headers);
   if (origin) {
