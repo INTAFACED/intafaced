@@ -1,0 +1,25 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "P2P_EXPORT_MAX_RANGE_DAYS": {
+      "service": "p2p",
+      "value": "90",
+      "note": "Longest P2P order export, in days, so a journey can see the range cap refuse."
+    },
+    "P2P_EXPORT_MAX_ROWS": {
+      "service": "p2p",
+      "value": "1000",
+      "note": "Most rows in one P2P order export."
+    },
+    "P2P_RECEIPT_DAILY_QUOTA": {
+      "service": "p2p",
+      "value": "20",
+      "note": "P2P receipt downloads per person per UTC day; small, so a journey reaches it."
+    },
+    "P2P_RECEIPT_PER_TRADE_QUOTA": {
+      "service": "p2p",
+      "value": "5",
+      "note": "Downloads of one P2P receipt per person."
+    }
+  }
+}
