@@ -16,7 +16,7 @@ export interface PlacementOptions {
 }
 
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
-const ENGINE_STP_MODE = 'cancel_maker';
+export const ENGINE_STP_MODE = 'cancel_maker';
 
 /**
  * `replay` is true when the caller's clientOrderId already names an order. A deadline means "do not create this after

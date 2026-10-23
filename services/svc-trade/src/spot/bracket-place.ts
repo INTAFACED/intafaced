@@ -11,6 +11,7 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import { carriedPlacementBody, withoutCarriedBody } from './placement-extras.js';
 import { orderIdFor } from './ids.js';
+import { ENGINE_STP_MODE } from './placement-options.js';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
 
 export type BracketLeg = {
@@ -218,6 +219,9 @@ function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet
   for (const [key, value] of Object.entries(rec)) {
     if (allowed.has(key)) continue;
     if (value === undefined || value === null || value === false) continue;
+    // The engine's own self-trade mode, said out loud (the desk sends it on every order), changes nothing about when
+    // the entry executes. Any other mode is refused on the ordinary place path.
+    if (key === 'stpMode' && value === ENGINE_STP_MODE) continue;
     return key;
   }
   return null;
