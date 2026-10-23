@@ -31,7 +31,7 @@ import {
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
-import { prepareBacktest, readWindowBars, runOnBars } from './engine/run.js';
+import { prepareBacktest, presentBacktest, readWindowBars, runOnBars, type StoredBacktest } from './engine/run.js';
 import { backtestBodyOf, runBacktest } from './backtest/run.js';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
@@ -838,12 +838,12 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 fees,
                 now(),
               );
-              const withRun = async (result: Omit<QuantBacktestResult, 'runId'>) => {
+              const withRun = async (result: StoredBacktest) => {
                 const row = await runs.replay(accountId, prepared.key);
-                return { ...result, runId: row?.id ?? '' };
+                return presentBacktest(result, row?.id ?? '');
               };
               const prior = await runs.replay(accountId, prepared.key);
-              if (prior?.finished && prior.outcome === 'ok') return withRun(prior.response as Omit<QuantBacktestResult, 'runId'>);
+              if (prior?.finished && prior.outcome === 'ok') return withRun(prior.response as StoredBacktest);
               // Bars are read before the run row, so a history read that fails stores nothing and the same key can run later.
               const bars = await readWindowBars(prepared, history);
               const result = await trackRun(
@@ -888,9 +888,9 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           try {
             const userId = accountOf(ctx, input.accountId);
             const row = await runs.get({ userId, id: input.runId });
-            const parsed = quantBacktestResultSchema.omit({ runId: true }).safeParse(row?.response);
+            const parsed = quantBacktestResultSchema.omit({ runId: true, metrics: true }).safeParse(row?.response);
             if (!row || row.kind !== 'backtest' || !parsed.success) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
-            return { ...parsed.data, runId: row.id };
+            return presentBacktest(parsed.data, row.id);
           } catch (err) {
             toTrpc(err);
           }

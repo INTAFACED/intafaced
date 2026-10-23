@@ -20,6 +20,7 @@ import {
 } from '../errors.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { barSpanMs, coverageOf, type Bar, type BarSize } from './bars.js';
+import { metricsOf } from './metrics.js';
 import type { FeePort, HistoryPort } from './ports.js';
 import { simulateSignalRules } from './simulate.js';
 
@@ -169,7 +170,15 @@ export async function readWindowBars(prepared: PreparedBacktest, history: Histor
 }
 
 /** Runs the engine on bars already read. The result holds only what this run computed. */
-export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[]): Omit<QuantBacktestResult, 'runId'> {
+/** What a run stores: everything but its row id and the report, which is derived from it on every read. */
+export type StoredBacktest = Omit<QuantBacktestResult, 'runId' | 'metrics'>;
+
+/** A stored run as the caller reads it: its row id and the report computed from its own trades and equity. */
+export function presentBacktest(stored: StoredBacktest, runId: string): QuantBacktestResult {
+  return { ...stored, runId, metrics: metricsOf(stored) };
+}
+
+export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[]): StoredBacktest {
   const barSize = prepared.rules.barSize as BarSize;
   const ran = simulateSignalRules({
     rules: prepared.rules,

@@ -53,6 +53,7 @@ export * from './custody-approval-tasks.js';
 export * from './pay-halts.js';
 export * from './protocol-blockers.js';
 export * from './ui-view-preferences.js';
+export * from './home-tiles-preferences.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
 export * from './protocol-ops.js';

@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { LedgerError, formatAmount, type LedgerTx } from '@intafaced/ledger-client';
+import { recordLookup, type LookupActor, type LookupRecorder } from './operator-lookup.js';
 
 /**
  * Operator transaction detail (OPS-ledger-desk-01, ops-console-ledger-desk-001): one booked transaction by id, for a
  * founder session holding `admin:treasury` (second factor required). A read, never a post.
  *
  * Returns each posting (account id, asset, direction, amount, balance after) as decimal strings, the business key,
- * module, reason, ledger time and hash links. An unknown id is `ledger.tx_not_found`, never an empty row. Transaction
+ * module, reason, ledger time and hash links. The lookup writes an access row first and is refused if it cannot
+ * (`operator-lookup.ts`). An unknown id is `ledger.tx_not_found`, never an empty row. Transaction
  * metadata is NOT returned here: it can hold personal data and needs scope-based masking first.
  */
 
@@ -38,12 +40,13 @@ export const operatorTxGetOutputSchema = z.object({
 });
 export type OperatorTxGetOutput = z.infer<typeof operatorTxGetOutputSchema>;
 
-export interface TxReader {
+export interface TxReader extends LookupRecorder {
   getTx(txId: string): Promise<LedgerTx | null>;
 }
 
-export async function operatorTxGet(reader: TxReader, input: OperatorTxGetInput): Promise<OperatorTxGetOutput> {
+export async function operatorTxGet(reader: TxReader, actor: LookupActor, input: OperatorTxGetInput): Promise<OperatorTxGetOutput> {
   const { txId } = operatorTxGetInputSchema.parse(input);
+  await recordLookup(reader, actor, { ownerType: 'transaction', ownerId: txId, action: 'transaction.read' });
   const tx = await reader.getTx(txId);
   if (!tx) throw new LedgerError(`no transaction ${txId}`, LEDGER_TX_NOT_FOUND);
   return {

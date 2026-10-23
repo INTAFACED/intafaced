@@ -188,6 +188,13 @@ function stubService(): Stub {
     listPayments: record('listPayments', () => ({
       items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
       nextCursor: null,
+      summary: {
+        matchedCount: '1',
+        succeededCount: '1',
+        failedCount: '0',
+        finishedCount: '1',
+        successRate: '100',
+      },
     })),
     createProfile: record('createProfile', () => ({ id: SETTLEMENT, merchantId: MERCHANT })),
     clearingBalance: record('clearingBalance', () => amt('100.5')),
@@ -197,6 +204,7 @@ function stubService(): Stub {
     capture: record('capture', () => paymentView({ status: 'captured', capturedAmount: amt('100') })),
     refund: record('refund', () => paymentView({ status: 'refunded', capturedAmount: amt('100'), refundedAmount: amt('100') })),
     getPayment: record('getPayment', () => paymentView()),
+    listPaymentAttempts: record('listPaymentAttempts', () => []),
     history: record('history', (_paymentId: string, limit?: number) => {
       assertPaymentHistoryLimit(limit);
       return [{ id: PAYMENT, event: 'created', payload: { amount: '100' }, railEventId: null, ts: new Date('2026-07-27T12:00:00.000Z') }];

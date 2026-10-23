@@ -93,6 +93,10 @@
     "./home-work-items": {
       "types": "./dist/home-work-items.d.ts",
       "default": "./dist/home-work-items.js"
+    },
+    "./home-tiles-preferences": {
+      "types": "./dist/home-tiles-preferences.d.ts",
+      "default": "./dist/home-tiles-preferences.js"
     }
   },
   "scripts": {

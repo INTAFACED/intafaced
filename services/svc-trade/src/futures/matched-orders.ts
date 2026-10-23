@@ -184,6 +184,8 @@ export interface PlaceMatchedOrderInput {
 
 export interface MatchedOrderView {
   readonly orderId: string;
+  /** The caller's own request id: a client that lost the answer finds its order by it without sending again. */
+  readonly clientOrderId: string;
   readonly marketId: string;
   readonly userId: string;
   readonly side: OrderSide;
@@ -430,6 +432,7 @@ function positionSideOf(side: OrderSide): 'long' | 'short' {
 function presentOrder(row: OrderRow): MatchedOrderView {
   return {
     orderId: row.id,
+    clientOrderId: row.client_order_id,
     marketId: row.market_id,
     userId: row.user_id,
     side: row.side,
