@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { NoticeDetail, NoticeList, NoticeMissing } from './NoticeFeed';
-import { feedNotices, isNoticeId, readNotice, type Notice } from './notices-api';
+import { feedNotices, isNoticeId, maintenancePhase, readNotice, type Notice } from './notices-api';
 import type { ApiClient } from '../../shared/api';
 import { entrySchema } from '../developers/developers-api';
 
@@ -48,6 +48,8 @@ describe('public notice feed', () => {
   it('shows a maintenance window with an unset end as not set, never as a made-up time', () => {
     const page = renderToString(<NoticeList notices={[notice({ kind: 'maintenance', startsAt: '2026-10-20T01:00:00.000Z' })]} />);
     expect(page).toContain('Window 2026-10-20 to not set');
+    expect(page.replace(/<!-- -->/g, '')).toContain('Maintenance · Started, end not set');
+    expect(page).not.toContain('In progress');
   });
 
   it('reads a reference that is not a notice id as not published without calling the service', () => {
@@ -62,5 +64,45 @@ describe('public notice feed', () => {
     const id = '11111111-1111-4111-8111-111111111111';
     expect(await readNotice(api('notify.notice_not_found'), id)).toEqual({ ok: true, data: null });
     expect(await readNotice(api('notify.unavailable'), id)).toMatchObject({ ok: false });
+  });
+});
+
+describe('maintenance windows on /notice', () => {
+  const now = Date.parse('2026-10-23T12:00:00.000Z');
+  it('says scheduled before the start, in progress inside the window, completed after the end', () => {
+    const m = (startsAt: string | null, endsAt: string | null) => notice({ kind: 'maintenance', startsAt, endsAt });
+    expect(maintenancePhase(m('2026-10-24T00:00:00.000Z', '2026-10-24T01:00:00.000Z'), now)).toBe('scheduled');
+    expect(maintenancePhase(m('2026-10-23T11:00:00.000Z', '2026-10-23T13:00:00.000Z'), now)).toBe('in_progress');
+    expect(maintenancePhase(m('2026-10-23T09:00:00.000Z', '2026-10-23T10:00:00.000Z'), now)).toBe('completed');
+  });
+
+  it('never calls a window in progress without a start and an end it can read', () => {
+    const m = (startsAt: string | null, endsAt: string | null) => notice({ kind: 'maintenance', startsAt, endsAt });
+    expect(maintenancePhase(m(null, null), now)).toBe('time_unset');
+    expect(maintenancePhase(m('2026-13-40', '2026-10-23T13:00:00.000Z'), now)).toBe('time_unset');
+    expect(maintenancePhase(m('2026-10-20T00:00:00.000Z', 'later'), now)).toBe('time_unset');
+    expect(maintenancePhase(m('2025-10-20T00:00:00.000Z', null), now)).toBe('end_unset');
+    expect(maintenancePhase(m('2027-10-20T00:00:00.000Z', null), now)).toBe('scheduled');
+    expect(maintenancePhase(m('2026-10-23T09:00:00.000Z', '2026-10-23T10:00:00.000Z'), now)).toBe('completed');
+    expect(maintenancePhase(notice({ kind: 'announcement' }), now)).toBeNull();
+  });
+
+  it('labels each maintenance card with its kind and phase, and other kinds with their kind only', () => {
+    const page = renderToString(
+      <NoticeList
+        notices={[
+          notice({
+            kind: 'maintenance',
+            id: '44444444-4444-4444-8444-444444444444',
+            startsAt: '2000-01-01T00:00:00.000Z',
+            endsAt: '2000-01-01T01:00:00.000Z',
+          }),
+          notice({ kind: 'incident', id: '55555555-5555-4555-8555-555555555555' }),
+        ]}
+      />,
+    );
+    expect(page.replace(/<!-- -->/g, '')).toContain('Maintenance · Completed');
+    expect(page).toContain('data-phase="completed"');
+    expect(page.match(/data-phase=/g)).toHaveLength(1);
   });
 });

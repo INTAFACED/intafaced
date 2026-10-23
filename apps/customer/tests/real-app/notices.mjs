@@ -20,14 +20,36 @@ const data = (res, what) => {
   return row;
 };
 
-/** svc-notify's payload hash for an announcement or maintenance notice (no status, scope or changelog fields). */
-const payloadHash = (row) =>
-  `sha256:${createHash('sha256')
-    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version }))
+/**
+ * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any.
+ * No scope or changelog fields (no journey here drafts those).
+ */
+const payloadHash = (row) => {
+  const status = row.statusFields;
+  const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version, ...withStatus }))
     .digest('hex')}`;
+};
 
-/** A draft notice, open from now for `minutes`. Returns the stored row. */
-export async function draftNotice({ kind, title, body, minutes, key }) {
+/**
+ * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
+ * components, update an earlier incident (`parentId`) and close it (`resolves`).
+ */
+export async function draftNotice({
+  kind,
+  title,
+  body,
+  minutes,
+  key,
+  impact = null,
+  components = [],
+  parentId = null,
+  resolves = false,
+  startsAt = null,
+  endsAt = null,
+}) {
+  if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -37,13 +59,17 @@ export async function draftNotice({ kind, title, body, minutes, key }) {
       kind,
       title,
       body,
-      startsAt: new Date(now - 60_000).toISOString(),
-      endsAt: new Date(now + minutes * 60_000).toISOString(),
+      startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
+      endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString(),
+      ...(impact ? { impact } : {}),
+      ...(components.length ? { components } : {}),
+      ...(parentId ? { parentId } : {}),
+      ...(resolves ? { resolves } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
   );
-  return data(res, 'notify.draftNotice');
+  return { ...data(res, 'notify.draftNotice'), statusFields: { impact, components, parentId, resolves } };
 }
 
 /** Four-eyes publish of a draft: A proposes, B approves, A publishes. Returns the published row. */

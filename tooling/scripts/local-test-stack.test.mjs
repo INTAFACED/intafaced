@@ -58,6 +58,20 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: one service file per started service');
 }
 
+// The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
+// stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  const profile = loadProfile().values;
+  for (const name of ['BANK_PAYEE_CONTROLS_JSON', 'BANK_EXCHANGE_ALLOWANCE_JSON', 'BANK_PROOF_LIMITS_JSON']) {
+    assert.equal(profile[name]?.service, 'bank', `${name} is not in the bank profile`);
+    assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
+  }
+  console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
   return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 }
@@ -237,13 +251,9 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, each with a reason in EDGE_ABSENT: protocol, indexer and dex are called by the Protocol rooms
-  // (#4835) and stay unwired. mining is started (svc-mining-pool binds HTTP_HOST since #5907).
-  assert.deepEqual(
-    [...absentButUsed].sort(),
-    ['dex', 'indexer', 'protocol'],
-    `unexpected Customer modules without a service: ${absentButUsed}`,
-  );
+  // Absent on purpose, each with a reason in EDGE_ABSENT: indexer and dex are called by the Protocol rooms (#4835) and
+  // stay unwired. protocol is started (J-dex-protocol-01) and mining too (svc-mining-pool binds HTTP_HOST since #5907).
+  assert.deepEqual([...absentButUsed].sort(), ['dex', 'indexer'], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }
