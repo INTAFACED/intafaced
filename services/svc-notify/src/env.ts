@@ -122,6 +122,16 @@ const schema = serviceEnvSchema
       /** Push gateway. */
       NOTIFY_PUSH_GATEWAY_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_PUSH_GATEWAY_TOKEN: blankAsAbsent(z.string().min(16).optional()),
+      /**
+       * The push gateway's public application key (URL-safe base64), handed to browsers by `notify.pushKey` so a device
+       * can subscribe. Public; the private key stays with the gateway. Blank: no device registers from the web app.
+       */
+      NOTIFY_PUSH_PUBLIC_KEY: blankAsAbsent(
+        z
+          .string()
+          .regex(/^[A-Za-z0-9_-]{16,256}$/)
+          .optional(),
+      ),
 
       /** SMS gateway. */
       NOTIFY_SMS_GATEWAY_URL: blankAsAbsent(z.string().url().optional()),

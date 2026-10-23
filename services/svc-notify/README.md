@@ -167,6 +167,12 @@ If the channel has no credentials, registration still records the address and
 returns `{ status: 'refused', code: 'channel.not_configured' }` — the truth,
 rather than a green tick over silence.
 
+A browser registers itself as a push address from `/notifications?view=settings`
+("Allow notifications on this device"). It asks the browser's permission only on
+that press, then subscribes with the public key from `notify.pushKey` and sends
+the subscription to `registerTarget` as the address. With no key (`notify.push_key_unset`)
+the app shows the permission state and the `vendor.push` notice and registers nothing.
+
 ## API
 
 ### Guest outreach emails
@@ -659,24 +665,25 @@ is actually open.
 
 ## Environment
 
-| Variable                                | Default | Notes                                                                                                                                   |
-| --------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                   |
-| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                  |
-| `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                   |
-| `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                |
-| `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly. |
-| `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                     |
-| `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                          |
-| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                |
-| `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                           |
-| `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
-| `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |
-| `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                   |
-| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
-| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
-| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
-| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).          |
+| Variable                                | Default | Notes                                                                                                                                                               |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                                               |
+| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                                              |
+| `NOTIFY_PUSH_PUBLIC_KEY`                | —       | Push gateway's public application key, served by `notify.pushKey` so a browser can subscribe. Given only with the push URL and token; else `notify.push_key_unset`. |
+| `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                                               |
+| `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                                            |
+| `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly.                             |
+| `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                                                 |
+| `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                                                      |
+| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                                            |
+| `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                                                       |
+| `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                                                      |
+| `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                                              |
+| `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                                               |
+| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                                                   |
+| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                                              |
+| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                                                    |
+| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).                                      |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail
