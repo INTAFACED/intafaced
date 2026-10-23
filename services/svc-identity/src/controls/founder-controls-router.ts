@@ -13,6 +13,12 @@ import {
   accountClosureHistoryInputSchema,
   accountClosureStateSchema,
   accountClosureResultSchema,
+  accountTierListSchema,
+  accountTierMoveInputSchema,
+  accountTierLookupInputSchema,
+  accountTierHistoryInputSchema,
+  accountTierStateSchema,
+  accountTierResultSchema,
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
@@ -45,6 +51,10 @@ export type FounderControlsPort = Pick<
   | 'closure'
   | 'closureState'
   | 'closureHistory'
+  | 'tiers'
+  | 'tierMove'
+  | 'tierState'
+  | 'tierHistory'
 >;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
@@ -137,6 +147,23 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountClosureHistoryInputSchema)
         .output(z.array(accountClosureResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input))),
+      // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
+      tiers: protectedProcedure
+        .input(z.object({}).strict())
+        .output(accountTierListSchema)
+        .query(({ ctx }) => controlCall(() => controls.tiers(ctx))),
+      tierMove: protectedProcedure
+        .input(accountTierMoveInputSchema)
+        .output(accountTierResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => controls.tierMove(ctx, input))),
+      tierState: protectedProcedure
+        .input(accountTierLookupInputSchema)
+        .output(accountTierStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => controls.tierState(ctx, input))),
+      tierHistory: protectedProcedure
+        .input(accountTierHistoryInputSchema)
+        .output(z.array(accountTierResultSchema))
+        .query(({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input))),
       listRestricted: scopedProcedure('admin:read')
         .input(
           z

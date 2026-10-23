@@ -156,6 +156,19 @@ Curriculum slugs the lesson screen already opens (journey J-academy-03 step 3). 
 
 **Follow-ups, not in this change:** cohort and course-wide extensions, staff reset, and audit rows for `setItemPrerequisites` and `setItemWindow`.
 
+### Video player tracks (AC-videos-01)
+
+Journey J-academy-03 step 4. The Videos screen already calls `videos` and `videoPlayback`. Those still play the file when captions, the transcript, or the watch threshold are blank.
+
+| Procedure               | Scope          | Purpose                                                                                                                                                                                                                           |
+| ----------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videos`                | `academy:read` | Named spine. `captionsPublished` and `transcriptPublished` are false until the owner sets them. `captionsUrl` stays null. No duration or transcript is guessed.                                                                   |
+| `videoCaptions`         | `academy:read` | Signed captions URL behind the same tier and stake gate as playback. No URL refuses `academy.video_captions_unpublished`.                                                                                                         |
+| `videoTranscript`       | `academy:read` | Transcript text behind that same gate, with a signed URL. No text refuses `academy.video_transcript_unpublished`.                                                                                                                 |
+| `videoProgress.watched` | `academy:read` | This caller's stored position against `ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS`. Blank, zero, or a fraction refuses `academy.watch_threshold_unset`. No stored row is not watched. The threshold is not cut down to fit a duration. |
+
+`videoProgress.get` and `videoProgress.set` are unchanged. Play, pause, seek, and volume are the player itself. This service does not publish a speed list.
+
 A seat belongs to `ctx.principal.userId`. **No procedure takes a userId from the input except `invite` and `admin.grantItemExtension`**, where naming somebody else _is_ the operation — invite is host-only, and the extension is `admin:write`. The scene is written **whole** by the host, not merged per attendee: merging would need a conflict model this does not have, and half a merge is a room that renders differently for different people.
 
 ---

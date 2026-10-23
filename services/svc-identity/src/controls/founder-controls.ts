@@ -6,6 +6,7 @@ import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
+  IDENTITY_TIER_MOVE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
   TRADE_OPS_OPERATOR_PERMISSION,
   TRADING_RESTRICT_ACTION_TYPE,
@@ -14,6 +15,7 @@ import {
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
+import { blankTierTerms } from './account-tiers.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
 import {
   identityAccountControlInputSchema,
@@ -27,6 +29,15 @@ import {
   accountClosureLookupInputSchema,
   accountClosureHistoryInputSchema,
   accountClosureResultSchema,
+  accountTierMoveInputSchema,
+  accountTierLookupInputSchema,
+  accountTierHistoryInputSchema,
+  accountTierResultSchema,
+  type AccountTier,
+  type AccountTierList,
+  type AccountTierMoveInput,
+  type AccountTierResult,
+  type AccountTierState,
   type AccountClosureInput,
   type AccountClosureResult,
   type AccountClosureState,
@@ -225,6 +236,14 @@ export function identityUnfreezePayloadHash(input: { readonly userId: string; re
 }
 
 /**
+ * Canonical payload hash for `identity.account_tier_move`: the account, the tier it moves onto and the reason the approver
+ * read. The version is bound on the approval row, not in the hash.
+ */
+export function identityTierPayloadHash(input: { readonly userId: string; readonly tierId: string; readonly reason: string }): string {
+  return identityActionPayloadHash(input.userId.toLowerCase(), { action: 'tier_move', tierId: input.tierId, reason: input.reason.trim() });
+}
+
+/**
  * Canonical payload hash for `identity.account_close` and `identity.account_reopen`: the account, the action, the reason
  * code (close only) and the reason the approver read. The version is bound on the approval row, not in the hash.
  */
@@ -276,6 +295,13 @@ export class FounderControls {
   /** Wired after the closure clients exist. Unset, every staff close refuses `identity.close_check_unavailable`. */
   useClosureChecks(checks: StaffClosureChecks): void {
     this.closureChecks = checks;
+  }
+
+  private accountTiers: readonly AccountTier[] | undefined;
+
+  /** The `IDENTITY_ACCOUNT_TIERS` owner setting, parsed. Unset, the tier list says so and every tier move refuses. */
+  useAccountTiers(tiers: readonly AccountTier[] | undefined): void {
+    this.accountTiers = tiers;
   }
 
   async bootstrap(): Promise<boolean> {
@@ -357,7 +383,7 @@ export class FounderControls {
     tx: Sql,
     requestId: string,
     actorId: string | null,
-    kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure',
+    kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure' | 'tier',
     hash: string,
     result: unknown,
     auditId = randomUUID(),
@@ -1139,6 +1165,199 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /** The tiers on offer, for a live founder. Unset is its own answer, never an empty list. */
+  async tiers(context: Context): Promise<AccountTierList> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          return this.accountTiers
+            ? { configured: true as const, tiers: [...this.accountTiers] }
+            : { configured: false as const, code: 'identity.account_tiers_unset' as const };
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /**
+   * Move one account onto another product tier (J-ops-console-04 #11). A live founder runs it with a founder-level
+   * four-eyes approval a second live founder gave, spent here. Refused while the tiers are unset, for an unknown tier, a
+   * tier with any blank term (naming them), the tier the account is already on, the actor's own account or a closed
+   * account. Each attempt, refused ones included, is in the tier history; a retry of the same request id returns the
+   * stored answer. Nothing here moves money: the terms are the owner's record of the tier.
+   */
+  async tierMove(context: Context, raw: AccountTierMoveInput): Promise<AccountTierResult> {
+    const input = accountTierMoveInputSchema.parse(raw);
+    input.requestId = input.requestId.toLowerCase();
+    input.userId = input.userId.toLowerCase();
+    const targetId = input.userId;
+    const actorId = context.principal?.userId.toLowerCase() ?? null;
+    const hash = fingerprint(actorId, { kind: 'tier', ...input });
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const auditId = randomUUID();
+          const common = {
+            auditId,
+            requestId: input.requestId,
+            userId: targetId,
+            tierId: input.tierId,
+            reason: input.reason,
+            occurredAt: clock!.at.toISOString(),
+          };
+          type TierRefusal = Extract<AccountTierResult, { outcome: 'refused' }>['code'];
+          const refused = (code: TierRefusal, current: AccountTierState | null = null, blankTerms?: readonly string[]) =>
+            accountTierResultSchema.parse({
+              ...common,
+              outcome: 'refused',
+              changed: false,
+              actorUserId: actorId,
+              code,
+              current,
+              ...(blankTerms ? { blankTerms } : {}),
+            });
+          const finish = async (result: AccountTierResult, store: boolean) => {
+            await this.audit(tx, input.requestId, actorId, 'tier', hash, result, auditId, {
+              fourEyes: result.outcome === 'changed',
+              ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            });
+            if (store)
+              await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
+            return result;
+          };
+          if (actor.refusal) return finish(refused(actor.refusal), false);
+          const previous = await this.replay(tx, input.requestId, hash);
+          if (previous && !previous.conflict) return accountTierResultSchema.parse(previous.result);
+          if (previous) return finish(refused('request.conflict'), false);
+          const user = actor.users.find((row) => row.id === targetId);
+          if (!user) return finish(refused('target.not_found'), true);
+          const before = await this.tierStateOf(tx, targetId);
+          if (before.version !== input.expectedVersion)
+            return finish(
+              accountTierResultSchema.parse({
+                ...common,
+                outcome: 'conflict',
+                changed: false,
+                actorUserId: actorId,
+                code: 'restriction.version_conflict',
+                current: before,
+              }),
+              true,
+            );
+          if (targetId === actorId) return finish(refused('identity.tier_self_forbidden', before), true);
+          if (user.status === 'closed') return finish(refused('identity.tier_account_closed', before), true);
+          if (!this.accountTiers) return finish(refused('identity.account_tiers_unset', before), true);
+          const tier = this.accountTiers.find((row) => row.id === input.tierId);
+          if (!tier) return finish(refused('identity.tier_unknown', before), true);
+          if (before.tierId === tier.id) return finish(refused('identity.tier_unchanged', before), true);
+          const blank = blankTierTerms(tier.terms);
+          if (blank.length > 0) return finish(refused('identity.tier_terms_unset', before, blank), true);
+          if (!input.approvalId) return finish(refused('identity.tier_requires_approver', before), true);
+          const want = {
+            approvalId: input.approvalId,
+            actionType: IDENTITY_TIER_MOVE_ACTION_TYPE,
+            payloadHash: identityTierPayloadHash(input),
+            targetId,
+            expectedVersion: input.expectedVersion,
+            actorId: actorId!,
+            requestId: input.requestId,
+            now: clock!.at,
+          };
+          const approvalRefusal = (refusal: 'mismatch' | 'consumed') =>
+            refused(refusal === 'mismatch' ? 'identity.tier_approval_mismatch' : 'identity.tier_approval_consumed', before);
+          const bound = await this.consumeIdentityApproval(tx, want, false);
+          if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
+          // Founder-level: the approver must still be a live founder now, not only when they approved.
+          if (!(await this.isLiveFounder(bound.approverId, tx))) return finish(approvalRefusal('mismatch'), true);
+          const spent = await this.consumeIdentityApproval(tx, want);
+          if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
+          await tx`INSERT INTO account_tier_assignments (user_id, tier_id, version, updated_at) VALUES (${targetId}, ${tier.id}, 1, now())
+            ON CONFLICT (user_id) DO UPDATE SET tier_id = EXCLUDED.tier_id, version = account_tier_assignments.version + 1, updated_at = now()`;
+          const after = await this.tierStateOf(tx, targetId);
+          return finish(
+            accountTierResultSchema.parse({
+              ...common,
+              outcome: 'changed',
+              changed: true,
+              actorUserId: actorId,
+              approverUserId: spent.approverId,
+              before,
+              after,
+            }),
+            true,
+          );
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async tierState(context: Context, raw: z.infer<typeof accountTierLookupInputSchema>): Promise<AccountTierState | null> {
+    const input = accountTierLookupInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+          return user ? this.tierStateOf(tx, userId) : null;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async tierHistory(context: Context, raw: z.infer<typeof accountTierHistoryInputSchema>): Promise<AccountTierResult[]> {
+    const input = accountTierHistoryInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const rows = await tx<
+            Array<{ result: unknown }>
+          >`SELECT result FROM founder_control_audit WHERE kind = 'tier' AND result->>'userId' = ${userId} ORDER BY created_at DESC, audit_id DESC LIMIT ${input.limit}`;
+          return rows.map((row) => accountTierResultSchema.parse(row.result));
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /** No row: never put on a tier, version 0. */
+  private async tierStateOf(tx: Sql, userId: string): Promise<AccountTierState> {
+    const [row] = await tx<
+      Array<{ tier_id: string; version: string }>
+    >`SELECT tier_id, version::text AS version FROM account_tier_assignments WHERE user_id = ${userId}`;
+    return { userId, version: row?.version ?? '0', tierId: row?.tier_id ?? null };
   }
 
   /**
