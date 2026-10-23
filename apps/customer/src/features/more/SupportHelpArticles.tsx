@@ -27,8 +27,10 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
   const copy = deskCopy.useCopy();
   const api = useApi();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  const [draft, setDraft] = useState(''),
-    [search, setSearch] = useState(''),
+  // Words carried from the public help search (/support?q=…) open the desk's search already run.
+  const [carried] = useState(() => (new URLSearchParams(location.search).get('q') ?? '').trim().slice(0, 200));
+  const [draft, setDraft] = useState(carried),
+    [search, setSearch] = useState(carried),
     [category, setCategory] = useState<KbCategory>('all');
   const kb = useResource(
     (signal) => api.query('support', 'searchKb', { q: search, limit: 50 }, z.array(kbSchema), { signal }),
@@ -105,16 +107,27 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
 }
 
 const EMPTY: ReadonlySet<string> = new Set();
+/** An answer typed in the desk carries its own text in its own language; a catalogue-keyed one is looked up. */
+function articleText(row: KbArticle) {
+  if (row.title && row.body) return { title: row.title, titleLang: row.language ?? 'und', body: row.body, bodyLang: row.language ?? 'und' };
+  return {
+    title: publishedCopy(row.titleKey),
+    titleLang: publishedLanguageFor(row.titleKey) ?? 'und',
+    body: publishedCopy(row.bodyKey),
+    bodyLang: publishedLanguageFor(row.bodyKey) ?? 'und',
+  };
+}
 function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnType<typeof useAction>; hiddenIds: ReadonlySet<string> }) {
   const copy = deskCopy.useCopy();
   const [opened, setOpened] = useState(false);
   const missing = (key: string) => legacyText('support.published.article.text.is.unavailable.for', { value1: key });
-  const title = publishedCopy(row.titleKey) ?? missing(row.titleKey);
-  const body = publishedCopy(row.bodyKey);
+  const text = articleText(row);
+  const title = text.title ?? missing(row.titleKey);
+  const body = text.body;
   return (
     <details onToggle={(event) => event.currentTarget.open && setOpened(true)}>
-      <summary lang={publishedLanguageFor(row.titleKey) ?? 'und'}>{title}</summary>
-      {body ? <p lang={publishedLanguageFor(row.bodyKey) ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
+      <summary lang={text.titleLang}>{title}</summary>
+      {body ? <p lang={text.bodyLang}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
       <a className="text-link" href={helpHref(row.id, row.version)}>
         {copy.t('readArticle')} →
       </a>
@@ -185,9 +198,8 @@ function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet
             <ul>
               {visible.map((row) => (
                 <li key={row.id}>
-                  <a className="text-link" lang={publishedLanguageFor(row.titleKey) ?? 'und'} href={helpHref(row.id, row.version)}>
-                    {publishedCopy(row.titleKey) ??
-                      legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
+                  <a className="text-link" lang={articleText(row).titleLang} href={helpHref(row.id, row.version)}>
+                    {articleText(row).title ?? legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
                   </a>
                 </li>
               ))}

@@ -3,6 +3,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
 import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useLocation } from '../../app/location';
+import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
@@ -128,14 +129,30 @@ export function PublicHelp() {
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
   };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
-  const articles =
-    loaded?.articles.filter((article) => {
-      const text = rendered(article);
-      return [text.title ?? '', text.body ?? '', article.id]
-        .join(' ')
-        .toLocaleLowerCase(requestedLocale)
-        .includes(filterText.trim().toLocaleLowerCase(requestedLocale));
-    }) ?? [];
+  const typed = filterText.trim();
+  // The service ranks a search: a labelled answer comes before one that only mentions the words. Answers on this page whose
+  // translated text matches follow, so a catalogue answer found by its words in the reader's language is never lost.
+  const ranked = useResource(
+    (signal): Promise<ApiResult<HelpArticle[]>> =>
+      typed
+        ? actor.client.query('support', 'searchKb', { q: typed, limit }, helpWindow(limit), { signal })
+        : Promise.resolve({ ok: true, data: [] }),
+    `help-search:${actor.owner ?? 'public'}:${limit}:${typed}`,
+  );
+  const textMatches = (article: HelpArticle) => {
+    const text = rendered(article);
+    return [text.title ?? '', text.body ?? '', article.id]
+      .join(' ')
+      .toLocaleLowerCase(requestedLocale)
+      .includes(typed.toLocaleLowerCase(requestedLocale));
+  };
+  const rankedRows = ranked.resource.status === 'ready' ? ranked.resource.data : [];
+  const rankedIds = new Set(rankedRows.map((row) => row.id));
+  const articles = !loaded
+    ? []
+    : !typed
+      ? loaded.articles
+      : [...rankedRows, ...loaded.articles.filter((article) => !rankedIds.has(article.id) && textMatches(article))];
   const article = visible?.status === 'ready' && visible.value.kind === 'article' ? visible.value.article : null;
   const missing =
     selection.kind === 'article' && selection.version !== undefined && visible?.status === 'failed' && missingHelpVersion(visible.failure);
@@ -260,7 +277,7 @@ export function PublicHelp() {
             <Button type="submit">{t('search')}</Button>
           </form>
           <div className="help__request">
-            <RequestEntry />
+            <RequestEntry query={queryText} />
           </div>
           <HelpLibraryNav />
           <p className="help__caption muted" role="status">
@@ -323,6 +340,12 @@ export function PublicHelp() {
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
                     </div>
+                  )}
+                  {typed && ranked.resource.status === 'loading' && <Loading label={t('searching')} />}
+                  {typed && ranked.resource.status === 'failed' && (
+                    <p className="help__caption muted" role="status" data-testid="help-search-unranked">
+                      {t('searchUnranked')}
+                    </p>
                   )}
                   {filterText && (
                     <p className="help__caption muted" role="status">
