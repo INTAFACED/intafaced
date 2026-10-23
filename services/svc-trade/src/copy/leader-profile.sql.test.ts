@@ -136,7 +136,7 @@ describe('copy leader directory filters and lead trades on Postgres', () => {
     expect(first.trades).toEqual([
       expect.objectContaining({ symbol: 'BTC/USDT', state: 'open', entryPrice: '130', margin: '130', closePrice: null, roiPercent: null }),
     ]);
-    expect(first.nextCursor).toBe('1');
+    expect(first.nextCursor).toMatch(/^\d+\.[0-9a-f]{24}$/);
     const second = await copy.leaderTrades(reader(), { leaderRef: listed.leaderRef, limit: 1, cursor: first.nextCursor! });
     expect(second.trades).toEqual([
       expect.objectContaining({

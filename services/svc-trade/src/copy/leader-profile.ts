@@ -8,6 +8,7 @@
  * close price and ROI come from fills and never from the listing. No order id, fill id or user id leaves this file.
  */
 
+import { createHash } from 'node:crypto';
 import { div, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { CopyError } from './errors.js';
@@ -100,6 +101,7 @@ export function presentLeaderProfile(
 
 /** One of the leader's orders with its fills summed. */
 export type LeaderOrderFills = {
+  readonly orderId: string;
   readonly symbol: string;
   readonly side: 'buy' | 'sell';
   readonly qty: Amount;
@@ -111,6 +113,8 @@ export type LeaderOrderFills = {
 };
 
 export type LeaderTrade = {
+  /** Unique per row, from the order that opened it (the sell, for a sell with no recorded buy); names no order. */
+  readonly tradeId: string;
   readonly symbol: string;
   readonly state: 'open' | 'closed';
   readonly openedAt: string | null;
@@ -130,6 +134,7 @@ export type LeaderTrade = {
 };
 
 type OpenLot = {
+  orderId: string;
   symbol: string;
   openedAt: Date;
   qty: Amount;
@@ -155,6 +160,7 @@ export function pairLeaderTrades(orders: readonly LeaderOrderFills[]): LeaderTra
     if (order.qty <= 0n) continue;
     if (order.side === 'buy') {
       lots.push({
+        orderId: order.orderId,
         symbol: order.symbol,
         openedAt: order.firstAt,
         qty: order.qty,
@@ -187,6 +193,7 @@ export function pairLeaderTrades(orders: readonly LeaderOrderFills[]): LeaderTra
       orphans.push({
         at: order.firstAt,
         row: {
+          tradeId: tradeIdOf(order.orderId),
           symbol: order.symbol,
           state: 'closed',
           openedAt: null,
@@ -210,6 +217,7 @@ export function pairLeaderTrades(orders: readonly LeaderOrderFills[]): LeaderTra
     return {
       at: lot.openedAt,
       row: {
+        tradeId: tradeIdOf(lot.orderId),
         symbol: lot.symbol,
         state: lot.left > 0n ? 'open' : 'closed',
         openedAt: lot.openedAt.toISOString(),
@@ -225,7 +233,16 @@ export function pairLeaderTrades(orders: readonly LeaderOrderFills[]): LeaderTra
       } satisfies LeaderTrade,
     };
   });
-  return [...rows, ...orphans].sort((a, b) => b.at.getTime() - a.at.getTime()).map((item) => item.row);
+  return [...rows, ...orphans].sort((a, b) => compareNewestFirst(a.at, a.row.tradeId, b.at, b.row.tradeId)).map((item) => item.row);
+}
+
+/** A row id that is stable across reads but is not the order id, which stays inside the service. */
+function tradeIdOf(orderId: string): string {
+  return createHash('sha256').update(`copy-leader-trade:${orderId}`).digest('hex').slice(0, 24);
+}
+
+function compareNewestFirst(aAt: Date, aId: string, bAt: Date, bId: string): number {
+  return bAt.getTime() - aAt.getTime() || (aId < bId ? 1 : aId > bId ? -1 : 0);
 }
 
 /** How many of the leader's most recent orders the table pairs. Older orders are outside the record shown. */
@@ -233,16 +250,35 @@ export const LEADER_TRADE_ORDERS_MAX = 2000;
 
 export type LeaderTradesPage = { readonly trades: readonly LeaderTrade[]; readonly nextCursor: string | null };
 
-export function decodeLeaderTradesCursor(cursor: string | null | undefined): number {
-  if (cursor === undefined || cursor === null || cursor === '') return 0;
-  if (!/^\d{1,6}$/.test(cursor)) throw new CopyError('leaderTrades cursor is not valid', 'trade.copy_leader_trades_cursor_invalid');
-  return Number(cursor);
+/** Where the next page starts: just after this row in newest-first order. */
+export type LeaderTradesCursor = { readonly at: Date; readonly tradeId: string } | null;
+
+const CURSOR = /^(\d{1,15})\.([0-9a-f]{24})$/;
+
+function rowAt(trade: LeaderTrade): Date {
+  return new Date((trade.openedAt ?? trade.closedAt)!);
 }
 
-export function pageLeaderTrades(trades: readonly LeaderTrade[], offset: number, limit: number): LeaderTradesPage {
-  const page = trades.slice(offset, offset + limit);
-  const next = offset + limit;
-  return { trades: page, nextCursor: next < trades.length ? String(next) : null };
+/**
+ * The cursor names the last row a page showed (its time and order), not a position, so a trade the leader opens
+ * between two pages lands on the first page and never shifts a row onto the next one twice.
+ */
+export function decodeLeaderTradesCursor(cursor: string | null | undefined): LeaderTradesCursor {
+  if (cursor === undefined || cursor === null || cursor === '') return null;
+  const match = CURSOR.exec(cursor);
+  if (!match) throw new CopyError('leaderTrades cursor is not valid', 'trade.copy_leader_trades_cursor_invalid');
+  return { at: new Date(Number(match[1])), tradeId: match[2]! };
+}
+
+export function pageLeaderTrades(trades: readonly LeaderTrade[], after: LeaderTradesCursor, limit: number): LeaderTradesPage {
+  const rest =
+    after === null ? trades : trades.filter((trade) => compareNewestFirst(rowAt(trade), trade.tradeId, after.at, after.tradeId) > 0);
+  const page = rest.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    trades: page,
+    nextCursor: rest.length > limit && last ? `${rowAt(last).getTime()}.${last.tradeId}` : null,
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -284,6 +320,7 @@ export async function readLeaderOrderFills(sql: Sql, leaderUserId: string): Prom
   return rows
     .filter((row) => row.side === 'buy' || row.side === 'sell')
     .map((row) => ({
+      orderId: row.order_id,
       symbol: row.symbol,
       side: row.side,
       qty: parseAmount(row.qty),

@@ -74,6 +74,7 @@ export const leaderProfileSchema = z.object({
 export type LeaderProfile = z.infer<typeof leaderProfileSchema>;
 
 export const leaderTradeSchema = z.object({
+  tradeId: z.string(),
   symbol: z.string(),
   state: z.enum(['open', 'closed']),
   openedAt: z.string().nullable(),

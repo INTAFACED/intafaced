@@ -48,15 +48,22 @@ export function LeaderDirectory({
   const { t } = roomCopy.useCopy();
   const [text, setText] = useState('');
   const [query, setQuery] = useState('');
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [previous, setPrevious] = useState<(string | null)[]>([]);
   const [ranking, setRanking] = useState<{ label: string; failure: Failure | null } | null>(null);
   useEffect(() => {
     const timer = setTimeout(() => setQuery(text.trim()), 300);
     return () => clearTimeout(timer);
   }, [text]);
+  // A new search or tab starts again from the first page.
+  useEffect(() => {
+    setCursor(null);
+    setPrevious([]);
+  }, [mode, query]);
 
   const leaders = useLive(
-    (signal) => api.leaders({ ...(mode ? { marketMode: mode } : {}), q: query }, signal),
-    `copy-leaders:${mode ?? 'all'}:${query}`,
+    (signal) => api.leaders({ ...(mode ? { marketMode: mode } : {}), q: query, ...(cursor ? { cursor } : {}) }, signal),
+    `copy-leaders:${mode ?? 'all'}:${query}:${cursor ?? ''}`,
     60_000,
   );
 
@@ -185,6 +192,32 @@ export function LeaderDirectory({
           />
         }
       />
+      {previous.length > 0 || leaders.data?.nextCursor ? (
+        <span className="cb-meta">
+          <Button
+            variant="secondary"
+            size={28}
+            disabled={previous.length === 0}
+            onClick={() => {
+              setCursor(previous[previous.length - 1] ?? null);
+              setPrevious((p) => p.slice(0, -1));
+            }}
+          >
+            {t('Earlier')}
+          </Button>
+          <Button
+            variant="secondary"
+            size={28}
+            disabled={!leaders.data?.nextCursor}
+            onClick={() => {
+              setPrevious((p) => [...p, cursor]);
+              setCursor(leaders.data?.nextCursor ?? null);
+            }}
+          >
+            {t('Later')}
+          </Button>
+        </span>
+      ) : null}
       {leaders.status === 'ready' && leaders.failure ? <RefusalNote failure={leaders.failure} retry={leaders.reload} /> : null}
       <InfoNote>
         {t('Leaders are listed in the order they joined, never ranked by profit. A return is shown as the leader published it.')}

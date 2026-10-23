@@ -160,6 +160,7 @@ import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
+import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
@@ -348,6 +349,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
+const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -372,6 +374,7 @@ const copy = new CopyService(ledger, {
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
   disclosureLaw: copyDisclosureLaw,
+  metricDefinitions: copyMetricDefinitions,
   store: copyStore,
   directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
   placeFollowerOrder,

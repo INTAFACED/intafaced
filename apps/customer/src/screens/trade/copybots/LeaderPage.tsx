@@ -175,7 +175,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
           label={t('Leader trades')}
           columns={tradeColumns}
           rows={trades.data?.trades ?? []}
-          getRowId={(r) => `${r.symbol}:${r.openedAt ?? r.closedAt}:${r.qty}`}
+          getRowId={(r) => r.tradeId}
           status={trades.status === 'loading' ? 'loading' : trades.status === 'error' ? 'error' : 'ready'}
           refreshing={trades.refreshing && trades.data !== null}
           onRetry={trades.reload}

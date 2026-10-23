@@ -102,8 +102,15 @@ export function CopyRoom({ path }: { path: string }) {
     follows.reload();
     if (pending.id.startsWith('follow:')) {
       const leader = pending.id.slice('follow:'.length, pending.id.lastIndexOf(':'));
+      const sentAt = Number(pending.id.slice(pending.id.lastIndexOf(':') + 1));
+      // A leader typed by ID who turns out to be listed comes back named by its public ref only, so such a follow is
+      // matched by being created after the request was sent (a minute's allowance for the two clocks).
       const found = fresh.data.some(
-        (f) => (f.leaderRef ?? f.leaderId) === leader && ['ACTIVE', 'PAUSED'].includes(f.relationshipState.toUpperCase()),
+        (f) =>
+          ['ACTIVE', 'PAUSED'].includes(f.relationshipState.toUpperCase()) &&
+          (f.leaderRef === leader ||
+            f.leaderId === leader ||
+            (f.leaderId === null && f.createdAt !== undefined && Date.parse(f.createdAt) >= sentAt - 60_000)),
       );
       setVerdict(
         found

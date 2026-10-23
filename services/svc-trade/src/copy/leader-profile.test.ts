@@ -23,6 +23,7 @@ const reader = () => principalFor(READER, ['trade:read']);
 function order(side: 'buy' | 'sell', qty: string, quote: string, minute: number, extra: Partial<LeaderOrderFills> = {}): LeaderOrderFills {
   const at = new Date(Date.UTC(2026, 9, 23, 0, minute));
   return {
+    orderId: `00000000-0000-4000-8000-${String(minute).padStart(6, '0')}${side === 'buy' ? '000001' : '000002'}`,
     symbol: 'BTC/USDT',
     side,
     qty: parseAmount(qty),
@@ -107,11 +108,30 @@ describe('lead trades are paired first-in first-out from fills', () => {
     expect(row).toMatchObject({ takeProfit: '130', stopLoss: '90' });
   });
 
-  it('pages by offset and refuses a cursor that is not one', () => {
-    const rows = pairLeaderTrades([1, 2, 3].map((m) => order('buy', '1', '100', m)));
-    expect(pageLeaderTrades(rows, 0, 2)).toMatchObject({ nextCursor: '2' });
-    expect(pageLeaderTrades(rows, 2, 2)).toMatchObject({ nextCursor: null });
-    expect(() => decodeLeaderTradesCursor('abc')).toThrow(CopyError);
+  it('gives every row its own id, even two equal trades opened in the same millisecond', () => {
+    const rows = pairLeaderTrades([
+      order('buy', '1', '100', 1),
+      order('buy', '1', '100', 1, { orderId: '00000000-0000-4000-8000-0000000000ff' }),
+    ]);
+    expect(new Set(rows.map((r) => r.tradeId)).size).toBe(2);
+    expect(JSON.stringify(rows)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('pages after the last row shown, so a trade opened between pages repeats nothing', () => {
+    const before = pairLeaderTrades([1, 2, 3].map((m) => order('buy', '1', '100', m)));
+    const first = pageLeaderTrades(before, null, 2);
+    expect(first.trades.map((r) => r.openedAt)).toEqual(['2026-10-23T00:03:00.000Z', '2026-10-23T00:02:00.000Z']);
+    // The leader opens a new trade before the reader asks for the next page.
+    const after = pairLeaderTrades([1, 2, 3, 4].map((m) => order('buy', '1', '100', m)));
+    const second = pageLeaderTrades(after, decodeLeaderTradesCursor(first.nextCursor), 2);
+    expect(second.trades.map((r) => r.openedAt)).toEqual(['2026-10-23T00:01:00.000Z']);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it('refuses a cursor that is not one', () => {
+    for (const bad of ['abc', '2', '1.xyz', `1.${'a'.repeat(23)}`]) {
+      expect(() => decodeLeaderTradesCursor(bad)).toThrow(CopyError);
+    }
   });
 });
 

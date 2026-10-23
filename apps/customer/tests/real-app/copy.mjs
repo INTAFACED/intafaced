@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect } from '@playwright/test';
 import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, ORIGIN, api, bestPrices } from './stack.mjs';
@@ -26,7 +25,7 @@ export async function listLeader(who, displayName, { marketMode = 'spot', tenure
     'trade',
     'copy.ops.upsertListing',
     {
-      clientRequestId: `journey-list:${randomUUID()}`,
+      clientRequestId: `journey-list:${displayName}`,
       leaderUserId: await userIdOf(who),
       displayName,
       marketMode,

@@ -81,6 +81,7 @@ const messages = {
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
+  Earlier: 'Earlier',
   'Enter 1 to 10000': 'Enter 1 to 10000',
   'Enter a price above zero, or leave it empty': 'Enter a price above zero, or leave it empty',
   'Enter an amount above zero': 'Enter an amount above zero',
@@ -127,6 +128,7 @@ const messages = {
   'Largest drop': 'Largest drop',
   'Largest position': 'Largest position',
   'Last slice': 'Last slice',
+  Later: 'Later',
   Leader: 'Leader',
   'Leader ID': 'Leader ID',
   'Leader directory': 'Leader directory',

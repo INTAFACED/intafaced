@@ -890,7 +890,9 @@ function serviceDefs(secrets) {
         // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), plus the operator desk's write
         // scope (admin:write) for svc-trade's copy leader listing, which the copy journeys need to list a TEST leader.
         // Identity adds them only to a founder's own signed-in session with a second factor, never to an API key or a
-        // sub-account. support:ops and every money-moving scope (admin:treasury, trade:withdraw, pay:*) stay off.
+        // sub-account. admin:write is the operator desk's whole write scope, so on this stack it also opens the other
+        // operator write doors (svc-identity's payout and accrual, svc-trade's insurance top-up and mass cancel), on
+        // TEST funds only. support:ops, admin:treasury, trade:withdraw and pay:* stay off.
         IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops',
         // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
         // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.

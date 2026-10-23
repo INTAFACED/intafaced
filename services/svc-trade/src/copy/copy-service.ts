@@ -115,7 +115,7 @@ import {
   leaderTradesLimit,
   pageLeaderTrades,
   pairLeaderTrades,
-  parseCopyMetricDefinitionsJson,
+  UNPUBLISHED_COPY_METRIC_DEFINITIONS,
   presentLeaderProfile,
   readLeaderOrderFills,
   type CopyMetricDefinitions,
@@ -320,7 +320,7 @@ export class CopyService {
     this.lookupMark = options.lookupMark ?? null;
     this.readResultFigure = options.readResultFigure ?? null;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
-    this.metricDefinitions = options.metricDefinitions ?? parseCopyMetricDefinitionsJson(process.env.TRADE_COPY_METRIC_DEFINITIONS);
+    this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -685,10 +685,10 @@ export class CopyService {
   ): Promise<LeaderTradesPage> {
     void principal;
     const limit = leaderTradesLimit(input.limit);
-    const offset = decodeLeaderTradesCursor(input.cursor);
+    const after = decodeLeaderTradesCursor(input.cursor);
     const { leaderUserId } = await this.directory.listedLeader(input.leaderRef);
     if (!this.sql) throw new CopyError('Leader trades need the spot tables', 'trade.copy_unavailable');
-    return pageLeaderTrades(pairLeaderTrades(await readLeaderOrderFills(this.sql, leaderUserId)), offset, limit);
+    return pageLeaderTrades(pairLeaderTrades(await readLeaderOrderFills(this.sql, leaderUserId)), after, limit);
   }
 
   upsertListing(principal: Principal, input: UpsertLeaderListingInput): Promise<OperatorListingResult> {

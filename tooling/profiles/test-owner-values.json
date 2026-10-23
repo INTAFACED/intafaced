@@ -183,13 +183,13 @@
     },
     "TRADE_COPY_FEE_SHARE_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000\", \"decayRoundTrips\": 0, \"decayShareBps\": 1000}",
-      "note": "Leader's share of the trading fee on copied orders: 10% (1000 bps), capped at 1000 USDT per follower."
+      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000.00\", \"decayRoundTrips\": 50, \"decayShareBps\": 5000}",
+      "note": "The fee share D26-P0-02 published in .env.example: 10% of the trading fee on copied orders, capped at 1000 per follower, halved after 50 round trips."
     },
     "TRADE_COPY_JURISDICTION_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"allowedRegions\": [\"DE\", \"FR\", \"GB\", \"ID\", \"NL\", \"SG\"]}",
-      "note": "Countries copy trading is offered in on the test stack. US is left off so a refusal can be seen."
+      "note": "TEST fixture, never a product default (ADR 2026-08-12: test fixtures may use codes). Counsel has supplied no list, so live stays blank and refuses. US is left off so a refusal can be seen."
     },
     "TRADE_COPY_DISCLOSURE_LAW": {
       "service": "trade",

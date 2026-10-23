@@ -89,6 +89,7 @@ export const copyFollowSchema = z.object({
   sessionKeyRevoked: z.boolean(),
   relationshipState: z.string(),
   newIntentFenced: z.boolean(),
+  createdAt: z.string().optional(),
 });
 export const copyStatusSchema = z.object({
   feeSharePublished: z.boolean(),
