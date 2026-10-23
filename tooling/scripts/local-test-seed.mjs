@@ -98,7 +98,7 @@ export const TEST_LOANS = [
  * Convert quotes a spot book (`services/svc-trade/src/convert/quote.ts`, source
  * kind `book`) and settles `baseAsset` against `quoteAsset` from this pot.
  * The stack's default markets (`DEFAULT_SYMBOLS` in local-test-market.mjs) are
- * BTC/USDT, BTC/USDC, ETH/USDT, ETH/USDC and IFC/USDT. Both sides are here.
+ * BTC/USDT, BTC/USDC, ETH/USDT, ETH/USDC, IFC/USDT and the TEST ETH/BTC. Both sides are here.
  * Amounts are exact decimal strings. Rail is `local-test`.
  */
 export const TEST_HOUSE_INVENTORY = [
