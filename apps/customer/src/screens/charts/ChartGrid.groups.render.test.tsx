@@ -158,6 +158,7 @@ beforeEach(() => {
     drawingCap: 50,
     brushPointCap: 2000,
     delayedBoundarySeconds: 30,
+    renderBudgetMs: 500,
     dataClass: 'real_time',
   };
 });

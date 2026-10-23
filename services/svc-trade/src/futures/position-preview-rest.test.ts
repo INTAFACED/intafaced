@@ -129,6 +129,31 @@ describe('POST /api/v1/positions/preview', () => {
     }
   });
 
+  it('a non-cash collateral class is named on the collateral line, and the preview is not orderable', async () => {
+    const app = appWith({ mark: '100', cap: '5', liquidation: '80' });
+    for (const collateralClass of ['yield_bearing', 'staked', 'lending_idle']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions/preview',
+        headers: headers(),
+        payload: { ...payload, collateralClass },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ orderable: false, initialMargin: '50' });
+      expect(response.json().refusals).toEqual([
+        expect.objectContaining({ code: 'trade.unsupported_collateral_class', field: 'collateral' }),
+      ]);
+    }
+    const cash = await app.inject({
+      method: 'POST',
+      url: '/api/v1/positions/preview',
+      headers: headers(),
+      payload: { ...payload, collateralClass: 'cash' },
+    });
+    expect(cash.json()).toMatchObject({ orderable: true, refusals: [] });
+    await app.close();
+  });
+
   it('refuses JSON-number money inputs', async () => {
     const app = appWith({ mark: '100', cap: '5' });
     const response = await app.inject({

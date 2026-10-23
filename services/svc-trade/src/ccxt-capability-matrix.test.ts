@@ -35,9 +35,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const publicRestSource = readFileSync(join(here, 'public-rest.ts'), 'utf8');
 const privateRestSource = readFileSync(join(here, 'private-rest.ts'), 'utf8');
 const spotOrderPreviewSource = readFileSync(join(here, 'spot/order-preview-rest.ts'), 'utf8');
+const statementRestSource = readFileSync(join(here, 'statements/statement-rest.ts'), 'utf8');
 const positionServiceSource = readFileSync(join(here, 'futures/position-service.ts'), 'utf8');
 const marginModeSource = readFileSync(join(here, 'futures/margin-mode.ts'), 'utf8');
-const privateMountSource = `${privateRestSource}\n${spotOrderPreviewSource}`;
+const privateMountSource = `${privateRestSource}\n${spotOrderPreviewSource}\n${statementRestSource}`;
 
 const SECRET = 'a-ccxt-capability-matrix-edge-secret-long';
 const USER = '11111111-1111-4111-8111-111111111111';

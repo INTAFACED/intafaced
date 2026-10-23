@@ -21,6 +21,8 @@ import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
+import { createLedgerPages } from './statements/ledger-history.js';
+import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
@@ -137,6 +139,8 @@ import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import { liquidationPriceFor } from './futures/liquidation-price.js';
+import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
+import { registerCollateralRest } from './futures/collateral-rest.js';
 import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
@@ -205,6 +209,8 @@ const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVeri
 const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 bindMatchingCloseS2s(outS2s);
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+/** Ledger history pages (read-only), for the person's ledger history and statement export. */
+const ledgerPages = createLedgerPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s));
 const tradingControls = new TradingControls(
   sql,
@@ -582,7 +588,8 @@ const positions = new PositionService(sql, ledger, {
 // are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
 // earlier process must reach the futures path, never fall through to spot (which ignores an order it does not know).
 const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
-const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
+const stopTriggers = sqlStopTrigger(sql);
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
@@ -815,6 +822,12 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  bookHalt: async (market) => {
+    const board = await matching.listMarkets();
+    // An engine that omits its halt fields has reported no halt state: that is not an open book, so it refuses.
+    if (board.halted === undefined && board.venueHalted === undefined) throw new Error('matching reports no halt state');
+    return { halted: board.halted?.includes(market.id) === true, venueHalted: board.venueHalted === true };
+  },
   pairRiskForMarkets: async (markets) => {
     const risks = await currentRiskForMarkets(
       sql,
@@ -885,6 +898,26 @@ registerPositionPreviewRest(app, {
       return null;
     }
   },
+});
+// The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
+// preview, and the same taker rate as the order path (`risk-calculator.ts`).
+registerRiskCalculatorRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  publishedLadder: () => futuresJobs.ladderGate.policy,
+  depthNotional: (input) => futuresJobs.ladderGate.depth.depthNotional(input),
+  leverageCap: maxLeverage,
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
+});
+// What counts as futures margin for the account, read the same way the opening order's haircut check reads it.
+registerCollateralRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  settleAssets: async () => (await trade.markets(500)).filter((m) => m.kind === 'futures').map((m) => m.quoteAsset),
+  figures: (userId, asset) => positions.collateralFigures(userId, asset),
 });
 registerGreeksWhatIfRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -1054,6 +1087,10 @@ registerPrivateRest(app, {
       env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
       env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
     ),
+  readCancelAllAfter: async (principal) => ({
+    ...(await (trade as unknown as CancelAllAfterHost).readCancelAllAfter(principal)),
+    published: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+  }),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -1181,8 +1218,9 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
-  stopTriggers: sqlStopTrigger(sql),
+  stopTriggers,
   ocoExits: (ids) => readOcoIntents(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

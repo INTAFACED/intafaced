@@ -8,6 +8,7 @@ import {
   liquidatedRows,
   nextFundingAt,
   pastCallCap,
+  percentOfBps,
   sameContract,
   signedAmount,
 } from './tabs-logic';
@@ -114,5 +115,14 @@ describe('sameContract', () => {
     expect(sameContract('BTC/USDT:USDT', 'btc-usdt-usdt')).toBe(true);
     expect(sameContract('BTC/USDT', 'ETH/USDT')).toBe(false);
     expect(sameContract(null, null)).toBe(false);
+  });
+});
+
+describe('percentOfBps', () => {
+  it('writes whole bps as a percent by place value, with no float', () => {
+    expect(percentOfBps(500)).toBe('5.00');
+    expect(percentOfBps(2_000)).toBe('20.00');
+    expect(percentOfBps(5)).toBe('0.05');
+    expect(percentOfBps(0)).toBe('0.00');
   });
 });
