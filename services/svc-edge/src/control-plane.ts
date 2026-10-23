@@ -297,10 +297,15 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
   const operator = async (
     header: string | undefined,
     reply: { code: (n: number) => { send: (b: unknown) => unknown } },
-    kind: 'module' | 'treasury',
+    kind: 'module' | 'treasury' | 'lookup',
   ) => {
     try {
-      const principal = kind === 'treasury' ? await admin.authenticateTreasury(header) : await admin.authenticate(header);
+      const principal =
+        kind === 'treasury'
+          ? await admin.authenticateTreasury(header)
+          : kind === 'lookup'
+            ? await admin.authenticateLookup(header)
+            : await admin.authenticate(header);
       return { principal, bearer: header as string };
     } catch (err) {
       if (err instanceof AuthError) {
@@ -722,18 +727,18 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
 
   /**
    * The ledger object lookup (OPS-rules-monitoring-12): one transaction by id, or the one a business key booked.
-   * Treasury scope, forwarded with the operator's OWN token, so svc-ledger records the lookup against the person at the
+   * A founder's `admin:read` with a second factor (owner decision 2026-10-23), forwarded with the operator's OWN token, so svc-ledger records the lookup against the person at the
    * keyboard before it reads. svc-ledger's answer passes through unchanged, refusals included.
    */
   app.get<{ Params: { txId: string } }>('/admin/ledger/transactions/:txId', async (req, reply) => {
-    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    const auth = await operator(req.headers.authorization, reply, 'lookup');
     if (!auth) return reply;
     const res = await admin.lookupTransaction(req.params.txId, auth.bearer);
     return reply.code(res.status).send(res.body);
   });
 
   app.get<{ Querystring: { businessKey?: unknown } }>('/admin/ledger/trace', async (req, reply) => {
-    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    const auth = await operator(req.headers.authorization, reply, 'lookup');
     if (!auth) return reply;
     const res = await admin.traceBusinessKey(req.query?.businessKey, auth.bearer);
     return reply.code(res.status).send(res.body);

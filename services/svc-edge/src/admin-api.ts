@@ -94,7 +94,9 @@ export type WarehouseDoorSnapshot = {
  * same authority and must not share a credential. An operator on the trading
  * desk needs the first; the second is the switch `flags.ts` calls "the most
  * consequential in the platform", and `svc-ledger` gates it on `admin:treasury`
- * on its own side too. Checking it here as well is not redundancy for its own
+ * on its own side too. The two ledger object lookups are reads and take a
+ * founder's `admin:read` with a second factor instead (`authenticateLookup`,
+ * owner decision 2026-10-23), on both sides. Checking it here as well is not redundancy for its own
  * sake — it means the edge refuses before it forwards a token, so an
  * under-scoped operator never reaches the money plane at all.
  *
@@ -280,6 +282,11 @@ export interface AdminApi {
   authenticateRead(header: string | undefined): Promise<Principal>;
   /** Verify an Authorization header for treasury control, or throw `AuthError`. */
   authenticateTreasury(header: string | undefined): Promise<Principal>;
+  /**
+   * Verify an Authorization header for the ledger object lookups: `admin:read` with a second factor, on a live session
+   * (owner decision 2026-10-23), the same rule svc-ledger applies. Or throw `AuthError`.
+   */
+  authenticateLookup(header: string | undefined): Promise<Principal>;
   /** Current kill-switch state and its audit trail, as the console renders it. */
   read(): KillSwitchSnapshot;
   /**
@@ -403,6 +410,15 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       const principal = await verify(header);
       // `admin:treasury` is interactive-only, so this enforces MFA too.
       requireScope(principal, 'admin:treasury');
+      if (deps.sessionLive) await deps.sessionLive(principal);
+      return principal;
+    },
+
+    async authenticateLookup(header) {
+      const principal = await verify(header);
+      // `admin:read` is interactive-only (refused on an API key); a lookup also needs the second factor.
+      requireScope(principal, 'admin:read');
+      requireMfa(principal);
       if (deps.sessionLive) await deps.sessionLive(principal);
       return principal;
     },
