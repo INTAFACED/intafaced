@@ -1132,6 +1132,8 @@ export interface CheckoutSessionView {
    * learn a rail's shape to produce.
    */
   readonly instruction: { readonly reference: string; readonly amount: string; readonly currency: string } | null;
+  readonly confirmationMessage?: string | null;
+  readonly confirmationUrl?: string | null;
 }
 
 interface LinkRow {
@@ -2780,9 +2782,12 @@ export class PayService {
    */
   async getCheckoutSession(sessionToken: string): Promise<CheckoutSessionView> {
     const tokenHash = createHash('sha256').update(sessionToken).digest('hex');
-    const rows = await this.sql<Array<CheckoutSessionRow & { label: string }>>`
+    const rows = await this.sql<
+      Array<CheckoutSessionRow & { label: string; confirmation_message: string | null; confirmation_url: string | null }>
+    >`
       SELECT s.id, s.link_id, s.merchant_id, s.payment_id, s.amount::text, s.currency,
-             s.rail_adapter, s.instruction, s.status, s.expires_at, l.label
+             s.rail_adapter, s.instruction, s.status, s.expires_at, l.label,
+             l.confirmation_message, l.confirmation_url
         FROM pay.checkout_sessions s
         JOIN pay.payment_links l ON l.id = s.link_id
        WHERE s.token_hash = ${tokenHash}
@@ -2792,7 +2797,12 @@ export class PayService {
 
     const method = this.checkoutRails.find((r) => r.railId === row.rail_adapter)?.method ?? 'crypto';
 
-    if (row.status !== 'open') return toCheckoutSessionView(row, row.label, method);
+    if (row.status !== 'open') {
+      return toCheckoutSessionView(row, row.label, method, {
+        message: row.confirmation_message,
+        url: row.confirmation_url,
+      });
+    }
 
     if (row.expires_at.getTime() <= this.now().getTime()) {
       // Lazily projected, and also swept by `expireCheckoutSessions`. Both, so
@@ -6602,7 +6612,12 @@ async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void
  * rather than passed through from anywhere, so a page can never render a number
  * that differs from the one the payment was created for.
  */
-function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: string): CheckoutSessionView {
+function toCheckoutSessionView(
+  row: CheckoutSessionRow,
+  label: string,
+  method: string,
+  confirmation?: { message: string | null; url: string | null },
+): CheckoutSessionView {
   const reference = typeof row.instruction?.reference === 'string' ? row.instruction.reference : null;
   return {
     id: row.id,
@@ -6613,6 +6628,8 @@ function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: s
     method,
     expiresAt: row.expires_at.toISOString(),
     instruction: reference ? { reference, amount: formatAmount(parseAmount(row.amount)), currency: row.currency } : null,
+    confirmationMessage: confirmation?.message ?? null,
+    confirmationUrl: confirmation?.url ?? null,
   };
 }
 

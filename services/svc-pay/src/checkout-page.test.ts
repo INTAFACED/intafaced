@@ -143,6 +143,30 @@ describe('checkout page rendering', () => {
     expect(open.html).not.toContain('Payment received');
   });
 
+  it('shows a stored confirmation and only redirects to a parsed https url', () => {
+    const told = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationMessage: 'Thanks <for> paying' },
+    });
+    expect(told.html).toContain('Thanks &lt;for&gt; paying');
+    expect(told.html).not.toContain('Payment received');
+    expect(told.html).not.toContain('<for>');
+
+    const go = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationUrl: 'https://merchant.example/done' },
+    });
+    expect(go.html).toContain('href="https://merchant.example/done"');
+    expect(go.html).not.toContain('javascript:');
+
+    const bad = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationUrl: 'javascript:alert(1)' },
+    });
+    expect(bad.html).toContain('Payment received');
+    expect(bad.html).not.toContain('javascript:');
+  });
+
   /**
    * THE SENTENCE THAT MATTERS MOST ON THIS SURFACE.
    *

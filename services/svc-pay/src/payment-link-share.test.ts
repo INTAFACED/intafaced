@@ -14,6 +14,16 @@ describe('payment link share', () => {
       message: null,
       url: 'https://merchant.example/done',
     });
+    expect(parseLinkConfirmation({ kind: 'redirect', url: 'HTTPS://merchant.example/done' })).toEqual({
+      ok: true,
+      message: null,
+      url: 'https://merchant.example/done',
+    });
+    expect(parseLinkConfirmation({ kind: 'redirect', url: 'https:merchant.example/done' })).toEqual({
+      ok: true,
+      message: null,
+      url: 'https://merchant.example/done',
+    });
     expect(parseLinkConfirmation({ kind: 'message', message: ' Paid ' })).toEqual({ ok: true, message: 'Paid', url: null });
   });
 

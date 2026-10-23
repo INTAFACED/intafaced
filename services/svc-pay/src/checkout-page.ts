@@ -63,6 +63,8 @@ export type CheckoutSessionPageView = {
   method: string;
   expiresAt: string;
   instruction: { reference: string; amount: string; currency: string } | null;
+  confirmationMessage?: string | null;
+  confirmationUrl?: string | null;
 };
 
 /** The slice of PayService the hosted page needs. Nothing else is reachable from here. */
@@ -296,6 +298,14 @@ function sessionBody(session: CheckoutSessionPageView): string {
   )}</span></p>`;
 
   if (session.status === 'completed') {
+    const redirect = httpsRedirect(session.confirmationUrl);
+    const message = session.confirmationMessage?.trim();
+    const paid = message
+      ? `<p class="cta done" role="status">${escapeHtml(message)}</p>`
+      : `<p class="cta done" role="status">Payment received</p>`;
+    const next = redirect
+      ? `<p class="hint"><a href="${escapeHtml(redirect)}">Continue</a></p>`
+      : `<p class="hint">The merchant has been notified.</p>`;
     return `
       <header class="head">
         <p class="eyebrow">Paid</p>
@@ -303,8 +313,8 @@ function sessionBody(session: CheckoutSessionPageView): string {
       </header>
       <section class="card">
         ${amountLine}
-        <p class="cta done" role="status">Payment received</p>
-        <p class="hint">The merchant has been notified.</p>
+        ${paid}
+        ${next}
       </section>
     `;
   }
@@ -424,6 +434,18 @@ function pageShell(body: string, title: string, refreshSeconds?: number): string
 }
 
 /** Read `PayError.code` (or any error with a string `code`) without importing the service. */
+function httpsRedirect(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname.length === 0 || !parsed.href.startsWith('https://')) return null;
+  return parsed.href;
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return '';

@@ -33,8 +33,10 @@ export function parseLinkConfirmation(
   } catch {
     return { ok: false, code: 'pay.link_redirect_not_https' };
   }
-  if (parsed.protocol !== 'https:' || parsed.hostname.length === 0) return { ok: false, code: 'pay.link_redirect_not_https' };
-  return { ok: true, message: null, url };
+  if (parsed.protocol !== 'https:' || parsed.hostname.length === 0 || !parsed.href.startsWith('https://')) {
+    return { ok: false, code: 'pay.link_redirect_not_https' };
+  }
+  return { ok: true, message: null, url: parsed.href };
 }
 
 /** Blank or whitespace is no message. A message over the cap is refused. */
