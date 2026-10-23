@@ -15,22 +15,23 @@ import { riskSetPayloadHash } from '@/lib/trade-ops/risk-set-hash';
  *   POST { action: 'propose', market, values, reason }              file the two-person request for the change
  *   POST { action: 'apply',   market, values, reason, approvalId }  write it, once the request is APPROVED
  *
- * `values` holds the five limits as text; a blank one is unset. A change is checked against the version just read, so
- * a stale form is refused here and again by the service.
+ * `values` holds the limits as text; a blank one is unset. A missing one of the five is blank; a missing open-interest
+ * field is left out, so the service keeps it and a form from before the pair existed cannot clear it. A change is
+ * checked against the version just read, so a stale form is refused here and again by the service.
  */
 export const dynamic = 'force-dynamic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_.:-]{1,128}$/;
 
-function valuesOf(raw: unknown): Record<OperatorLimitField, string> | null {
+function valuesOf(raw: unknown): Partial<Record<OperatorLimitField, string>> | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const input = raw as Record<string, unknown>;
-  const out = {} as Record<OperatorLimitField, string>;
+  const out: Partial<Record<OperatorLimitField, string>> = {};
   for (const check of ENGINE_CHECKS) {
     const v = input[check.field];
     if (v !== undefined && typeof v !== 'string') return null;
-    out[check.field] = v ?? '';
+    if (v !== undefined || !check.futuresOnly) out[check.field] = v ?? '';
   }
   return out;
 }

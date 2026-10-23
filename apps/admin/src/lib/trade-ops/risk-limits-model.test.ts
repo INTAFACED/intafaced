@@ -4,10 +4,12 @@ import {
   checkLimitEdit,
   checkRiskSet,
   decimalGte,
+  ENGINE_CHECKS,
   isMultipleOf,
   isPositiveDecimal,
   limitEditOutcome,
-  checksFor,
+  appliesTo,
+  valuesFor,
 } from './risk-limits-model';
 
 const ME = 'me';
@@ -138,10 +140,28 @@ describe('checkRiskSet', () => {
       expect(checkRiskSet(now, { ...vals, oiLimit: '1000', oiShareBps }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
     expect(checkRiskSet(now, { ...vals, oiLimit: '-5' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
   });
-  it('lists the open-interest pair on futures markets only', () => {
-    const ids = (kind: 'spot' | 'futures') => checksFor(kind).map((c) => c.field);
-    expect(ids('futures')).toEqual(expect.arrayContaining(['oiLimit', 'oiShareBps']));
-    expect(ids('spot')).not.toContain('oiLimit');
-    expect(ids('spot')).not.toContain('oiShareBps');
+  it('refuses an open-interest limit longer than the ledger can hold', () => {
+    const whole20 = '9'.repeat(20);
+    expect(checkRiskSet(now, { ...vals, oiLimit: `${whole20}.5`, oiShareBps: '500' }, REASON)).toMatchObject({ ok: true });
+    expect(checkRiskSet(now, { ...vals, oiLimit: `1${whole20}`, oiShareBps: '500' }, REASON)).toMatchObject({
+      code: 'risk_limits.bad_value',
+    });
+  });
+  it('sends the open-interest pair on futures markets only, and a write without it keeps it', () => {
+    const shown = { ...vals, oiLimit: '1000', oiShareBps: '500' };
+    expect(Object.keys(valuesFor(shown, 'futures'))).toEqual(expect.arrayContaining(['oiLimit', 'oiShareBps']));
+    for (const kind of ['spot', 'options'] as const) {
+      expect(valuesFor(shown, kind)).not.toHaveProperty('oiLimit');
+      expect(valuesFor(shown, kind)).not.toHaveProperty('oiShareBps');
+      expect(ENGINE_CHECKS.filter((c) => appliesTo(c, kind)).map((c) => c.field)).not.toContain('oiLimit');
+    }
+    // A pair stored on the market stays out of a write that leaves it out: the hash and the write carry no key for it.
+    const held = { ...now, oiLimit: '1000', oiShareBps: '500' };
+    const { oiLimit: _l, oiShareBps: _s, ...five } = vals;
+    const out = checkRiskSet(held, { ...five, throttle: '7' }, REASON);
+    expect(out.ok && out.body.limits).not.toHaveProperty('oiLimit');
+    expect(out.ok && out.body.limits).not.toHaveProperty('oiShareBps');
+    // Leaving the pair out is not a change on its own.
+    expect(checkRiskSet(held, five, REASON)).toMatchObject({ code: 'risk_limits.no_change' });
   });
 });

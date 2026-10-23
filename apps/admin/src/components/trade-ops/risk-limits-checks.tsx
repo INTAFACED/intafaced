@@ -20,7 +20,15 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { RiskCurrent, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
 import type { MarketRow } from '@/lib/trade-ops/reads';
 import type { Outcome } from '@/lib/trade-ops/outcome';
-import { checkRiskSet, checksFor, limitText, type EngineCheck, type OperatorLimitField } from '@/lib/trade-ops/risk-limits-model';
+import {
+  appliesTo,
+  checkRiskSet,
+  ENGINE_CHECKS,
+  limitText,
+  valuesFor,
+  type EngineCheck,
+  type OperatorLimitField,
+} from '@/lib/trade-ops/risk-limits-model';
 import { ConfirmAction } from './confirm-action';
 import { OutcomeNotice } from './outcome-notice';
 
@@ -55,9 +63,11 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
   const [approvalId, setApprovalId] = useState('');
 
   const loaded = read?.kind === 'ok' ? read.data : null;
-  const market = markets.find((m) => m.id === marketId);
-  const symbol = market?.symbol ?? '';
-  const check = loaded ? checkRiskSet(loaded.current, values, reason.length >= 12 ? reason : 'x'.repeat(12)) : null;
+  const symbol = markets.find((m) => m.id === marketId)?.symbol ?? '';
+  // The kind of the market whose limits were read, so the form never offers or sends a check that does not apply there.
+  const kind = loaded ? markets.find((m) => m.id === loaded.current.marketId)?.kind : undefined;
+  const sent = valuesFor(values, kind);
+  const check = loaded ? checkRiskSet(loaded.current, sent, reason.length >= 12 ? reason : 'x'.repeat(12)) : null;
   const problem = check && !check.ok ? check : null;
 
   async function load() {
@@ -81,7 +91,16 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
     setBusy(false);
   }
 
-  const body = () => ({ market: marketId, values, reason: reason.trim(), expectedVersion: loaded?.current.version });
+  /** A new market drops the read, so nothing read for one market is shown, sent or applied for another. */
+  function chooseMarket(id: string) {
+    setMarketId(id);
+    setRead(null);
+    setValues(EMPTY);
+    setProposed(null);
+    setHash(null);
+  }
+
+  const body = () => ({ market: marketId, values: sent, reason: reason.trim(), expectedVersion: loaded?.current.version });
 
   async function propose() {
     setBusy(true);
@@ -104,6 +123,10 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       cell: (c) =>
         !loaded ? (
           <span className="text-fg-3">—</span>
+        ) : !appliesTo(c, kind) ? (
+          <Badge tone="neutral" variant="outline" density="dense">
+            Futures only
+          </Badge>
         ) : loaded.current[c.field] === null ? (
           <Badge tone="neutral" variant="outline" density="dense">
             Unset
@@ -117,18 +140,21 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       header: 'New value (blank = unset)',
       width: 230,
       value: () => null,
-      cell: (c) => (
-        <Input
-          aria-label={`${c.name}: new value`}
-          value={values[c.field]}
-          onValueChange={(v) => setValues((prev) => ({ ...prev, [c.field]: v }))}
-          density="dense"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={!loaded}
-          placeholder={c.unit}
-        />
-      ),
+      cell: (c) =>
+        loaded && !appliesTo(c, kind) ? (
+          <span className="text-sm text-fg-2">Not read on {kind} markets; left as it is.</span>
+        ) : (
+          <Input
+            aria-label={`${c.name}: new value`}
+            value={values[c.field]}
+            onValueChange={(v) => setValues((prev) => ({ ...prev, [c.field]: v }))}
+            density="dense"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={!loaded}
+            placeholder={c.unit}
+          />
+        ),
     },
   ];
 
@@ -152,7 +178,7 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
           <Select
             items={Object.fromEntries(markets.map((m) => [m.id, m.symbol]))}
             value={marketId}
-            onValueChange={(v) => setMarketId(String(v))}
+            onValueChange={(v) => chooseMarket(String(v))}
           >
             <SelectTrigger size={32}>
               <SelectValue />
@@ -178,7 +204,7 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       </div>
       {read && read.kind !== 'ok' ? <OutcomeNotice outcome={read} /> : null}
 
-      <Table<EngineCheck> label="Operator limits" density="dense" columns={columns} rows={checksFor(market?.kind)} getRowId={(c) => c.id} />
+      <Table<EngineCheck> label="Operator limits" density="dense" columns={columns} rows={ENGINE_CHECKS} getRowId={(c) => c.id} />
 
       <div className="flex flex-col gap-3">
         <Field label="Reason (12 to 500 characters, kept in the audit)" density="dense">
