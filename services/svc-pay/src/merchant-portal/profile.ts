@@ -24,6 +24,7 @@ type PayLookup = Pick<PayService, 'getMerchant' | 'getMerchantByUserId'>;
 interface StoredRow {
   id: string;
   profile_version: string;
+  profile_second_approval: boolean;
   display_name: string | null;
   legal_name: string | null;
   website: string | null;
@@ -42,7 +43,7 @@ interface StoredRow {
 const COLUMNS = `
   id, profile_version::text AS profile_version, display_name, legal_name, website, support_email, support_phone,
   statement_descriptor, industry, address_line1, address_line2, address_city, address_region,
-  address_postal_code, address_country
+  address_postal_code, address_country, profile_second_approval
 `;
 
 function addressOf(row: StoredRow): ProfileFields['address'] {
@@ -71,7 +72,7 @@ function fieldsOf(row: StoredRow): ProfileFields {
 }
 
 function profileOf(row: StoredRow) {
-  return { merchantId: row.id, version: row.profile_version, ...fieldsOf(row) };
+  return { merchantId: row.id, version: row.profile_version, ...fieldsOf(row), secondApprovalEnabled: row.profile_second_approval };
 }
 
 function versionOf(raw: string): bigint {
@@ -205,7 +206,7 @@ export class MerchantProfileService {
         const after = applySensitiveNow || sensitiveKeys.length === 0 ? live : applyPatch(live, sensitive);
         const hash = profileChangeHash(sensitive, version);
         const direct = sensitiveKeys.length === 0 || applySensitiveNow;
-        const secondApproval = !direct && (await this.secondApprovalEnabled(tx, input.merchantId));
+        const secondApproval = !direct && current.profile_second_approval;
         const status =
           sensitiveKeys.length === 0 ? 'applied' : applySensitiveNow ? 'applied_pre_kyb' : secondApproval ? 'pending' : 'pending_review';
         await tx`
@@ -407,12 +408,6 @@ export class MerchantProfileService {
          AND role = 'admin' AND status = 'active'
        LIMIT 1`;
     return Boolean(admins[0]);
-  }
-
-  private async secondApprovalEnabled(sql: Sql, merchantId: string): Promise<boolean> {
-    const rows = await sql<Array<{ profile_second_approval: boolean }>>`
-      SELECT profile_second_approval FROM pay.merchants WHERE id = ${merchantId}`;
-    return rows[0]?.profile_second_approval === true;
   }
 
   private async readFence(userId: string | undefined, merchantId: string) {
