@@ -7,7 +7,7 @@ import { awayBid, confirm, free, fundedTrader, held, openDesk, openOrders, place
 // USDT through the real ledger. The resting sells are the TEST market maker's; nothing is stood in for.
 const J = 'J-cex-spot-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const FUNDED = '25000';
+const FUNDED = '60000';
 
 test.describe.configure({ mode: 'default' });
 
@@ -137,10 +137,12 @@ test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the 
   const who = account();
   const before = await (await api(who)).balances();
   const { ask, body } = await bestPrices();
-  // Twice every sell at or under the best ask's price, and one lot more: the book cannot fill it whole, even when the
-  // TEST market maker requotes the same level between this read and the send.
+  // Every sell at or under the best ask's price, plus every sell on the book, and one lot more. The TEST market maker
+  // places its new ladder before it cancels the old one, so for a moment both rest and the new one can put a whole
+  // ladder at or under this ask; even then the book cannot fill this whole.
   const atAsk = body.asks.filter(([p]) => toUnits(p) <= toUnits(ask)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-  const amount = fromUnits(2n * atAsk + toUnits('0.001'));
+  const allAsks = body.asks.reduce((sum, [, size]) => sum + toUnits(size), 0n);
+  const amount = fromUnits(atAsk + allAsks + toUnits('0.001'));
   await openDesk(page, who);
   const sent = await limitBuy(page, { tif: 'Fill or kill', price: ask, amount });
   expect(sent).toMatchObject({ type: 'limit', timeInForce: 'FOK', postOnly: false });
