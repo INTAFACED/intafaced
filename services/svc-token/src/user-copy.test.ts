@@ -51,6 +51,10 @@ const TOKEN_ERROR_CODES = [
   'token.history_cursor_invalid',
   'token.emission_schedule_count_unset',
   'token.ledger_tx_unread',
+  'token.delegation_delegatee_unset',
+  'token.delegation_delegatee_invalid',
+  'token.delegation_parked',
+  'token.treasury_figure_unreadable',
 ] as const satisfies readonly TokenError['code'][];
 
 type Missing = Exclude<TokenError['code'], (typeof TOKEN_ERROR_CODES)[number]>;

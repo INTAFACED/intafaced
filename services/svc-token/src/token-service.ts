@@ -29,6 +29,7 @@ import { distributeYield, splitBuyback, type BuybackParams } from './economics/b
 import { cumulativeEmission, epochReward, type EmissionParams } from './economics/emission.js';
 import { withMoneySpan } from './tracing.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
+import { reportTreasury, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
 
 /**
  * svc-token — THE NATIVE ECONOMY (§4.3).
@@ -177,7 +178,21 @@ export class TokenError extends Error {
        * A payout row has no matching ledger transaction, or the transaction
        * disagrees with the stored id. The table amount is not a substitute.
        */
-      | 'token.ledger_tx_unread',
+      | 'token.ledger_tx_unread'
+      /** Delegate target omitted or blank. Not stored as a self-delegation. */
+      | 'token.delegation_delegatee_unset'
+      /** Target is not a member id. A chain address is not accepted in its place. */
+      | 'token.delegation_delegatee_invalid'
+      /**
+       * Delegation stays parked: no chain GO is recorded. Nothing is written,
+       * including when the target is the caller.
+       */
+      | 'token.delegation_parked'
+      /**
+       * A treasury total was blank, negative, or paired with a count that
+       * does not match. Not replaced with zero.
+       */
+      | 'token.treasury_figure_unreadable',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
@@ -2163,6 +2178,59 @@ export class TokenService {
   /** Tokens permanently removed from circulation. */
   async burnedSupply(): Promise<Amount> {
     return (await this.ledger.balance(burnAccount(this.assetId))).amount;
+  }
+
+  /**
+   * Treasury view of rows this service has finished recording.
+   *
+   * Closed epochs, settled buybacks, and yield payouts with a ledger
+   * transaction id. Pending claims are not included. No rows is null.
+   * The burn-account balance is a different read and is not filled in here.
+   */
+  async treasuryView(): Promise<TokenTreasuryView> {
+    const rows = await this.sql<
+      Array<{
+        minted: string | null;
+        minted_count: string;
+        burned: string | null;
+        bought: string | null;
+        to_rewards: string | null;
+        settled_count: string;
+        distributed: string | null;
+        distributed_count: string;
+      }>
+    >`
+      SELECT
+        (SELECT SUM(mined_amount)::text FROM token.emission_epochs WHERE closed = true) AS minted,
+        (SELECT COUNT(*)::text FROM token.emission_epochs WHERE closed = true) AS minted_count,
+        (SELECT SUM(tokens_burned)::text FROM token.buyback_runs WHERE status = 'settled') AS burned,
+        (SELECT SUM(tokens_bought)::text FROM token.buyback_runs WHERE status = 'settled') AS bought,
+        (SELECT SUM(tokens_to_rewards)::text FROM token.buyback_runs WHERE status = 'settled') AS to_rewards,
+        (SELECT COUNT(*)::text FROM token.buyback_runs WHERE status = 'settled') AS settled_count,
+        (SELECT SUM(amount)::text FROM token.yield_payouts WHERE ledger_tx_id IS NOT NULL AND btrim(ledger_tx_id) <> '') AS distributed,
+        (SELECT COUNT(*)::text FROM token.yield_payouts WHERE ledger_tx_id IS NOT NULL AND btrim(ledger_tx_id) <> '') AS distributed_count
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new TokenError('The treasury read returned no row', 'token.treasury_figure_unreadable');
+    }
+    const sums: TreasurySums = {
+      minted: row.minted,
+      mintedCount: row.minted_count,
+      burned: row.burned,
+      burnedCount: row.settled_count,
+      bought: row.bought,
+      boughtCount: row.settled_count,
+      toRewards: row.to_rewards,
+      toRewardsCount: row.settled_count,
+      distributed: row.distributed,
+      distributedCount: row.distributed_count,
+    };
+    const reported = reportTreasury(sums);
+    if (!reported.ok) {
+      throw new TokenError('A treasury figure this service recorded could not be read', reported.code);
+    }
+    return reported.view;
   }
 
   // ── Emissions (§4.3) ───────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { DualControlError, requireDualControl } from './dual-control.js';
 import { TokenError, previewStakeTerms, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
+import { DELEGATION_PARKED, parkedDelegation, refuseDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -49,6 +50,11 @@ import { userCopy } from './user-copy.js';
  *                    Blank TOKEN_GOVERNANCE_QUORUM_BPS / THRESHOLD_BPS refuses
  *                    `token.governance_quorum_unset`. Grant/listing close does
  *                    not execute (`token.governance_execute_unwired`).
+ *   token.delegation `delegate` refuses `token.delegation_parked` (no chain GO).
+ *                    Nothing is written. `delegation` reads a null delegatee.
+ *   token.treasury   `treasury` sums closed mints, settled buybacks and paid
+ *                    yield rows this service stored. No rows is null. No price
+ *                    and no ledger balance.
  *
  * Say so wherever these are described. An operator mutation is not a flywheel.
  */
@@ -190,6 +196,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.governance_quorum_unset':
       case 'token.governance_snapshot_missing':
       case 'token.governance_execute_unwired':
+      case 'token.delegation_parked':
+      case 'token.treasury_figure_unreadable':
       case 'token.proposal_list_limit_unset':
       case 'token.stakes_list_limit_unset':
       case 'token.history_list_limit_unset':
@@ -200,6 +208,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.stake_tier_unknown':
       case 'token.stake_amount_invalid':
       case 'token.history_cursor_invalid':
+      case 'token.delegation_delegatee_unset':
+      case 'token.delegation_delegatee_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -791,6 +801,55 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           };
         }),
       ),
+
+    /**
+     * Caller's own delegation. Always null: the control is parked, so there
+     * is no delegatee to report. Not a lookup of someone else.
+     */
+    delegation: scopedProcedure('token:read', { module: 'token' })
+      .output(
+        z.object({
+          delegateeUserId: z.null(),
+          parked: z.literal(DELEGATION_PARKED),
+        }),
+      )
+      .query(({ ctx }) => {
+        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return parkedDelegation();
+      }),
+
+    /**
+     * Set a delegate. Blank target is `token.delegation_delegatee_unset`.
+     * Any member id, including the caller, is `token.delegation_parked`.
+     * No row, no vote-weight change.
+     */
+    delegate: scopedProcedure('token:stake', { module: 'token' })
+      .input(z.object({ delegateeUserId: z.string().max(128).nullish() }).strict())
+      .mutation(({ ctx, input }) => {
+        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return guard(async () => {
+          refuseDelegation(input.delegateeUserId);
+        });
+      }),
+
+    /**
+     * Figures this service has recorded. Null fields are "no rows", not zero.
+     * Does not call the ledger and does not price the token.
+     */
+    treasury: scopedProcedure('token:read', { module: 'token' })
+      .output(
+        z.object({
+          minted: amountString.nullable(),
+          burned: amountString.nullable(),
+          bought: amountString.nullable(),
+          toRewards: amountString.nullable(),
+          distributed: amountString.nullable(),
+        }),
+      )
+      .query(({ ctx }) => {
+        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return guard(() => token.treasuryView());
+      }),
 
     burnedSupply: scopedProcedure('token:read')
       .output(z.object({ burned: amountString }))
