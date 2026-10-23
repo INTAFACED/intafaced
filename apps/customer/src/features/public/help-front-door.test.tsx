@@ -100,7 +100,7 @@ describe('the help centre front door', () => {
     await act(async () => button.click());
     const prompt = host.querySelector('[data-testid="request-sign-in"]')!;
     expect(prompt.textContent).toContain('Sign in to send a request');
-    expect(prompt.querySelector('a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport%3Fq%3Dwithdrawal%2Blimit');
+    expect(prompt.querySelector('a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport');
     expect(host.querySelector<HTMLInputElement>('input[name="help-search"]')!.value).toBe('withdrawal limit');
     expect(host.querySelector('[data-testid="action-required"]')).toBeNull();
     expect(host.innerHTML).not.toContain('mailto:');

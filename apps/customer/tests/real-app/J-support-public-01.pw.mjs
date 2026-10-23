@@ -203,7 +203,8 @@ test(`${J} #4 a search lists the labelled answer first, and the typed words surv
     await page.fill('input[name=identifier]', who.email);
     await page.fill('input[name=password]', who.password);
     await page.getByRole('button', { name: /^sign in$/i }).click();
-    await expect(page).toHaveURL(new RegExp(`/support\\?q=${word}$`));
+    // The desk opens on its help search with the words already run, then takes them out of the address.
+    await expect(page).toHaveURL(/\/support$/);
     await expect(page.getByRole('textbox', { name: 'Search help' })).toHaveValue(word);
     await expect(page.getByText(labelled.title)).toBeVisible();
     await page.context().close();

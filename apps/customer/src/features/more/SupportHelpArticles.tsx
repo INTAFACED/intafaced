@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
@@ -11,6 +10,7 @@ import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import { kbSchema, type KbArticle } from './support-schemas';
+import { kbArticleText } from '../public/kb-text';
 import { readRelated, sendArticleFeedback } from './support-calls';
 
 const CATEGORY_KEY = {
@@ -22,13 +22,24 @@ const CATEGORY_KEY = {
   general: 'categoryGeneral',
 } as const satisfies Record<KbCategory, Parameters<typeof deskCopy.t>[0]>;
 
+function takeCarriedQuery(): string {
+  const url = new URL(location.href);
+  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
+  if (url.searchParams.has('q')) {
+    url.searchParams.delete('q');
+    history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }
+  return q;
+}
+
 /** The published help library: server search, topic chips, the full text of each answer, and a link to its own page. */
 export function SupportHelpArticles({ action, onStartRequest }: { action: ReturnType<typeof useAction>; onStartRequest: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  // Words carried from the public help search (/support?q=…) open the desk's search already run.
-  const [carried] = useState(() => (new URLSearchParams(location.search).get('q') ?? '').trim().slice(0, 200));
+  // Words carried from the public help search (/support?q=…) open the desk's search already run, once: they are taken out
+  // of the address so coming back to this tab keeps the person's own later search.
+  const [carried] = useState(() => takeCarriedQuery());
   const [draft, setDraft] = useState(carried),
     [search, setSearch] = useState(carried),
     [category, setCategory] = useState<KbCategory>('all');
@@ -107,27 +118,17 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
 }
 
 const EMPTY: ReadonlySet<string> = new Set();
-/** An answer typed in the desk carries its own text in its own language; a catalogue-keyed one is looked up. */
-function articleText(row: KbArticle) {
-  if (row.title && row.body) return { title: row.title, titleLang: row.language ?? 'und', body: row.body, bodyLang: row.language ?? 'und' };
-  return {
-    title: publishedCopy(row.titleKey),
-    titleLang: publishedLanguageFor(row.titleKey) ?? 'und',
-    body: publishedCopy(row.bodyKey),
-    bodyLang: publishedLanguageFor(row.bodyKey) ?? 'und',
-  };
-}
 function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnType<typeof useAction>; hiddenIds: ReadonlySet<string> }) {
   const copy = deskCopy.useCopy();
   const [opened, setOpened] = useState(false);
   const missing = (key: string) => legacyText('support.published.article.text.is.unavailable.for', { value1: key });
-  const text = articleText(row);
+  const text = kbArticleText(row);
   const title = text.title ?? missing(row.titleKey);
   const body = text.body;
   return (
     <details onToggle={(event) => event.currentTarget.open && setOpened(true)}>
-      <summary lang={text.titleLang}>{title}</summary>
-      {body ? <p lang={text.bodyLang}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
+      <summary lang={text.titleLanguage ?? 'und'}>{title}</summary>
+      {body ? <p lang={text.bodyLanguage ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
       <a className="text-link" href={helpHref(row.id, row.version)}>
         {copy.t('readArticle')} →
       </a>
@@ -196,13 +197,16 @@ function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet
             <p className="muted">{copy.t('relatedNone')}</p>
           ) : (
             <ul>
-              {visible.map((row) => (
-                <li key={row.id}>
-                  <a className="text-link" lang={articleText(row).titleLang} href={helpHref(row.id, row.version)}>
-                    {articleText(row).title ?? legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
-                  </a>
-                </li>
-              ))}
+              {visible.map((row) => {
+                const text = kbArticleText(row);
+                return (
+                  <li key={row.id}>
+                    <a className="text-link" lang={text.titleLanguage ?? 'und'} href={helpHref(row.id, row.version)}>
+                      {text.title ?? legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           );
         }}
