@@ -7,6 +7,7 @@ import { addMoneyCopy } from './add-money-copy';
 import { date, funds, useBankRead } from './components';
 import { addMoneyRequestSchema, type AddMoneyMethod, type AddMoneyOption, type AddMoneyRequest } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
+import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
 
 /**
@@ -283,7 +284,8 @@ export function AddMoney() {
         </DepthPanel>
       )}
 
-      {/* A new request reads the list again. */}
+      {/* A new request reads both lists again. */}
+      <IncomingPayments key={`in-${revision}`} />
       <Requests key={revision} />
     </div>
   );

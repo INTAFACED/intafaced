@@ -9,8 +9,8 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // no rate source (BANK_RAMP_MODE none), so this run proves the journey's other ending: every way to pay names the rail it
 // needs, a request is kept refused, and nothing is charged or added. Balances are read through the person's own bank API.
 // #6 links a bank account, which asks for a fresh confirmation, so it sets up an authenticator app first; every later
-// sign-in through the API then sends the next code. Not here: #4 and the live credit (they need a TEST payment partner),
-// #7 and #8.
+// sign-in through the API and in the browser then sends the next code. Not here: #4 and the live credit (they need a
+// TEST payment partner) and #8.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const WAYS = [
@@ -38,6 +38,17 @@ async function codeFor() {
   const { code, step } = await nextCode(totp, state.secret, state.step);
   run.reset({ ...state, step });
   return code;
+}
+
+/** Signs in in the browser with the password and the next authenticator code (after #6 set one up). */
+async function signInWithCode(page, who) {
+  const totpCode = await codeFor();
+  await page.goto('/login');
+  if (totpCode) await page.fill('input[name=totp]', totpCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
 }
 
 /** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
@@ -241,5 +252,34 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   const plain = await api.mutate('linkedAccounts.link', { label: 'TEST other', holderName: 'TEST Holder', iban: 'DE89370400440532013000' });
   expect(plain).toMatchObject({ ok: false, status: 403 });
   expect((await api.query('linkedAccounts.list', undefined)).data.accounts).toHaveLength(1);
+  expect(await usdt(who)).toBe('50');
+});
+
+test(`${J} #7 reads incoming payments: when each arrived, that it is available, and returns and refusals in plain words`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+  await signInWithCode(page, who);
+  await page.goto('/bank/ramps/new');
+  const incoming = page.getByTestId('incoming-payments');
+  // The TEST funding is the one payment that came in; the refused requests added nothing, so they are not here.
+  const lines = incoming.getByTestId('incoming-line');
+  await expect(lines).toHaveCount(1);
+  await expect(lines.first()).toContainText('TEST funds');
+  await expect(lines.first()).toContainText('50 USDT');
+  await expect(lines.first()).toContainText(/Arrived .+\. Available to use since then\./);
+  const rules = page.getByTestId('incoming-rules');
+  await expect(rules).toContainText('When: each way to pay shows when its money arrives');
+  await expect(rules).toContainText('Available: money shown here is already in your balance.');
+  await expect(rules).toContainText('Returned: if a payment is sent back, it is taken out of your balance once');
+  await expect(rules).toContainText('Refused: a refused request to add money adds nothing.');
+  // The refusals themselves stay listed with their reasons, and the balance is still 50.
+  await expect(page.getByTestId('add-money-request')).toHaveCount(2);
+  await expect(page.getByTestId('add-money-request').first()).toContainText('bank.fiat_ramp_socket');
+
+  const api = await bank(who);
+  const page1 = await api.query('activity.list', { limit: 20, direction: 'in', kind: ['deposit', 'welcome_funds', 'transfer_in'] });
+  expect(page1.ok && page1.data.items).toEqual([expect.objectContaining({ kind: 'welcome_funds', amount: '50', asset: 'USDT' })]);
   expect(await usdt(who)).toBe('50');
 });
