@@ -35,8 +35,8 @@ function fetchOk(opts: { accountId?: string; expectPath?: string; expectAccount?
     const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
     if (authority) return authority;
     if (opts.expectPath) expect(String(input)).toContain(opts.expectPath);
-    const body = JSON.parse(String(init?.body)) as { json?: { key?: string; accountId?: string } };
-    if (opts.expectAccount !== undefined) expect(body.json?.accountId).toBe(opts.expectAccount);
+    const body = JSON.parse(String(init?.body)) as { key?: string; accountId?: string };
+    if (opts.expectAccount !== undefined) expect(body.accountId).toBe(opts.expectAccount);
     const token = await accessToken();
     const json: Record<string, unknown> = { accessToken: token };
     if (opts.accountId) json.accountId = opts.accountId;
