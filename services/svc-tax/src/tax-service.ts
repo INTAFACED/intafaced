@@ -256,7 +256,13 @@ export class TaxService {
         const valuedAt: ValuedAt | null =
           price === null
             ? null
-            : { usd: mul(line.amount, price.price), market: price.market, timeframe: price.timeframe, candleAt: price.candleAt, price: price.price };
+            : {
+                usd: mul(line.amount, price.price),
+                market: price.market,
+                timeframe: price.timeframe,
+                candleAt: price.candleAt,
+                price: price.price,
+              };
         return {
           txId: line.txId,
           postedAt: line.postedAt,
