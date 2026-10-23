@@ -617,8 +617,13 @@ export class SupportService implements SupportContract {
       }
       // A replay wrote nothing. While its comment is still the request's last write, the first call may have died before
       // the lifecycle below, so the replay settles it again (both writes keep what is already set); after a later write it
-      // moves nothing, or it would undo that write's side.
-      if (result.replay && result.ticket.updatedAt !== result.comment.createdAt) return result.comment;
+      // moves nothing, or it would undo that write's side. A later write can share the comment's millisecond, so a
+      // lifecycle already moved at or after the comment also counts as later.
+      if (result.replay) {
+        if (result.ticket.updatedAt !== result.comment.createdAt) return result.comment;
+        const settled = await this.lifecycle.get(input.ticketId);
+        if (settled?.waitingSince && settled.waitingSince >= result.comment.createdAt) return result.comment;
+      }
       // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
       // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
       const at = result.comment.createdAt;

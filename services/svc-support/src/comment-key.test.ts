@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createSupportRouter } from './router.js';
@@ -90,6 +90,23 @@ describe('a comment with a client request id', () => {
     const waiting = await lifecycle.get(t.id);
     expect(await me.comment({ ticketId: t.id, body: 'TEST last one', clientRequestId: 'bot:comment:3' })).toEqual(first);
     expect(await lifecycle.get(t.id)).toEqual(waiting);
+  });
+
+  it('replayed when the team answered in the same millisecond still moves nothing', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T20:00:00.000Z') });
+    try {
+      const { customer, agent, lifecycle, ticket } = desk(1);
+      const t = await ticket();
+      const me = await customer();
+      const first = await me.comment({ ticketId: t.id, body: 'TEST same instant', clientRequestId: 'bot:comment:same-ms' });
+      await (await agent()).comment({ ticketId: t.id, body: 'TEST answer in the same millisecond' });
+      const waiting = await lifecycle.get(t.id);
+      expect(waiting.waitingOn).toBe('customer');
+      expect(await me.comment({ ticketId: t.id, body: 'TEST same instant', clientRequestId: 'bot:comment:same-ms' })).toEqual(first);
+      expect(await lifecycle.get(t.id)).toEqual(waiting);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('replayed after the first call died before the lifecycle, settles the lifecycle the first call never wrote', async () => {
