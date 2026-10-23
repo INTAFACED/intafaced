@@ -89,6 +89,10 @@ const messages = {
   'Not served on spot': 'not served (spot market)',
   'Quotes are not live': 'Prices are not live right now; the figures shown are the last ones received.',
   Close: 'Close',
+  'Could not read your lists': 'Could not read your lists. Nothing can be changed until they load.',
+  'Try again': 'Try again',
+  'Import too large': 'That file is too large to import. Export a smaller list or split the file.',
+  'Import too many rows': 'That file has too many rows to import at once. Split it and import each part.',
 } as const;
 
 export const watchlistsCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.watchlists', messages);

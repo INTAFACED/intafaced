@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import type { WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
 import { Dialog, DialogContent, DialogTitle } from '@intafaced/ui';
@@ -38,7 +39,7 @@ import {
   type WatchlistColumn,
   type WatchRow,
 } from './model';
-import { exportFileName, exportListCsv, importSummary, readImportCsv } from './csv';
+import { exportFileName, exportListCsv, importSummary, IMPORT_MAX_BYTES, readImportCsv } from './csv';
 import { MAX_WIDTH, MIN_WIDTH, readWatchlistView, writeWatchlistView, type WatchlistView } from './view';
 import { useWatchlists } from './store';
 import './watchlists.css';
@@ -82,6 +83,7 @@ interface Notice {
 function useTicks(tickers: Readonly<Record<string, TickerRow>> | undefined): Record<string, 'up' | 'down'> {
   const [ticks, setTicks] = useState<Record<string, 'up' | 'down'>>({});
   const seen = useRef<Record<string, string>>({});
+  const timers = useRef<number[]>([]);
   useEffect(() => {
     if (!tickers) return;
     const moved: Record<string, 'up' | 'down'> = {};
@@ -97,16 +99,21 @@ function useTicks(tickers: Readonly<Record<string, TickerRow>> | undefined): Rec
     }
     if (Object.keys(moved).length === 0) return;
     setTicks((now) => ({ ...now, ...moved }));
-    window.setTimeout(
-      () =>
-        setTicks((now) => {
-          const next = { ...now };
-          for (const symbol of Object.keys(moved)) if (next[symbol] === moved[symbol]) delete next[symbol];
-          return next;
-        }),
-      1500,
-    );
+    const timer = window.setTimeout(() => {
+      setTicks((now) => {
+        const next = { ...now };
+        for (const symbol of Object.keys(moved)) if (next[symbol] === moved[symbol]) delete next[symbol];
+        return next;
+      });
+    }, 1500);
+    timers.current.push(timer);
   }, [tickers]);
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const timer of pending) window.clearTimeout(timer);
+    };
+  }, []);
   return ticks;
 }
 
@@ -297,8 +304,16 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file || !userId) return;
+    if (file.size > IMPORT_MAX_BYTES) {
+      setNotice({ tone: 'warn', text: t('Import too large') });
+      return;
+    }
     const text = await file.text();
     const result = readImportCsv(text, listing, onList);
+    if (result.tooMany) {
+      setNotice({ tone: 'warn', text: t('Import too many rows') });
+      return;
+    }
     if (result.accepted.length === 0) {
       const lines = result.refused.map((row) =>
         t('Import refused row', { line: row.line, value: row.value, reason: t(REASON_KEY[row.reason]) }),
@@ -317,6 +332,19 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setSelectedId(target.listId);
       setNotice({ tone: 'ok', text: [t('Import result', { summary: importSummary(result) }), ...refusedLines].join(' ') });
     }
+  };
+
+  // The separator also takes the arrow keys: 8 pixels a press, kept on this device.
+  const nudgeResize = (event: ReactKeyboardEvent<HTMLSpanElement>, column: WatchlistColumn) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const th = event.currentTarget.parentElement as HTMLElement;
+    const current = view.widths[column] ?? Math.round(th.getBoundingClientRect().width);
+    const delta = event.key === 'ArrowRight' ? 8 : -8;
+    const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, current + delta));
+    const next = { ...view, widths: { ...view.widths, [column]: width } };
+    setView(next);
+    writeWatchlistView(userId, next);
   };
 
   // Column widths follow the pointer while a separator is dragged, and are kept on this device when it lets go.
@@ -357,6 +385,8 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
 
   const detailRow = details && list ? findRow(list, details, listing, tickerMap) : null;
   const signedOut = store.status === 'signed-out';
+  // Nothing that changes the lists is offered while a save is on its way, or before the lists have been read.
+  const locked = store.busy || store.status !== 'ready';
 
   return (
     <section className="wl" aria-label={t('Watchlists')} data-status={store.status} data-workbench={workbench}>
@@ -378,7 +408,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
           {list && (
             <label className="wl-field">
               <span>{t('Flag')}</span>
-              <select aria-label={t('Flag')} value={list.flag ?? ''} onChange={(event) => chooseFlag(event.target.value)}>
+              <select aria-label={t('Flag')} value={list.flag ?? ''} disabled={locked} onChange={(event) => chooseFlag(event.target.value)}>
                 <option value="">{t('No flag')}</option>
                 {WATCHLIST_FLAG_IDS.map((flag) => (
                   <option key={flag} value={flag}>
@@ -388,7 +418,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
               </select>
             </label>
           )}
-          <button type="button" className="wl-btn" disabled={signedOut} onClick={() => setNewName(newName === null ? '' : null)}>
+          <button type="button" className="wl-btn" disabled={locked} onClick={() => setNewName(newName === null ? '' : null)}>
             {t('New list')}
           </button>
           <button type="button" className="wl-btn" disabled={!list} onClick={exportCsv}>
@@ -402,7 +432,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
               accept=".csv,text/csv"
               aria-label={t('Import CSV file')}
               className="wl-file"
-              disabled={signedOut}
+              disabled={locked}
               onChange={(event) => void importCsv(event)}
             />
           </label>
@@ -419,18 +449,27 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
           }}
         >
           <input aria-label={t('New list name')} value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={40} />
-          <button type="submit" className="wl-btn">
+          <button type="submit" className="wl-btn" disabled={locked}>
             {t('Create list')}
           </button>
         </form>
       )}
 
-      {!signedOut && (
+      {store.status === 'error' && (
+        <p role="alert" className="wl-note">
+          {t('Could not read your lists')}{' '}
+          <button type="button" className="wl-btn" onClick={store.reload}>
+            {t('Try again')}
+          </button>
+        </p>
+      )}
+      {!signedOut && store.status !== 'error' && (
         <div className="wl-add">
           <label className="wl-field wl-search">
             <span>{t('Add a market')}</span>
             <input
               type="search"
+              disabled={locked}
               aria-label={t('Add a market')}
               placeholder={t('Search markets')}
               value={query}
@@ -457,6 +496,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                     type="button"
                     className="wl-btn"
                     aria-label={t('Add to list', { symbol: market.symbol })}
+                    disabled={locked}
                     onClick={() => void addMarket(market)}
                   >
                     {market.symbol}
@@ -475,7 +515,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
         </p>
       )}
 
-      {list && (
+      {list && store.status !== 'error' && (
         <div className="wl-body">
           <table className="wl-table" aria-label={t('Watchlist rows')} data-sorted={sort ? `${sort.column}:${sort.direction}` : ''}>
             <colgroup>
@@ -505,6 +545,8 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                         aria-orientation="vertical"
                         aria-label={t('Resize {column} column', { column: label })}
                         className="wl-grip"
+                        tabIndex={0}
+                        onKeyDown={(event) => nudgeResize(event, column)}
                         onPointerDown={(event) => startResize(event, column)}
                       />
                     </th>
@@ -530,6 +572,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                             ? t('Expand section {title}', { title: item.title })
                             : t('Minimise section {title}', { title: item.title })
                         }
+                        disabled={locked}
                         onClick={() => toggleSection(item.id, !item.collapsed)}
                       >
                         {item.title}
@@ -571,6 +614,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                               type="button"
                               className="wl-btn"
                               aria-label={t('Remove {symbol}', { symbol: row.symbol })}
+                              disabled={locked}
                               onClick={() => void removeMarket(row.symbol)}
                             >
                               {t('Remove')}
@@ -602,14 +646,14 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
               onChange={(event) => setNewTitle(event.target.value)}
               maxLength={40}
             />
-            <button type="submit" className="wl-btn">
+            <button type="submit" className="wl-btn" disabled={locked}>
               {t('Add section')}
             </button>
           </form>
         </div>
       )}
 
-      {!list && !signedOut && store.status !== 'loading' && <p className="wl-note">{t('No lists')}</p>}
+      {!list && store.status === 'ready' && <p className="wl-note">{t('No lists')}</p>}
       {store.status === 'loading' && (
         <p className="wl-note" role="status">
           {t('Prices have not arrived')}

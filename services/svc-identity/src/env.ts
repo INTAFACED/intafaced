@@ -226,7 +226,7 @@ const schema = serviceEnvSchema
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
-      }, z.coerce.number().int().min(1).max(1000).optional()),
+      }, z.coerce.number().int().min(1).max(20).optional()),
       IDENTITY_WATCHLIST_SYMBOL_CAP: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
@@ -236,7 +236,7 @@ const schema = serviceEnvSchema
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
-      }, z.coerce.number().int().min(1).max(1000).optional()),
+      }, z.coerce.number().int().min(1).max(50).optional()),
       /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
