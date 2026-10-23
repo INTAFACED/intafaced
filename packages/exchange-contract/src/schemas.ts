@@ -400,6 +400,15 @@ export const orderSchema = z.object({
    * Absent on wires from before this field.
    */
   feeDiscount: decimal.optional(),
+  /**
+   * A stop order's trigger: when it fired, which price it watched (`last` trade, `mark` or `index`) and the price that
+   * reached the stop. Null on a stop that has not fired, or fired with no record kept. Absent on other orders and on
+   * wires from before this field.
+   */
+  triggered: z
+    .object({ at: isoDatetime, by: z.enum(['last', 'mark', 'index']), referencePrice: decimal })
+    .nullable()
+    .optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 

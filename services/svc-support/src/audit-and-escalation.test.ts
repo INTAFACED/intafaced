@@ -299,6 +299,11 @@ describe('escalation carries its case file', () => {
       mergeTickets: (i) => base.mergeTickets(i),
       previewMerge: (i) => base.previewMerge(i),
       findMergeBySource: (id) => base.findMergeBySource(id),
+      listKbFeedbackSummary: (limit) => base.listKbFeedbackSummary(limit),
+      recordSearchMiss: (input) => base.recordSearchMiss(input),
+      listSearchMisses: (limit) => base.listSearchMisses(limit),
+      hasSearchClick: (clientRequestId) => base.hasSearchClick(clientRequestId),
+      recordSearchClick: (input) => base.recordSearchClick(input),
     };
     const support = new SupportService(store, new FixedAccountState({ userId: USER, status: 'active', kycTier: 'basic' }));
     const t = await support.createTicket({

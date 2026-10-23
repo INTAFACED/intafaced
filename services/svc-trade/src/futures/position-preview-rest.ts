@@ -4,13 +4,14 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
+import { checkCollateralClassForMargin, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
 import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
 export interface PositionPreviewRefusal {
   code: string;
-  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice';
+  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral';
   message: string;
 }
 
@@ -88,7 +89,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode']);
+    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode', 'collateralClass']);
     const suppliedServerValues = Object.keys(body).filter((key) => !allowedFields.has(key));
     if (suppliedServerValues.length > 0) {
       return sendError(
@@ -121,6 +122,15 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const refusals: PositionPreviewRefusal[] = [];
+    // The margin is posted from cash; the order path refuses any other class on the same code.
+    const classCheck = checkCollateralClassForMargin(body.collateralClass);
+    if (!classCheck.ok) {
+      refusals.push({
+        code: classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS,
+        field: 'collateral',
+        message: classCheck.reason ?? 'that collateral class is not taken as margin',
+      });
+    }
     const cap = deps.leverageCap;
     if (cap === null) {
       refusals.push({ code: LEVERAGE_CAP_UNSET, field: 'leverage', message: 'listing leverage cap is unset' });

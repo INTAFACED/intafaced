@@ -68,8 +68,9 @@ import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '..
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { checkCloseQuantity } from './desk-quantity.js';
-import { checkLeverage } from './initial-margin.js';
-import { checkMarginModeForFuturesOpen } from './margin-mode.js';
+import { checkLeverage, LEVERAGE_STEP } from './initial-margin.js';
+import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
+import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET } from './haircut-credit.js';
 import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
@@ -186,6 +187,8 @@ export interface PlaceMatchedOrderInput {
   readonly clientOrderId: string;
   readonly reduceOnly?: boolean;
   readonly marginMode?: 'isolated';
+  /** What the margin is posted from. Omitted is cash in the market's settle asset; any other class refuses. */
+  readonly collateralClass?: unknown;
 }
 
 export interface MatchedOrderView {
@@ -276,9 +279,16 @@ export interface MatchedOrdersDeps {
    * refuses an opening order; an unpublished schedule refuses it with the schedule's own code.
    */
   readonly feeRates: ((userId: string) => Promise<FeeRates>) | null;
+  /**
+   * The owner's collateral haircut on an opening order's hold (`TRADE_COLLATERAL_HAIRCUT_BPS`): the account's posted
+   * cash, cut by the haircut, must cover every margin it has committed, which counts every live order's hold including
+   * the one being placed (its row is written first). Blank refuses `trade.haircut_unset`; short refuses
+   * `trade.haircut_credit_short`. Absent in tests that do not wire it; production always wires it (PositionService).
+   */
+  readonly assertCollateralCredit?: (input: { userId: string; asset: string }) => Promise<void>;
 }
 
-interface OrderRow {
+export interface OrderRow {
   id: string;
   user_id: string;
   market_id: string;
@@ -383,7 +393,8 @@ const LIVE_OR_UNKNOWN = ['held', 'submitting', 'open', 'submit_unknown'] as cons
  * The hold the order locked at placement, from its own terms. It is never stored as a figure: the ledger hold is
  * the money, and these terms are what it was opened for.
  */
-function holdOf(order: OrderRow): Amount {
+/** What an opening order holds once accepted: its margin and its fee reserve, from the row. */
+export function holdOf(order: OrderRow): Amount {
   return marginHoldOf(order) + feeReserveOf(order);
 }
 
@@ -617,7 +628,6 @@ interface WaitRow {
 }
 
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
-const LEVERAGE_STEP = 10n ** 16n;
 
 export class MatchedFuturesOrders {
   constructor(private readonly deps: MatchedOrdersDeps) {}
@@ -644,6 +654,10 @@ export class MatchedFuturesOrders {
     }
     const modeCheck = checkMarginModeForFuturesOpen(input.marginMode);
     if (!modeCheck.ok) refuse(modeCheck.code ?? 'trade.margin_mode_invalid', modeCheck.reason ?? 'margin mode refused');
+    // An opening order posts margin from cash in the settle asset; yield-bearing, staked and lending balances are another
+    // product. A reduce-only order posts none, so it is never refused for this.
+    const classCheck = input.reduceOnly === true ? { ok: true as const } : checkCollateralClassForMargin(input.collateralClass);
+    if (!classCheck.ok) refuse(classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS, classCheck.reason ?? 'collateral class refused');
     if (input.side !== 'buy' && input.side !== 'sell') refuse('trade.side_invalid', 'side must be buy or sell');
     if (input.type !== 'limit' && input.type !== 'market') refuse('trade.order_type_invalid', 'type must be limit or market');
     if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
@@ -1007,6 +1021,28 @@ export class MatchedFuturesOrders {
   }
 
   /** Hold, then submit. Both steps are idempotent on the order id, so a retry runs them again safely. */
+  /**
+   * The owner's haircut, checked once the order's row is written and before its hold is posted: the account's figures
+   * count this row's whole hold from the moment it exists, so of two opens placed together the later check sees both,
+   * and they cannot both pass on credit that covers only one. A blank haircut or a shortfall refuses the order on its
+   * code, as an unfunded hold does. A read that fails leaves the order pending, and a retry checks again.
+   */
+  private async refuseShortOfCredit(row: OrderRow): Promise<void> {
+    try {
+      await this.deps.assertCollateralCredit!({ userId: row.user_id, asset: row.hold_asset });
+    } catch (err) {
+      // The refusal is PositionService's FuturesError; it is matched by code, since that module imports this one.
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code === HAIRCUT_UNSET || code === HAIRCUT_CREDIT_SHORT) {
+        await this.deps.sql`
+          UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${code}, updated_at = now()
+           WHERE id = ${row.id} AND status = 'pending'
+        `;
+      }
+      throw err;
+    }
+  }
+
   private async continueOrder(row: OrderRow, market: MarketRow, proof: LifecycleAdmissionProof): Promise<MatchedOrderView> {
     if (row.status === 'pending' && row.reduce_only) {
       // Nothing to lock: a reduce-only order's loss is bounded by its position's bankruptcy price, not by a hold.
@@ -1014,6 +1050,7 @@ export class MatchedFuturesOrders {
         UPDATE trade.futures_orders SET status = 'held', updated_at = now() WHERE id = ${row.id} AND status = 'pending'
       `;
     } else if (row.status === 'pending') {
+      if (this.deps.assertCollateralCredit) await this.refuseShortOfCredit(row);
       try {
         await this.deps.ledger.post(
           recipes.futuresOrderMarginHold({

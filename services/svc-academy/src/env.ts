@@ -147,6 +147,17 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(3600)]),
       ),
+      /**
+       * Owner-published seconds of stored watch position that count as
+       * watched (AC-videos-01). Blank / unset is unpublished —
+       * `videoProgress.watched` refuses `academy.watch_threshold_unset`.
+       * Zero is not a threshold: it would mark a video watched before any
+       * position was stored. Never invent a fraction of the duration.
+       */
+      ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
       /** Blank = unpublished magnitudes, grant refuse-closed. */
       ACADEMY_VIDEO_MIN_TIER: z.string().optional().default(''),
       ACADEMY_VIDEO_MIN_STAKE: z.string().optional().default(''),

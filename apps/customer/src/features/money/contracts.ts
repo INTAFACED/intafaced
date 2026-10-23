@@ -179,10 +179,36 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // `customer`: an address-book entry; `legacy`: the one-per-kind slot an older withdrawal wrote.
+  origin: z.enum(['legacy', 'customer']).optional(),
   // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
   lookalikeConfirmedAt: z.string().nullable().optional(),
+  // Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof.
+  ownership: z
+    .object({
+      state: z.enum(['none', 'pending', 'verified', 'expired']),
+      verifiedAt: z.string().nullable(),
+      validUntil: z.string().nullable(),
+      offerExpiresAt: z.string().nullable(),
+    })
+    .optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** A message the bank offers to sign, proving the customer controls a saved wallet. */
+export const walletProofStartedSchema = z.object({
+  proofId: z.string(),
+  destinationId: z.string(),
+  message: z.string(),
+  expiresAt: z.string(),
+});
+/** A checked wallet proof. */
+export const walletProofVerifiedSchema = z.object({
+  proofId: z.string(),
+  destinationId: z.string(),
+  state: z.enum(['none', 'pending', 'verified', 'expired']),
+  verifiedAt: z.string().nullable(),
+  validUntil: z.string().nullable(),
+});
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
 export const withdrawAssetSchema = z.object({
   assetId: z.string(),
@@ -350,6 +376,19 @@ export const cashOutRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+/** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
+export const incomingLineSchema = z.object({
+  id: z.string(),
+  // Only the kinds asked for: anything else is refused, never shown as a deposit.
+  kind: z.enum(['deposit', 'welcome_funds', 'transfer_in']),
+  direction: z.literal('in'),
+  asset: z.string(),
+  amount: money,
+  postedAt: z.string(),
+  txId: z.string(),
+  counterparty: z.object({ handle: z.string() }).nullable(),
+});
+export type IncomingLine = z.infer<typeof incomingLineSchema>;
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -365,6 +404,7 @@ export const bankReads = {
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'cashOut.quote': cashOutQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
+  'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),

@@ -32,6 +32,8 @@ import {
 } from './liquidation-tick.js';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { deepFullCloseLadder } from './ladder-policy.test-harness.js';
+import type { DepthNotionalSource } from './liquidation-tick.js';
+import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import type { Amount, Balance } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { CommittedOperationAdmission } from '@intafaced/contracts';
@@ -182,7 +184,7 @@ function recordingAdmission(): TradingAdmissionPort {
   };
 }
 
-function creditBook(options?: { balanceThrows?: boolean }) {
+function creditBook(options?: { balanceThrows?: boolean; ladder?: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy } }) {
   const markets: MemMarket[] = [];
   const positions: MemPosition[] = [];
   const adjustments: MemAdjustment[] = [];
@@ -360,6 +362,7 @@ function creditBook(options?: { balanceThrows?: boolean }) {
     now: () => CREDIT_NOW,
     accountAdmission: recordingAdmission(),
     emailProof: new StubEmailProof(),
+    ...(options?.ladder ? { ladder: options.ladder } : {}),
   });
 
   return {
@@ -567,6 +570,28 @@ describe('aggregate haircut credit inside open', () => {
       book.open({ symbol: 'BTC/USDT-PERP', marketId: 'm-flag-jobs', price: '60', leverage: '1', clientOpenId: 'flag-jobs' }),
     ).rejects.toThrow(/TRADE_FUTURES_JOBS_ENABLED/);
     expect(lockPosts(book.ledger)).toHaveLength(0);
+  });
+
+  it('with the ladder wired but unpublished an open refuses trade.ladder_unset and locks nothing', async () => {
+    const book = creditBook({ ladder: { depth: { depthNotional: async () => amt('1000000') } } });
+    await fund(book.ledger, '100', 'ladder-unset');
+    book.seed('BTC/USDT-PERP', 'm-ladder-unset', '60');
+    await expect(
+      book.open({ symbol: 'BTC/USDT-PERP', marketId: 'm-ladder-unset', price: '60', leverage: '1', clientOpenId: 'ladder-unset' }),
+    ).rejects.toMatchObject({ name: 'FuturesError', code: 'trade.ladder_unset', status: 503 });
+    expect(lockPosts(book.ledger)).toHaveLength(0);
+    expect(book.positions).toHaveLength(0);
+    // The gated list shows the same refusal without throwing.
+    expect(book.service.futuresExposureRefusal()).toMatchObject({ code: 'trade.ladder_unset' });
+  });
+
+  it('with the ladder published the same open goes through', async () => {
+    const book = creditBook({ ladder: deepFullCloseLadder() });
+    await fund(book.ledger, '100', 'ladder-set');
+    book.seed('BTC/USDT-PERP', 'm-ladder-set', '60');
+    await book.open({ symbol: 'BTC/USDT-PERP', marketId: 'm-ladder-set', price: '60', leverage: '1', clientOpenId: 'ladder-set' });
+    expect(book.positions).toHaveLength(1);
+    expect(book.service.futuresExposureRefusal()).toBeNull();
   });
 
   it('setLeverage that adds margin is refused when either flag is off and posts nothing', async () => {

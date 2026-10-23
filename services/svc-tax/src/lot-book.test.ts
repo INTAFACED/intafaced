@@ -34,6 +34,7 @@ describe('buildLotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
+        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
       },
     ]);
     expect(book.realizedUsd).toBe('200');
