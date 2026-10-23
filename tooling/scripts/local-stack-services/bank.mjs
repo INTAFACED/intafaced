@@ -1,3 +1,12 @@
+import { loadProfile } from '../owner-settings.mjs';
+
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/bank.json.`);
+  return entry.value;
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'bank',
   env: () => ({
@@ -37,6 +46,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',
+    // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
+    // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
+    // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.
+    BANK_PAYEE_CONTROLS_JSON: testValue('BANK_PAYEE_CONTROLS_JSON'),
+    BANK_EXCHANGE_ALLOWANCE_JSON: testValue('BANK_EXCHANGE_ALLOWANCE_JSON'),
+    BANK_PROOF_LIMITS_JSON: testValue('BANK_PROOF_LIMITS_JSON'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',
