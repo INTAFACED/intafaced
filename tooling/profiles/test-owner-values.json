@@ -96,6 +96,11 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "86400",
+      "note": "A security lock ends one day after its unlock is asked for."
+    },
     "SUPPORT_ATTACHMENT_STORE": {
       "service": "support",
       "value": "local-test-memory",
