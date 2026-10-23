@@ -578,6 +578,24 @@ export function createPersonalPayApi(
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
       return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
     },
+    /** `access.eligibility`: what this person needs before taking an ad, check by check. */
+    eligibility(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
+    },
+    /** `risk.notice`: the risk notice version to accept, and when this person accepted it. */
+    riskNotice(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'risk.notice', undefined, s.p2pRiskNoticeSchema, { signal });
+    },
+    /** `risk.accept`: accept exactly the version shown. Accepting again returns the first acceptance. */
+    acceptRisk(version: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.mutate('p2p', 'risk.accept', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>

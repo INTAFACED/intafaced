@@ -38,6 +38,13 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
+import {
+  createIdentityContactReader,
+  createTakeGate,
+  RiskAcceptances,
+  riskNoticeVersion,
+  unwiredContactReader,
+} from './take-eligibility.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -188,6 +195,14 @@ const blockRfq = new BlockRfqService(new SqlBlockQuoteStore(sql), {
   isTradingEnabled: () => p2p.isTradingEnabled(),
 });
 
+// P-trade-orders-02 / P-disputes-security-08: contact is read from identity as the person of the request;
+// the risk notice acceptance is held here. Without IDENTITY_URL contact is unknown and every take refuses.
+const takeGate = createTakeGate({
+  contact: env.IDENTITY_URL ? createIdentityContactReader({ identityUrl: env.IDENTITY_URL }) : unwiredContactReader(),
+  acceptances: new RiskAcceptances(sql),
+  riskVersion: riskNoticeVersion(env.P2P_RISK_NOTICE_VERSION),
+});
+
 const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
@@ -204,6 +219,7 @@ export const appRouter = createP2pRouter(
     instrumentKeyProvider: instrumentKey.instrumentKeyProvider,
     opsReads: new OpsReads(sql),
     disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
+    takeGate,
   },
   merchants,
 );

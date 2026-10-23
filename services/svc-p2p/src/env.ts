@@ -65,6 +65,16 @@ const schema = serviceEnvSchema
       P2P_SECURITY_CHANGE_LOCK_SECONDS: ownerInt,
 
       /**
+       * P-disputes-security-08. The P2P risk notice version a person accepts
+       * before their first take. Empty is unset: every take then refuses
+       * `p2p.risk_notice_unset`. Changing it asks everyone to accept again.
+       */
+      P2P_RISK_NOTICE_VERSION: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.string().trim().min(1).max(64).optional(),
+      ),
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).

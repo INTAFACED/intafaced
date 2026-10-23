@@ -270,6 +270,22 @@ export const p2pStandingSchema = z.object({
   appliedAt: z.string(),
   decidedAt: z.string().nullable(),
 });
+/** `access.eligibility`: each check before a take, in the service's order. `fix` is an app path or null. */
+export const p2pEligibilitySchema = z.object({
+  checks: z.array(
+    z.object({
+      id: z.enum(['verification', 'contact', 'jurisdiction', 'deposit', 'risk']),
+      state: z.enum(['met', 'not_met', 'unknown']),
+      reason: z.string(),
+      fix: z.string().nullable(),
+    }),
+  ),
+  canTake: z.boolean(),
+});
+export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
+/** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
+export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
+export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),
   credential: z.enum(['session', 'api_key']),

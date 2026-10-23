@@ -24,6 +24,7 @@ import {
   type P2pService,
 } from './p2p-service.js';
 import { InstrumentError, parseFieldSpecs } from './instruments.js';
+import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import type { InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
@@ -83,6 +84,12 @@ export type P2pRouterOptions = {
    * Turning this on is a lead policy decision. This service does not turn it on.
    */
   disputeResolveRequiresApproval?: boolean;
+  /**
+   * What a person needs before taking an ad: confirmed contact and the accepted
+   * risk notice (`take-eligibility.ts`). Unset → every take refuses
+   * `p2p.take_gate_unwired`; a missing gate never means "no checks".
+   */
+  takeGate?: TakeGate;
 };
 
 /**
@@ -346,6 +353,20 @@ function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  }
+
+  if (err instanceof TakeGateError) {
+    switch (err.code) {
+      // The person can fix these themself: confirm the address, read and accept the notice.
+      case 'p2p.contact_required':
+      case 'p2p.risk_not_accepted':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'p2p.risk_version_stale':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      // The deployment, not the caller: an unpublished notice or an unreachable identity service.
+      default:
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    }
   }
 
   if (err instanceof InstrumentError) {
@@ -640,6 +661,7 @@ export function createP2pRouter(
   const approvals = options.approvals ?? unwiredApprovalConsumer();
   const opsReads = options.opsReads;
   const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
+  const takeGate = options.takeGate ?? unwiredTakeGate();
 
   const requireOpsReads = (): OpsReads => {
     if (!opsReads) {
@@ -1045,6 +1067,63 @@ export function createP2pRouter(
     }),
 
     /**
+     * P-trade-orders-02. What the caller needs before taking an ad, check by
+     * check, in the order the hub shows them. Scope only, no module gate: an
+     * unverified person must be able to read that verification is the step
+     * they are missing, which the jurisdiction gate would refuse to say.
+     */
+    access: router({
+      eligibility: scopedProcedure('p2p:read')
+        .output(
+          z.object({
+            checks: z.array(
+              z.object({
+                id: z.enum(ELIGIBILITY_CHECK_IDS),
+                state: z.enum(ELIGIBILITY_STATES),
+                reason: z.string(),
+                fix: z.string().nullable(),
+              }),
+            ),
+            canTake: z.boolean(),
+          }),
+        )
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const checks = await takeGate.eligibility(ctx);
+            return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
+          }),
+        ),
+    }),
+
+    /**
+     * P-disputes-security-08. The P2P risk notice: which owner-published version
+     * is current and whether the caller accepted it. Accepting is a person's own
+     * act, so an API key cannot do it for them.
+     */
+    risk: router({
+      notice: scopedProcedure('p2p:read')
+        .output(z.object({ version: z.string(), acceptedAt: z.string().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const notice = await takeGate.riskNotice(ctx.principal.userId);
+            return { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null };
+          }),
+        ),
+      accept: scopedProcedure('p2p:write')
+        .input(z.object({ version: z.string().min(1).max(64) }))
+        .output(z.object({ version: z.string(), acceptedAt: z.string() }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (ctx.principal.kid) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the risk notice is interactive only.' });
+            }
+            const accepted = await takeGate.acceptRisk(ctx.principal.userId, input.version);
+            return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
+          }),
+        ),
+    }),
+
+    /**
      * P-disputes-security-15. The caller's own verification cap, and whether a
      * security-change sell lock is published. Neither invents a number.
      */
@@ -1091,8 +1170,10 @@ export function createP2pRouter(
         )
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toTradeOut(
+          guard(async () => {
+            // Before anything is reserved or locked: the same checks the eligibility panel shows.
+            await takeGate.assertCanTake(ctx);
+            return toTradeOut(
               await p2p.takeOffer({
                 offerId: input.offerId,
                 takerId: ctx.principal.userId,
@@ -1101,8 +1182,8 @@ export function createP2pRouter(
                 method: input.method,
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       markFiatSent: merchantApiProcedure('p2p:write')

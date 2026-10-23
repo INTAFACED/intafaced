@@ -109,7 +109,9 @@ Every procedure is `scopedProcedure(scope, { module: 'p2p' })`, which checks the
 | `offers.list`                    | `p2p:read`               | The board — active offers with liquidity left to take                                                              |
 | `offers.get` / `offers.close`    | `p2p:read` / `p2p:write` | Closing withdraws remaining liquidity; open trades continue                                                        |
 | `offers.pause` / `offers.resume` | `p2p:write`              | Hide / restore remaining liquidity without cancelling open trades                                                  |
-| `trades.take`                    | `p2p:write`              | **→ `escrowLock`.** Bounds, liquidity **and destination** before any lock                                          |
+| `access.eligibility`             | `p2p:read`               | Each take requirement (verification, contact, region, deposit, risk notice): met, not met with its fix, or unknown |
+| `risk.notice` / `risk.accept`    | `p2p:read` / `p2p:write` | The owner-published risk notice version, and the caller's own acceptance of it. Interactive only                   |
+| `trades.take`                    | `p2p:write`              | **→ `escrowLock`.** Requirements, bounds, liquidity **and destination** before any lock                            |
 | `trades.markFiatSent`            | `p2p:write`              | Buyer only                                                                                                         |
 | `trades.confirmReceived`         | `p2p:write`              | Seller only. **→ `escrowRelease`**                                                                                 |
 | `trades.cancel`                  | `p2p:write`              | **→ `escrowRefund`**, in full; refused from `fiat_sent` (`p2p.cancel_after_paid`)                                  |
@@ -141,6 +143,8 @@ Every procedure is `scopedProcedure(scope, { module: 'p2p' })`, which checks the
 | `ops.lateSettlements`            | `admin:compliance`       | Committed decisions with no ledger stamp yet (+ durable last settle error)                                         |
 | `data.export`                    | `p2p:read`               | §0.9 — everything this service holds about **the caller**                                                          |
 | `data.erase`                     | `p2p:write`              | §0.9 — self-only. Refuses while escrow is live; names what it retained                                             |
+
+**Before a take** (`src/take-eligibility.ts`, P-trade-orders-02 and P-disputes-security-08). `trades.take` refuses with the first unmet requirement before it reserves or locks anything: `p2p.contact_required` when the caller's email address is not confirmed, then `p2p.risk_not_accepted` until the caller accepts the current risk notice. Contact is svc-identity's fact, read from its `me` under this request's edge-signed principal (so it can only ever be the caller's own answer); unreachable identity or no `IDENTITY_URL` refuses `p2p.contact_unverifiable`. The notice version is `P2P_RISK_NOTICE_VERSION`; blank refuses every take with `p2p.risk_notice_unset`, and a new version asks everyone again. `access.eligibility` reports the same checks, so the panel and the refusal cannot disagree. Posting an ad does not check the notice here; the J-p2p-03 slice (post an ad) owns that gate.
 
 HTTP (`src/index.ts`):
 

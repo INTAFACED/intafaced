@@ -355,6 +355,8 @@ export type TakeFailure =
   | 'noRecord'
   | 'verify'
   | 'region'
+  | 'contact'
+  | 'risk'
   | 'viewChanged'
   | 'noService'
   | 'generic';
@@ -377,6 +379,12 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'denied.kyc_required',
   'denied.region_blocked',
   'denied.region_unknown',
+  // The eligibility gate (svc-p2p take-eligibility.ts) runs before the take reserves or locks anything.
+  'p2p.contact_required',
+  'p2p.contact_unverifiable',
+  'p2p.risk_not_accepted',
+  'p2p.risk_notice_unset',
+  'p2p.take_gate_unwired',
 ]);
 /** Replies that can follow a reservation or a lock: the order may exist, so these are never "nothing happened". */
 export const OPEN_TAKE_CODES: ReadonlySet<string> = new Set([
@@ -429,6 +437,10 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'region';
     case 'p2p.take_refused':
       return 'methodRefused';
+    case 'p2p.contact_required':
+      return 'contact';
+    case 'p2p.risk_not_accepted':
+      return 'risk';
     case 'p2p.release_unpostable':
       return 'tooSmall';
     case 'p2p.invalid_amount':
