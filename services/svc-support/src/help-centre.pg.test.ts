@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { supportHelpCentreAddressProblem } from '@intafaced/contracts';
 import {
   HelpCentreInvalidError,
   HelpCentreLanguagesUnsetError,
@@ -76,17 +77,35 @@ if (!url) {
   });
 
   /** Truncate drops the seeded spine. One article and its version, in one transaction so the deferred head check passes. */
-  async function seedArticle(): Promise<void> {
+  async function seedArticle(over: { id?: string; published?: boolean; audience?: 'public' | 'signed_in' | 'staff' } = {}): Promise<void> {
+    const id = over.id ?? 'kb-account-access';
+    const published = over.published ?? true;
+    const audience = over.audience ?? 'public';
     await db.sql.begin(async (tx) => {
       await tx`
         INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
-        VALUES ('kb-account-access', 'support.kb.account_access.title', 'support.kb.account_access.body', 1, true)
+        VALUES (${id}, 'support.kb.account_access.title', 'support.kb.account_access.body', 1, ${published})
       `;
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key)
-        VALUES ('kb-account-access', 1, 'support.kb.account_access.title', 'support.kb.account_access.body')
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, audience)
+        VALUES (${id}, 1, 'support.kb.account_access.title', 'support.kb.account_access.body', ${audience})
       `;
     });
+  }
+
+  async function languageRefusal(
+    book: SqlHelpCentreBook,
+    articleId: string,
+    viewer: { signedIn: boolean; staff: boolean },
+    version = 1,
+  ): Promise<{ name: string; message: string }> {
+    try {
+      await book.language({ language: 'en', articleId, version, viewer });
+    } catch (err) {
+      if (!(err instanceof Error)) throw err;
+      return { name: err.name, message: err.message };
+    }
+    throw new Error(`language read of ${articleId} returned a body`);
   }
 
   describe('SqlHelpCentreBook', () => {
@@ -201,9 +220,134 @@ if (!url) {
       await expect(db.sql`DELETE FROM support.help_centre_log`).rejects.toThrow(/append-only/);
       await expect(db.sql`UPDATE support.help_centre_translation_log SET reason = 'x'`).rejects.toThrow(/append-only/);
       await expect(db.sql`DELETE FROM support.help_centre_translation_log`).rejects.toThrow(/append-only/);
-      await expect(db.sql`UPDATE support.help_centre SET address = 'http://help.example.test'`).rejects.toThrow();
+      await expect(db.sql`UPDATE support.help_centre SET address = 'http://help.example.test'`).rejects.toMatchObject({
+        code: '23514',
+        constraint_name: 'help_centre_address_ck',
+      });
       await expect(db.sql`UPDATE support.help_centre SET languages = ARRAY['EN']`).rejects.toThrow(/setting_invalid/);
       await expect(db.sql`INSERT INTO support.help_centre (singleton) VALUES (false)`).rejects.toThrow();
+    });
+
+    it('an anonymous language read of a staff version is the same refusal as an id that was never stored', async () => {
+      await seedArticle({ id: 'kb-staff-only', audience: 'staff' });
+      await seedArticle({ id: 'kb-unpublished', published: false });
+      await db.sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
+          VALUES ('kb-staff-head', 'support.kb.staff.title', 'support.kb.staff.body', 2, true)
+        `;
+        await tx`
+          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, audience)
+          VALUES ('kb-staff-head', 1, 'support.kb.staff.old.title', 'support.kb.staff.old.body', 'public')
+        `;
+        await tx`
+          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, audience)
+          VALUES ('kb-staff-head', 2, 'support.kb.staff.title', 'support.kb.staff.body', 'staff')
+        `;
+      });
+      const book = new SqlHelpCentreBook(db.sql);
+      await book.set(change({ changes: { languages: ['en'], defaultLanguage: 'en' } }));
+      const anonymous = { signedIn: false, staff: false };
+      const missing = await languageRefusal(book, 'kb-never-stored', anonymous);
+      const hidden = await languageRefusal(book, 'kb-staff-only', anonymous);
+      const customer = await languageRefusal(book, 'kb-staff-only', { signedIn: true, staff: false });
+      const unpublished = await languageRefusal(book, 'kb-unpublished', anonymous);
+      const olderPublic = await languageRefusal(book, 'kb-staff-head', anonymous, 1);
+      expect(hidden).toEqual(missing);
+      expect(customer).toEqual(missing);
+      expect(unpublished).toEqual(missing);
+      expect(olderPublic).toEqual(missing);
+      expect(missing).toEqual({ name: 'HelpCentreNotFoundError', message: 'support.not_found' });
+      expect(JSON.stringify(hidden)).not.toContain('kb-staff-only');
+      expect(JSON.stringify(unpublished)).not.toContain('kb-unpublished');
+      const staff = await book.language({
+        language: 'en',
+        articleId: 'kb-staff-only',
+        version: 1,
+        viewer: { signedIn: true, staff: true },
+      });
+      expect(staff.translation).toEqual({ articleId: 'kb-staff-only', version: 1, state: 'missing' });
+      const desk = await book.listTranslations(20);
+      expect(desk.rows.some((row) => row.articleId === 'kb-staff-only')).toBe(true);
+    });
+
+    it('stores a canonical https address and the check accepts exactly what the contract accepts', async () => {
+      const book = new SqlHelpCentreBook(db.sql);
+      const stored = await book.set(change({ changes: { address: 'HTTPS://help.example.com/home' } }));
+      expect(stored.address).toBe('https://help.example.com/home');
+      const again = await book.set(change({ changes: { address: 'HTTPS://help.example.com/home' } }));
+      expect(again).toEqual(stored);
+      expect(await db.sql`SELECT 1 FROM support.help_centre_log`).toHaveLength(1);
+      const short = await book.set(change({ changes: { address: 'https://x' }, expectedRevision: 1, reason: 'Short address' }));
+      expect(short.address).toBe('https://x/');
+      await expect(
+        book.set(change({ changes: { address: 'http://help.example.test' }, expectedRevision: 2, reason: 'Bad scheme' })),
+      ).rejects.toBeInstanceOf(HelpCentreInvalidError);
+      const samples = [
+        'https://help.example.com/home',
+        'HTTPS://help.example.com/home',
+        'https://x',
+        'https:x',
+        'https:/x',
+        'https:\\\\x',
+        '  HTTPS://help.example.com/home  ',
+        'https://a.b',
+        'https://[::1]',
+        'https://[::ffff:127.0.0.1]',
+        'https://foo:8443',
+        'https://foo:65535',
+        'https://foo:000000',
+        'https://@foo',
+        'https://:@foo',
+        'https://foo/bar baz',
+        'https://foo/user@bar',
+        'https://example.com:443/home',
+        'https://.',
+        'https://1',
+        'HTTPS:help.example.com/home',
+        'https://ex~ample.com',
+        'https://foo%2eample.com',
+        'https://X-%mzM',
+        'https://foo:12a',
+        'http://help.example.test',
+        'https://user@foo',
+        'https://user:pass@foo',
+        'https://:pass@foo',
+        'https://foo:99999',
+        'https://foo:bar',
+        'https://[zz]',
+        'https://[:]',
+        'https://',
+        '',
+        'not-a-url',
+        `https://example.com/${'a'.repeat(190)}`,
+      ];
+      for (const sample of samples) {
+        const [row] = await db.sql<{ ok: boolean }[]>`SELECT support.help_centre_address_ok(${sample}) AS ok`;
+        expect(row?.ok, sample).toBe(supportHelpCentreAddressProblem(sample) === null);
+      }
+      const [nullOk] = await db.sql<{ ok: boolean }[]>`SELECT support.help_centre_address_ok(NULL) AS ok`;
+      expect(nullOk?.ok).toBe(true);
+      await db.sql`UPDATE support.help_centre SET address = 'https://x'`;
+      await db.sql`UPDATE support.help_centre SET address = 'HTTPS://help.example.com/home'`;
+      await db.sql`UPDATE support.help_centre SET address = 'https:x'`;
+      const [def] = await db.sql<{ def: string }[]>`
+        SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'help_centre_address_ck'
+      `;
+      await db.sql.unsafe('ALTER TABLE support.help_centre DROP CONSTRAINT help_centre_address_ck');
+      await db.sql.unsafe(
+        "ALTER TABLE support.help_centre ADD CONSTRAINT help_centre_address_ck CHECK (address IS NULL OR address = 'https:x')",
+      );
+      try {
+        await expect(
+          book.set(change({ changes: { address: 'https://help.example.com/home' }, expectedRevision: 2, reason: 'Set the address' })),
+        ).rejects.toMatchObject({ name: 'HelpCentreInvalidError', message: 'support.help_centre_setting_invalid' });
+        expect((await book.get()).address).toBe('https:x');
+        expect((await book.get()).revision).toBe(2);
+      } finally {
+        await db.sql.unsafe('ALTER TABLE support.help_centre DROP CONSTRAINT help_centre_address_ck');
+        await db.sql.unsafe(`ALTER TABLE support.help_centre ADD CONSTRAINT help_centre_address_ck ${def?.def ?? ''}`);
+      }
     });
   });
 }

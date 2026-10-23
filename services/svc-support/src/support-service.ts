@@ -242,8 +242,16 @@ export function assertListEventsLimit(limit: number | undefined): number {
 /** setKbAudience got something outside public, signed_in and staff. */
 export const KB_AUDIENCE_INVALID = 'support.kb_audience_invalid' as const;
 
+/**
+ * The reader of a help door, from the signed principal and nothing else.
+ * A visitor has no principal. The desk is a `support:ops` principal.
+ */
+export function kbViewerOf(principal: Pick<Principal, 'scopes'> | null | undefined): SupportKbViewer {
+  return { signedIn: Boolean(principal), staff: Boolean(principal?.scopes.includes('support:ops')) };
+}
+
 /** The reader of a public help door when the caller did not say: a signed-out visitor sees public articles only. */
-const ANONYMOUS_KB_VIEWER: SupportKbViewer = { signedIn: false, staff: false };
+const ANONYMOUS_KB_VIEWER: SupportKbViewer = kbViewerOf(null);
 
 /** The audiences a reader may see: public always, signed_in once signed in, staff for the desk. */
 function audiencesFor(viewer: SupportKbViewer): SupportKbAudience[] {

@@ -88,7 +88,7 @@ await sql`SELECT 1 FROM support.survey_log LIMIT 1`.catch(() => {
   throw new Error('support.survey_log is missing — apply migration 0027 before starting svc-support');
 });
 await sql`SELECT 1 FROM support.help_centre_log LIMIT 1`.catch(() => {
-  throw new Error('support.help_centre_log is missing — apply migration 0030 before starting svc-support');
+  throw new Error('support.help_centre_log is missing — apply migration 0031 before starting svc-support');
 });
 
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {

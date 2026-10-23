@@ -14,6 +14,8 @@ import {
   SUPPORT_LANGUAGES_UNSET,
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
   SUPPORT_HELP_CENTRE_REVISION_STALE,
+  kbAudienceVisibleTo,
+  supportHelpCentreAddressProblem,
   supportHelpCentreSetKey,
   supportHelpCentreTranslationKey,
   type SupportHelpCentre,
@@ -22,6 +24,8 @@ import {
   type SupportHelpCentreTranslation,
   type SupportHelpCentreTranslationList,
   type SupportHelpCentreTranslationState,
+  type SupportKbAudience,
+  type SupportKbViewer,
 } from '@intafaced/contracts';
 import { PLATFORM_KB_SPINE } from './kb-catalog.js';
 
@@ -130,6 +134,36 @@ const sameValues = (a: Values, b: Values): boolean =>
   a.setupMode === b.setupMode &&
   a.published === b.published;
 
+/** The https href of an address the contract accepts. Anything else is the typed refusal, before a write. */
+export function canonicalHelpCentreAddress(value: string): string {
+  if (supportHelpCentreAddressProblem(value) !== null) throw new HelpCentreInvalidError();
+  const href = new URL(value.trim()).href;
+  if (supportHelpCentreAddressProblem(href) !== null) throw new HelpCentreInvalidError();
+  return href;
+}
+
+function normalizeChanges(changes: Partial<Values>): Partial<Values> {
+  if (changes.address === undefined || changes.address === null) return changes;
+  const address = canonicalHelpCentreAddress(changes.address);
+  return address === changes.address ? changes : { ...changes, address };
+}
+
+const anonymousViewer: SupportKbViewer = { signedIn: false, staff: false };
+
+/** Same audience rule as getKbArticle. An unknown audience is hidden, not public. */
+function audienceVisible(audience: string | null | undefined, viewer: SupportKbViewer): boolean {
+  if (audience === undefined || audience === null || audience === 'public') return kbAudienceVisibleTo(undefined, viewer);
+  if (audience === 'signed_in' || audience === 'staff') return kbAudienceVisibleTo(audience, viewer);
+  return false;
+}
+
+function isAddressCheckViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const pg = err as { code?: string; constraint_name?: string; message?: string };
+  if (pg.code !== '23514') return false;
+  return pg.constraint_name === 'help_centre_address_ck' || (pg.message?.includes('help_centre_address_ck') ?? false);
+}
+
 /** A set default must be one of the offered languages. An unset list does not invent a default, and the reverse is allowed. */
 export function helpCentreCombinationProblem(values: Values): string | null {
   if (values.defaultLanguage !== null && values.languages !== null && !values.languages.includes(values.defaultLanguage)) {
@@ -146,12 +180,26 @@ export function helpCentreFingerprint(changes: Partial<Values>, reason: string):
     .digest('hex');
 }
 
-type VersionRef = { readonly articleId: string; readonly version: number };
+type VersionRef = {
+  readonly articleId: string;
+  readonly version: number;
+  readonly audience?: SupportKbAudience;
+  /** When this row is the head, whether the article is published. */
+  readonly published: boolean;
+};
+
+export interface HelpCentreLanguageRead {
+  readonly language: string;
+  readonly articleId?: string;
+  readonly version?: number;
+  /** From the signed principal. Left out, the reader is a signed-out visitor. */
+  readonly viewer?: SupportKbViewer;
+}
 
 export interface HelpCentreBook {
   get(): Promise<SupportHelpCentre>;
   set(change: HelpCentreChange): Promise<SupportHelpCentre>;
-  language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage>;
+  language(input: HelpCentreLanguageRead): Promise<SupportHelpCentreLanguage>;
   setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation>;
   listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList>;
 }
@@ -165,7 +213,13 @@ type SettingsLogRow = {
   at: string;
 };
 
-const spineVersions = (): VersionRef[] => PLATFORM_KB_SPINE.map((article) => ({ articleId: article.id, version: article.version ?? 1 }));
+const spineVersions = (): VersionRef[] =>
+  PLATFORM_KB_SPINE.map((article) => ({
+    articleId: article.id,
+    version: article.version ?? 1,
+    audience: article.audience,
+    published: article.published !== false,
+  }));
 
 export class MemoryHelpCentreBook implements HelpCentreBook {
   private state: SupportHelpCentre = blank();
@@ -187,26 +241,27 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
   }
 
   async set(change: HelpCentreChange): Promise<SupportHelpCentre> {
-    const key = supportHelpCentreSetKey(change.expectedRevision);
-    const fingerprint = helpCentreFingerprint(change.changes, change.reason);
-    if (change.expectedRevision !== this.state.revision) {
+    const normalized = { ...change, changes: normalizeChanges(change.changes) };
+    const key = supportHelpCentreSetKey(normalized.expectedRevision);
+    const fingerprint = helpCentreFingerprint(normalized.changes, normalized.reason);
+    if (normalized.expectedRevision !== this.state.revision) {
       if (this.byKey.get(key) === fingerprint) return this.state;
       throw new HelpCentreStaleError();
     }
-    const next = applyChanges(this.state, change.changes);
+    const next = applyChanges(this.state, normalized.changes);
     if (helpCentreCombinationProblem(next) !== null) throw new HelpCentreInvalidError();
     if (sameValues(this.state, next)) return this.state;
-    const after: SupportHelpCentre = { ...next, revision: this.state.revision + 1, updatedAt: change.at };
-    this.log.push({ key, before: this.state, after, by: change.by, reason: change.reason, at: change.at });
+    const after: SupportHelpCentre = { ...next, revision: this.state.revision + 1, updatedAt: normalized.at };
+    this.log.push({ key, before: this.state, after, by: normalized.by, reason: normalized.reason, at: normalized.at });
     this.byKey.set(key, fingerprint);
     this.state = after;
     return after;
   }
 
-  async language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage> {
+  async language(input: HelpCentreLanguageRead): Promise<SupportHelpCentreLanguage> {
     if (this.state.languages === null) throw new HelpCentreLanguagesUnsetError();
     if (!this.state.languages.includes(input.language)) throw new HelpCentreInvalidError();
-    const translation = await this.translationOf(input.articleId, input.version, input.language);
+    const translation = await this.translationOf(input.articleId, input.version, input.language, input.viewer ?? anonymousViewer);
     return {
       language: input.language,
       defaultLanguage: this.state.defaultLanguage,
@@ -261,13 +316,26 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
     if (!this.state.languages.includes(language)) throw new HelpCentreInvalidError();
   }
 
+  /**
+   * Published head, then that head's audience, then the named version. A hidden article and a missing id
+   * both refuse, and the article id is not returned.
+   */
+  private versionVisible(articleId: string, version: number, viewer: SupportKbViewer): boolean {
+    const history = this.versions.filter((row) => row.articleId === articleId).sort((a, b) => a.version - b.version);
+    const head = history[history.length - 1];
+    if (!head || !head.published || !audienceVisible(head.audience, viewer)) return false;
+    const hit = history.find((row) => row.version === version);
+    return Boolean(hit && audienceVisible(hit.audience, viewer));
+  }
+
   private async translationOf(
     articleId: string | undefined,
     version: number | undefined,
     language: string,
+    viewer: SupportKbViewer,
   ): Promise<SupportHelpCentreLanguage['translation']> {
     if (articleId === undefined || version === undefined) return null;
-    if (!this.versions.some((row) => row.articleId === articleId && row.version === version)) throw new HelpCentreNotFoundError();
+    if (!this.versionVisible(articleId, version, viewer)) throw new HelpCentreNotFoundError();
     const state = this.translations.get(`${articleId}:${version}:${language}`) ?? 'missing';
     return { articleId, version, state };
   }
@@ -319,52 +387,66 @@ export class SqlHelpCentreBook implements HelpCentreBook {
   }
 
   async set(change: HelpCentreChange): Promise<SupportHelpCentre> {
-    const key = supportHelpCentreSetKey(change.expectedRevision);
-    const fingerprint = helpCentreFingerprint(change.changes, change.reason);
-    return this.sql.begin(async (tx) => {
-      await tx`INSERT INTO support.help_centre (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
-      const [locked] = await tx<SettingsRow[]>`
-        SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
-        FROM support.help_centre WHERE singleton FOR UPDATE
-      `;
-      const prior = fromRow(locked);
-      if (change.expectedRevision !== prior.revision) {
-        const [logged] = await tx<{ fingerprint: string }[]>`SELECT fingerprint FROM support.help_centre_log WHERE key = ${key}`;
-        if (logged?.fingerprint === fingerprint) return prior;
-        throw new HelpCentreStaleError();
-      }
-      const next = applyChanges(prior, change.changes);
-      if (helpCentreCombinationProblem(next) !== null) throw new HelpCentreInvalidError();
-      if (sameValues(prior, next)) return prior;
-      const after: SupportHelpCentre = { ...next, revision: prior.revision + 1, updatedAt: change.at };
-      await tx`
-        UPDATE support.help_centre
-        SET name = ${after.name}, address = ${after.address}, default_language = ${after.defaultLanguage},
-            languages = ${after.languages}, setup_mode = ${after.setupMode}, published = ${after.published},
-            revision = ${after.revision}, updated_by = ${change.by}, updated_at = ${change.at}
-        WHERE singleton
-      `;
-      await tx`
-        INSERT INTO support.help_centre_log (key, fingerprint, revision_after, before, after, set_by, reason, set_at)
-        VALUES (
-          ${key}, ${fingerprint}, ${after.revision}, ${tx.json(prior as never)}, ${tx.json(after as never)},
-          ${change.by}, ${change.reason}, ${change.at}
-        )
-      `;
-      return after;
-    }) as Promise<SupportHelpCentre>;
+    const normalized = { ...change, changes: normalizeChanges(change.changes) };
+    const key = supportHelpCentreSetKey(normalized.expectedRevision);
+    const fingerprint = helpCentreFingerprint(normalized.changes, normalized.reason);
+    try {
+      return (await this.sql.begin(async (tx) => {
+        await tx`INSERT INTO support.help_centre (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
+        const [locked] = await tx<SettingsRow[]>`
+          SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+          FROM support.help_centre WHERE singleton FOR UPDATE
+        `;
+        const prior = fromRow(locked);
+        if (normalized.expectedRevision !== prior.revision) {
+          const [logged] = await tx<{ fingerprint: string }[]>`SELECT fingerprint FROM support.help_centre_log WHERE key = ${key}`;
+          if (logged?.fingerprint === fingerprint) return prior;
+          throw new HelpCentreStaleError();
+        }
+        const next = applyChanges(prior, normalized.changes);
+        if (helpCentreCombinationProblem(next) !== null) throw new HelpCentreInvalidError();
+        if (sameValues(prior, next)) return prior;
+        const after: SupportHelpCentre = { ...next, revision: prior.revision + 1, updatedAt: normalized.at };
+        await tx`
+          UPDATE support.help_centre
+          SET name = ${after.name}, address = ${after.address}, default_language = ${after.defaultLanguage},
+              languages = ${after.languages}, setup_mode = ${after.setupMode}, published = ${after.published},
+              revision = ${after.revision}, updated_by = ${normalized.by}, updated_at = ${normalized.at}
+          WHERE singleton
+        `;
+        await tx`
+          INSERT INTO support.help_centre_log (key, fingerprint, revision_after, before, after, set_by, reason, set_at)
+          VALUES (
+            ${key}, ${fingerprint}, ${after.revision}, ${tx.json(prior as never)}, ${tx.json(after as never)},
+            ${normalized.by}, ${normalized.reason}, ${normalized.at}
+          )
+        `;
+        return after;
+      })) as SupportHelpCentre;
+    } catch (err) {
+      if (isAddressCheckViolation(err)) throw new HelpCentreInvalidError();
+      throw err;
+    }
   }
 
-  async language(input: { language: string; articleId?: string; version?: number }): Promise<SupportHelpCentreLanguage> {
+  async language(input: HelpCentreLanguageRead): Promise<SupportHelpCentreLanguage> {
     const settings = await this.get();
     if (settings.languages === null) throw new HelpCentreLanguagesUnsetError();
     if (!settings.languages.includes(input.language)) throw new HelpCentreInvalidError();
+    const viewer = input.viewer ?? anonymousViewer;
     let translation: SupportHelpCentreLanguage['translation'] = null;
     if (input.articleId !== undefined && input.version !== undefined) {
-      const [version] = await this.sql<{ id: string }[]>`
-        SELECT id FROM support.kb_article_versions WHERE id = ${input.articleId} AND version = ${input.version}
+      // Published head first, then that head's audience, then the named version. Hidden and missing are one refusal.
+      const [visible] = await this.sql<{ head_audience: string | null; version_audience: string | null }[]>`
+        SELECT head.audience AS head_audience, v.audience AS version_audience
+        FROM support.kb_articles a
+        JOIN support.kb_article_versions head ON head.id = a.id AND head.version = a.revision
+        JOIN support.kb_article_versions v ON v.id = a.id AND v.version = ${input.version}
+        WHERE a.id = ${input.articleId} AND a.published = true
       `;
-      if (!version) throw new HelpCentreNotFoundError();
+      if (!visible || !audienceVisible(visible.head_audience, viewer) || !audienceVisible(visible.version_audience, viewer)) {
+        throw new HelpCentreNotFoundError();
+      }
       const [row] = await this.sql<{ state: SupportHelpCentreTranslationState }[]>`
         SELECT state FROM support.help_centre_translation
         WHERE article_id = ${input.articleId} AND version = ${input.version} AND language = ${input.language}

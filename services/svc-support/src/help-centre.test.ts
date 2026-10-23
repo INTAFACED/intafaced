@@ -104,6 +104,16 @@ describe('help centre settings', () => {
     expect(await helpCentre.get()).toEqual(BLANK);
   });
 
+  it('stores the https href, so a mixed-case or short address is not an untyped failure', async () => {
+    const { helpCentre, lead } = await desk();
+    const stored = await lead.setHelpCentre({ reason, expectedRevision: 0, address: 'HTTPS://help.example.com/home' });
+    expect(stored.address).toBe('https://help.example.com/home');
+    expect(await lead.setHelpCentre({ reason, expectedRevision: 0, address: 'HTTPS://help.example.com/home' })).toEqual(stored);
+    expect(helpCentre.log).toHaveLength(1);
+    const short = await lead.setHelpCentre({ reason: 'Short address', expectedRevision: 1, address: 'https://x' });
+    expect(short.address).toBe('https://x/');
+  });
+
   it('a stale revision is refused and a lost reply of the same change is the first answer', async () => {
     const { helpCentre, lead } = await desk();
     const first = await lead.setHelpCentre({ reason, expectedRevision: 0, name: 'Help' });

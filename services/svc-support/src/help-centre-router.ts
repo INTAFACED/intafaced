@@ -24,7 +24,7 @@ import {
   helpCentreChangesOf,
   type HelpCentreBook,
 } from './help-centre.js';
-import { requireSupportOps, type SupportService } from './support-service.js';
+import { kbViewerOf, requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -59,9 +59,9 @@ export function helpCentreProcedures(book: HelpCentreBook, support: Pick<Support
     helpCentreLanguage: publicProcedure
       .input(supportHelpCentreLanguageInputSchema)
       .output(supportHelpCentreLanguageSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await book.language(input);
+          return await book.language({ ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           throw mapHelpCentre(err);
         }
