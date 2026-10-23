@@ -708,7 +708,7 @@ test('Needs you never says "nothing" on a missing answer: a blank cap is refused
   await mock(page, { homeConfig: () => ({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 1 }) });
   await open(page);
   const work = page.locator('section[aria-labelledby="home-work-title"]');
-  await expect(work).toContainText('Not set yet');
+  await expect(work).toContainText('List size not set');
   await expect(work).toContainText('home.work_list_cap_unset');
   await expect(work).not.toContainText('Nothing needs you');
 
@@ -716,7 +716,7 @@ test('Needs you never says "nothing" on a missing answer: a blank cap is refused
   await mock(page, { 'work:bank': { status: 404, json: { error: { message: 'No procedure found on path "workItems.list"' } } } });
   await page.reload();
   await expect(work).toContainText('Nothing so far from the services that answered.');
-  await expect(work).toContainText('Not connected yet: Bank.');
+  await expect(work).toContainText('Not connected here: Bank.');
   await expect(work).not.toContainText('Nothing needs you');
 
   // A row from another owner, or not in the contract, drops that owner's whole answer.
