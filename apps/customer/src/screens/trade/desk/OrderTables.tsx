@@ -212,6 +212,7 @@ export function OrdersTable({
             <th className="dk-num">{t('Price')}</th>
             <th className="dk-num">{t('Amount')}</th>
             <th className="dk-num">{t('Filled')}</th>
+            {withAction ? <th className="dk-num">{t('Held')}</th> : null}
             {withAction || !desk ? null : (
               <>
                 <th className="dk-num">{t('Average price')}</th>
@@ -252,6 +253,11 @@ export function OrdersTable({
               </td>
               <td className="dk-num if-num">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
               <td className="dk-num if-num">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
+              {withAction ? (
+                <td className="dk-num if-num">
+                  <Held order={order} lot={precision.lotOf(order.symbol)} unknown={t('Held unknown label')} />
+                </td>
+              ) : null}
               {withAction || !desk ? null : (
                 <>
                   <td className="dk-num if-num">{order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}</td>
@@ -289,6 +295,19 @@ export function OrdersTable({
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/** What an open order still holds, in the asset it holds. A wire that states nothing reads "—", never a computed guess. */
+function Held({ order, lot, unknown }: { order: Order; lot: number; unknown: string }) {
+  const hold = order.hold;
+  if (!hold) return <span title={unknown}>—</span>;
+  const quote = hold.asset === quoteOf(order.symbol);
+  return (
+    <>
+      {fmtAmount(hold.amount, quote ? { places: quotePlaces(hold.asset), fixed: true } : { places: lot })}{' '}
+      <span className="dk-unit">{hold.asset}</span>
     </>
   );
 }

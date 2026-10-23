@@ -685,7 +685,7 @@ async function readSchedule(sql: Sql): Promise<FuturesSchedule> {
   const [row] = await sql<
     Array<{ version: string; tenors: unknown; operator_id: string; approver_id: string; created_at: Date }>
   >`SELECT version::text AS version, tenors, operator_id, approver_id, created_at
-      FROM trade.futures_expiry_schedule ORDER BY version DESC LIMIT 1`;
+      FROM trade.futures_expiry_schedule ORDER BY futures_expiry_schedule.version DESC LIMIT 1`;
   if (!row) return { version: null, tenors: [], reason: NO_SCHEDULE_PUBLISHED };
   const tenors = (typeof row.tenors === 'string' ? JSON.parse(row.tenors) : row.tenors) as TenorRow[];
   return {

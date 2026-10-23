@@ -64,6 +64,7 @@ import type { AcceptAgreementResult, AgreementView } from './futures/risk-agreem
 import { refuseArmById } from './ccxt-capability-matrix.js';
 import { assertStopTrigger, SPOT_ORDER_TYPES, TRADE_STOP_TRIGGER_INVALID, type StopTriggerStore } from './spot/stop-trigger-door.js';
 import { orderIdFor } from './spot/ids.js';
+import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
@@ -168,6 +169,8 @@ export interface PrivateRestDeps {
   stopTriggers?: StopTriggerStore;
   /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
   ocoExits?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OcoExitLegs>>;
+  /** What each live order still holds, by order id; absent when not wired, and then no order carries a hold. */
+  orderHolds?: (orders: readonly OrderRecord[]) => Promise<ReadonlyMap<string, OrderHold>>;
   /**
    * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
    * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
@@ -555,6 +558,15 @@ async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]
     const kind = /^bracket:.+:exit$/.test(order.clientOrderId ?? '') ? 'bracket_exit' : 'oco';
     return { ...wire, exit: { kind, ...found } };
   };
+}
+
+/**
+ * An open order carries what it still holds as `hold`; other orders carry `null` (nothing stated). The hold is shown
+ * beside the order, never needed to act on it: a failed hold read states nothing rather than failing the orders read.
+ */
+async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
+  const holds = deps.orderHolds && orders.length > 0 ? await deps.orderHolds(orders).catch(() => new Map<string, OrderHold>()) : null;
+  return <W extends object>(order: OrderRecord, wire: W): W => (holds ? { ...wire, hold: holds.get(order.id) ?? null } : wire);
 }
 
 export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fills?: readonly Pick<FillRecord, 'quoteAmount'>[] }) {
@@ -1261,9 +1273,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
+      const withHeld = await withHold(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push({ ...withExit(order, withStop(order, presentCcxtOrder(order, symbol))), serverTime });
+        wire.push({ ...withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))), serverTime });
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1322,9 +1335,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
+      const withHeld = await withHold(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+        wire.push(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -3018,7 +3032,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+        const withHeld = await withHold(deps, [order]);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3039,7 +3054,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+        const withHeld = await withHold(deps, [order]);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3060,7 +3076,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      const withHeld = await withHold(deps, [order]);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -3095,7 +3112,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      const withHeld = await withHold(deps, [order]);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

@@ -85,13 +85,15 @@ export function validateLimits(input: RiskLimits): RiskLimits {
   return { collar, fatFinger, slippageCap, throttle, circuitBreaker };
 }
 
+// Every ORDER BY names the table's bigint column: a bare `version` sorts by the `version::text` output column, where
+// "9" comes after "10", so from version 10 on the latest row read as an older one.
 export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersion | null> {
   const [row] = await sql<RiskRow[]>`
     SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
-     ORDER BY version DESC
+     ORDER BY operator_risk_limits.version DESC
      LIMIT 1`;
   return row ? present(row) : null;
 }
@@ -110,7 +112,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ANY(${[...marketIds]}::uuid[])
-     ORDER BY market_id, version DESC`;
+     ORDER BY market_id, operator_risk_limits.version DESC`;
   for (const row of rows) out.set(row.market_id, present(row));
   return out;
 }
@@ -121,7 +123,7 @@ export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersi
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
-     ORDER BY version ASC`;
+     ORDER BY operator_risk_limits.version ASC`;
   return rows.map(present);
 }
 
