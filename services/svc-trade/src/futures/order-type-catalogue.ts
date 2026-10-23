@@ -10,6 +10,11 @@
  * (`openPosition`) as supported; resting types refuse with the code the
  * resting door itself throws (conditional-orders/resting.ts), because futures
  * are market-at-mark only until resting futures orders are decided (P-1).
+ *
+ * While futures orders go through the matching book (TRADE_FUTURES_MATCHING_ENABLED, futures ADR slice 6), the
+ * catalogue follows that path instead: a market order (IOC at the band edge) and a limit order (rests GTC) are
+ * available, and a reduce-only order is how a position closes. Everything that path does not take refuses with
+ * `trade.order_type_unsupported` and says why.
  */
 import { CCXT_CAPABILITY_MATRIX, type CcxtCapabilityRow } from '../ccxt-capability-matrix.js';
 import { FUTURES_RESTING_UNSUPPORTED } from './conditional-orders/resting.js';
@@ -38,6 +43,9 @@ export interface FuturesOrderTypeCatalogue {
 const RESTING_REASON =
   'resting futures orders are unsupported: futures open and close at the accepted mark only, and a resting match does not update a futures position';
 const OPEN_DOOR_REASON = 'the futures open door is not claimed as supported in the capability matrix';
+const BOOK_TYPE_REASON = 'futures orders through the book are market or limit; this type is not offered on the futures book yet';
+const BOOK_TIF_REASON =
+  'a futures limit rests good-till-cancelled and a market order is immediate-or-cancel at the band edge; no other time in force is offered';
 
 function refused<Id extends string>(id: Id, code: string, reason: string): CatalogueEntry<Id> {
   return { id, state: 'refused', code, reason };
@@ -52,7 +60,9 @@ function openDoorSupported(matrix: readonly CcxtCapabilityRow[]): boolean {
 export function buildFuturesOrderTypeCatalogue(
   marketSymbol: string,
   matrix: readonly CcxtCapabilityRow[] = CCXT_CAPABILITY_MATRIX,
+  options: { readonly throughBook?: boolean } = {},
 ): FuturesOrderTypeCatalogue {
+  if (options.throughBook === true) return bookCatalogue(marketSymbol);
   const open = openDoorSupported(matrix);
   const atMark = <Id extends string>(id: Id): CatalogueEntry<Id> =>
     open ? { id, state: 'available' } : refused(id, FUTURES_ORDER_TYPE_UNSUPPORTED, OPEN_DOOR_REASON);
@@ -62,5 +72,22 @@ export function buildFuturesOrderTypeCatalogue(
     orderTypes: FUTURES_ORDER_TYPES.map((id) => (id === 'market' ? atMark(id) : resting(id))),
     timeInForce: FUTURES_TIME_IN_FORCE.map((id) => resting(id)),
     flags: FUTURES_TICKET_FLAGS.map((id) => (id === 'reduceOnly' ? atMark(id) : resting(id))),
+  };
+}
+
+/** The catalogue while futures orders go through the matching book. */
+function bookCatalogue(marketSymbol: string): FuturesOrderTypeCatalogue {
+  const available = <Id extends string>(id: Id): CatalogueEntry<Id> => ({ id, state: 'available' });
+  return {
+    market: marketSymbol,
+    orderTypes: FUTURES_ORDER_TYPES.map((id) =>
+      id === 'market' || id === 'limit' ? available(id) : refused(id, FUTURES_ORDER_TYPE_UNSUPPORTED, BOOK_TYPE_REASON),
+    ),
+    timeInForce: FUTURES_TIME_IN_FORCE.map((id) =>
+      id === 'GTC' || id === 'IOC' ? available(id) : refused(id, FUTURES_ORDER_TYPE_UNSUPPORTED, BOOK_TIF_REASON),
+    ),
+    flags: FUTURES_TICKET_FLAGS.map((id) =>
+      id === 'reduceOnly' ? available(id) : refused(id, FUTURES_ORDER_TYPE_UNSUPPORTED, BOOK_TYPE_REASON),
+    ),
   };
 }

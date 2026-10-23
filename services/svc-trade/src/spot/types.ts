@@ -394,6 +394,8 @@ export type TradeErrorCode =
   | 'trade.seed_disabled'
   | 'trade.seed_must_make'
   | 'trade.order_not_found'
+  // An order-history page cursor that is not one of the caller's orders.
+  | 'trade.invalid_cursor'
   | 'trade.order_not_open'
   | 'trade.not_owner'
   | 'trade.perks_unavailable'
@@ -514,6 +516,10 @@ export type TradeErrorCode =
    * both refuse. Never `orderable: true` with a null protection price.
    */
   | 'trade.protection_unset'
+  /** No operator price band is published for the pair: a priced order is refused, never banded by a default. */
+  | 'trade.price_band_unset'
+  /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
+  | 'trade.open_orders_cap_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.

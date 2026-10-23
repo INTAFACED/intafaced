@@ -10,6 +10,7 @@ export {
   fmtPct,
   fmtPrice,
   fmtUsd,
+  classifyRefusal,
   refusalCopy,
   useActivity,
   useFavorites,
@@ -21,7 +22,10 @@ export {
 export type { ActivityFeed, ActivityItem, Decimal, Loadable, MarketRow, TickerRow } from '../../data';
 // One total: Home reads the same source as the Money screen (the bank's valuation, which counts named accounts).
 export { useHomePortfolio } from '../money/portfolio-source';
-export { DerivedTotalNote } from '../money/total-note';
+export { DerivedTotalTag } from '../money/total-note';
+// One row per movement, as the Activity room groups them (an order's fills, holds and fees are one row).
+export { groupActivity } from '../money/activity-view';
+export { detailHref } from '../money/activity-detail';
 export type { HomeHolding, HomePortfolio } from '../money/portfolio-source';
 export { compareDecimal, dec, decOrNull, ratio, roundScaled, sub, toFixedString } from '../../data/decimal';
 

@@ -15,6 +15,7 @@ import { MockModelProvider } from './providers/mock.js';
 import { UpstreamModelProvider } from './providers/upstream.js';
 import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
+import { UserSpendStore } from './spend/store.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
@@ -125,9 +126,11 @@ const meter = new UsageMeter(sql, ledger, {
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });
 
+const spend = new UserSpendStore(sql);
 const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  spend,
 });
 
 // Upsert product guardrails before the listener opens — openSession binds from

@@ -400,6 +400,12 @@ export class LoanService {
       );
     }
 
+    // A missing floor is not an allow-all. Explicit 0n is a real floor and is stored.
+    const minPrincipal = input.minPrincipal;
+    if (floorUnset(minPrincipal)) {
+      throw new BankError('Loan product terms are invalid: minPrincipal is blank', 'bank.loan_params_invalid');
+    }
+
     const rows = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loan_products (
         name, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, max_ltv_bps,
@@ -410,7 +416,7 @@ export class LoanService {
         ${input.aprBps}, ${input.maxLtvBps}, ${input.policy.marginCallLtvBps}, ${input.policy.liquidationLtvBps},
         ${input.policy.insolvencyLtvBps}, ${input.policy.targetLtvBps}, ${input.policy.penaltyBps},
         ${input.policy.maxTrancheBps}, ${input.policy.graceSeconds},
-        ${formatAmount(input.minPrincipal ?? 0n)}::numeric
+        ${formatAmount(minPrincipal)}::numeric
       )
       RETURNING *
     `;
@@ -3347,6 +3353,11 @@ export class LoanService {
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
 
+/** Missing, null, or whitespace. An explicit 0 is a floor, not a blank. */
+function floorUnset(value: unknown): value is null | undefined | '' {
+  return value == null || (typeof value === 'string' && value.trim() === '');
+}
+
 /** Every term checked before a product row is written; the operator gets a 400, not a constraint name. */
 export function assertLoanParams(input: {
   name: string;
@@ -3368,6 +3379,7 @@ export function assertLoanParams(input: {
   if (input.policy.targetLtvBps <= 0) refuse('targetLtvBps must be positive');
   if (input.policy.penaltyBps < 0 || input.policy.penaltyBps >= 10_000) refuse('penaltyBps must be within 0..9999');
   if (input.policy.insolvencyLtvBps > 10_000) refuse('insolvencyLtvBps cannot exceed 10000');
+  if (floorUnset(input.minPrincipal as unknown)) refuse('minPrincipal is blank');
   if (input.minPrincipal < 0n) refuse('minPrincipal cannot be negative');
   try {
     assertPolicyCoherent(input.policy, input.maxLtvBps);
@@ -3396,6 +3408,9 @@ function sameProductTerms(stored: LoanProductRecord, input: Omit<LoanProductReco
 }
 
 function toProduct(row: Record<string, unknown>): LoanProductRecord {
+  if (floorUnset(row.min_principal)) {
+    throw new BankError('Loan product terms are invalid: minPrincipal is blank', 'bank.loan_params_invalid');
+  }
   return {
     id: String(row.id),
     name: String(row.name),

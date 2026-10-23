@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseAmount, formatAmount } from '@intafaced/ledger-client/money';
+import { parseAmount, formatAmount } from '@intafaced/money-math';
 
 export const decimalSchema = z.string().refine((value) => {
   try {

@@ -52,8 +52,16 @@ export function createOperatorOpsRouter(sql: Sql) {
   return router({
     accountDirectory: router({
       search: scopedProcedure('admin:compliance')
-        .input(z.object({ email: z.string().max(320).optional(), handle: z.string().max(32).optional() }).strict())
-        .output(z.object({ rows: z.array(directoryRow) }).strict())
+        .input(
+          z
+            .object({
+              email: z.string().max(320).optional(),
+              handle: z.string().max(32).optional(),
+              cursor: z.string().max(512).optional(),
+            })
+            .strict(),
+        )
+        .output(z.object({ rows: z.array(directoryRow), nextCursor: z.string().nullable() }).strict())
         .query(async ({ ctx, input }) => {
           try {
             return await searchAccounts(sql, ctx, input);

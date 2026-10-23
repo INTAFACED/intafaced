@@ -9,6 +9,7 @@ import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context, IdentityOperationDecisionInput, IdentityOperationIntent } from '@intafaced/contracts';
 import { FounderControls, parseFounderPair } from './founder-controls.js';
+import { approvedUnfreeze } from './unfreeze-approval.testkit.js';
 import { OperationIdentityDecisions } from './operation-identity-decisions.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -27,6 +28,7 @@ const tokens = {
 describe.runIf(Boolean(url))('durable identity operation decisions', () => {
   let db: TestDatabase;
   let controls: FounderControls;
+  let secondFounder: string;
   let decisions: OperationIdentityDecisions;
   let founder: Context;
   let target: Context;
@@ -57,13 +59,24 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
   }
   const grant = (value: IdentityOperationIntent): IdentityOperationDecisionInput => ({ mode: 'grant', intent: value });
   const cancel = (value: IdentityOperationIntent): IdentityOperationDecisionInput => ({ mode: 'resolve_or_cancel', intent: value });
-  const change = (action: 'restrict' | 'restore', expectedVersion: string) =>
+  const change = async (action: 'restrict' | 'restore', expectedVersion: string) =>
     controls.change(founder, {
       requestId: randomUUID(),
       target: { area: 'identity', userId: target.principal!.userId },
       action,
       reason: 'Synthetic concurrency proof',
       expectedVersion,
+      ...(action === 'restore'
+        ? {
+            approvalId: await approvedUnfreeze(db.sql, {
+              requesterId: founder.principal!.userId,
+              approverId: secondFounder,
+              userId: target.principal!.userId,
+              reason: 'Synthetic concurrency proof',
+              expectedVersion,
+            }),
+          }
+        : {}),
     });
 
   beforeEach(async () => {
@@ -71,6 +84,7 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     await db.truncateAll();
     founder = await seed();
     const second = await seed();
+    secondFounder = second.principal!.userId;
     target = await seed();
     controls = new FounderControls(db.sql, parseFounderPair(founder.principal!.userId, second.principal!.userId));
     expect(await controls.bootstrap()).toBe(true);

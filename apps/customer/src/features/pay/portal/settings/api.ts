@@ -27,6 +27,7 @@ const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
   changeRole: (memberId: string, role: p.TeamRole) => mutate('merchantOps.team.changeRole', { memberId, role }, p.memberSchema),
   removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
   acceptInvite: (memberId: string) => mutate('merchantOps.team.acceptInvite', { memberId }, p.memberSchema),
+  permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
   declineInvite: (memberId: string) => mutate('merchantOps.team.declineInvite', { memberId }, z.object({ declined: z.literal(true) })),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
     list(
@@ -52,6 +53,8 @@ const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
   markRead: (notificationIds: string[]) => mutate('merchantOps.notifications.markRead', { notificationIds }, p.markedSchema),
   markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
   preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(p.preferenceSchema), signal),
+  preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
+    list('merchantOps.notifications.preferences.history', p.preferenceChangeSchema, { ...(cursor ? { cursor } : {}) }, signal),
   setPreference: (input: { kind: p.NotificationKind; inApp: boolean; threshold?: string | null }) =>
     mutate('merchantOps.notifications.preferences.set', input, p.preferenceSchema),
 });

@@ -115,14 +115,26 @@ export type AcademyErrorCode =
   | 'academy.video_s3_region_unset'
   /** Lobby ceiling unset — never invent a seat count. */
   | 'academy.room_capacity_unset'
-  /** Programme prerequisites the caller has not enrolled in. */
+  /** Programme prerequisites the caller has not enrolled in, or an item prerequisite is unmet. */
   | 'academy.prerequisite_unmet'
+  /** Item prerequisite graph contains a cycle. */
+  | 'academy.prerequisite_cycle'
+  /** Availability or due window is unpublished, inverted, or closed for this learner. */
+  | 'academy.window_invalid'
+  /** Per-learner extension was asked for without a reason. */
+  | 'academy.reason_required'
   /** touchLesson secondsRead outside 0..TOUCH_LESSON_MAX_SECONDS. */
   | 'academy.seconds_out_of_range'
   /** Video slug is not on the named spine. */
   | 'academy.video_not_found'
   /** Watch position is negative, not an integer, or past a set duration. */
   | 'academy.video_position_out_of_range'
+  /** Captions track was asked for and the owner has not published a URL. */
+  | 'academy.video_captions_unpublished'
+  /** Transcript was asked for and the owner has not published text. */
+  | 'academy.video_transcript_unpublished'
+  /** Seconds of stored position that count as watched. Blank is not zero. */
+  | 'academy.watch_threshold_unset'
   /** Leave found no enrolment for this caller. */
   | 'academy.enrollment_not_found'
   /** Operator completionsByItem path is not a curriculum path. */
@@ -226,9 +238,15 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.video_s3_region_unset',
   'academy.room_capacity_unset',
   'academy.prerequisite_unmet',
+  'academy.prerequisite_cycle',
+  'academy.window_invalid',
+  'academy.reason_required',
   'academy.seconds_out_of_range',
   'academy.video_not_found',
   'academy.video_position_out_of_range',
+  'academy.video_captions_unpublished',
+  'academy.video_transcript_unpublished',
+  'academy.watch_threshold_unset',
   'academy.enrollment_not_found',
   'academy.path_not_found',
   'academy.metrics_range_invalid',

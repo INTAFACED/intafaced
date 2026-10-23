@@ -177,8 +177,8 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
   );
 }
 
-const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
-const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
+export const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
+export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 
 /** Open orders (with Cancel) or past orders (with a status tag). `onChanged` runs after a cancel so the lists refresh. */
 export function OrdersTable({
@@ -188,6 +188,8 @@ export function OrdersTable({
   onChanged,
   desk = false,
   onEdit,
+  selected,
+  onSelect,
 }: {
   rows: Order[];
   withAction: boolean;
@@ -197,14 +199,23 @@ export function OrdersTable({
   desk?: boolean;
   /** Open the edit dialog for an order (the desk hosts the dialog above the table: a replacement removes the row). */
   onEdit?: (order: Order) => void;
+  /** Orders ticked for a batch cancel; with `onSelect`, each open order gets a checkbox. */
+  selected?: ReadonlySet<string>;
+  onSelect?: (id: string, on: boolean) => void;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
+  const detailsTitle = t('Order details open');
   return (
     <>
       <table className="dk-table">
         <thead>
           <tr>
+            {withAction && onSelect ? (
+              <th>
+                <span className="sr-only">{t('Select order')}</span>
+              </th>
+            ) : null}
             <th>{t('Time')}</th>
             <th>{t('Pair')}</th>
             <th>{t('Type')}</th>
@@ -212,6 +223,7 @@ export function OrdersTable({
             <th className="dk-num">{t('Price')}</th>
             <th className="dk-num">{t('Amount')}</th>
             <th className="dk-num">{t('Filled')}</th>
+            {withAction ? <th className="dk-num">{t('Held')}</th> : null}
             {withAction || !desk ? null : (
               <>
                 <th className="dk-num">{t('Average price')}</th>
@@ -224,7 +236,29 @@ export function OrdersTable({
         <tbody>
           {byNewest(rows).map((order) => (
             <tr key={order.id}>
-              <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
+              {withAction && onSelect ? (
+                <td>
+                  {isTerminalOrder(order) ? null : (
+                    <input
+                      type="checkbox"
+                      className="dk-select"
+                      checked={selected?.has(order.id) ?? false}
+                      onChange={(event) => onSelect(order.id, event.currentTarget.checked)}
+                      aria-label={t('Select order label', {
+                        side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
+                        amount: fmtAmount(order.amount, { places: 8 }),
+                        asset: baseOf(order.symbol),
+                        pair: order.symbol,
+                      })}
+                    />
+                  )}
+                </td>
+              ) : null}
+              <td className="if-num">
+                <a className="dk-order-link" href={`/trade/orders/${encodeURIComponent(order.id)}`} title={detailsTitle}>
+                  {dayTime(order.timestamp, timeZone)}
+                </a>
+              </td>
               <td>{order.symbol}</td>
               <td>
                 {order.exit
@@ -252,6 +286,11 @@ export function OrdersTable({
               </td>
               <td className="dk-num if-num">{fmtAmount(order.amount, { places: precision.lotOf(order.symbol) })}</td>
               <td className="dk-num if-num">{fmtAmount(order.filled, { places: precision.lotOf(order.symbol) })}</td>
+              {withAction ? (
+                <td className="dk-num if-num">
+                  <Held order={order} lot={precision.lotOf(order.symbol)} unknown={t('Held unknown label')} />
+                </td>
+              ) : null}
               {withAction || !desk ? null : (
                 <>
                   <td className="dk-num if-num">{order.average ? fmtPrice(order.average, precision.tickOf(order.symbol)) : '—'}</td>
@@ -289,6 +328,19 @@ export function OrdersTable({
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/** What an open order still holds, in the asset it holds. A wire that states nothing reads "—", never a computed guess. */
+function Held({ order, lot, unknown }: { order: Order; lot: number; unknown: string }) {
+  const hold = order.hold;
+  if (!hold) return <span title={unknown}>—</span>;
+  const quote = hold.asset === quoteOf(order.symbol);
+  return (
+    <>
+      {fmtAmount(hold.amount, quote ? { places: quotePlaces(hold.asset), fixed: true } : { places: lot })}{' '}
+      <span className="dk-unit">{hold.asset}</span>
     </>
   );
 }

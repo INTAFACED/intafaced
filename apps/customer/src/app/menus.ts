@@ -122,6 +122,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         { id: 'bots', href: '/trade/bots', icon: 'settings', group: 'Advanced' },
         { id: 'otc', href: '/otc', icon: 'merchant', group: 'Advanced' },
         { id: 'execution', href: '/execution', icon: 'markets', group: 'Advanced' },
+        { id: 'algo', href: '/quant', icon: 'activity', group: 'Advanced' },
         {
           id: 'orders',
           href: '/money/activity?tab=orders',

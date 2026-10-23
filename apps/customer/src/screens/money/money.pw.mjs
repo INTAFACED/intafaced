@@ -551,7 +551,7 @@ test('Pro Money: stake and collateral are in Locked, not in In orders, when the 
   expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['4,095']);
   expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['3']);
   expect(await texts(usdt.locator('td[data-col="locked"]'))).toEqual(['2']);
-  await expect(usdt.locator('td[data-col="locked"]')).toHaveAttribute('title', /stake token:stake:s-1: 2/);
+  await expect(usdt.locator('td[data-col="locked"]')).toHaveAttribute('title', /Staked: 2/);
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
   expect(await texts(btc.locator('td[data-col="locked"]'))).toEqual(['0']);
   expect(api.calls('portfolio.balanceBreakdown')[0].input).toEqual({ scope: 'main' });

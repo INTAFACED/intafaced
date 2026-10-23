@@ -14,6 +14,7 @@ import {
   preChargeNotifyGap,
   subscriptionsProductPosture,
 } from './subscriptions/mandate-product.js';
+import { ownMerchantRead } from './own-merchant-read.js';
 
 /**
  * Merchant subscription surface — mandate + subscription create/get/list/cancel.
@@ -296,7 +297,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ mandateId: z.string().uuid() }))
         .output(mandateView)
         .query(({ ctx, input }) =>
@@ -310,7 +311,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       /**
        * Merchant fleet list (ops truth). Read-only — no charge, no cascade.
        */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(
           z.object({
             merchantId: z.string().uuid(),
@@ -389,7 +390,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Crypto invoice-and-watch is product-complete; card refuse + pre-charge
        * notify gap are named. `preChargeNotify.notified` is always false.
        */
-      productReady: scopedProcedure('pay:read', { module: 'pay' })
+      productReady: ownMerchantRead()
         .output(
           z.object({
             mountain: z.literal('pay.subscriptions'),
@@ -507,7 +508,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ subscriptionId: z.string().uuid() }))
         .output(subscriptionView)
         .query(({ ctx, input }) =>
@@ -521,7 +522,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       /**
        * Merchant fleet list (ops truth). Read-only — no fire, no dunning.
        */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(
           z.object({
             merchantId: z.string().uuid(),
@@ -557,7 +558,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Firing history for one subscription (invoice / settled / rejected).
        * Read-only — no dunning invent, no retry.
        */
-      listExecutions: scopedProcedure('pay:read', { module: 'pay' })
+      listExecutions: ownMerchantRead()
         .input(
           z.object({
             subscriptionId: z.string().uuid(),
@@ -656,7 +657,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * The period journal. Read-only, and the honest answer to "did you charge
        * me twice" — two periods carry two keys, one period retried carries one.
        */
-      cycles: scopedProcedure('pay:read', { module: 'pay' })
+      cycles: ownMerchantRead()
         .input(
           z.object({
             subscriptionId: z.string().uuid(),

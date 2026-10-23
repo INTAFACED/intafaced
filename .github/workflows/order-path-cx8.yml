@@ -26,6 +26,8 @@ on:
       - 'apps/customer/src/screens/trade/desk/resend.ts'
       - 'apps/customer/tests/journeys/**'
       - 'apps/customer/vitest.journeys.config.ts'
+      - 'tooling/scripts/journey-fund.mjs'
+      - 'packages/money-math/**'
       - 'packages/exchange-contract/**'
       - 'services/svc-pay/**'
       - 'services/svc-bank/**'
@@ -95,7 +97,7 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-tax --filter=@intafaced/ui --filter=@intafaced/i18n
+        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-tax --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
 
       # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys, svc-bank for the wallet view).
       - name: CX-8 boot + STRICT smoke + trade journeys

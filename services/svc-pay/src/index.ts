@@ -39,8 +39,10 @@ import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js
 import { TravelRuleService } from './travel-rule/service.js';
 import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
+import { createWorkItemsRouter, payoutWaitingFromSql } from './work-items.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
+import { loadCustodyPolicyMode } from './custody/policy/guards.js';
 import { buildPayGuards } from './seams/registry.js';
 import { loadScreeningReleaseTtl } from './screening/desk-config.js';
 import { createScreeningRouter } from './screening/desk-router.js';
@@ -61,7 +63,7 @@ import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
 import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
-import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
+import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
@@ -298,7 +300,14 @@ const kycTierSource = env.IDENTITY_URL
   ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
   : undefined;
 const limitSource = createSqlLimitSource();
-const payGuards = buildPayGuards({ sql, ledger, kycTierOf: kycTierSource, limitSource });
+// W-custody-ops-07: fail closed by default; a bad value stops the boot.
+const payGuards = buildPayGuards({
+  sql,
+  ledger,
+  kycTierOf: kycTierSource,
+  limitSource,
+  custodyPolicyMode: loadCustodyPolicyMode(process.env),
+});
 const conversion = new ConversionService({
   sql,
   ledger,
@@ -567,6 +576,8 @@ export const appRouter = mergeRouters(
   // prettier-ignore
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor),
   createWithdrawalApprovalRouter(withdrawalApprovals),
+  // HM-dashboard-03: Home's work list, pay's part (a payout waiting on the caller's own business).
+  createWorkItemsRouter(payoutWaitingFromSql(sql)),
   createAllowlistRouter(allowlist),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
@@ -1035,6 +1046,7 @@ await app.register(async (webhookScope) => {
  * not serve /trpc": the edge routes `/api/pay` here, so without this mount it
  * forwards to a service with nothing to forward to.
  */
+const teamStatuses = teamMerchantStatusesFromSql(sql);
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
@@ -1043,7 +1055,7 @@ await app.register(fastifyTRPCPlugin, {
       ...edgeContext(req),
       ownerPayGrant: {
         assertStillGranted: (principal, scope) =>
-          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
+          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId), teamStatuses),
       },
     }),
     responseMeta({ ctx }) {

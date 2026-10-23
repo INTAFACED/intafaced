@@ -27,13 +27,20 @@ export interface Allowance {
   readonly maxNow: Amount;
 }
 
-export async function usedInWindow(q: Sql, query: { userId: string; assetId: string; exceptClientRef?: string }): Promise<Amount> {
+/**
+ * `windowSeconds` lets the custody policy guard (W-custody-ops-07) share this one definition for its own
+ * cumulative windows; the D-148 callers pass nothing and keep the 24-hour window.
+ */
+export async function usedInWindow(
+  q: Sql,
+  query: { userId: string; assetId: string; exceptClientRef?: string; windowSeconds?: number },
+): Promise<Amount> {
   const rows = await q<Array<{ used: string }>>`
     SELECT COALESCE(SUM(amount), 0)::text AS used
       FROM pay.withdrawals
      WHERE user_id = ${query.userId} AND asset_id = ${query.assetId}
        AND status::text NOT IN ${q([...WITHDRAWAL_STATES_NOT_COUNTED])}
-       AND updated_at > now() - interval '24 hours'
+       AND updated_at > now() - make_interval(secs => ${query.windowSeconds ?? 86_400})
        AND client_ref <> ${query.exceptClientRef ?? ''}
   `;
   return parseAmount(rows[0]?.used ?? '0');

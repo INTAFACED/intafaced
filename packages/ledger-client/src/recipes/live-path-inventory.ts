@@ -70,24 +70,9 @@ export const RECIPE_MATRIX = {
   futuresMarginLock: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginAdd: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
-  futuresOrderMarginHold: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): initial margin held per resting order before it rests. Futures orders do not go through svc-matching until ADR slice 6, so no production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  futuresOrderMarginRelease: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): unused order margin returned on cancel, expiry or a smaller order. No production writer until ADR slice 6 puts futures orders on the book; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  futuresOrderMarginApply: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): a fill moves order margin into the position pot and returns the unused part in one posting. No production writer until ADR slice 6 settles futures fills; the recipe-gate catalog samples it and does not ledger.post.',
-  },
+  futuresOrderMarginHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
+  futuresOrderMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
+  futuresOrderMarginApply: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
   futuresRealizeLoss: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/liquidation-planner.ts' },
   futuresRealizeProfit: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
   futuresFundingPay: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/funding-settlement.ts' },

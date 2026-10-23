@@ -179,8 +179,51 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // `customer`: an address-book entry; `legacy`: the one-per-kind slot an older withdrawal wrote.
+  origin: z.enum(['legacy', 'customer']).optional(),
+  // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
+  lookalikeConfirmedAt: z.string().nullable().optional(),
+  // Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof.
+  ownership: z
+    .object({
+      state: z.enum(['none', 'pending', 'verified', 'expired']),
+      verifiedAt: z.string().nullable(),
+      validUntil: z.string().nullable(),
+      offerExpiresAt: z.string().nullable(),
+    })
+    .optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** A message the bank offers to sign, proving the customer controls a saved wallet. */
+export const walletProofStartedSchema = z.object({
+  proofId: z.string(),
+  destinationId: z.string(),
+  message: z.string(),
+  expiresAt: z.string(),
+});
+/** A checked wallet proof. */
+export const walletProofVerifiedSchema = z.object({
+  proofId: z.string(),
+  destinationId: z.string(),
+  state: z.enum(['none', 'pending', 'verified', 'expired']),
+  verifiedAt: z.string().nullable(),
+  validUntil: z.string().nullable(),
+});
+/** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
+export const withdrawAssetSchema = z.object({
+  assetId: z.string(),
+  precision: z.number().int(),
+  networks: z.array(z.object({ networkId: z.string(), label: z.string() })),
+  defaultNetworkId: z.string().nullable(),
+});
+export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
+export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
+export const destinationCheckSchema = z.object({
+  address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
+  lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
+});
+export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),
@@ -218,9 +261,150 @@ export const eligibilitySchema = z.object({
     .nullable(),
 });
 export type Eligibility = z.infer<typeof eligibilitySchema>;
+/** svc-bank `bank.accounts.features`: the owner's base-tier terms, figures as published decimal strings (BK-acct-01). */
+export const accountTermsSchema = z.object({
+  tier: z.string(),
+  version: z.string(),
+  currency: z.string(),
+  monthlyFee: money,
+  minimumBalance: money,
+  overdraftFee: money.nullable(),
+  included: z.array(z.string()),
+});
+export type AccountTerms = z.infer<typeof accountTermsSchema>;
+const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });
+export type AccountCurrency = z.infer<typeof accountCurrencySchema>;
+/** svc-bank `bank.currencies.list`: the currencies on the account, and what the owner lets the customer add. */
+export const currencySetSchema = z.object({
+  currencies: z.array(accountCurrencySchema),
+  addable: z.array(z.string()).nullable(),
+  addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
+});
+/** svc-bank `bank.accounts.profile`: the profile in view, proved held by the person, with their role in a business. */
+export const bankProfileSchema = z.object({
+  profile: z.string(),
+  kind: z.enum(['personal', 'business']),
+  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
+});
+/** svc-bank `bank.addMoney.*` (J-bank-02): the ways to pay in with their quotes, and the customer's add-money requests. */
+export const ADD_MONEY_METHODS = ['bank_transfer', 'pay_by_bank', 'card', 'wallet_pay'] as const;
+export type AddMoneyMethod = (typeof ADD_MONEY_METHODS)[number];
+const addMoneyQuoteSchema = z.object({
+  quoteId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  method: z.enum(ADD_MONEY_METHODS),
+  payAmount: money,
+  fee: money,
+  payCurrency: z.string(),
+  expiresAt: z.string(),
+  deliveryEstimate: z.string().nullable(),
+});
+export const addMoneyMethodsSchema = z.object({
+  methods: z.array(
+    z.object({
+      method: z.enum(ADD_MONEY_METHODS),
+      rail: z.enum(['rail.bank', 'rail.card']),
+      quote: addMoneyQuoteSchema.nullable(),
+      blocker: z.string().nullable(),
+    }),
+  ),
+});
+export type AddMoneyOption = z.infer<typeof addMoneyMethodsSchema>['methods'][number];
+export const addMoneyRequestSchema = z.object({
+  requestId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  method: z.enum(ADD_MONEY_METHODS),
+  country: z.string(),
+  rail: z.enum(['rail.bank', 'rail.card']),
+  status: z.enum(['opening', 'refused', 'opened']),
+  refusalCode: z.string().nullable(),
+  onramp: z
+    .object({
+      onrampId: z.string(),
+      payAmount: money,
+      fee: money,
+      payCurrency: z.string(),
+      status: z.literal('pending_payment'),
+      hostedUrl: z.string().nullable(),
+      bankInstructions: z.object({ reference: z.string(), accountName: z.string(), accountRef: z.string() }).nullable(),
+    })
+    .nullable(),
+  createdAt: z.string(),
+});
+export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
+/** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
+export const linkedAccountSchema = z.object({
+  accountId: z.string(),
+  label: z.string(),
+  holderName: z.string(),
+  ibanMasked: z.string(),
+  country: z.string(),
+  state: z.enum(['unverified', 'verified']),
+  usable: z.boolean(),
+  blocker: z.enum(['bank.linked_account_unverified', 'bank.offramp_cooling_unset', 'bank.offramp_cooling_active']).nullable(),
+  verificationRail: z.literal('rail.bank').nullable(),
+  linkedAt: z.string(),
+  coolingOffEndsAt: z.string().nullable(),
+});
+export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
+export const linkedAccountWrites = {
+  link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
+  remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
+};
+/** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
+export const cashOutQuoteSchema = z.object({
+  assetId: z.string(),
+  amount: money,
+  available: money,
+  account: linkedAccountSchema,
+  rail: z.literal('rail.bank'),
+  fee: money.nullable(),
+  receiveAmount: money.nullable(),
+  blocker: z.string(),
+});
+export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
+export const cashOutRequestSchema = z.object({
+  requestId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  linkedAccountId: z.string(),
+  rail: z.literal('rail.bank'),
+  status: z.literal('refused'),
+  refusalCode: z.string(),
+  createdAt: z.string(),
+});
+export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+/** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
+export const incomingLineSchema = z.object({
+  id: z.string(),
+  // Only the kinds asked for: anything else is refused, never shown as a deposit.
+  kind: z.enum(['deposit', 'welcome_funds', 'transfer_in']),
+  direction: z.literal('in'),
+  asset: z.string(),
+  amount: money,
+  postedAt: z.string(),
+  txId: z.string(),
+  counterparty: z.object({ handle: z.string() }).nullable(),
+});
+export type IncomingLine = z.infer<typeof incomingLineSchema>;
+export const currencyWrites = {
+  add: accountCurrencySchema,
+  remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
+};
 export const bankReads = {
+  'accounts.features': accountTermsSchema,
+  'accounts.profile': bankProfileSchema,
+  'addMoney.methods': addMoneyMethodsSchema,
+  'addMoney.requests': z.array(addMoneyRequestSchema),
+  'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
+  'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
+  'cashOut.quote': cashOutQuoteSchema,
+  'cashOut.requests': z.array(cashOutRequestSchema),
+  'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),
@@ -266,6 +450,7 @@ export const bankReads = {
   'ramps.offramps': z.array(offrampSchema),
   // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
   'ramps.destinations.list': z.array(destinationSchema),
+  'ramps.destinations.networks': z.array(withdrawAssetSchema),
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),

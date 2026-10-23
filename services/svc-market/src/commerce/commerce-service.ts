@@ -24,7 +24,16 @@ import {
   type AffiliateAccruePort,
 } from '../affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from '../affiliate-payout.js';
-import { MARKET_OPS_SCOPE, MarketError, type VendorService } from '../vendor-service.js';
+import {
+  listingCategoryEnum,
+  MARKET_CATEGORY_BUSINESS_KEY_REQUIRED,
+  MARKET_CATEGORY_INVALID,
+  MARKET_CATEGORY_NOT_WRITTEN,
+  MARKET_CATEGORY_REASON_SHORT,
+  optionalListingCategory,
+  requireListingCategory,
+} from './listing-categories.js';
+import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -142,6 +151,14 @@ export interface PublicListingRecord extends ListingRecord {
   vendorListingCount: number;
 }
 
+/** Shopfront detail. Vendor is the public profile — no seller user id. */
+export interface PublicListingDetail {
+  listing: ListingRecord;
+  vendor: PublicVendorProfile;
+  /** Listings of this vendor with status `active`. A count, not money. */
+  activeListingCount: number;
+}
+
 export interface PublicListingsPage {
   items: PublicListingRecord[];
   nextCursor: string | null;
@@ -181,6 +198,49 @@ export interface TakedownResult {
   takenDownAt: string;
 }
 
+export interface ListingCategoryResult {
+  listingId: string;
+  category: string;
+  actorId: string;
+  reason: string;
+  businessKey: string;
+  recordedAt: string;
+}
+
+interface CategoryEventRow {
+  id: string;
+  business_key: string;
+  listing_id: string;
+  category: string;
+  actor_id: string;
+  reason: string;
+  created_at: Date;
+}
+
+function toCategoryResult(row: CategoryEventRow): ListingCategoryResult {
+  return {
+    listingId: row.listing_id,
+    category: row.category,
+    actorId: row.actor_id,
+    reason: row.reason,
+    businessKey: row.business_key,
+    recordedAt: row.created_at.toISOString(),
+  };
+}
+
+function sameCategoryEvent(
+  row: CategoryEventRow,
+  filed: { listingId: string; category: string; reason: string; actorId: string },
+): boolean {
+  return (
+    row.listing_id === filed.listingId && row.category === filed.category && row.reason === filed.reason && row.actor_id === filed.actorId
+  );
+}
+
+function postgresCode(err: unknown): string {
+  return err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
+}
+
 export interface PurchaseRecord {
   id: string;
   listingId: string;
@@ -214,6 +274,8 @@ interface ListingRow {
   /** Driver may yield a JS number if numeric is not text-mode — refuse, never String(). */
   price: unknown;
   period_seconds: number | string | null;
+  /** Null on strategy and legacy one-time rows. Slug when this row is non-strategy. */
+  category?: string | null;
   status: ListingStatus;
   created_at: Date;
   updated_at: Date;
@@ -351,6 +413,12 @@ export class CommerceService {
     price: string;
     /** Whole seconds. Required for subscription; forbidden for one-time. No default. */
     periodSeconds?: number | null;
+    /**
+     * Product-enum slug. Optional on one-time: null, omitted, and whitespace
+     * stay uncategorised. Checked only when a slug is given.
+     * Strategy listings stay uncategorised in this slice — a slug there refuses.
+     */
+    category?: string | null;
   }): Promise<ListingRecord> {
     // Commission law before stake burn: a blank rate must not consume a slot
     // for inventory that can never settle (D26-P1-M2). Same door for
@@ -390,11 +458,17 @@ export class CommerceService {
       throw new MarketError('Only an approved vendor can create listings', 'market.vendor_not_approved');
     }
 
+    // One-time may stay null. A given slug must be the product enum.
+    // Strategy rows stay null. Do not backfill existing uncategorised rows.
+    const category = this.categoryForCreate(input.offerType, input.category);
+
     const priceStr = formatAmount(price);
 
     // Insert listing first so the id can name the slot claim (idempotent ref).
     const inserted = await this.sql<ListingRow[]>`
-      INSERT INTO market.listings (vendor_id, title, description, offer_type, asset_id, price, period_seconds, status)
+      INSERT INTO market.listings (
+        vendor_id, title, description, offer_type, asset_id, price, period_seconds, status, category
+      )
       VALUES (
         ${vendor.id},
         ${title},
@@ -403,7 +477,8 @@ export class CommerceService {
         ${assetId},
         ${priceStr}::numeric,
         ${periodSeconds},
-        'active'
+        'active',
+        ${category}
       )
       RETURNING *
     `;
@@ -419,6 +494,55 @@ export class CommerceService {
     }
 
     return toListing(row);
+  }
+
+  /** Product enum. Not an owner env list, and not empty when the shop is quiet. */
+  listingCategories(): readonly string[] {
+    return listingCategoryEnum();
+  }
+
+  /**
+   * Category stored on create. One-time: null when omitted. Strategy: always
+   * null — a slug on a strategy listing is not filed in this slice.
+   */
+  private categoryForCreate(offerType: OfferType, category: string | null | undefined): string | null {
+    if (offerType === 'subscription') {
+      if (category != null && category.trim() !== '') {
+        throw new MarketError(MARKET_CATEGORY_INVALID, MARKET_CATEGORY_INVALID);
+      }
+      return null;
+    }
+    return optionalListingCategory(category);
+  }
+
+  /**
+   * One-time listing that names a product category. Not a strategy subscription.
+   * Blank category is not "uncategorised" on this door. Blank price is not free.
+   * Strategy publish stays on createListing(subscription) and writes no category.
+   * createListing(one_time) may omit the category until the screen picker ships.
+   */
+  async createNonStrategyListing(input: {
+    userId: string;
+    title: string;
+    description: string;
+    assetId: string;
+    price?: string | null;
+    category?: string | null;
+  }): Promise<ListingRecord & { category: string }> {
+    const category = requireListingCategory(input.category);
+    if (input.price == null || input.price.trim() === '') {
+      throw new MarketError('Listing price must be a positive decimal string', 'market.listing_invalid_price');
+    }
+    const row = await this.createListing({
+      userId: input.userId,
+      title: input.title,
+      description: input.description,
+      offerType: 'one_time',
+      assetId: input.assetId,
+      price: input.price,
+      category,
+    });
+    return { ...row, category };
   }
 
   async archiveListing(input: { userId: string; listingId: string }): Promise<ListingRecord> {
@@ -465,6 +589,44 @@ export class CommerceService {
   async getListing(listingId: string): Promise<ListingRecord | null> {
     const [row] = await this.sql<ListingRow[]>`SELECT * FROM market.listings WHERE id = ${listingId}`;
     return row ? toListing(row) : null;
+  }
+
+  /**
+   * One shopfront listing (MC-market-01). Blank commission refuses before the
+   * read. Missing, archived, taken down, a subscription with no period, an
+   * unlisted vendor and a slot that is not live are the same null.
+   * `market.stake_unavailable` is not folded into that null.
+   */
+  async publicListing(listingId: string): Promise<PublicListingDetail | null> {
+    this.requireCommissionConfigured();
+    const [row] = await this.sql<ListingRow[]>`
+      SELECT id, vendor_id, title, description, offer_type, asset_id, price::text AS price,
+             period_seconds, status, created_at, updated_at
+        FROM market.listings
+       WHERE id = ${listingId}
+    `;
+    if (!row || row.status !== 'active') return null;
+    if (row.offer_type === 'subscription' && (row.period_seconds == null || row.period_seconds === '')) return null;
+
+    const eligibility = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+    if (!eligibility.listed) return null;
+    if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) return null;
+    const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+    if (!entitled.has(row.id)) return null;
+    const vendor = await this.vendors.publicProfile(row.vendor_id);
+    if (!vendor) return null;
+
+    const [countRow] = await this.sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n
+        FROM market.listings
+       WHERE vendor_id = ${row.vendor_id}
+         AND status = 'active'
+    `;
+    const activeListingCount = Number(countRow?.n);
+    if (!Number.isInteger(activeListingCount) || activeListingCount < 1) {
+      throw new MarketError('market.vendor_listing_count_unreadable', 'market.vendor_listing_count_unreadable');
+    }
+    return { listing: toListing(row), vendor, activeListingCount };
   }
 
   /**
@@ -516,6 +678,49 @@ export class CommerceService {
         out.push(toListing(row));
       } catch (err) {
         // stake_unavailable and friends — drop this vendor's rows, keep the page.
+        if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
+        throw err;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Active one-time listings in one product category. Strategy rows stay out
+   * (`offer_type = subscription` or a null category). Blank category is not
+   * the whole catalogue. Blank commission returns [] after the category and
+   * limit checks, same as `publicListings`.
+   *
+   * This is a short page (limit only). A cursor for the category page is a
+   * later slice — this method does not invent one.
+   */
+  async publicListingsByCategory(opts?: {
+    category?: string | null;
+    limit?: number;
+  }): Promise<Array<ListingRecord & { category: string }>> {
+    const limit = assertPublicListingsListLimit(opts?.limit);
+    const category = requireListingCategory(opts?.category ?? null);
+    if (this.config.commissionBps === null) return [];
+    const rows = await this.sql<ListingRow[]>`
+      SELECT * FROM market.listings
+       WHERE status = 'active'
+         AND offer_type = 'one_time'
+         AND category = ${category}
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${limit * 3}
+    `;
+    const out: Array<ListingRecord & { category: string }> = [];
+    for (const row of rows) {
+      if (out.length >= limit) break;
+      if (row.category !== category) continue;
+      try {
+        const elig = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+        if (!elig.listed) continue;
+        if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) continue;
+        const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+        if (!entitled.has(row.id)) continue;
+        out.push({ ...toListing(row), category });
+      } catch (err) {
         if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
         throw err;
       }
@@ -846,6 +1051,85 @@ export class CommerceService {
         net: formatAmount(bucket.net),
       }));
     return { from: fromIso, to: toIso, assets, sales };
+  }
+
+  /**
+   * Operator category. `market:ops` is checked again here. The slug and the
+   * audit row (actor, reason, business key) commit in one transaction.
+   * The same business key returns the stored row and does not write a second
+   * one. A reused key with a different listing, slug, reason, or actor conflicts.
+   * Strategy listings stay uncategorised in this slice.
+   */
+  async setListingCategory(input: {
+    actorId: string;
+    actorScope: string;
+    listingId: string;
+    category: string | null | undefined;
+    reason: string;
+    businessKey: string;
+  }): Promise<ListingCategoryResult> {
+    if (input.actorScope !== MARKET_OPS_SCOPE) {
+      throw new MarketError(MARKET_OPS_REQUIRED, MARKET_OPS_REQUIRED);
+    }
+    const businessKey = input.businessKey?.trim() ?? '';
+    if (!businessKey || businessKey.length > 128) {
+      throw new MarketError(MARKET_CATEGORY_BUSINESS_KEY_REQUIRED, MARKET_CATEGORY_BUSINESS_KEY_REQUIRED);
+    }
+    const reason = input.reason?.trim() ?? '';
+    if (reason.length < 10 || reason.length > 2000) {
+      throw new MarketError(MARKET_CATEGORY_REASON_SHORT, MARKET_CATEGORY_REASON_SHORT);
+    }
+    const category = requireListingCategory(input.category);
+    const filed = { listingId: input.listingId, category, reason, actorId: input.actorId };
+    try {
+      return await transaction(this.sql, async (tx) => {
+        const [prior] = await tx<CategoryEventRow[]>`
+          SELECT * FROM market.listing_category_events WHERE business_key = ${businessKey} FOR UPDATE
+        `;
+        if (prior) {
+          if (!sameCategoryEvent(prior, filed)) {
+            throw new MarketError(MARKET_IDEMPOTENCY_CONFLICT, MARKET_IDEMPOTENCY_CONFLICT);
+          }
+          return toCategoryResult(prior);
+        }
+        const [locked] = await tx<ListingRow[]>`
+          SELECT * FROM market.listings WHERE id = ${input.listingId} FOR UPDATE
+        `;
+        if (!locked) throw new MarketError('No listing with that id', 'market.listing_not_found');
+        if (locked.offer_type !== 'one_time') {
+          throw new MarketError(MARKET_CATEGORY_INVALID, MARKET_CATEGORY_INVALID);
+        }
+        const [updated] = await tx<Array<{ id: string }>>`
+          UPDATE market.listings
+             SET category = ${category}, updated_at = now()
+           WHERE id = ${input.listingId}
+          RETURNING id
+        `;
+        if (!updated) throw new MarketError('No listing with that id', 'market.listing_not_found');
+        const [inserted] = await tx<CategoryEventRow[]>`
+          INSERT INTO market.listing_category_events (
+            business_key, listing_id, category, actor_id, reason
+          ) VALUES (
+            ${businessKey},
+            ${input.listingId},
+            ${category},
+            ${input.actorId},
+            ${reason}
+          )
+          RETURNING *
+        `;
+        if (!inserted) throw new MarketError(MARKET_CATEGORY_NOT_WRITTEN, MARKET_CATEGORY_NOT_WRITTEN);
+        return toCategoryResult(inserted);
+      });
+    } catch (err) {
+      if (err instanceof MarketError) throw err;
+      if (postgresCode(err) !== '23505') throw err;
+      const [prior] = await this.sql<CategoryEventRow[]>`
+        SELECT * FROM market.listing_category_events WHERE business_key = ${businessKey}
+      `;
+      if (prior && sameCategoryEvent(prior, filed)) return toCategoryResult(prior);
+      throw new MarketError(MARKET_IDEMPOTENCY_CONFLICT, MARKET_IDEMPOTENCY_CONFLICT);
+    }
   }
 
   /**

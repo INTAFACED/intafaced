@@ -103,3 +103,36 @@
 .dk-kv-row {
   display: contents;
 }
+
+/* The common eight sections at the top of a module desk: a grid of short cards. */
+.dk-common {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+}
+.dk-common > article {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.dk-common ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dk-common .adm-chip {
+  align-self: flex-start;
+}
+.dk-tab {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--if-border);
+  color: var(--if-text);
+  text-decoration: none;
+}
+.dk-tab[aria-current='page'] {
+  border-color: var(--if-border-strong);
+  background: var(--if-surface-raised);
+}

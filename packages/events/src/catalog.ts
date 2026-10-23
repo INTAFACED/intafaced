@@ -480,6 +480,33 @@ export const orderCancelled = defineEvent(
 );
 
 /**
+ * A stop order's trigger fired (J-cex-spot-06 #6). The price that reached the stop is `referencePrice`, read from
+ * `triggerBy` (the last trade, or the mark or index price). What the activated order then did follows as its own
+ * `orderFilled` / `orderCancelled` events at later sequences; a trigger whose order could not go on is followed by a
+ * cancel with reason `trigger_rejected`. Evidence for "why did my stop fire, and at what price": moves no money.
+ *
+ * Idempotency key: `matching.order.triggered:<marketId>:<sequence>`.
+ */
+export const orderTriggered = defineEvent(
+  'matching',
+  'order',
+  'triggered',
+  1,
+  z.object({
+    orderId: engineOrderIdSchema,
+    marketId: z.string(),
+    /** The activation's book sequence: the order's fills and cancels from this trigger come after it. */
+    sequence: z.number().int(),
+    triggerBy: z.enum(['last', 'mark', 'index']),
+    stopPrice: amountSchema,
+    /** The reference price that reached the stop when it fired. */
+    referencePrice: amountSchema,
+    ts: z.string().datetime({ offset: true }),
+  }),
+  'A stop order fired. svc-trade records when and at what price, so the order says why it went to the book.',
+);
+
+/**
  * A spread order matched (CB-otc-16). One event per spread fill, carrying every
  * leg, so svc-trade posts one hold release and one fill for the whole spread and
  * never a partial leg. A spread fill is NOT an `orderFilled`: the spread price
@@ -1016,10 +1043,12 @@ export const personalRequestSettled = defineEvent(
 );
 
 /**
- * PP-send-request-18. Receipts and mandatory notices. One fact per event: svc-notify writes
- * pay.transfer_sent for the sender and pay.transfer_received for the recipient from the same
- * posted transfer, so neither party can get a receipt the other does not. Published by svc-bank
- * through its outbox in the same transaction as `posted`; a lost consumer ack never changes money.
+ * PP-send-request-18. Receipts. One fact per event: svc-notify writes pay.transfer_sent for the
+ * sender and pay.transfer_received for the recipient from the same posted transfer, so neither
+ * party can get a receipt the other does not. The in-app notice is always written; email and SMS
+ * copies follow each person's orders setting. Published by svc-bank
+ * from its outbox: the posted row records the notice as owed in the same UPDATE that marks it
+ * `posted`, and stays owed until the bus takes it; a lost consumer ack never changes money.
  */
 export const personalTransferPosted = defineEvent(
   'bank',
@@ -1345,6 +1374,7 @@ export const EVENT_CATALOG = {
   orderAccepted,
   orderFilled,
   orderCancelled,
+  orderTriggered,
   spreadFilled,
   orderUpdated,
   fillSettled,
@@ -1935,20 +1965,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
-  },
-  {
-    event: 'personalTransferPosted',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
-  },
-  {
-    event: 'personalTransferPosted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify writes the sent and received receipts in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
   },
   {
     event: 'personalRefundPosted',

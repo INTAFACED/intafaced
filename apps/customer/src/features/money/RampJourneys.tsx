@@ -1,6 +1,6 @@
-import { Button, Field } from '../../shared/ui';
+import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
-import { DepthPanel, DisabledAction } from './DepthParts';
+import { DepthPanel } from './DepthParts';
 import {
   buildOfframpInput,
   cashOutBlock,
@@ -12,6 +12,8 @@ import {
   type RampStep,
 } from './ramp-journey';
 import { rampDepthCopy } from './ramp-depth-copy';
+import { addMoneyCopy } from './add-money-copy';
+import { linkedAccountsCopy } from './linked-accounts-copy';
 import { positiveMoney, useBankRead, type ActionSpec } from './components';
 import { assetSelectField, useHoldings } from './holdings';
 import './bank-depth.css';
@@ -35,6 +37,8 @@ function Steps({ active, off }: { active: RampStep; off: ReadonlySet<RampStep> }
 /** The two journeys of the cash room: add money (needs a payment partner) and cash out (needs a live rail). */
 export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = rampDepthCopy.useCopy();
+  const addMoney = addMoneyCopy.useCopy();
+  const linked = linkedAccountsCopy.useCopy();
   const programme = useBankRead('ramps.programme', undefined);
   const fiat = useBankRead('ramps.fiatSettle', undefined);
   const held = useHoldings();
@@ -110,24 +114,14 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
       </DepthPanel>
       <div className="bd-grid">
         <DepthPanel title={t('addTitle')} lead={t('addLead')}>
-          <Steps active="amount" off={new Set<RampStep>(['quote', 'review', 'status'])} />
-          <label className="field">
-            <span>{t('addAsset')}</span>
-            <select disabled aria-describedby="ramp-add-why">
-              {assets.length === 0 ? <option>—</option> : assets.map((asset) => <option key={asset.assetId}>{asset.assetId}</option>)}
-            </select>
-          </label>
-          <Field label={t('addAmount')} inputMode="decimal" disabled value="" onChange={() => undefined} />
-          <fieldset className="bd-methods" disabled>
-            <legend>{t('addMethod')}</legend>
-            {(['methodCard', 'methodBank', 'methodWallet'] as const).map((key) => (
-              <label key={key} className="money-check">
-                <input type="radio" name="ramp-method" disabled />
-                {t(key)}
-              </label>
-            ))}
-          </fieldset>
-          <DisabledAction label={t('addGetQuote')} reason={<span id="ramp-add-why">{t('addReason')}</span>} />
+          <div className="actions">
+            <a className="button button--primary" href="/bank/ramps/new">
+              {addMoney.t('open')}
+            </a>
+            <a className="button" href="/bank/ramps/accounts">
+              {linked.t('open')}
+            </a>
+          </div>
         </DepthPanel>
         <DepthPanel title={t('outTitle')} lead={t('outLead')}>
           <Steps active="amount" off={new Set<RampStep>(['quote'])} />
@@ -143,7 +137,13 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
             </p>
           )}
           <h4 className="bd-subhead">{t('fiatOutTitle')}</h4>
-          <DisabledAction label={t('fiatOutButton')} reason={t('fiatOutReason')} />
+          {/* The room takes the ask and says why it cannot be paid out; nothing leaves the balance. */}
+          <div className="actions">
+            <a className="button" href="/bank/ramps/cash-out">
+              {t('fiatOutButton')}
+            </a>
+          </div>
+          <p className="money-caption">{t('fiatOutReason')}</p>
         </DepthPanel>
       </div>
     </div>

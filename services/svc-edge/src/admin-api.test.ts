@@ -114,6 +114,13 @@ describe('the treasury authority is not the module authority', () => {
     await expect(api().admin.authenticateTreasury(header)).rejects.toMatchObject({ code: 'mfa.required' });
   });
 
+  it('takes admin:read with a second factor for the ledger lookups only, and refuses it without one', async () => {
+    await expect(api().admin.authenticateLookup(await tokenWith(['admin:read'], true))).resolves.toMatchObject({ userId: OPERATOR });
+    await expect(api().admin.authenticateLookup(await tokenWith(['admin:read'], false))).rejects.toMatchObject({ code: 'mfa.required' });
+    await expect(api().admin.authenticateLookup(await tokenWith(['market:ops'], true))).rejects.toMatchObject({ code: 'scope.denied' });
+    await expect(api().admin.authenticateTreasury(await tokenWith(['admin:read'], true))).rejects.toMatchObject({ code: 'scope.denied' });
+  });
+
   it('does not let admin:treasury alone halt a module — the reverse is also true', async () => {
     const header = await tokenWith(['admin:treasury'], true);
     await expect(api().admin.authenticate(header)).rejects.toMatchObject({ code: 'scope.denied' });

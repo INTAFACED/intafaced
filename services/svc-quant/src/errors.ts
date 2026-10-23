@@ -35,6 +35,22 @@ export const QUANT_OPS_RUNS_FROM_UNSET = 'quant.ops_runs_from_unset' as const;
 export const QUANT_OPS_RUNS_TO_UNSET = 'quant.ops_runs_to_unset' as const;
 export const QUANT_DISCLOSURE_UNSET = 'quant.disclosure_unset' as const;
 export const QUANT_DISCLOSURE_VERSION_STALE = 'quant.disclosure_version_stale' as const;
+export const QUANT_PARAM_UNSET = 'quant.param_unset' as const;
+export const QUANT_PARAM_OUT_OF_RANGE = 'quant.param_out_of_range' as const;
+export const QUANT_SIZING_RULE_UNSET = 'quant.sizing_rule_unset' as const;
+export const QUANT_SIGNAL_RULES_SANDBOX = 'quant.signal_rules_sandbox' as const;
+export const QUANT_TEMPLATE_NOT_FOUND = 'quant.template_not_found' as const;
+export const QUANT_TEMPLATE_LIST_LIMIT_UNSET = 'quant.template_list_limit_unset' as const;
+export const QUANT_TEMPLATE_NUMBER_SET = 'quant.template_number_set' as const;
+export const QUANT_COST_UNSET = 'quant.cost_unset' as const;
+export const QUANT_FILL_TIMING_UNSET = 'quant.fill_timing_unset' as const;
+export const QUANT_BACKTEST_WINDOW_INVALID = 'quant.backtest_window_invalid' as const;
+export const QUANT_BACKTEST_WINDOW_OPEN = 'quant.backtest_window_open' as const;
+export const QUANT_BACKTEST_HISTORY_RANGE = 'quant.backtest_history_range' as const;
+export const QUANT_BACKTEST_RULES_REQUIRED = 'quant.backtest_rules_required' as const;
+export const QUANT_HOLDOUT_DATE_UNSET = 'quant.holdout_date_unset' as const;
+export const QUANT_HOLDOUT_OVERLAP = 'quant.holdout_overlap' as const;
+export const QUANT_ACCOUNT_RULE_UNSET = 'quant.account_rule_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -74,6 +90,22 @@ export type QuantCode =
   | typeof QUANT_OPS_RUNS_TO_UNSET
   | typeof QUANT_DISCLOSURE_UNSET
   | typeof QUANT_DISCLOSURE_VERSION_STALE
+  | typeof QUANT_PARAM_UNSET
+  | typeof QUANT_PARAM_OUT_OF_RANGE
+  | typeof QUANT_SIZING_RULE_UNSET
+  | typeof QUANT_SIGNAL_RULES_SANDBOX
+  | typeof QUANT_TEMPLATE_NOT_FOUND
+  | typeof QUANT_TEMPLATE_LIST_LIMIT_UNSET
+  | typeof QUANT_TEMPLATE_NUMBER_SET
+  | typeof QUANT_COST_UNSET
+  | typeof QUANT_FILL_TIMING_UNSET
+  | typeof QUANT_BACKTEST_WINDOW_INVALID
+  | typeof QUANT_BACKTEST_WINDOW_OPEN
+  | typeof QUANT_BACKTEST_HISTORY_RANGE
+  | typeof QUANT_BACKTEST_RULES_REQUIRED
+  | typeof QUANT_HOLDOUT_DATE_UNSET
+  | typeof QUANT_HOLDOUT_OVERLAP
+  | typeof QUANT_ACCOUNT_RULE_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

@@ -3,6 +3,7 @@ import { useSession } from '../../features/session/session';
 import { Button, Switch } from './deps';
 import { centreCopy } from './centre-copy';
 import { registerTarget, removeTarget, verifyTarget, type OutOfAppChannel } from './notify-api';
+import { PushDevice } from './PushDevice';
 import {
   addressAction,
   addressProblem,
@@ -118,17 +119,26 @@ export function ChannelCard({
       )}
 
       {channel === 'push' ? (
-        <p className="nf-why">
-          {hasTarget ? copy.t('pushDevice') : copy.t('pushWhy')}
-          {hasTarget && (
-            <>
-              {' '}
-              <Button variant="ghost" size={28} disabled={busy} onClick={() => setMode('remove')}>
-                {copy.t('removeAddress')}
-              </Button>
-            </>
-          )}
-        </p>
+        <div className="nf-address">
+          <p className="nf-why">
+            {hasTarget ? copy.t('pushDevice') : copy.t('pushWhy')}
+            {hasTarget && (
+              <>
+                {' '}
+                <Button variant="ghost" size={28} disabled={busy} onClick={() => setMode('remove')}>
+                  {copy.t('removeAddress')}
+                </Button>
+              </>
+            )}
+          </p>
+          <PushDevice
+            onSent={() => {
+              setProblem(null);
+              setMode('verify');
+            }}
+            onChanged={onChanged}
+          />
+        </div>
       ) : (
         <div className="nf-address">
           {hasTarget && (
@@ -225,7 +235,7 @@ export function ChannelCard({
         </form>
       )}
 
-      {mode === 'verify' && channel !== 'push' && hasTarget && !view.verifiedAt && (
+      {mode === 'verify' && hasTarget && !view.verifiedAt && (
         <form
           className="nf-form"
           noValidate

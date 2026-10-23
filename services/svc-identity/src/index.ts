@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { selectOnboardingUser } from './auth/onboarding-user.js';
@@ -46,6 +47,7 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { parseAccountTiers } from './controls/account-tiers.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
@@ -66,8 +68,12 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
+import { createWorkItemsRouter } from './work-items.js';
+import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { createSecurityLockRouter } from './security-lock-router.js';
+import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -84,6 +90,8 @@ import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
+import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -99,6 +107,7 @@ import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -313,11 +322,14 @@ if (env.PAY_URL) {
 // reset request refuses auth.reset_unwired. The only transport this process
 // can install is the local-outbox file, and only when APP_ENV is exactly dev
 // or test. Staging and production stay unwired. No provider is configured.
-const mail = openIdentityMail({
+const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Mails to an account's own address carry the anti-phishing code its owner set.
+const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
+const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -430,9 +442,16 @@ const actionApprovals = new ActionApprovalService(
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
+const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
+const securityLock = new SecurityLock(sql, env.IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
+await sql`SELECT id FROM account_security_locks LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: account_security_locks is missing — apply drizzle/0072_account_security_locks.sql before starting svc-identity',
   );
 });
 await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
@@ -464,8 +483,25 @@ const tradeClosureCheck = httpClosureChecker({
   secret: closureSecret,
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
+const p2pClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_P2P_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
+});
+founderControls.useAccountTiers(parseAccountTiers(env.IDENTITY_ACCOUNT_TIERS));
+// A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
+founderControls.useClosureChecks(async (input) => {
+  const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);
+  if (results.some((result) => !result.ok)) return { ok: false };
+  return { ok: true, blockers: results.flatMap((result) => (result.ok ? result.blockers : [])) };
+});
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
+const antiPhishing = new AntiPhishingService({
+  sql,
+  approvals: actionApprovals,
+  key: antiPhishingMailKey,
+});
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -475,11 +511,7 @@ const closure = new AccountClosureService({
   founderUserIds: founderPair ?? [],
   bank: bankClosureCheck,
   trade: tradeClosureCheck,
-  p2p: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_P2P_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
-  }),
+  p2p: p2pClosureCheck,
   now: () => new Date(),
 });
 account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));
@@ -514,6 +546,7 @@ export const appRouter = mergeRouters(
     subAccountDelete,
     subAccountFeatures,
     subAccountEdit,
+    antiPhishing,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -523,6 +556,13 @@ export const appRouter = mergeRouters(
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
+  createDeveloperKeysRouter({
+    sql,
+    gate: auth,
+    kycTier: (userId, executor) => auth.kycTier(userId, executor),
+    capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    mayMint: passkeyMintRule(sql),
+  }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
@@ -566,7 +606,10 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
+  createWorkItemsRouter(sql),
+  createServerTimeRouter(),
+  createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
+  createSecurityLockRouter(securityLock, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -608,6 +651,8 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+selfFreezeLift.useLogger(app.log);
+securityLock.useLogger(app.log);
 account.useLog({
   warn(obj, msg) {
     app.log.warn(obj, msg);
@@ -807,6 +852,26 @@ app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return proof;
+});
+
+/**
+ * The customer security lock (W-withdraw-09), `securityLockSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `locked` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const view = await securityLock.read(userId);
+  if (!view) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return view;
 });
 
 /**

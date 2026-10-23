@@ -57,6 +57,8 @@ import {
   type WatermarkStamp,
 } from './operator-desks.js';
 import { createAlertRulesRouter } from './alerts/router.js';
+import { createAlertDeskRoutes } from './alerts/overview.js';
+import type { AlertDeskStore } from './alerts/desk-store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
 import { createComplianceRouter } from './compliance/router.js';
@@ -212,6 +214,10 @@ export interface OperatorDeskConfig {
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
+  /** Heartbeats, templates and the quality policy. Absent refuses ops.alert_storage_unconfigured. */
+  readonly alertDesk?: AlertDeskStore;
+  /** Blank means a heartbeat is recorded but never judged overdue. */
+  readonly alertHeartbeatMaxAgeSeconds?: number | null;
   /** Protocol pool hide and market delist (D-order-controls-04). Absent means every call refuses `ops.protocol_listing_storage_unconfigured`. */
   readonly protocolListing?: ListingDesk;
   /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
@@ -224,6 +230,13 @@ export function createOpsRouter(
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
+  const alertDeskRoutes = createAlertDeskRoutes({
+    now,
+    ...(desks.alertState ? { alertState: desks.alertState } : {}),
+    ...(desks.alertRules ? { alertRules: desks.alertRules } : {}),
+    ...(desks.alertDesk ? { alertDesk: desks.alertDesk } : {}),
+    alertHeartbeatMaxAgeSeconds: desks.alertHeartbeatMaxAgeSeconds ?? null,
+  });
   const idem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskError = (err: unknown): never => {
     if (err instanceof OpsError && err.code === OPS_IDEMPOTENCY_CONFLICT) {
@@ -799,7 +812,13 @@ export function createOpsRouter(
             }`,
           });
         }),
+      activity: alertDeskRoutes.activity,
+      heartbeat: alertDeskRoutes.heartbeat,
+      heartbeatStatus: alertDeskRoutes.heartbeatStatus,
     }),
+
+    alertTemplates: alertDeskRoutes.templates,
+    alertQuality: alertDeskRoutes.quality,
   });
 }
 

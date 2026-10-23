@@ -17,6 +17,7 @@ import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHE
 import { TradingControls } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
+import { currentRiskForMarkets } from './risk.js';
 import { tradeOpsAdminRouter } from './router.js';
 import { bindTradingRestrictApprovals } from './trading-restrict.js';
 
@@ -427,6 +428,35 @@ describe('trade operator procedures', () => {
     expect(history.map((row) => row.version)).toEqual(['1', '2']);
     expect(history.every((row) => row.operatorId === OP && row.approverId === APPROVER)).toBe(true);
     expect(await admin.riskGet(operator(), marketId)).toMatchObject({ version: '2', fatFinger: '80', slippageCap: null });
+  });
+
+  it('reads the latest version as the newest one past version 9, not by its text', async () => {
+    const reason = 'many versions';
+    for (let v = 0; v < 11; v += 1) {
+      const limits = { ...BLANK_LIMITS, fatFinger: String(100 + v) };
+      const expectedVersion = String(v);
+      allow({
+        approvalId: `risk-many-${v}`,
+        actionType: 'trade.risk_set',
+        operationId: `op-risk-many-${v}`,
+        targetId: marketId,
+        expectedVersion,
+        body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion, reason },
+      });
+      await admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits,
+        expectedVersion,
+        reason,
+        approvalId: `risk-many-${v}`,
+        operationId: `op-risk-many-${v}`,
+      });
+    }
+    expect(await admin.riskGet(operator(), marketId)).toMatchObject({ version: '11', fatFinger: '110' });
+    expect((await currentRiskForMarkets(db.sql, [marketId])).get(marketId)).toMatchObject({ version: '11', fatFinger: '110' });
+    expect((await admin.riskHistory(operator(), marketId)).map((row) => row.version)).toEqual(
+      Array.from({ length: 11 }, (_, i) => String(i + 1)),
+    );
   });
 
   it('refuses an order past a newly set fat-finger limit and accepts one inside it', async () => {

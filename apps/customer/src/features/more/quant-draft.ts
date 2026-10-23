@@ -1,12 +1,15 @@
 /**
- * The Studio draft, kept on this device only. Saving a strategy to the shared library is switched off because the
- * library is not private to an account yet, so the draft is the only copy and never leaves the browser.
+ * The Studio draft, kept on this device until it is saved to the account's library (`features/quant/studio-save.ts`).
  */
+import { quantSignalRulesSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+
 export type DraftBlock = { side: 'buy' | 'sell'; symbol: string; qty: string };
 export type StudioDraft = {
   name: string;
   cash: string;
   blocks: DraftBlock[];
+  /** Signal rules from the no-code builder; null when the strategy trades by order blocks. */
+  modules: QuantSignalRules | null;
   drawdown: string;
   notional: string;
   kill: string;
@@ -24,6 +27,7 @@ export const emptyDraft = (): StudioDraft => ({
   name: '',
   cash: '',
   blocks: [{ side: 'buy', symbol: '', qty: '' }],
+  modules: null,
   drawdown: '',
   notional: '',
   kill: '',
@@ -60,7 +64,10 @@ export function parseDraft(raw: string | null): StudioDraft | null {
       if ((side !== 'buy' && side !== 'sell') || text(symbol) === null || text(qty) === null) return null;
       blocks.push({ side, symbol: symbol as string, qty: qty as string });
     }
-    return { name, cash, blocks, drawdown, notional, kill };
+    // A draft kept before the builder existed has no signal rules; damaged rules are dropped, not guessed.
+    const parsedModules = row.modules == null ? null : quantSignalRulesSchema.safeParse(row.modules);
+    const modules = parsedModules?.success ? parsedModules.data : null;
+    return { name, cash, blocks, modules, drawdown, notional, kill };
   } catch {
     return null;
   }
@@ -86,10 +93,3 @@ export function writeDraft(ownerId: string | null, draft: StudioDraft, storage: 
     return false;
   }
 }
-
-/**
- * Which Quant rooms may read the shared strategy library. None, until per-account storage ships: the library is shared
- * by everyone using the service, so listing it would show other people's strategies. While this is false no list or
- * load call is made and the rooms show the closed panel. Re-enabling a room is a one-line change here.
- */
-export const readsSharedLibrary = (_mode: 'sandbox' | 'studio' | 'backtest'): boolean => false;

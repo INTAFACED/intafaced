@@ -1,6 +1,7 @@
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { CopyButton } from '../../screens/account/CopyButton';
+import { useSession } from '../session/session';
 import { useBankRead } from './components';
 import type { AccountDetailSet, AccountDetailsRow } from './contracts';
 import { accountDetailsCopy } from './account-details-copy';
@@ -64,7 +65,9 @@ export function AccountDetailsList({ rows }: { rows: readonly AccountDetailsRow[
       {rows.map((row) => (
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
           <h3>{row.currency}</h3>
-          <p role="status">{t(stateKey[row.state])}</p>
+          <p role="status">
+            {t(stateKey[row.state])} {row.blocker && <small className="muted">{t('blocker', { code: row.blocker })}</small>}
+          </p>
           {row.sets.map((set) => (
             <SetView key={set.id} set={set} />
           ))}
@@ -76,14 +79,24 @@ export function AccountDetailsList({ rows }: { rows: readonly AccountDetailsRow[
 }
 
 export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ currencies: AccountDetailsRow[] }>; reload: () => void }) {
+  const { t } = accountDetailsCopy.useCopy();
   if (resource.status === 'loading') return <Loading />;
+  if (resource.status === 'failed' && resource.failure.code === 'bank.company_account_unwired') {
+    return (
+      <p role="status" data-testid="account-details-company">
+        {t('companyUnwired')} <small className="muted">{t('blocker', { code: resource.failure.code })}</small>
+      </p>
+    );
+  }
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   return <AccountDetailsList rows={resource.data.currencies} />;
 }
 
 export function AccountDetailsPanel() {
   const { t } = accountDetailsCopy.useCopy();
-  const read = useBankRead('accountDetails.list', undefined);
+  const { profiles } = useSession();
+  // The profile in view goes with the read: the bank proves it is held, and a business has no details of its own.
+  const read = useBankRead('accountDetails.list', { profile: profiles.active });
   return (
     <DepthPanel title={t('detailsTitle')} lead={t('detailsLead')}>
       <AccountDetailsBody resource={read.resource} reload={read.reload} />

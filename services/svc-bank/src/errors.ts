@@ -349,6 +349,31 @@ export type BankErrorCode =
    */
   | 'bank.ramp_invalid_asset'
   | 'bank.ramp_invalid_destination'
+  /** svc-ledger's asset and network registry could not be read, or is not connected. Nothing was saved. */
+  | 'bank.asset_registry_unavailable'
+  /** The asset does not allow withdrawals, or the network is not listed for it in the registry. Nothing was saved. */
+  | 'bank.withdraw_network_unsupported'
+  /** A mixed-case EVM address whose letter case does not match its EIP-55 checksum, so a character may have changed. Nothing was saved. */
+  | 'bank.address_checksum_mismatch'
+  /**
+   * The address shows like one already in the customer's book (same start and end, as the book shortens it) but is a
+   * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
+   */
+  | 'bank.address_lookalike'
+  /** The owner has not published how long a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`). Nothing was offered. */
+  | 'bank.wallet_proof_window_unset'
+  /** The owner has not published how long a verified wallet proof holds (`BANK_WALLET_PROOF_VALID_DAYS`). Nothing was recorded. */
+  | 'bank.wallet_proof_validity_unset'
+  /** No open wallet proof of this customer's has that id, or its saved address is gone or changed. */
+  | 'bank.wallet_proof_not_found'
+  /** The proof offer lapsed before it was signed. Start a new one. */
+  | 'bank.wallet_proof_expired'
+  /** The text pasted is not a 65-byte signature of the proof message. */
+  | 'bank.wallet_proof_signature_invalid'
+  /** The message was signed by a different address from the saved one. The offer stays open. */
+  | 'bank.wallet_proof_wrong_signer'
+  /** The proof is already complete with another signature, or changed while it was checked. */
+  | 'bank.wallet_proof_conflict'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.
@@ -375,6 +400,16 @@ export type BankErrorCode =
   | 'bank.eligibility_unset'
   /** The address book holds as many entries as the owner allows. */
   | 'bank.address_book_full'
+  /** A linked bank account's IBAN, name or holder name is not usable. Nothing was linked. */
+  | 'bank.linked_account_invalid'
+  /** The customer has as many linked bank accounts as the owner's address-book cap allows. */
+  | 'bank.linked_accounts_full'
+  /** The linked account is not verified: only a banking partner (`rail.bank`) can verify it, so it cannot be cashed out to. */
+  | 'bank.linked_account_unverified'
+  /** The amount to cash out is more than the ledger's available balance for the asset. Nothing was kept. */
+  | 'bank.cash_out_over_available'
+  /** No linked bank account of this customer has this id. */
+  | 'bank.linked_account_not_found'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */
@@ -578,6 +613,8 @@ export type BankErrorCode =
   | 'bank.personal_request_list_limit_unset'
   | 'bank.personal_request_payer_unknown'
   | 'bank.pay_request_notify_unwired'
+  /** No notices port for posted sends: the send stands, its notice stays owed. */
+  | 'bank.transfer_notify_unwired'
   /** IDENTITY_URL is unset, so a request cannot name either person. */
   | 'bank.party_handles_unset'
   /** Identity did not answer a handle lookup. Nothing was created. */
@@ -676,7 +713,23 @@ export type BankErrorCode =
   /** A product id was reused with different terms. */
   | 'bank.loan_product_conflict'
   /** A spend door was refused for funds; carries available/onHold/inEarn figures when they could be read (RC-wallet-09). */
-  | 'bank.insufficient_funds';
+  | 'bank.insufficient_funds'
+  /** The owner has not published the base-tier account terms (`BANK_ACCOUNT_TERMS_JSON`), or they are not in shape (BK-acct-01). */
+  | 'bank.account_terms_unset'
+  /** The owner has not published which currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). */
+  | 'bank.account_currencies_unset'
+  /** A currency that is not on the owner's list. */
+  | 'bank.asset_unknown'
+  /** A currency that still holds a balance, a hold, an open order or a named space cannot be removed. */
+  | 'bank.currency_in_use'
+  /** The owner has not published how many spaces one account may hold (`BANK_SPACE_LIMIT`) (BK-pots-01). */
+  | 'bank.space_limit_unset'
+  /** The account already holds the owner's number of live named spaces. */
+  | 'bank.space_limit_reached'
+  /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
+  | 'bank.profile_not_held'
+  /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
+  | 'bank.company_account_unwired';
 
 export class BankError extends Error {
   constructor(

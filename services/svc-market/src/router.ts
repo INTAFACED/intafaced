@@ -157,16 +157,18 @@ function mapError(err: unknown): never {
     // simply taken. Retrying after a release is correct client behaviour and a
     // 403 would tell them not to.
     if (err.code === 'market.slots_exhausted') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
-    if (err.code === 'market.stake_unavailable') {
+    if (err.code === 'market.stake_unavailable' || err.code === 'market.vendor_listing_count_unreadable') {
       // OUR infrastructure, not the caller's request, and the distinction
       // matters to a client: a 403 sends somebody off to go and stake, and
       // telling them that because svc-token was unreachable sends them to do
       // something they have already done. A 500 says "try again". Same mapping,
-      // and the same reasoning, as `academy.stake_unavailable`.
+      // and the same reasoning, as `academy.stake_unavailable`. An unreadable
+      // active-listing count is the same class: the row is there, the count is not.
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message, cause: err });
     }
     if (
       err.code === 'market.commission_not_configured' ||
+      err.code === 'market.listing_category_unset' ||
       err.code === 'market.subscription_not_built' ||
       err.code === 'market.subscription_recurring_not_built' ||
       err.code === 'market.subscription_period_unset' ||
@@ -242,6 +244,37 @@ export const listingOut = z.object({
   updatedAt: z.string().datetime(),
 });
 
+/**
+ * A listing stores no copy-leader, bot or signal id, so this read has no
+ * performance source. `reported: false` carries no figure.
+ */
+const NO_LISTING_PERFORMANCE = { reported: false } as const;
+
+/** Public listing detail. Strict so a seller user id cannot ride along. */
+export const listingDetailOut = z
+  .object({
+    listing: listingOut.strict(),
+    vendor: publicVendorOut.strict(),
+    activeListingCount: z.number().int().positive(),
+    reviews: z
+      .object({
+        count: z.string().regex(/^(0|[1-9][0-9]*)$/),
+        mean: z.string().nullable(),
+        meanRounding: z.literal(REVIEW_MEAN_ROUNDING),
+      })
+      .strict(),
+    terms: z
+      .object({
+        offerType: z.enum(['one_time', 'subscription']),
+        assetId: z.string(),
+        price: z.string(),
+        periodSeconds: z.number().int().positive().nullable(),
+      })
+      .strict(),
+    performance: z.object({ reported: z.literal(false) }).strict(),
+  })
+  .strict();
+
 const purchaseOut = z.object({
   id: z.string().uuid(),
   listingId: z.string().uuid(),
@@ -297,6 +330,15 @@ const takedownOut = z.object({
   reason: z.string(),
   actorId: z.string().uuid(),
   takenDownAt: z.string().datetime(),
+});
+
+const categorySetOut = z.object({
+  listingId: z.string().uuid(),
+  category: z.string().min(1).max(32),
+  actorId: z.string().uuid(),
+  reason: z.string(),
+  businessKey: z.string().min(1).max(128),
+  recordedAt: z.string().datetime(),
 });
 
 export function createMarketRouter(
@@ -485,6 +527,40 @@ export function createMarketRouter(
               },
               approvals,
             );
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+
+      /**
+       * File a one-time listing under a product category. MFA is local because
+       * market:ops is not INTERACTIVE_ONLY. Actor is the principal, not the body.
+       * The slug and the audit row commit together. Replay is the business key.
+       * Strategy listings stay uncategorised in this slice.
+       */
+      setListingCategory: scopedProcedure(MARKET_OPS_SCOPE)
+        .input(
+          z.object({
+            listingId: z.string().uuid(),
+            /** Product slug. A string that is not the enum is market.category_invalid. */
+            category: z.string().max(64),
+            reason: z.string().max(2_000),
+            businessKey: z.string().max(128),
+          }),
+        )
+        .output(categorySetOut)
+        .mutation(async ({ ctx, input }) => {
+          requireCommerce(commerce);
+          try {
+            requireMfa(ctx.principal!);
+            return await commerce.setListingCategory({
+              actorId: ctx.principal!.userId,
+              actorScope: MARKET_OPS_SCOPE,
+              listingId: input.listingId,
+              category: input.category,
+              reason: input.reason,
+              businessKey: input.businessKey,
+            });
           } catch (err) {
             mapError(err);
           }
@@ -691,6 +767,11 @@ export function createMarketRouter(
           price: z.string().min(1).max(64),
           /** Whole seconds. Required when offerType is subscription. No default month. */
           periodSeconds: z.number().int().positive().optional(),
+          /**
+           * Product category. Optional on one-time — omit stays uncategorised.
+           * Checked only when sent. Strategy listings stay uncategorised.
+           */
+          category: z.string().max(64).optional(),
         }),
       )
       .output(listingOut)
@@ -728,6 +809,35 @@ export function createMarketRouter(
         requireCommerce(commerce);
         try {
           return await createStrategyListing(commerce, { userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * One-time listing that names a product category. Not a strategy.
+     * Blank category and blank price refuse by name. An unknown slug is
+     * market.category_invalid. createListing may omit the category.
+     */
+    createNonStrategyListing: scopedProcedure('market:write', { module: 'market' })
+      .input(
+        z
+          .object({
+            title: z.string().min(1).max(120),
+            description: z.string().min(1).max(4_000),
+            assetId: z.string().min(1).max(32),
+            /** Decimal string. Blank reaches the service refuse — not a free price. */
+            price: z.string().max(64).optional(),
+            /** Product slug. Omit and whitespace are `market.listing_category_unset`. */
+            category: z.string().max(64).optional(),
+          })
+          .strict(),
+      )
+      .output(listingOut.extend({ category: z.string().min(1).max(32) }))
+      .mutation(async ({ ctx, input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.createNonStrategyListing({ userId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }
@@ -823,6 +933,40 @@ export function createMarketRouter(
     }),
 
     /**
+     * One shopfront listing by id (MC-market-01). Public, like `listings`.
+     * Unknown and not-on-the-shopfront are both `market.listing_not_found`.
+     * Blank commission is `market.commission_not_configured`, before the read.
+     * No seller user id. Performance is unreported: there is no source id to read.
+     */
+    listing: publicProcedure
+      .input(z.object({ listingId: z.string().uuid() }))
+      .output(listingDetailOut)
+      .query(async ({ input }) => {
+        requireCommerce(commerce);
+        try {
+          const detail = await commerce.publicListing(input.listingId);
+          if (!detail) throw new MarketError('market.listing_not_found', 'market.listing_not_found');
+          requireReviews(reviews);
+          const summary = await reviews.summaryForListing(input.listingId);
+          return {
+            listing: detail.listing,
+            vendor: detail.vendor,
+            activeListingCount: detail.activeListingCount,
+            reviews: summary,
+            terms: {
+              offerType: detail.listing.offerType,
+              assetId: detail.listing.assetId,
+              price: detail.listing.price,
+              periodSeconds: detail.listing.periodSeconds,
+            },
+            performance: NO_LISTING_PERFORMANCE,
+          };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
      * Public catalogue — empty when commission blank; else listed vendors only.
      * `limit` optional so omit reaches `market.public_listings_list_limit_unset`.
      * Blank is not 50; pass 50 explicitly when that is the page you want.
@@ -874,6 +1018,46 @@ export function createMarketRouter(
             sort: input?.sort,
             limit: input?.limit,
             cursor: input?.cursor,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Product category enum for one-time listings. Not an owner env list.
+     * Strategy listings stay uncategorised for now.
+     */
+    listingCategories: publicProcedure.output(z.object({ categories: z.array(z.string().min(1).max(32)) })).query(() => {
+      requireCommerce(commerce);
+      try {
+        return { categories: [...commerce.listingCategories()] };
+      } catch (err) {
+        mapError(err);
+      }
+    }),
+
+    /**
+     * One-time listings in one product category. Omit / blank category is
+     * not the whole catalogue. Omit limit is not 50. Strategy rows are excluded.
+     * Short page only — a cursor for this page is a later slice.
+     */
+    listingsByCategory: publicProcedure
+      .input(
+        z
+          .object({
+            category: z.string().max(64).optional(),
+            limit: z.number().int().positive().max(50).optional(),
+          })
+          .optional(),
+      )
+      .output(z.array(listingOut.extend({ category: z.string().min(1).max(32) })))
+      .query(async ({ input }) => {
+        requireCommerce(commerce);
+        try {
+          return await commerce.publicListingsByCategory({
+            category: input?.category,
+            limit: input?.limit,
           });
         } catch (err) {
           mapError(err);

@@ -6,7 +6,7 @@ import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
-import { byFamily, deviceName, deviceList, familyEnded, othersEnded } from './devices';
+import { byFamily, deviceName, deviceList, familyEnded, othersEnded } from './devices-api';
 
 const LIMIT = 100;
 

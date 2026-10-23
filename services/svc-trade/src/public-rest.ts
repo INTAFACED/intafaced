@@ -17,6 +17,7 @@ import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
+import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -29,6 +30,7 @@ import { logRefusalSpec } from './refusal-spec-log.js';
  *   GET /api/v1/trades/:symbol?limit=&since=
  *   GET /api/v1/ohlcv/:symbol?timeframe=&since=&limit=
  *   GET /api/v1/funding-rate/:symbol
+ *   GET /api/v1/charts/owner-values?symbol=   (charts owner values, C-ops-04; plain JSON like ohlcv)
  *
  * No auth — public market data. Amounts are decimal strings on the wire.
  * Private routes live in `private-rest.ts` (edge-signed principal).
@@ -54,8 +56,15 @@ export interface PublicRestDeps {
   /** Listed markets page. Limit required at GET /markets — never invent 50. */
   markets(limit: number): Promise<Market[]>;
   marketBySymbol(symbol: string): Promise<Market | null>;
+  /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
+  chartOwnerValues?: ChartOwnerValuesPublicReader;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /**
+   * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
+   * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open.
+   */
+  bookHalt?(market: Market): Promise<{ halted: boolean; venueHalted: boolean }>;
   /**
    * SP-order-entry-03: TEST-ONLY per-market reader (one read per market — the
    * N+1 the batched readers replace). Production must not mount it; kept for
@@ -147,6 +156,8 @@ export interface PublicRestDeps {
    * listing appear on GET /markets. Does not enable TRADE_FUTURES_ENABLED.
    */
   futuresTestSeed?: boolean;
+  /** TRADE_FUTURES_MATCHING_ENABLED: the order-type catalogue follows the futures book instead of the at-mark doors. */
+  futuresMatchingEnabled?: boolean;
 }
 
 /** Send an already-mapped CCXT error. */
@@ -704,8 +715,45 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     );
     return reply.code(200).send({
       asOfMs: now(),
-      markets: markets.map((m) => buildFuturesOrderTypeCatalogue(m.symbol)),
+      markets: markets.map((m) =>
+        buildFuturesOrderTypeCatalogue(m.symbol, undefined, { throughBook: deps.futuresMatchingEnabled === true }),
+      ),
     });
+  });
+
+  /**
+   * GET /api/v1/charts/owner-values[?symbol=] — the charts module's owner values (C-ops-04, LD-14).
+   * Plain JSON, no envelope, like /api/v1/ohlcv. Every count is the owner's number or null (not set). `dataClass`
+   * is the symbol's data class when `?symbol=` is given, else null. An unknown symbol is trade.market_not_found.
+   * Nothing here falls back to a default: an unwired reader refuses 503, a DB error is not swallowed.
+   */
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/charts/owner-values', async (req, reply) => {
+    const reader = deps.chartOwnerValues;
+    if (!reader) {
+      return sendCcxt(reply, {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: 'charts owner values are not wired on this service',
+          intafacedCode: 'trade.charts_owner_values_unconfigured',
+        },
+      });
+    }
+    const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim() : '';
+    try {
+      let dataClass: string | null = null;
+      if (symbol !== '') {
+        // A symbol longer than any listed market's key is not a market: refuse before the lookup, same shape.
+        if (symbol.length > 64) return sendCcxt(reply, badSymbol(symbol));
+        const market = await deps.marketBySymbol(symbol);
+        if (!market) return sendCcxt(reply, badSymbol(symbol));
+        dataClass = await reader.dataClassFor(market.symbol);
+      }
+      const values = await reader.scalars();
+      return reply.code(200).send({ ...values, dataClass });
+    } catch (err) {
+      return sendMapped(reply, err);
+    }
   });
 
   app.get<{ Querystring: { limit?: string } }>('/api/v1/markets', async (req, reply) => {
@@ -758,6 +806,20 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /** PX-S01 projection. Missing authority is a typed 503, never an OPEN default. */
+  app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', async (req, reply) => {
+    const symbol = decodeURIComponent(req.params.symbol);
+    const market = await deps.marketBySymbol(symbol);
+    if (!market) return sendCcxt(reply, badSymbol(symbol));
+    const unavailable = { error: 'matching halt state is not readable', code: 'trade.book_halt_unavailable' };
+    if (!deps.bookHalt) return reply.code(503).send(unavailable);
+    try {
+      const halt = await deps.bookHalt(market);
+      return reply.code(200).send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, serverTime: now() });
+    } catch {
+      return reply.code(503).send(unavailable);
+    }
+  });
+
   app.get<{ Params: { symbol: string } }>('/api/v1/market-lifecycle/:symbol', async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);

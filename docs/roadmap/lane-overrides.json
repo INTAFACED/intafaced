@@ -39,6 +39,7 @@
     "RC-home-ia-04": "customer shell",
     "PH-ops-console-02": "ci gate",
     "PH-ops-console-07": "docs",
-    "PH-ops-console-08": "config"
+    "PH-ops-console-08": "config",
+    "PH-ops-console-11": "config"
   }
 }

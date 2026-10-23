@@ -15,7 +15,7 @@ export type Failure = { kind: 'refusal'; copy: RefusalCopy } | { kind: 'network'
 
 /** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
  * original frees (the service never caps it), so an edit reads the check without them. */
-const OPEN_ORDER_CAPS = new Set(['trade.operator_throttle', 'trade.limit_max_open_orders']);
+const OPEN_ORDER_CAPS = new Set(['trade.operator_throttle', 'trade.limit_max_open_orders', 'trade.open_orders_cap_unset']);
 
 /** The order check for an edit: the same answer without the open-order cap refusals. */
 export function asReplacement(preview: Preview): Preview {

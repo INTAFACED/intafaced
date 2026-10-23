@@ -55,6 +55,14 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   pricesDown: { title: "Prices can't be loaded", body: "Prices can't be loaded right now. Try again in a minute." },
   slippageCapUnset: { title: 'Market orders are paused', body: 'Use a limit order instead.' },
+  priceBandUnset: {
+    title: 'No price band is published',
+    body: 'This market takes no priced orders until it publishes the range of prices it accepts. Nothing was sent.',
+  },
+  openOrdersCapUnset: {
+    title: 'No open-order limit is published',
+    body: 'Orders that wait on the book are paused here until this market publishes how many you may have open. Nothing was sent.',
+  },
   protectionUnset: {
     title: 'Price protection isn’t set',
     body: 'A market order needs a price limit it may not pass, and none is published for this market. Use a limit order instead.',

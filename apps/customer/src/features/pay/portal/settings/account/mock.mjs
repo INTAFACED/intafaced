@@ -20,6 +20,7 @@ export function createAccountMock(ctx) {
     supportPhone: null,
     statementDescriptor: 'TEST SHOP',
     industry: 'Online retail',
+    secondApprovalEnabled: false,
   };
   const emptySide = {
     displayName: null,
@@ -274,6 +275,7 @@ export function createAccountMock(ctx) {
           });
         }
         case 'merchant.businessProfile.setSecondApproval':
+          state.profile = { ...state.profile, secondApprovalEnabled: input.enabled };
           return ok(route, { merchantId: MERCHANT_ID, enabled: input.enabled });
         case 'merchantOps.team.list': {
           const needle = (input.search ?? '').toLowerCase();

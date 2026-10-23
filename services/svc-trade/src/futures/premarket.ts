@@ -39,7 +39,7 @@ export async function readPremarketParams(sql: Sql, marketId: string): Promise<P
     SELECT version::text AS version, flat_funding_rate::text AS flat_funding_rate, mark_clamp_bps
       FROM trade.operator_premarket_params
      WHERE market_id = ${marketId}
-     ORDER BY version DESC
+     ORDER BY operator_premarket_params.version DESC
      LIMIT 1`;
   if (!row) return null;
   return {

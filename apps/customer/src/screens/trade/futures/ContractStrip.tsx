@@ -52,7 +52,9 @@ export function ContractStrip({ markets, market, strip, funding, now, onChoose }
   const rate = tick?.fundingRate ?? fund?.fundingRate ?? null;
   const nextIso = tick?.nextFundingTime ?? (fund?.nextFundingTimestamp ? new Date(fund.nextFundingTimestamp).toISOString() : null);
   const left = countdown(nextIso, now);
-  const kind = market.inverse ? t('Inverse') : market.linear ? t('Linear') : market.future ? t('Dated') : t('Perpetual');
+  const style = market.future ? t('Dated') : t('Perpetual');
+  // Linear or inverse is the listing's recorded family; a listing that recorded none says so.
+  const family = market.inverse ? t('Inverse') : market.linear ? t('Linear') : UNKNOWN;
   const items = markets.map((m) => ({ value: m.symbol, label: m.symbol }));
   return (
     <section aria-label={market.symbol} className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-line px-(--if-gutter) py-3">
@@ -88,8 +90,10 @@ export function ContractStrip({ markets, market, strip, funding, now, onChoose }
       </Cell>
       <Cell label={t('Next funding')}>{left === null ? UNKNOWN : t('in time', { time: left })}</Cell>
       <Cell label={t('Contract type')}>
-        {kind} · {market.contractSize ?? UNKNOWN}
+        {style} · {family}
       </Cell>
+      <Cell label={t('Settle asset')}>{market.settle ?? UNKNOWN}</Cell>
+      <Cell label={t('Contract size')}>{market.contractSize ? `${market.contractSize} ${market.base}` : UNKNOWN}</Cell>
       <div className="ml-auto">
         <StatusChip
           asOf={strip.status === 'ready' ? strip.asOf : null}

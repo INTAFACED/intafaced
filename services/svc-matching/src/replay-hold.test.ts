@@ -225,6 +225,36 @@ describe('replay hold check', () => {
     expect(engine.restingOrders().map((row) => row.orderId)).toEqual([REST]);
   });
 
+  it('keeps a resting futures order whose margin pot holds anything: margin is not compared with notional', async () => {
+    const journal = new MemoryJournal();
+    await restingBuy(journal);
+    const { engine, result } = await boot(journal, {
+      async read() {
+        return { futuresMargin: '5' }; // far below price x qty: it is margin, not the order's value
+      },
+    });
+    expect(result.gate).toMatchObject({ open: true, checked: 1, pulled: [], halted: [] });
+    expect(engine.admissionOpen).toBe(true);
+    expect(engine.restingOrders().map((row) => row.orderId)).toEqual([REST]);
+  });
+
+  it('pulls a resting futures order whose margin pot is empty or unreadable', async () => {
+    for (const futuresMargin of ['0', 'not-a-number']) {
+      const journal = new MemoryJournal();
+      await restingBuy(journal);
+      const { engine, result } = await boot(journal, {
+        async read() {
+          return { futuresMargin };
+        },
+      });
+      expect(result.gate).toMatchObject({
+        open: true,
+        pulled: [{ orderId: REST, verdict: futuresMargin === '0' ? 'missing' : 'unreadable', reason: 'hold_unconfirmed' }],
+      });
+      expect(engine.restingOrderCount).toBe(0);
+    }
+  });
+
   it('keeps the market closed when the hold service is unreachable', async () => {
     const journal = new MemoryJournal();
     await restingBuy(journal);
@@ -420,6 +450,27 @@ describe('ledger hold lookup', () => {
     };
     expect(await lookup.read(subject)).toBe(formatAmount(parseAmount('100')));
     expect(await lookup.read({ ...subject, orderId: TAKER })).toBeNull();
+  });
+
+  it("reads a futures order's margin pot `futures-order:<id>` as its hold, and refuses two holds for one order", async () => {
+    const row = (purpose: string, amount: string): Balance => ({
+      account: { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'hold', purpose },
+      accountId: `acct-${purpose}`,
+      amount: parseAmount(amount),
+    });
+    const subject = {
+      marketId: MARKET,
+      orderId: REST,
+      accountId: USER,
+      side: 'buy' as const,
+      remaining: '1',
+      fundingPrice: '100',
+      sequence: 1,
+    };
+    const margin = createReplayHoldLookup({ balances: async () => [row(`futures-order:${REST}`, '7.5')] });
+    expect(await margin.read(subject)).toEqual({ futuresMargin: formatAmount(parseAmount('7.5')) });
+    const both = createReplayHoldLookup({ balances: async () => [row(`futures-order:${REST}`, '7.5'), row(`order:${REST}`, '100')] });
+    await expect(both.read(subject)).rejects.toThrow(/multiple ledger holds/);
   });
 
   it('does not pull the book when the ledger refuses the balances call', async () => {

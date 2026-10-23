@@ -29,6 +29,9 @@ describe('asReplacement', () => {
     expect(
       previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [{ ...cap, code: 'trade.limit_max_open_orders' }] }))),
     ).toBe(true);
+    expect(
+      previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [{ ...cap, code: 'trade.open_orders_cap_unset' }] }))),
+    ).toBe(true);
   });
   it('every other refusal stays', () => {
     expect(previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [cap, band] })))).toBe(false);

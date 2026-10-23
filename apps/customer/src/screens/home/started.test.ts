@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ActivityItem } from './deps';
 import { homeCopy } from './copy';
 import {
   alertStatus,
   buildSteps,
   depositStatus,
   dismissKey,
-  hasMoneyIn,
-  hasTrade,
   progress,
   readDismissed,
   securityStatus,
@@ -17,18 +14,6 @@ import {
   type StepId,
   type StepStatus,
 } from './started';
-
-const row = (kind: ActivityItem['kind'], direction: ActivityItem['direction'] = 'in'): ActivityItem => ({
-  id: `${kind}-${direction}`,
-  kind,
-  direction,
-  asset: 'USDT',
-  amount: '10',
-  postedAt: '2026-10-13T11:29:44Z',
-  txId: 'tx',
-  counterparty: null,
-  spaceName: null,
-});
 
 describe('Get started: each step reads real answers', () => {
   it('verification: a held level is done, a pending record is in review, nothing is to do', () => {
@@ -51,18 +36,9 @@ describe('Get started: each step reads real answers', () => {
     expect(alertStatus([{ kind: 'price', status: 'fired' }])).toBe('done');
   });
 
-  it('history helpers: money in is a deposit, welcome funds or a received transfer; a trade is a trade row', () => {
-    expect(hasMoneyIn([row('deposit')])).toBe(true);
-    expect(hasMoneyIn([row('welcome_funds')])).toBe(true);
-    expect(hasMoneyIn([row('transfer_in')])).toBe(true);
-    expect(hasMoneyIn([row('transfer_out', 'out'), row('fee', 'out'), row('trade')])).toBe(false);
-    expect(hasTrade([row('trade')])).toBe(true);
-    expect(hasTrade([row('deposit')])).toBe(false);
-  });
-
   it('add money: holding anything or ever receiving money is done; waiting is "checking", never "done"', () => {
     expect(depositStatus('held', 'loading')).toBe('done');
-    expect(depositStatus('none', 'in')).toBe('done');
+    expect(depositStatus('none', 'found')).toBe('done');
     expect(depositStatus('loading', 'none')).toBe('checking');
     expect(depositStatus('none', 'loading')).toBe('checking');
     expect(depositStatus('none', 'none')).toBe('todo');
@@ -70,12 +46,9 @@ describe('Get started: each step reads real answers', () => {
     expect(depositStatus('none', 'failed')).toBe('unknown');
   });
 
-  it('first trade: found is done; older pages left means still looking; the end of the history means not yet', () => {
-    expect(tradeStatus({ trade: true, hasMore: true, read: 50 })).toBe('done');
-    expect(tradeStatus({ trade: false, hasMore: true, read: 50 })).toBe('checking');
-    expect(tradeStatus({ trade: false, hasMore: true, read: 250 })).toBe('todo');
-    expect(tradeStatus({ trade: false, hasMore: false, read: 7 })).toBe('todo');
-    expect(tradeStatus('empty')).toBe('todo');
+  it('first trade: one trade line anywhere in the history is done; none is not yet; unread is never done', () => {
+    expect(tradeStatus('found')).toBe('done');
+    expect(tradeStatus('none')).toBe('todo');
     expect(tradeStatus('loading')).toBe('checking');
     expect(tradeStatus('failed')).toBe('unknown');
   });
@@ -83,6 +56,7 @@ describe('Get started: each step reads real answers', () => {
 
 describe('Get started: the list', () => {
   const all = (status: StepStatus): Record<StepId, StepStatus> => ({
+    register: status,
     verify: status,
     secure: status,
     deposit: status,
@@ -90,10 +64,11 @@ describe('Get started: the list', () => {
     alert: status,
   });
 
-  it('has the five steps in order, each leading to a live screen', () => {
+  it('has the six steps in order, each leading to a live screen', () => {
     const steps = buildSteps(all('todo'));
-    expect(steps.map((step) => step.id)).toEqual(['verify', 'secure', 'deposit', 'trade', 'alert']);
+    expect(steps.map((step) => step.id)).toEqual(['register', 'verify', 'secure', 'deposit', 'trade', 'alert']);
     expect(steps.map((step) => step.href)).toEqual([
+      '/uc/account',
       '/verification',
       '/uc/safe',
       '/uc/recharge',
@@ -103,20 +78,20 @@ describe('Get started: the list', () => {
     expect(steps.some((step) => step.href.startsWith('/preview'))).toBe(false);
   });
 
-  it('counts all five steps, and is complete only when every one is done', () => {
-    expect(progress(buildSteps(all('done')))).toEqual({ done: 5, total: 5, complete: true, settled: true });
-    expect(progress(buildSteps({ ...all('done'), alert: 'todo' }))).toMatchObject({ done: 4, total: 5, complete: false });
-    expect(progress(buildSteps(all('todo')))).toMatchObject({ done: 0, total: 5, complete: false });
+  it('counts all six steps, and is complete only when every one is done', () => {
+    expect(progress(buildSteps(all('done')))).toEqual({ done: 6, total: 6, complete: true, settled: true });
+    expect(progress(buildSteps({ ...all('done'), alert: 'todo' }))).toMatchObject({ done: 5, total: 6, complete: false });
+    expect(progress(buildSteps(all('todo')))).toMatchObject({ done: 0, total: 6, complete: false });
   });
 
   it('is not settled while an answer is on its way, and an unreadable answer is never counted as done', () => {
     expect(progress(buildSteps({ ...all('done'), trade: 'checking' }))).toMatchObject({
-      done: 4,
+      done: 5,
       settled: false,
       complete: false,
     });
     expect(progress(buildSteps({ ...all('done'), trade: 'unknown' }))).toMatchObject({
-      done: 4,
+      done: 5,
       settled: true,
       complete: false,
     });
@@ -164,6 +139,8 @@ describe('Home new-user words (plain words)', () => {
       'Watchlist hint',
       'No coins yet',
       'Get started',
+      'Step register',
+      'Step register hint',
       'Step verify',
       'Step verify hint',
       'Step secure',

@@ -97,6 +97,7 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
+import { holdLeft } from './order-holds.js';
 import { assertEmailProved, type EmailProofSource } from './email-proof.js';
 import {
   MatchingNoBookError,
@@ -370,6 +371,11 @@ export interface TradeServiceOptions {
    * No default: unset refuses every new live order `trade.identity_unavailable`.
    */
   emailProof?: EmailProofSource;
+  /**
+   * Tests only: let an order through on a pair with no published price band or open-order cap. Production never sets
+   * it, so an unpublished band or cap refuses (`trade.price_band_unset`, `trade.open_orders_cap_unset`).
+   */
+  allowUnpublishedPairRules?: boolean;
   /** Override TWAP durable store (tests inject MemoryTwapParentStore). */
   algoStore?: TwapParentStore;
   /**
@@ -793,6 +799,7 @@ export class TradeService {
   private readonly now: () => Date;
   private readonly subAccounts: SubAccountOwnershipSource;
   private readonly emailProof: EmailProofSource | undefined;
+  private readonly allowUnpublishedPairRules: boolean;
   /** D-S-04 TWAP scheduler — parent holds no value; children go through placeOrder. */
   private readonly algo: TwapEngine;
   /** Durable TWAP schedules — survives process restart (in-memory alone was residual). */
@@ -851,6 +858,7 @@ export class TradeService {
     this.now = options.now ?? (() => new Date());
     this.subAccounts = options.subAccounts ?? new NoSubAccounts();
     this.emailProof = options.emailProof;
+    this.allowUnpublishedPairRules = options.allowUnpublishedPairRules === true;
     this.algoStore = options.algoStore ?? new SqlTwapParentStore(sql);
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
@@ -955,6 +963,16 @@ export class TradeService {
   /** One lifecycle snapshot shared by the public projection and order gate. */
   async marketLifecycleSnapshot(market: Market) {
     return (await this.marketLifecycle?.snapshot(market)) ?? null;
+  }
+
+  /**
+   * The PLACE lifecycle proof for a market, for matched futures orders (futures ADR slice 6). It is the same gate
+   * spot placement passes, so a halt or a suspension refuses a futures order the same way.
+   */
+  async placeLifecycleProofForMarket(marketId: string): Promise<LifecycleAdmissionProof> {
+    const market = await this.marketById(marketId);
+    if (!market) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
+    return this.assertLifecycleAction(market, 'PLACE');
   }
 
   private async assertLifecycleAction(
@@ -1741,10 +1759,11 @@ export class TradeService {
     await assertEmailProved(this.emailProof, userId);
     assertQty(market, input.qty);
     // A bracket's exit for a filled entry is neither banded nor capped: refusing it would leave the position
-    // without its stop. A replacement takes the slot its original frees, and a reduce-only order only shrinks.
+    // without its stop. A replacement takes the slot its original frees.
     // The exit is the one sell placed after its entry stopped resting; nothing else borrows the exemption.
     const protectiveExit =
-      input.side === 'sell' && (await this.isPendingBracketExit(principal.userId, input.clientOrderId, { entryDone: true }));
+      input.side === 'sell' &&
+      (await this.isPendingBracketExit(principal.userId, input.clientOrderId, { entryDone: true, marketId: market.id }));
     await assertOperatorRiskOnPlace(
       this.sql,
       market,
@@ -1754,15 +1773,10 @@ export class TradeService {
         price: input.price ?? null,
         qty: input.qty,
         protective: protectiveExit,
-        rests:
-          orderType !== 'market' &&
-          tif !== 'IOC' &&
-          tif !== 'FOK' &&
-          input.replacementOf == null &&
-          !protectiveExit &&
-          (input as { reduceOnly?: boolean }).reduceOnly !== true,
+        rests: orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null && !protectiveExit,
       },
       () => this.touch(market.id),
+      !this.allowUnpublishedPairRules,
     );
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
@@ -2685,6 +2699,26 @@ export class TradeService {
           }
         }
 
+        // The operator's limits for this pair (fat finger, price band, published rules) BEFORE the cancel, the same gate
+        // place runs: a replacement priced outside the band is refused with the original still live. The replacement
+        // takes the original's slot, so the open-order cap does not count it.
+        // A paper market was refused above, so this is always the funded gate.
+        try {
+          await assertOperatorRiskOnPlace(
+            this.sql,
+            market,
+            principal.userId,
+            { side: input.side, price: input.price ?? null, qty: input.qty, rests: false },
+            () => this.touch(market.id),
+            !this.allowUnpublishedPairRules,
+          );
+        } catch (err) {
+          if (err instanceof TradeError) {
+            return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
+          }
+          throw err;
+        }
+
         // Authority is required before cancel, so an unavailable PX-S01 source
         // cannot strand the caller by cancelling an order it cannot replace.
         try {
@@ -2814,19 +2848,22 @@ export class TradeService {
    * Cancel every open/pending order for the principal (optional market filter).
    * Sequential on purpose: each cancel is its own hold-release money path.
    */
-  async cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]> {
+  async cancelAllOrders(principal: Principal, marketId?: string, kind?: MarketKind): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:write');
     // Mutation, not a list door: pull every rest for this principal. openOrders is a
     // published page and must not silently leave orders past LIMIT uncancelled.
+    // `kind` narrows to one product's markets ("spot only" leaves futures and options orders alone).
     const rows = marketId
       ? await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `
       : await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `;
     const open = rows.map(toOrder);
@@ -3855,7 +3892,7 @@ export class TradeService {
         FROM trade.fills WHERE order_id = ${order.id}
     `;
     const consumed = parseAmount(rows[0]?.consumed ?? '0');
-    const remaining = sub(sub(order.holdAmount, consumed), order.amendReleased);
+    const remaining = holdLeft(order, consumed);
 
     if (remaining < 0n) {
       // The fills say this order spent more than it was funded for. That is not
@@ -4757,10 +4794,20 @@ export class TradeService {
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
       type?: 'market' | 'limit' | 'stop_limit';
+      before?: string;
     },
   ): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:read');
     const limit = publishedOrderHistoryLimit(input.limit);
+    // The cursor is the previous page's last order: its (created_at, id) is compared in SQL at full precision, so a
+    // page never repeats or skips an order that shares a creation instant with another. Only the caller's own order
+    // can be a cursor.
+    if (input.before !== undefined) {
+      const found = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM trade.orders WHERE id = ${input.before} AND user_id = ${principal.userId}
+      `;
+      if (!found[0]) throw new TradeError('before must be the id of one of your orders', 'trade.invalid_cursor');
+    }
     // timestamptz compare: Date carries ms precision into postgres.js.
     const sinceDate = input.sinceMs !== undefined ? new Date(input.sinceMs) : undefined;
     const untilDate = input.untilMs !== undefined ? new Date(input.untilMs) : undefined;
@@ -4781,8 +4828,16 @@ export class TradeService {
                  : this.sql``
          }
          ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
-         ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
-       ORDER BY created_at DESC
+         ${
+           // `until` names a whole millisecond and includes all of it: created_at keeps microseconds.
+           untilDate ? this.sql`AND created_at < ${untilDate}::timestamptz + interval '1 millisecond'` : this.sql``
+         }
+         ${
+           input.before !== undefined
+             ? this.sql`AND (created_at, id) < (SELECT c.created_at, c.id FROM trade.orders c WHERE c.id = ${input.before})`
+             : this.sql``
+         }
+       ORDER BY created_at DESC, id DESC
        LIMIT ${limit}
     `;
     return rows.map(toOrder);
@@ -4847,7 +4902,8 @@ export class TradeService {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
     }
     const rows = await this.sql<FillRow[]>`
-      SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId} ORDER BY ts ASC LIMIT ${capped}
+      SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId}
+       ORDER BY ts ASC, sequence ASC, id ASC LIMIT ${capped}
     `;
     return rows.map(toFill);
   }
@@ -5594,7 +5650,11 @@ export class TradeService {
    * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
    * stored bracket intent that has no exit yet.
    */
-  private async isPendingBracketExit(userId: string, clientOrderId: string, opts: { entryDone?: boolean } = {}): Promise<boolean> {
+  private async isPendingBracketExit(
+    userId: string,
+    clientOrderId: string,
+    opts: { entryDone?: boolean; marketId?: string } = {},
+  ): Promise<boolean> {
     const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
     if (!exitOf) return false;
     const pending = opts.entryDone
@@ -5602,6 +5662,7 @@ export class TradeService {
           SELECT 1 FROM trade.order_bracket_intent i JOIN trade.orders o ON o.id = i.order_id
            WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.exit_order_id IS NULL
              AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
+             AND o.market_id = ${opts.marketId ?? null}
         `
       : await this.sql`
           SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL

@@ -41,9 +41,29 @@ const defaults = {
   passkeys: () => passkeyList(1),
   alerts: () => alertList(),
   activity: () => establishedActivity(),
+  // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
+  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  'work:identity': () => ({ items: [] }),
+  'work:bank': () => ({ items: [] }),
+  'work:pay': () => ({ items: [] }),
 };
 // The service calls (/api/<module>/trpc/<procedure>) the checklist and the activity list make.
-const procedures = { 'kyc.status': 'kyc', 'webauthn.list': 'passkeys', 'notify.alerts': 'alerts', 'activity.list': 'activity' };
+const procedures = {
+  'kyc.status': 'kyc',
+  'webauthn.list': 'passkeys',
+  'notify.alerts': 'alerts',
+  'activity.list': 'activity',
+  'home.config': 'homeConfig',
+};
+/** An item identity answers for a person who has not verified yet. */
+const verifyItem = {
+  id: 'verification:u-new',
+  kind: 'verification',
+  source: 'identity',
+  severity: 'action',
+  titleKey: 'identity.verification.start',
+  link: '/verification',
+};
 /** A brand-new account: nothing done anywhere. */
 const newAccount = {
   balance: emptyBalances,
@@ -51,7 +71,14 @@ const newAccount = {
   passkeys: () => passkeyList(0),
   alerts: () => alertList([]),
   activity: () => activityPage([]),
+  'work:identity': () => ({ items: [verifyItem] }),
 };
+/** A history page as the bank answers `input`: only the kinds asked for, at most `limit` lines. */
+function asked(page, input) {
+  if (!page || !Array.isArray(page.items)) return page;
+  const items = page.items.filter((item) => !input.kind || input.kind.includes(item.kind));
+  return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
+}
 async function mock(page, overrides = {}) {
   // A first visit lands on Pro (PLT-0009); this suite is about Simple Home, so choose it unless the test already stored a view.
   await page.addInitScript(() => {
@@ -69,12 +96,17 @@ async function mock(page, overrides = {}) {
     return route.fulfill({ status: 200, json: wrap(typeof value === 'function' ? value(arg) : value) });
   };
   await page.route('**/api/*/trpc/**', async (route) => {
-    const procedure = decodeURIComponent(new URL(route.request().url()).pathname.split('/trpc/')[1]);
-    const name = procedures[procedure];
+    const [prefix, rest] = new URL(route.request().url()).pathname.split('/trpc/');
+    const procedure = decodeURIComponent(rest);
+    // Every owner mounts the same work list procedure, so it is told apart by the module it was asked of.
+    const name = procedure === 'workItems.list' ? `work:${prefix.split('/').at(-1)}` : procedures[procedure];
     seen.push(procedure);
     if (!name || !(name in served)) return route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } });
-    if (served[name] === null) return void held.push({ route, name, wrap: trpc });
-    return answer(route, served[name], undefined, trpc);
+    // The bank filters the history by kind and cuts it at the limit, as Get started's one-line reads ask it to.
+    const input = JSON.parse(new URL(route.request().url()).searchParams.get('input') ?? '{}');
+    const wrap = name === 'activity' ? (data) => trpc(asked(data, input)) : trpc;
+    if (served[name] === null) return void held.push({ route, name, arg: input, wrap });
+    return answer(route, served[name], input, wrap);
   });
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api\/v1\//, '');
@@ -227,7 +259,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   for (const value of await texts(page.locator('[data-money], [data-slot="money"]')))
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
-  // Keyboard: Tab from the top bar reaches eye -> the two info tips -> actions -> Cash -> Crypto -> 4 cards (each
+  // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> the derived-total tip -> actions -> Cash -> Crypto -> 4 cards (each
   // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
   await page.locator('.harness-bar a').last().focus();
   const path = [];
@@ -247,18 +279,22 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
     path.push(stop);
   }
-  expect(path.map((stop) => stop.name).slice(0, 8)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 11)).toEqual([
     'Hide balances',
     'How the total is worked out',
+    'Assets',
+    'Customise Home',
     'About this change',
+    'Named spaces not included',
     'Buy',
     'Sell',
     'Convert',
     'Send',
     'Receive',
   ]);
-  expect(path.slice(8, 10).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
-  const cardStops = path.slice(10, 18);
+  expect(path[2].href).toBe('/money');
+  expect(path.slice(11, 13).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
+  const cardStops = path.slice(13, 21);
   expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
@@ -266,8 +302,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Add IFC to watchlist',
     'Add SOL to watchlist',
   ]);
-  expect(path[18].name).toBe('About top movers');
-  expect(path.slice(19, 25).map((stop) => stop.href)).toEqual([
+  expect(path[21].name).toBe('About top movers');
+  expect(path.slice(22, 28).map((stop) => stop.href)).toEqual([
     '/coin/DOGE',
     '/coin/BTC',
     '/coin/XRP',
@@ -275,17 +311,19 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     '/coin/SOL',
     '/coin/ETH',
   ]);
-  // Recent activity ("See all") and the Learn strip (the Academy, four links) follow the movers.
-  expect(path.slice(25, 26).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(26, 30).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(30, 32).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  // Recent activity ("See all", then its three newest rows, each opening its record) and the Learn strip (the Academy,
+  // four links) follow the movers.
+  expect(path.slice(28, 29).map((stop) => stop.href)).toEqual(['/money/activity']);
+  expect(path.slice(29, 32).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
+  expect(path.slice(32, 36).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(36, 38).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(32)
+      .slice(38)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(32).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(38).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
@@ -422,9 +460,10 @@ test('a brand-new account: Get started, honest empty panels, a filled Simple Hom
   await open(page);
   const started = page.locator('.home-started');
   await expect(started.getByRole('heading', { name: 'Get started' })).toBeVisible();
-  await expect(started.locator('.home-started__count')).toHaveText('0 of 5 done');
-  // Five steps; every one reads its real answer and leads to a live screen.
+  await expect(started.locator('.home-started__count')).toHaveText('1 of 6 done');
+  // Six steps; every one reads its real answer and leads to a live screen. Signed in, the account exists.
   expect(await texts(started.locator('.home-started__title'))).toEqual([
+    'Create your account',
     'Verify your identity',
     'Secure your account',
     'Add money',
@@ -432,13 +471,16 @@ test('a brand-new account: Get started, honest empty panels, a filled Simple Hom
     'Set a price alert',
   ]);
   expect(await started.locator('a.home-started__row').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))).toEqual([
+    '/uc/account',
     '/verification',
     '/uc/safe',
     '/uc/recharge',
     '/trade/buy',
     '/notifications?view=alerts',
   ]);
-  await expect(started.locator('[data-status="done"]')).toHaveCount(0);
+  expect(await started.locator('a[data-status="done"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.step))).toEqual([
+    'register',
+  ]);
   // Honest empty states on a zero-balance account, none of them invented.
   await expectHero(page, '$0.00');
   await expect(page.locator('.home-activity, .home-main [data-slot="state-block"]')).toContainText('No activity');
@@ -482,8 +524,8 @@ test('Get started reads the real answers: done, in review, and "not done" until 
   expect(await state('trade')).toBe('todo');
   await expect(started.locator('[data-step="verify"]')).toContainText('In review');
   await expect(started.locator('[data-step="secure"]')).toContainText('Done');
-  await expect(started.locator('.home-started__count')).toHaveText('2 of 5 done');
-  expect(await started.locator('.home-started__bar [data-on="true"]').count()).toBe(2);
+  await expect(started.locator('.home-started__count')).toHaveText('3 of 6 done');
+  expect(await started.locator('.home-started__bar [data-on="true"]').count()).toBe(3);
   await page.screenshot({ path: join(shots, 'home-started-partial.png') });
 });
 
@@ -494,8 +536,36 @@ test('a step that cannot be read is never shown as done', async ({ page }) => {
   await expect(started.locator('[data-step="verify"]')).toHaveAttribute('data-status', 'unknown');
   await expect(started.locator('[data-step="verify"]')).toContainText('Couldn’t check');
   await expect(started.locator('[data-step="secure"]')).toContainText('Couldn’t check');
-  await expect(started.locator('[data-status="done"]')).toHaveCount(0);
-  await expect(started.locator('.home-started__count')).toHaveText('0 of 5 done');
+  // Only the session's own step is done; nothing that could not be read is.
+  await expect(started.locator('a[data-status="done"]')).toHaveCount(1);
+  await expect(started.locator('[data-step="register"]')).toHaveAttribute('data-status', 'done');
+  await expect(started.locator('.home-started__count')).toHaveText('1 of 6 done');
+});
+
+test("an old deposit still counts: Get started follows the bank's cursor past a window with no match", async ({ page }) => {
+  // The bank scans a window of the history per call; a window with no match answers an empty page and a cursor.
+  await mock(page, {
+    ...newAccount,
+    activity: (input) => (input?.cursor ? activityPage([activityRow('deposit', 'in', '50')]) : activityPage([], 'next-window')),
+  });
+  await open(page);
+  const started = page.locator('.home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'done');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+});
+
+test('before verification the bank refuses the history: that reads as "not yet", any other refusal as unknown', async ({ page }) => {
+  const refusal = (message) => ({ status: 403, json: { error: { message, code: -32003, data: { code: 'FORBIDDEN', httpStatus: 403 } } } });
+  await mock(page, { ...newAccount, activity: refusal('Verification tier "full" required for bank in XX') });
+  await open(page);
+  const started = page.locator('.home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+  await page.unrouteAll();
+  await mock(page, { ...newAccount, activity: refusal('Not offered in your region') });
+  await page.reload();
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'unknown');
 });
 
 test('Get started can be hidden, and stays hidden for this person', async ({ page }) => {
@@ -515,8 +585,8 @@ test('Get started can be hidden, and stays hidden for this person', async ({ pag
   await expect(page.locator('.home-watch').first()).toBeVisible();
 });
 
-test('Get started goes away once the account holds money', async ({ page }) => {
-  // Nothing held at first; the balance poll (every 30 s) then finds money, so the list has no reason to stay.
+test('holding money ticks Add money, and Get started stays until every step is done', async ({ page }) => {
+  // Nothing held at first; the balance poll (every 30 s) then finds money: that step is done, the others are still open.
   let funded = false;
   await page.clock.install();
   await mock(page, {
@@ -524,11 +594,14 @@ test('Get started goes away once the account holds money', async ({ page }) => {
     balance: () => (funded ? balances() : emptyBalances()),
   });
   await open(page);
-  await expect(page.locator('.home-started')).toBeVisible();
+  const started = page.locator('.home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
   funded = true;
   await page.clock.runFor(31_000);
   await expect(page.locator('.home-holdings')).toBeVisible();
-  await expect(page.locator('.home-started')).toHaveCount(0);
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'done');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+  await expect(started.locator('.home-started__count')).toHaveText('2 of 6 done');
 });
 
 test('an empty account that has already done every step is not asked again', async ({ page }) => {
@@ -545,7 +618,10 @@ test('an empty account that has already done every step is not asked again', asy
   await expect(page.locator('.home-started')).toHaveCount(0);
 });
 
-test('an account that holds money never sees Get started, and makes none of its reads', async ({ page }) => {
+test('a person who hid Get started makes none of its reads', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('intafaced.customer.home.started.v1:00000000-0000-4000-8000-000000000001', 'dismissed'),
+  );
   const api = await mock(page, { kyc: () => kycAnswer('none'), passkeys: () => passkeyList(0), alerts: () => alertList([]) });
   await open(page);
   await expect(page.locator('.home-holdings')).toBeVisible();
@@ -559,12 +635,14 @@ test('Get started shows final-size placeholders while the answers are on their w
   const started = page.locator('.home-started');
   await expect(started).toBeVisible();
   await expect(started.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  await expect(started.locator('[data-status="done"]')).toHaveCount(0); // waiting is never "done"
+  // Waiting is never "done": only the session's own step is.
+  await expect(started.locator('a[data-status="done"]')).toHaveCount(1);
+  await expect(started.locator('[data-step="register"]')).toHaveAttribute('data-status', 'done');
   await expect(page.locator('.home-activity')).toHaveAttribute('aria-hidden', 'true');
   const before = await started.boundingBox();
   await page.screenshot({ path: join(shots, 'home-new-account-loading.png') });
   await api.release(newAccount);
-  await expect(started.locator('.home-started__count')).toHaveText('0 of 5 done');
+  await expect(started.locator('.home-started__count')).toHaveText('1 of 6 done');
   const after = await started.boundingBox();
   expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(2); // nothing jumps when the answers arrive
 });
@@ -581,6 +659,72 @@ test('a failed activity list says so, with Try again, and does not touch the res
   await mock(page, newAccount);
   await page.locator('.home-main').getByRole('button', { name: 'Try again' }).click();
   await expect(page.locator('.home-main')).toContainText('No activity');
+});
+
+test('Needs you lists each owner’s item, opening its room, in the owner’s order and within the cap', async ({ page }) => {
+  const card = {
+    id: 'card_frozen:c1',
+    kind: 'card_frozen',
+    source: 'bank',
+    severity: 'warning',
+    titleKey: 'bank.card.frozen',
+    link: '/bank/cards',
+    reasonCode: 'card.frozen_by_owner',
+  };
+  const payout = {
+    id: 'payout_waiting:p1',
+    kind: 'payout_waiting',
+    source: 'pay',
+    severity: 'info',
+    titleKey: 'pay.payout.waiting',
+    link: '/pay',
+  };
+  await mock(page, {
+    homeConfig: () => ({
+      workListCap: 2,
+      workListOrder: ['payout_waiting', 'verification', 'card_frozen'],
+      searchResultCap: null,
+      revision: 3,
+    }),
+    'work:identity': () => ({ items: [verifyItem] }),
+    'work:bank': () => ({ items: [card] }),
+    'work:pay': () => ({ items: [payout] }),
+  });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.locator('.home-work__row');
+  await expect(rows).toHaveCount(2);
+  expect(await rows.evaluateAll((nodes) => nodes.map((node) => [node.dataset.kind, node.getAttribute('href')]))).toEqual([
+    ['payout_waiting', '/pay'],
+    ['verification', '/verification'],
+  ]);
+  await expect(rows.nth(1)).toContainText('Verify your identity');
+  await expect(work).toContainText('1 more not shown.');
+  await page.screenshot({ path: join(shots, 'home-work-list.png') });
+});
+
+test('Needs you never says "nothing" on a missing answer: a blank cap is refused with its code, an owner not answering is named', async ({
+  page,
+}) => {
+  await mock(page, { homeConfig: () => ({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 1 }) });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  await expect(work).toContainText('List size not set');
+  await expect(work).toContainText('home.work_list_cap_unset');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  await page.unrouteAll();
+  await mock(page, { 'work:bank': { status: 404, json: { error: { message: 'No procedure found on path "workItems.list"' } } } });
+  await page.reload();
+  await expect(work).toContainText('Nothing so far from the services that answered.');
+  await expect(work).toContainText('Not served here: Bank.');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  // A row from another owner, or not in the contract, drops that owner's whole answer.
+  await page.unrouteAll();
+  await mock(page, { 'work:pay': () => ({ items: [{ ...verifyItem }] }) });
+  await page.reload();
+  await expect(work).toContainText('Couldn’t check: Pay.');
 });
 
 test('unpriced assets are named, not counted, and never shown as zero', async ({ page }) => {
@@ -634,7 +778,9 @@ test('no orderable markets: Markets, Top movers and Watchlist are omitted', asyn
   await open(page);
   await expectHero(page, '$4,100.00');
   await expect(page.locator('.home-note:not([data-testid])')).toContainText('Excludes 2 coins (no USD price)');
-  await expect(page.locator('.home-change')).toHaveCount(0); // unpriced coins alone do not switch the Today line on (critic S4)
+  // Unpriced coins alone do not switch the Today change on (critic S4). The line itself stays for the derived-total tag.
+  await expect(page.locator('.home-change [data-slot="change-text"]')).toHaveCount(0);
+  await expect(page.locator('.home-change [data-testid="derived-total-note"]')).toContainText('Named spaces not included');
   expect(await texts(page.locator('.home-actions > *'))).toEqual(['Send', 'Receive']); // nothing can be bought, sold or converted
   for (const selector of ['.home-cards', '.home-pills', '.home-watch', '.home-side']) await expect(page.locator(selector)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Markets|Top movers|Popular|Watchlist/ })).toHaveCount(0);

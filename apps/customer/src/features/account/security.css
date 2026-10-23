@@ -420,3 +420,29 @@
     white-space: normal;
   }
 }
+.security__check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.security__check input {
+  flex: none;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+}
+.security__mail-preview {
+  margin: 0;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.security__mail-preview figcaption {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--color-muted);
+}

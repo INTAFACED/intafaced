@@ -25,6 +25,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Leverage cap': 'Leverage cap',
   'Contract size': 'Contract size',
   'Contract type': 'Contract type',
+  'Settle asset': 'Settles in',
   Linear: 'Linear',
   Inverse: 'Inverse',
   Perpetual: 'Perpetual',
@@ -106,6 +107,9 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   Funding: 'Funding',
   'ADL and liquidations': 'ADL and liquidations',
   'Margin calls': 'Margin calls',
+  'Margin tiers': 'Margin tiers',
+  Calculator: 'Calculator',
+  Collateral: 'Collateral',
   'Desk panels': 'Positions, orders, history, funding and risk events',
   'Test banner': 'TEST DATA — not real money',
 });

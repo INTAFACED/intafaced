@@ -66,6 +66,10 @@ export const users = identity.table(
     webauthnCreds: jsonb('webauthn_creds').notNull().default([]),
     status: userStatusEnum('status').notNull().default('active'),
     identityControlVersion: bigint('identity_control_version', { mode: 'bigint' }).notNull().default(0n),
+    /** Staff close reason code (0068). Null while open, and for a closure the customer finalised. */
+    closedReason: text('closed_reason'),
+    /** Closed while staff-frozen (0068): a reopen returns it frozen. */
+    closedFromFrozen: boolean('closed_from_frozen').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -559,6 +563,16 @@ export const organizationMembers = identity.table(
   },
   (t) => [uniqueIndex('organization_members_pk').on(t.orgId, t.userId), index('organization_members_user_idx').on(t.userId)],
 );
+
+/** Which product tier an account is on (J-ops-console-04 #11); the tiers themselves are the IDENTITY_ACCOUNT_TIERS owner setting. */
+export const accountTierAssignments = identity.table('account_tier_assignments', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id),
+  tierId: text('tier_id').notNull(),
+  version: bigint('version', { mode: 'bigint' }).notNull(),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
 
 /**
  * A closure request. The SQL migration owns the one-open partial unique index.

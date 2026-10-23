@@ -23,6 +23,8 @@
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
     "@opentelemetry/api": "^1.9.0",
     "@trpc/server": "^11.19.0",
     "drizzle-orm": "^0.45.4",

@@ -1,6 +1,6 @@
 import { createArchiveClient } from './outreach/archive-publication.js';
 import Fastify from 'fastify';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { migrateOutreach } from './db/migrate.js';
 import { OutreachCrm } from './outreach/crm.js';
@@ -16,6 +16,7 @@ import { AlertRules } from './alerts/rules.js';
 import { AlertEvaluator } from './alerts/runner.js';
 import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
+import { createPgAlertDesk } from './alerts/desk-store.js';
 import { createPgRestoreStore } from './restore-store.js';
 import { createRestoreDesk } from './restore/desk.js';
 import { createPgRestoreRunStore } from './restore/run-store.js';
@@ -89,6 +90,7 @@ if (process.env.DATABASE_URL && Number.isInteger(poolMax) && poolMax > 0) {
 }
 const alertRuleStore = crmSql ? createPgAlertRuleStore(crmSql) : null;
 const alertState = crmSql ? createPgAlertState(crmSql) : null;
+const alertDesk = crmSql ? createPgAlertDesk(crmSql) : undefined;
 let outreachConfiguration: unknown = null;
 try {
   outreachConfiguration = JSON.parse(process.env.OPS_OUTREACH_CONFIG ?? 'null');
@@ -148,8 +150,10 @@ const appRouter = createOpsRouter(
       secret: env.INTERNAL_SERVICE_SECRET,
       ...(s2sKey ? { s2s: s2sKey } : {}),
     }),
-    alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
+    alertRules: alertRuleStore ? new AlertRules(alertRuleStore, () => new Date().toISOString(), randomUUID, alertDesk) : undefined,
     alertState: alertState ?? undefined,
+    alertDesk,
+    alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
@@ -225,7 +229,12 @@ notificationTimer.unref();
 // outbox: no bus is wired from this process yet, so nothing is published and /ready says so.
 const alertEvaluator =
   alertRuleStore && alertState
-    ? new AlertEvaluator({ rules: alertRuleStore, state: alertState, signals: warehouseSignalReader(ops) })
+    ? new AlertEvaluator({
+        rules: alertRuleStore,
+        state: alertState,
+        signals: warehouseSignalReader(ops),
+        ...(alertDesk ? { desk: alertDesk } : {}),
+      })
     : null;
 let alertRun: Promise<void> | null = null;
 const alertTimer = setInterval(() => {

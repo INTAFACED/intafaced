@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { TOTP_STEP_SECONDS } from '@intafaced/contracts/identity';
 
 /**
  * TOTP — RFC 6238, implemented directly.
@@ -20,7 +21,8 @@ export interface TotpOptions {
   algorithm?: 'sha1' | 'sha256' | 'sha512';
 }
 
-const DEFAULTS: Required<TotpOptions> = { step: 30, digits: 6, algorithm: 'sha1' };
+// The step is the contract's, so the customer's clock check measures against the codes this service issues.
+const DEFAULTS: Required<TotpOptions> = { step: TOTP_STEP_SECONDS, digits: 6, algorithm: 'sha1' };
 
 export function generateSecret(bytes = 20): string {
   return base32Encode(randomBytes(bytes));

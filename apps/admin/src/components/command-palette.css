@@ -1,0 +1,52 @@
+/* The command palette: a centred panel over a dimmed console, in the console's own tokens. */
+.adm-palette-open kbd {
+  margin-left: 6px;
+  font: inherit;
+  color: var(--if-text-muted);
+}
+.adm-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding: 12vh 16px 16px;
+  background: color-mix(in srgb, var(--if-base) 70%, transparent);
+}
+.adm-palette {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--if-surface-raised);
+  border: 1px solid var(--if-border-strong);
+  border-radius: var(--if-radius-lg);
+}
+.adm-palette-list {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.adm-palette-list li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--if-radius-md);
+  cursor: pointer;
+}
+.adm-palette-list li[aria-selected='true'] {
+  background: color-mix(in srgb, var(--if-accent) 14%, transparent);
+  outline: 1px solid var(--if-accent);
+}
+.adm-palette-label {
+  color: var(--if-text);
+}
+.adm-palette-hint,
+.adm-palette-empty {
+  color: var(--if-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
