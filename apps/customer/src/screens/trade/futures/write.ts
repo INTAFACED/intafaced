@@ -90,6 +90,7 @@ async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' |
           ...(intent.input.type === 'limit' && intent.input.price ? { price: intent.input.price } : {}),
           leverage: intent.input.leverage,
           clientOrderId: intent.input.clientOpenId,
+          ...(intent.input.collateralClass ? { collateralClass: intent.input.collateralClass } : {}),
         })
       : await api.placeOrder({
           symbol: intent.symbol,

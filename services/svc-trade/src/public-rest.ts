@@ -61,6 +61,11 @@ export interface PublicRestDeps {
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
   /**
+   * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
+   * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open.
+   */
+  bookHalt?(market: Market): Promise<{ halted: boolean; venueHalted: boolean }>;
+  /**
    * SP-order-entry-03: TEST-ONLY per-market reader (one read per market — the
    * N+1 the batched readers replace). Production must not mount it; kept for
    * existing tests only. Absent means `pairRules: null` on the wire.
@@ -801,6 +806,20 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /** PX-S01 projection. Missing authority is a typed 503, never an OPEN default. */
+  app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', async (req, reply) => {
+    const symbol = decodeURIComponent(req.params.symbol);
+    const market = await deps.marketBySymbol(symbol);
+    if (!market) return sendCcxt(reply, badSymbol(symbol));
+    const unavailable = { error: 'matching halt state is not readable', code: 'trade.book_halt_unavailable' };
+    if (!deps.bookHalt) return reply.code(503).send(unavailable);
+    try {
+      const halt = await deps.bookHalt(market);
+      return reply.code(200).send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, serverTime: now() });
+    } catch {
+      return reply.code(503).send(unavailable);
+    }
+  });
+
   app.get<{ Params: { symbol: string } }>('/api/v1/market-lifecycle/:symbol', async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);

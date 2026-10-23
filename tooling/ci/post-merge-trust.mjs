@@ -7,7 +7,9 @@
  *   red after a green, first attempt   re-run the failed jobs once
  *   red after a green, re-run attempt  the break is real: open (or comment on) one "Broken on main: <check>" issue
  *                                      naming the commits between the last green run and this one
- *   red after a red                    nothing new: the issue from the first break still stands
+ *   red after a red                    nothing new while that check's issue is open; with no open issue (a check
+ *                                      already red before this job existed, or an issue closed by hand), open one
+ *                                      naming the last green run and the commits since, if one is within 100 runs
  *   green                              close that check's issue when this commit includes every red it names
  *
  * Real-app journeys (per journey step; most journeys do not pass yet, so the job is red either way):
@@ -16,6 +18,11 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
+ *   A shard that hit its time limit: open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue
+ *   naming the jobs; it closes on the next run where no job hit its limit.
+ *
+ * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
+ * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
  *
  *   node tooling/ci/post-merge-trust.mjs --self-test
  *   DRY_RUN=1 (with the CI env below): reads for real, prints every write instead of sending it
@@ -31,6 +38,9 @@ export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const COUNTED = new Set(['success', 'failure', 'timed_out']);
+const TIME_LIMIT = /exceeded the maximum execution time/i;
+/** How many cancelled runs to look into for a timeout when walking back (a replaced run has no jobs, one cheap call). */
+const CANCELLED_LOOKUPS = 20;
 
 /**
  * Each journey step in a Playwright JSON report: "passed", "failed" or "skipped". The key is "J-<module>-NN#<step>",
@@ -91,7 +101,16 @@ export function decideCheck({ conclusion, attempt, previous }) {
   return attempt <= 1 ? 'rerun' : 'broken';
 }
 
+/** The jobs that hit their time limit, from each job's annotations. */
+export function timedOutJobNames(jobs) {
+  return jobs.filter((j) => (j.annotations ?? []).some((a) => TIME_LIMIT.test(a.message ?? ''))).map((j) => j.name);
+}
+
+/** A run's conclusion with a time-limit cancel read as "timed_out". */
+export const runConclusion = (conclusion, timedOut) => (conclusion === 'cancelled' && timedOut.length ? 'timed_out' : conclusion);
+
 export const checkIssueTitle = (check) => `Broken on main: ${check}`;
+export const timeLimitIssueTitle = (check) => `Broken on main: ${check} (time limit)`;
 export const journeyIssueTitle = (journey) => `Journey broken on main: ${journey}`;
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
@@ -155,12 +174,36 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-/** Finished runs of this workflow on main created before `runId`, newest first (cancelled and skipped runs left out). */
-async function earlierRuns(repo, workflowId, runId, createdAt) {
+/** The names of a run's jobs (latest attempt) that hit their time limit. */
+async function timedOutJobs(repo, runId) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`);
+  const jobs = [];
+  for (const job of json?.jobs ?? []) {
+    if (job.conclusion === 'success' || job.conclusion === 'skipped') continue;
+    const { json: annotations } = await gh('GET', `/repos/${repo}/check-runs/${job.id}/annotations?per_page=50`);
+    jobs.push({ name: job.name, annotations: annotations ?? [] });
+  }
+  return timedOutJobNames(jobs);
+}
+
+/**
+ * Finished runs of this workflow on main created before `runId`, newest first, at most `want` of them. Skipped runs and
+ * runs replaced by a newer one are left out; a run cancelled by a time limit counts as "timed_out".
+ */
+async function earlierRuns(repo, workflowId, runId, createdAt, want) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${workflowId}/runs?branch=main&status=completed&per_page=100`);
-  return (json?.workflow_runs ?? [])
-    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt && COUNTED.has(r.conclusion))
+  const runs = (json?.workflow_runs ?? [])
+    .filter((r) => r.id !== Number(runId) && r.created_at < createdAt)
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const out = [];
+  let lookups = 0;
+  for (const r of runs) {
+    if (out.length >= want) break;
+    if (COUNTED.has(r.conclusion)) out.push(r);
+    else if (r.conclusion === 'cancelled' && lookups++ < CANCELLED_LOOKUPS && (await timedOutJobs(repo, r.id)).length)
+      out.push({ ...r, conclusion: 'timed_out' });
+  }
+  return out;
 }
 
 async function findOpenIssue(repo, title) {
@@ -258,6 +301,14 @@ async function wholeRunCheck(ctx) {
     console.log(await upsertIssue(repo, checkIssueTitle(name), body));
     return;
   }
+  if (action === 'still-red') {
+    if (!prev) return;
+    const open = await findOpenIssue(repo, checkIssueTitle(name));
+    if (open) return console.log(`#${open.number} already tracks it`);
+    const lastGreen = (await earlierRuns(repo, ctx.workflowId, runId, ctx.createdAt, 100)).find((r) => r.conclusion === 'success');
+    const range = lastGreen ? await between(repo, lastGreen.head_sha, sha) : null;
+    console.log(await upsertIssue(repo, checkIssueTitle(name), untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range })));
+  }
   if (action === 'green') {
     const issue = await findOpenIssue(repo, checkIssueTitle(name));
     if (!issue) return console.log(`no open "${checkIssueTitle(name)}" issue`);
@@ -275,7 +326,48 @@ async function wholeRunCheck(ctx) {
   }
 }
 
+/** The issue body for a check red on two runs in a row that no open issue tracks. */
+export function untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range }) {
+  return [
+    `\`${name}\` failed twice on \`${sha.slice(0, 10)}\`: [run ${runId}](${runUrl}), and the run before it on \`${prev.head_sha.slice(0, 10)}\` ([run ${prev.id}](${prev.html_url})). No open issue tracked it.`,
+    '',
+    ...(lastGreen
+      ? [
+          `It last passed on \`${lastGreen.head_sha.slice(0, 10)}\` ([run ${lastGreen.id}](${lastGreen.html_url})). The breaking commit is one of these ${range.commits.length} ([compare](${range.url})):`,
+          ...commitLines(range.commits),
+        ]
+      : ['No green run in the last 100 finished runs on main, so no commit range can be named.']),
+    '',
+    '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; it closes itself when the check passes again._',
+  ].join('\n');
+}
+
+/** Opens (or comments on) the time-limit issue when jobs hit their limit; closes it on a run where none did. */
+async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
+  const title = timeLimitIssueTitle(name);
+  if (timedOut.length) {
+    const body = [
+      `${timedOut.map((j) => `\`${j}\``).join(', ')} hit the job time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
+      '',
+      'Split the slow shard further or find the step that hangs; never shorten or skip a journey to fit.',
+      '',
+      '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
+    ].join('\n');
+    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body)}`;
+  }
+  const issue = await findOpenIssue(repo, title);
+  if (!issue) return null;
+  await closeIssue(
+    repo,
+    issue,
+    `No job hit its time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})). Closing.\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+  );
+  return `- Closed #${issue.number} (no job hit its time limit)`;
+}
+
 async function journeysCheck(ctx) {
+  const timeLine = await timeLimitCheck(ctx);
+  if (timeLine) summary(['### Journeys time limit', '', timeLine]);
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
@@ -390,6 +482,39 @@ function selfTest() {
   eq(decideCheck({ conclusion: 'failure', attempt: 1, previous: undefined }), 'still-red', 'no earlier run: nothing to blame');
   eq(decideCheck({ conclusion: 'success', attempt: 1, previous: 'failure' }), 'green', 'green');
   eq(decideCheck({ conclusion: 'cancelled', attempt: 1, previous: 'success' }), 'ignore', 'cancelled ignored');
+  const run = (id, sha) => ({ id, head_sha: sha, html_url: `https://x/runs/${id}` });
+  const untracked = untrackedRedBody({
+    name: 'Order-path CX-8',
+    sha: 'c'.repeat(40),
+    runId: 3,
+    runUrl: 'https://x/runs/3',
+    prev: run(2, 'b'.repeat(40)),
+    lastGreen: run(1, 'a'.repeat(40)),
+    range: { commits: [{ sha: 'b'.repeat(40), commit: { message: 'feat: x (#9)' }, author: null }], url: 'https://x/compare' },
+  });
+  eq(checkRedShas([untracked]), ['cccccccccc'], 'an untracked red names its sha, so a later green closes it');
+  eq(untracked.includes('`bbbbbbbbbb` feat: x (#9)'), true, 'an untracked red lists the commits since the last green');
+  eq(
+    untrackedRedBody({ name: 'x', sha: 'c'.repeat(40), runId: 3, runUrl: 'u', prev: run(2, 'b'.repeat(40)), lastGreen: null }).includes(
+      'No green run',
+    ),
+    true,
+    'no green in reach: says so',
+  );
+  const limitJobs = [
+    { name: 'Journeys (shard 3 of 8)', annotations: [{ message: 'The job has exceeded the maximum execution time of 1h0m0s' }] },
+    { name: 'Journeys (shard 4 of 8)', annotations: [{ message: 'The operation was canceled.' }] },
+    { name: 'Real-app journeys', annotations: [] },
+  ];
+  eq(timedOutJobNames(limitJobs), ['Journeys (shard 3 of 8)'], 'a time-limit annotation marks the job');
+  eq(runConclusion('cancelled', timedOutJobNames(limitJobs)), 'timed_out', 'a time-limit cancel is a timeout');
+  eq(runConclusion('cancelled', []), 'cancelled', 'a replaced run stays cancelled');
+  eq(runConclusion('failure', ['x']), 'failure', 'a red run with a timed-out job stays red');
+  eq(
+    decideCheck({ conclusion: runConclusion('cancelled', ['x']), attempt: 2, previous: 'success' }),
+    'broken',
+    'a time-limit cancel after a green re-run is a break',
+  );
   eq(
     checkRedShas([
       '`Order-path CX-8` failed twice on `46b3f74801` (x)',
@@ -415,7 +540,7 @@ function selfTest() {
     '- … 1 older commits (see the compare link)',
     'long ranges are cut',
   );
-  console.log('✓ post-merge-trust --self-test OK (16 fixtures)');
+  console.log('✓ post-merge-trust --self-test OK (24 fixtures)');
 }
 
 async function main() {
@@ -425,22 +550,22 @@ async function main() {
     WORKFLOW_NAME: name,
     RUN_ID: runId,
     RUN_ATTEMPT,
-    CONCLUSION: conclusion,
+    CONCLUSION: rawConclusion,
     HEAD_SHA: sha,
   } = process.env;
-  if (!repo || !workflowId || !name || !runId || !conclusion || !sha)
+  if (!repo || !workflowId || !name || !runId || !rawConclusion || !sha)
     throw new Error('GITHUB_REPOSITORY, WORKFLOW_ID, WORKFLOW_NAME, RUN_ID, CONCLUSION and HEAD_SHA are required');
   const attempt = Number(RUN_ATTEMPT || 1);
   const runUrl = `https://github.com/${repo}/actions/runs/${runId}`;
   const { json: run } = await gh('GET', `/repos/${repo}/actions/runs/${runId}`);
   if (!run?.created_at) throw new Error(`could not read run ${runId}`);
-  const earlier = await earlierRuns(repo, workflowId, runId, run.created_at);
-  const ctx = { repo, name, runId, attempt, conclusion, sha, runUrl, earlier };
-  if (name === JOURNEYS_WORKFLOW) {
-    if (!COUNTED.has(conclusion)) return console.log(`${name} run ${runId}: ${conclusion}, nothing to compare`);
-    return journeysCheck(ctx);
-  }
-  return wholeRunCheck(ctx);
+  const timedOut = COUNTED.has(rawConclusion) || rawConclusion === 'cancelled' ? await timedOutJobs(repo, runId) : [];
+  const conclusion = runConclusion(rawConclusion, timedOut);
+  if (!COUNTED.has(conclusion)) return console.log(`${name} run ${runId}: ${conclusion}, nothing to compare`);
+  const journeys = name === JOURNEYS_WORKFLOW;
+  const earlier = await earlierRuns(repo, workflowId, runId, run.created_at, journeys ? 2 : 1);
+  const ctx = { repo, name, runId, attempt, conclusion, sha, runUrl, earlier, timedOut, workflowId, createdAt: run.created_at };
+  return journeys ? journeysCheck(ctx) : wholeRunCheck(ctx);
 }
 
 if (process.argv.includes('--self-test')) {

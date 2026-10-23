@@ -33,6 +33,7 @@ describe('refusal mapping', () => {
     [{ code: 'auth.mfa_required', status: 403, reason: 'forbidden' }, 'secondStep'],
     [{ code: 'auth.privileged_enrolment_requires_invite', status: 403, reason: 'forbidden' }, 'inviteNeeded'],
     [{ code: 'auth.account_frozen', status: 403, reason: 'forbidden' }, 'inactive'],
+    [{ code: 'identity.security_locked', status: 412, reason: 'error' }, 'securityLocked'],
     [{ code: 'auth.session_invalid', status: 401, reason: 'unauthorized' }, 'signedOut'],
     [{ status: 401, reason: 'unauthorized' }, 'signedOut'],
     [{ status: 404, reason: 'not_mounted' }, 'notConnected'],

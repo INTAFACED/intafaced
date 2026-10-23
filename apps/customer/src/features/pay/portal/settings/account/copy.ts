@@ -177,6 +177,7 @@ const en = {
   secondApprovalOnBody: 'Legal-detail changes will need a second person on your team to confirm them.',
   secondApprovalOff: 'Turn off second approval',
   secondApprovalOffBody: 'Legal-detail changes will go straight to INTAFACED for review.',
+  secondApprovalOwnerOnly: 'Only the account owner can change this, because it also applies to admins.',
   profileHistoryTitle: 'Change history',
   profileHistoryBody: 'Every change to your business details, newest first.',
   profileHistoryEmpty: 'No changes yet',

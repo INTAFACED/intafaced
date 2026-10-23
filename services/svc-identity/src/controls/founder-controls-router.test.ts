@@ -67,6 +67,18 @@ function fixture() {
     async closureHistory() {
       return [];
     },
+    async tiers() {
+      return { configured: false, code: 'identity.account_tiers_unset' };
+    },
+    async tierMove() {
+      throw new Error('not used here');
+    },
+    async tierState() {
+      return null;
+    },
+    async tierHistory() {
+      return [];
+    },
     async changeEntitlement() {
       return { outcome: 'refused', auditId: REQUEST, entitlement: null, code: 'operator.denied' };
     },

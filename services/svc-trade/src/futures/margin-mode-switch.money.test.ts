@@ -118,7 +118,7 @@ describe('margin-mode switch refuse hitch (source)', () => {
   it('listOpen / presentOpenPositions do not net isolated IM as a cross book', () => {
     const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
     const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
-    expect(listOpen).toMatch(/rows\.map\(\(row\) => this\.presentListed\(row\)\)/);
+    expect(listOpen).toMatch(/rows\.map\(\(row\) => this\.presentListed\(row, figures\.get\(row\.id\)\)\)/);
     expect(listOpen).not.toMatch(/reduce\s*\(/);
     expect(listOpen).not.toMatch(/sharedInitialMargin/);
     const rest = readFileSync(join(here, '..', 'private-rest.ts'), 'utf8');

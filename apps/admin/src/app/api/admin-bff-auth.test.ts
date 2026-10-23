@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GET as warehouseGet, POST as warehousePost } from './analytics/warehouse/route.js';
 import { GET as killSwitchGet, POST as killSwitchPost } from './kill-switch/route.js';
 import { GET as ledgerFreezeGet, POST as ledgerFreezePost } from './ledger-freeze/route.js';
+import { GET as ledgerLookupGet } from './ledger-lookup/route.js';
 import { GET as operatorToolsGet, POST as operatorToolsPost } from './operator-tools/route.js';
 import { GET as bankOpsGet } from './bank-ops/route.js';
 import { GET as bankOpsCustomerGet } from './bank-ops/customer/route.js';
@@ -33,6 +34,7 @@ const routes = [
   ['POST /api/kill-switch', killSwitchPost, 'POST'],
   ['GET /api/ledger-freeze', ledgerFreezeGet, 'GET'],
   ['POST /api/ledger-freeze', ledgerFreezePost, 'POST'],
+  ['GET /api/ledger-lookup', ledgerLookupGet, 'GET'],
   ['GET /api/operator-tools', operatorToolsGet, 'GET'],
   ['POST /api/operator-tools', operatorToolsPost, 'POST'],
   ['GET /api/bank-ops', bankOpsGet, 'GET'],

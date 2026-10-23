@@ -127,7 +127,7 @@ const messages = {
   'Work cap unset': 'List size not set',
   'Work cap unset body':
     'The owner has not set how many items this list shows, so the list is not shown. Every room is still in the menus.',
-  'Work config unwired': 'Not connected here',
+  'Work config unwired': 'Not served here',
   'Work config unwired body': 'Home’s list settings are not served on this deployment, so this list is not shown.',
   'Work config failed': 'Couldn’t load this list',
   'Work config failed body': 'Home’s list settings could not be read.',
@@ -142,7 +142,7 @@ const messages = {
   'Work nothing so far': 'Nothing so far from the services that answered.',
   'Work more': '{count} more not shown.',
   'Work order unset': 'The owner has not set an order, so items are grouped by service: verification, then bank, then pay.',
-  'Work sources unwired': 'Not connected here: {sources}.',
+  'Work sources unwired': 'Not served here: {sources}.',
   'Work sources failed': 'Couldn’t check: {sources}.',
   'Work due': 'Due {when}',
   'Work verification start': 'Verify your identity',
@@ -297,7 +297,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work cap unset': 'Tamaño de la lista sin definir',
     'Work cap unset body':
       'El propietario no ha definido cuántos elementos muestra esta lista, así que la lista no se muestra. Todas las salas siguen en los menús.',
-    'Work config unwired': 'No conectado aquí',
+    'Work config unwired': 'No disponible aquí',
     'Work config unwired body': 'La configuración de esta lista de Inicio no se sirve en este despliegue, así que no se muestra.',
     'Work config failed': 'No se pudo cargar esta lista',
     'Work config failed body': 'No se pudo leer la configuración de la lista de Inicio.',
@@ -313,7 +313,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work more': '{count} más sin mostrar.',
     'Work order unset':
       'El propietario no ha definido un orden, así que los elementos se agrupan por servicio: verificación, banco y pagos.',
-    'Work sources unwired': 'No conectado aquí: {sources}.',
+    'Work sources unwired': 'No disponible aquí: {sources}.',
     'Work sources failed': 'No se pudo comprobar: {sources}.',
     'Work due': 'Vence {when}',
     'Work verification start': 'Verifica tu identidad',
@@ -467,7 +467,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work cap unset': 'Taille de la liste non définie',
     'Work cap unset body':
       'Le propriétaire n’a pas défini combien d’éléments cette liste affiche, elle n’est donc pas affichée. Toutes les pièces restent dans les menus.',
-    'Work config unwired': 'Non connecté ici',
+    'Work config unwired': 'Non servi ici',
     'Work config unwired body':
       'Les réglages de cette liste de l’accueil ne sont pas servis sur ce déploiement, elle n’est donc pas affichée.',
     'Work config failed': 'Impossible de charger cette liste',
@@ -484,7 +484,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work more': '{count} de plus non affichés.',
     'Work order unset':
       'Le propriétaire n’a pas défini d’ordre, les éléments sont donc groupés par service : vérification, banque, puis paiements.',
-    'Work sources unwired': 'Non connecté ici : {sources}.',
+    'Work sources unwired': 'Non servi ici : {sources}.',
     'Work sources failed': 'Vérification impossible : {sources}.',
     'Work due': 'Échéance {when}',
     'Work verification start': 'Vérifiez votre identité',

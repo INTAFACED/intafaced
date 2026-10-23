@@ -259,7 +259,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   for (const value of await texts(page.locator('[data-money], [data-slot="money"]')))
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
-  // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> actions -> Cash -> Crypto -> 4 cards (each
+  // Keyboard: Tab from the top bar reaches eye -> the total's info tip -> its Assets link -> today's info tip -> the derived-total tip -> actions -> Cash -> Crypto -> 4 cards (each
   // followed by its star) -> movers -> Your crypto -> the watchlist rows (each followed by its star).
   await page.locator('.harness-bar a').last().focus();
   const path = [];
@@ -279,12 +279,13 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
     path.push(stop);
   }
-  expect(path.map((stop) => stop.name).slice(0, 10)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 11)).toEqual([
     'Hide balances',
     'How the total is worked out',
     'Assets',
     'Customise Home',
     'About this change',
+    'Named spaces not included',
     'Buy',
     'Sell',
     'Convert',
@@ -292,8 +293,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Receive',
   ]);
   expect(path[2].href).toBe('/money');
-  expect(path.slice(10, 12).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
-  const cardStops = path.slice(12, 20);
+  expect(path.slice(11, 13).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
+  const cardStops = path.slice(13, 21);
   expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
@@ -301,8 +302,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Add IFC to watchlist',
     'Add SOL to watchlist',
   ]);
-  expect(path[20].name).toBe('About top movers');
-  expect(path.slice(21, 27).map((stop) => stop.href)).toEqual([
+  expect(path[21].name).toBe('About top movers');
+  expect(path.slice(22, 28).map((stop) => stop.href)).toEqual([
     '/coin/DOGE',
     '/coin/BTC',
     '/coin/XRP',
@@ -312,17 +313,17 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   ]);
   // Recent activity ("See all", then its three newest rows, each opening its record) and the Learn strip (the Academy,
   // four links) follow the movers.
-  expect(path.slice(27, 28).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(28, 31).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
-  expect(path.slice(31, 35).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(35, 37).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  expect(path.slice(28, 29).map((stop) => stop.href)).toEqual(['/money/activity']);
+  expect(path.slice(29, 32).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
+  expect(path.slice(32, 36).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(36, 38).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(37)
+      .slice(38)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(37).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(38).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
@@ -716,7 +717,7 @@ test('Needs you never says "nothing" on a missing answer: a blank cap is refused
   await mock(page, { 'work:bank': { status: 404, json: { error: { message: 'No procedure found on path "workItems.list"' } } } });
   await page.reload();
   await expect(work).toContainText('Nothing so far from the services that answered.');
-  await expect(work).toContainText('Not connected here: Bank.');
+  await expect(work).toContainText('Not served here: Bank.');
   await expect(work).not.toContainText('Nothing needs you');
 
   // A row from another owner, or not in the contract, drops that owner's whole answer.
@@ -777,7 +778,9 @@ test('no orderable markets: Markets, Top movers and Watchlist are omitted', asyn
   await open(page);
   await expectHero(page, '$4,100.00');
   await expect(page.locator('.home-note:not([data-testid])')).toContainText('Excludes 2 coins (no USD price)');
-  await expect(page.locator('.home-change')).toHaveCount(0); // unpriced coins alone do not switch the Today line on (critic S4)
+  // Unpriced coins alone do not switch the Today change on (critic S4). The line itself stays for the derived-total tag.
+  await expect(page.locator('.home-change [data-slot="change-text"]')).toHaveCount(0);
+  await expect(page.locator('.home-change [data-testid="derived-total-note"]')).toContainText('Named spaces not included');
   expect(await texts(page.locator('.home-actions > *'))).toEqual(['Send', 'Receive']); // nothing can be bought, sold or converted
   for (const selector of ['.home-cards', '.home-pills', '.home-watch', '.home-side']) await expect(page.locator(selector)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Markets|Top movers|Popular|Watchlist/ })).toHaveCount(0);
