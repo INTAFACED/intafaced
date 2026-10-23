@@ -94,7 +94,12 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
 
   beforeAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0001_quant_runs.sql', 'drizzle/0003_quant_signal_rules.sql']) {
+    for (const file of [
+      'drizzle/0000_quant_strategies.sql',
+      'drizzle/0001_quant_runs.sql',
+      'drizzle/0003_quant_signal_rules.sql',
+      'drizzle/0005_quant_run_labels.sql',
+    ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
     }
@@ -326,5 +331,34 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     await expect(
       app.createCaller(edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'anon' })).ops.runs({ limit: 10 }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('lists own backtests newest first with labels kept beside the write-once run, and refuses another account', async () => {
+    const repo = createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES);
+    const begin = (key: string) =>
+      repo.begin({ userId: ACCOUNT_A, idempotencyKey: key, kind: 'backtest', strategyId: 'strategy-h', strategyVersion: 2 });
+    const older = await begin('algo:bt:history:1');
+    await repo.finish({ id: older.id, userId: ACCOUNT_A, outcome: 'ok', stored: { detail: null, response: { n: 1 } } });
+    // Runs are stamped to the millisecond: wait one, so the order is decided by time, not by a tie.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const newer = await begin('algo:bt:history:2');
+    const page = await repo.history({ userId: ACCOUNT_A, kind: 'backtest', limit: 50, cursor: null });
+    const ids = page.runs.map((row) => row.id);
+    expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
+
+    expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'first' })).toEqual({ label: 'first' });
+    expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'renamed' })).toEqual({ label: 'renamed' });
+    const listed = (await repo.history({ userId: ACCOUNT_A, kind: 'backtest', limit: 50, cursor: null })).runs.find(
+      (row) => row.id === older.id,
+    );
+    expect(listed).toMatchObject({ label: 'renamed', strategyVersion: 2, outcome: 'ok' });
+    // The run itself is as stored: the label lives in its own table.
+    expect((await repo.get({ userId: ACCOUNT_A, id: older.id }))?.response).toEqual({ n: 1 });
+
+    await expect(repo.setLabel({ userId: ACCOUNT_B, runId: older.id, label: 'theirs' })).rejects.toThrow(/quant\.run_not_found/);
+    expect((await repo.history({ userId: ACCOUNT_B, kind: 'backtest', limit: 50, cursor: null })).runs.map((row) => row.id)).not.toContain(
+      older.id,
+    );
+    await expect(sql.unsafe(`INSERT INTO "${SCHEMA}"."run_labels" VALUES ($1, $2, '', now())`, [newer.id, ACCOUNT_A])).rejects.toThrow();
   });
 });
