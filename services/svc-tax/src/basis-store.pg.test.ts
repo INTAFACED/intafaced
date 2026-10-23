@@ -58,6 +58,33 @@ describe.skipIf(!db)('tax.basis_overrides', () => {
     expect(again.version).toBe(tomb.version);
   });
 
+  it('stores money as numeric and rejects a non-decimal string', async () => {
+    const cols = await db!.sql<
+      { column_name: string; data_type: string; numeric_precision: number | string; numeric_scale: number | string; is_nullable: string }[]
+    >`
+      SELECT column_name, data_type, numeric_precision, numeric_scale, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'tax' AND table_name = 'basis_overrides' AND column_name IN ('price_per_unit', 'qty')
+      ORDER BY column_name
+    `;
+    expect(
+      cols.map((col) => ({ ...col, numeric_precision: Number(col.numeric_precision), numeric_scale: Number(col.numeric_scale) })),
+    ).toEqual([
+      { column_name: 'price_per_unit', data_type: 'numeric', numeric_precision: 38, numeric_scale: 18, is_nullable: 'YES' },
+      { column_name: 'qty', data_type: 'numeric', numeric_precision: 38, numeric_scale: 18, is_nullable: 'YES' },
+    ]);
+    await expect(
+      db!.sql`
+        INSERT INTO tax.basis_overrides (
+          user_id, lot_id, version, kind, price_per_unit, acquired_at, source_note, asset_id, qty, business_key
+        ) VALUES (
+          '11111111-1111-4111-8111-111111111111', 'lot:bad', 1, 'override', 'not-a-decimal',
+          '2026-01-02T00:00:00.000Z', 'TEST receipt', NULL, NULL, 'basisoverride:bad'
+        )
+      `,
+    ).rejects.toThrow();
+  });
+
   it('reverses the migration', async () => {
     await db!.sql.unsafe(down);
     const left = await db!.sql<{ name: string }[]>`

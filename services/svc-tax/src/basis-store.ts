@@ -1,5 +1,6 @@
+import { formatAmount, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { TAX_BASIS_OVERRIDE_ABSENT, TaxError } from './codes.js';
+import { TAX_BASIS_OVERRIDE_ABSENT, TAX_BASIS_PRICE_INVALID, TaxError } from './codes.js';
 
 /** One stored version. Append-only: a change is a new version, a removal is a tombstone. */
 export interface BasisRow {
@@ -67,17 +68,29 @@ interface Stored {
   business_key: string;
 }
 
+/** numeric(38,18) comes back with trailing zeros. The book compares the canonical decimal string. */
+function decimalColumn(value: string | null): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') throw new TaxError(TAX_BASIS_PRICE_INVALID, 'a stored basis figure was not a decimal string');
+  try {
+    return formatAmount(parseAmount(value));
+  } catch (err) {
+    if (err instanceof MoneyError) throw new TaxError(TAX_BASIS_PRICE_INVALID, 'a stored basis figure was not a decimal string');
+    throw err;
+  }
+}
+
 function toRow(row: Stored): BasisRow {
   return {
     userId: row.user_id,
     lotId: row.lot_id,
     version: Number(row.version),
     kind: row.kind,
-    pricePerUnit: row.price_per_unit,
+    pricePerUnit: decimalColumn(row.price_per_unit),
     acquiredAt: row.acquired_at === null ? null : row.acquired_at.toISOString(),
     sourceNote: row.source_note,
     assetId: row.asset_id,
-    qty: row.qty,
+    qty: decimalColumn(row.qty),
     businessKey: row.business_key,
   };
 }
@@ -227,7 +240,8 @@ export function createMemoryBasisStore(): BasisStore {
 export function createPgBasisStore(sql: Sql): BasisStore {
   const latest = async (tx: Sql, userId: string, lotId: string): Promise<BasisRow | undefined> => {
     const found = await tx<Stored[]>`
-      SELECT user_id, lot_id, version, kind, price_per_unit, acquired_at, source_note, asset_id, qty, business_key
+      SELECT user_id, lot_id, version, kind, price_per_unit::text AS price_per_unit, acquired_at, source_note, asset_id,
+        qty::text AS qty, business_key
       FROM tax.basis_overrides
       WHERE user_id = ${userId} AND lot_id = ${lotId}
       ORDER BY version DESC
@@ -269,7 +283,8 @@ export function createPgBasisStore(sql: Sql): BasisStore {
     async listActive(userId) {
       const found = await sql<Stored[]>`
         SELECT DISTINCT ON (lot_id)
-          user_id, lot_id, version, kind, price_per_unit, acquired_at, source_note, asset_id, qty, business_key
+          user_id, lot_id, version, kind, price_per_unit::text AS price_per_unit, acquired_at, source_note, asset_id,
+          qty::text AS qty, business_key
         FROM tax.basis_overrides
         WHERE user_id = ${userId}
         ORDER BY lot_id, version DESC

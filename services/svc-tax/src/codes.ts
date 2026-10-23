@@ -31,6 +31,8 @@ export const TAX_DEPOSIT_BASIS_POLICY_UNSET = 'tax.deposit_basis_policy_unset' a
 export const TAX_PRICE_AT_TIME_UNAVAILABLE = 'tax.price_at_time_unavailable' as const;
 /** Customer basis rows need Postgres. Blank DATABASE_URL does not invent a store. */
 export const TAX_BASIS_STORE_UNWIRED = 'tax.basis_store_unwired' as const;
+/** A database is set but the owner published no pool size. Never filled in. */
+export const TAX_DATABASE_POOL_MAX_UNSET = 'tax.database_pool_max_unset' as const;
 /** A price the customer typed was blank. Never stored as zero. */
 export const TAX_BASIS_PRICE_UNSET = 'tax.basis_price_unset' as const;
 /** A price was present but not a positive decimal string. */
@@ -75,6 +77,7 @@ export type TaxRefuseCode =
   | typeof TAX_DEPOSIT_BASIS_POLICY_UNSET
   | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
   | typeof TAX_BASIS_STORE_UNWIRED
+  | typeof TAX_DATABASE_POOL_MAX_UNSET
   | typeof TAX_BASIS_PRICE_UNSET
   | typeof TAX_BASIS_PRICE_INVALID
   | typeof TAX_BASIS_DATE_UNSET
