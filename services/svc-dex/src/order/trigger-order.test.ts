@@ -171,8 +171,10 @@ class ScriptFill implements FillPort {
   throwNext = false;
   /** Throw before `noteTx`. No hash is stored. */
   throwBeforeNote = false;
-  /** Return unknown before `noteTx`. */
+  /** Return unknown before `noteTx`. The port still remembers the hash for a repeat. */
   unknownWithoutHash = false;
+  /** Return sent with a blank hash. The port still remembers the hash for a repeat. */
+  blankSentNext = false;
   /** Return unwired before `noteTx`. */
   unwiredNext = false;
   /** Return rejected before `noteTx`. */
@@ -205,26 +207,34 @@ class ScriptFill implements FillPort {
   async send(input: { key: string; maker: string; take: bigint; minOut: bigint; noteTx?: (txHash: string) => void }): Promise<FillSend> {
     this.sendCalls += 1;
     this.keys.push(input.key);
+    // Injected answers apply even on a repeat, so a later tick can reject, throw, or stay unwired
+    // without broadcasting. They do not drop the hash the port already recorded.
     if (this.rejectNext) {
       this.rejectNext = false;
       return { status: 'rejected', reason: 'reverted' };
+    }
+    if (this.unwiredNext) {
+      this.unwiredNext = false;
+      return { status: 'unwired' };
+    }
+    if (this.throwBeforeNote) {
+      this.throwBeforeNote = false;
+      throw new Error('died before the hash was recorded');
     }
     const existing = this.byKey.get(input.key);
     if (existing) {
       input.noteTx?.(existing);
       return { status: 'sent', txHash: existing };
     }
-    if (this.throwBeforeNote) {
-      this.throwBeforeNote = false;
-      throw new Error('died before the hash was recorded');
-    }
-    if (this.unknownWithoutHash) {
+    if (this.unknownWithoutHash || this.blankSentNext) {
+      const blankSent = this.blankSentNext;
       this.unknownWithoutHash = false;
+      this.blankSentNext = false;
+      const txHash = `0x${createHash('sha256').update(input.key).digest('hex')}`;
+      this.byKey.set(input.key, txHash);
+      this.sent.push({ key: input.key, maker: input.maker, take: input.take, minOut: input.minOut });
+      if (blankSent) return { status: 'sent', txHash: '  ' };
       return { status: 'unknown' };
-    }
-    if (this.unwiredNext) {
-      this.unwiredNext = false;
-      return { status: 'unwired' };
     }
     if (this.rejectAfterNote) {
       this.rejectAfterNote = false;
@@ -830,7 +840,7 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     expect(view.remaining).toBe('100');
   });
 
-  it('a send with no stored hash clears and does not open the next round', async () => {
+  it('a definite non-broadcast clears, and an unknown send stays on round 1', async () => {
     const price = new ScriptPrice();
     price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
 
@@ -867,18 +877,73 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
 
     const unknown = new ScriptFill();
     unknown.unknownWithoutHash = true;
+    unknown.stickyPool = parseAmount('100');
     const fourth = harness({ price, fill: unknown });
     const unknownOrder = await fourth.caller().order.createTrigger(await placed({ expiry: '2026-10-27T00:00:00.000Z' }));
+    const heldOff = await fourth.caller().order.createTrigger(await placed({ expiry: '2026-10-27T12:00:00.000Z' }));
     await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'unknown');
     expect(fourth.book.live(unknownOrder.orderHash)?.executing?.uncertain).toBe(true);
     expect(fourth.book.live(unknownOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+    fourth.book.clearExecuting(unknownOrder.orderHash);
+    expect(fourth.book.view(unknownOrder.orderHash)?.state).toBe('executing');
     unknown.rejectNext = true;
     await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'later');
     const after = await fourth.caller().order.get({ orderHash: unknownOrder.orderHash });
-    expect(after.state).toBe('open');
-    expect(after.pendingFill).toBeNull();
+    expect(after.state).toBe('executing');
+    expect(after.pendingFill?.key).toBe(`dex.order.fill:${unknownOrder.orderHash}:1`);
+    expect(after.pendingFill?.txHash).toBeNull();
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.uncertain).toBe(true);
     expect(unknown.keys).toEqual([`dex.order.fill:${unknownOrder.orderHash}:1`, `dex.order.fill:${unknownOrder.orderHash}:1`]);
-    expect(fourth.book.attempts(unknownOrder.orderHash).map((row) => row.reason)).toEqual(['reverted']);
+    expect(fourth.book.attempts(unknownOrder.orderHash)).toHaveLength(0);
+    expect(fourth.book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+    unknown.receipt = () => 'pending';
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'further');
+    const still = await fourth.caller().order.get({ orderHash: unknownOrder.orderHash });
+    expect(still.state).toBe('executing');
+    expect(still.pendingFill?.key).toBe(`dex.order.fill:${unknownOrder.orderHash}:1`);
+    expect(still.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(unknown.keys.every((key) => key === `dex.order.fill:${unknownOrder.orderHash}:1`)).toBe(true);
+    expect(unknown.keys).not.toContain(`dex.order.fill:${unknownOrder.orderHash}:2`);
+    expect(unknown.sent).toHaveLength(1);
+    expect(fourth.book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fourth.book.view(heldOff.orderHash)?.state).toBe('open');
+
+    const thrownLater = new ScriptFill();
+    thrownLater.unknownWithoutHash = true;
+    const sixth = harness({ price, fill: thrownLater });
+    const thrownLaterOrder = await sixth.caller().order.createTrigger(await placed({ expiry: '2026-10-29T00:00:00.000Z' }));
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'unknown-throw');
+    thrownLater.throwBeforeNote = true;
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'later-throw');
+    expect((await sixth.caller().order.get({ orderHash: thrownLaterOrder.orderHash })).state).toBe('executing');
+    expect(sixth.book.live(thrownLaterOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(sixth.book.live(thrownLaterOrder.orderHash)?.executing?.key).toBe(`dex.order.fill:${thrownLaterOrder.orderHash}:1`);
+    thrownLater.receipt = () => 'pending';
+    await runKeeperTick(sixth.book, { now: () => NOW, settings, price, fill: thrownLater }, 'further-throw');
+    expect(thrownLater.keys.every((key) => key === `dex.order.fill:${thrownLaterOrder.orderHash}:1`)).toBe(true);
+    expect(thrownLater.keys).not.toContain(`dex.order.fill:${thrownLaterOrder.orderHash}:2`);
+    expect(thrownLater.sent).toHaveLength(1);
+    expect(sixth.book.reserved(PAIR)).toBe(parseAmount('100'));
+
+    const unwiredLater = new ScriptFill();
+    unwiredLater.unknownWithoutHash = true;
+    const seventh = harness({ price, fill: unwiredLater });
+    const unwiredLaterOrder = await seventh.caller().order.createTrigger(await placed({ expiry: '2026-10-30T00:00:00.000Z' }));
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'unknown-unwired');
+    unwiredLater.unwiredNext = true;
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'later-unwired');
+    expect((await seventh.caller().order.get({ orderHash: unwiredLaterOrder.orderHash })).state).toBe('executing');
+    expect(seventh.book.live(unwiredLaterOrder.orderHash)?.executing?.txHash).toBeNull();
+    expect(seventh.book.attempts(unwiredLaterOrder.orderHash)).toHaveLength(0);
+    unwiredLater.receipt = () => 'pending';
+    await runKeeperTick(seventh.book, { now: () => NOW, settings, price, fill: unwiredLater }, 'further-unwired');
+    expect(unwiredLater.keys.every((key) => key === `dex.order.fill:${unwiredLaterOrder.orderHash}:1`)).toBe(true);
+    expect(unwiredLater.keys).not.toContain(`dex.order.fill:${unwiredLaterOrder.orderHash}:2`);
+    expect(unwiredLater.sent).toHaveLength(1);
+    expect(seventh.book.view(unwiredLaterOrder.orderHash)?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(seventh.book.reserved(PAIR)).toBe(parseAmount('100'));
 
     const noted = new ScriptFill();
     noted.rejectAfterNote = true;
@@ -947,7 +1012,7 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     expect(states).toEqual(['filled', 'open']);
   });
 
-  it('an expired executing order with no tx hash does not send', async () => {
+  it('an expired executing order does not open a new round', async () => {
     const price = new ScriptPrice();
     price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
     const fill = new ScriptFill();
@@ -972,15 +1037,69 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     const row = await uncertain.caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
     await runKeeperTick(bookU, { now: () => NOW, settings, price, fill: fillU }, 'unknown');
     expect(fillU.sendCalls).toBe(1);
+    expect(fillU.sent).toHaveLength(1);
     expect(bookU.live(row.orderHash)?.executing?.uncertain).toBe(true);
     expect(bookU.live(row.orderHash)?.executing?.txHash).toBeNull();
     const resumed = new OrderBook(dir);
     const past = new Date('2026-10-25T00:00:01.000Z');
+    fillU.throwBeforeNote = true;
     await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'wait');
-    expect(fillU.sendCalls).toBe(1);
+    expect(fillU.sendCalls).toBe(2);
+    expect(fillU.sent).toHaveLength(1);
+    expect(fillU.keys).toEqual([`dex.order.fill:${row.orderHash}:1`, `dex.order.fill:${row.orderHash}:1`]);
     expect(resumed.view(row.orderHash)?.state).toBe('executing');
     expect(resumed.live(row.orderHash)?.executing?.txHash).toBeNull();
+    expect(resumed.live(row.orderHash)?.executing?.uncertain).toBe(true);
     expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fillU.receipt = () => 'pending';
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'recover');
+    expect(fillU.sendCalls).toBe(3);
+    expect(fillU.sent).toHaveLength(1);
+    expect(fillU.keys.every((key) => key === `dex.order.fill:${row.orderHash}:1`)).toBe(true);
+    expect(resumed.view(row.orderHash)?.state).toBe('executing');
+    expect(resumed.view(row.orderHash)?.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fillU.receipt = () => 'success';
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'read');
+    expect(fillU.sendCalls).toBe(3);
+    expect(resumed.view(row.orderHash)?.state).toBe('filled');
+    expect(resumed.reserved(PAIR)).toBe(0n);
+  });
+
+  it('a sent result with a blank hash stays executing past expiry until fill.read', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
+    fill.blankSentNext = true;
+    const { caller, book } = harness({ price, fill });
+    const created = await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'blank');
+    expect(book.live(created.orderHash)?.executing?.uncertain).toBe(true);
+    expect(book.live(created.orderHash)?.executing?.txHash).toBeNull();
+    expect(book.view(created.orderHash)?.state).toBe('executing');
+    expect(fill.sent).toHaveLength(1);
+    const past = new Date('2026-10-25T00:00:01.000Z');
+    fill.rejectNext = true;
+    await runKeeperTick(book, { now: () => past, settings, price, fill }, 'reject-repeat');
+    expect(book.view(created.orderHash)?.state).toBe('executing');
+    expect(book.live(created.orderHash)?.executing?.txHash).toBeNull();
+    expect(book.live(created.orderHash)?.executing?.uncertain).toBe(true);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(fill.sendCalls).toBe(2);
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.keys.every((key) => key === `dex.order.fill:${created.orderHash}:1`)).toBe(true);
+
+    fill.receipt = () => 'reverted';
+    await runKeeperTick(book, { now: () => past, settings, price, fill }, 'read');
+    expect(fill.sendCalls).toBe(3);
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.keys.every((key) => key === `dex.order.fill:${created.orderHash}:1`)).toBe(true);
+    expect(book.view(created.orderHash)?.state).toBe('expired');
+    expect(book.view(created.orderHash)?.pendingFill).toBeNull();
+    expect(book.reserved(PAIR)).toBe(0n);
+    expect(book.attempts(created.orderHash).map((row) => row.reason)).toEqual(['reverted']);
   });
 
   it('a thrown prepare leaves the take reserved until the fill is terminal', async () => {

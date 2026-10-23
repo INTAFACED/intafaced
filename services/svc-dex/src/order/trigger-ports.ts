@@ -69,7 +69,11 @@ export interface FillPort {
    * Record the key before any broadcast. A repeat returns the same hash and does not broadcast again.
    * Call `noteTx` with the hash before resolving, rejecting, or returning `unknown`, when a hash exists.
    * `unknown` means the broadcast may have happened. The caller keeps the order `executing`.
-   * A throw, `rejected`, or `unwired` with no stored hash was not a broadcast: the caller clears the row and does not start the next round.
+   * `sent` with a blank hash is the same: the caller marks the row uncertain and does not clear it.
+   * A throw, `rejected`, or `unwired` with no stored hash, while the row is not yet uncertain, was not a broadcast:
+   * the caller clears the row and does not start the next round.
+   * Once the row is uncertain, a later throw, `rejected`, or `unwired` does not clear it.
+   * A repeat of `send` may run only to recover the hash for that key.
    * A stored hash is finished only by `read`.
    */
   send(input: FillSendInput): Promise<FillSend>;

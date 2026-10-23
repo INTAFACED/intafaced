@@ -5,9 +5,12 @@
  * Quoted size is the sum of executing takes on the pair. It stays until `applyFill`
  * or `clearExecuting`, including when `fill.read` is pending or unwired, and when
  * a tick throws before the queued send runs. The next tick reconciles that row.
- * A terminal read clears it. Uncertain is set only once `noteTx` stores a hash,
- * or `send` returns unknown. A throw, rejection, or unwired answer with no stored
- * hash clears the row and does not start the next round. One tick at a time.
+ * Uncertain is set when `noteTx` stores a hash, `send` returns unknown, or `send`
+ * returns sent with a blank hash. A throw, rejection, or unwired answer clears the
+ * row only while it is not uncertain and no hash is stored, and it does not start
+ * the next round. Once uncertain, those answers leave the row executing on the same
+ * key. A repeat of `send` only recovers that hash, including after expiry. Only
+ * `fill.read` may apply the fill or clear it. One tick at a time.
  */
 
 import { attemptReasons, refuseTrigger, triggerOrderCodes, type AttemptReason } from './trigger-error.js';
@@ -30,6 +33,13 @@ export interface KeeperTickResult {
 
 function blank(value: string | undefined): boolean {
   return value === undefined || value.trim() === '';
+}
+
+/** A blank or whitespace hash was not stored. It is not evidence that send never ran. */
+function storedHash(txHash: string | undefined): string | undefined {
+  if (txHash === undefined) return undefined;
+  const trimmed = txHash.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 export async function runKeeperTick(book: OrderBook, deps: KeeperDeps, tickId: string): Promise<KeeperTickResult> {
@@ -109,10 +119,14 @@ function note(book: OrderBook, orderHash: string, tickId: string, reason: Attemp
   return null;
 }
 
-/** No hash was stored, so nothing was broadcast. Clears the intent and does not begin another round. */
+/**
+ * Nothing was broadcast. Clears the intent and does not begin another round.
+ * Once `uncertain` is set, or a hash is stored, a later throw, rejection, or
+ * unwired answer must not clear: round 1 may already have been broadcast.
+ */
 function abandonUnsent(book: OrderBook, orderHash: string, tickId: string, now: Date, reason: AttemptReason): void {
   const exec = book.live(orderHash)?.executing;
-  if (!exec || exec.txHash) return;
+  if (!exec || exec.txHash || exec.uncertain) return;
   book.clearExecuting(orderHash);
   note(book, orderHash, tickId, reason, now);
 }
@@ -134,20 +148,21 @@ async function broadcast(book: OrderBook, deps: KeeperDeps, tickId: string, orde
       noteTx: (txHash) => book.noteTx(orderHash, txHash),
     });
   } catch {
-    // A hash means `noteTx` ran, so the broadcast may have happened. Only `fill.read` may finish it.
+    // A hash means `noteTx` ran. Uncertain means a broadcast may already have happened.
+    // Either way only `fill.read` may finish the row, and only after a hash is stored.
     if (book.live(orderHash)?.executing?.txHash) return;
     abandonUnsent(book, orderHash, tickId, now, attemptReasons.reverted);
     return;
   }
   if (sent.status === 'unknown') {
-    if (sent.txHash) book.noteTx(orderHash, sent.txHash);
+    const hash = storedHash(sent.txHash);
+    if (hash) book.noteTx(orderHash, hash);
     else book.markUncertain(orderHash);
     return;
   }
-  const hash = book.live(orderHash)?.executing?.txHash;
   if (sent.status === 'rejected' || sent.status === 'unwired') {
     // A stored hash means the broadcast already happened, so only fill.read may clear it.
-    if (hash) {
+    if (book.live(orderHash)?.executing?.txHash) {
       await readStored(book, deps, tickId, orderHash, now);
       return;
     }
@@ -164,7 +179,13 @@ async function broadcast(book: OrderBook, deps: KeeperDeps, tickId: string, orde
     );
     return;
   }
-  book.noteTx(orderHash, sent.txHash);
+  const delivered = storedHash(sent.txHash);
+  if (delivered) book.noteTx(orderHash, delivered);
+  // A blank hash is not "send never ran". Do not let expiry clear it.
+  if (!book.live(orderHash)?.executing?.txHash) {
+    book.markUncertain(orderHash);
+    return;
+  }
   await readStored(book, deps, tickId, orderHash, now);
 }
 
@@ -176,14 +197,15 @@ async function reconcile(book: OrderBook, deps: KeeperDeps, tickId: string, orde
     await readStored(book, deps, tickId, orderHash, now);
     return;
   }
-  // No hash: a send was never confirmed. Past expiry, do not broadcast.
-  if (Date.parse(row.expiry) <= now.getTime()) {
-    if (!exec.uncertain) {
-      book.clearExecuting(orderHash);
-      book.markExpired(orderHash);
-    }
+  // No hash and not uncertain: send was never entered. Past expiry, do not broadcast.
+  if (Date.parse(row.expiry) <= now.getTime() && !exec.uncertain) {
+    book.clearExecuting(orderHash);
+    book.markExpired(orderHash);
     return;
   }
+  // Same key, including after expiry when the row is uncertain and still has no hash.
+  // A repeat recovers the original hash and must not broadcast a new fill.
+  // A rejected or thrown repeat does not clear, so round 2 cannot start.
   await broadcast(book, deps, tickId, orderHash, now);
 }
 

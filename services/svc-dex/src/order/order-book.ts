@@ -536,7 +536,7 @@ export class OrderBook {
     return executing;
   }
 
-  /** Persist the hash before `send` returns, and mark the row uncertain. A repeat is a no-op. */
+  /** Persist the hash before `send` returns, and mark the row uncertain. A blank hash is not stored. A repeat is a no-op. */
   noteTx(orderHash: string, txHash: string): void {
     const row = this.rows.get(orderHash);
     if (!row?.executing) return;
@@ -547,7 +547,7 @@ export class OrderBook {
     this.persist();
   }
 
-  /** `send` returned unknown and stored no hash. A crash after this stays executing. */
+  /** `send` returned unknown, or sent a blank hash, and stored nothing. A crash after this stays executing. */
   markUncertain(orderHash: string): void {
     const exec = this.rows.get(orderHash)?.executing;
     if (!exec || exec.uncertain || exec.txHash) return;
@@ -576,10 +576,14 @@ export class OrderBook {
     return true;
   }
 
-  /** Definite non-fill. Only when no broadcast is outstanding. */
+  /**
+   * Definite non-fill. Refuses when the row is uncertain and no hash is stored:
+   * a broadcast may still be outstanding, and only `fill.read` of a stored hash may clear it.
+   */
   clearExecuting(orderHash: string): void {
     const row = this.rows.get(orderHash);
     if (!row || row.state !== 'executing') return;
+    if (row.executing?.uncertain && !row.executing.txHash) return;
     row.executing = null;
     row.state = 'open';
     this.persist();
