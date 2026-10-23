@@ -21,10 +21,12 @@ on:
       - 'tooling/scripts/roadmap.mjs'
       - '.github/workflows/real-app-journeys.yml'
 
-# The scoreboard reads the newest main, so a newer push replaces a run still going.
+# A run that started finishes; newer pushes wait as one queued run, and each newer push replaces the one waiting, so the
+# next run tests the newest main. (Failure it prevents: with cancel-in-progress, main merged every few minutes and every
+# run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the journeys, so the scoreboard never moved.)
 concurrency:
   group: real-app-journeys-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
