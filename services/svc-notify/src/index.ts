@@ -293,6 +293,8 @@ const alerts = new AlertService(
     triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
     maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
     repeatFrequencies: env.NOTIFY_ALERT_FREQUENCIES ?? [],
+    burstWindowMinutes: env.NOTIFY_ALERT_BURST_WINDOW_MINUTES ?? null,
+    burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
 );

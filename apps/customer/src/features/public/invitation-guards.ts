@@ -22,6 +22,27 @@ export function currentReferrerFor(owner: string) {
     .refine((row) => row.userId === owner && row.referrerId !== owner)
     .nullable();
 }
+/** Referral refusals that come after the visit counted: the visit is recorded, no relationship is attached. */
+export const REFERRAL_REFUSALS = [
+  'referral.self',
+  'referral.already_set',
+  'referral.cycle',
+  'referral.depth',
+  'referral.attach_window_closed',
+  'referral.attach_window_unset',
+] as const;
+export type ReferralRefusal = (typeof REFERRAL_REFUSALS)[number];
+export const referralRefusal = (code: string | undefined): ReferralRefusal | null =>
+  (REFERRAL_REFUSALS as readonly string[]).includes(code ?? '') ? (code as ReferralRefusal) : null;
+
+export const attachWindowSchema = z.object({
+  state: z.enum(['unset', 'open', 'closed']),
+  accountCreatedAt: invitationInstant,
+  windowSeconds: z.number().int().positive().nullable(),
+  closesAt: invitationInstant.nullable(),
+});
+export type AttachWindow = z.infer<typeof attachWindowSchema>;
+
 export type CurrentReferrer = z.infer<ReturnType<typeof currentReferrerFor>>;
 
 const recordSchema = z.object({ owner: uuid, kind: z.literal('invitation-accept'), localRef: uuid, createdAt: invitationInstant }).strict();
@@ -79,8 +100,9 @@ export function finishInvitation(original: InvitationRecord): boolean {
   );
 }
 
-/** Exact ShareService refusals before UPDATE hits. Referral errors happen after the hit
- * and have no safe before-effect classification, including generic HTTP4xx/5xx. */
+/** Known final answers: exact ShareService refusals before the visit counts, and the named referral refusals
+ * (CM-referral-01), each a typed code with its own status, after which nothing was attached. A self-referral is
+ * refused before the visit counts; the others after it. Any other 4xx/5xx stays unknown. */
 export function isInvitationRefusal(answer: ApiResult<unknown>): boolean {
   if (answer.ok || answer.messageCopy) return false;
   switch (answer.code) {
@@ -90,6 +112,16 @@ export function isInvitationRefusal(answer: ApiResult<unknown>): boolean {
       return answer.status === 403 && answer.reason === 'forbidden' && answer.message === 'Share token is revoked [share.revoked]';
     case 'share.profile_gone':
       return answer.status === 404 && answer.reason === 'not_mounted' && answer.message === 'Referrer profile is gone [share.profile_gone]';
+    // The visit was recorded, then the referral was refused by name (J-campaigns-05 #4 and #5): nothing was attached.
+    case 'referral.self':
+    case 'referral.already_set':
+    case 'referral.cycle':
+    case 'referral.depth':
+      return answer.status === 409;
+    case 'referral.attach_window_closed':
+      return answer.status === 403;
+    case 'referral.attach_window_unset':
+      return answer.status === 412;
     default:
       return false;
   }

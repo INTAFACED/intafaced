@@ -20,6 +20,8 @@ const LIMITS: AlertLimits = {
   triggerLogDays: 7,
   maxActivePrice: 20,
   repeatFrequencies: ['every_crossing'],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 const base = { userId: 'u1', marketId: 'BTC-USD', direction: 'above' as const, targetPrice: '100', condition: 'crossing' as const };
 
@@ -129,14 +131,14 @@ describe('repeating alerts', () => {
 
 describe('the frequency rules', () => {
   it('refuses a repeating alert while the owner list is blank, and stores nothing', async () => {
-    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [] });
+    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [], burstWindowMinutes: null, burstMaxTriggers: null });
     await expect(alerts.create({ ...base, frequency: 'every_crossing' }, NOW)).rejects.toMatchObject({
       code: 'notify.alert_frequency_unset',
     });
     expect(await alerts.list('u1')).toHaveLength(0);
   });
   it('a blank list leaves one-shot alerts unaffected', async () => {
-    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [] });
+    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [], burstWindowMinutes: null, burstMaxTriggers: null });
     expect(await alerts.create({ ...base, frequency: 'once' }, NOW)).toMatchObject({ frequency: 'once' });
   });
   it('only a crossing can repeat', async () => {
@@ -149,7 +151,7 @@ describe('the frequency rules', () => {
     );
   });
   it('a watchlist batch is checked the same way, all or none', async () => {
-    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [] });
+    const { alerts } = rig({ ...LIMITS, repeatFrequencies: [], burstWindowMinutes: null, burstMaxTriggers: null });
     await expect(
       alerts.createMany(
         { userId: 'u1', marketIds: ['A', 'B'], direction: 'above', targetPrice: '1', condition: 'crossing', frequency: 'every_crossing' },
@@ -175,7 +177,7 @@ describe('the frequency rules', () => {
       { kind: 'live', quote: async (_m, at) => ({ kind: 'ok', price: '90', at: at ?? NOW }) },
       new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true }),
       undefined,
-      { ...LIMITS, repeatFrequencies: [] },
+      { ...LIMITS, repeatFrequencies: [], burstWindowMinutes: null, burstMaxTriggers: null },
     );
     expect(await blank.edit('u1', row.id, { targetPrice: '105' }, NOW)).toMatchObject({ targetPrice: '105', frequency: 'every_crossing' });
   });

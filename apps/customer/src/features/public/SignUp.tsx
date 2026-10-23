@@ -79,6 +79,8 @@ export function SignUp() {
       country: field('country'),
       ...(nationality ? { nationality } : {}),
       dateOfBirth: field('dateOfBirth'),
+      // Signing up from an invitation link names its referrer when the account is made (CM-referral-01, RF-1).
+      ...(context.invite ? { inviteToken: context.invite } : {}),
     };
     await flight.run(async () => {
       setBusy(true);

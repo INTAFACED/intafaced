@@ -10,9 +10,9 @@
  */
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
-import { isPositive } from '../../../data/decimal';
+import { dec, isPositive } from '../../../data/decimal';
 import { clearPending, readPending, runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
-import type { FuturesApi, FuturesOrder, OpenInput } from './api';
+import type { FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
@@ -79,19 +79,35 @@ function nothingDone(order: FuturesOrder): Extract<ApiResult<never>, { ok: false
   };
 }
 
+function openOrder(input: OpenInput): PlaceOrderInput {
+  return {
+    symbol: input.symbol,
+    side: input.side === 'long' ? 'buy' : 'sell',
+    type: input.type,
+    amount: input.size,
+    ...(input.type === 'limit' && input.price ? { price: input.price } : {}),
+    ...(input.type === 'limit' && input.priceCorrection ? { priceCorrection: input.priceCorrection } : {}),
+    leverage: input.leverage,
+    clientOrderId: input.clientOpenId,
+    ...(input.collateralClass ? { collateralClass: input.collateralClass } : {}),
+  };
+}
+
+/** A split open: every child the book took. Nothing filled and nothing rests in any of them is the first child's refusal. */
+async function sendSplit(api: FuturesApi, input: OpenInput): Promise<ApiResult<WriteResult>> {
+  const placed = await api.placeSplit(openOrder(input));
+  if (!placed.ok) return placed;
+  const { orders, stopped } = placed.data;
+  const none = orders.map(nothingDone);
+  if (!stopped && orders.length > 0 && none.every((n) => n !== null)) return none[0]!;
+  return { ok: true, data: { order: orders[0], orders, ...(stopped ? { stopped } : {}) } };
+}
+
 async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+  if (intent.op === 'open' && intent.input.split) return sendSplit(api, intent.input);
   const placed =
     intent.op === 'open'
-      ? await api.placeOrder({
-          symbol: intent.input.symbol,
-          side: intent.input.side === 'long' ? 'buy' : 'sell',
-          type: intent.input.type,
-          amount: intent.input.size,
-          ...(intent.input.type === 'limit' && intent.input.price ? { price: intent.input.price } : {}),
-          leverage: intent.input.leverage,
-          clientOrderId: intent.input.clientOpenId,
-          ...(intent.input.collateralClass ? { collateralClass: intent.input.collateralClass } : {}),
-        })
+      ? await api.placeOrder(openOrder(intent.input))
       : await api.placeOrder({
           symbol: intent.symbol,
           side: intent.side === 'long' ? 'sell' : 'buy',
@@ -113,6 +129,10 @@ async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' |
 export interface WriteResult {
   position?: Position;
   order?: FuturesOrder;
+  /** A split open: every child placed, in order (`order` is the first). */
+  orders?: FuturesOrder[];
+  /** A split that a child's own refusal stopped: the children in `orders` are live, the rest were not placed. */
+  stopped?: FuturesSplit['stopped'];
 }
 
 async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
@@ -137,10 +157,14 @@ function sendPosition(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'c
 
 export type WriteOutcome =
   | { kind: 'blocked'; reason: BlockReason; pending?: Pending }
-  | { kind: 'done'; position?: Position; order?: FuturesOrder }
+  | { kind: 'done'; position?: Position; order?: FuturesOrder; orders?: FuturesOrder[]; stopped?: FuturesSplit['stopped'] }
   | { kind: 'refused'; refusal: FuturesRefusal }
-  /** The outcome is unknown. The note stays, so no other trade write goes out until this one is looked up. `notFound`: a read looked and found nothing. */
-  | { kind: 'uncertain'; id: string; notFound?: boolean };
+  /**
+   * The outcome is unknown. The note stays, so no other trade write goes out until this one is looked up. `notFound`: a
+   * read looked and found nothing. `found`: a split's read found some of its children, not all; sending the same request
+   * again places only the rest.
+   */
+  | { kind: 'uncertain'; id: string; notFound?: boolean; found?: FuturesOrder[] };
 
 /**
  * 5xx answers the service sends AFTER rolling back with nothing posted (position-service.ts: no usable mark on open, or on a
@@ -197,6 +221,18 @@ async function lookupOrder(api: FuturesApi, clientOrderId: string): Promise<Futu
   return result.ok ? (result.data.find((order) => order.clientOrderId === clientOrderId) ?? null) : undefined;
 }
 
+/** The children of an unknown split open, by their `<id>:<n>:<tag>` keys, in order. Same undefined meaning as `lookupOrder`. */
+async function lookupChildren(api: FuturesApi, symbol: string, clientOpenId: string): Promise<FuturesOrder[] | undefined> {
+  const result = await api.ordersOn(symbol);
+  if (!result.ok) return undefined;
+  const nth = (order: FuturesOrder) => {
+    const rest = order.clientOrderId?.startsWith(`${clientOpenId}:`) ? order.clientOrderId.slice(clientOpenId.length + 1) : '';
+    const child = /^(\d+):[0-9a-f]{8}$/.exec(rest);
+    return child ? Number(child[1]) : null;
+  };
+  return result.data.filter((order) => nth(order) !== null).sort((a, b) => nth(a)! - nth(b)!);
+}
+
 function settle(userId: string, id: string, outcome: WriteOutcome): WriteOutcome {
   clearPending(userId, id);
   dropIntent(userId, id);
@@ -218,7 +254,16 @@ export async function checkPending(
   if (!userId) return { kind: 'blocked', reason: 'signedOut' };
   const intent = loadIntent(userId, pending.id);
   if (!intent) return { kind: 'blocked', reason: 'unreadable' };
-  if (intent.op === 'open' && !options.resend) {
+  if (intent.op === 'open' && intent.input.split && !options.resend) {
+    // A split's children are keyed `<id>:<n>:<tag>`. All of the size found: done. None, or only some: nothing is sent
+    // here; the trader's explicit second step sends the same request, which replays the children found and places the rest.
+    const found = await lookupChildren(api, intent.input.symbol, intent.input.clientOpenId);
+    if (found === undefined) return { kind: 'uncertain', id: pending.id };
+    if (found.length === 0) return { kind: 'uncertain', id: pending.id, notFound: true };
+    const total = found.reduce((sum, order) => sum + (dec(order.qty) ?? 0n), 0n);
+    if (total === dec(intent.input.size)) return settle(userId, pending.id, { kind: 'done', order: found[0], orders: found });
+    return { kind: 'uncertain', id: pending.id, notFound: true, found };
+  } else if (intent.op === 'open' && !options.resend) {
     const order = await lookupOrder(api, intent.input.clientOpenId);
     if (order === undefined) return { kind: 'uncertain', id: pending.id };
     if (order === null) return { kind: 'uncertain', id: pending.id, notFound: true };
