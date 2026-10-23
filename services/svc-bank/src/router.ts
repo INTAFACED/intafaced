@@ -62,6 +62,7 @@ import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
+import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
@@ -536,9 +537,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.loan_params_invalid':
       case 'bank.personal_transfer_terms_invalid':
       case 'bank.asset_unknown':
+      case 'bank.linked_account_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
+      case 'bank.linked_account_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.limit_request_self_decision':
       case 'bank.profile_not_held':
@@ -574,6 +577,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
+      case 'bank.linked_accounts_full':
       case 'rail.bank':
       case 'bank.account_details_currencies_unset':
       case 'bank.eligibility_unset':
@@ -4930,6 +4934,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** Home's work list (HM-dashboard-03): the bank's own kinds for the signed person. */
     workItems: createWorkItemsRouter(() => bank.transferOps.sql, guard),
     eligibility: createEligibilityRouter(bank, guard),
+    linkedAccounts: createLinkedAccountsRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

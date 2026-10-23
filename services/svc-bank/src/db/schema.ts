@@ -1108,6 +1108,32 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   createdAt: createdAt(),
 });
 
+/**
+ * A customer's own account at another bank (BK-acct-02, migration 0055). Kept `unverified` until a banking partner
+ * verifies it; one active link per (user, IBAN). Holds no amount.
+ */
+export const linkedBankAccounts = bank.table(
+  'linked_bank_accounts',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    label: text('label').notNull(),
+    holderName: text('holder_name').notNull(),
+    iban: text('iban').notNull(),
+    country: text('country').notNull(),
+    state: text('state').notNull().default('unverified'),
+    verifiedAt: tstz('verified_at'),
+    createdAt: createdAt(),
+    removedAt: tstz('removed_at'),
+  },
+  (t) => [
+    uniqueIndex('linked_bank_accounts_active_iban_idx')
+      .on(t.userId, t.iban)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('linked_bank_accounts_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
 /** Address custody issued. Not a locally derived key and not a balance. */
 export const depositAddresses = bank.table(
   'deposit_addresses',

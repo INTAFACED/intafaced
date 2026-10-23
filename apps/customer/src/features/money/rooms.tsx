@@ -42,6 +42,8 @@ import { SelectedSpace } from './SelectedSpace';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
+import { LinkedAccounts } from './LinkedAccounts';
+import { linkedAccountsCopy } from './linked-accounts-copy';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -1358,6 +1360,15 @@ function AddMoneyRoom() {
     </BankPage>
   );
 }
+/** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
+function LinkedAccountsRoom() {
+  const { t } = linkedAccountsCopy.useCopy();
+  return (
+    <BankPage room="Ramps" title={t('title')} description={t('description')}>
+      <LinkedAccounts />
+    </BankPage>
+  );
+}
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -1782,6 +1793,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Ramps open={open} />;
     case '/bank/ramps/new':
       return <AddMoneyRoom />;
+    case '/bank/ramps/accounts':
+      return <LinkedAccountsRoom />;
     case '/bank/analytics':
       return <Analytics />;
     case '/bank/business':
