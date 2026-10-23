@@ -463,7 +463,8 @@ test('customer campaigns represent participation and its unavailable service wit
   await expect(page.getByLabel('Campaign headline', { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Prepare a grounded proposal/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Review campaign proposal', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Open public campaigns', exact: true })).toHaveAttribute('href', '/lab');
+  // The public /lab page is the Lab (SP-pages-01), not a campaign list, so the room no longer points there.
+  await expect(page.getByRole('link', { name: 'Open public campaigns', exact: true })).toHaveCount(0);
   expect(proposals).toEqual([]);
 });
 

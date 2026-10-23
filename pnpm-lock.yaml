@@ -974,6 +974,9 @@ importers:
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
       '@noble/hashes':
         specifier: 2.4.0
         version: 2.4.0
@@ -1589,6 +1592,9 @@ importers:
 
   services/svc-mining-pool:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -2068,10 +2074,16 @@ importers:
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       zod:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5

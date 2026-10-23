@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { useSession } from '../session/session';
@@ -10,6 +10,8 @@ import {
   type Destination,
   type DestinationCheck,
   type WithdrawAsset,
+  walletProofStartedSchema,
+  walletProofVerifiedSchema,
 } from './contracts';
 import { moneyRefusalWords } from './money-refusal-copy';
 import { DepthPanel } from './DepthParts';
@@ -17,6 +19,11 @@ import { WithdrawStepUp } from './WithdrawStepUp';
 import { checkAddress, checkLabel, checkTag, coolingOf, shortenAddress } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
+
+const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as const;
+
+/** Whether a row can be proved by signing: a wallet address the customer saved, still in the book. */
+const provable = (row: Destination) => row.kind === 'crypto' && row.origin === 'customer' && row.state !== 'archived';
 
 const STATE_KEYS = {
   pending: 'aStatePending',
@@ -48,11 +55,13 @@ export function AddressTable({
   now = Date.now(),
   onRename,
   onRemove,
+  onProve,
 }: {
   rows: readonly Destination[];
   now?: number;
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
+  onProve?: (row: Destination) => void;
 }) {
   const { t } = withdrawalCopy.useCopy();
   return (
@@ -85,6 +94,16 @@ export function AddressTable({
                           <small>{t('aLookalikeChecked', { time: date(row.lookalikeConfirmedAt) })}</small>
                         </>
                       )}
+                      {row.ownership && row.ownership.state !== 'none' && (
+                        <>
+                          <br />
+                          <small data-testid="address-ownership">
+                            {row.ownership.state === 'verified'
+                              ? t('aOwnVerified', { time: date(row.ownership.validUntil ?? '') })
+                              : t(OWNERSHIP_KEYS[row.ownership.state])}
+                          </small>
+                        </>
+                      )}
                     </td>
                     <td>{row.kind === 'bank' ? t('aKindBank') : t('aKindCrypto')}</td>
                     <td lang="und">
@@ -106,6 +125,11 @@ export function AddressTable({
                       {onRename && row.state !== 'archived' ? (
                         <Button variant="ghost" onClick={() => onRename(row)}>
                           {t('aRename')}
+                        </Button>
+                      ) : null}
+                      {onProve && provable(row) && row.ownership?.state !== 'verified' ? (
+                        <Button variant="ghost" onClick={() => onProve(row)}>
+                          {t('aProve')}
                         </Button>
                       ) : null}
                       {onRemove && row.state !== 'archived' ? (
@@ -142,16 +166,164 @@ export function AddressBook({
   now,
   onRename,
   onRemove,
+  onProve,
 }: {
   resource: Resource<readonly Destination[]>;
   reload: () => void;
   now?: number;
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
+  onProve?: (row: Destination) => void;
 }) {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
-  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} />;
+  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} />;
+}
+
+type ProofOffer = { proofId: string; message: string; expiresAt: string };
+
+/**
+ * Prove a saved wallet by signing (W-withdraw-17). Opening it asks the bank for a message naming the address; the
+ * customer signs it in that wallet and pastes the signature, and the bank checks which address signed. `bank:write`
+ * only: signing proves control of the wallet, and nothing here changes where money goes. A wrong wallet, a lapsed
+ * message or text that is not a signature is refused in the customer's words, and the message stays to sign again.
+ */
+export function ProveOwnership({ row, onProved, onClose }: { row: Destination; onProved: () => void; onClose: () => void }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [offer, setOffer] = useState<ProofOffer | null>(null);
+  const [signature, setSignature] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [provedUntil, setProvedUntil] = useState<string | null>(null);
+  // One offer per opening, also when a development render mounts the panel twice.
+  const asked = useRef(false);
+  const address = shortenAddress(row.ref);
+  const words = (code: string | undefined) => {
+    switch (code) {
+      case 'bank.wallet_proof_wrong_signer':
+        return t('aProveWrongSigner', { address });
+      case 'bank.wallet_proof_signature_invalid':
+        return t('aProveBadSignature');
+      case 'bank.wallet_proof_expired':
+        return t('aProveLapsed');
+      case 'bank.wallet_proof_not_found':
+        return t('aProveNotFound');
+      case 'bank.wallet_proof_window_unset':
+      case 'bank.wallet_proof_validity_unset':
+        return t('aProveUnset');
+      default:
+        return moneyRefusalWords(code) ?? t('aProveFailed');
+    }
+  };
+  const [lapsed, setLapsed] = useState(false);
+  // While an offer is open the bank answers the same one again, so asking twice is harmless.
+  const start = () => {
+    setProblem(null);
+    setLapsed(false);
+    setOffer(null);
+    setSignature('');
+    void api
+      .mutate('bank', 'ramps.destinations.ownership.start', { destinationId: row.destinationId }, walletProofStartedSchema)
+      .then((answer) => (answer.ok ? setOffer(answer.data) : setProblem(words(answer.code))))
+      .catch(() => setProblem(t('aProveFailed')));
+  };
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    start();
+    // Asked once for the row this panel opened on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function verify(event: FormEvent) {
+    event.preventDefault();
+    if (!offer || busy || !signature.trim()) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const answer = await api.mutate(
+        'bank',
+        'ramps.destinations.ownership.verify',
+        { proofId: offer.proofId, signature: signature.trim() },
+        walletProofVerifiedSchema,
+      );
+      if (!answer.ok) {
+        setProblem(words(answer.code));
+        // A lapsed offer can never be signed now: the form goes, and Start again asks for a new message.
+        if (answer.code === 'bank.wallet_proof_expired') setLapsed(true);
+        return;
+      }
+      setProvedUntil(answer.data.validUntil);
+      onProved();
+    } catch {
+      setProblem(t('aProveFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="bd-stack" data-testid="wallet-proof">
+      <strong>{t('aProveTitle', { label: row.label ?? address })}</strong>
+      <p>{t('aProveLead', { address })}</p>
+      {!offer && !problem && <p role="status">{t('aProveStarting')}</p>}
+      {offer && !provedUntil && !lapsed && (
+        <form className="bd-stack" onSubmit={verify} noValidate>
+          <label className="field">
+            <span>{t('aProveMessage')}</span>
+            <textarea readOnly value={offer.message} rows={6} lang="und" data-testid="wallet-proof-message" />
+            <small>{t('aProveUntil', { time: date(offer.expiresAt) })}</small>
+          </label>
+          <p>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void navigator.clipboard?.writeText(offer.message).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                );
+              }}
+            >
+              {t('aProveCopy')}
+            </Button>
+            {copied && <small role="status"> {t('aProveCopied')}</small>}
+          </p>
+          <label className="field">
+            <span>{t('aProveSignature')}</span>
+            <textarea
+              value={signature}
+              onChange={(event) => {
+                setSignature(event.target.value);
+                setProblem(null);
+              }}
+              rows={3}
+              lang="und"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="wallet-proof-signature-hint"
+            />
+            <small id="wallet-proof-signature-hint">{t('aProveSignatureHint')}</small>
+          </label>
+          <Button type="submit" variant="primary" disabled={busy || !signature.trim()}>
+            {t('aProveSubmit')}
+          </Button>
+          {busy && <p role="status">{t('aProveChecking')}</p>}
+        </form>
+      )}
+      {provedUntil && <p role="status">{t('aProveDone', { time: date(provedUntil) })}</p>}
+      {problem && <p role="alert">{problem}</p>}
+      <p>
+        {lapsed && (
+          <Button variant="secondary" onClick={start}>
+            {t('aProveAgain')}
+          </Button>
+        )}
+        <Button variant="ghost" onClick={onClose}>
+          {t('aProveClose')}
+        </Button>
+      </p>
+    </div>
+  );
 }
 
 type Draft = { label: string; assetId: string; network: string; address: string; tag: string };
@@ -409,6 +581,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
   const book = useBankRead('ramps.destinations.list', undefined);
   const [removing, setRemoving] = useState<Destination | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
+  const [proving, setProving] = useState<Destination | null>(null);
   // Renaming changes only the label (`bank:write`), so it needs no confirmation.
   const rename = open
     ? (row: Destination) =>
@@ -442,8 +615,10 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
               setRemoved(null);
               setRemoving(row);
             }}
+            onProve={(row) => setProving(row)}
           />
           {removed && <p role="status">{t('aRemoved', { label: removed })}</p>}
+          {proving && <ProveOwnership key={proving.destinationId} row={proving} onProved={book.reload} onClose={() => setProving(null)} />}
         </DepthPanel>
         <DepthPanel title={t('aAddTitle')}>
           <AddForm onSaved={book.reload} />

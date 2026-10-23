@@ -983,6 +983,28 @@ export async function seedFuturesListing(ctx) {
   }
 }
 
+/** List the TEST spot markets (`TEST_SPOT_LISTINGS`) once each, through the repo's own seed tool. */
+export async function seedSpotTestListings(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
+  const { TEST_SPOT_LISTINGS, localTestDatabaseUrl, insertSpotTestListing } = await import('./seed-spot-test-listing.mjs');
+  const databaseUrl = localTestDatabaseUrl(localDbUrl(ctx));
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  const out = [];
+  try {
+    for (const listing of TEST_SPOT_LISTINGS) {
+      // Upserts only a row that is itself a TEST listing; a real listing of the same symbol is refused, never overwritten.
+      const row = await insertSpotTestListing(sql, listing);
+      ctx.log(`TEST spot ${row.symbol} listed as ${row.id} (${MARKERS.label})`);
+      out.push({ symbol: row.symbol, marketId: row.id });
+    }
+    return out;
+  } finally {
+    await sql.end();
+  }
+}
+
 /** Publish the TEST agreements and quiz once each, through svc-trade's own doors with a second operator's approval. */
 export async function publishFuturesTerms(ctx) {
   const pair = await approverSessions(ctx);
@@ -1356,8 +1378,9 @@ async function main() {
       await seedFuturesListing(ctx);
       await publishFuturesTerms(ctx);
     } else if (cmd === 'apply') {
-      // The TEST perpetual is listed first, so the lifecycle, book and limit steps below include it.
+      // The TEST perpetual and TEST spot markets are listed first, so the lifecycle, book and limit steps below include it.
       await seedFuturesListing(ctx);
+      await seedSpotTestListings(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);

@@ -2,22 +2,37 @@
 
 Per-jurisdiction lot export over ledger reads. **Not** a second money book, **not** a CSV re-import, **not** counsel.
 
-Blank owner `TAX_JURISDICTION_MAP_JSON` refuses `tax.jurisdiction_unmapped`. Caller selects `FIFO|LIFO|HIFO` — no silent country default. Empty books return an empty pack, never a fabricated `$0` PnL. Missing lot/cost-basis is named unknown (`tax.cost_basis_unavailable` / `tax.lot_underflow`) — never an invented pairing or a `0` basis. Amounts are decimal strings. Completeness is OWNER map: packs stamp `complete: false` and residual `tax.export_incomplete`; `complete: true` is refused. Never invent jurisdictions.
+Blank owner `TAX_JURISDICTION_MAP_JSON` refuses `tax.jurisdiction_unmapped`. Caller selects `FIFO|LIFO|HIFO` for the pack — no silent country default. Empty books return an empty pack, never a fabricated `$0` PnL. Missing lot/cost-basis is named unknown (`tax.cost_basis_unavailable` / `tax.lot_underflow`) — never an invented pairing or a `0` basis. Amounts are decimal strings. Completeness is OWNER map: packs stamp `complete: false` and residual `tax.export_incomplete`; `complete: true` is refused. Never invent jurisdictions.
 
 A year pack lists each sub-account's fills and converts with `fee` and `makerRebate` in separate columns. Realised gain on a line is proceeds minus that line's cost basis, and only when both are present. A null basis stays null on that sub-account, stays in `tax.cost_basis_unavailable`, and is not copied onto another sub-account. Rows outside the owner-published `TAX_HISTORY_YEARS` window are left out. The ledger history wire has no sub-account parent index, fee, maker rebate, or cost basis, so boot leaves `subAccountBooks: "unwired"` and invents no rows until both readers are attached.
 
 ## API
 
-| Procedure       | Scope      | Input           | Output                                                            |
-| --------------- | ---------- | --------------- | ----------------------------------------------------------------- |
-| `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim                 |
-| `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                                       |
-| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts`                 |
-| `lotBook`       | `tax:read` | `{ method? }`   | profit and loss indicator from the caller's own fills (see below) |
+| Procedure              | Scope       | Input                  | Output                                                                |
+| ---------------------- | ----------- | ---------------------- | --------------------------------------------------------------------- |
+| `health`               | public      | —                      | `{ ok, service }` — liveness, not a custody claim                     |
+| `exportPreview`        | `tax:read`  | `{ lotMethod }`        | preview; amounts as strings                                           |
+| `exportPack`           | `tax:read`  | `{ lotMethod }`        | JSON pack (`bodyBase64`), including `subAccounts`                     |
+| `lotBook`              | `tax:read`  | `{ method? }`          | profit and loss indicator from the caller's own fills (see below)     |
+| `missingBasis`         | `tax:read`  | `{ method? }`          | open lots and disposals with no basis; effect is `unknown share`      |
+| `basisOverride.set`    | `tax:write` | lot, price, date, note | customer-entered basis, or a manual position held apart from balances |
+| `basisOverride.remove` | `tax:write` | `{ lotId }`            | tombstone; the book shows the unknown again                           |
+
+`basisOverride.set` refuses `tax.basis_store_unwired` when `DATABASE_URL` is blank, `tax.basis_price_unset` when the price is blank, and `portfolio.basis_override_not_allowed` when the lot already has a cost from our fills or a market price. A set `DATABASE_URL` whose `DATABASE_POOL_MAX` is blank refuses at boot with `tax.database_pool_max_unset` and does not open a pool. The size is never filled in. The same payload twice stores one version. The key is `basisoverride:<userId>:<lotId>:<version>`. A manual position id is `manual:<userId>:<token>` and is not added to holdings. While any customer basis is active, the year pack carries `tax.customer_basis_export_unset`: whether those figures may appear in a regulator-facing export is not published. Figures that use an override are marked `customer-entered`. An override never posts to the ledger.
 
 ## Lot book (profit and loss indicator)
 
-`lotBook` is a self-only read of the caller's own trade fills, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Each fill is joined from two ledger reads: the received leg (from the `available` account) and the paying leg (from that order's `hold` account), on the transaction. A coin bought or sold against USDT, USDC or USD has a real dollar cost or proceeds (the fee is already out of the received leg). A trade between two other coins has no dollar figure; coins that arrived by deposit or transfer have no lot, and a sale that reaches them is `unmatchedQty` with `realizedUsd: null` (`tax.lot_underflow`). Dollar coins (USDT, USDC, USD) count as exactly 1 USD. Fills against a house quote (`trade.fill.mm_maker`, which covers convert and OTC) are read like any other fill, and each received leg is joined to its own order's paying leg, so a self-trade is not crossed. The book only knows coins that came from fills: if an asset is held in a different quantity than its open lots (a deposit, a transfer in or out, interest), which lot is open is not known, so that asset's cost, unrealised and sale results are null (`tax.lot_book_unreconciled`). Hitting the read ceiling is named `tax.lot_book_incomplete` and then no result or cost is shown. The method defaults to FIFO (a product default, changeable per call); unrealised value is the caller's to join with current prices.
+`lotBook` is a self-only read of the caller's own ledger, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Input `{ method? }`: `FIFO`, `LIFO`, `HIFO` or `AVERAGE` (default FIFO, a product default changeable per call); anything else refuses.
+
+**Lots.** Every arrival of a coin is a lot with an id (`lot:<txId>:<asset>`, then `:2`, `:3` when one transaction credits the same coin again), when it arrived, its source (`trade`, `deposit`, `reward`, `transfer_in`, `other_in`), quantity, what is left, its cost and the cost of what is left, and days held. A bought lot is joined from two ledger reads, the received leg (on `available`) and the paying leg (on that order's `hold` account), on the transaction; against USDT, USDC or USD it has a real dollar cost (the fee is already out of the received leg). Fills against a house quote (`trade.fill.mm_maker`) are read like any other fill. Dollar coins count as exactly 1 USD and are not lots. Released holds, reversed withdrawals, margin release, unstake, earn withdrawals and fee corrections are the customer's own coins coming back, not new lots.
+
+**Value on arrival.** A lot that was not bought is valued at the price when it arrived, read from svc-trade's public candles (`TRADE_URL`): USDT market, else USDC; the close of the last one-minute candle that opened at or before the arrival, else the last hourly or daily candle that had already ended by then. Never a later price, never today's price, never zero. The market, candle size and candle time are returned so the screen names the source. No price (or no `TRADE_URL`) leaves the value null with `tax.price_at_time_unavailable`.
+
+**Cost of an arrival** is the owner's `TAX_DEPOSIT_BASIS`: `market` (the value on arrival) or `customer` (unknown until the customer enters one). Blank: unknown, with `tax.deposit_basis_policy_unset`.
+
+**Sales.** Each sale lists the lots it used (`matches`). A part that draws on a lot with no cost has unknown cost and result; HIFO and AVERAGE are unknown as a whole when any open lot has no cost. A sale bigger than every open lot is `unmatchedQty` (`tax.lot_underflow`). AVERAGE restates the open lots at the pool's average exactly.
+
+**Honesty rules.** If an asset is held in a different quantity than its open lots, which lot is open is not known, so its cost, unrealised and sale results are null (`tax.lot_book_unreconciled`). Hitting the read ceiling is `tax.lot_book_incomplete` and no figure is shown. Short or long term is not classified: the term rule is not published (`termClass: null`, `termRule` names `tax.term_rule_unset`). Unrealised value is the caller's to join with current prices.
 
 ## Events
 
@@ -25,7 +40,7 @@ None. This service publishes no subjects.
 
 ## Ledger
 
-Read-only. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`.
+Read-only toward the ledger. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`. Customer basis rows are this service's own table and are not balances.
 
 | Read       | Why                                   |
 | ---------- | ------------------------------------- |
@@ -37,5 +52,3 @@ Data lake / indexer missing → named `absent` on the pack (`tax.data_lake_unava
 ## Service keys: ledger reads
 
 The ledger reads (balances and history) are signed with svc-tax's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, they are signed with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
-
-The lot book also marks a coin as outside the book when it reached the customer other than by a fill (a deposit, a transfer in). Sales of that coin have unknown cost and result, whether or not any is still held. Released holds, reversed withdrawals, margin release and unstake are the customer's own coins coming back and do not count.

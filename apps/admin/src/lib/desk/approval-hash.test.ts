@@ -9,6 +9,7 @@ import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../
 import {
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
+  IDENTITY_TIER_MOVE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
 } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
@@ -265,5 +266,24 @@ describe('identity staff close and reopen', () => {
       policyVersion: 'v1',
     });
     expect(proposeInputFor(reopen)).toMatchObject({ actionType: IDENTITY_REOPEN_ACTION_TYPE, targetId: userId, expectedVersion: '5' });
+  });
+});
+
+describe('identity account tier move', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const move = { kind: 'identity.account.tier_move' as const, userId, tierId: 'plus', reason: 'Customer qualifies for plus', version: '2' };
+  it('hash equals identity’s identityTierPayloadHash: account, action, tier, reason, in that order', () => {
+    expect(payloadHashFor(move)).toBe(identityActionPayloadHash(userId, { action: 'tier_move', tierId: 'plus', reason: move.reason }));
+    expect(payloadHashFor({ ...move, tierId: 'standard' })).not.toBe(payloadHashFor(move));
+  });
+  it('is proposed against the account at the tier version the founder read, under the founder-only type', () => {
+    expect(proposeInputFor(move)).toEqual({
+      actionType: IDENTITY_TIER_MOVE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: userId,
+      expectedVersion: '2',
+      payloadHash: payloadHashFor(move),
+      policyVersion: 'v1',
+    });
   });
 });

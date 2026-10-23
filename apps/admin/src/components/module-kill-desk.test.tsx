@@ -65,7 +65,7 @@ describe('the one request that makes sense', () => {
     const html = render();
     expect(html).toContain('Kill trade');
     expect(html).toContain('<code>KILL trade</code>');
-    expect(html).toContain('id="dk-reason"');
+    expect(html).toMatch(/id="[^"]*dk-reason"/);
     expect(html).toContain('Ask a second founder to approve the kill');
     expect(html).toContain('Two different operators must agree');
   });
