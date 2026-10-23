@@ -94,6 +94,22 @@ export async function retimeLocalTestTape(
   input: LocalTestTapeRetime,
   now: Date = new Date(),
 ): Promise<LocalTestTapeRetimeResult> {
+  // Two markets retimed at once can trip Postgres's serializable check on the shared fills table (40001). Each try is
+  // one whole transaction that wrote nothing if it failed, so trying again is safe.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await retimeOnce(sql, input, now);
+    } catch (error) {
+      if ((error as { code?: string })?.code !== SERIALIZATION_FAILURE || attempt >= SERIALIZATION_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+    }
+  }
+}
+
+const SERIALIZATION_FAILURE = '40001';
+const SERIALIZATION_ATTEMPTS = 8;
+
+async function retimeOnce(sql: Sql, input: LocalTestTapeRetime, now: Date): Promise<LocalTestTapeRetimeResult> {
   return sql.begin('isolation level serializable', async (tx) => {
     const market = await tx<Array<{ id: string }>>`SELECT id FROM trade.markets WHERE id = ${input.marketId}`;
     if (market.length === 0) throw new LocalTestTapeError('trade.local_test_tape_market_unknown', 'No such market');
