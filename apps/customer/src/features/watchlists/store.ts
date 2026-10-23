@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z, type ZodType } from 'zod';
 import {
+  savedScreensPreferenceSchema,
   watchlistsRequestId,
   watchlistsPreferenceSchema,
   WATCHLISTS_NAMESPACE,
@@ -30,6 +31,8 @@ export interface RecordStore<T> {
 
 /** The stored reply of a set: the record as the account now holds it, with the outcome. */
 export const watchlistsStoredSchema = watchlistsPreferenceSchema.extend({ outcome: z.literal('stored') });
+/** The stored reply of a saved-screens set (`trade.screens`). */
+export const savedScreensStoredSchema = savedScreensPreferenceSchema.extend({ outcome: z.literal('stored') });
 
 /** The code inside a refusal: the identity code the service sent (`identity.watchlist_cap_exceeded`), else 'not-saved'. */
 export function refusalCode(message: string | undefined): string {

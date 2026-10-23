@@ -45,9 +45,13 @@ export interface ScreenRow {
   low: string | null;
 }
 
+/** The most markets the listing read asks for (the same limit the markets fetch uses). A list at this size may be cut short. */
+export const SCREENER_MARKET_LIMIT = 500;
+
 /**
- * The change over a timeframe. 24 h is the ticker's own figure. 1 h and 1 d compare the last price with the close one bar back
- * (`closes`, from the candle read). Anything not served, or with a missing price, is null.
+ * The change over a timeframe. 24 h is the ticker's own figure. 1 h and 1 d compare the last price with `close`, the close one
+ * full period back (1 h: 60 minutes back, from 1 m candles; 1 d: 24 hours back, from 1 h candles; see `screener/data.ts`).
+ * Anything not served, or with a missing price, is null.
  */
 export function changeOver(timeframe: ChangeTimeframe, ticker: TickerRow | undefined, close: string | null | undefined): string | null {
   if (timeframe === '24h') return ticker?.changePct24h ?? null;
@@ -160,16 +164,19 @@ export function cellValue(row: ScreenRow, column: ScreenColumn): string | null {
   return row[column === 'change' ? 'change' : column];
 }
 
+/** A cell as CSV. A cell a spreadsheet would read as a formula gets a leading apostrophe; a negative number is left alone. */
+function csvCell(value: string): string {
+  const safe = /^[=+@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
 /** The screened rows as CSV: the symbol, then each chosen column. Empty cells stay empty; nothing is zero-filled. */
 export function resultsCsv(rows: readonly ScreenRow[], columns: readonly ScreenColumn[], timeframe: ChangeTimeframe): string {
   const header = ['symbol', ...columns.map((column) => (column === 'change' ? `change_${timeframe}` : column))];
-  const lines = [header.join(',')];
+  const lines = [header.map(csvCell).join(',')];
   for (const row of rows) {
-    const cells = columns.map((column) => {
-      const value = cellValue(row, column);
-      return value ?? '';
-    });
-    lines.push([row.symbol, ...cells].join(','));
+    const cells = columns.map((column) => csvCell(cellValue(row, column) ?? ''));
+    lines.push([csvCell(row.symbol), ...cells].join(','));
   }
   return `${lines.join('\n')}\n`;
 }

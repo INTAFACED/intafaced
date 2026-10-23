@@ -40,11 +40,17 @@ test(`${J} #1 applies "change above 5 percent and quote USDT": rows matching bot
   await page.goto(SCREENER);
   await page.getByRole('combobox', { name: 'Quote' }).selectOption('USDT');
   await page.getByRole('textbox', { name: 'Change above, percent' }).fill('5');
-  const expected = (await publicMarkets()).filter(
-    (m) => m.quote === 'USDT' && m.ticker?.percentage !== undefined && Number(m.ticker.percentage) >= 5,
-  );
+  const markets = await publicMarkets();
+  const expected = markets.filter((m) => m.quote === 'USDT' && m.ticker?.percentage !== undefined && Number(m.ticker.percentage) >= 5);
   await expect(countText(page)).toHaveText(`${expected.length} markets match`);
-  for (const m of expected) await expect(page.locator(`tr[data-symbol="${m.symbol}"]`)).toBeVisible();
+  // Exactly the matching rows: every match is shown, and no USDT market that fails the filter is.
+  await expect(page.locator('table[data-view="table"] tbody tr[data-symbol]')).toHaveCount(expected.length);
+  const shown = await page
+    .locator('table[data-view="table"] tbody tr[data-symbol]')
+    .evaluateAll((rows) => rows.map((r) => r.dataset.symbol));
+  expect([...shown].sort()).toEqual(expected.map((m) => m.symbol).sort());
+  const nonMatching = markets.filter((m) => m.quote === 'USDT' && !expected.includes(m));
+  for (const m of nonMatching.slice(0, 5)) await expect(page.locator(`tr[data-symbol="${m.symbol}"]`)).toHaveCount(0);
   // No match: a bound no market reaches names the change filter.
   await page.getByRole('textbox', { name: 'Change above, percent' }).fill('90');
   await expect(countText(page)).toContainText('change filter removed every market');
@@ -74,7 +80,7 @@ test(`${J} #3 saves the screen and reopens it with its filters; saving the same 
   await page.getByRole('textbox', { name: 'Change above, percent' }).fill('5');
   await page.getByRole('textbox', { name: 'Screen name' }).fill('Momentum');
   await page.getByRole('button', { name: 'Save screen' }).click();
-  await expect(page.getByRole('status')).toContainText('Saved as Momentum');
+  await expect(page.getByRole('status').filter({ hasText: 'Saved as Momentum' })).toHaveCount(1);
   await page.reload();
   await page.getByRole('combobox', { name: 'Quote' }).selectOption('');
   await page.getByRole('textbox', { name: 'Change above, percent' }).fill('');

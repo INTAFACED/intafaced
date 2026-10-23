@@ -52,6 +52,8 @@ const messages = {
   'Opened {name}': 'Opened {name}.',
   'Export results': 'Export results',
   'Results downloaded': 'Downloaded {file}.',
+  'Invalid bound save': 'A bound is not a plain number, so the screen was not saved. Fix it, then save again.',
+  'Market list cut short': 'The listing sent its first {count} markets. Markets past that are not screened.',
   'Cap unset saved': 'The owner has not set the saved-screen cap, so a screen cannot be saved. Nothing was saved.',
   'Cap exceeded saved': 'You are at the saved-screen cap the owner sets. Nothing was saved.',
   'Not saved': 'Not saved. Try again.',

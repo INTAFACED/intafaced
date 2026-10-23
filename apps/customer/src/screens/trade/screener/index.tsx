@@ -19,6 +19,7 @@ import {
   emptyReason,
   isServed,
   resultsCsv,
+  SCREENER_MARKET_LIMIT,
   screenRecord,
   screenRows,
   TIMEFRAME_IDS,
@@ -27,8 +28,7 @@ import {
   type ScreenColumn,
   type ScreenFilters,
 } from '../../../features/screener/model';
-import { useAccountRecord, refusalCode, useWatchlists } from '../../../features/watchlists/store';
-import { exportFileName } from '../../../features/watchlists/csv';
+import { savedScreensStoredSchema, useAccountRecord, refusalCode, useWatchlists } from '../../../features/watchlists/store';
 import { slugId } from '../../../features/watchlists/model';
 import './screener.css';
 
@@ -52,13 +52,17 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
   const markets = useMarkets({ includeClosed: true });
   const tickers = useTickers({ intervalMs: 5000 });
   const watchlists = useWatchlists();
-  const saved = useAccountRecord<SavedScreensValue>(SAVED_SCREENS_NAMESPACE, savedScreensPreferenceSchema, savedScreensRequestId, []);
+  const saved = useAccountRecord<SavedScreensValue>(
+    SAVED_SCREENS_NAMESPACE,
+    { read: savedScreensPreferenceSchema, stored: savedScreensStoredSchema },
+    savedScreensRequestId,
+    [],
+  );
 
   const [filters, setFilters] = useState<ScreenFilters>(DEFAULT_FILTERS);
   const [columns, setColumns] = useState<ScreenColumn[]>(DEFAULT_COLUMNS);
   const [timeframe, setTimeframe] = useState<ChangeTimeframe>(DEFAULT_TIMEFRAME);
   const [view, setView] = useState<'table' | 'chart'>('table');
-  const [invalid, setInvalid] = useState(false);
   const [name, setName] = useState('');
   const [replacing, setReplacing] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
@@ -72,22 +76,40 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
     return list ? list.sections.flatMap((section) => section.symbols) : [];
   }, [filters.universe, filters.listId, watchlists.value]);
 
-  const universe = listSymbols === null ? null : new Set(listSymbols);
-  const rows = useMemo(() => buildRows(listing, tickerMap, undefined, timeframe, universe), [listing, tickerMap, timeframe, universe]);
-  const closes = useCloses(
-    rows.map((row) => row.symbol),
-    timeframe,
+  const universe = useMemo(() => (listSymbols === null ? null : new Set(listSymbols)), [listSymbols]);
+  // Closes (the 1 h and 1 d change) are read only when a change column or change bound needs them, and only for the markets the
+  // other filters keep: the screen never fans a read out across the whole listing.
+  const needCloses =
+    (timeframe === '1h' || timeframe === '1d') && (columns.includes('change') || filters.changeMin !== null || filters.changeMax !== null);
+  const kept = useMemo(
+    () =>
+      needCloses
+        ? screenRows(
+            buildRows(listing, tickerMap, undefined, timeframe, universe),
+            { ...filters, changeMin: null, changeMax: null },
+            timeframe,
+          ).rows.map((row) => row.symbol)
+        : [],
+    [needCloses, listing, tickerMap, timeframe, universe, filters],
   );
+  const closes = useCloses(kept, timeframe);
   const screened = useMemo(
     () => buildRows(listing, tickerMap, closes.status === 'ready' ? closes.data : undefined, timeframe, universe),
     [listing, tickerMap, closes, timeframe, universe],
   );
   const result = useMemo(() => screenRows(screened, filters, timeframe), [screened, filters, timeframe]);
-  const sparks = useSparklines(result.rows.map((row) => row.symbol));
+  // Sparklines are drawn only in the chart view, so the table never reads them.
+  const sparks = useSparklines(view === 'chart' ? result.rows.map((row) => row.symbol) : []);
+
+  // A bound that is not a plain decimal is named here and blocks a save; the filter it names is not applied until it is fixed.
+  const invalidBounds = BOUND_KEYS.filter((key) => {
+    const text = filters[key];
+    return text !== null && !BOUND.test(text);
+  });
+  const invalid = invalidBounds.length > 0;
 
   const setBound = (key: BoundKey, text: string) => {
     const trimmed = text.trim();
-    setInvalid(trimmed !== '' && !BOUND.test(trimmed));
     setFilters((now) => ({ ...now, [key]: trimmed === '' ? null : trimmed }));
   };
   const toggleColumn = (column: ScreenColumn) =>
@@ -99,11 +121,14 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
     setFilters(screen.filters);
     setColumns(screen.columns);
     setTimeframe(screen.changeTimeframe);
-    setInvalid(false);
     setNotice({ tone: 'ok', text: t('Opened {name}', { name: screen.name }) });
   };
 
   const save = async () => {
+    if (invalidBounds.length > 0) {
+      setNotice({ tone: 'warn', text: t('Invalid bound save') });
+      return;
+    }
     const trimmed = name.trim();
     if (!trimmed) {
       setNotice({ tone: 'warn', text: t('Name needed') });
@@ -135,7 +160,7 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
   };
 
   const exportRows = () => {
-    const file = exportFileName(`screener-${timeframe}`);
+    const file = `screener-results-${timeframe}.csv`;
     const blob = new Blob([resultsCsv(result.rows, columns, timeframe)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -227,6 +252,11 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
       {invalid && (
         <p className="sc-note" role="status">
           {t('Invalid bound')}
+        </p>
+      )}
+      {listing.length >= SCREENER_MARKET_LIMIT && (
+        <p className="sc-note" role="status">
+          {t('Market list cut short', { count: SCREENER_MARKET_LIMIT })}
         </p>
       )}
 
