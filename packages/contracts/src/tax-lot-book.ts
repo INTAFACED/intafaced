@@ -45,6 +45,8 @@ export const lotBookLotSchema = z.object({
   daysHeld: z.number().int().nonnegative().nullable(),
   /** Short or long term is an owner tax rule that is not published, so it is always null. */
   termClass: z.null(),
+  /** Present only when this lot's cost is a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
 });
 
 export const lotBookMatchSchema = z.object({
@@ -53,6 +55,8 @@ export const lotBookMatchSchema = z.object({
   costUsd: z.string().nullable(),
   proceedsUsd: z.string().nullable(),
   realizedUsd: z.string().nullable(),
+  /** Present only when this part's cost is a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
 });
 
 export const lotBookSaleSchema = z.object({
@@ -65,6 +69,8 @@ export const lotBookSaleSchema = z.object({
   costUsd: z.string().nullable(),
   realizedUsd: z.string().nullable(),
   matches: z.array(lotBookMatchSchema),
+  /** Present when any part of this sale used a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
 });
 
 export const lotBookAssetSchema = z.object({
@@ -83,6 +89,63 @@ export const lotBookSchema = z.object({
   realizedUsd: z.string().nullable(),
   termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
   residuals: z.array(z.string()),
+  /**
+   * Positions the customer typed that are not a balance and not a ledger lot. Absent when there are none, so a book
+   * with no manual position stays the same shape.
+   */
+  manualPositions: z
+    .array(
+      z.object({
+        id: z.string(),
+        assetId: z.string(),
+        acquiredAt: z.string(),
+        qty: z.string(),
+        costUsd: z.string(),
+        pricePerUnit: z.string(),
+        sourceNote: z.string(),
+        basisSource: z.literal('customer-entered'),
+        heldApart: z.literal(true),
+      }),
+    )
+    .optional(),
+});
+
+/** The effect row for a missing basis. A sentence, never a number. */
+export const UNKNOWN_SHARE = 'unknown share' as const;
+
+export const missingBasisItemSchema = z.object({
+  lotId: z.string().nullable(),
+  assetId: z.string(),
+  kind: z.enum(['open', 'disposal']),
+  qty: z.string(),
+  code: z.enum(['tax.cost_basis_unavailable', 'tax.lot_underflow']),
+  effect: z.literal(UNKNOWN_SHARE),
+  saleTxId: z.string().nullable(),
+});
+
+export const missingBasisSchema = z.object({
+  items: z.array(missingBasisItemSchema),
+});
+
+export const basisOverrideSetInputSchema = z
+  .object({
+    lotId: z.string(),
+    pricePerUnit: z.string(),
+    date: z.string(),
+    sourceNote: z.string(),
+    assetId: z.string().optional(),
+    qty: z.string().optional(),
+  })
+  .strict();
+
+export const basisOverrideRemoveInputSchema = z.object({ lotId: z.string() }).strict();
+
+export const basisWriteResultSchema = z.object({
+  businessKey: z.string(),
+  version: z.number().int().positive(),
+  lotId: z.string(),
+  kind: z.enum(['override', 'manual', 'tombstone']),
+  basisSource: z.literal('customer-entered').nullable(),
 });
 
 export type LotBookAnswer = z.infer<typeof lotBookSchema>;
