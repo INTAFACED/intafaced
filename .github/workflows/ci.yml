@@ -33,7 +33,6 @@ on:
       - '**/SKILL.md'
       - 'tooling/agent-protocol/**'
       - '.agents/**'
-      - 'docs/agents/**'
       - '.cursor/rules/**'
   workflow_dispatch:
 

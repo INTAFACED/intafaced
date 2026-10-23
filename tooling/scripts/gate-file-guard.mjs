@@ -59,6 +59,8 @@ export const GATE_PATHS = [
   ['AGENTS.md', 'the rules every agent loads, including the merge rule'],
   ['CLAUDE.md', 'the rules every agent loads'],
   ['**/CLAUDE.md', 'the short rules a service, app or package loads for its own directory'],
+  ['**/AGENTS.md', 'the nearest AGENTS.md to an edited file is the one agents follow there'],
+  ['**/SKILL.md', 'agent skills, wherever they live'],
   ['tooling/agent-protocol/**', 'the agent protocol every agent loads'],
   ['.agents/**', 'agent skills and rules'],
   ['docs/agents/**', 'the build, review and brief guides AGENTS.md tells every agent to read'],

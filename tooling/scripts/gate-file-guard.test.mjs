@@ -139,6 +139,8 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
     'tooling/agent-protocol/AGENT_PROTOCOL.md',
     '.agents/skills/x/SKILL.md',
     'docs/agents/build-slice.md',
+    'services/svc-x/AGENTS.md',
+    'tooling/x/SKILL.md',
     '.cursor/rules/inta.mdc',
     '.github/dependabot.yml',
     '.github/CODEOWNERS',
