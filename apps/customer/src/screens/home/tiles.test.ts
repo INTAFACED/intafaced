@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOME_TILE_IDS, isHidden, moved, orderedTiles, shownTiles, withHidden } from './tiles';
+import { HOME_TILE_IDS, canMove, isHidden, moved, orderedTiles, shownTiles, withHidden } from './tiles';
 
 describe('Home tiles (HM-widgets-01)', () => {
   it('with nothing stored, every tile shows in the shipped order', () => {
@@ -36,5 +36,16 @@ describe('Home tiles (HM-widgets-01)', () => {
     expect(moved(null, 'activity', -1, 'pro').order.slice(0, 3)).toEqual(['started', 'activity', 'holdings']);
     expect(moved(null, 'started', -1).order).toEqual([]);
     expect(moved(null, 'watchlist', 1).order).toEqual([]);
+  });
+
+  it('steps over the tiles this Home draws elsewhere, so a move always changes what is seen', () => {
+    // Pro: Markets is the last tile Pro draws, so it cannot move down past the Simple-only tiles.
+    expect(canMove(null, 'markets', 1, 'pro')).toBe(false);
+    expect(moved(null, 'markets', 1, 'pro').order).toEqual([]);
+    // Simple: Learn moves above Recent activity in the main column, never into the side column.
+    expect(shownTiles(moved(null, 'learn', -1), 'simple', 'main')).toEqual(['holdings', 'markets', 'movers', 'learn', 'activity']);
+    expect(canMove(null, 'started', 1)).toBe(true);
+    expect(shownTiles(moved(null, 'started', 1), 'simple', 'side')).toEqual(['your-crypto', 'started', 'watchlist']);
+    expect(canMove(null, 'watchlist', 1)).toBe(false);
   });
 });

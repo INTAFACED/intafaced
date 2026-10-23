@@ -32,15 +32,17 @@ function writeDevice(userId: string, value: HomeTilesValue | null): void {
   }
 }
 
-const isConflict = (result: Extract<ApiResult<unknown>, { ok: false }>) =>
+type Failure = Extract<ApiResult<unknown>, { ok: false }>;
+const isConflict = (result: Failure) =>
   result.status === 409 || result.code === 'CONFLICT' || result.message.includes('preferences.version_conflict');
+/** The account read the layout and refused it (not a lost connection): retrying the same change will not help. */
+const isRefused = (result: Failure) =>
+  result.message.includes('preferences_value_invalid') || result.message.includes('preferences_idempotency_conflict');
 
-export type SaveOutcome = 'saved' | 'conflict' | 'not-saved';
+export type SaveOutcome = 'saved' | 'conflict' | 'refused' | 'not-saved';
 export interface HomeLayout {
   /** The account's layout, or null while nothing is stored (Home shows its shipped order). */
   layout: HomeTilesValue | null;
-  /** Whether the account's record has been read on this visit. */
-  read: boolean;
   /**
    * Store `next` on the account, compare-and-set on the version read. When another device changed the layout first, the
    * newer one is read and kept, and the answer is `conflict`: this device's change is not written over it.
@@ -109,14 +111,16 @@ export function useHomeLayout(): HomeLayout {
         return 'saved';
       }
       if (isConflict(result)) {
-        if (!(await reread())) setLayout(before);
-        return 'conflict';
+        if (await reread()) return 'conflict';
+        // The newer layout could not be read either: show what was there, and say nothing was saved.
+        setLayout(before);
+        return 'not-saved';
       }
       setLayout(before);
-      return 'not-saved';
+      return isRefused(result) ? 'refused' : 'not-saved';
     },
     [api, userId, read, reread, adopt],
   );
 
-  return { layout, read, save };
+  return { layout, save };
 }

@@ -4,7 +4,7 @@ import { Dialog } from '../../shared/ui';
 import { Button } from './deps';
 import { homeCopy } from './copy';
 import type { HomeLayout, SaveOutcome } from './tiles-data';
-import { HOME_TILES, isHidden, moved, orderedTiles, withHidden, type HomeTileId } from './tiles';
+import { HOME_TILES, canMove, isHidden, moved, orderedTiles, withHidden, type HomeTileId } from './tiles';
 
 const TILE_NAME = {
   started: 'Tile started',
@@ -17,10 +17,12 @@ const TILE_NAME = {
   watchlist: 'Tile watchlist',
 } as const satisfies Record<HomeTileId, string>;
 
-const OUTCOME = { saved: 'Layout saved', conflict: 'Layout conflict', 'not-saved': 'Layout not saved' } as const satisfies Record<
-  SaveOutcome,
-  string
->;
+const OUTCOME = {
+  saved: 'Layout saved',
+  conflict: 'Layout conflict',
+  refused: 'Layout refused',
+  'not-saved': 'Layout not saved',
+} as const satisfies Record<SaveOutcome, string>;
 
 /**
  * "Customise Home" (HM-widgets-01): show, hide and order Home's tiles, or Reset to the shipped order. Each change is stored
@@ -56,7 +58,7 @@ export function CustomiseHome({ home, mode }: { home: HomeLayout; mode: 'simple'
         >
           <p className="home-customise__hint">{t('Customise hint')}</p>
           <ul className="home-customise__list" aria-busy={busy || undefined}>
-            {order.map((id, index) => {
+            {order.map((id) => {
               const name = t(TILE_NAME[id]);
               const hidden = isHidden(home.layout, id);
               const drawn = HOME_TILES.find((tile) => tile.id === id)?.pro !== false || mode === 'simple';
@@ -77,7 +79,7 @@ export function CustomiseHome({ home, mode }: { home: HomeLayout; mode: 'simple'
                     <Button
                       variant="ghost"
                       size={28}
-                      disabled={busy || index === 0}
+                      disabled={busy || !canMove(home.layout, id, -1, mode)}
                       aria-label={t('Move up', { tile: name })}
                       onClick={() => void store(moved(home.layout, id, -1, mode))}
                     >
@@ -86,7 +88,7 @@ export function CustomiseHome({ home, mode }: { home: HomeLayout; mode: 'simple'
                     <Button
                       variant="ghost"
                       size={28}
-                      disabled={busy || index === order.length - 1}
+                      disabled={busy || !canMove(home.layout, id, 1, mode)}
                       aria-label={t('Move down', { tile: name })}
                       onClick={() => void store(moved(home.layout, id, 1, mode))}
                     >
@@ -97,6 +99,7 @@ export function CustomiseHome({ home, mode }: { home: HomeLayout; mode: 'simple'
               );
             })}
           </ul>
+          <p className="home-customise__hint">{t('Customise shared order')}</p>
           <p className="home-customise__hint">{t('Customise default unset')}</p>
           {outcome ? (
             <p className="home-customise__outcome" role="status" data-outcome={outcome}>

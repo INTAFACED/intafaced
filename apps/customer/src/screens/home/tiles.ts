@@ -60,12 +60,39 @@ export function withHidden(layout: HomeTilesValue | null, id: HomeTileId, hidden
   return { order: layout?.order ?? [], hidden: hidden ? [...rest, id] : rest };
 }
 
-/** The record after moving one tile a place up (-1) or down (+1) in the whole order. */
+/**
+ * Whether two tiles are drawn in the same place on this Home: both drawn by Pro on Pro Home, else the same Simple column.
+ * A move steps over the tiles drawn elsewhere, so every press changes what the person sees.
+ */
+function samePlace(a: HomeTileId, b: HomeTileId, mode: 'simple' | 'pro'): boolean {
+  const first = HOME_TILES.find((tile) => tile.id === a);
+  const second = HOME_TILES.find((tile) => tile.id === b);
+  if (!first || !second) return false;
+  return mode === 'pro' && first.pro ? second.pro : first.column === second.column;
+}
+
+/** Where `id` would land moving one place up (-1) or down (+1) among the tiles drawn with it, or -1 at either end. */
+function target(order: readonly HomeTileId[], id: HomeTileId, step: -1 | 1, mode: 'simple' | 'pro'): number {
+  for (let at = order.indexOf(id) + step; at >= 0 && at < order.length; at += step) {
+    if (samePlace(id, order[at] as HomeTileId, mode)) return at;
+  }
+  return -1;
+}
+
+/** Whether a tile can move up (-1) or down (+1) on this Home. */
+export function canMove(layout: HomeTilesValue | null, id: HomeTileId, step: -1 | 1, mode: 'simple' | 'pro' = 'simple'): boolean {
+  return target(orderedTiles(layout, mode), id, step, mode) >= 0;
+}
+
+/**
+ * The record after moving one tile a place up (-1) or down (+1) among the tiles drawn with it. The record holds one order
+ * for both Homes, so it is stored in full.
+ */
 export function moved(layout: HomeTilesValue | null, id: HomeTileId, step: -1 | 1, mode: 'simple' | 'pro' = 'simple'): HomeTilesValue {
-  const order: string[] = orderedTiles(layout, mode);
+  const order = orderedTiles(layout, mode);
   const at = order.indexOf(id);
-  const to = at + step;
-  if (at < 0 || to < 0 || to >= order.length) return { order: layout?.order ?? [], hidden: layout?.hidden ?? [] };
-  [order[at], order[to]] = [order[to] as string, order[at] as string];
+  const to = target(order, id, step, mode);
+  if (at < 0 || to < 0) return { order: layout?.order ?? [], hidden: layout?.hidden ?? [] };
+  [order[at], order[to]] = [order[to] as HomeTileId, order[at] as HomeTileId];
   return { order, hidden: layout?.hidden ?? [] };
 }

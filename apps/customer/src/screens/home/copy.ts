@@ -120,6 +120,8 @@ const messages = {
   'Layout saved': 'Saved to your account.',
   'Layout conflict': 'Your layout was changed on another device. That newer layout is shown; make your change again to keep it.',
   'Layout not saved': 'Not saved. Your account could not be reached, so nothing changed. Try again.',
+  'Layout refused': 'Not saved. Your account refused this layout, so nothing changed. Reset starts again from the standard order.',
+  'Customise shared order': 'Simple and Pro Home share one order. A move here only passes the tiles this Home shows.',
 } as const;
 
 export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.home', messages, {
@@ -245,6 +247,9 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Layout conflict':
       'Tu diseño se cambió en otro dispositivo. Se muestra ese diseño más reciente; vuelve a hacer el cambio para conservarlo.',
     'Layout not saved': 'No se guardó. No se pudo contactar con tu cuenta, así que nada cambió. Inténtalo de nuevo.',
+    'Layout refused':
+      'No se guardó. Tu cuenta rechazó este diseño, así que nada cambió. Restablecer vuelve a empezar desde el orden estándar.',
+    'Customise shared order': 'Inicio simple y Pro comparten un orden. Un movimiento aquí solo pasa los mosaicos que muestra este Inicio.',
   },
   fr: {
     Home: 'Accueil',
@@ -369,6 +374,9 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Layout conflict':
       'Votre disposition a été modifiée sur un autre appareil. Cette disposition plus récente est affichée ; refaites votre changement pour le garder.',
     'Layout not saved': 'Non enregistré. Votre compte n’a pas pu être joint, rien n’a changé. Réessayez.',
+    'Layout refused': 'Non enregistré. Votre compte a refusé cette disposition, rien n’a changé. Réinitialiser repart de l’ordre standard.',
+    'Customise shared order':
+      'Les accueils Simple et Pro partagent un ordre. Un déplacement ici ne passe que les tuiles affichées par cet accueil.',
   },
 });
 
