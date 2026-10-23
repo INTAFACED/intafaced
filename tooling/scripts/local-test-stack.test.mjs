@@ -72,6 +72,22 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
+// profile verbatim, so no corridor, rate or reference length is typed anywhere else.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  const profile = loadProfile().values;
+  assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
+  for (const name of ['BANK_GLOBAL_SIM_JSON', 'BANK_SEND_FIELD_RULES_JSON']) {
+    assert.equal(profile[name]?.service, 'bank', `${name} is not in the bank profile`);
+    assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
+  }
+  assert.match(JSON.parse(profile.BANK_GLOBAL_SIM_JSON.value).label, /^TEST\b/);
+  console.log('local-test-stack: the global-send stand-in and its TEST catalogue come from the bank profile');
+}
+
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
   return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 }

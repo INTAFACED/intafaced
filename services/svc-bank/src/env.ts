@@ -3,6 +3,7 @@ import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2s
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
+import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -309,6 +310,18 @@ const schema = serviceEnvSchema
        * `bank.reference_rules_unset`. Boot stays up; the send is the refuse.
        */
       BANK_SEND_FIELD_RULES_JSON: z.string().optional(),
+
+      /**
+       * WHO ANSWERS A GLOBAL SEND. `none` (default) | `global-sim`.
+       *
+       * `none` leaves every global-send port unset: each send refuses by name and nothing posts. `global-sim` is a TEST
+       * stand-in for the local stack and journey tests only (`personal-pay/global-sim.ts`): it answers from the typed TEST
+       * catalogue in `BANK_GLOBAL_SIM_JSON`, pays nobody, and is refused under live posture. Same posture as
+       * `BANK_CARD_ISSUER`: choosing the stand-in has to be an act somebody performed.
+       */
+      BANK_GLOBAL_PARTNER: z.enum(GLOBAL_PARTNER_SETTINGS).default('none'),
+      /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields). Read only when the setting is `global-sim`. */
+      BANK_GLOBAL_SIM_JSON: z.string().optional(),
 
       /**
        * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list

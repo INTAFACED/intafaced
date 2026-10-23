@@ -52,6 +52,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_PAYEE_CONTROLS_JSON: testValue('BANK_PAYEE_CONTROLS_JSON'),
     BANK_EXCHANGE_ALLOWANCE_JSON: testValue('BANK_EXCHANGE_ALLOWANCE_JSON'),
     BANK_PROOF_LIMITS_JSON: testValue('BANK_PROOF_LIMITS_JSON'),
+    // LOCAL TEST stand-in for a global-send partner (no network, pays nobody, refused under live posture): it answers
+    // from the TEST catalogue in the bank profile, so a global send can pass its corridor, quote and payee checks and post
+    // once to the stand-in's rail boundary on this stack. The send-field rules are TEST reference lengths for its methods.
+    BANK_GLOBAL_PARTNER: 'global-sim',
+    BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
+    BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',
