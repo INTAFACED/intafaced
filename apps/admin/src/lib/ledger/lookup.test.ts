@@ -22,6 +22,8 @@ describe('lookupQuery', () => {
   it('takes a UUID transaction id (lower-cased) and a 1-512 character business key, trimmed', () => {
     expect(lookupQuery('txId', ` ${TX.toUpperCase()} `)).toEqual({ txId: TX });
     expect(lookupQuery('businessKey', `  ${KEY} `)).toEqual({ businessKey: KEY });
+    // Any UUID version and variant, as svc-ledger accepts.
+    expect(lookupQuery('txId', '33333333-3333-0333-c333-333333333333')).toEqual({ txId: '33333333-3333-0333-c333-333333333333' });
   });
 
   it('refuses a non-UUID id, a blank key and an over-long key, so nothing is sent', () => {

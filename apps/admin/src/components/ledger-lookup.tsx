@@ -177,7 +177,7 @@ function TransactionView({
         </table>
       </div>
       <p className="adm-subtle">
-        As svc-ledger answered at {formatWhen(readAt)}. Account ids are the ledger’s own; no customer name is shown.
+        Read at {formatWhen(readAt)} by this browser’s clock. Account ids are the ledger’s own; no customer name is shown.
       </p>
     </div>
   );

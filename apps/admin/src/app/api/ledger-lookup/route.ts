@@ -32,6 +32,7 @@ export async function GET(request: Request) {
         ? `/admin/ledger/transactions/${query.txId}`
         : `/admin/ledger/trace?businessKey=${encodeURIComponent(query.businessKey)}`;
     let upstream: Response;
+    let text: string;
     try {
       upstream = await fetch(`${config.edgeUrl}${path}`, {
         method: 'GET',
@@ -40,10 +41,18 @@ export async function GET(request: Request) {
         redirect: 'error',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
+      // Read inside the same deadline: a body that stops arriving is an unavailable ledger, not a bad shape.
+      text = await upstream.text();
     } catch {
       throw new AdminSessionError('admin.upstream_unavailable', 503);
     }
-    const body: unknown = await upstream.json().catch(() => null);
+    const body: unknown = (() => {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return null;
+      }
+    })();
     if (!upstream.ok) {
       const status = upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
       return Response.json({ code: upstreamCodeOf(body) ?? `http.${status}` }, { status, headers: { 'cache-control': 'no-store' } });

@@ -88,6 +88,21 @@ describe('GET /api/ledger-lookup', () => {
     expect(await dropped.json()).toEqual({ code: 'admin.upstream_unavailable' });
   });
 
+  it('says unavailable, not a bad shape, when the body stops arriving', async () => {
+    const stalled = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new DOMException('The operation timed out.', 'TimeoutError'));
+        },
+      }),
+      { status: 200 },
+    );
+    fetchMock.mockResolvedValueOnce(stalled);
+    const res = await get(`txId=${TX}`);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ code: 'admin.upstream_unavailable' });
+  });
+
   it('refuses before reading when the founder session is refused', async () => {
     auth.authorize.mockRejectedValue(new AdminSessionError('admin.session_required', 401));
     expect((await get(`txId=${TX}`)).status).toBe(401);

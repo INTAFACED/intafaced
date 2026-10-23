@@ -6,7 +6,8 @@
  * under the founder before it reads. Amounts stay decimal strings end to end: nothing here turns money into a number.
  */
 
-export const LOOKUP_TX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Any UUID, as svc-edge and svc-ledger check it (zod `uuid()`), so no id the ledger accepts is refused here. */
+export const LOOKUP_TX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const LOOKUP_KEY_MAX = 512;
 const DECIMAL = /^-?\d+(\.\d{1,18})?$/;
 
@@ -122,7 +123,7 @@ export function lookupRefusal(code: string | null, status: number): string {
       return 'A lookup needs a sign-in with a second factor. Sign in again.';
     case 'scope.denied':
     case 'admin.authority_refused':
-      return 'Your sign-in does not carry the read permission a ledger lookup needs.';
+      return 'This sign-in does not carry what a ledger lookup needs: a founder’s read permission with a second factor.';
     case 'admin.upstream_invalid':
       return 'The ledger answered with a shape this console does not recognise, so nothing is shown rather than a guess.';
     case 'admin.upstream_unavailable':
