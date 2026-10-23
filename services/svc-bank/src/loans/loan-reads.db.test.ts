@@ -234,6 +234,50 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
     ).rejects.toMatchObject({ code: 'bank.statement_unavailable' });
   });
 
+  it('dates the draw from drawn_at, so a window before that draw does not include it', async () => {
+    const bank = services();
+    const opened = await seed(bank);
+    const openedAt = new Date('2026-06-01T12:00:00.000Z');
+    const drawnAt = new Date('2026-06-10T12:00:00.000Z');
+    await sql`
+      UPDATE bank.loans
+         SET opened_at = ${openedAt}, drawn_at = ${drawnAt}
+       WHERE id = ${opened.loan.id}
+    `;
+    const earlier = await bank.loans.statement({
+      loanId: opened.loan.id,
+      from: '2026-06-01T00:00:00.000Z',
+      to: '2026-06-05T00:00:00.000Z',
+      now: new Date('2026-07-01T00:00:00.000Z'),
+    });
+    expect(earlier.openingPrincipal).toBe('0');
+    expect(earlier.closingPrincipal).toBe('0');
+    expect(earlier.openingInterest).toBe('0');
+    expect(earlier.closingInterest).toBe('0');
+    const earlierText = Buffer.from(earlier.bodyBase64, 'base64').toString('utf8');
+    expect(statementDebt(earlierText, earlier.openingPrincipal, earlier.openingInterest).rows.map((row) => row.kind)).not.toContain('draw');
+    expect(earlierText).not.toContain(opened.drawLedgerTxId);
+
+    const later = await bank.loans.statement({
+      loanId: opened.loan.id,
+      from: '2026-06-05T00:00:00.000Z',
+      to: '2026-06-15T00:00:00.000Z',
+      now: new Date('2026-07-01T00:00:00.000Z'),
+    });
+    expect(later.openingPrincipal).toBe('0');
+    expect(later.closingPrincipal).toBe('100');
+    expect(later.openingInterest).toBe('0');
+    expect(later.closingInterest).toBe('0');
+    const laterText = Buffer.from(later.bodyBase64, 'base64').toString('utf8');
+    const summed = statementDebt(laterText, later.openingPrincipal, later.openingInterest);
+    expect(summed.principal).toBe('100');
+    expect(summed.rows.filter((row) => row.kind === 'draw')).toEqual([
+      { kind: 'draw', interest: '0', principal: '100', ledgerTxId: opened.drawLedgerTxId },
+    ]);
+    expect(laterText).toContain(`draw,${drawnAt.toISOString()},100,0,100,USDT,${opened.drawLedgerTxId}`);
+    expect(laterText).not.toContain(openedAt.toISOString());
+  });
+
   it('writes off an insured liquidation shortfall so closing debt is zero and the lines sum to it', async () => {
     const bank = services();
     const opened = await seed(bank);

@@ -269,7 +269,6 @@ export async function buildLoanStatement(
     collateralAssetId: string;
     principal: Amount;
     drawLedgerTxId: string | null;
-    openedAt: Date;
   },
   secret: string | null | undefined,
   input: { from: string; to: string; now?: Date },
@@ -282,7 +281,12 @@ export async function buildLoanStatement(
   const from = new Date(fromMs);
   const to = new Date(toMs);
   const now = input.now ?? new Date();
-  const drawnAt = loan.drawLedgerTxId ? loan.openedAt : null;
+  // opened_at is the pending insert. The draw can fail and land later; drawn_at
+  // is written in the same update as draw_ledger_tx_id.
+  const drawnRows = await sql<Array<{ drawn_at: Date | null }>>`
+    SELECT drawn_at FROM bank.loans WHERE id = ${loan.id}
+  `;
+  const drawnAt = drawnRows[0]?.drawn_at ?? null;
   const opening = await debtBefore(sql, loan.id, from, loan.principal, drawnAt);
   const closing = await debtBefore(sql, loan.id, to, loan.principal, drawnAt);
   const lines: StatementLine[] = [];
