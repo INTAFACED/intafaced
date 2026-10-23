@@ -69,6 +69,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',
+    // Watchlist and saved-screen caps (C-alerts-scan-05, -07): explicit LOCAL TEST values, not owner limits (the owner
+    // has not published them; blank refuses every write that needs one). 10 named lists, 100 symbols per list, 10 screens.
+    IDENTITY_WATCHLIST_LIST_CAP: '10',
+    IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
+    IDENTITY_SAVED_SCREEN_CAP: '10',
     // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
     // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
     IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
