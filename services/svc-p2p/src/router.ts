@@ -24,6 +24,7 @@ import {
   type P2pService,
 } from './p2p-service.js';
 import { InstrumentError, parseFieldSpecs } from './instruments.js';
+import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import type { InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
@@ -130,6 +131,10 @@ const offerListShape = {
   makerId: z.string().min(1).max(128).optional(),
   /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
   minFiat: amountString.optional(),
+  /** P-trade-orders-01: a fiat amount the ad can take whole (within its limits and what is left). Fixed price only. */
+  fiatAmount: amountString.optional(),
+  /** P-trade-orders-01: fixed-price ads by price, cheapest or dearest first, then floating ads. Default cheapest. */
+  sort: z.enum(BOARD_SORTS).optional(),
 };
 
 const offerOutput = z.object({
@@ -146,6 +151,11 @@ const offerOutput = z.object({
   totalAmount: amountString,
   filledAmount: amountString,
   tradesCompleted: z.number().int().nonnegative(),
+  /**
+   * Board reads only, floating ads only: the market reference the multiplier applies to, or null when no market feed
+   * prices this pair (the ad then cannot be priced or taken). Absent on fixed-price ads and on single-offer reads.
+   */
+  referencePrice: amountString.nullable().optional(),
   methods: z.array(z.unknown()),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
@@ -752,6 +762,8 @@ export function createP2pRouter(
           methodId?: string;
           makerId?: string;
           minFiat?: string;
+          fiatAmount?: string;
+          sort?: BoardSort;
           cursor?: string | null;
         }
       | undefined,
@@ -764,13 +776,32 @@ export function createP2pRouter(
       ...(input?.methodId ? { methodId: input.methodId } : {}),
       ...(input?.makerId ? { makerId: input.makerId } : {}),
       ...(input?.minFiat ? { minFiat: input.minFiat } : {}),
+      ...(input?.fiatAmount ? { fiatAmount: input.fiatAmount } : {}),
+      ...(input?.sort ? { sort: input.sort } : {}),
       ...(includeCursor && input?.cursor ? { cursor: input.cursor } : {}),
       limit: input?.limit,
       viewerId,
     });
     const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
+    // One reference read per floating pair on the page, never per row.
+    const references = new Map<string, Promise<string | null>>();
+    const referenceFor = (asset: string, fiat: string) => {
+      const key = `${asset}/${fiat}`;
+      if (!references.has(key)) {
+        references.set(
+          key,
+          p2p.referencePrice(asset, fiat).then((price) => (price === null ? null : formatAmount(price))),
+        );
+      }
+      return references.get(key)!;
+    };
     return {
-      offers: page.offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0)),
+      offers: await Promise.all(
+        page.offers.map(async (offer) => ({
+          ...toOfferOut(offer, counts.get(offer.id) ?? 0),
+          ...(offer.priceType === 'float' ? { referencePrice: await referenceFor(offer.asset, offer.fiatCurrency) } : {}),
+        })),
+      ),
       nextCursor: page.nextCursor,
     };
   };
