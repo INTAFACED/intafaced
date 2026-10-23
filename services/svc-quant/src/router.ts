@@ -14,6 +14,11 @@ import {
   quantCompileOutputSchema,
   quantQuickStartOutputSchema,
   quantSignalRulesSchema,
+  quantTemplateDetailSchema,
+  quantTemplateIdSchema,
+  quantTemplateListOutputSchema,
+  quantTemplatePublishInputSchema,
+  quantTemplateVersionSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -34,6 +39,8 @@ import {
   QUANT_DATABASE_URL_UNSET,
   QUANT_DISCLOSURE_UNSET,
   QUANT_SIGNAL_RULES_SANDBOX,
+  QUANT_TEMPLATE_LIST_LIMIT_UNSET,
+  QUANT_TEMPLATE_NOT_FOUND,
   QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
@@ -60,6 +67,9 @@ import {
 } from './errors.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
+import type { TemplateRepository } from './templates/repository.js';
+import { openTemplateRepository } from './templates/open.js';
+import { blankTemplateRules } from './templates/rules.js';
 import { requireSimulatedStamp } from './honesty.js';
 import { claimFromRun } from './marketplace/claim.js';
 import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound, RUN_RESULT_MAX_BYTES } from './runs/limit.js';
@@ -120,7 +130,7 @@ const runOutput = z
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
     const code =
-      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND
+      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND || err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -128,6 +138,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+            err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
             err.code === QUANT_RUN_UNFINISHED ||
             err.code === QUANT_RUN_NOT_SIMULATED ||
             err.code === QUANT_RUN_RESULT_CAP_UNSET ||
@@ -284,6 +295,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly runs?: RunRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly disclosure?: DisclosureRepository;
+  /** Omitted refuses by naming the missing database. Production passes Postgres. */
+  readonly templates?: TemplateRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
 }
@@ -309,6 +322,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
+  const templates = deps.templates ?? openTemplateRepository({}).repository;
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
   async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
@@ -888,6 +902,46 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         ),
     }),
 
+    /** First-party starter templates. Read by any signed-in person; only an operator publishes. */
+    template: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z
+            .object({
+              limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
+              cursor: quantTemplateIdSchema.optional().nullable(),
+              ...accountField,
+            })
+            .optional(),
+        )
+        .output(quantTemplateListOutputSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input?.accountId);
+            if (input?.limit === undefined)
+              throw new QuantError(QUANT_TEMPLATE_LIST_LIMIT_UNSET, 'pass limit; a page size is never invented');
+            const page = await templates.list({ limit: input.limit, cursor: input.cursor ?? null });
+            return { templates: page.templates.map((row) => ({ ...row })), nextCursor: page.nextCursor };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ id: quantTemplateIdSchema, ...accountField }))
+        .output(quantTemplateDetailSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            const versions = await templates.get(input.id);
+            if (!versions) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
+            return { id: input.id, versions: versions.map((row) => ({ ...row })) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     disclosure: router({
       current: publicJurisdictionProcedure('quant', 'fiat')
         .output(quantDisclosureCurrentSchema)
@@ -1052,6 +1106,32 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      template: router({
+        /** The next version of a starter template. Every number stays blank; the row records who, why and when. */
+        publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplatePublishInputSchema)
+          .output(quantTemplateVersionSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.publish', { language: 'none' }, async () => {
+              try {
+                const published = await templates.publish({
+                  id: input.id,
+                  name: input.name,
+                  description: input.description,
+                  rules: blankTemplateRules(input.rules),
+                  releaseNote: input.releaseNote,
+                  reason: input.reason,
+                  publishedBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
+                return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+      }),
 
       disclosure: router({
         publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })

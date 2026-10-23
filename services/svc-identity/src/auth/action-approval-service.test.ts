@@ -50,6 +50,16 @@ describe('ActionApprovalService', () => {
     });
   });
 
+  it('names the two people on an approval without consuming it, and null for none', async () => {
+    const { service } = svc();
+    const pending = await service.propose(A, propose);
+    expect(await service.partiesOf(pending.approvalId)).toEqual({ requesterId: A, approverId: null });
+    await service.approve(B, pending.approvalId, propose.payloadHash);
+    expect(await service.partiesOf(pending.approvalId)).toEqual({ requesterId: A, approverId: B });
+    expect((await service.getForCaller(A, pending.approvalId, { operator: false, founder: false })).status).toBe('APPROVED');
+    expect(await service.partiesOf('missing')).toBeNull();
+  });
+
   it('lets a distinct person approve, then consume once, then refuse replay', async () => {
     const { service } = svc();
     const pending = await service.propose(A, propose);

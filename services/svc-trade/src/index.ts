@@ -30,6 +30,7 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
@@ -152,6 +153,8 @@ import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
+import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
+import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
@@ -166,6 +169,9 @@ registerProcessHooks(
 // Local-test stand-ins (ZZ screening list, SCREENING_FAIL_CLOSED=off, `local-test:` lifecycle
 // records) are refused unless APP_ENV is exactly dev/test. Reads the raw APP_ENV: unset = NOT dev.
 assertNoLocalTestFixtures(process.env);
+// LOCAL TEST tape retime (chart history on a fresh stack): throws here, before any connection, if the flag is on
+// outside explicit dev/test. Off, the route does not exist.
+const localTestTapeRetime = localTestTapeRetimeEnabled(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -780,6 +786,7 @@ app.get('/ready', async (_req, reply) => {
 registerPublicRest(app, {
   markets: (limit) => trade.markets(limit),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  chartOwnerValues: chartOwnerValuesPublicReader(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
@@ -925,6 +932,9 @@ registerMarketLifecycleRoutes(app, {
   store: marketLifecycleStore,
   installRawBody: false,
 });
+if (localTestTapeRetime) {
+  registerLocalTestTapeRoutes(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, sql, installRawBody: false });
+}
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
 registerCopyLeaderFixturesRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

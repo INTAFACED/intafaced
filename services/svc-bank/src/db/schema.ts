@@ -111,6 +111,11 @@ export const spaces = bank.table(
      */
     lockedUntil: tstz('locked_until'),
     archivedAt: tstz('archived_at'),
+    /**
+     * The customer removed this currency from their account (BK-acct-01). Primary spaces only, set only while the
+     * asset holds nothing; a label, never a balance.
+     */
+    removedAt: tstz('removed_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

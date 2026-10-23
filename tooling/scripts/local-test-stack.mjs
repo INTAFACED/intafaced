@@ -999,6 +999,21 @@ function serviceDefs(secrets) {
         LOAN_QUOTE_ASSET_ID: 'USDT',
         TRANSFER_BATCH_SIZE: '1',
         LOAN_SWEEP_BATCH_SIZE: '1',
+        // LOCAL TEST, not owner decisions (BK-acct-01, BK-acct-03, BK-pots-01): blank refuses each by name, so the
+        // J-bank-01 journey can read labelled TEST account terms, add and remove a currency, make spaces up to a TEST
+        // limit and see the account details per currency switched off with rail.bank (no banking partner here).
+        BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
+          tier: 'TEST base tier',
+          version: 'local-test-1',
+          currency: 'USDT',
+          monthlyFee: '0',
+          minimumBalance: '0',
+          overdraftFee: null,
+          included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
+        }),
+        BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
+        BANK_SPACE_LIMIT: '5',
+        BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',

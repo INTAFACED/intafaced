@@ -88,3 +88,45 @@ export const quantStrategyHeadSchema = quantStrategySummarySchema.merge(quantStr
   clientStrategyId: z.string(),
 });
 export type QuantStrategyHead = z.infer<typeof quantStrategyHeadSchema>;
+
+/** A template id: lower-case words joined by dashes, so it reads in a URL and never collides with a strategy id. */
+export const quantTemplateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,47}$/);
+
+/**
+ * One published version of a first-party starter template (AL-editor-03). Its signal rules leave every number blank:
+ * the person fills them in. A release note says what changed in this version.
+ */
+export const quantTemplateVersionSchema = z.object({
+  id: quantTemplateIdSchema,
+  version: z.number().int().positive(),
+  name: z.string(),
+  description: z.string(),
+  rules: quantSignalRulesSchema,
+  releaseNote: z.string(),
+  publishedAt: z.string(),
+});
+export type QuantTemplateVersion = z.infer<typeof quantTemplateVersionSchema>;
+
+/** `template.list`: the newest version of each published template, one page in id order. */
+export const quantTemplateListOutputSchema = z.object({
+  templates: z.array(quantTemplateVersionSchema),
+  nextCursor: z.string().nullable(),
+});
+
+/** `template.get`: every version of one template, newest first. Read only. */
+export const quantTemplateDetailSchema = z.object({
+  id: quantTemplateIdSchema,
+  versions: z.array(quantTemplateVersionSchema).min(1),
+});
+
+/** `ops.template.publish`: an operator publishes the next version, with a reason for the audit row. */
+export const quantTemplatePublishInputSchema = z.object({
+  id: quantTemplateIdSchema,
+  name: z.string().trim().min(1).max(128),
+  description: z.string().trim().min(1).max(1000),
+  rules: quantSignalRulesSchema,
+  releaseNote: z.string().trim().min(1).max(1000),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export type QuantTemplatePublishInput = z.infer<typeof quantTemplatePublishInputSchema>;

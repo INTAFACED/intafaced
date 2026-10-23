@@ -23,6 +23,9 @@ export const LEDGER_DOOR_CALLERS = {
   txById: READERS,
   history: READERS,
   historyPage: READERS,
+  /** The asset and network registry (W-balances-05): read by every service that reads balances. */
+  assetsList: READERS,
+  assetsGet: READERS,
   /** svc-ops reads fee revenue for the venue report and calls no other door. */
   feeRevenue: ['svc-ops'],
   /** svc-ops reads the chain tip for the joint restore and calls no other door. */
