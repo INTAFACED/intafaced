@@ -3,7 +3,9 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
 import {
   assertAcademyVideoUrlGranted,
+  grantAcademyVideoCaptions,
   grantAcademyVideoPlayback,
+  grantAcademyVideoTranscript,
   listAcademyVideos,
   unconfiguredVideoLibrary,
   type VideoLibraryDeps,
@@ -58,6 +60,9 @@ describe('academy stored video — grant and signed URL', () => {
     const items = listAcademyVideos(deps());
     expect(items.length).toBeGreaterThanOrEqual(1);
     expect(items[0]?.slug).toBe('foundations-risk-first');
+    expect(items[0]?.captionsPublished).toBe(false);
+    expect(items[0]?.transcriptPublished).toBe(false);
+    expect(items[0]?.captionsUrl).toBeNull();
     expect(JSON.stringify(items)).not.toMatch(/X-Amz-Signature/);
   });
 
@@ -89,6 +94,48 @@ describe('academy stored video — grant and signed URL', () => {
     }
   });
 
+  it('captions and transcript use the playback gate and return a signed URL', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'none' as const };
+    await expect(
+      grantAcademyVideoCaptions({
+        deps: deps({ gate: { minTier: '', minStake: '' } }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    const captions = await grantAcademyVideoCaptions({
+      deps: deps(),
+      slug: 'foundations-risk-first',
+      caller,
+      spine,
+    });
+    expect(captions.captionsUrl).toContain('X-Amz-Signature=');
+    expect(captions.captionsUrl).not.toBe('captions/risk-first.vtt');
+    expect(captions.grant.startsWith('v1.')).toBe(true);
+    const transcript = await grantAcademyVideoTranscript({
+      deps: deps(),
+      slug: 'foundations-risk-first',
+      caller,
+      spine,
+      transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
+    });
+    expect(transcript.transcriptUrl).toContain('X-Amz-Signature=');
+    expect(transcript.text).toBe('TEST transcript.');
+  });
+
   it('unknown slug is not a grant', async () => {
     await expect(
       grantAcademyVideoPlayback({
@@ -105,6 +152,99 @@ describe('academy stored video — grant and signed URL', () => {
         deps: deps({ gate: { minTier: '', minStake: '' } }),
         slug: 'foundations-risk-first',
         caller: { userId: USER, tier: 'none' },
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+  });
+
+  it('a caller below a published gate is refused captions and transcript', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'none' as const };
+    const gate = { minTier: 'full', minStake: '0' };
+    await expect(
+      grantAcademyVideoCaptions({
+        deps: deps({ gate }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    await expect(
+      grantAcademyVideoTranscript({
+        deps: deps({ gate }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+        transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+  });
+
+  it('a basic caller below a published full gate is refused captions and transcript', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'basic' as const };
+    const gate = { minTier: 'full', minStake: '0' };
+    await expect(grantAcademyVideoCaptions({ deps: deps({ gate }), slug: 'foundations-risk-first', caller, spine })).rejects.toMatchObject({
+      code: 'academy.video_grant_required',
+    });
+    await expect(
+      grantAcademyVideoTranscript({
+        deps: deps({ gate }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+        transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+  });
+
+  it('a full caller below a published stake is refused captions and transcript', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'full' as const };
+    const gate = { minTier: 'full', minStake: '1' };
+    const low = deps({ gate, stakeOf: async () => parseAmount('0') });
+    await expect(grantAcademyVideoCaptions({ deps: low, slug: 'foundations-risk-first', caller, spine })).rejects.toMatchObject({
+      code: 'academy.video_grant_required',
+    });
+    await expect(
+      grantAcademyVideoTranscript({
+        deps: low,
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+        transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
       }),
     ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
   });
