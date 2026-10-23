@@ -99,6 +99,21 @@ describe('ledger.trace procedure', () => {
     await expect(caller.trace({ businessKey: deposit.idempotencyKey })).resolves.toMatchObject({ found: true });
   });
 
+  it('serves a founder sign-in with admin:read and a second factor, and refuses it without one', async () => {
+    const { ledger, deposit } = await seeded();
+    const router = createLedgerRouter(ledger as unknown as LedgerService);
+    await expect(
+      router.createCaller(await ctx(['admin:read'], true)).trace({ businessKey: deposit.idempotencyKey }),
+    ).resolves.toMatchObject({
+      found: true,
+    });
+    await expect(
+      router.createCaller(await ctx(['admin:read'], false)).trace({ businessKey: deposit.idempotencyKey }),
+    ).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
   it('refuses treasury scope without a second factor, a plain ledger reader, and an anonymous caller', async () => {
     const { ledger, deposit } = await seeded();
     const router = createLedgerRouter(ledger as unknown as LedgerService);
