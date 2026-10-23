@@ -72,6 +72,8 @@ import { createWorkItemsRouter } from './work-items.js';
 import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { createSecurityLockRouter } from './security-lock-router.js';
+import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -441,9 +443,15 @@ const actionApprovals = new ActionApprovalService(
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
 const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
+const securityLock = new SecurityLock(sql, env.IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
+await sql`SELECT id FROM account_security_locks LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: account_security_locks is missing — apply drizzle/0072_account_security_locks.sql before starting svc-identity',
   );
 });
 await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
@@ -601,6 +609,7 @@ export const appRouter = mergeRouters(
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
+  createSecurityLockRouter(securityLock, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -643,6 +652,7 @@ const identityRequestContext = createIdentityRequestContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
 selfFreezeLift.useLogger(app.log);
+securityLock.useLogger(app.log);
 account.useLog({
   warn(obj, msg) {
     app.log.warn(obj, msg);
@@ -842,6 +852,26 @@ app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return proof;
+});
+
+/**
+ * The customer security lock (W-withdraw-09), `securityLockSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `locked` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const view = await securityLock.read(userId);
+  if (!view) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return view;
 });
 
 /**
