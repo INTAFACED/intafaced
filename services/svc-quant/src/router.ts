@@ -33,6 +33,7 @@ import {
   QUANT_DATABASE_POOL_MAX_UNSET,
   QUANT_DATABASE_URL_UNSET,
   QUANT_DISCLOSURE_UNSET,
+  QUANT_SIGNAL_RULES_SANDBOX,
   QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
@@ -133,6 +134,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_RUN_RESULT_TOO_LARGE ||
             err.code === QUANT_CLAIM_PNL_UNSET ||
             err.code === QUANT_DISCLOSURE_UNSET ||
+            err.code === QUANT_SIGNAL_RULES_SANDBOX ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -553,6 +555,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               const accountId = accountOf(ctx, input.accountId);
               const found = await strategies.get({ accountId, id: input.id });
               if (!found) missingStrategy();
+              // Signal rules are data for the bar engine; their generated source is a view and names helpers the
+              // sandbox does not have, so it is never run here.
+              if (found.modules) {
+                throw new QuantError(QUANT_SIGNAL_RULES_SANDBOX, 'signal rules run on bars in a backtest, not in the sandbox');
+              }
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               return await trackRun(
                 runs,

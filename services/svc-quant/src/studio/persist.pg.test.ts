@@ -285,6 +285,24 @@ describe('paper strategies survive a new connection to the same database', () =>
         draft: { ...draft('neither'), blocks: [] },
       }),
     ).rejects.toThrow(/strategy_versions_rules_ck/);
+    // The database refuses rules the service would refuse, even when a key is missing entirely.
+    for (const modules of ['{}', JSON.stringify({ ...compiled.rules, sizing: { kind: 'quantity', value: '0' } })]) {
+      await expect(
+        sql.unsafe(
+          `INSERT INTO "${SCHEMA}".strategy_versions (strategy_id, version, name, language, source, cash, blocks, risk,
+             environment, kind, claim_label, live, simulated, created_at, modules)
+           SELECT strategy_id, 99, name, language, source, cash, '[]'::jsonb, risk, environment, kind, claim_label, live,
+             simulated, created_at, $1::jsonb
+           FROM "${SCHEMA}".strategy_versions WHERE strategy_id = $2 AND version = 1`,
+          [modules, saved.id],
+        ),
+      ).rejects.toThrow(/strategy_versions_rules_ck/);
+    }
+    // The reversal refuses while a version holds signal rules, rather than drop them.
+    const down = readFileSync(join(SERVICE, 'drizzle/0003_quant_signal_rules.down.sql'), 'utf8')
+      .replaceAll('"quant"', `"${SCHEMA}"`)
+      .replaceAll("'quant'", `'${SCHEMA}'`);
+    await expect(sql.unsafe(down)).rejects.toThrow(/quant\.signal_rules_present/);
     await repo.softDelete({ accountId: ACCOUNT_A, id: saved.id, idempotencyKey: 'idem-delete-signal' });
   });
 });

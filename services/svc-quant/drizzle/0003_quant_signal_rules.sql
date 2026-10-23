@@ -15,13 +15,17 @@ ALTER TABLE "quant"."strategy_versions" ADD CONSTRAINT "strategy_versions_rules_
   jsonb_typeof("blocks") = 'array'
   AND (
     ("modules" IS NULL AND jsonb_array_length("blocks") >= 1)
-    OR (
+    -- COALESCE: a missing key reads NULL, and a NULL check would pass. Bounds match the service (1 to 1000 bars).
+    OR COALESCE(
       "modules" IS NOT NULL
       AND jsonb_typeof("modules") = 'object'
       AND jsonb_array_length("blocks") = 0
-      AND ("modules"->'signal'->>'fast') ~ '^[1-9][0-9]*$'
-      AND ("modules"->'signal'->>'slow') ~ '^[1-9][0-9]*$'
+      AND ("modules"->>'symbol') <> ''
+      AND ("modules"->'signal'->>'fast') ~ '^[1-9][0-9]{0,3}$'
+      AND ("modules"->'signal'->>'slow') ~ '^[1-9][0-9]{0,3}$'
       AND ("modules"->'sizing'->>'value') ~ '^[0-9]+(\.[0-9]{1,18})?$'
+      AND ("modules"->'sizing'->>'value')::numeric > 0,
+      false
     )
   )
 );

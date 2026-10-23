@@ -50,7 +50,12 @@ function positiveDecimal(name: string, raw: string, max: string | null): string 
   const text = raw.trim();
   if (!text) return null;
   if (!DECIMAL.test(text)) throw new QuantError('quant.params_invalid', `${name} must be a decimal string`);
-  const value = parseAmount(text);
+  let value: bigint;
+  try {
+    value = parseAmount(text);
+  } catch {
+    outOfRange(name, 'is larger than an amount can be');
+  }
   if (value <= 0n) outOfRange(name, 'must be more than 0');
   if (max !== null && value > parseAmount(max)) outOfRange(name, `must be at most ${max}`);
   return text;

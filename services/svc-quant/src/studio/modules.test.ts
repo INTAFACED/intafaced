@@ -78,7 +78,12 @@ describe('signal rules compiler', () => {
     expect(() => compileSignalRules(with_((r) => ({ ...r, exit: { stopLossPercent: '150', takeProfitPercent: '' } })))).toThrow(
       /quant\.param_out_of_range — exit\.stopLossPercent must be at most 100/,
     );
-    expect(() => compileSignalRules(with_((r) => ({ ...r, signal: { ...r.signal, fast: '2.5' } })))).toThrow(/quant\.params_invalid/);
+    expect(() => compileSignalRules(with_((r) => ({ ...r, signal: { ...r.signal, fast: '2.5' } })))).toThrow(
+      /quant\.params_invalid — signal\.fast must be a whole number of bars/,
+    );
+    expect(() => compileSignalRules(with_((r) => ({ ...r, exit: { stopLossPercent: '', takeProfitPercent: '1'.repeat(39) } })))).toThrow(
+      /quant\.param_out_of_range — exit\.takeProfitPercent is larger than an amount can be/,
+    );
   });
 
   it('generates the same source for the same rules, with exits only when set', () => {
@@ -156,5 +161,9 @@ describe('studio with signal rules', () => {
     });
     expect(revised.version).toBe(2);
     expect(revised.source).toContain('ema(closes, 10)');
+    // The generated source is a view: the sandbox never runs it.
+    await expect(a.studio.run({ id: saved.id, idempotencyKey: 'studio.run:cross', environment: 'paper' })).rejects.toThrow(
+      /quant\.signal_rules_sandbox/,
+    );
   });
 });

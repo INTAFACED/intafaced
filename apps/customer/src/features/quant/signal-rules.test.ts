@@ -29,6 +29,11 @@ describe('signal rules in the builder', () => {
       detail: 'must be at most 100',
     });
     expect(ruleRefusal('quant.sizing_rule_unset — sizing.value is blank; the rule never picks a size for you')?.kind).toBe('sizingUnset');
+    expect(ruleRefusal('quant.params_invalid — signal.fast must be a whole number of bars')).toEqual({
+      kind: 'invalid',
+      input: 'signal.fast',
+      detail: 'must be a whole number of bars',
+    });
     expect(ruleRefusal('quant.param_unset — somethingElse is blank')).toBeNull();
     expect(ruleRefusal('quant.cash_unset — cash is unset')).toBeNull();
   });

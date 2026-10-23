@@ -5,7 +5,8 @@ import { signedDecimalSchema } from '../../shared/money';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useApi } from '../session/session';
 import { studioCopy } from './studio-copy';
-import { signalRulesFilled, trimSignalRules } from './signal-rules';
+import { useRuleWords } from './SignalBuilder';
+import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
 import { fingerprint, saveKey, type StudioLink, type StudioRules } from './studio-save';
 
 /** Whether the form holds everything a save needs; the service still checks each rule and refuses by name. */
@@ -43,6 +44,9 @@ export function StudioSave({
   const current = fingerprint(rules);
   const unchanged = link.saved === current;
   const ready = savable(rules);
+  // A save refused for one signal-rule input names that input, as Build source does.
+  const { refusalText } = useRuleWords();
+  const refusal = failure ? ruleRefusal(failure.message) : null;
 
   async function save() {
     if (busy || unchanged || !ready) return;
@@ -83,7 +87,13 @@ export function StudioSave({
               : t('notSaved')}
       </p>
       {busy && <Loading label={t('saving')} />}
-      {failure && <Failure result={failure} retry={() => void save()} />}
+      {failure && refusal ? (
+        <p role="alert" className="error-text" data-testid="quant-save-refusal">
+          {refusalText(refusal)}
+        </p>
+      ) : (
+        failure && <Failure result={failure} retry={() => void save()} />
+      )}
     </div>
   );
 }

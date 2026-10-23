@@ -28,6 +28,7 @@ const en = {
   staleSource: 'The rules changed since this source was built. Build again to see the source for the current rules.',
   unset: 'Fill in {input} first. Nothing ran.',
   outOfRange: '{input} is outside its range: {detail}. Nothing ran.',
+  invalid: '{input} is not valid: it {detail}. Nothing ran.',
   sizingUnset: 'Fill in {input} first: Studio never picks a size for you. Nothing ran.',
 } as const;
 

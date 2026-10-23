@@ -9,6 +9,24 @@ import { ruleRefusal, trimSignalRules, type RuleInputName, type RuleRefusal } fr
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
+/** Each input's label, and the words for a refusal that names one input. */
+export function useRuleWords() {
+  const { t } = builderCopy.useCopy();
+  const label: Record<RuleInputName, string> = {
+    symbol: t('symbol'),
+    'signal.fast': t('fast'),
+    'signal.slow': t('slow'),
+    'sizing.value': t('sizingValue'),
+    'exit.stopLossPercent': t('stopLoss'),
+    'exit.takeProfitPercent': t('takeProfit'),
+  };
+  const refusalText = (refusal: RuleRefusal) =>
+    refusal.kind === 'outOfRange' || refusal.kind === 'invalid'
+      ? t(refusal.kind, { input: label[refusal.input], detail: refusal.detail })
+      : t(refusal.kind, { input: label[refusal.input] });
+  return { label, refusalText };
+}
+
 /**
  * The no-code builder (AL-editor-02): typed inputs for one moving-average cross with a sizing rule and optional exits.
  * Build source asks the service to check the inputs and write the source for them; a blank or out-of-range input
@@ -22,20 +40,8 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
   const [refusal, setRefusal] = useState<RuleRefusal | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   const current = JSON.stringify(trimSignalRules(value));
-  const label: Record<RuleInputName, string> = {
-    symbol: t('symbol'),
-    'signal.fast': t('fast'),
-    'signal.slow': t('slow'),
-    'sizing.value': t('sizingValue'),
-    'exit.stopLossPercent': t('stopLoss'),
-    'exit.takeProfitPercent': t('takeProfit'),
-  };
-  const errorFor = (input: RuleInputName) =>
-    refusal?.input === input
-      ? refusal.kind === 'outOfRange'
-        ? t('outOfRange', { input: label[input], detail: refusal.detail })
-        : t(refusal.kind, { input: label[input] })
-      : undefined;
+  const { label, refusalText } = useRuleWords();
+  const errorFor = (input: RuleInputName) => (refusal?.input === input ? refusalText(refusal) : undefined);
   const set = (patch: (rules: QuantSignalRules) => QuantSignalRules) => onChange(patch(value));
 
   async function build() {

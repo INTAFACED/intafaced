@@ -32,13 +32,19 @@ const INPUT_NAMES: readonly RuleInputName[] = [
 ];
 
 export type RuleRefusal = {
-  kind: 'unset' | 'outOfRange' | 'sizingUnset';
+  kind: 'unset' | 'outOfRange' | 'sizingUnset' | 'invalid';
   input: RuleInputName;
   /** The service's own words for the range, after the input name. */
   detail: string;
 };
 
-const REFUSAL = /quant\.(param_unset|param_out_of_range|sizing_rule_unset) — ([a-zA-Z.]+) (.*)$/;
+const REFUSAL = /quant\.(param_unset|param_out_of_range|sizing_rule_unset|params_invalid) — ([a-zA-Z.]+) (.*)$/;
+const KINDS = {
+  param_unset: 'unset',
+  param_out_of_range: 'outOfRange',
+  sizing_rule_unset: 'sizingUnset',
+  params_invalid: 'invalid',
+} as const;
 
 /** Reads which input a builder refusal names. Anything else is not a builder refusal and returns null. */
 export function ruleRefusal(message: string): RuleRefusal | null {
@@ -46,6 +52,5 @@ export function ruleRefusal(message: string): RuleRefusal | null {
   if (!match) return null;
   const input = INPUT_NAMES.find((name) => name === match[2]);
   if (!input) return null;
-  const kind = match[1] === 'param_unset' ? 'unset' : match[1] === 'sizing_rule_unset' ? 'sizingUnset' : 'outOfRange';
-  return { kind, input, detail: match[3]!.trim() };
+  return { kind: KINDS[match[1] as keyof typeof KINDS], input, detail: match[3]!.trim() };
 }
