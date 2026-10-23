@@ -20,6 +20,8 @@ const LIMITS: AlertLimits = {
   triggerLogDays: null,
   maxActivePrice: 20,
   repeatFrequencies: [],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 
 const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): PriceAlert => ({
@@ -41,6 +43,9 @@ const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): 
   updatedAt: NOW,
   frequency: 'once',
   fireCount: 0,
+  stopReason: null,
+  burstStartedAt: null,
+  burstCount: 0,
   lastFiredAt: null,
   ...patch,
 });
