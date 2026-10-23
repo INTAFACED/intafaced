@@ -553,10 +553,16 @@ function hasRawStopPx(body: unknown): boolean {
 
 /** A stop-limit rests as a limit; its stored trigger turns the wire order back into the stop-limit the caller placed. */
 async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(orders.map((o) => o.id)) : null;
+  const ids = orders.map((o) => o.id);
+  const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(ids) : null;
+  const fired = deps.stopTriggers && triggers && triggers.size > 0 ? await deps.stopTriggers.readFired(ids) : null;
   return <W extends { type: string; stopPrice: string | null }>(order: OrderRecord, wire: W): W => {
     const trigger = triggers?.get(order.id);
-    return trigger ? { ...wire, type: 'stop_limit', stopPrice: trigger } : wire;
+    if (!trigger) return wire;
+    // `triggered`: when the stop fired and the price that reached it; null while it waits (or if no record was kept).
+    const when = fired?.get(order.id);
+    const triggered = when ? { at: when.at, by: when.by, referencePrice: when.referencePrice } : null;
+    return { ...wire, type: 'stop_limit', stopPrice: trigger, triggered };
   };
 }
 
