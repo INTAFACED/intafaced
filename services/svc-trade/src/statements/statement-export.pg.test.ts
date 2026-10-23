@@ -202,8 +202,8 @@ describe('statement export', () => {
     const again = await exports.request(principal(ALICE), { from: FROM, to: TO, requestKey: 'stmt-2026-10-01' });
     expect(again).toEqual(job);
     expect(calls.n).toBe(1);
-    const [{ n }] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.statement_exports`;
-    expect(n).toBe(1);
+    const [count] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM trade.statement_exports`;
+    expect(count?.n).toBe(1);
   });
 
   it('refuses the same key for another range, a range not over yet, a backwards or overlong range, and a malformed key', async () => {

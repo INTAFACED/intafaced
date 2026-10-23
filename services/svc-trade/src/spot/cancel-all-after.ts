@@ -113,7 +113,9 @@ async function read(host: Host, principal: Principal): Promise<ArmedCountdown> {
   `;
   const row = rows[0];
   // A deadline already past stays armed until the sweep has cancelled and dropped it: the orders are being cancelled.
-  return row ? { armed: true, timeoutSec: Number(row.timeout_sec), deadline: new Date(row.deadline_at) } : { armed: false, timeoutSec: 0, deadline: null };
+  return row
+    ? { armed: true, timeoutSec: Number(row.timeout_sec), deadline: new Date(row.deadline_at) }
+    : { armed: false, timeoutSec: 0, deadline: null };
 }
 
 async function sweep(host: Host): Promise<CancelAllAfterSweep> {
