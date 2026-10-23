@@ -56,7 +56,13 @@ import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { DEPTH_UNKNOWN, FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
 import { tierCrossing, type RiskTierCrossing } from './risk-tier-confirm.js';
-import { openInterestRoom, openInterestUnsetRefusal, type OpenInterestLimits, type OpenInterestRoom } from './open-interest-limits.js';
+import {
+  openInterestRefusal,
+  openInterestRoom,
+  openInterestUnsetRefusal,
+  type OpenInterestLimits,
+  type OpenInterestRoom,
+} from './open-interest-limits.js';
 import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
@@ -475,8 +481,8 @@ export class PositionService {
   }
 
   /**
-   * The open-interest room this account has on a market (`open-interest-limits.ts`): what every open position and live
-   * opening order commits on the market, and on this account, against the operator's two limits. Either limit blank
+   * The open-interest room this account has on a market (`open-interest-limits.ts`): what every open (or closing)
+   * position and live opening order commits on the market, and on this account, against the operator's two limits. Either limit blank
    * refuses `trade.oi_limit_unset`; unwired (tests that build the service by hand) refuses the same way.
    */
   async openInterestRoom(input: {
@@ -1465,13 +1471,15 @@ export class PositionService {
         symbol: string;
         kind: string;
         status: string;
+        base_asset: string;
         quote_asset: string;
+        lot_size: string | null;
         futures_contract_style: 'perpetual' | 'dated' | null;
         futures_expiry_at: Date | null;
         futures_settlement_fixing: string | null;
       }[]
     >`
-      SELECT id, symbol, kind, status, quote_asset,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
       FROM trade.markets
       WHERE symbol = ${input.symbol}
@@ -1625,6 +1633,18 @@ export class PositionService {
         limitRefusal.code,
         limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
       );
+    // The open-interest limits an opening order through the book answers to (D-margin-05), wherever they are wired.
+    // There are no live orders while opens are at the mark, so the room is what open positions leave.
+    if (this.openInterestLimits) {
+      const room = await this.openInterestRoom({
+        userId: input.userId,
+        marketId: m.id,
+        symbol: m.symbol,
+        lotSize: m.lot_size == null ? null : parseAmount(m.lot_size),
+      });
+      const over = openInterestRefusal(room, input.size, m.base_asset);
+      if (over) throw new FuturesError(over.message, over.code, over.status);
+    }
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },

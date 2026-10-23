@@ -42,6 +42,7 @@ import {
 } from '@intafaced/ui';
 import { dec, fractionDigits, isPositive, str } from '../../../data/decimal';
 import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format';
+import { bpsToRatio } from '../desk/form-logic';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
@@ -62,7 +63,6 @@ import {
   splitPreview,
   sizePlaces,
   tierToConfirm,
-  bpsRate,
   type FormKey,
   type OpenBlock,
   type ReviewBlock,
@@ -387,7 +387,15 @@ export function Ticket(props: TicketProps) {
     if (p.openInterest === undefined) return [];
     const oi = p.openInterest;
     const base = market.base;
-    if (oi === null) return [{ label: t('Open interest room'), value: t('Open interest unset'), hint: t('Open interest unset hint') }];
+    if (oi === null) {
+      // Only a blank limit reads "not published"; a room that could not be read is an unknown figure, named on its line.
+      const unset = p.refusals.some((r) => r.code === 'trade.oi_limit_unset');
+      return [
+        unset
+          ? { label: t('Open interest room'), value: t('Open interest unset'), hint: t('Open interest unset hint') }
+          : { label: t('Open interest room'), value: null },
+      ];
+    }
     return [
       {
         label: t('Open interest room'),
@@ -399,7 +407,7 @@ export function Ticket(props: TicketProps) {
                 cap: fmtAmount(oi.accountCap),
                 limit: fmtAmount(oi.limit),
                 base,
-                pct: fmtPct(bpsRate(oi.shareBps), { signed: false }),
+                pct: fmtPct(bpsToRatio(oi.shareBps), { signed: false }),
               }),
       },
     ];

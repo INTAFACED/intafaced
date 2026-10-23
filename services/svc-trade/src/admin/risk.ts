@@ -106,6 +106,14 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
   }
   const oiLimit = input.oiLimit == null ? input.oiLimit : exactDecimal(input.oiLimit, 'oiLimit');
   const oiShareBps = input.oiShareBps == null ? input.oiShareBps : exactInteger(input.oiShareBps, 'oiShareBps');
+  if (oiLimit != null) {
+    // Read as the order path reads it, so a stored limit is never one the order path cannot read (and takes for blank).
+    try {
+      parseAmount(oiLimit);
+    } catch {
+      throw new TradeOpsError('risk_limit_not_exact', 'oiLimit must be a decimal amount the ledger can hold');
+    }
+  }
   if (oiShareBps != null) {
     const bps = Number(oiShareBps);
     if (!Number.isInteger(bps) || bps < 1 || bps > 10_000) {

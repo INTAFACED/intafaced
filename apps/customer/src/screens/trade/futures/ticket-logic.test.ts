@@ -14,7 +14,6 @@ import {
   sizePlaces,
   splitPreview,
   tierToConfirm,
-  bpsRate,
 } from './ticket-logic';
 
 // TEST figures only: not market data.
@@ -180,15 +179,5 @@ describe('review and open gates', () => {
   });
   it('stops leverage over the published cap', () => {
     expect(openBlock({ ...base, leverage: '25' })).toBe('overCap');
-  });
-});
-
-describe('bpsRate', () => {
-  it('turns basis points into the rate the percent formatter reads', () => {
-    expect(bpsRate(1000)).toBe('0.1');
-    expect(bpsRate(250)).toBe('0.025');
-    expect(bpsRate(5000)).toBe('0.5');
-    expect(bpsRate(10_000)).toBe('1');
-    expect(bpsRate(1)).toBe('0.0001');
   });
 });

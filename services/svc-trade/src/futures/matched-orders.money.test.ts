@@ -2124,6 +2124,23 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await assertBooksAgree();
     });
 
+    it('a limit blanked between the first check and the row check refuses the order and keeps its row, refused', async () => {
+      const positions = positionsWithLimits();
+      const svc = build({
+        openInterest: async (input) => {
+          if (input.excludeOrderId !== undefined) limits = null;
+          return positions.openInterestRoom(input);
+        },
+      });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'oi-blanked' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit_unset', status: 503 });
+      // Refused, so it no longer counts in anyone's open interest, and nothing was held.
+      expect(await liveOrders(ALICE)).toEqual([{ client_order_id: 'oi-blanked', status: 'refused', refusal_code: 'trade.oi_limit_unset' }]);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      await assertBooksAgree();
+    });
+
     describe('through the split door', () => {
       const saved = process.env.TRADE_MAX_ORDER;
       afterEach(() => {

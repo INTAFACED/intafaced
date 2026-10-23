@@ -3,10 +3,11 @@
  *
  * The operator publishes two limits per futures market on its versioned, four-eyes limits row (`admin/risk.ts`): the
  * market's largest open interest in its base asset, and the largest share of that limit one account may hold, in bps.
- * Open interest is counted as the ticker counts it, the sum of open position sizes, and an opening order counts from
- * the moment it is placed by what it can still fill, so live orders cannot together carry the market past its limit:
+ * Open interest is the sum of position sizes, as the ticker counts it, with closing positions still counted until they
+ * close; an opening order counts from the moment it is placed by what it can still fill, so live orders cannot
+ * together carry the market past its limit:
  *
- *   market committed  = every open position's size + every live opening order's unfilled size, on this market
+ *   market committed  = every open or closing position's size + every live opening order's unfilled size, on this market
  *   account committed = the same, for this account only
  *   account cap       = limit x share / 10000
  *

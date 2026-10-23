@@ -77,7 +77,7 @@ import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
 import { unconfirmedTierRefusal, type RiskTierCrossing } from './risk-tier-confirm.js';
-import { openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
+import { OI_LIMIT_UNSET, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
 import { checkInsuranceBound, INSURANCE_UNDERFUNDED, recipeInsuranceAccount } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
@@ -1128,18 +1128,29 @@ export class MatchedFuturesOrders {
 
   /**
    * The same check once the order's row is written, before its hold posts: the row counts from the moment it exists,
-   * so of two opens placed together near a limit the later check sees both and only one can pass. An order over the
-   * limit is refused on its code and its row kept, refused; a read that fails leaves it pending for a retry.
+   * so of two opens placed together near a limit the later check sees both, and at most one passes (when both checks
+   * run after both rows exist, both refuse: the safe way round). An order over the limit, or on a market whose limit
+   * was blanked meanwhile, is refused on its code and its row kept, refused; a read that fails leaves it pending for a
+   * retry, as the haircut does.
    */
   private async refuseOverOpenInterestOnRow(row: OrderRow, market: MarketRow): Promise<void> {
-    const room = await this.deps.openInterest!({
-      userId: row.user_id,
-      marketId: market.id,
-      symbol: market.symbol,
-      lotSize: lotOf(market),
-      excludeOrderId: row.id,
-    });
-    const refusal = openInterestRefusal(room, parseAmount(row.qty), market.base_asset);
+    let refusal: { code: string; message: string; status: number } | null;
+    try {
+      const room = await this.deps.openInterest!({
+        userId: row.user_id,
+        marketId: market.id,
+        symbol: market.symbol,
+        lotSize: lotOf(market),
+        excludeOrderId: row.id,
+      });
+      refusal = openInterestRefusal(room, parseAmount(row.qty), market.base_asset);
+    } catch (err) {
+      // PositionService's FuturesError, matched by code since that module imports this one.
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code !== OI_LIMIT_UNSET) throw err;
+      const { message, status } = err as { message: string; status: number };
+      refusal = { code, message, status };
+    }
     if (!refusal) return;
     await this.deps.sql`
       UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()

@@ -451,7 +451,13 @@ describe('trade operator procedures', () => {
         operationId: `op-${approvalId}`,
       });
     };
-    for (const bad of [{ oiShareBps: '0' }, { oiShareBps: '10001' }, { oiShareBps: '12.5' }, { oiLimit: '-1' }]) {
+    for (const bad of [
+      { oiShareBps: '0' },
+      { oiShareBps: '10001' },
+      { oiShareBps: '12.5' },
+      { oiLimit: '-1' },
+      { oiLimit: `1${'0'.repeat(40)}` },
+    ]) {
       await expect(write({ ...BLANK_LIMITS, oiLimit: '1000', oiShareBps: '1000', ...bad }, '0', 'oi-bad')).rejects.toMatchObject({
         code: 'risk_limit_not_exact',
       });
