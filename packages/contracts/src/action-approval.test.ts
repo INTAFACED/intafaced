@@ -155,6 +155,7 @@ describe('same-person approvals', () => {
       'sub_account_delete',
       'sub_account_edit',
       'anti_phishing_set',
+      'security_lock_unlock',
     ]) {
       expect(isSamePersonActionType(`identity.step_up.${action}`)).toBe(true);
       expect(samePersonTargetService(`identity.step_up.${action}`)).toBe('svc-identity');

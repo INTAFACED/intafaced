@@ -441,6 +441,12 @@ export const features: readonly Feature[] = [
     label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
+      '/academy/learning',
+      '/academy/certificates',
+      '/academy/rooms',
+      '/academy/videos',
+      '/academy/programmes',
+      '/academy/progress',
       '/academy/:slug',
       '/agents',
       '/quant',
@@ -504,8 +510,8 @@ export const features: readonly Feature[] = [
     label: 'Notices, Lab, App, Partner',
     paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
     status: 'blocked',
-    reason: 'No service behind them',
-    unlock: 'per feature',
+    reason: 'No service behind them; what the Lab holds is an owner decision',
+    unlock: 'per feature; the Lab when the owner records what it holds',
     tab: 'public',
   },
   {

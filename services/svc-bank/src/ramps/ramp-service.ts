@@ -37,6 +37,16 @@ import {
   type OfframpQuoteView,
   type OnrampQuoteView,
 } from './customer-ramps.js';
+import {
+  BANK_WALLET_PROOF_VALIDITY_ENV,
+  BANK_WALLET_PROOF_WINDOW_ENV,
+  sqlWalletProofs,
+  startWalletProof,
+  verifyWalletProof,
+  type StartedProof,
+  type WalletProofDeps,
+  type WalletProofStore,
+} from './wallet-ownership.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
@@ -222,6 +232,14 @@ export interface RampServiceOptions {
    * address with `bank.asset_registry_unavailable`; no network is accepted on its looks.
    */
   withdrawNetworks?: WithdrawNetworkSource | null;
+  /** Signed-message wallet proofs (W-withdraw-17). Omit for the Postgres store on `sql`. */
+  walletProofs?: WalletProofStore;
+  /**
+   * Owner-set minutes a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`) and days a verified proof
+   * holds (`BANK_WALLET_PROOF_VALID_DAYS`). Omit to read the env at call time. Blank refuses; never defaulted.
+   */
+  walletProofWindowMinutes?: string;
+  walletProofValidDays?: string;
 }
 
 export class RampService {
@@ -233,6 +251,9 @@ export class RampService {
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
   private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
+  private readonly walletProofs: WalletProofStore;
+  private readonly walletProofWindowMinutes: string | undefined;
+  private readonly walletProofValidDays: string | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -251,6 +272,20 @@ export class RampService {
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
     this.withdrawNetworkSource = options.withdrawNetworks ?? null;
+    this.walletProofs = options.walletProofs ?? sqlWalletProofs(sql);
+    this.walletProofWindowMinutes = options.walletProofWindowMinutes;
+    this.walletProofValidDays = options.walletProofValidDays;
+  }
+
+  private walletProofDeps(): WalletProofDeps {
+    return {
+      destinations: this.destinations,
+      proofs: this.walletProofs,
+      windowRaw: () =>
+        this.walletProofWindowMinutes !== undefined ? this.walletProofWindowMinutes : process.env[BANK_WALLET_PROOF_WINDOW_ENV],
+      validityRaw: () =>
+        this.walletProofValidDays !== undefined ? this.walletProofValidDays : process.env[BANK_WALLET_PROOF_VALIDITY_ENV],
+    };
   }
 
   private customerDeps(): CustomerRampDeps {
@@ -264,6 +299,7 @@ export class RampService {
       destinations: this.destinations,
       networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
+      proofs: this.walletProofs,
     };
   }
 
@@ -326,6 +362,16 @@ export class RampService {
   /** Rename one saved destination. The cooling clock does not restart. */
   renameDestination(input: { userId: string; destinationId: string; label: string }) {
     return renameDestination(this.customerDeps(), input);
+  }
+
+  /** Offer a message to sign that proves the customer controls one of their saved wallets (W-withdraw-17). */
+  startWalletProof(input: { userId: string; destinationId: string }): Promise<StartedProof> {
+    return startWalletProof(this.walletProofDeps(), input);
+  }
+
+  /** Check the signature of an open proof offer: the saved address must have signed it. */
+  verifyWalletProof(input: { userId: string; proofId: string; signature: string }) {
+    return verifyWalletProof(this.walletProofDeps(), input);
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */

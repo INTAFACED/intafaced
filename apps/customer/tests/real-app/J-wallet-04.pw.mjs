@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, journeyState } from './stack.mjs';
@@ -8,7 +9,7 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // "J-wallet-04 #<n>", run in order on one verified TEST account with an authenticator app, because saving and removing
 // an address each ask for a fresh confirmation. The assets and networks offered are the ledger's registry rows the
 // stack's founders publish (`local-test-gates.mjs assets`: TEST USDT and USDC on TEST Ethereum and TEST Base). Not here
-// yet: #5 and #7 (the allowlist, W-withdraw-09), #6 (W-withdraw-17).
+// yet: #5 and #7 (the allowlist, W-withdraw-09).
 const J = 'J-wallet-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -26,6 +27,39 @@ function account() {
 }
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+
+// Two TEST wallet keys, made here from fixed labels so no key text sits in the repo. They hold nothing.
+const testKey = (label) => createHash('sha256').update(`INTAFACED TEST wallet proof: ${label}`).digest('hex');
+const WALLET_KEY = testKey('saved wallet');
+const OTHER_KEY = testKey('another wallet');
+
+async function noble() {
+  const { secp256k1 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/curves/secp256k1.js'));
+  const { keccak_256 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/hashes/sha3.js'));
+  return { secp256k1, keccak_256 };
+}
+
+/** The EVM address of `keyHex`: the last 20 bytes of the keccak hash of its uncompressed public key. */
+async function addressOf(keyHex) {
+  const { secp256k1, keccak_256 } = await noble();
+  const pub = secp256k1.getPublicKey(Buffer.from(keyHex, 'hex'), false);
+  return `0x${Buffer.from(keccak_256(pub.subarray(1)).subarray(12)).toString('hex')}`;
+}
+
+/** What a wallet's `personal_sign` returns for `message` (EIP-191, `r || s || v`), made with the bank's own libraries. */
+async function personalSign(message, keyHex) {
+  const { secp256k1, keccak_256 } = await noble();
+  const body = new TextEncoder().encode(message);
+  const prefix = new TextEncoder().encode(`\x19Ethereum Signed Message:\n${body.length}`);
+  const joined = new Uint8Array(prefix.length + body.length);
+  joined.set(prefix);
+  joined.set(body, prefix.length);
+  const recovered = secp256k1.sign(keccak_256(joined), Buffer.from(keyHex, 'hex'), { prehash: false, format: 'recovered' });
+  const out = new Uint8Array(65);
+  out.set(recovered.subarray(1), 0);
+  out[64] = recovered[0] + 27;
+  return `0x${Buffer.from(out).toString('hex')}`;
+}
 
 /** Signs in with the password and the next authenticator code, and keeps the step so no code is used twice. */
 async function signInWithCode(page) {
@@ -175,4 +209,46 @@ test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone
   }
   await expect(savedRows(page)).toHaveCount(0);
   await expect(page.getByText('You have no saved withdrawal addresses.')).toBeVisible();
+});
+
+test(`${J} #6 proves a private wallet by signing a message: another wallet's signature is refused, its own is proved`, async ({ page }) => {
+  test.setTimeout(180_000);
+  await signInWithCode(page);
+  await page.goto('/uc/withdraw/address');
+  const form = addForm(page);
+  await field(page, 'Label').fill('TEST private wallet');
+  await field(page, 'Asset').selectOption('USDT');
+  await field(page, 'Network').selectOption('ethereum');
+  const wallet = await addressOf(WALLET_KEY);
+  await field(page, 'Address').fill(wallet);
+  await form.getByRole('button', { name: 'Save address' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText('TEST private wallet was saved to your address book.')).toBeVisible();
+
+  const row = savedRows(page).filter({ hasText: 'TEST private wallet' });
+  await row.getByRole('button', { name: 'Prove ownership' }).click();
+  const panel = page.getByTestId('wallet-proof');
+  await expect(panel).toContainText('Signing moves no funds and approves nothing else.');
+  const messageBox = panel.getByTestId('wallet-proof-message');
+  await expect(messageBox).toHaveValue(new RegExp(`^INTAFACED wallet ownership proof\nAddress: ${wallet}\n`));
+  const message = await messageBox.inputValue();
+  // No confirmation code: proving a wallet cannot change where money goes.
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // Signed by another wallet: refused by name, and the same message stays to sign.
+  const signature = panel.getByRole('textbox', { name: 'Signature' });
+  await signature.fill(await personalSign(message, OTHER_KEY));
+  await panel.getByRole('button', { name: 'Check signature' }).click();
+  await expect(panel.getByRole('alert')).toHaveText(
+    `This was signed by a different wallet. Sign the message with the wallet that holds ${wallet.slice(0, 6)}…${wallet.slice(-4)}.`,
+  );
+  await expect(messageBox).toHaveValue(message);
+
+  await signature.fill(await personalSign(message, WALLET_KEY));
+  await panel.getByRole('button', { name: 'Check signature' }).click();
+  await expect(panel.getByRole('status')).toContainText('Ownership proved. It holds until');
+  await page.reload();
+  const proved = savedRows(page).filter({ hasText: 'TEST private wallet' });
+  await expect(proved.getByTestId('address-ownership')).toContainText('Ownership proved · until');
+  await expect(proved.getByRole('button', { name: 'Prove ownership' })).toHaveCount(0);
 });
