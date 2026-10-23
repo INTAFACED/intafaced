@@ -220,4 +220,21 @@ describe('conditional order doors', () => {
     expect(calls).toEqual(['resting']);
     await app.close();
   });
+
+  it('while futures orders go through the book the refusal is not mounted, so the book routes own the path', async () => {
+    const calls: string[] = [];
+    const app = Fastify();
+    registerConditionalOrdersRest(app, { edgeSecret: EDGE_SECRET, serviceName: 'svc-trade', orders: door(calls), restingRefusal: false });
+    app.post(RESTING_ORDERS_PATH, async () => ({ owner: 'book' }));
+    await app.ready();
+    const response = await app.inject({
+      method: 'POST',
+      url: RESTING_ORDERS_PATH,
+      headers: headers(['trade:write']),
+      payload: { clientOrderId: 'rest-1' },
+    });
+    expect(response.json()).toEqual({ owner: 'book' });
+    expect(calls).toEqual([]);
+    await app.close();
+  });
 });

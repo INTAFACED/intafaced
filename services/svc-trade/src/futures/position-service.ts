@@ -431,6 +431,11 @@ export class PositionService {
       lifecycleProof: matchedOrders?.lifecycleProof ?? null,
       assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
       ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
+      // An opening order takes on exposure the same way the at-mark open did, so it answers to the same two doors.
+      assertOpeningAllowed: async (userId) => {
+        this.refuseIfFuturesExposureOff();
+        if (deps.assertAdlDisclosureAcked) await deps.assertAdlDisclosureAcked(userId);
+      },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
     });
@@ -915,6 +920,14 @@ export class PositionService {
   /** `context.region` is the request's edge region, read only by the derivatives gate (see `open`). */
   async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
     return this.matched.place(principal, input, context);
+  }
+
+  /** The caller's own matched futures orders (`MatchedFuturesOrders.listForUser`). */
+  async listMatchedOrders(
+    userId: string,
+    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
+  ) {
+    return this.matched.listForUser(userId, input);
   }
 
   /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */

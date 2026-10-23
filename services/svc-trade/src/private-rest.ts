@@ -44,6 +44,7 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
+import { attachMatchedOrderRoutes, type MatchedOrdersRestDeps } from './futures/matched-orders-rest.js';
 import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
 import { resolveOpenPositionMode } from './futures/account-mode.js';
 import {
@@ -164,6 +165,8 @@ export interface PrivateRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
+  futuresOrders?: MatchedOrdersRestDeps;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
@@ -1203,6 +1206,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return false;
     }
     return true;
+  }
+
+  // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
+  if (deps.futuresOrders) {
+    attachMatchedOrderRoutes(app, deps.futuresOrders, {
+      requirePrincipal,
+      requireTradeJurisdiction,
+      regionOf: (req) => contextFrom(req).region,
+      sendDomainError,
+    });
   }
 
   // ── Static paths first (before :id) ───────────────────────────────────────
