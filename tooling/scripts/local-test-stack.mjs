@@ -940,7 +940,8 @@ function serviceDefs(secrets) {
         // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
         // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
         TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
-        TRADE_MAX_ORDER: '1000000',
+        // 100,000: an order above it is still one the TEST book's depth can mark when split (J-derivatives-02 #5).
+        TRADE_MAX_ORDER: '100000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',
         // LOCAL TEST, not an owner decision (option B, 2026-10-13): realistic retail-exchange commercial values.

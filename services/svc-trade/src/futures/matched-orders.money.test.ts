@@ -1425,10 +1425,10 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
 
     it('an order above the max-order is placed as children keyed :1..N within the cap, and the same request never places twice', async () => {
-      process.env.TRADE_MAX_ORDER = '1000';
+      process.env.TRADE_MAX_ORDER = '1050';
       const svc = build();
       const big = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'split-a' });
-      // One order of 25 at 100 is 2500 against a max-order of 1000.
+      // One order of 25 at 100 is 2500 against a max-order of 1050; children are sized at the band's high edge (105).
       await expect(svc.place(principal(ALICE), big)).rejects.toMatchObject({ code: 'trade.limit_max_order' });
       expect(engine.submits).toHaveLength(0);
 
@@ -1451,8 +1451,20 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(await held(ALICE)).toBe(hold);
     });
 
+    it('the mark rising inside the band between the plan and a child does not refuse that child for size', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      // The plan reads 100; every child's own check reads 104, still inside the 5 percent band.
+      let reads = 0;
+      const svc = build({ markFor: async () => (reads++ === 0 ? A('100') : A('104')) });
+      const out = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('20'), clientOrderId: 'drift' }));
+      expect(out.orders.map((o) => [o.qty, o.markPrice])).toEqual([
+        ['10', '104'],
+        ['10', '104'],
+      ]);
+    });
+
     it('a crash after child 2 of 3: the same request places only child 3', async () => {
-      process.env.TRADE_MAX_ORDER = '1000';
+      process.env.TRADE_MAX_ORDER = '1050';
       const svc = build();
       // What a crashed attempt left behind: the first two children, placed by key.
       await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: 'crash:1' }));
@@ -1465,7 +1477,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
 
     it('children that would not all pass together place none: free balance, max-position', async () => {
-      process.env.TRADE_MAX_ORDER = '1000';
+      process.env.TRADE_MAX_ORDER = '1050';
       const svc = build();
       // 120 at 100 and 10x holds 1200 together; each child of 10 holds about 100, and 1000 is free.
       await expect(
@@ -1481,7 +1493,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
 
     it('a split refuses what it cannot split: reduce-only, a lot over the cap, too many children, no key', async () => {
-      process.env.TRADE_MAX_ORDER = '1000';
+      process.env.TRADE_MAX_ORDER = '1050';
       const svc = build();
       await expect(
         svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'sell', qty: A('25'), reduceOnly: true, clientOrderId: 'ro' })),
@@ -1492,7 +1504,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await expect(
         svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), leverage: A('0'), clientOrderId: 'lev0' })),
       ).rejects.toMatchObject({ code: 'trade.leverage_invalid' });
-      // 1010 at 100 is 101 children of 10: more than one request places.
+      // 1010 is 101 children of 10 (1050 at 105): more than one request places.
       await expect(
         svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1010'), clientOrderId: 'many' })),
       ).rejects.toMatchObject({ code: 'trade.limit_max_order', message: expect.stringContaining('101 orders') });
@@ -1504,7 +1516,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
 
     it('an order within the max-order through the split door is one order under its own key', async () => {
-      process.env.TRADE_MAX_ORDER = '1000';
+      process.env.TRADE_MAX_ORDER = '1050';
       const svc = build();
       const out = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('5'), clientOrderId: 'small' }));
       expect(out).toMatchObject({ parts: 1, orders: [{ clientOrderId: 'small', qty: '5' }] });

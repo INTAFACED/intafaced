@@ -221,8 +221,8 @@ describe('POST /api/v1/positions/preview', () => {
   it('above the max-order the size line refuses and names the split; blank band and max-order refuse their own lines', async () => {
     const app = appWith({ mark: '100', cap: '5', liquidation: '80', maxOrder: 150 });
     const response = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
-    // 2 at 100 is 200 against 150: children of 1.5 (a lot of 0.01) and the rest.
-    expect(response.json()).toMatchObject({ maxOrderNotional: '150', split: { parts: 2, sizes: ['1.5', '0.5'] }, orderable: false });
+    // 2 at 100 is 200 against 150: children sized at the band's high edge (105), 1.42 in lots of 0.01, and the rest.
+    expect(response.json()).toMatchObject({ maxOrderNotional: '150', split: { parts: 2, sizes: ['1.42', '0.58'] }, orderable: false });
     expect(response.json().refusals).toEqual([
       expect.objectContaining({ code: 'trade.limit_max_order', field: 'size', message: expect.stringContaining('2 orders') }),
     ]);

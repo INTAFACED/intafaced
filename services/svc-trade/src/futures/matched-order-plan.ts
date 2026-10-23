@@ -92,20 +92,22 @@ export function marketOpenLimit(side: OrderSide, mark: Amount, band: PriceBand, 
 export const SPLIT_MAX_CHILDREN = 100;
 
 /**
- * An opening order above the owner's max-order notional (valued at the mark) as children of at most the cap each: as
- * many full children as fit, then the rest. Each child is the largest lot multiple whose notional at the mark is
- * within the cap, so none of them is refused for size. Not splittable when one lot is already over the cap
+ * An opening order above the owner's max-order notional as children of at most the cap each: as many full children as
+ * fit, then the rest. Each child is the largest lot multiple whose notional at `sizedAt` is within the cap. The order
+ * path passes the band's high edge around the mark, so a child stays within the cap at its own check unless the mark
+ * moves further than the owner's band before it is placed. Not splittable when one lot is already over the cap
  * (`lot_over_cap`) or when it would take more than `SPLIT_MAX_CHILDREN` children (`too_many_children`).
  */
 export function splitPlan(input: {
   qty: Amount;
-  mark: Amount;
+  /** The price each child's notional is valued at: the band's high edge around the mark on the order path. */
+  sizedAt: Amount;
   maxOrderNotional: Amount;
   lotSize: Amount | null;
   /** The child size an earlier attempt of the same request already used: a retry keeps it, so its keys still match. */
   childSize?: Amount;
 }): { ok: true; parts: Amount[] } | { ok: false; reason: 'lot_over_cap' | 'too_many_children'; children?: bigint } {
-  let child = input.childSize ?? (input.maxOrderNotional * SCALE) / input.mark;
+  let child = input.childSize ?? (input.maxOrderNotional * SCALE) / input.sizedAt;
   if (input.childSize === undefined && input.lotSize !== null && input.lotSize > 0n) child -= child % input.lotSize;
   if (child <= 0n) return { ok: false, reason: 'lot_over_cap' };
   if (input.qty <= child) return { ok: true, parts: [input.qty] };

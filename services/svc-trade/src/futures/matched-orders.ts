@@ -731,13 +731,20 @@ export class MatchedFuturesOrders {
     const maxOrder = resolved.limits.maxOrder;
     if (maxOrder === null) return { parts: 1, orders: [await this.place(principal, input, context)] };
 
+    const band = this.deps.priceBand;
+    if (band === null) {
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    }
     const market = await this.loadMarket(input.symbol);
-    const mark = await this.deps.markFor(market.id, market.symbol, this.deps.now(), input.qty);
+    // The plan's mark sizes the children and prechecks them together; it authorises no size. Each child's own `place`
+    // reads a mark the book's depth backs for that child's size, as any single order does.
+    const mark = await this.deps.markFor(market.id, market.symbol, this.deps.now(), null);
     // A retry plans with the child size its first attempt used, so every key names the same child as before.
     const first = await this.findOrderByClientId(input.userId, input.symbol, `${base}:1`);
+    // Sized at the band's high edge, so a child's own max-order check passes while the mark stays inside the band.
     const plan = splitPlan({
       qty: input.qty,
-      mark,
+      sizedAt: priceBandAround(mark, band).high,
       maxOrderNotional: limitAmount(maxOrder),
       lotSize: market.lot_size == null ? null : parseAmount(market.lot_size),
       ...(first ? { childSize: parseAmount(first.qty) } : {}),
@@ -775,10 +782,6 @@ export class MatchedFuturesOrders {
       });
       if (pretrade) {
         throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
-      }
-      const band = this.deps.priceBand;
-      if (band === null) {
-        refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
       }
       const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
       const rates = await this.openingFeeRates(input.userId);

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
@@ -240,4 +240,109 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   expect(await me.balances()).toEqual(before);
   expect((await me.get('/api/v1/futures/orders?scope=all&limit=10')).body).toEqual([]);
   expect((await me.get('/api/v1/positions')).body).toEqual([]);
+});
+
+test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
+  page,
+}) => {
+  const who = account();
+  const me = await api(who);
+  // The stack's LOCAL TEST owner values (local-test-stack.mjs): max-order 100,000 USDT, band 0.05, slippage cap 50 bps.
+  const MAX_ORDER = 100_000n;
+  const unit = 10n ** 18n;
+  const lot = 10n ** 15n; // 0.001 BTC, the TEST perp's lot
+
+  // A market review first: the slippage cap and the protection price it gives, inside the band.
+  await desk(page);
+  const ticket = page.getByRole('region', { name: 'Order ticket' });
+  await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
+  await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(ticket.getByText('Slippage cap', { exact: true })).toBeVisible();
+  await expect(ticket.getByText('50 bps of the mark')).toBeVisible();
+  await expect(ticket.getByText('Protection price', { exact: true })).toBeVisible();
+  const market = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+  expect(market.status, JSON.stringify(market.body)).toBe(200);
+  expect(market.body).toMatchObject({ type: 'market', slippageCapBps: 50, maxOrderNotional: String(MAX_ORDER), split: null });
+  const mark = toUnits(market.body.markPrice);
+  expect(toUnits(market.body.orderPrice)).toBe(mark + (mark * 50n) / 10_000n);
+  expect(toUnits(market.body.band.low)).toBe(mark - (mark * 5n) / 100n);
+  expect(toUnits(market.body.band.high)).toBe(mark + (mark * 5n) / 100n);
+
+  // A size worth about 1.5 times the max-order, as a long limit at half the mark: outside the band, and over the cap.
+  const size = fromUnits(((MAX_ORDER * 3n * unit * unit) / 2n / mark / lot) * lot);
+  const far = fromUnits((mark / 2n / unit) * unit);
+  fund(who.email, 'USDT', '40000'); // TEST money: the whole order's margin at 5x
+  const before = await me.balances();
+  await page.reload();
+  await expect(ticket.getByRole('button', { name: 'Open long' })).toBeVisible();
+  await ticket.getByRole('group', { name: 'Order type' }).getByRole('button', { name: 'Limit' }).click();
+  await ticket.getByRole('textbox', { name: 'Limit price' }).fill(far);
+  await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
+  await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+  // Refused as asked: the band is named, and so is the cap with the split it offers.
+  const band = ticket.locator('[data-code="trade.futures_price_outside_band"]');
+  await expect(band).toContainText('outside the band');
+  await expect(ticket.locator('[data-code="trade.limit_max_order"]')).toContainText('it can be placed as 2 orders');
+  await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+  const split = ticket.getByRole('region', { name: 'Place as smaller orders' });
+  await expect(split.getByRole('button', { name: 'Place as 2 orders' })).toBeDisabled();
+
+  // With the price correction on, the same review moves the price to the band's low edge and only the cap remains.
+  await ticket.getByRole('switch', { name: 'Move a price outside the band to its edge' }).click();
+  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(ticket.getByText('Price moved to the band', { exact: true })).toBeVisible();
+  await expect(band).toHaveCount(0);
+  await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+  await expect(split).toContainText('This one can go as 2 orders');
+  await split.getByRole('button', { name: 'Place as 2 orders' }).click();
+  const confirm = page.getByRole('alertdialog');
+  await expect(confirm).toContainText('2 orders within the max order value');
+  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures and asks once more.
+  await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  const placed = page.getByRole('heading', { name: 'Placed as 2 orders' });
+  await expect(placed.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+  if (!(await placed.isVisible())) await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  await expect(placed).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('status').filter({ has: placed }).getByRole('listitem')).toHaveCount(2);
+
+  // Two children on the book, keyed by the open's id, each worth no more than the cap, resting at the band's low edge.
+  const open = await me.get('/api/v1/futures/orders?scope=open&limit=10');
+  expect(open.status).toBe(200);
+  const children = open.body.filter((o) => /:[12]$/.test(o.clientOrderId ?? ''));
+  expect(children, JSON.stringify(open.body)).toHaveLength(2);
+  const base = children[0].clientOrderId.replace(/:\d$/, '');
+  expect(children.map((o) => o.clientOrderId).sort()).toEqual([`${base}:1`, `${base}:2`]);
+  expect(children.reduce((sum, o) => sum + toUnits(o.qty), 0n)).toBe(toUnits(size));
+  for (const child of children) {
+    expect(child).toMatchObject({ side: 'buy', type: 'limit', status: 'open', reduceOnly: false });
+    expect(child.limitPrice).toBe(child.bandLow);
+    expect((toUnits(child.qty) * toUnits(child.markPrice)) / unit <= MAX_ORDER * unit).toBe(true);
+  }
+  const held = children.reduce((sum, o) => sum + toUnits(o.holdAmount), 0n);
+  const during = await me.balances();
+  expect(toUnits(before.USDT.free) - toUnits(during.USDT.free)).toBe(held);
+
+  // The same request again (the screen's request id) places nothing more.
+  const again = await me.post('/api/v1/futures/orders/split', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    amount: size,
+    price: far,
+    priceCorrection: 'adjust',
+    leverage: LEVERAGE,
+    marginMode: 'isolated',
+    clientOrderId: base,
+  });
+  expect(again.status, JSON.stringify(again.body)).toBe(200);
+  expect(again.body.orders.map((o) => o.orderId).sort()).toEqual(children.map((o) => o.orderId).sort());
+  expect((await me.balances()).USDT.free).toBe(during.USDT.free);
+
+  // Cancelled, every hold comes back: nothing was ever filled.
+  for (const child of children) expect((await me.delete(`/api/v1/futures/orders/${child.orderId}`)).status).toBe(200);
+  expect((await me.balances()).USDT.free).toBe(before.USDT.free);
+  // A blank slippage cap refusing every market open (`trade.slippage_cap_unset`) is proved by the service tests
+  // (matched-orders.money.test.ts, position-preview-rest.test.ts), since the stack publishes a TEST cap.
 });

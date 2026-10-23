@@ -294,7 +294,8 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     } else if (orderValue !== null && markAmount !== null && orderValue > limitAmount(maxOrder)) {
       const plan = splitPlan({
         qty: size,
-        mark: markAmount,
+        // As the order path sizes children: at the band's high edge, or at the mark while the band is unset (refused above).
+        sizedAt: band === null ? markAmount : parseAmount(band.high),
         maxOrderNotional: limitAmount(maxOrder),
         lotSize: market.lotSize,
       });

@@ -102,10 +102,10 @@ describe('matched order plan: slippage cap, price correction and split (D-orders
 
   it('an order above the cap splits into full children of the largest lot multiple within the cap, then the rest', () => {
     // 1000 at a mark of 100 is 10 a child; 10 lots of 0.001 fit exactly.
-    const plan = splitPlan({ qty: A('25'), mark: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') });
+    const plan = splitPlan({ qty: A('25'), sizedAt: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') });
     expect(plan).toEqual({ ok: true, parts: [A('10'), A('10'), A('5')] });
     // A mark that does not divide the cap: each child rounds down to a lot, so its notional stays within the cap.
-    const odd = splitPlan({ qty: A('1'), mark: A('300'), maxOrderNotional: A('100'), lotSize: A('0.01') });
+    const odd = splitPlan({ qty: A('1'), sizedAt: A('300'), maxOrderNotional: A('100'), lotSize: A('0.01') });
     expect(odd.ok).toBe(true);
     if (!odd.ok) return;
     expect(odd.parts.slice(0, -1).every((p) => p === A('0.33'))).toBe(true);
@@ -114,21 +114,21 @@ describe('matched order plan: slippage cap, price correction and split (D-orders
   });
 
   it('within the cap is one part; one lot over the cap and too many children are not splittable', () => {
-    expect(splitPlan({ qty: A('5'), mark: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') })).toEqual({
+    expect(splitPlan({ qty: A('5'), sizedAt: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') })).toEqual({
       ok: true,
       parts: [A('5')],
     });
-    expect(splitPlan({ qty: A('5'), mark: A('100'), maxOrderNotional: A('10'), lotSize: A('1') })).toEqual({
+    expect(splitPlan({ qty: A('5'), sizedAt: A('100'), maxOrderNotional: A('10'), lotSize: A('1') })).toEqual({
       ok: false,
       reason: 'lot_over_cap',
     });
-    const many = splitPlan({ qty: A('1000'), mark: A('100'), maxOrderNotional: A('100'), lotSize: A('1') });
+    const many = splitPlan({ qty: A('1000'), sizedAt: A('100'), maxOrderNotional: A('100'), lotSize: A('1') });
     expect(many).toEqual({ ok: false, reason: 'too_many_children', children: 1000n });
-    expect(splitPlan({ qty: A(String(SPLIT_MAX_CHILDREN)), mark: A('100'), maxOrderNotional: A('100'), lotSize: A('1') }).ok).toBe(true);
+    expect(splitPlan({ qty: A(String(SPLIT_MAX_CHILDREN)), sizedAt: A('100'), maxOrderNotional: A('100'), lotSize: A('1') }).ok).toBe(true);
   });
 
   it('a retry keeps the child size its first attempt used, whatever the mark is now', () => {
-    const retry = splitPlan({ qty: A('25'), mark: A('125'), maxOrderNotional: A('1000'), lotSize: A('0.001'), childSize: A('10') });
+    const retry = splitPlan({ qty: A('25'), sizedAt: A('125'), maxOrderNotional: A('1000'), lotSize: A('0.001'), childSize: A('10') });
     expect(retry).toEqual({ ok: true, parts: [A('10'), A('10'), A('5')] });
   });
 
@@ -139,7 +139,7 @@ describe('matched order plan: slippage cap, price correction and split (D-orders
       const qty = (next(10_000n) + 1n) * lot;
       const mark = (next(100_000n) + 1n) * SCALE;
       const cap = (next(1_000_000n) + 1n) * SCALE;
-      const plan = splitPlan({ qty, mark, maxOrderNotional: cap, lotSize: lot });
+      const plan = splitPlan({ qty, sizedAt: mark, maxOrderNotional: cap, lotSize: lot });
       if (!plan.ok) continue;
       expect(plan.parts.reduce((a, b) => a + b, 0n)).toBe(qty);
       if (plan.parts.length > 1) for (const part of plan.parts) expect((part * mark) / SCALE <= cap).toBe(true);
