@@ -264,6 +264,23 @@ is the same answer as JSON. It says `no data` without a fresh reading, and an id
 window (at most 300 s), and `no-cache` while the window is unset; Edge currently replaces it with `no-store`, which is
 shorter still. The customer `/status` page has a "Share this status" panel with the image link and the HTML to paste.
 
+### Read API for status and notices (SP-api-01)
+
+Plain GETs for developers, signed out, through Edge at `/api/notify/v1/...`. Each answers exactly what the site reads
+through tRPC; nothing here writes.
+
+| Route                                                  | Same as           | Answer                                                                                                                                                  |
+| ------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/notices?limit=<n>[&kind=<kind>][&after=<id>]` | `notify.notices`  | `{ notices, next }`: published notices, newest first (ties by id). `next` is the id to pass as `after` for the following page, `null` on the last page. |
+| `GET /v1/notices/:id`                                  | `notify.notice`   | One published notice.                                                                                                                                   |
+| `GET /v1/status`                                       | `statusPage.read` | Components, groups, top-level status, uptime and the incident and maintenance feed.                                                                     |
+
+`limit` is required (there is no default page size) and is capped at 50. `kind` is `announcement`, `maintenance`,
+`incident` or `changelog`. Refusals are `{ code }`: 400 `notify.notices_limit_invalid`, `notify.notice_kind_unknown`,
+`notify.notices_cursor_unknown` (an `after` that is not a published notice of that kind: a page never silently restarts
+from the top); 404 `notify.notice_not_found` (a draft reads the same as an id that never existed); 503
+`notify.notices_unavailable` or `notify.status_page_unavailable`. `notify.notices` takes the same `after`.
+
 ### Status subscriptions (SP-status-04)
 
 `statusPage.subscriptions.*` is signed-out; the signed link is the credential. A visitor subscribes by email to every

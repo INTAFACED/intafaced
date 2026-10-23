@@ -26,6 +26,7 @@ import { PostgresNoticeStore } from './notices/board.pg.js';
 import { SqlStatusPageBook } from './status-page/book.js';
 import { statusBadge, statusBadgeCacheControl, statusBadgeSvg } from './status-page/badge.js';
 import { readStatusPage } from './status-page/router.js';
+import { registerPublicReadApi } from './public-api.js';
 import { openStatusMailer } from './status-page/mailer.js';
 import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
@@ -419,6 +420,9 @@ app.get<{ Querystring: { component?: unknown } }>('/status/badge.svg', async (re
     .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'")
     .send(statusBadgeSvg(badge));
 });
+
+// The documented read API for status and notices (SP-api-01): what the site reads, as plain GETs under /v1.
+registerPublicReadApi(app, { notices, statusPage: () => readStatusPage(statusPageDeps, new Date()) });
 
 app.get('/health', async () => ({
   ok: true,

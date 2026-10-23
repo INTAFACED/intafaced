@@ -13,6 +13,7 @@ import {
   STATUS_COMPONENT_PATTERN,
   type IncidentImpact,
   type IncidentPhase,
+  type NoticeCursor,
   type NoticeKind,
   type NoticeRow,
   type NoticeStore,
@@ -159,21 +160,22 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows[0] ? fromPg(rows[0]) : null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
-    const rows =
-      kind == null
-        ? await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published'
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `
-        : await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published' AND kind = ${kind}
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `;
+  async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
+    // Newest first, ties by id: the page after a cursor is what sorts after it in that same order. The cursor's time is
+    // read back from its row, so the comparison keeps the column's microseconds (a JS Date holds milliseconds).
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published'
+         ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+         ${
+           after
+             ? this.sql`AND (published_at < (SELECT c.published_at FROM notify.notices c WHERE c.id = ${after.id})
+                  OR (published_at = (SELECT c.published_at FROM notify.notices c WHERE c.id = ${after.id}) AND id > ${after.id}))`
+             : this.sql``
+         }
+       ORDER BY published_at DESC, id ASC
+       LIMIT ${limit}
+    `;
     return rows.map(fromPg);
   }
 
