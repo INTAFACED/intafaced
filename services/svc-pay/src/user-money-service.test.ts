@@ -21,6 +21,7 @@ import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { MemoryChain } from './rails/chain-port.js';
+import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 
 /**
  * USER MONEY IN AND OUT — the two paths whose absence made the platform
@@ -225,7 +226,7 @@ describe('svc-pay user money PG-hard', () => {
     expect(await availableOf()).toBe('60');
   });
 
-  it('lost provider ACK then a later refusal retains the held intent and original provider key', async () => {
+  it('lost provider ACK of an accepted send settles once on retry and does not pay again', async () => {
     await deposit();
     let calls = 0;
     const keys: string[] = [];
@@ -236,22 +237,18 @@ describe('svc-pay user money PG-hard', () => {
         await payout(request);
         throw new Error('provider ACK lost');
       }
-      if (calls === 2) {
-        card.failNext('auth.refused', 'credentials changed');
-      }
       return payout(request);
     };
     await expect(withdraw()).rejects.toThrow('provider ACK lost');
-    await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
-    const [held] = await money.listWithdrawals(USER, 50);
-    expect(held).toMatchObject({ status: 'held', attempts: 0, failureCode: null });
-    expect(await holdOf(held!.id, 0)).toBe('40');
-    expect(await availableOf()).toBe('60');
-    // WAL-0163: a later retry of the same requested attempt does not ask the rail again.
-    await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+    const afterHold = await availableOf();
+    const sent = await withdraw();
+    expect(sent.status).toBe('sent');
     expect(keys).toHaveLength(1);
-    expect((await money.getWithdrawal(held!.id)).status).toBe('held');
-    expect(await availableOf()).toBe('60');
+    expect(await availableOf()).toBe(afterHold);
+    const replay = await withdraw();
+    expect(replay).toMatchObject({ id: sent.id, status: 'sent' });
+    expect(keys).toHaveLength(1);
+    expect(await availableOf()).toBe(afterHold);
   });
 
   it('accepted provider receipt resumes settlement after lost ledger ACK without asking the provider again', async () => {
@@ -763,6 +760,7 @@ describe('svc-pay user money PG-hard', () => {
       ]);
       expect(await availableOf()).toBe('60');
 
+      card.queryPayout = async () => ({ status: 'unknown' });
       card.setHealthy(false);
       card.payout = async (request) => {
         payouts += 1;
@@ -1029,6 +1027,166 @@ describe('svc-pay user money PG-hard', () => {
       // Untouched, and nothing to reconcile.
       expect(await availableOf()).toBe('100');
       expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(0);
+    });
+  });
+
+  describe('S38WALLETPAYFIX1 requested withdrawal recovery', () => {
+    const IBAN = 'DE89370400440532013000';
+
+    it('settles a requested attempt once when the rail already accepted it', async () => {
+      await deposit();
+      let calls = 0;
+      const payout = card.payout.bind(card);
+      card.payout = async (request) => {
+        calls += 1;
+        const result = await payout(request);
+        if (calls === 1) throw new Error('provider ACK lost after send');
+        return result;
+      };
+
+      await expect(withdraw({ clientRef: 'w-query-sent' })).rejects.toThrow('provider ACK lost after send');
+      const afterHold = await availableOf();
+      expect(calls).toBe(1);
+      expect((await sql`SELECT status FROM pay.withdrawals WHERE client_ref = 'w-query-sent'`)[0]!.status).toBe('held');
+
+      const sent = await withdraw({ clientRef: 'w-query-sent' });
+      expect(sent.status).toBe('sent');
+      expect(sent.railRef).toBe(`po_${sent.id}:0`);
+      expect(calls).toBe(1);
+      expect(await availableOf()).toBe(afterHold);
+      expect((await sql`SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${sent.id}`)[0]).toMatchObject({
+        outcome: 'accepted',
+        rail_ref: sent.railRef,
+      });
+
+      const replay = await withdraw({ clientRef: 'w-query-sent' });
+      expect(replay).toMatchObject({ id: sent.id, status: 'sent', railRef: sent.railRef });
+      expect(calls).toBe(1);
+      expect(await availableOf()).toBe(afterHold);
+    });
+
+    it('reverses a requested attempt once when the rail never received it', async () => {
+      await deposit();
+      const before = await availableOf();
+      let calls = 0;
+      card.payout = async () => {
+        calls += 1;
+        throw new Error('dropped before the rail stored the payout');
+      };
+
+      await expect(withdraw({ clientRef: 'w-query-missing' })).rejects.toThrow('dropped before the rail stored the payout');
+      expect(calls).toBe(1);
+      expect(await availableOf()).not.toBe(before);
+
+      await expect(withdraw({ clientRef: 'w-query-missing' })).rejects.toMatchObject({
+        code: 'pay.rail_failed',
+        detail: { failureCode: 'rail.not_sent' },
+      });
+      expect(calls).toBe(1);
+      const [row] = await sql<Array<{ id: string; status: string; failure_code: string | null }>>`
+        SELECT id, status, failure_code FROM pay.withdrawals WHERE client_ref = 'w-query-missing'
+      `;
+      expect(row).toMatchObject({ status: 'failed', failure_code: 'rail.not_sent' });
+      expect(await sql`SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${row!.id}`).toMatchObject([
+        { outcome: 'refused' },
+      ]);
+      expect(await availableOf()).toBe(before);
+      expect(await sql`SELECT id FROM pay.withdrawals`).toHaveLength(1);
+    });
+
+    it('leaves the hold when the adapter cannot query a requested attempt', async () => {
+      await deposit();
+      let calls = 0;
+      const payout = card.payout.bind(card);
+      card.payout = async (request) => {
+        calls += 1;
+        await payout(request);
+        throw new Error('provider ACK lost');
+      };
+      card.queryPayout = undefined as unknown as CardSandboxAdapter['queryPayout'];
+
+      await expect(withdraw({ clientRef: 'w-no-query' })).rejects.toThrow('provider ACK lost');
+      await expect(withdraw({ clientRef: 'w-no-query' })).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      expect(calls).toBe(1);
+      const [row] = await sql<Array<{ status: string }>>`
+        SELECT status FROM pay.withdrawals WHERE client_ref = 'w-no-query'
+      `;
+      expect(row!.status).toBe('held');
+      expect(await availableOf()).toBe('60');
+    });
+  });
+
+  describe('S38WALLETPAYFIX1 canonical withdrawal door', () => {
+    const IBAN = 'DE89370400440532013000';
+
+    function liveCapWallet(): WalletPay {
+      return new WalletPay({
+        publish: {
+          ...failClosedWalletPublish('live'),
+          withdrawEnabled: () => true,
+          withdrawalCap: () => '1',
+          coolingHours: 1,
+          storedDestination: () => ({ ref: IBAN, updatedAt: new Date('2020-01-01T00:00:00.000Z') }),
+        },
+        allowlist: { has: () => true },
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        // Replaced by UserMoneyService with the pay.withdrawals sum. Zero must not hide the seeded hold.
+        openHolds: async () => 0n,
+      });
+    }
+
+    it('counts an open pay.withdrawals hold against the published cap', async () => {
+      await deposit();
+      await sql`
+        INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts)
+        VALUES (
+          ${USER}, 'USDT', ${'0.6'}::numeric, 'card-sandbox',
+          ${sql.json({ kind: 'bank', ref: IBAN } as never)},
+          'w-open-hold', 'held', 0
+        )
+      `;
+      const gated = new UserMoneyService(sql, ledger, rails, {
+        operatorCreditRails: ['card-sandbox'],
+        wallet: liveCapWallet(),
+      });
+
+      await expect(
+        gated.withdraw({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('0.5'),
+          rail: 'card-sandbox',
+          destination: { kind: 'bank', ref: IBAN },
+          clientRef: 'w-over-cap',
+        }),
+      ).rejects.toMatchObject({ code: 'pay.wallet_over_cap' });
+
+      expect(await sql`SELECT client_ref FROM pay.withdrawals ORDER BY client_ref`).toEqual([{ client_ref: 'w-open-hold' }]);
+      expect(await availableOf()).toBe('100');
+    });
+
+    it('reads a requested pay.withdrawals attempt for its owner and posts nothing', async () => {
+      const [seed] = await sql<Array<{ id: string }>>`
+        INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts)
+        VALUES (
+          ${USER}, 'USDT', 1, 'card-sandbox',
+          ${sql.json({ kind: 'bank', ref: IBAN } as never)},
+          'w-support', 'held', 0
+        )
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome)
+        VALUES (${seed!.id}, 0, 'requested')
+      `;
+      const journal = ledger.journal().length;
+      const read = await money.supportReadWithdrawal(seed!.id, USER);
+      expect(read.attempts).toEqual([{ outcome: 'requested', railRef: null }]);
+      expect(read.controls).toEqual([]);
+      expect(ledger.journal()).toHaveLength(journal);
+
+      await expect(money.supportReadWithdrawal(seed!.id, OTHER_USER)).rejects.toMatchObject({ code: 'pay.wallet_forbidden' });
+      expect(ledger.journal()).toHaveLength(journal);
     });
   });
 

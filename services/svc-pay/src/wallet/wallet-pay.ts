@@ -1,15 +1,18 @@
-import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, type PayErrorCode } from '../payment-service.js';
 
 /**
  * Customer wallet rules for svc-pay (slice S38).
  *
  * A blank owner figure is a refusal, never a zero. A read does not post.
- * A retry of an attempt still marked requested does not ask the rail again.
+ * A retry of an attempt still marked requested does not ask the rail to pay again.
  *
  * `blocked` is the withdraw feature status published in the customer app
  * (apps/customer/src/app/feature-registry.ts, id `withdraw`, VERIFIED 2026-10-18).
  * `hidden` is the same door: a new withdrawal is unavailable, so it is refused.
+ *
+ * This module does not post. Holds, settles, reverses and deposits go through
+ * UserMoneyService and PayService only.
  */
 export const PUBLISHED_WITHDRAW_FEATURE_STATUS = 'blocked' as const;
 
@@ -22,82 +25,6 @@ export type AttemptOutcome = 'requested' | 'accepted' | 'refused';
 export interface WalletAttempt {
   outcome: AttemptOutcome;
   railRef: string | null;
-}
-
-export interface WalletWithdrawal {
-  id: string;
-  userId: string;
-  assetId: string;
-  network: string;
-  amount: Amount;
-  fee: Amount | null;
-  clientRef: string;
-  destinationRef: string;
-  status: 'pending' | 'held' | 'sent' | 'failed' | 'cancelled' | 'needs-info';
-  holdAmount: Amount;
-  recipient: Record<string, string>;
-  attempts: WalletAttempt[];
-  reversed: boolean;
-}
-
-export interface WalletInbound {
-  id: string;
-  userId: string;
-  assetId: string;
-  network: string;
-  amount: Amount;
-  railRef: string;
-  acceptanceAddress: string | null;
-  status: 'uncredited' | 'credited' | 'refused';
-  reason: string | null;
-}
-
-export interface WalletStore {
-  getWithdrawal(id: string): Promise<WalletWithdrawal | null>;
-  getWithdrawalByClient(userId: string, clientRef: string): Promise<WalletWithdrawal | null>;
-  saveWithdrawal(row: WalletWithdrawal): Promise<void>;
-  listWithdrawals(userId: string, assetId: string): Promise<WalletWithdrawal[]>;
-  getInbound(railRef: string): Promise<WalletInbound | null>;
-  saveInbound(row: WalletInbound): Promise<void>;
-  listInbounds(): Promise<WalletInbound[]>;
-}
-
-export class MemoryWalletStore implements WalletStore {
-  private readonly withdrawals = new Map<string, WalletWithdrawal>();
-  private readonly byClient = new Map<string, string>();
-  private readonly inbounds = new Map<string, WalletInbound>();
-
-  async getWithdrawal(id: string): Promise<WalletWithdrawal | null> {
-    const row = this.withdrawals.get(id);
-    return row ? cloneWithdrawal(row) : null;
-  }
-
-  async getWithdrawalByClient(userId: string, clientRef: string): Promise<WalletWithdrawal | null> {
-    const id = this.byClient.get(clientKey(userId, clientRef));
-    return id ? this.getWithdrawal(id) : null;
-  }
-
-  async saveWithdrawal(row: WalletWithdrawal): Promise<void> {
-    this.withdrawals.set(row.id, cloneWithdrawal(row));
-    this.byClient.set(clientKey(row.userId, row.clientRef), row.id);
-  }
-
-  async listWithdrawals(userId: string, assetId: string): Promise<WalletWithdrawal[]> {
-    return [...this.withdrawals.values()].filter((row) => row.userId === userId && row.assetId === assetId).map(cloneWithdrawal);
-  }
-
-  async getInbound(railRef: string): Promise<WalletInbound | null> {
-    const row = this.inbounds.get(railRef);
-    return row ? { ...row } : null;
-  }
-
-  async saveInbound(row: WalletInbound): Promise<void> {
-    this.inbounds.set(row.railRef, { ...row });
-  }
-
-  async listInbounds(): Promise<WalletInbound[]> {
-    return [...this.inbounds.values()].map((row) => ({ ...row }));
-  }
 }
 
 export interface StoredDestination {
@@ -125,16 +52,6 @@ export interface ChainReader {
   confirm(txHash: string): Promise<'confirmed' | 'down'>;
 }
 
-export interface WalletRail {
-  payout(input: {
-    withdrawalId: string;
-    userId: string;
-    assetId: string;
-    amount: Amount;
-    destinationRef: string;
-  }): Promise<{ ok: true; railRef: string; amount: Amount; assetId: string } | { ok: false }>;
-}
-
 export interface WalletAllowlist {
   has(userId: string, address: string): boolean;
 }
@@ -155,17 +72,19 @@ export interface CustomerWithdrawalInput {
 }
 
 export interface WalletDeps {
-  ledger: LedgerClient;
-  store: WalletStore;
   publish: WalletPublish;
-  chainReader: ChainReader;
-  rail: WalletRail;
   allowlist: WalletAllowlist;
   now: () => Date;
+  /**
+   * Open holds already booked on `pay.withdrawals` for this user and asset.
+   * UserMoneyService binds the sum of `pending` and `held` rows. A blank
+   * implementation is not a zero: the caller must pass the real sum.
+   */
+  openHolds: (userId: string, assetId: string) => Promise<Amount>;
   callbackTimeoutMs?: number;
 }
 
-/** A requested attempt is still in flight. Asking the rail again can send twice. */
+/** A requested attempt is still in flight. Asking the rail to pay again can send twice. */
 export function railRetryWhileRequested(outcome: string | null | undefined): 'unknown' | 'ask' {
   return outcome === 'requested' ? 'unknown' : 'ask';
 }
@@ -209,43 +128,16 @@ export function publishedAmount(raw: string | null | undefined): Amount | null {
   return parseAmount(trimmed);
 }
 
-function clientKey(userId: string, clientRef: string): string {
-  return `${userId}\n${clientRef}`;
-}
-
-function cloneWithdrawal(row: WalletWithdrawal): WalletWithdrawal {
-  return {
-    ...row,
-    recipient: { ...row.recipient },
-    attempts: row.attempts.map((attempt) => ({ ...attempt })),
-  };
-}
-
 export class WalletPay {
-  constructor(private readonly deps: WalletDeps) {}
+  private openHolds: WalletDeps['openHolds'];
 
-  /** SUP-0012, WAL-0162. A read posts nothing and never adds a recall control. */
-  async supportRead(input: { withdrawalId: string; ownerUserId: string }): Promise<{
-    withdrawalId: string;
-    userId: string;
-    label: 'irreversible' | 'unknown';
-    controls: string[];
-    attempts: WalletAttempt[];
-    status: WalletWithdrawal['status'];
-  }> {
-    const row = await this.mustWithdrawal(input.withdrawalId);
-    if (row.userId !== input.ownerUserId) {
-      refuse('This withdrawal belongs to another account', 'pay.wallet_forbidden');
-    }
-    const label = await supportLabel(row.attempts, this.deps.chainReader);
-    return {
-      withdrawalId: row.id,
-      userId: row.userId,
-      label,
-      controls: [],
-      attempts: row.attempts.map((attempt) => ({ ...attempt })),
-      status: row.status,
-    };
+  constructor(private readonly deps: WalletDeps) {
+    this.openHolds = deps.openHolds;
+  }
+
+  /** The canonical door installs the `pay.withdrawals` sum. A wallet-store total is not used. */
+  bindOpenHolds(openHolds: WalletDeps['openHolds']): void {
+    this.openHolds = openHolds;
   }
 
   /** WAL-0079. The estimate is for this address and does not mark a withdrawal sent. */
@@ -264,84 +156,9 @@ export class WalletPay {
   async remainingCap(userId: string, assetId: string): Promise<string> {
     const cap = publishedAmount(this.deps.publish.withdrawalCap(userId, assetId));
     if (cap === null) refuse('The withdrawal cap is not set', 'pay.wallet_cap_unset');
-    const open = await this.openHold(userId, assetId);
+    const open = await this.openHolds(userId, assetId);
     const remaining = cap > open ? cap - open : 0n;
     return formatAmount(remaining);
-  }
-
-  /**
-   * Fresh customer withdrawal. Refusals happen before a hold and before the rail.
-   * The same client ref does not open a second hold.
-   */
-  async submitWithdrawal(input: CustomerWithdrawalInput): Promise<WalletWithdrawal> {
-    const existing = await this.deps.store.getWithdrawalByClient(input.userId, input.clientRef);
-    if (existing) {
-      if (railRetryWhileRequested(existing.attempts[existing.attempts.length - 1]?.outcome) === 'unknown') {
-        refuse('A withdrawal attempt is already requested; the rail is not asked again', 'pay.rail_outcome_unknown', {
-          withdrawalId: existing.id,
-        });
-      }
-      return existing;
-    }
-
-    const destinationRef = await this.assertCustomerWithdrawal(input);
-    const fee = publishedAmount(this.deps.publish.networkFee(input.assetId, input.network, destinationRef));
-    const id = crypto.randomUUID();
-    const row: WalletWithdrawal = {
-      id,
-      userId: input.userId,
-      assetId: input.assetId,
-      network: input.network,
-      amount: input.amount,
-      fee,
-      clientRef: input.clientRef,
-      destinationRef,
-      status: 'pending',
-      holdAmount: 0n,
-      recipient: filledRecipient(input.recipient),
-      attempts: [],
-      reversed: false,
-    };
-    await this.deps.ledger.post(
-      recipes.withdrawHold({
-        userId: row.userId,
-        assetId: row.assetId,
-        amount: row.amount,
-        rail: 'crypto-native',
-        withdrawalId: row.id,
-      }),
-    );
-    row.status = 'held';
-    row.holdAmount = row.amount;
-    row.attempts.push({ outcome: 'requested', railRef: null });
-    await this.deps.store.saveWithdrawal(row);
-
-    const result = await this.deps.rail.payout({
-      withdrawalId: row.id,
-      userId: row.userId,
-      assetId: row.assetId,
-      amount: row.amount,
-      destinationRef,
-    });
-    if (!result.ok || result.amount !== row.amount || result.assetId !== row.assetId || !result.railRef.trim()) {
-      row.attempts[0] = { outcome: 'requested', railRef: null };
-      await this.deps.store.saveWithdrawal(row);
-      refuse('The rail did not accept this withdrawal', 'pay.rail_outcome_unknown', { withdrawalId: row.id });
-    }
-    await this.deps.ledger.post(
-      recipes.withdrawSettle({
-        userId: row.userId,
-        assetId: row.assetId,
-        amount: row.amount,
-        rail: 'crypto-native',
-        withdrawalId: row.id,
-      }),
-    );
-    row.status = 'sent';
-    row.holdAmount = 0n;
-    row.attempts[0] = { outcome: 'accepted', railRef: result.railRef };
-    await this.deps.store.saveWithdrawal(row);
-    return row;
   }
 
   /**
@@ -405,163 +222,6 @@ export class WalletPay {
     return stored.ref;
   }
 
-  /** WAL-0048, WAL-0088. Cancel before an accepted rail receipt. The hold reverses once. */
-  async cancelWithdrawal(input: { withdrawalId: string; userId: string }): Promise<WalletWithdrawal> {
-    const row = await this.mustOwn(input.withdrawalId, input.userId);
-    const latest = row.attempts[row.attempts.length - 1];
-    if (row.status === 'cancelled') return row;
-    if (row.status === 'sent' || latest?.outcome === 'accepted') {
-      refuse('A sent withdrawal cannot be cancelled', 'pay.wallet_cancel_refused');
-    }
-    if (latest?.outcome === 'requested') {
-      refuse('The rail result is unknown, so this withdrawal cannot be cancelled', 'pay.wallet_cancel_refused');
-    }
-    if (row.status !== 'pending' && row.status !== 'held') {
-      refuse('This withdrawal cannot be cancelled', 'pay.wallet_cancel_refused');
-    }
-    if (row.holdAmount > 0n && !row.reversed) {
-      await this.deps.ledger.post(
-        recipes.withdrawReverse({
-          userId: row.userId,
-          assetId: row.assetId,
-          amount: row.holdAmount,
-          rail: 'crypto-native',
-          withdrawalId: row.id,
-        }),
-      );
-      row.holdAmount = 0n;
-      row.reversed = true;
-    }
-    row.status = 'cancelled';
-    await this.deps.store.saveWithdrawal(row);
-    return row;
-  }
-
-  /** WAL-0057. A sent withdrawal is not credited back without the reverse recipe and a chain-return proof. */
-  async adminCreditSent(input: {
-    withdrawalId: string;
-    reason: string | null;
-    chainReturnProof: string | null;
-  }): Promise<WalletWithdrawal> {
-    const row = await this.mustWithdrawal(input.withdrawalId);
-    if (row.status !== 'sent') refuse('Only a sent withdrawal is considered here', 'pay.wallet_sent_credit_refused');
-    const reason = input.reason?.trim() ?? '';
-    const proof = input.chainReturnProof?.trim() ?? '';
-    if (!reason || !proof) {
-      refuse(
-        'A sent withdrawal is not credited back without a recorded reason and a proved chain return',
-        'pay.wallet_sent_credit_refused',
-      );
-    }
-    if (row.reversed) return row;
-    if (row.holdAmount <= 0n) {
-      refuse('The hold is already settled, so this credit is refused', 'pay.wallet_sent_credit_refused');
-    }
-    if (!row.reversed && row.holdAmount > 0n) {
-      await this.deps.ledger.post(
-        recipes.withdrawReverse({
-          userId: row.userId,
-          assetId: row.assetId,
-          amount: row.holdAmount,
-          rail: 'crypto-native',
-          withdrawalId: row.id,
-        }),
-      );
-      row.holdAmount = 0n;
-      row.reversed = true;
-      await this.deps.store.saveWithdrawal(row);
-    }
-    return row;
-  }
-
-  /** WAL-0117. Needs-info keeps the hold and does not settle. Unnamed fields are not stored. */
-  async markNeedsInfo(input: { withdrawalId: string; fields: Record<string, string> }): Promise<WalletWithdrawal> {
-    const row = await this.mustWithdrawal(input.withdrawalId);
-    const allowed = new Set(this.deps.publish.travelRuleFields);
-    for (const key of Object.keys(input.fields)) {
-      if (!allowed.has(key)) refuse(`The owner schema does not name ${key}`, 'pay.wallet_field_unnamed', { field: key });
-    }
-    if (row.status === 'sent') refuse('A sent withdrawal cannot be marked needs-info', 'pay.wallet_needs_info');
-    row.recipient = { ...row.recipient, ...input.fields };
-    row.status = 'needs-info';
-    await this.deps.store.saveWithdrawal(row);
-    return row;
-  }
-
-  async settleWithdrawal(withdrawalId: string): Promise<void> {
-    const row = await this.mustWithdrawal(withdrawalId);
-    if (row.status === 'needs-info') refuse('A needs-info withdrawal is not settled', 'pay.wallet_needs_info');
-    refuse('Settle is refused from this door', 'pay.wallet_needs_info');
-  }
-
-  /**
-   * WAL-0007, WAL-0008, WAL-0155, WAL-0166.
-   * Blank minimum refuses. Below minimum and tier none stay uncredited.
-   * A finalized inbound to an acceptance address credits once, with or without a session.
-   */
-  async deliverInbound(input: {
-    userId: string;
-    assetId: string;
-    network: string;
-    amount: Amount;
-    railRef: string;
-    acceptanceAddress: string | null;
-    finalized: boolean;
-    sessionOpen: boolean;
-  }): Promise<WalletInbound> {
-    // An open session is not required. A finalized inbound still credits while the user is offline.
-    void input.sessionOpen;
-    const existing = await this.deps.store.getInbound(input.railRef);
-    if (existing?.status === 'credited') return existing;
-
-    if (this.deps.publish.kycTier(input.userId) === 'none') {
-      return this.saveUncredited(existing, input, 'kyc-tier-none');
-    }
-
-    const minimum = publishedAmount(this.deps.publish.depositMinimum(input.assetId, input.network));
-    if (minimum === null) {
-      refuse('The owner minimum for this asset and network is not set', 'pay.wallet_minimum_unset');
-    }
-    if (input.amount < minimum) return this.saveUncredited(existing, input, 'below-minimum');
-    if (!input.finalized) return this.saveUncredited(existing, input, 'not-final');
-    const address = input.acceptanceAddress?.trim() ?? '';
-    if (!address || !this.deps.publish.acceptanceAddresses.has(address)) {
-      return this.saveUncredited(existing, input, 'unmatched');
-    }
-
-    await this.deps.ledger.post(
-      recipes.deposit({
-        userId: input.userId,
-        assetId: input.assetId,
-        amount: input.amount,
-        rail: 'crypto-native',
-        railRef: input.railRef,
-      }),
-    );
-    const credited: WalletInbound = {
-      id: existing?.id ?? crypto.randomUUID(),
-      userId: input.userId,
-      assetId: input.assetId,
-      network: input.network,
-      amount: input.amount,
-      railRef: input.railRef,
-      acceptanceAddress: address,
-      status: 'credited',
-      reason: null,
-    };
-    await this.deps.store.saveInbound(credited);
-    return credited;
-  }
-
-  async listUncredited(): Promise<WalletInbound[]> {
-    const rows = await this.deps.store.listInbounds();
-    return rows.filter((row) => row.status === 'uncredited');
-  }
-
-  async available(userId: string, assetId: string): Promise<Amount> {
-    return (await this.deps.ledger.balance(userAvailable(userId, assetId))).amount;
-  }
-
   private assertCooling(stored: StoredDestination): void {
     const hours = this.deps.publish.coolingHours;
     if (hours === null || !Number.isInteger(hours) || hours <= 0) {
@@ -588,53 +248,6 @@ export class WalletPay {
     } finally {
       if (timer) clearTimeout(timer);
     }
-  }
-
-  private async openHold(userId: string, assetId: string): Promise<Amount> {
-    const rows = await this.deps.store.listWithdrawals(userId, assetId);
-    return rows.reduce((sum, row) => {
-      if (row.status === 'cancelled' || row.status === 'sent' || row.status === 'failed') return sum;
-      return sum + row.holdAmount;
-    }, 0n);
-  }
-
-  private async saveUncredited(
-    existing: WalletInbound | null,
-    input: {
-      userId: string;
-      assetId: string;
-      network: string;
-      amount: Amount;
-      railRef: string;
-      acceptanceAddress: string | null;
-    },
-    reason: string,
-  ): Promise<WalletInbound> {
-    const row: WalletInbound = {
-      id: existing?.id ?? crypto.randomUUID(),
-      userId: input.userId,
-      assetId: input.assetId,
-      network: input.network,
-      amount: input.amount,
-      railRef: input.railRef,
-      acceptanceAddress: input.acceptanceAddress,
-      status: 'uncredited',
-      reason,
-    };
-    await this.deps.store.saveInbound(row);
-    return row;
-  }
-
-  private async mustWithdrawal(id: string): Promise<WalletWithdrawal> {
-    const row = await this.deps.store.getWithdrawal(id);
-    if (!row) refuse(`Withdrawal ${id} not found`, 'pay.wallet_not_found');
-    return row;
-  }
-
-  private async mustOwn(id: string, userId: string): Promise<WalletWithdrawal> {
-    const row = await this.mustWithdrawal(id);
-    if (row.userId !== userId) refuse('This withdrawal belongs to another account', 'pay.wallet_forbidden');
-    return row;
   }
 }
 

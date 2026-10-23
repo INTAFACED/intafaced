@@ -483,6 +483,7 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
         }
         return realPayout(instruction);
       };
+      flaky.queryPayout = async () => ({ status: 'unknown' });
       const registry = new RailRegistry([flaky]);
       const seen: string[] = [];
       const money = moneyService({ beforeUserMoneyWithdrawal: async (ctx) => void seen.push(label(ctx.replay)) }, registry);

@@ -49,9 +49,6 @@ export type RefusalKind =
   | 'walletCap'
   | 'walletFields'
   | 'walletAddress'
-  | 'walletCancel'
-  | 'walletReturn'
-  | 'walletDeposit'
   | 'unknown';
 
 /** Exact codes first. */
@@ -156,15 +153,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'pay.wallet_cap_unset': 'walletCap',
   'pay.wallet_over_cap': 'walletCap',
   'pay.wallet_travel_rule': 'walletFields',
-  'pay.wallet_field_unnamed': 'walletFields',
-  'pay.wallet_needs_info': 'walletFields',
   'pay.wallet_share_timeout': 'walletFields',
   'pay.wallet_typed_address': 'walletAddress',
   'pay.wallet_allowlist': 'walletAddress',
   'pay.wallet_destination_rejected': 'walletAddress',
-  'pay.wallet_cancel_refused': 'walletCancel',
-  'pay.wallet_sent_credit_refused': 'walletReturn',
-  'pay.wallet_minimum_unset': 'walletDeposit',
   'pay.wallet_forbidden': 'noPermission',
   'pay.wallet_not_found': 'notFound',
   'pay.wallet_unconfigured': 'tryAgain',

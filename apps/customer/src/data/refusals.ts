@@ -106,18 +106,6 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Use the saved destination',
     body: 'That address was not sent. Nothing was held.',
   },
-  walletCancel: {
-    title: 'This withdrawal cannot be cancelled',
-    body: 'It has already been sent, or the network result is still unknown. The hold was left as it is.',
-  },
-  walletReturn: {
-    title: 'Sent funds were not credited back',
-    body: 'A sent withdrawal is not credited back without a recorded reason and a proved chain return.',
-  },
-  walletDeposit: {
-    title: 'Deposit was not added',
-    body: 'The deposit minimum for this asset and network is not set, so nothing was added to your balance.',
-  },
 };
 
 /** What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). */

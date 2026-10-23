@@ -1061,38 +1061,6 @@ export const merchantStatementLeases = pay.table('merchant_statement_leases', {
   expiresAt: tstz('expires_at').notNull(),
 });
 
-/** An inbound that is recorded and not yet spendable, or credited once. */
-export const walletInbounds = pay.table('wallet_inbounds', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
-  assetId: text('asset_id').notNull(),
-  network: text('network').notNull(),
-  amount: amount('amount').notNull(),
-  railRef: text('rail_ref').notNull(),
-  acceptanceAddress: text('acceptance_address'),
-  status: text('status').notNull(),
-  reason: text('reason'),
-  createdAt: createdAt(),
-});
-
-/** A customer withdrawal whose hold, if any, is in the ledger. */
-export const walletWithdrawals = pay.table('wallet_withdrawals', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
-  assetId: text('asset_id').notNull(),
-  network: text('network').notNull(),
-  amount: amount('amount').notNull(),
-  fee: amount('fee'),
-  clientRef: text('client_ref').notNull(),
-  destinationRef: text('destination_ref').notNull(),
-  status: text('status').notNull(),
-  holdAmount: amount('hold_amount').notNull(),
-  recipient: jsonb('recipient').notNull(),
-  attempts: jsonb('attempts').notNull(),
-  reversed: boolean('reversed').notNull().default(false),
-  createdAt: createdAt(),
-});
-
 export const schema = {
   merchants,
   merchantPayoutDestinations,
@@ -1125,6 +1093,4 @@ export const schema = {
   fraudReviewCases,
   fraudReviewDecisions,
   screeningCases,
-  walletInbounds,
-  walletWithdrawals,
 };
