@@ -201,4 +201,62 @@ test(`${J} #3 runs one strategy five times with different inputs: the variant co
   await room.getByTestId('quant-backtest-run').click();
   await expect(room.getByTestId('quant-bar-result')).toHaveAttribute('data-run-id', runId ?? '');
   await expect(room.getByTestId('quant-variant-count')).toHaveText('Variants tried: 5');
+  run.write({ variants: { strategy, runId } });
+});
+
+const CHECK_NAMES = ['sample_gap', 'variant_count', 'bar_offset', 'bar_type', 'look_ahead', 'repainting'];
+
+test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting findings, each with its evidence; none is hidden`, async ({
+  page,
+}) => {
+  const { window, variants } = run.read();
+  if (!window || !variants) throw new Error(`${J} #3 stored no fifth variant, so this step has no checks to read`);
+  await signIn(page, developer());
+  // The fifth variant's inputs read back #3's stored run, and its Checks tab lists every check the service made.
+  const room = await backtestForm(page, variants.strategy, { ...window, slippage: '5' });
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toHaveAttribute('data-run-id', variants.runId);
+  await result.getByRole('button', { name: 'Checks' }).click();
+  const panel = result.getByTestId('quant-bar-checks');
+  await expect(panel.locator('[data-status]')).toHaveCount(CHECK_NAMES.length);
+  const check = (name) => panel.getByTestId(`quant-check-${name}`);
+  for (const name of CHECK_NAMES) await expect(check(name)).toBeVisible();
+
+  // Overfitting: five variants against the owner's TEST maximum of three warns, with the count as evidence.
+  await expect(check('variant_count')).toHaveAttribute('data-status', 'warning');
+  await expect(check('variant_count')).toHaveAttribute('data-threshold', '3');
+  await expect(check('variant_count')).toHaveAttribute('data-variants', '5');
+  await expect(check('variant_count')).toContainText('Warning');
+  await expect(check('variant_count')).toContainText('Warns above 3.');
+
+  // Overfitting: the in-sample to out-of-sample gap is measured against the TEST maximum of 5 points, from the run's
+  // own two parts, which the verdict card shows too.
+  const gap = check('sample_gap');
+  await expect(gap).toHaveAttribute('data-threshold', '5');
+  await expect(gap).toHaveAttribute('data-status', /^(warning|clear|not_applicable)$/);
+  if ((await gap.getAttribute('data-status')) !== 'not_applicable') {
+    const [is, oos, measured] = await Promise.all(
+      ['data-insamplereturnpercent', 'data-outofsamplereturnpercent', 'data-gappercent'].map((name) => gap.getAttribute(name)),
+    );
+    expect(Number(measured)).toBeCloseTo(Number(is) - Number(oos), 6);
+    await expect(gap).toHaveAttribute('data-status', Number(measured) > 5 ? 'warning' : 'clear');
+  }
+
+  // Sensitivity: the same run from one bar later, made by the service, with how far the return moved.
+  const offset = check('bar_offset');
+  await expect(offset).toHaveAttribute('data-threshold', '1');
+  await expect(offset).toHaveAttribute('data-offsetfrom', new Date(Date.parse(`${window.from}:00Z`) + 60_000).toISOString());
+  const shift = Number(await offset.getAttribute('data-shiftpercent'));
+  await expect(offset).toHaveAttribute('data-status', shift > 1 ? 'warning' : 'clear');
+
+  // Bars, look-ahead and repainting: named, with how the engine rules each out.
+  await expect(check('bar_type')).toHaveAttribute('data-status', 'clear');
+  await expect(check('bar_type')).toContainText('Time bars of 1m, built from the exchange’s own trades.');
+  for (const name of ['look_ahead', 'repainting']) {
+    await expect(check(name)).toHaveAttribute('data-status', 'by_construction');
+    await expect(check(name)).toContainText('Ruled out by design');
+  }
+  await expect(check('look_ahead')).toContainText('A test of the engine proves a bar cannot change anything that happened before it.');
 });

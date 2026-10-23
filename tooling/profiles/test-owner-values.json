@@ -180,6 +180,21 @@
       "service": "quant",
       "value": "PT15M",
       "note": "TEST holdout: the latest 15 minutes of the TEST tape, so a journey can run clear of it and be refused inside it."
+    },
+    "QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT": {
+      "service": "quant",
+      "value": "5",
+      "note": "TEST overfitting threshold: warn when the out-of-sample return falls over 5 percentage points below in sample."
+    },
+    "QUANT_CHECK_MAX_VARIANTS": {
+      "service": "quant",
+      "value": "3",
+      "note": "TEST overfitting threshold: warn from the fourth variant, so a journey that tries five sees the warning."
+    },
+    "QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT": {
+      "service": "quant",
+      "value": "1",
+      "note": "TEST sensitivity threshold: warn when starting one bar later moves the return by over 1 percentage point."
     }
   }
 }
