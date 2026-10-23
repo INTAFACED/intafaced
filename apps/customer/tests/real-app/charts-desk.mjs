@@ -11,11 +11,45 @@ export async function openWorkbench(page) {
   await expect(page.getByRole('toolbar', { name: 'Drawing tools' })).toBeVisible();
 }
 
-/** A point on the chart as a fraction of its width and height, in page pixels. Bars are placed by fraction, not by index. */
+// The centres of the loaded bars, found from the chart itself: the grid cell marks its crosshair time while the pointer is
+// over a bar, so a sweep across the plot gives each bar's horizontal extent. Cached per page: the bars only change when
+// the feed brings new ones, and a journey step never changes them.
+const centres = new WeakMap();
+
+async function barCentres(page, box) {
+  if (centres.has(page)) return centres.get(page);
+  let bars = [];
+  // The bars may still be arriving; sweep again for a few seconds before saying there are none.
+  for (let attempt = 0; attempt < 10 && bars.length < 2; attempt++) {
+    const extent = new Map();
+    const steps = 200;
+    for (let i = 0; i <= steps; i++) {
+      const fx = i / steps;
+      await page.mouse.move(box.x + box.width * fx, box.y + box.height * 0.5);
+      const time = await page.locator('[data-crosshair]').first().getAttribute('data-crosshair');
+      if (!time) continue;
+      const seen = extent.get(time);
+      if (seen) seen.max = fx;
+      else extent.set(time, { min: fx, max: fx });
+    }
+    bars = [...extent.values()].map((r) => (r.min + r.max) / 2).sort((a, b) => a - b);
+    if (bars.length < 2) await page.waitForTimeout(500);
+  }
+  if (bars.length < 2) throw new Error('the chart shows fewer than two loaded bars');
+  centres.set(page, bars);
+  return bars;
+}
+
+/**
+ * A point on the chart: `fx` picks one of the loaded bars (0 is the first, 1 the last, rounded to the nearest bar), so the
+ * point is always on a bar and two points with different fractions are on different bars. `fy` is a fraction of the height.
+ */
 export async function plot(page, fx, fy) {
   const box = await page.locator('.cw .wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
-  return { x: box.x + box.width * fx, y: box.y + box.height * fy };
+  const bars = await barCentres(page, box);
+  const index = Math.round(fx * (bars.length - 1));
+  return { x: box.x + box.width * bars[index], y: box.y + box.height * fy };
 }
 
 export async function clickPlot(page, fx, fy) {
