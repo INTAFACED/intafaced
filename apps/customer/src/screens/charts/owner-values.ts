@@ -2,6 +2,8 @@
  * The charts module's owner values, as the service publishes them (`GET /api/v1/charts/owner-values`, svc-trade). Each
  * value is the owner's to set on the founder page (`/trade-ops/charts/settings`); a blank one is `null`, and every
  * control that needs it refuses with the typed reason below. The front end never holds one of these numbers itself.
+ *
+ * hand-declared-ok: svc-trade's `/charts/owner-values` answer has no browser-safe schema in packages/contracts.
  */
 import { useMemo } from 'react';
 import { z } from 'zod';
