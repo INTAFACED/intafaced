@@ -57,6 +57,7 @@ export * from './home-tiles-preferences.js';
 export * from './tax-lot-book.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
+export * from './protocol-gas.js';
 export * from './protocol-ops.js';
 export * from './protocol-badge.js';
 export * from './pay-merchant-reads.js';
