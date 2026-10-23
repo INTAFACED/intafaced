@@ -31,6 +31,8 @@ import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
 import { IncidentTemplates } from './status-page/templates.js';
 import { SqlTemplateStore } from './status-page/templates.pg.js';
+import { Postmortems } from './status-page/postmortems.js';
+import { SqlPostmortemStore } from './status-page/postmortems.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -338,11 +340,13 @@ const loadVenueIncident = async () =>
 const incidentTemplates = new IncidentTemplates(new SqlTemplateStore(sql), async () =>
   (await statusBook.definition()).components.map((component) => component.id),
 );
+const postmortems = new Postmortems(new SqlPostmortemStore(sql), (id) => notices.incidentState(id), opsApprovals);
 const statusPageDeps = {
   book: statusBook,
   notices,
   subscriptions: statusSubscriptions,
   templates: incidentTemplates,
+  postmortems,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
 export const appRouter = createNotifyRouter(

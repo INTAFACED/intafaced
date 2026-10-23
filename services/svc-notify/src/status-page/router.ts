@@ -19,6 +19,7 @@ import { buildStatusPage, uptimeStart } from './page.js';
 import type { StatusSubscriptions } from './subscriptions.js';
 import { TEMPLATE_ID_PATTERN, TemplateError, type IncidentTemplate, type IncidentTemplates } from './templates.js';
 import { statusSubscriptionsRouter } from './subscriptions-router.js';
+import { POSTMORTEM_BODY_MAX, POSTMORTEMS_LIST_MAX, PostmortemError, type Postmortem, type Postmortems } from './postmortems.js';
 
 export type StatusPageDeps = {
   book: StatusPageBook;
@@ -26,6 +27,8 @@ export type StatusPageDeps = {
   subscriptions?: StatusSubscriptions;
   /** Incident templates (SP-status-02). Absent, the template calls answer `notify.status_page_unavailable`. */
   templates?: IncidentTemplates;
+  /** Incident postmortems (SP-status-02). Absent, the postmortem calls answer `notify.status_page_unavailable`. */
+  postmortems?: Postmortems;
   /** NOTIFY_PUBLIC_ORIGIN: the site address badge and subscription links use. Unset, the founders' read says so. */
   publicOrigin?: string | null;
   now?: () => Date;
@@ -72,6 +75,41 @@ const templateInput = z
   })
   .strict();
 
+const postmortemOutput = z.object({
+  incidentId: z.string(),
+  body: z.string(),
+  version: z.number().int(),
+  status: z.enum(['draft', 'published']),
+  writtenBy: z.string(),
+  writtenAt: z.string(),
+  publishedAt: z.string().nullable(),
+});
+
+/** What a visitor reads: who wrote it stays with the founders. */
+const publishedPostmortemOutput = z.object({
+  incidentId: z.string(),
+  body: z.string(),
+  version: z.number().int(),
+  publishedAt: z.string(),
+});
+
+const postmortemProposalOutput = z.object({
+  actionType: z.string(),
+  targetService: z.literal('svc-notify'),
+  targetId: z.string(),
+  expectedVersion: z.string(),
+  payloadHash: z.string(),
+});
+
+const incidentIdInput = z.object({ incidentId: z.string().uuid() }).strict();
+
+const postmortemWire = (p: Postmortem) => postmortemOutput.parse(p);
+
+function requirePostmortems(postmortems: Postmortems | undefined): Postmortems {
+  if (!postmortems) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
+  return postmortems;
+}
+
 const originOrNull = (origin: string | null | undefined): string | null => {
   const trimmed = origin?.trim().replace(/\/+$/, '') ?? '';
   return trimmed === '' ? null : trimmed;
@@ -117,6 +155,17 @@ export function statusPageRouter(deps?: StatusPageDeps) {
           message: err.code,
           cause: err,
         });
+      if (err instanceof PostmortemError) {
+        const code =
+          err.code === 'status.postmortem_not_found' || err.code === 'status.postmortem_incident_unknown'
+            ? 'NOT_FOUND'
+            : err.code === 'status.postmortem_version_stale'
+              ? 'CONFLICT'
+              : err.code === 'status.postmortem_invalid'
+                ? 'BAD_REQUEST'
+                : 'PRECONDITION_FAILED';
+        throw new TRPCError({ code, message: err.code, cause: err });
+      }
       if (err instanceof StatusPageError) {
         const code =
           err.code === 'status.page_revision_stale' || err.code === 'status.reading_conflict' ? 'CONFLICT' : 'PRECONDITION_FAILED';
@@ -183,6 +232,76 @@ export function statusPageRouter(deps?: StatusPageDeps) {
             await requireTemplates(templates).retire(ctx.principal.userId, input.id);
             return { id: input.id, retired: true as const };
           }),
+        ),
+    }),
+
+    /**
+     * Postmortems (SP-status-02): written by founders on a resolved incident, published with a second founder's approval,
+     * read by anyone once published.
+     */
+    postmortems: router({
+      published: publicProcedure
+        .input(
+          z
+            .object({ limit: z.number().int().min(1).max(POSTMORTEMS_LIST_MAX).default(50) })
+            .strict()
+            .optional(),
+        )
+        .output(z.array(publishedPostmortemOutput))
+        .query(({ input }) =>
+          call(async ({ postmortems }) =>
+            (await requirePostmortems(postmortems).published(input?.limit ?? 50)).map((p) => ({
+              incidentId: p.incidentId,
+              body: p.body,
+              version: p.version,
+              publishedAt: p.publishedAt!,
+            })),
+          ),
+        ),
+      list: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z
+            .object({ limit: z.number().int().min(1).max(POSTMORTEMS_LIST_MAX).default(POSTMORTEMS_LIST_MAX) })
+            .strict()
+            .optional(),
+        )
+        .output(z.array(postmortemOutput))
+        .query(({ input }) =>
+          call(async ({ postmortems }) =>
+            (await requirePostmortems(postmortems).list(input?.limit ?? POSTMORTEMS_LIST_MAX)).map(postmortemWire),
+          ),
+        ),
+      write: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z
+            .object({
+              incidentId: z.string().uuid(),
+              body: z.string().min(1).max(POSTMORTEM_BODY_MAX),
+              expectedVersion: z.number().int().min(0),
+            })
+            .strict(),
+        )
+        .output(postmortemOutput)
+        .mutation(({ ctx, input }) =>
+          call(async ({ postmortems }) => postmortemWire(await requirePostmortems(postmortems).write(ctx.principal.userId, input))),
+        ),
+      proposal: scopedProcedure('admin:write', { module: 'notify' })
+        .input(incidentIdInput)
+        .output(postmortemProposalOutput)
+        .query(({ input }) => call(async ({ postmortems }) => requirePostmortems(postmortems).proposal(input.incidentId))),
+      publish: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z
+            .object({
+              incidentId: z.string().uuid(),
+              approvalId: z.string().min(1).max(128),
+              operationId: z.string().min(1).max(128),
+            })
+            .strict(),
+        )
+        .output(postmortemOutput)
+        .mutation(({ ctx, input }) =>
+          call(async ({ postmortems }) => postmortemWire(await requirePostmortems(postmortems).publish(ctx.principal.userId, input))),
         ),
     }),
 

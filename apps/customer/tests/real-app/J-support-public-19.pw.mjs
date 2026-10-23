@@ -1,7 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { draftNotice, publishAs, publishNotice } from './notices.mjs';
-import { configureStatusPage, incidentTemplates, setIncidentTemplate, statusDefinition, statusRead } from './status-page.mjs';
+import {
+  configureStatusPage,
+  incidentTemplates,
+  publishedPostmortems,
+  setIncidentTemplate,
+  statusDefinition,
+  statusRead,
+} from './status-page.mjs';
 import { ORIGIN, statusMail } from './stack.mjs';
 
 // J-support-public-19, in the running app (docs/roadmap/journeys.json): two operators publish an incident, a maintenance
@@ -500,6 +507,80 @@ test(`${J} #6 subscriber safeguards: a blank rate limit refuses, and an import w
   // One confirmation each, and nothing else until it is opened.
   for (const email of IMPORTED) expect(statusMail(email).map((m) => m.subject)).toEqual(['Confirm your status updates']);
   await page.context().close();
+});
+
+test(`${J} #7 a postmortem: refused on an incident still open, then written, approved and published on the resolved one`, async ({
+  browser,
+}) => {
+  const a = await incidentDesk(browser, 'a');
+  const b = await incidentDesk(browser, 'b');
+  const postmortem = (page, title) => incidentCard(page, title).getByTestId('incident-postmortem');
+  const POSTMORTEM = `TEST A configuration change slowed card payments; it is rolled back and now checked before release (run ${RUN}).`;
+
+  // An incident still open: the form is there, and svc-notify refuses the postmortem until a published update resolves it.
+  const OPEN_TITLE = `${INCIDENT_PREFIX} still open for the postmortem refusal (run ${RUN})`;
+  const open = await publishNotice(
+    await draftNotice({ kind: 'incident', title: OPEN_TITLE, body: 'TEST Looking into it.', minutes: 5, key: `j19-open:${RUN}` }),
+    `j19-open:${RUN}`,
+  );
+  await readAgain(a);
+  await expect(incidentCard(a, OPEN_TITLE)).toHaveAttribute('data-state', 'open');
+  await expect(postmortem(a, OPEN_TITLE)).toContainText('once a published update has resolved the incident');
+  await postmortem(a, OPEN_TITLE).getByRole('textbox').fill('TEST Written too early.');
+  await postmortem(a, OPEN_TITLE).getByRole('button', { name: 'Save postmortem draft' }).click();
+  await expect(outcome(a)).toHaveAttribute('data-code', 'status.postmortem_requires_resolved');
+  await expect(outcome(a)).toContainText('The incident is not resolved yet');
+  await expect(postmortem(a, OPEN_TITLE)).toHaveAttribute('data-status', 'none');
+  await expect(postmortem(a, OPEN_TITLE).getByRole('textbox')).toHaveValue('TEST Written too early.');
+
+  // The incident #4 resolved: written by A, asked for by A, approved by B, published by A.
+  const section = postmortem(a, INCIDENT_TITLE);
+  await expect(section).toHaveAttribute('data-status', 'none');
+  await expect(section).toContainText('No postmortem is written yet.');
+  await section.getByRole('textbox').fill(POSTMORTEM);
+  await section.getByRole('button', { name: 'Save postmortem draft' }).click();
+  await expect(outcome(a)).toContainText('Done: postmortem saved');
+  await expect(section).toHaveAttribute('data-status', 'draft');
+  await expect(section).toContainText('Draft, version 1, last written by you');
+  expect((await publishedPostmortems()).some((p) => p.body === POSTMORTEM)).toBe(false);
+
+  await section.getByRole('button', { name: 'Ask for approval' }).click();
+  await expect(outcome(a)).toContainText('Done: requested');
+  await expect(section.getByTestId('postmortem-approval')).toHaveAttribute('data-status', 'PENDING');
+  await readAgain(b);
+  await postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Approve' }).click();
+  await expect(outcome(b)).toContainText('Done: approved');
+  await expect(postmortem(b, INCIDENT_TITLE)).toContainText('Approved by you. The founder who asked publishes it');
+  await expect(postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+  await readAgain(a);
+  await expect(section.getByTestId('postmortem-approval')).toHaveAttribute('data-status', 'APPROVED');
+  await section.getByRole('button', { name: 'Publish' }).click();
+  await expect(outcome(a)).toContainText('Done: postmortem published');
+  await expect(section).toHaveAttribute('data-status', 'published');
+  await expect(section.getByTestId('postmortem-body')).toHaveText(POSTMORTEM);
+  await expect(section.getByRole('textbox')).toHaveCount(0);
+
+  // Public, under the resolved incident, with no author on it.
+  const resolved = (await statusRead()).incidents.find((i) => i.title === INCIDENT_TITLE);
+  const published = (await publishedPostmortems()).find((p) => p.incidentId === resolved.id);
+  expect(published).toMatchObject({ body: POSTMORTEM, version: 1, publishedAt: expect.any(String) });
+  expect(published).not.toHaveProperty('writtenBy');
+
+  // The open one is resolved again here, so the run leaves nothing open.
+  await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: OPEN_TITLE,
+      body: 'TEST Resolved.',
+      minutes: 5,
+      key: `j19-open-resolve:${RUN}`,
+      parentId: open.id,
+      resolves: true,
+    }),
+    `j19-open-resolve:${RUN}`,
+  );
+  await a.context().close();
+  await b.context().close();
 });
 
 test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per component, on the public site`, async ({ browser }) => {

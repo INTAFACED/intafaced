@@ -408,6 +408,51 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
   },
+  'status.postmortem_requires_resolved': {
+    title: 'The incident is not resolved yet',
+    body: 'A postmortem is the account of an incident that is over, so svc-notify takes one only once a published update has resolved it. Nothing was saved.',
+    next: 'Resolve the incident first, then write the postmortem.',
+  },
+  'status.postmortem_incident_unknown': {
+    title: 'That is not a published incident',
+    body: 'A postmortem goes on the first entry of a published incident. Nothing was saved.',
+    next: 'Read the desk again and pick the incident.',
+  },
+  'status.postmortem_invalid': {
+    title: 'That postmortem is not complete',
+    body: 'A postmortem is 1 to 20000 characters. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'status.postmortem_version_stale': {
+    title: 'The postmortem changed since you read it',
+    body: 'Another founder saved a newer version first, or the version an approval was asked for moved on. Nothing was changed.',
+    next: 'Read the desk again, then edit the version shown.',
+  },
+  'status.postmortem_published': {
+    title: 'The postmortem is published',
+    body: 'A published postmortem is never edited. Nothing was changed.',
+    next: 'Nothing to do.',
+  },
+  'status.postmortem_not_found': {
+    title: 'No postmortem is written for this incident',
+    body: 'There is no draft to ask an approval for or to publish. Nothing was changed.',
+    next: 'Write the postmortem first.',
+  },
+  'status.postmortem_approval_spent': {
+    title: 'That approval cannot publish this postmortem',
+    body: 'It was already spent, or it was asked for another version or wording. Nothing was published.',
+    next: 'Ask for a new approval for the postmortem as it stands now.',
+  },
+  'status.postmortem_approval_unavailable': {
+    title: 'Approvals are not connected',
+    body: 'svc-notify has no connection to identity approvals, so it publishes no postmortem. Nothing was published.',
+    next: 'Connect svc-notify to svc-identity (IDENTITY_URL and the internal service secret).',
+  },
+  'status.postmortem_publish_same_operator': {
+    title: 'The approver cannot also publish',
+    body: 'The founder who approved a postmortem does not publish it. svc-notify spent the approval and published nothing.',
+    next: 'Ask for a new approval; the founder who asked publishes it after another founder approves.',
+  },
   'status.template_invalid': {
     title: 'That template is not complete',
     body: 'A template needs an id (lowercase letters, digits and dashes), a name, a title and a message. Nothing was saved.',

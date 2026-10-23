@@ -559,6 +559,13 @@ export class NoticeBoard {
     return row && row.status === 'published' ? row : null;
   }
 
+  /** An incident as a postmortem needs it: unknown unless it is a published first entry, then open or resolved. */
+  async incidentState(id: string): Promise<'unknown' | 'open' | 'resolved'> {
+    const row = await this.store.findById(id);
+    if (!row || row.kind !== 'incident' || row.parentId !== null || row.status !== 'published') return 'unknown';
+    return (await this.resolvedIncident(id)) ? 'resolved' : 'open';
+  }
+
   async notice(id: string): Promise<NoticeWire> {
     const row = await this.store.findById(id);
     if (!row || row.status !== 'published') throw new NoticeError('notify.notice_not_found');

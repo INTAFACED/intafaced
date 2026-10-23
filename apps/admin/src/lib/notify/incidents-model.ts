@@ -48,8 +48,25 @@ export interface PublishApproval {
   readonly createdAt: string;
 }
 
+/** A postmortem (SP-status-02): one per incident, written once it is resolved, published with a second founder's approval. */
+export interface Postmortem {
+  readonly incidentId: string;
+  readonly body: string;
+  readonly version: number;
+  readonly status: 'draft' | 'published';
+  readonly writtenBy: string;
+  readonly writtenAt: string;
+  readonly publishedAt: string | null;
+}
+
+export const POSTMORTEM_BODY_MAX = 20_000;
+
+/** The identity approval target a postmortem's publish spends; a notice's is the notice id itself. */
+export const postmortemTarget = (incidentId: string) => `postmortem:${incidentId}`;
+
 export interface IncidentDeskView {
   readonly notices: Part<readonly OperatorNotice[]>;
+  readonly postmortems: Part<readonly Postmortem[]>;
   readonly templates: Part<readonly IncidentTemplate[]>;
   readonly components: Part<readonly { readonly id: string; readonly name: string }[]>;
   readonly approvals: Part<readonly PublishApproval[]>;
@@ -144,6 +161,42 @@ export function readTemplates(raw: unknown): IncidentTemplate[] | null {
   return out;
 }
 
+export function readPostmortems(raw: unknown): Postmortem[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: Postmortem[] = [];
+  for (const p of raw) {
+    if (
+      !isRecord(p) ||
+      typeof p.incidentId !== 'string' ||
+      typeof p.body !== 'string' ||
+      !Number.isInteger(p.version) ||
+      (p.status !== 'draft' && p.status !== 'published') ||
+      typeof p.writtenBy !== 'string' ||
+      typeof p.writtenAt !== 'string' ||
+      !strOrNull(p.publishedAt)
+    )
+      return null;
+    out.push({
+      incidentId: p.incidentId,
+      body: p.body,
+      version: p.version as number,
+      status: p.status,
+      writtenBy: p.writtenBy,
+      writtenAt: p.writtenAt,
+      publishedAt: p.publishedAt,
+    });
+  }
+  return out;
+}
+
+/** Checked before it leaves the browser; svc-notify checks it again. */
+export function checkPostmortem(body: string): { ok: true } | { ok: false; why: string } {
+  const trimmed = body.trim();
+  return trimmed === '' || trimmed.length > POSTMORTEM_BODY_MAX
+    ? { ok: false, why: `The postmortem is 1 to ${POSTMORTEM_BODY_MAX} characters.` }
+    : { ok: true };
+}
+
 /** The publish approval part of an identity approval row, or null when it is not one. */
 export function publishApprovalOf(raw: unknown): PublishApproval | null {
   if (!isRecord(raw)) return null;
@@ -190,8 +243,8 @@ export function incidentsFrom(notices: readonly OperatorNotice[]): Incident[] {
  * The approval that decides a draft's publish now: the newest approved one (it can be spent), else the newest pending,
  * else the newest of any. An approved one is never hidden behind a newer request.
  */
-export function approvalFor(noticeId: string, approvals: readonly PublishApproval[]): PublishApproval | null {
-  const mine = approvals.filter((a) => a.targetId === noticeId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export function approvalFor(targetId: string, approvals: readonly PublishApproval[]): PublishApproval | null {
+  const mine = approvals.filter((a) => a.targetId === targetId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return mine.find((a) => a.status === 'APPROVED') ?? mine.find((a) => a.status === 'PENDING') ?? mine[0] ?? null;
 }
 

@@ -2,15 +2,17 @@ import { readAdminJson } from '@/lib/admin-json';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { IMPACTS, checkIncidentDraft, type Impact } from '@/lib/notify/incidents-model';
+import { IMPACTS, checkIncidentDraft, checkPostmortem, type Impact } from '@/lib/notify/incidents-model';
 import {
   approvePublish,
   defineTemplate,
   draftIncident,
   loadIncidentDesk,
   publishIncident,
+  publishPostmortem,
   requestPublish,
   retireTemplate,
+  writePostmortem,
 } from '@/lib/notify/incidents-server';
 
 /**
@@ -22,6 +24,8 @@ import {
  *   POST { op: 'approve', noticeId, approvalId }          a second founder approves the draft as svc-notify holds it now
  *   POST { op: 'publish', noticeId, approvalId, operationId }   svc-notify spends the approval once
  *   POST { op: 'define-template', ...template } / { op: 'retire-template', id }
+ *   POST { op: 'write-postmortem', incidentId, body, expectedVersion }   a postmortem draft on a resolved incident
+ *   POST { op: 'request-postmortem' | 'approve-postmortem' | 'publish-postmortem', incidentId, ... }   as for a draft
  *
  * Founder-only. Each service records the founder from their own token. No money moves.
  */
@@ -100,14 +104,38 @@ export async function POST(request: Request) {
       }
       case 'request':
         if (!UUID.test(str(body.noticeId))) return incomplete('Which draft?');
-        return send(await requestPublish(session, str(body.noticeId)));
+        return send(await requestPublish(session, { kind: 'notice', id: str(body.noticeId) }));
       case 'approve':
         if (!UUID.test(str(body.noticeId)) || !ID.test(str(body.approvalId))) return incomplete('Which draft and which approval?');
-        return send(await approvePublish(session, str(body.noticeId), str(body.approvalId)));
+        return send(await approvePublish(session, { kind: 'notice', id: str(body.noticeId) }, str(body.approvalId)));
       case 'publish':
         if (!UUID.test(str(body.noticeId)) || !ID.test(str(body.approvalId)) || !ID.test(str(body.operationId)))
           return incomplete('Which draft and which approval?');
         return send(await publishIncident(session, str(body.noticeId), str(body.approvalId), str(body.operationId)));
+      case 'write-postmortem': {
+        const expectedVersion = body.expectedVersion;
+        if (!UUID.test(str(body.incidentId)) || !Number.isInteger(expectedVersion) || (expectedVersion as number) < 0)
+          return incomplete('Which incident, and which version was the postmortem written over?');
+        const check = checkPostmortem(str(body.body));
+        if (!check.ok) return incomplete(check.why);
+        return send(
+          await writePostmortem(session, {
+            incidentId: str(body.incidentId),
+            body: str(body.body),
+            expectedVersion: expectedVersion as number,
+          }),
+        );
+      }
+      case 'request-postmortem':
+        if (!UUID.test(str(body.incidentId))) return incomplete('Which incident?');
+        return send(await requestPublish(session, { kind: 'postmortem', incidentId: str(body.incidentId) }));
+      case 'approve-postmortem':
+        if (!UUID.test(str(body.incidentId)) || !ID.test(str(body.approvalId))) return incomplete('Which incident and which approval?');
+        return send(await approvePublish(session, { kind: 'postmortem', incidentId: str(body.incidentId) }, str(body.approvalId)));
+      case 'publish-postmortem':
+        if (!UUID.test(str(body.incidentId)) || !ID.test(str(body.approvalId)) || !ID.test(str(body.operationId)))
+          return incomplete('Which incident and which approval?');
+        return send(await publishPostmortem(session, str(body.incidentId), str(body.approvalId), str(body.operationId)));
       case 'define-template': {
         const impact = impactOf(body.impact);
         const components = componentsOf(body.components);

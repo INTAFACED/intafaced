@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   approvalFor,
   checkIncidentDraft,
+  checkPostmortem,
+  postmortemTarget,
+  readPostmortems,
   incidentsFrom,
   publishApprovalOf,
   readOperatorNotices,
@@ -91,6 +94,36 @@ describe('incident desk model', () => {
     expect(readOperatorNotices([notice({}), { ...notice({}), impact: 'severe' }])).toBeNull();
     expect(readOperatorNotices([notice({})])).toHaveLength(1);
     expect(publishApprovalOf({ approvalId: 'x' })).toBeNull();
+  });
+
+  it('a postmortem list is read whole or not at all, and its approval is found by its own target', () => {
+    const row = {
+      incidentId: 'root',
+      body: 'TEST',
+      version: 2,
+      status: 'draft',
+      writtenBy: 'a',
+      writtenAt: '2026-10-23T11:00:00.000Z',
+      publishedAt: null,
+    };
+    expect(readPostmortems([row])).toEqual([row]);
+    expect(readPostmortems([row, { ...row, status: 'live' }])).toBeNull();
+    expect(readPostmortems({})).toBeNull();
+    expect(checkPostmortem('  ')).toEqual({ ok: false, why: expect.stringContaining('1 to 20000') });
+    expect(checkPostmortem('x'.repeat(20_001)).ok).toBe(false);
+    expect(checkPostmortem('TEST').ok).toBe(true);
+    const base = {
+      operationId: 'o',
+      requesterId: 'a',
+      approverId: null,
+      createdAt: '2026-10-23T10:00:00.000Z',
+    };
+    const approvals = [
+      { ...base, approvalId: 'notice', targetId: 'root', status: 'APPROVED' },
+      { ...base, approvalId: 'pm', targetId: postmortemTarget('root'), status: 'PENDING' },
+    ];
+    expect(approvalFor(postmortemTarget('root'), approvals)?.approvalId).toBe('pm');
+    expect(approvalFor('root', approvals)?.approvalId).toBe('notice');
   });
 
   it('templates without a group are listed under No group', () => {

@@ -7,6 +7,7 @@ import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { readDefinition } from './status-model';
 import {
   readOperatorNotices,
+  readPostmortems,
   readTemplates,
   type IncidentDeskReply,
   type IncidentDeskView,
@@ -32,6 +33,8 @@ const IDENTITY: PartLabels = {
 };
 
 export const PUBLISH_ACTION = 'notify.notice.publish';
+export const POSTMORTEM_PUBLISH_ACTION = 'notify.postmortem.publish';
+const DESK_ACTIONS: readonly string[] = [PUBLISH_ACTION, POSTMORTEM_PUBLISH_ACTION];
 const LIST_LIMIT = 50;
 const APPROVALS_LIMIT = 100;
 
@@ -40,25 +43,27 @@ const readApprovals = (raw: unknown) =>
   raw && typeof raw === 'object' && 'approvals' in raw ? approvalList((raw as { approvals: unknown }).approvals) : null;
 
 export async function loadIncidentDesk(ctx: FounderCallContext): Promise<IncidentDeskView> {
-  const [notices, templates, definition, pending, mine] = await Promise.all([
+  const [notices, postmortems, templates, definition, pending, mine] = await Promise.all([
     founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
+    founderCall(ctx, 'notify', 'statusPage.postmortems.list', 'GET', undefined, readPostmortems),
     founderCall(ctx, 'notify', 'statusPage.templates.list', 'GET', undefined, readTemplates),
     founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
     founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
     founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
   ]);
-  // Both views, publish approvals only, one row per approval. Either view failing fails the part: half a list would hide one.
+  // Both views, notice and postmortem publish approvals only, one row per approval. Either view failing fails the part: half a list would hide one.
   const failed = pending.kind !== 'ok' ? pending : mine.kind !== 'ok' ? mine : null;
   let approvals: Part<readonly PublishApproval[]>;
   if (failed || pending.kind !== 'ok' || mine.kind !== 'ok') approvals = partFrom(failed ?? pending, () => [], IDENTITY);
   else {
     const rows = new Map<string, PublishApproval>();
     for (const a of [...pending.data, ...mine.data])
-      if (a.actionType === PUBLISH_ACTION && a.targetService === 'svc-notify') rows.set(a.approvalId, publishApprovalOf(a)!);
+      if (DESK_ACTIONS.includes(a.actionType) && a.targetService === 'svc-notify') rows.set(a.approvalId, publishApprovalOf(a)!);
     approvals = { kind: 'ok', data: [...rows.values()] };
   }
   return {
     notices: partFrom(notices, (d) => d, NOTIFY),
+    postmortems: partFrom(postmortems, (d) => d, NOTIFY),
     templates: partFrom(templates, (d) => d, NOTIFY),
     components: partFrom(definition, (d) => d.components.map((c) => ({ id: c.id, name: c.name })), NOTIFY),
     approvals,
@@ -138,9 +143,19 @@ type Proposal = { actionType: string; targetService: string; targetId: string; e
 const readProposal = (raw: unknown): Proposal | null =>
   raw && typeof raw === 'object' && 'payloadHash' in raw && typeof (raw as Proposal).payloadHash === 'string' ? (raw as Proposal) : null;
 
+/** What a publish spends: a notice draft, or the postmortem of an incident. */
+export type PublishSubject =
+  { readonly kind: 'notice'; readonly id: string } | { readonly kind: 'postmortem'; readonly incidentId: string };
+
+/** The proposal as svc-notify holds the subject now; never taken from the browser. */
+const proposalOf = (ctx: FounderCallContext, subject: PublishSubject) =>
+  subject.kind === 'notice'
+    ? founderCall(ctx, 'notify', 'notify.noticeProposal', 'GET', { id: subject.id }, readProposal)
+    : founderCall(ctx, 'notify', 'statusPage.postmortems.proposal', 'GET', { incidentId: subject.incidentId }, readProposal);
+
 /** Ask identity for the approval bound to this draft exactly as svc-notify holds it now. */
-export async function requestPublish(ctx: FounderCallContext, noticeId: string) {
-  const proposal = await founderCall(ctx, 'notify', 'notify.noticeProposal', 'GET', { id: noticeId }, readProposal);
+export async function requestPublish(ctx: FounderCallContext, subject: PublishSubject) {
+  const proposal = await proposalOf(ctx, subject);
   if (proposal.kind !== 'ok') return reply(proposal, 'requested');
   const { actionType, targetService, targetId, expectedVersion, payloadHash } = proposal.data;
   return reply(
@@ -161,8 +176,8 @@ export async function requestPublish(ctx: FounderCallContext, noticeId: string) 
  * The approved row comes back with the answer: identity lists an approval to its requester and, while pending, to the
  * other founders, so once decided the approver would not see it in a list.
  */
-export async function approvePublish(ctx: FounderCallContext, noticeId: string, approvalId: string) {
-  const proposal = await founderCall(ctx, 'notify', 'notify.noticeProposal', 'GET', { id: noticeId }, readProposal);
+export async function approvePublish(ctx: FounderCallContext, subject: PublishSubject, approvalId: string) {
+  const proposal = await proposalOf(ctx, subject);
   if (proposal.kind !== 'ok') return reply(proposal, 'approved');
   const approved = await founderCall(
     ctx,
@@ -189,6 +204,29 @@ export async function publishIncident(ctx: FounderCallContext, noticeId: string,
       anyData,
     ),
     'published',
+  );
+}
+
+/** A postmortem draft, naming the version it was written over (0 for the first). The same words again are a replay. */
+export async function writePostmortem(ctx: FounderCallContext, input: { incidentId: string; body: string; expectedVersion: number }) {
+  return reply(
+    await founderCall(
+      ctx,
+      'notify',
+      'statusPage.postmortems.write',
+      'POST',
+      { incidentId: input.incidentId, body: input.body.trim(), expectedVersion: input.expectedVersion },
+      anyData,
+    ),
+    'postmortem saved',
+  );
+}
+
+/** svc-notify spends the approval once; the same approval sent again answers the published postmortem. */
+export async function publishPostmortem(ctx: FounderCallContext, incidentId: string, approvalId: string, operationId: string) {
+  return reply(
+    await founderCall(ctx, 'notify', 'statusPage.postmortems.publish', 'POST', { incidentId, approvalId, operationId }, anyData),
+    'postmortem published',
   );
 }
 
