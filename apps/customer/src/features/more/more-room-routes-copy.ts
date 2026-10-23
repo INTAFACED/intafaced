@@ -27,7 +27,8 @@ const en = {
   open: 'Open this room',
   paperLabel: 'simulated',
   paperTitle: 'Simulated view',
-  paperBody: 'This page was opened with simulated=true. Any figure here is for practice, and no action on it reaches a service.',
+  paperBody:
+    'This page was opened with simulated=true. It still reads live records, but nothing you press here is sent, so no record changes and no money moves.',
   paperExit: 'Open the live room',
   paperRefused: 'This is a simulated view, so the action was not sent. Open the live room to act.',
 } as const;

@@ -294,7 +294,16 @@ export function useAction(room: string, recovery?: { recover: (reference: string
       const now = journal.inspect(live).saved;
       return live() && original.current === capturedOriginal && now.status === 'present' && now.raw === raw;
     };
-    if (!raw || !recovery || saved.status !== 'present' || !saved.value.reference || snapshot.known || operation.current || !current())
+    if (
+      paper ||
+      !raw ||
+      !recovery ||
+      saved.status !== 'present' ||
+      !saved.value.reference ||
+      snapshot.known ||
+      operation.current ||
+      !current()
+    )
       return;
     const action = {};
     operation.current = action;

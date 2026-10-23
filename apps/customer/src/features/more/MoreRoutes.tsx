@@ -18,6 +18,7 @@ import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
+import { preservePaperHref } from './trade-context';
 import type { ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
@@ -126,7 +127,7 @@ function MoreRooms({ path }: { path: string }) {
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
               {moreRoomRoutesCopy.t(hit.invalid ? 'badIdBody' : 'detailBody')}
             </EmptyState>
-            <a className="text-link" href={page.href}>
+            <a className="text-link" href={preservePaperHref(page.href, paper)}>
               {moreRoomRoutesCopy.t('open')}
             </a>
           </Panel>
@@ -137,7 +138,7 @@ function MoreRooms({ path }: { path: string }) {
     const live = new URL(url);
     live.searchParams.delete('simulated');
     content = (
-      <PaperRoom paper={paper} liveHref={live.pathname + live.search}>
+      <PaperRoom paper={paper} liveHref={live.pathname + live.search + live.hash}>
         {content}
       </PaperRoom>
     );
