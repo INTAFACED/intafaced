@@ -43,10 +43,18 @@ export interface ShareRepository {
   /** The active link whose hash matches, or null. Revoked and unknown are both null. */
   matchActive(input: { readonly accountId: string; readonly runId: string; readonly token: string }): Promise<ShareLink | null>;
   /**
-   * Counts this public read against the owner's rate and resolves the token. An unknown token and a revoked token are
-   * both `missing`. Over the rate is `limited` and does not say which.
+   * Counts a public read of an active link on that link's own bucket. An unknown token and a revoked token are both
+   * `missing` and are not counted, including when other misses have already filled a bucket. Over the rate on an
+   * active link is `limited`.
    */
   openPublic(input: ShareOpenInput): Promise<ShareOpened>;
+}
+
+/** Missing unless the token is an active link still inside its own cap. Callers count only that link's bucket. */
+export function shareOpenKind(active: ShareLink | null, used: number, rate: number): ShareOpened {
+  if (!active) return { kind: 'missing' };
+  if (used >= rate) return { kind: 'limited' };
+  return { kind: 'ok', link: active };
 }
 
 export function resultShareKey(runId: string, seq: number): string {

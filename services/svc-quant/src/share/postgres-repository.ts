@@ -2,6 +2,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { QUANT_SHARE_SEQ_STALE, QuantError } from '../errors.js';
 import {
   resultShareKey,
+  shareOpenKind,
   type ShareCreateInput,
   type ShareLink,
   type ShareOpenInput,
@@ -146,12 +147,13 @@ async function openPublic(
     [presented],
   );
   const active = found[0] && shareHashEquals(found[0].token_hash, presented) ? linkOf(found[0]) : null;
-  const bucket = active ? active.tokenHash : 'unknown';
+  if (!active) return shareOpenKind(null, 0, input.rate);
   const from = new Date(input.nowMs - input.windowMs).toISOString();
   await query(tx, `DELETE FROM ${reads} WHERE read_at < $1::timestamptz`, [from]);
-  const counted = await query<{ n: number }>(tx, `SELECT count(*)::int AS n FROM ${reads} WHERE bucket = $1`, [bucket]);
+  const counted = await query<{ n: number }>(tx, `SELECT count(*)::int AS n FROM ${reads} WHERE bucket = $1`, [active.tokenHash]);
   const used = counted[0]?.n ?? 0;
-  if (used >= input.rate) return { kind: 'limited' };
-  await query(tx, `INSERT INTO ${reads} (bucket, read_at) VALUES ($1, $2)`, [bucket, new Date(input.nowMs).toISOString()]);
-  return active ? { kind: 'ok', link: active } : { kind: 'missing' };
+  const opened = shareOpenKind(active, used, input.rate);
+  if (opened.kind !== 'ok') return opened;
+  await query(tx, `INSERT INTO ${reads} (bucket, read_at) VALUES ($1, $2)`, [active.tokenHash, new Date(input.nowMs).toISOString()]);
+  return opened;
 }

@@ -1,6 +1,7 @@
 import { QUANT_SHARE_SEQ_STALE, QuantError } from '../errors.js';
 import {
   resultShareKey,
+  shareOpenKind,
   type ShareCreateInput,
   type ShareLink,
   type ShareOpenInput,
@@ -98,13 +99,14 @@ function createOne(links: ShareLink[], input: ShareCreateInput) {
 function openOne(links: ShareLink[], reads: ReadMark[], input: ShareOpenInput): ShareOpened {
   const presented = shareTokenHash(input.token);
   const active = links.find((link) => link.revokedAt === null && shareHashEquals(link.tokenHash, presented)) ?? null;
-  const bucket = active ? active.tokenHash : 'unknown';
+  if (!active) return shareOpenKind(null, 0, input.rate);
   const from = input.nowMs - input.windowMs;
   const kept = reads.filter((mark) => mark.atMs >= from);
   reads.length = 0;
   reads.push(...kept);
-  const used = reads.filter((mark) => mark.bucket === bucket).length;
-  if (used >= input.rate) return { kind: 'limited' };
-  reads.push({ bucket, atMs: input.nowMs });
-  return active ? { kind: 'ok', link: { ...active } } : { kind: 'missing' };
+  const used = reads.filter((mark) => mark.bucket === active.tokenHash).length;
+  const opened = shareOpenKind(active, used, input.rate);
+  if (opened.kind !== 'ok') return opened;
+  reads.push({ bucket: active.tokenHash, atMs: input.nowMs });
+  return { kind: 'ok', link: { ...active } };
 }

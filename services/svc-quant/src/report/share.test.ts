@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { checkAccess } from '@intafaced/config';
 import {
   createEdgeContext,
   EDGE_PRINCIPAL_HEADER,
@@ -8,6 +9,7 @@ import {
   type QuantSignalRules,
 } from '@intafaced/contracts';
 import { createQuantRouter } from '../router.js';
+import { reportOf } from './document.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryRunRepository } from '../runs/memory-repository.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
@@ -104,6 +106,7 @@ function setup(options: ShareOpts = {}) {
     share,
   });
   return {
+    app: appRouter,
     a: appRouter.createCaller(signed(ACCOUNT_A)),
     b: appRouter.createCaller(signed(ACCOUNT_B)),
     anon: appRouter.createCaller(anonymous()),
@@ -150,6 +153,41 @@ describe('backtest report and share link (AL-report-03)', () => {
     }
     expect(report.sections[1]?.rows.find((line) => line.name === 'net')?.value).toBe(run.totals.net);
     expect(report.sections[5]?.rows.find((line) => line.name === 'claimLabel')?.value).toBe(report.claimLabel);
+    const printed = report.sections.find((section) => section.id === 'warnings')?.rows ?? [];
+    for (const line of run.log.filter((entry) => entry.level === 'warn')) {
+      const hit = printed.find((row) => row.name === line.code && Object.values(line.values).every((value) => row.value.includes(value)));
+      expect(hit, line.code).toBeDefined();
+      expect(hit?.value).not.toBe('no time');
+    }
+    expect(printed.some((row) => row.name === 'assumption' && row.value.includes('risk_limits_not_simulated'))).toBe(true);
+    const shaped = reportOf({
+      ...run,
+      checks: run.checks.map((check) => ({ ...check, status: 'clear' as const })),
+      log: [
+        { level: 'warn', code: 'assumption', ts: null, values: { name: 'open_position_marked_at_last_close' } },
+        { level: 'warn', code: 'assumption', ts: null, values: { name: 'risk_limits_not_simulated' } },
+        {
+          level: 'warn',
+          code: 'gap',
+          ts: '2026-10-20T04:00:00.000Z',
+          values: { from: '2026-10-20T04:00:00.000Z', to: '2026-10-20T06:00:00.000Z' },
+        },
+        {
+          level: 'warn',
+          code: 'margin_event',
+          ts: '2026-10-20T07:00:00.000Z',
+          values: { kind: 'stop_out', price: '100', level: '50' },
+        },
+        { level: 'warn', code: 'bare', ts: null, values: {} },
+      ],
+    });
+    expect(shaped.sections[4].rows).toEqual([
+      { name: 'assumption', value: 'name open_position_marked_at_last_close' },
+      { name: 'assumption', value: 'name risk_limits_not_simulated' },
+      { name: 'gap', value: 'from 2026-10-20T04:00:00.000Z, to 2026-10-20T06:00:00.000Z' },
+      { name: 'margin_event', value: 'kind stop_out, price 100, level 50' },
+      { name: 'bare', value: 'no time' },
+    ]);
     await expect(b.backtest.report({ runId: run.runId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -283,7 +321,65 @@ describe('backtest report and share link (AL-report-03)', () => {
     await expect(world.anon.result.share.public({ token: created.token! })).rejects.toThrow(/quant\.share_rate_limited/);
     clock += 61_000;
     expect((await world.anon.result.share.public({ token: created.token! })).symbol).toBe('BTC/USDT');
-    const blocked = setup({ rate: 0, windowSec: 60 });
-    await expect(blocked.anon.result.share.public({ token: 'anything' })).rejects.toThrow(/quant\.share_rate_limited/);
+    const repository = createMemoryShareRepository();
+    const seeded = await repository.create({
+      accountId: ACCOUNT_A,
+      runId: 'run_rate_zero',
+      seq: 0,
+      now: '2026-10-23T00:00:00.000Z',
+    });
+    const blocked = setup({ rate: 0, windowSec: 60, repository });
+    await expect(blocked.anon.result.share.public({ token: 'anything' })).rejects.toThrow(/quant\.share_not_found/);
+    await expect(blocked.anon.result.share.public({ token: seeded.token! })).rejects.toThrow(/quant\.share_rate_limited/);
+  });
+
+  it('returns not found for a revoked token after unknown reads have filled the rate', async () => {
+    let clock = 1_700_000_000_000;
+    const world = setup({ rate: 1, windowSec: 60, now: () => clock });
+    const strategy = await world.a.studio.save({
+      name: 'cross',
+      blocks: [],
+      modules: RULES,
+      risk: { maxDrawdown: '1', maxNotional: '1', kill: '1' },
+      cash: '1000',
+      environment: 'paper',
+      clientStrategyId: 'client-rules',
+      idempotencyKey: 'studio.save:client-rules',
+    });
+    const run = await world.a.backtest.start(request(strategy.id));
+    const created = await world.a.result.share.create({ runId: run.runId, seq: 0 });
+    const unknown = await world.anon.result.share.public({ token: 'not-a-link' }).then(
+      () => null,
+      (err: { message: string }) => err,
+    );
+    await world.a.result.share.revoke({ runId: run.runId });
+    const revoked = await world.anon.result.share.public({ token: created.token! }).then(
+      () => null,
+      (err: { message: string }) => err,
+    );
+    expect(unknown?.message).toContain('quant.share_not_found');
+    expect(revoked?.message).toBe(unknown?.message);
+    expect(revoked?.message).not.toContain('quant.share_rate_limited');
+  });
+
+  it('refuses a region checkAccess blocks and still opens the link signed out where quant is open', async () => {
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'AA:placeholder programme');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture-not-a-real-list');
+    try {
+      const blocked = checkAccess({ module: 'quant', plane: 'fiat', region: 'AA', kycTier: 'none' });
+      const open = checkAccess({ module: 'quant', plane: 'fiat', region: 'DE', kycTier: 'none' });
+      expect(blocked.allowed).toBe(false);
+      expect(open.allowed).toBe(true);
+      const { app, a, anon, run } = await finished();
+      const created = await a.result.share.create({ runId: run.runId, seq: 0 });
+      const closed = app.createCaller(edgeContext({ headers: { 'x-intafaced-region': 'AA' }, id: 'req-aa' }));
+      await expect(closed.result.share.public({ token: created.token! })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: blocked.reason,
+      });
+      expect((await anon.result.share.public({ token: created.token! })).symbol).toBe(run.symbol);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

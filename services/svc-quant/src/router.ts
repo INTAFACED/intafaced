@@ -1182,8 +1182,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
 
-        /** Signed-out read of a share link. A revoked token and an unknown token answer the same not-found. */
-        public: publicProcedure
+        /** Signed-out read of a share link. Jurisdiction is quant/fiat, with no session. A revoked token and an unknown token answer the same not-found. */
+        public: publicJurisdictionProcedure('quant', 'fiat')
           .input(z.object({ token: z.string() }))
           .output(quantPublicResultSchema)
           .query(async ({ input }) => {

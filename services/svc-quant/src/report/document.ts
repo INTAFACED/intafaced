@@ -34,6 +34,15 @@ function row(name: string, value: string): { name: string; value: string } {
   return { name, value: value.trim() ? value : 'none' };
 }
 
+/** Assumption name, gap ends, and margin kind and level. A line with no values keeps a non-empty fallback. */
+function warnValue(line: { readonly ts: string | null; readonly values: Readonly<Record<string, string>> }): string {
+  const parts = Object.entries(line.values).flatMap(([key, value]) => {
+    const text = value.trim();
+    return text ? [`${key} ${text}`] : [];
+  });
+  return parts.length > 0 ? parts.join(', ') : (line.ts ?? 'no time');
+}
+
 function metricLine(metric: QuantMetric): string {
   return metric.value ?? `not defined (${metric.reason ?? 'unset'})`;
 }
@@ -48,7 +57,7 @@ export function reportOf(result: QuantBacktestResult): QuantReport {
     ...result.checks
       .filter((check) => check.status === 'warning')
       .map((check) => row(check.name, `warning ${JSON.stringify(check.evidence)}`)),
-    ...result.log.filter((line) => line.level === 'warn').map((line) => row(line.code, line.ts ?? 'no time')),
+    ...result.log.filter((line) => line.level === 'warn').map((line) => row(line.code, warnValue(line))),
   ];
   return {
     runId: result.runId,

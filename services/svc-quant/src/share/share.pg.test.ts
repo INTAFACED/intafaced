@@ -94,6 +94,24 @@ describe.skipIf(!ready)('share links on Postgres (AL-report-03)', () => {
     expect((await repo.openPublic({ token: created.token!, rate: 1, windowMs: 60_000, nowMs: at + 61_000 })).kind).toBe('ok');
   });
 
+  it('returns missing for a revoked token after unknown reads have filled the rate', async () => {
+    const now = '2026-10-23T04:00:00.000Z';
+    await repo.revoke({ accountId: ACCOUNT_A, runId: RUN_ID, now });
+    const before = await repo.list({ accountId: ACCOUNT_A, runId: RUN_ID });
+    const created = await repo.create({ accountId: ACCOUNT_A, runId: RUN_ID, seq: before.length, now });
+    expect(created.token).not.toBeNull();
+    const at = Date.parse('2026-10-23T04:01:00.000Z');
+    expect((await repo.openPublic({ token: created.token!, rate: 0, windowMs: 60_000, nowMs: at })).kind).toBe('limited');
+    expect((await repo.openPublic({ token: 'not-a-link', rate: 1, windowMs: 60_000, nowMs: at })).kind).toBe('missing');
+    expect((await repo.openPublic({ token: 'still-unknown', rate: 1, windowMs: 60_000, nowMs: at + 1 })).kind).toBe('missing');
+    await repo.revoke({ accountId: ACCOUNT_A, runId: RUN_ID, now: '2026-10-23T04:02:00.000Z' });
+    expect((await repo.openPublic({ token: created.token!, rate: 1, windowMs: 60_000, nowMs: at + 2 })).kind).toBe('missing');
+    expect((await repo.openPublic({ token: 'not-a-link', rate: 1, windowMs: 60_000, nowMs: at + 3 })).kind).toBe('missing');
+    expect((await repo.openPublic({ token: created.token!, rate: 0, windowMs: 60_000, nowMs: at + 4 })).kind).toBe('missing');
+    const unknownBuckets = await sql.unsafe(`SELECT bucket FROM "${SCHEMA}"."share_reads" WHERE bucket = 'unknown'`);
+    expect(unknownBuckets).toHaveLength(0);
+  });
+
   it('refuses a rewrite of the hash and a delete', async () => {
     await expect(sql.unsafe(`UPDATE "${SCHEMA}"."result_shares" SET token_hash = repeat('ab', 32)`)).rejects.toThrow(/share_immutable/);
     await expect(sql.unsafe(`DELETE FROM "${SCHEMA}"."result_shares"`)).rejects.toThrow(/share_immutable/);
