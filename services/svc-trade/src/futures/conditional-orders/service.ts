@@ -19,6 +19,7 @@ import {
   FILL_WAIT_CODES,
   FUTURES_REDUCE_ONLY_EXCEEDS_POSITION,
   FUTURES_REDUCE_ONLY_NO_POSITION,
+  orderFills,
   reservedReduceQty,
 } from '../matched-orders.js';
 import { refuseFuturesRestingLimit, type RestingLimitInput } from './resting.js';
@@ -729,15 +730,33 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       return;
     }
     if (placed.status === 'cancelled') {
-      if (row.attachment == null && nowClosed >= parseAmount(row.quantity)) {
-        await setOutcome(row.id, key, 'filled', null, { ...result, closed: formatAmount(nowClosed) });
+      // A fill the engine printed before the cancel can still be settling. The attempt is counted, and the next one
+      // sized, only once every fill the engine says it made has landed; until then the next tick reads it again.
+      const fills = await orderFills(sql, placed.orderId);
+      if (fills == null || fills.engine == null || fills.settled < fills.engine) {
+        await keepWorking(row.id, key, result);
+        return;
+      }
+      const finalClosed = closed + fills.settled;
+      if (row.attachment == null && finalClosed >= parseAmount(row.quantity)) {
+        await setOutcome(row.id, key, 'filled', null, {
+          ...result,
+          filledQty: formatAmount(fills.settled),
+          closed: formatAmount(finalClosed),
+        });
         return;
       }
       // The book had less than the attempt inside the band and the rest came off: the next tick places a new attempt
       // for what is left. Only the worker that saw this attempt end moves it on.
+      const next = {
+        attempt: attempt + 1,
+        closed: formatAmount(finalClosed),
+        orderId: placed.orderId,
+        filledQty: formatAmount(fills.settled),
+      };
       await sql`
         UPDATE trade.futures_conditional_orders
-        SET result = ${sql.json({ attempt: attempt + 1, closed: formatAmount(nowClosed), orderId: placed.orderId, filledQty: placed.filledQty })},
+        SET result = ${sql.json(next)},
             updated_at = now()
         WHERE id = ${row.id} AND trigger_key = ${key} AND status = 'triggered'
           AND COALESCE((result ->> 'attempt')::int, 0) = ${attempt}

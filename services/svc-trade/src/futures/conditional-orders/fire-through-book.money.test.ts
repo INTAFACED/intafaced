@@ -409,6 +409,40 @@ describe('futures conditional orders fire through the book', () => {
     expect(await conditional(pair.takeProfit!.id)).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
   });
 
+  it('a fill still settling when an attempt leaves the book is waited for: a stop never closes more than its own quantity', async () => {
+    const positionId = await aliceLong('10');
+    const { order: stop } = await orders.create(ALICE, {
+      market: SYMBOL,
+      kind: 'stop_market',
+      side: 'sell',
+      quantity: '4',
+      triggerPrice: '95',
+      clientOrderId: 'late-fill',
+    });
+    const bid = await carolBid('3', '96');
+    mark = A('94');
+    // Attempt 0 asks for 4. The engine fills 3 and cancels 1, but only 1 of the 3 has settled when the cancel is read.
+    const taker = scriptFill(stop.id, bid, '1', '96', '1');
+    await orders.evaluate({ enabled: true });
+    expect(await conditional(stop.id)).toMatchObject({ status: 'triggered', closedQuantity: null });
+    const submitted = engine.submits.length;
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits).toHaveLength(submitted);
+    expect(await positionOf(positionId)).toMatchObject({ size: '9' });
+
+    // The rest of the engine's fill lands: the attempt counts 3, and the next one asks only for the 1 left.
+    seq += 1;
+    await book.settleFill({ marketId: MARKET, makerOrderId: bid, takerOrderId: taker, price: '96', qty: '2', sequence: seq });
+    await orders.evaluate({ enabled: true });
+    expect(await conditional(stop.id)).toMatchObject({ status: 'triggered', closedQuantity: '3' });
+    const more = await carolBid('1', '95.5');
+    const second = scriptFill(stop.id, more, '1', '95.5', undefined, 1);
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: second, qty: '1' });
+    expect(await conditional(stop.id)).toMatchObject({ status: 'filled', closedQuantity: '4' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '6' });
+  });
+
   it('a position-wide stop closes what the position’s other reduce-only orders do not already claim', async () => {
     const positionId = await aliceLong('2');
     const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'room' });

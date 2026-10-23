@@ -696,6 +696,15 @@ export async function reservedReduceQty(tx: Sql | TransactionSql, positionId: st
   return reserved;
 }
 
+/**
+ * What a book order has closed so far (`settled`) and what the engine says it filled in all (`engine`, null while
+ * that is not known). A fill printed before a cancel can still be settling, so the two agree only once it has landed.
+ */
+export async function orderFills(tx: Sql | TransactionSql, orderId: string): Promise<{ settled: Amount; engine: Amount | null } | null> {
+  const [row] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+  return row ? { settled: parseAmount(row.filled_qty), engine: engineFilled(row) } : null;
+}
+
 function oppositeSide(side: PositionSide): PositionSide {
   return side === 'long' ? 'short' : 'long';
 }
