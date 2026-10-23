@@ -6,11 +6,15 @@ import {
   TRPCError,
   statusPageConfigureInputSchema,
   statusPageSchema,
+  statusBadgeInputSchema,
+  statusBadgeSchema,
+  type StatusPage,
   statusReadingInputSchema,
   STATUS_UPTIME_DAYS_MAX,
 } from '@intafaced/contracts';
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusPageError, type StatusPageBook } from './book.js';
+import { statusBadge } from './badge.js';
 import { buildStatusPage, uptimeStart } from './page.js';
 import type { StatusSubscriptions } from './subscriptions.js';
 import { statusSubscriptionsRouter } from './subscriptions-router.js';
@@ -32,6 +36,22 @@ const definitionOutput = z.object({
   revision: z.number().int(),
   updatedAt: z.string().nullable(),
 });
+
+/** The page as a visitor reads it now: definition, latest readings, the uptime window and the incident feed. */
+export async function readStatusPage({ book, notices }: StatusPageDeps, at: Date): Promise<StatusPage> {
+  const definition = await book.definition();
+  // Incidents resolved inside the uptime window are listed; with the window blank, the feed's own maximum.
+  const days = definition.uptimeDays ?? STATUS_UPTIME_DAYS_MAX;
+  const ids = definition.components.map((c) => c.id);
+  const [latest, window, feed] = await Promise.all([
+    book.latest(),
+    definition.uptimeDays === null ? Promise.resolve([]) : book.daily(uptimeStart(at, days)),
+    notices
+      ? notices.statusFeedFor(ids, { days: Math.min(days, STATUS_UPTIME_DAYS_MAX) }, at)
+      : Promise.resolve({ incidents: [], maintenance: [] }),
+  ]);
+  return statusPageSchema.parse(buildStatusPage({ definition, latest, window, feed, at }));
+}
 
 /**
  * The public status page (SP-status-01). `read` is signed-out. `configure` and `record` are founder calls under the same
@@ -55,23 +75,18 @@ export function statusPageRouter(deps?: StatusPageDeps) {
   return router({
     subscriptions: statusSubscriptionsRouter(deps?.subscriptions),
 
-    read: publicProcedure.output(statusPageSchema).query(() =>
-      call(async ({ book, notices }) => {
-        const at = now();
-        const definition = await book.definition();
-        // Incidents resolved inside the uptime window are listed; with the window blank, the feed's own maximum.
-        const days = definition.uptimeDays ?? STATUS_UPTIME_DAYS_MAX;
-        const ids = definition.components.map((c) => c.id);
-        const [latest, window, feed] = await Promise.all([
-          book.latest(),
-          definition.uptimeDays === null ? Promise.resolve([]) : book.daily(uptimeStart(at, days)),
-          notices
-            ? notices.statusFeedFor(ids, { days: Math.min(days, STATUS_UPTIME_DAYS_MAX) }, at)
-            : Promise.resolve({ incidents: [], maintenance: [] }),
-        ]);
-        return statusPageSchema.parse(buildStatusPage({ definition, latest, window, feed, at }));
-      }),
-    ),
+    read: publicProcedure.output(statusPageSchema).query(() => call((deps) => readStatusPage(deps, now()))),
+
+    badge: publicProcedure
+      .input(statusBadgeInputSchema)
+      .output(statusBadgeSchema)
+      .query(({ input }) =>
+        call(async (deps) => {
+          const badge = statusBadge(await readStatusPage(deps, now()), input.componentId);
+          if (!badge) throw new TRPCError({ code: 'NOT_FOUND', message: 'status.component_unknown' });
+          return badge;
+        }),
+      ),
 
     definition: scopedProcedure('admin:write', { module: 'notify' })
       .output(definitionOutput)

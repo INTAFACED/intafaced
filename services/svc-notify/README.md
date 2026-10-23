@@ -194,6 +194,15 @@ an open incident or active maintenance notice that names it, else its newest rea
   `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
 - Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
 
+### Status badge (SP-status-05)
+
+`GET /status/badge.svg?component=<id>` (through Edge at `/api/notify/status/badge.svg`) draws the top level, or one
+component, as a small SVG another page can show with an `<img>`: no script, no personal data, no frame. `statusPage.badge`
+is the same answer as JSON. It says `no data` without a fresh reading, and an id the page does not define is a 404 with
+`status.component_unknown` and no image. The service sends `Cache-Control: public, max-age` no longer than the staleness
+window (at most 300 s), and `no-cache` while the window is unset; Edge currently replaces it with `no-store`, which is
+shorter still. The customer `/status` page has a "Share this status" panel with the image link and the HTML to paste.
+
 ### Status subscriptions (SP-status-04)
 
 `statusPage.subscriptions.*` is signed-out; the signed link is the credential. A visitor subscribes by email to every
@@ -218,8 +227,10 @@ that, and confirming again is the same one active subscriber), may add a webhook
   writes LOCAL-TEST lines to `NOTIFY_STATUS_MAIL_OUTBOX` and refuses to boot unless `APP_ENV` is exactly dev or test.
   SMS and push are named not connected (`vendor.sms`, `vendor.push`).
 - `statusPage.subscriptions.find` (`admin:write`) is the founders' view of one address with its delivery rows.
-- Not yet: a per-source rate limit (only per address), a retry worker for failed deliveries (fan-out runs at publish
-  time), pruning old subscribe-request rows, and a founder console screen.
+- Not yet: a per-source rate limit (only per address); a retry worker for pending and failed deliveries (fan-out runs
+  once, after the publish answers); a claim on each delivery row so two fan-outs racing on one notice cannot both send;
+  sending webhooks apart from email, so a slow webhook does not hold up the next subscriber's mail; and a founder
+  console screen.
 
 ### Guest outreach emails
 

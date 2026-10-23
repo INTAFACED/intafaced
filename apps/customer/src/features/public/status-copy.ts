@@ -2,6 +2,16 @@ import { defineCopy } from '../../shared/i18n';
 
 // English source only. Each mode says what it does to orders; a market the service reported no mode for says so.
 export const statusCopy = defineCopy('public-status', {
+  shareTitle: 'Share this status',
+  shareLead:
+    'Show this status on another page as an image with a link back here. The image is drawn by us, carries no script, and is cached no longer than a reading stays current.',
+  shareWhat: 'Show',
+  shareWholePage: 'The whole platform',
+  shareImageLink: 'Image link',
+  shareSnippet: 'HTML to paste',
+  shareCopy: 'Copy HTML',
+  shareCopied: 'Copied',
+  shareCopyFailed: 'Couldn’t copy here. Select the HTML above and copy it yourself.',
   title: 'Platform status',
   lead: 'Each component’s state comes from a recorded reading or a published notice, and each market’s trading mode from the same place the trading desk reads it.',
   modesTitle: 'Trading modes',

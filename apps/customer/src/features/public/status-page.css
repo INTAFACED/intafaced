@@ -132,3 +132,14 @@
   gap: 0.25rem 1rem;
   margin: 0 0 1rem;
 }
+
+.status-share textarea,
+.status-share input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+}
+
+.status-share__preview {
+  margin: 0.75rem 0;
+}

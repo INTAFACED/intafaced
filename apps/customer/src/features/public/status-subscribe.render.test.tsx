@@ -26,6 +26,7 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import { StatusSubscribe } from './StatusSubscribe';
 import { StatusSubscriptionPage } from './StatusSubscription';
+import { StatusBadgeShare } from './StatusBadgeShare';
 
 const POLICY = { email: null, sms: 'vendor.sms', push: 'vendor.push', challengeBits: 4, rateLimitSet: true };
 const COMPONENTS = [{ id: 'trading', name: 'Trading', group: null, basis: 'reading', state: 'operational', source: null, uptime: [] }];
@@ -140,5 +141,24 @@ describe('status subscription links', () => {
     history.replaceState(null, '', '/status/unsubscribe');
     await act(async () => root.render(<StatusSubscriptionPage mode="unsubscribe" />));
     expect(host.querySelector('[data-testid="status-subscription-dead"]')).not.toBeNull();
+  });
+});
+
+describe('status badge share panel', () => {
+  it('gives an image link and an image-and-link snippet, for the whole page or one component, never a frame', async () => {
+    await act(async () => root.render(<StatusBadgeShare components={COMPONENTS as never} />));
+    const url = () => host.querySelector<HTMLInputElement>('[data-testid="status-share-url"]')!.value;
+    const snippet = () => host.querySelector<HTMLTextAreaElement>('[data-testid="status-share-snippet"]')!.value;
+    expect(url()).toBe(`${location.origin}/api/notify/status/badge.svg`);
+    const select = host.querySelector('select')!;
+    await act(async () => {
+      select.value = 'trading';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(url()).toBe(`${location.origin}/api/notify/status/badge.svg?component=trading`);
+    expect(snippet()).toBe(
+      `<a href="${location.origin}/status"><img src="${location.origin}/api/notify/status/badge.svg?component=trading" alt="Trading status"></a>`,
+    );
+    expect(snippet()).not.toMatch(/iframe|script/i);
   });
 });
