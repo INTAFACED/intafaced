@@ -185,15 +185,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: format:check
-        run: |
-          set -o pipefail
-          pnpm format:check 2>&1 | tee "$RUNNER_TEMP/format.log"
-      # One annotation per unformatted file, so tooling/ci/why-red.mjs names them without the job log. Output only.
-      - name: Name the unformatted files
-        if: failure()
-        run: |
-          { grep -E '^\[warn\] ' "$RUNNER_TEMP/format.log" || true; } | grep -v 'Code style issues' | sed -E 's/^\[warn\] //' | head -n 20 |
-            while IFS= read -r f; do echo "::error file=$f,title=Not formatted::run pnpm exec prettier --write $f"; done
+        run: pnpm format:check
 
   build:
     name: Typecheck & build
@@ -429,7 +421,8 @@ jobs:
   merge-seal:
     name: CI merge seal
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: seconds
+    # healthy run: seconds; up to 20 minutes when it waits for the independent review (tooling/ci/review-marker.mjs)
+    timeout-minutes: 25
     if: always()
     permissions:
       contents: read

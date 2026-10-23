@@ -487,28 +487,10 @@ function main() {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
       console.error(output.trimEnd() + '\n');
-      // One annotation per red gate, so `tooling/ci/why-red.mjs` can name it without anyone reading the job log.
-      if (process.env.GITHUB_ACTIONS) console.log(annotation(`Doctrine gate ${gate.id}`, keyLines(output)));
     }
     console.error('  A red gate is not a discussion (AGENT_PROTOCOL §3).\n');
     process.exit(1);
   }
 
   console.log(`\n✓ all ${GATES.length} doctrine gates passed — ${totalMs}ms total\n`);
-}
-
-/** The lines of a gate's output that say what is wrong (the marked ones, else the last few), as one line. */
-function keyLines(output) {
-  const lines = output
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const marked = lines.filter((l) => /✖|→|\bFAIL|\berror\b/i.test(l));
-  return (marked.length ? marked : lines.slice(-3)).slice(0, 4).join(' | ').slice(0, 400) || '(no output)';
-}
-
-/** A GitHub Actions error annotation; the escapes keep untrusted text from ending the command early. */
-function annotation(title, message) {
-  const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
-  return `::error title=${esc(title).replace(/:/g, '%3A').replace(/,/g, '%2C')}::${esc(message)}`;
 }

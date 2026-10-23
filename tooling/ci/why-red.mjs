@@ -14,7 +14,7 @@
  *   GREEN    every check passed on the head.
  *   RUNNING  some checks have not finished; the lines say which.
  *   REVIEW   every check is green except the merge seal, which only waits for the independent review of this head.
- *   RESEAL   the review status is green but the seal ran before it: re-run the seal job once.
+ *   RESEAL   the review is in but the seal stayed red and the sign-off workflow could not re-run it: re-run it once.
  *   RED      the lines say what failed.
  *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
@@ -24,6 +24,7 @@ import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
 
 const SEAL = 'CI merge seal';
 const REVIEW_STATUS = 'Independent review';
+const RERUN_STATUS = 'Seal re-run'; // review-signoff.mjs posts it red when it could not re-run the seal itself
 const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
 const MAX_LINES = 8;
 const WIDTH = 200;
@@ -74,7 +75,7 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
     seal &&
     (annotations[seal.id] ?? []).some((a) => a.title === REVIEW_MISSING) &&
     lines.get(seal.id).every((l) => l.includes(REVIEW_MISSING));
-  const reviewGreen = statuses.some((s) => s.context === REVIEW_STATUS && s.state === 'success');
+  const rerunFailed = statuses.some((s) => s.context === RERUN_STATUS && s.state === 'failure');
 
   for (const c of running) out.push(`RUNNING  ${c.name}`);
   for (const c of red) {
@@ -96,21 +97,28 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
       );
     }
   }
-  for (const s of statuses.filter((s) => s.state === 'failure' || s.state === 'error')) out.push(`RED      status ${s.context}`);
+  for (const s of statuses.filter((s) => (s.state === 'failure' || s.state === 'error') && s.context !== RERUN_STATUS))
+    out.push(`RED      status ${s.context}`);
 
   const sealSeen = checks.some((c) => c.name === SEAL);
+  const othersRunning = running.filter((c) => c.name !== SEAL);
   if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
   else if (others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
-  else if (seal && reviewGreen)
+  else if (othersRunning.length > 0 || !seal)
     out.push(
-      `RESEAL: the "${REVIEW_STATUS}" status is green but the seal ran before it; re-run the "${SEAL}" job once. Nothing to fix in the code.`,
+      running.length === 1 && running[0].name === SEAL
+        ? `RUNNING: every other check is green; the seal may be waiting for the independent review of this head.`
+        : `RUNNING: ${running.length} check(s) not finished.`,
     );
-  else if (seal)
+  else if (rerunFailed)
     out.push(
-      `REVIEW: every other check is green; the seal waits for "Independent review: PASS ${sha}" from a listed reviewer. Nothing to fix in the code.`,
+      `RESEAL: the review is in, but the sign-off workflow could not re-run the seal ("${RERUN_STATUS}" is red); re-run the "${SEAL}" job once. Nothing to fix in the code.`,
     );
-  else out.push(`RUNNING: ${running.length} check(s) not finished.`);
+  else
+    out.push(
+      `REVIEW: every other check is green; the seal waits for "Independent review: PASS ${sha}" from a listed reviewer, and the sign-off workflow re-runs the seal when it lands. Ask the review thread if nobody has yet. Nothing to fix in the code.`,
+    );
   return out;
 }
 
@@ -176,9 +184,20 @@ function selfTest() {
   assert(last(summarize(onlyReview)).startsWith('REVIEW'), 'a seal red only for the review says so');
   assert(!summarize(onlyReview).some((l) => l.startsWith('RED ')), 'and lists nothing as red');
   assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).startsWith('RESEAL'),
-    'a review status that came after the seal asks for one seal re-run',
+    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).startsWith('REVIEW'),
+    'a review status alone leaves the re-run to the sign-off workflow',
   );
+  assert(
+    last(summarize({ ...onlyReview, statuses: [{ context: RERUN_STATUS, state: 'failure' }] })).startsWith('RESEAL'),
+    'a failed sign-off re-run asks for one re-run by hand',
+  );
+  const reviewAndRunning = {
+    ...onlyReview,
+    checks: [...onlyReview.checks, { id: 6, name: 'Gitleaks', status: 'in_progress', conclusion: null }],
+  };
+  assert(last(summarize(reviewAndRunning)).startsWith('RUNNING'), 'never "nothing to fix" while another check still runs');
+  const sealWaiting = { ...base, checks: [ok(1, 'Format'), { id: 2, name: SEAL, status: 'in_progress', conclusion: null }] };
+  assert(last(summarize(sealWaiting)).includes('waiting for the independent review'), 'a running seal alone may be the review wait');
 
   // Never "nothing to fix" while anything else is red, or while the seal is red for another reason.
   const testsRed = {
