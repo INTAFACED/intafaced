@@ -105,6 +105,19 @@ export function seesFullPricing(role: MerchantRole): boolean {
   return FULL_PRICING.has(role);
 }
 
+/**
+ * Who may reveal a shopper email, name or rail reference (M-adv-payments-core-01).
+ * Viewer and developer never hold it. It is not a `MERCHANT_PERMISSIONS` key:
+ * that list is copied by the customer capability pin, and this slice does not
+ * edit the app. The unmask procedure is the authority, and it still requires
+ * an interactive session and a reason.
+ */
+const PAYMENTS_UNMASK_ROLES = new Set<MerchantRole>(['owner', 'admin', 'finance']);
+
+export function canUnmaskPayments(role: MerchantRole): boolean {
+  return PAYMENTS_UNMASK_ROLES.has(role);
+}
+
 export function pricingVisibilityFor(role: MerchantRole): 'full' | 'fee_only' {
   return seesFullPricing(role) ? 'full' : 'fee_only';
 }

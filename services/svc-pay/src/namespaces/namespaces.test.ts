@@ -18,7 +18,8 @@ const isW15 = (path: string) =>
   path.startsWith('founderAdmin.ops.') ||
   path.startsWith('b2bRamp.') ||
   path.startsWith('merchant.customerEmails.') ||
-  path.startsWith('payments.receipt.');
+  path.startsWith('payments.receipt.') ||
+  path.startsWith('paymentViews.');
 
 const id = () => randomUUID();
 const merchantId = id();
@@ -202,6 +203,9 @@ describe('W0 namespaces are mounted', () => {
         'merchant.myAccess',
         'payments.receipt.preview',
         'payments.receipt.send',
+        'paymentViews.list',
+        'paymentViews.unmask',
+        'paymentViews.shopper',
       ]),
     );
   });
