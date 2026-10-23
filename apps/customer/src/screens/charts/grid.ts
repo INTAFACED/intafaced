@@ -83,6 +83,33 @@ export function layoutRefusal(layout: LayoutId, limit: number | null): 'unset' |
   return chartCount(layout) > limit ? 'over' : null;
 }
 
+/** One read of the owner's chart limit: its value, or why it cannot be used yet. */
+export type LimitRead = { ok: true; value: number } | { ok: false; why: 'loading' | 'unavailable' | 'unset' };
+export type LayoutReason = 'loading' | 'unavailable' | 'unset' | 'over';
+
+/** Why a layout cannot be shown with this read of the limit, or null when it can. One chart always can. */
+export function reasonFor(layout: LayoutId, limit: LimitRead): LayoutReason | null {
+  if (chartCount(layout) === 1) return null;
+  if (!limit.ok) return limit.why;
+  return layoutRefusal(layout, limit.value) === null ? null : 'over';
+}
+
+/** The next layout in order that the limit allows, after `from`; null while the limit loads or when no other is allowed. */
+export function limitedLayoutAfter(from: LayoutId, limit: LimitRead): LayoutId | null {
+  const at = LAYOUT_IDS.indexOf(from);
+  for (let step = 1; step < LAYOUT_IDS.length; step += 1) {
+    const id = LAYOUT_IDS[(at + step) % LAYOUT_IDS.length]!;
+    if (reasonFor(id, limit) === null) return id;
+  }
+  return null;
+}
+
+/** The stored cells after the first, with the ones on screen replaced; cells a smaller layout is not showing are kept. */
+export const withVisible = (stored: readonly CellSetting[], visible: readonly CellSetting[]): CellSetting[] => [
+  ...visible,
+  ...stored.slice(visible.length),
+];
+
 /** The cells a layout shows: the stored ones first, new ones copying the first chart (and in the blue group). */
 export function cellsFor(layout: LayoutId, first: CellSetting, stored: readonly CellSetting[]): CellSetting[] {
   const out: CellSetting[] = [first];

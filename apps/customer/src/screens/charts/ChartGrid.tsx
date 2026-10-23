@@ -24,12 +24,15 @@ import {
   isGridSetting,
   LAYOUT_IDS,
   LAYOUTS,
-  layoutRefusal,
+  limitedLayoutAfter,
+  reasonFor,
   resize,
+  withVisible,
   type CellSetting,
   type GridSetting,
   type Group,
   type LayoutId,
+  type LimitRead,
   type SyncSet,
 } from './grid';
 import { MarketChartWidget, type WidgetProps } from './MarketChartWidget';
@@ -52,7 +55,6 @@ export const SHORTCUTS = [
   { keys: 'Alt+R', action: 'Key replay' },
   { keys: 'Alt+G', action: 'Key layout' },
   { keys: 'Alt+T', action: 'Key trade' },
-  { keys: 'Tab', action: 'Key next chart' },
   { keys: '← →', action: 'Key pan' },
   { keys: '+ −', action: 'Key zoom' },
   { keys: 'Home', action: 'Key home' },
@@ -78,7 +80,8 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const { userId } = useSession();
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
   const owner = useChartOwnerValues(market.symbol);
-  const limit = ownerValue(owner, 'chartCountLimit');
+  const limit: LimitRead = ownerValue(owner, 'chartCountLimit');
+  const limitKey = limit.ok ? String(limit.value) : limit.why;
   const [refused, setRefused] = useState<LayoutId | null>(null);
   const [maximised, setMaximised] = useState<number | null>(null);
   const [help, setHelp] = useState(false);
@@ -96,17 +99,17 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
     group: firstTag === 'none' ? null : firstTag,
   };
 
-  // A layout the owner limit no longer allows falls back to one chart, saying why.
-  const allowed = limit.ok ? limit.value : null;
-  const layout: LayoutId = layoutRefusal(grid.layout, allowed) === null || (!limit.ok && limit.why === 'loading') ? grid.layout : 'single';
+  // A stored layout is shown only once the limit is read and allows it. Otherwise one chart shows, and the note says why.
+  const layout: LayoutId = reasonFor(grid.layout, limit) === null ? grid.layout : 'single';
+  // A refusal belongs to the limit it was read against: a new limit clears it.
+  useEffect(() => setRefused(null), [limitKey]);
   const cells = useMemo(
     () => cellsFor(layout, first, grid.cells),
     [layout, first.symbol, first.interval, first.mode, first.group, grid.cells],
   ); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chooseLayout = (next: LayoutId) => {
-    const why = layoutRefusal(next, allowed);
-    if (why !== null) {
+    if (reasonFor(next, limit) !== null) {
       setRefused(next);
       return;
     }
@@ -122,7 +125,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       const head = next[0]!;
       if (head.interval !== setting.interval) setInterval(head.interval);
       if (head.mode !== setting.mode) setMode(head.mode);
-      const nextGrid = { ...grid, cells: next.slice(1) };
+      const nextGrid = { ...grid, cells: withVisible(grid.cells, next.slice(1)) };
       setGrid(nextGrid);
       if (head.symbol !== market.symbol) {
         // The page is remounted for the new market before the stored grid would be written, so write it now.
@@ -141,9 +144,12 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
     else
       setGrid((now) => ({
         ...now,
-        cells: cellsFor(layout, first, now.cells)
-          .slice(1)
-          .map((c, i) => (i === index - 1 ? { ...c, group } : c)),
+        cells: withVisible(
+          now.cells,
+          cellsFor(layout, first, now.cells)
+            .slice(1)
+            .map((c, i) => (i === index - 1 ? { ...c, group } : c)),
+        ),
       }));
   };
   const setSync = (key: keyof SyncSet, on: boolean) => setGrid((now) => ({ ...now, sync: { ...now.sync, [key]: on } }));
@@ -176,7 +182,11 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
             const other = live[j];
             if (!other) continue;
             if (param.time === undefined || !param.point) other.chart.clearCrosshairPosition();
-            else other.chart.setCrosshairPosition(other.main.coordinateToPrice(param.point.y) ?? 0, param.time, other.main);
+            else {
+              // No price at this height on that chart: it takes the time alone, never a price made up.
+              const price = other.main.coordinateToPrice(param.point.y);
+              if (price !== null) other.chart.setCrosshairPosition(price, param.time, other.main);
+            }
             cellEls.current[j]?.setAttribute('data-crosshair', param.time === undefined ? '' : String(param.time));
           }
         } finally {
@@ -205,29 +215,37 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
 
   // Dragged borders: the column border and the row border, each between two tracks; a double-click evens them.
   const area = useRef<HTMLDivElement>(null);
+  // The drag in progress, so unmounting mid-drag removes its window listeners.
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []);
   const drag = (axis: 'cols' | 'rows') => (event: ReactPointerEvent<HTMLDivElement>) => {
     const box = area.current?.getBoundingClientRect();
-    if (!box) return;
+    const span = box ? (axis === 'cols' ? box.width : box.height) : 0;
+    if (!box || !(span > 0)) return;
     event.preventDefault();
+    stopDrag.current?.();
     const start = axis === 'cols' ? event.clientX : event.clientY;
-    const span = axis === 'cols' ? box.width : box.height;
     const from = grid.sizes[axis];
     const move = (e: PointerEvent) => {
       const delta = ((axis === 'cols' ? e.clientX : e.clientY) - start) / span;
       setGrid((now) => ({ ...now, sizes: { ...now.sizes, [axis]: resize(from, delta) } }));
     };
-    const up = () => {
+    const stop = () => {
       window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      if (stopDrag.current === stop) stopDrag.current = null;
     };
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    stopDrag.current = stop;
   };
   const even = (axis: 'cols' | 'rows') => () => setGrid((now) => ({ ...now, sizes: { ...now.sizes, [axis]: EVEN_SIZES[axis] } }));
 
   // The workbench's keys. Off inside text fields; the browser's own keys win.
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (inField(event.target)) return;
+    if (help || inField(event.target)) return;
     const cell = (event.target as HTMLElement).closest<HTMLElement>('[data-cell]');
     const index = cell ? Number(cell.dataset.cell) : 0;
     if (event.altKey && event.key === 'Enter') {
@@ -241,7 +259,8 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       setCommands((now) => ({ ...now, [index]: { kind: 'replay', nonce: Date.now() } }));
     } else if (event.altKey && event.code === 'KeyG') {
       event.preventDefault();
-      chooseLayout(LAYOUT_IDS[(LAYOUT_IDS.indexOf(layout) + 1) % LAYOUT_IDS.length]!);
+      const next = limitedLayoutAfter(layout, limit);
+      if (next !== null) chooseLayout(next);
     } else if (event.altKey && event.code === 'KeyT') {
       event.preventDefault();
       navigate(`/trade/spot/${pairOf(cells[index]?.symbol ?? market.symbol)}`);
@@ -250,6 +269,25 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       setHelp(true);
     }
   };
+
+  // The note: a layout just refused, or the stored layout that is shown as one chart instead. Each reason has its code.
+  const noted = refused ?? (layout !== grid.layout ? grid.layout : null);
+  const reason = noted === null ? null : reasonFor(noted, limit);
+  const note: { code?: string; text: string } | null =
+    noted === null || reason === null
+      ? null
+      : reason === 'over' && limit.ok
+        ? {
+            code: 'trade.chart.layout_over_limit',
+            text: t('Layout over limit', { limit: String(limit.value), count: String(chartCount(noted)) }),
+          }
+        : reason === 'unset'
+          ? { code: OWNER_VALUE_UNSET, text: t('Layout limit unset') }
+          : reason === 'unavailable'
+            ? { code: 'trade.chart.owner_value_unavailable', text: t('Layout limit unavailable') }
+            : reason === 'loading'
+              ? { text: t('Layout limit loading') }
+              : null;
 
   const { cols, rows } = LAYOUTS[layout];
   const template = {
@@ -291,13 +329,9 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
           {t('Shortcuts')}
         </button>
       </div>
-      {refused && (
-        <p className="cw-note cg-note" role="status" data-code={OWNER_VALUE_UNSET}>
-          {limit.ok
-            ? t('Layout over limit', { limit: String(limit.value), count: String(chartCount(refused)) })
-            : limit.why === 'unset'
-              ? t('Layout limit unset')
-              : t('Layout limit unavailable')}
+      {note && (
+        <p className="cw-note cg-note" role="status" data-code={note.code}>
+          {note.text}
         </p>
       )}
       <div ref={area} className="cg-area" style={template} data-layout={layout} data-maximised={maximised ?? ''}>

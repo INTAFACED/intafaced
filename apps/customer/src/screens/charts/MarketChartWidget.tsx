@@ -16,7 +16,7 @@ import {
 import { chartsCopy } from './copy';
 import { Menu, MenuContent, MenuItem, MenuTrigger, refusalCopy, Skeleton, StateBlock } from './deps';
 import { HISTORY_DEPTH, locateDate, useChartHistory, withHistory } from './history';
-import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplaySpeed } from './replay';
+import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplayRefusal, type ReplaySpeed } from './replay';
 import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from './live-candles';
 import { intervalLabel, type ChartMode } from './workbench';
 import { WorkbenchChart } from './WorkbenchChart';
@@ -82,7 +82,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     [recent, history.state],
   );
   const all = candles ?? (polled.status === 'ready' ? polled.data : []);
-  const replay = useReplay(all.length);
+  const replay = useReplay();
   const [replayOpen, setReplayOpen] = useState(false);
   const [replayNote, setReplayNote] = useState<string | null>(null);
   useEffect(() => {
@@ -94,6 +94,15 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     setReplayNote(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market.symbol, interval]);
+  /** The words for a replay that cannot start: each reason states its own fact, so a count is never read as a bar back. */
+  const replayRefusal = (reason: ReplayRefusal, most: number, bars: number): string =>
+    reason === 'whole'
+      ? t('Replay whole')
+      : reason === 'least'
+        ? t('Replay least')
+        : reason === 'few'
+          ? t('Replay few', { bars: String(bars) })
+          : t('Replay too deep', { most: String(most), bars: String(bars) });
   const startReplay = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -101,11 +110,11 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     const speed = Number(form.get('speed')) as ReplaySpeed;
     const start = replayStart(all.length, back);
     if (!start.ok) {
-      setReplayNote(t('Replay too deep', { most: String(start.most), bars: String(all.length) }));
+      setReplayNote(replayRefusal(start.reason, start.most, all.length));
       return;
     }
     setReplayNote(null);
-    replay.start(start.position, REPLAY_SPEEDS.includes(speed) ? speed : 1);
+    replay.start(all, start.position, REPLAY_SPEEDS.includes(speed) ? speed : 1);
   };
   const [basisRefused, setBasisRefused] = useState<PriceBasis | null>(null);
   const [focus, setFocus] = useState<{ index: number; nonce: number } | null>(null);
@@ -305,7 +314,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           {replay.replay ? (
             <>
               <span data-testid="replay-position">
-                {t('Replay position', { bar: String(replay.replay.position + 1), bars: String(all.length) })}
+                {t('Replay position', { bar: String(replay.replay.position + 1), bars: String(replay.replay.bars.length) })}
               </span>
               {replay.replay.playing ? (
                 <button type="button" onClick={replay.pause}>

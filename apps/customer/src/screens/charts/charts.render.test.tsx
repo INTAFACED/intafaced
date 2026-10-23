@@ -12,6 +12,7 @@ const world = vi.hoisted(() => ({
   asked: [] as string[],
   history: { status: 'idle' } as unknown,
   owner: {} as Record<string, unknown>,
+  ownerStatus: 'ready' as 'ready' | 'loading' | 'error',
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -37,7 +38,12 @@ vi.mock('./history', async (original) => ({
 }));
 vi.mock('./owner-values', async (original) => ({
   ...(await original<typeof import('./owner-values')>()),
-  useChartOwnerValues: () => ({ status: 'ready', data: world.owner, asOf: 0 }),
+  useChartOwnerValues: () =>
+    world.ownerStatus === 'ready'
+      ? { status: 'ready', data: world.owner, asOf: 0 }
+      : world.ownerStatus === 'loading'
+        ? { status: 'loading' }
+        : { status: 'error', retry: () => undefined },
 }));
 import ChartsScreen from './index';
 
@@ -93,6 +99,7 @@ beforeEach(() => {
   world.asked = [];
   world.history = { status: 'idle' };
   // TEST owner values, not published ones.
+  world.ownerStatus = 'ready';
   world.owner = {
     compareCap: 3,
     chartCountLimit: 4,
@@ -171,9 +178,124 @@ describe('chart workbench', () => {
     world.owner = { ...world.owner, chartCountLimit: 2 };
     await open();
     await choose('Layout', 'grid');
-    expect(host.querySelector('[data-code="trade.chart.owner_value_unset"]')?.textContent).toContain('4 charts; the limit is 2');
+    expect(host.querySelector('[data-code="trade.chart.layout_over_limit"]')?.textContent).toContain('4 charts; the limit is 2');
     await choose('Layout', 'two-across');
     expect(host.querySelectorAll('section.cw')).toHaveLength(2);
+  });
+
+  const storedGrid = (layout: string) =>
+    localStorage.setItem(
+      'charts-grid:u1:main',
+      JSON.stringify({
+        layout,
+        sync: { symbol: true, interval: true, crosshair: false, range: false },
+        cells: [],
+        sizes: { cols: [1, 1], rows: [1, 1] },
+      }),
+    );
+  const note = () => host.querySelector('.cg-note');
+  const layoutOf = () => host.querySelector('.cg-area')?.getAttribute('data-layout');
+  const altG = () =>
+    act(async () =>
+      host.querySelector('.cg')!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, altKey: true, code: 'KeyG', key: 'g' })),
+    );
+
+  it('shows one chart while a stored layout waits for the owner limit, and says it is loading', async () => {
+    storedGrid('grid');
+    world.ownerStatus = 'loading';
+    await open();
+    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(note()?.textContent).toContain('Reading the chart limit');
+    expect(note()?.hasAttribute('data-code')).toBe(false);
+  });
+
+  it('shows one chart with the over-limit code when a stored layout is past the limit', async () => {
+    storedGrid('grid');
+    world.owner = { ...world.owner, chartCountLimit: 2 };
+    await open();
+    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(note()?.getAttribute('data-code')).toBe('trade.chart.layout_over_limit');
+    expect(note()?.textContent).toContain('4 charts; the limit is 2');
+  });
+
+  it('shows one chart with the unset code when a stored layout needs a blank limit', async () => {
+    storedGrid('two-across');
+    world.owner = { ...world.owner, chartCountLimit: null };
+    await open();
+    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(note()?.getAttribute('data-code')).toBe('trade.chart.owner_value_unset');
+  });
+
+  it('shows one chart with the unavailable code when the limit cannot be read', async () => {
+    storedGrid('two-across');
+    world.ownerStatus = 'error';
+    await open();
+    expect(host.querySelectorAll('section.cw')).toHaveLength(1);
+    expect(note()?.getAttribute('data-code')).toBe('trade.chart.owner_value_unavailable');
+  });
+
+  it('shows a stored layout once the limit allows it, with no note', async () => {
+    storedGrid('two-across');
+    await open();
+    expect(host.querySelectorAll('section.cw')).toHaveLength(2);
+    expect(note()).toBeNull();
+  });
+
+  it('Alt+G skips a layout the limit refuses, and does nothing while the limit loads', async () => {
+    world.owner = { ...world.owner, chartCountLimit: 2 };
+    storedGrid('two-down');
+    await open();
+    expect(layoutOf()).toBe('two-down');
+    await altG();
+    // The four-chart grid is refused at a limit of two, so the cycle goes on to one chart.
+    expect(layoutOf()).toBe('single');
+  });
+
+  it('Alt+G does nothing while the limit is loading', async () => {
+    storedGrid('two-down');
+    world.ownerStatus = 'loading';
+    await open();
+    await altG();
+    expect(layoutOf()).toBe('single');
+    expect(JSON.parse(localStorage.getItem('charts-grid:u1:main')!).layout).toBe('two-down');
+  });
+
+  it('lists no Tab shortcut, and the keys do nothing while the help list is open', async () => {
+    await open();
+    await click(button('Keyboard shortcuts'));
+    const list = host.ownerDocument.querySelector('[data-testid="shortcut-list"]');
+    expect(list?.textContent).not.toContain('next chart');
+    expect(list?.textContent).not.toContain('Tab');
+    await altG();
+    expect(layoutOf()).toBe('single');
+  });
+
+  it('keeps the bars of a replay as they were when it started, when the bars change under it', async () => {
+    world.candles = ready([bar(0, '1'), bar(60_000, '2'), bar(120_000, '3'), bar(180_000, '4')]);
+    await open();
+    await click(button('Bar replay'));
+    const back = host.querySelector<HTMLInputElement>('input[name="back"]')!;
+    back.value = '1';
+    await act(async () => back.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    const position = () => host.querySelector('[data-testid="replay-position"]')?.textContent;
+    expect(position()).toBe('Replay: bar 3 of 4');
+    // Older history arrives mid-replay: the cut and the count stay on the bars the replay started with.
+    world.candles = ready([bar(-120_000, '0'), bar(-60_000, '0.5'), bar(0, '1'), bar(60_000, '2'), bar(120_000, '3'), bar(180_000, '4')]);
+    await click(button('Step'));
+    expect(position()).toBe('Replay: bar 4 of 4');
+    expect(host.querySelector('[data-testid="price-chart"]')?.getAttribute('data-last')).toBe('4');
+  });
+
+  it('says why a replay with one bar cannot start, without a bar count of 0', async () => {
+    world.candles = ready([bar(0, '1')]);
+    await open();
+    await click(button('Bar replay'));
+    const back = host.querySelector<HTMLInputElement>('input[name="back"]')!;
+    back.value = '1';
+    await act(async () => back.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    const text = host.querySelector('[data-testid="replay-note"]')?.textContent ?? '';
+    expect(text).toContain('no earlier bar to replay from');
+    expect(text).not.toContain('at most 0');
   });
 
   it('maximises the chart in focus on Alt+Enter and brings the others back on the same key', async () => {
