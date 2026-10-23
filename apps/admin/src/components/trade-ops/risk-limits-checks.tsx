@@ -17,7 +17,8 @@ import {
 } from '@intafaced/ui';
 import type { ActionApproval } from '@intafaced/contracts';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
-import type { RiskCurrent, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
+import { formatPercent } from '@intafaced/i18n';
+import type { PriceBandChangeRow, PriceBandView, RiskRead, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
 import type { MarketRow } from '@/lib/trade-ops/reads';
 import type { Outcome } from '@/lib/trade-ops/outcome';
 import {
@@ -41,20 +42,11 @@ import { OutcomeNotice } from './outcome-notice';
  * Approvals room; (3) apply with the approval id. The service refuses a stale version or an approval for other values.
  */
 
-type Read = { current: RiskCurrent; history: readonly RiskVersionRow[] };
-const EMPTY: Record<OperatorLimitField, string> = {
-  collar: '',
-  fatFinger: '',
-  slippageCap: '',
-  throttle: '',
-  circuitBreaker: '',
-  oiLimit: '',
-  oiShareBps: '',
-};
+const EMPTY = Object.fromEntries(ENGINE_CHECKS.map((c) => [c.field, ''])) as Record<OperatorLimitField, string>;
 
 export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] }) {
   const [marketId, setMarketId] = useState(markets[0]?.id ?? '');
-  const [read, setRead] = useState<Outcome<Read> | null>(null);
+  const [read, setRead] = useState<Outcome<RiskRead> | null>(null);
   const [values, setValues] = useState<Record<OperatorLimitField, string>>(EMPTY);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -74,19 +66,13 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
     setBusy(true);
     setProposed(null);
     setHash(null);
-    const out = await tradeOpsAction<Read>('risk-limits', { action: 'read', market: marketId });
+    // The band is read only for a futures market: nothing else has one.
+    const futures = markets.find((m) => m.id === marketId)?.kind === 'futures';
+    const out = await tradeOpsAction<RiskRead>('risk-limits', { action: 'read', market: marketId, band: futures });
     setRead(out);
     if (out.kind === 'ok') {
       const c = out.data.current;
-      setValues({
-        collar: limitText(c.collar),
-        fatFinger: limitText(c.fatFinger),
-        slippageCap: limitText(c.slippageCap),
-        throttle: limitText(c.throttle),
-        circuitBreaker: limitText(c.circuitBreaker),
-        oiLimit: limitText(c.oiLimit),
-        oiShareBps: limitText(c.oiShareBps),
-      });
+      setValues(Object.fromEntries(ENGINE_CHECKS.map((k) => [k.field, limitText(c[k.field])])) as Record<OperatorLimitField, string>);
     }
     setBusy(false);
   }
@@ -160,12 +146,11 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
 
   const historyColumns: TableColumn<RiskVersionRow>[] = [
     { id: 'version', header: 'Version', numeric: true, width: 80, value: (h) => h.version },
-    { id: 'at', header: 'When (UTC)', width: 190, value: (h) => h.createdAt.replace('T', ' ').slice(0, 19) },
+    { id: 'at', header: 'When (UTC)', width: 190, value: (h) => utc(h.createdAt) },
     {
       id: 'limits',
-      header: 'Collar / fat-finger / slippage / throttle / breaker / open interest / share',
-      value: (h) =>
-        [h.collar, h.fatFinger, h.slippageCap, h.throttle, h.circuitBreaker, h.oiLimit, h.oiShareBps].map((v) => v ?? 'unset').join(' / '),
+      header: 'Collar / fat-finger / slippage / throttle / breaker / open interest / share / range widest, trigger, cadence',
+      value: (h) => ENGINE_CHECKS.map((c) => h[c.field] ?? 'unset').join(' / '),
     },
     { id: 'who', header: 'Operator → approver', value: (h) => `${h.operatorId} → ${h.approverId}` },
     { id: 'reason', header: 'Reason', value: (h) => h.reason },
@@ -261,6 +246,10 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
         </div>
       </div>
 
+      {loaded && kind === 'futures' ? (
+        <PriceBandPanel band={loaded.band} refusal={loaded.bandRefusal} limitsVersion={loaded.current.version} />
+      ) : null}
+
       {loaded ? (
         <Table<RiskVersionRow>
           label="Limit history"
@@ -268,6 +257,92 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
           columns={historyColumns}
           rows={loaded.history}
           getRowId={(h) => h.version}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const REASON_TEXT: Record<PriceBandChangeRow['reason'], string> = {
+  within_trigger: 'Within the trigger: the usual band',
+  widened: 'Widened by the premium',
+  capped: 'Held at the widest',
+  inputs_missing: 'Mark or book unreadable: the usual band',
+};
+
+/** A fraction as a percentage, to four places. */
+const pct = (fraction: string | null) => (fraction === null ? '—' : formatPercent(fraction, 'en', { maxFractionDigits: 4 }));
+
+const utc = (iso: string) => iso.replace('T', ' ').slice(0, 19);
+
+/**
+ * The futures market's band as svc-trade's job last worked it out, and each change. Read only: the range is set with
+ * the limits above. New orders are held to this band only while it is fresh and was worked for the limits in force;
+ * otherwise, and while the range is blank, to the usual one.
+ */
+function PriceBandPanel({ band, refusal, limitsVersion }: { band: PriceBandView | null; refusal: string | null; limitsVersion: string }) {
+  const now = band?.current ?? null;
+  const columns: TableColumn<PriceBandChangeRow & { readonly n: number }>[] = [
+    { id: 'at', header: 'When (UTC)', width: 190, value: (c) => utc(c.changedAt) },
+    { id: 'band', header: 'Band', numeric: true, width: 110, value: (c) => pct(c.band) },
+    {
+      id: 'was',
+      header: 'Was',
+      numeric: true,
+      width: 110,
+      value: (c) => (c.previousBand === null ? 'first working' : pct(c.previousBand)),
+    },
+    { id: 'usual', header: 'Usual band', numeric: true, width: 110, value: (c) => pct(c.staticBand) },
+    { id: 'premium', header: 'Premium', numeric: true, width: 110, value: (c) => pct(c.premium) },
+    { id: 'why', header: 'Why', value: (c) => REASON_TEXT[c.reason] },
+    { id: 'version', header: 'Limits version', numeric: true, width: 120, value: (c) => c.riskVersion },
+  ];
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium text-fg-1">Price band, as last worked out</h3>
+      <p className="text-sm text-fg-2">
+        New orders are held to this band only while it was worked for the limits in force and within the last two cadences (or two runs of
+        the futures jobs, when those are slower); otherwise, and while the price range is blank, to the usual band. Compare the last
+        worked-out time with now.
+      </p>
+      {refusal !== null ? (
+        <p className="text-sm text-fg-2">The band could not be read: {refusal}</p>
+      ) : now === null ? (
+        <p className="text-sm text-fg-2">
+          Not worked out on this market yet: new orders are held to the usual band. The futures jobs work it out once the price range is
+          set.
+        </p>
+      ) : (
+        <KeyValue
+          density="dense"
+          items={[
+            ...(now.riskVersion !== limitsVersion
+              ? [
+                  {
+                    label: 'In force',
+                    value: `No: worked for limits version ${now.riskVersion}, now ${limitsVersion}. The usual band applies until it is worked again.`,
+                  },
+                ]
+              : []),
+            { label: 'Band (each side of the mark)', value: pct(now.band) },
+            { label: 'Usual band', value: pct(now.staticBand) },
+            { label: 'Premium of the book over the mark', value: pct(now.premium) },
+            { label: 'Mark', value: now.mark ?? '—' },
+            { label: 'Middle of the futures book', value: now.bookMid ?? '—' },
+            { label: 'Why', value: REASON_TEXT[now.reason] },
+            { label: 'Worked for limits version', value: now.riskVersion },
+            { label: 'Last worked out (UTC)', value: utc(now.checkedAt) },
+            { label: 'Last changed (UTC)', value: utc(now.changedAt) },
+          ]}
+        />
+      )}
+      {band ? (
+        <Table<PriceBandChangeRow & { readonly n: number }>
+          label="Band changes"
+          density="dense"
+          columns={columns}
+          rows={band.changes.map((c, n) => ({ ...c, n }))}
+          getRowId={(c) => String(c.n)}
         />
       ) : null}
     </div>
