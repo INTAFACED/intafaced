@@ -7,6 +7,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.stubGlobal('location', new URL('https://app.example.com/'));
+// A room may tidy its own address while it renders; on the server there is no history to tidy.
+vi.stubGlobal('history', { state: null, replaceState: () => undefined, pushState: () => undefined });
 
 import { SessionProvider } from '../session/session';
 import { MoreRoutes } from './MoreRoutes';
@@ -39,5 +41,20 @@ describe('More room sections and records (MC-order-01)', () => {
 
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {
     expect(page('/market/a/b/c')).toContain('href="/more"');
+  });
+
+  it('labels every room of the set simulated under ?simulated=true, with a way to the live room', () => {
+    for (const path of ['/predict', '/market', '/launch', '/token/governance', '/mining', '/blueprint', '/mining/workers']) {
+      const html = page(`${path}?simulated=true&tab=x`);
+      expect(html, path).toContain('data-paper="simulated"');
+      expect(html, path).toContain('Simulated view');
+      expect(html, path).toContain(`href="${path}?tab=x"`);
+    }
+  });
+
+  it('shows no simulated label without the flag, or on a room outside the set', () => {
+    expect(page('/market')).not.toContain('data-paper');
+    expect(page('/market?simulated=false')).not.toContain('data-paper');
+    expect(page('/campaigns?simulated=true')).not.toContain('data-paper');
   });
 });
