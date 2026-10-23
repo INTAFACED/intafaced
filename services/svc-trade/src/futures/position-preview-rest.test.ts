@@ -5,6 +5,8 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { registerPositionPreviewRest } from './position-preview-rest.js';
 import type { Market } from '../spot/types.js';
+import { UNPUBLISHED_FEE_SCHEDULE } from '../spot/fee-schedule.js';
+import { perpetualFeeRates } from './matched-order-plan.js';
 
 const EDGE_SECRET = 'position-preview-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -46,7 +48,12 @@ function headers(): Record<string, string> {
   };
 }
 
-function appWith(input: { mark: string | null; cap: string | null; liquidation?: string | null }) {
+function appWith(input: {
+  mark: string | null;
+  cap: string | null;
+  liquidation?: string | null;
+  takerFeeBps?: ((userId: string) => Promise<number>) | null;
+}) {
   const app = Fastify();
   const liquidation = input.liquidation;
   registerPositionPreviewRest(app, {
@@ -55,6 +62,7 @@ function appWith(input: { mark: string | null; cap: string | null; liquidation?:
     marketBySymbol: async (symbol) => (symbol === MARKET.symbol ? MARKET : null),
     markForMarket: async () => (input.mark === null ? null : { price: input.mark, source: 'depth' }),
     leverageCap: input.cap === null ? null : parseAmount(input.cap),
+    takerFeeBps: input.takerFeeBps === undefined ? async () => 2 : input.takerFeeBps,
     ...(liquidation === undefined ? {} : { liquidationPriceFor: async () => (liquidation === null ? null : parseAmount(liquidation)) }),
   });
   return app;
@@ -102,6 +110,23 @@ describe('POST /api/v1/positions/preview', () => {
     ]);
     expect(response.body).not.toContain('"0"');
     await app.close();
+  });
+
+  it('the fee is the account’s perpetual taker rate, never the listing row’s; unset or unpublished refuses the fee line', async () => {
+    // The listing row says 2 bps; the schedule gives this account 5.
+    const app = appWith({ mark: '100', cap: '5', liquidation: '80', takerFeeBps: async () => 5 });
+    const priced = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(priced.json()).toMatchObject({ estimatedFee: '0.1', orderable: true });
+    await app.close();
+
+    for (const takerFeeBps of [null, async () => perpetualFeeRates(UNPUBLISHED_FEE_SCHEDULE, 0).takerBps]) {
+      const blank = appWith({ mark: '100', cap: '5', liquidation: '80', takerFeeBps });
+      const response = await blank.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ estimatedFee: null, orderable: false });
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toEqual(['trade.position_preview_fee_unavailable']);
+      await blank.close();
+    }
   });
 
   it('refuses JSON-number money inputs', async () => {

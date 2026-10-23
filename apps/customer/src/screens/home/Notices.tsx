@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { StatusTag } from './deps';
-import { homeNotices, type HomeNotice } from './notices';
+import { homeNotices, type HomeNotice } from './notice-model';
 import { readAnnouncement, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
