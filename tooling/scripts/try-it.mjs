@@ -200,8 +200,8 @@ ${notice ? `<p class="${notice.ok ? 'ok' : 'error'}" role="status">${escapeHtml(
 
 <h2>Or make your own account</h2>
 <ol>
-<li>Sign up in the app. This copy sends no email: the code shows in the TEST inbox below.</li>
-<li>To trade, ask for verification in the app (Verification), then press the button here. In the real product an operator reviews it; here the two TEST operators approve it.
+<li>Sign up in the app with a made-up email (for example <code>you@local-test.invalid</code>): everyone on this link sees the TEST inbox below, and this copy sends no email. Your code shows there.</li>
+<li>To trade, ask for verification in the app (Verification), then press the button here. In the real product an operator reviews it; here the two TEST operators approve every waiting request on this copy.
 <form method="post" action="/__try/verify"><button type="submit">Approve my verification request (TEST operators)</button></form></li>
 <li>Get TEST money: <form method="post" action="/__try/fund" style="display:inline"><input name="email" type="email" placeholder="your sign-up email" required aria-label="Your sign-up email">
 <button type="submit">Add ${escapeHtml(TEST_CREDIT.amount)} TEST ${escapeHtml(TEST_CREDIT.asset)}</button></form><br><span class="muted">Once per account; a second press adds nothing.</span></li>
@@ -256,11 +256,37 @@ function readBody(req, limit = 4096) {
   });
 }
 
-const safeNext = (n) => (typeof n === 'string' && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/__try/') ? n : '/');
+/**
+ * Where to go after the password: a path on this link, or `/`. It is resolved the way a browser would resolve it, so
+ * `//x`, `/\\x` and tab or newline tricks that leave the link fall back to `/`.
+ */
+export function safeNext(n) {
+  if (typeof n !== 'string' || !n.startsWith('/')) return '/';
+  const base = 'https://gate.invalid';
+  let url;
+  try {
+    url = new URL(n, base);
+  } catch {
+    return '/';
+  }
+  if (url.origin !== base || url.pathname.startsWith('/__try/')) return '/';
+  return `${url.pathname}${url.search}${url.hash}`;
+}
 
 export function createGate({ password, publicOrigin, port = 8088, endsAt = null, stateDir = localStackState(), upstream = UPSTREAM }) {
   const sessions = new Set();
-  const failures = createFailureWindow();
+  // Wrong guesses count per visitor (the tunnel names the caller in cf-connecting-ip, and only the tunnel reaches the
+  // gate), and in total, so one visitor cannot lock everyone out and many cannot guess fast.
+  const perVisitor = new Map();
+  const total = createFailureWindow(MAX_FAILURES_PER_MINUTE * 10);
+  const visitorWindow = (req) => {
+    const who = String(req.headers['cf-connecting-ip'] ?? 'local');
+    if (!perVisitor.has(who)) {
+      if (perVisitor.size >= 10_000) perVisitor.clear();
+      perVisitor.set(who, createFailureWindow());
+    }
+    return perVisitor.get(who);
+  };
   const secure = publicOrigin.startsWith('https:');
   // The link's own name, or the gate's local address when the tunnel forwards with that Host. Nothing else.
   const hosts = new Set([new URL(publicOrigin).host, `127.0.0.1:${port}`]);
@@ -302,9 +328,12 @@ export function createGate({ password, publicOrigin, port = 8088, endsAt = null,
         return send(res, 413, 'too large', 'text/plain');
       }
       const next = safeNext(form.get('next'));
-      if (failures.blocked()) return send(res, 429, loginPage({ next, error: 'Too many wrong passwords. Wait a minute and try again.' }));
+      const mine = visitorWindow(req);
+      if (mine.blocked() || total.blocked())
+        return send(res, 429, loginPage({ next, error: 'Too many wrong passwords. Wait a minute and try again.' }));
       if (!samePassword(form.get('password') ?? '', password)) {
-        failures.record();
+        mine.record();
+        total.record();
         return send(res, 401, loginPage({ next, error: 'That password is not right.' }));
       }
       if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.values().next().value);

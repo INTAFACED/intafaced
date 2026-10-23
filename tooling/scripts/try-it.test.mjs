@@ -17,6 +17,7 @@ import {
   readOutbox,
   readPassword,
   readPublicOrigin,
+  safeNext,
   startPage,
   upstreamHeaders,
   withoutGateCookie,
@@ -60,6 +61,23 @@ assert.deepEqual(h, {
   'content-type': 'application/json',
 });
 assert.equal(upstreamHeaders({ host: 'x' }).origin, undefined, 'no Origin is invented');
+
+// After the password: only a path on this link (browsers read a backslash as a slash and drop tabs and newlines).
+for (const off of [
+  '//evil.example',
+  '/\\evil.example',
+  '/\t/evil.example',
+  '/\n/evil.example',
+  '/\\/evil.example',
+  'https://evil.example',
+  'evil',
+  '/__try/fund',
+  '',
+]) {
+  assert.equal(safeNext(off), '/', JSON.stringify(off));
+}
+assert.equal(safeNext('/trade/spot/BTC-USDT?x=1#y'), '/trade/spot/BTC-USDT?x=1#y');
+assert.equal(safeNext(null), '/');
 
 const win = createFailureWindow(3, 1000);
 for (let i = 0; i < 3; i++) win.record(0);
@@ -158,6 +176,18 @@ try {
   const locked = await raw('/__try/login', form({ password: PASSWORD }));
   assert.equal(locked.status, 429);
   assert.equal(locked.headers['set-cookie'], undefined);
+  // The lock is that visitor's: another one still gets in.
+  const other = await raw('/__try/login', {
+    ...form({ password: PASSWORD }),
+    headers: { ...form({}).headers, 'cf-connecting-ip': '198.51.100.7' },
+  });
+  assert.equal(other.status, 303);
+  // The off-site next the review found: the gate sends it home instead.
+  const tricked = await raw('/__try/login', {
+    ...form({ password: PASSWORD, next: '/\\evil.example' }),
+    headers: { ...form({}).headers, 'cf-connecting-ip': '198.51.100.8' },
+  });
+  assert.equal(tricked.headers.location, '/__try/');
   assert.equal(seen.length, 0);
 } finally {
   gate.close();
