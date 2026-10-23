@@ -27,7 +27,7 @@ import type { Principal } from '@intafaced/auth';
 import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../../lifecycle-proof.js';
 import { TradingControlError, type TradingAdmissionPort } from '../../controls/trading-controls.js';
-import { MatchedFuturesOrders, type PlaceMatchedOrderInput } from '../matched-orders.js';
+import { MatchedFuturesOrders, MatchedOrderError, type PlaceMatchedOrderInput } from '../matched-orders.js';
 import { matchedOrderIdFor } from '../ids.js';
 import { createConditionalOrderService, type ConditionalOrderService } from './service.js';
 
@@ -208,9 +208,9 @@ describe('futures conditional orders fire through the book', () => {
   }
 
   /** The engine fills a fired sell of `conditionalId` against `makerOrderId`, `qty` at `price`. */
-  function scriptFill(conditionalId: string, makerOrderId: string, qty: string, price: string, left?: string) {
+  function scriptFill(conditionalId: string, makerOrderId: string, qty: string, price: string, left?: string, attempt = 0) {
     seq += 1;
-    const takerOrderId = matchedOrderIdFor(ALICE, MARKET, `cond:${conditionalId}`);
+    const takerOrderId = matchedOrderIdFor(ALICE, MARKET, attempt > 0 ? `cond:${conditionalId}:${attempt}` : `cond:${conditionalId}`);
     engine.script.push({
       accepted: true,
       sequence: seq,
@@ -318,7 +318,7 @@ describe('futures conditional orders fire through the book', () => {
     const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'crash-1' });
     const id = pair.stopLoss!.id;
     // The claim committed and the process died.
-    await sql`UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`fire:${id}`} WHERE id = ${id}`;
+    await sql`UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`book:${id}`} WHERE id = ${id}`;
     const bid = await carolBid('1', '96');
     mark = A('94');
     scriptFill(id, bid, '1', '96');
@@ -336,7 +336,7 @@ describe('futures conditional orders fire through the book', () => {
     const taker = scriptFill(id, bid, '1', '96');
     // The claim and the fixed quantity committed, the order was placed and filled, and the process died.
     await sql`
-      UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`fire:${id}`}, result = ${sql.json({ qty: '1' })}
+      UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`book:${id}`}, result = ${sql.json({ qty: '1' })}
        WHERE id = ${id}
     `;
     await book.placeOnInstruction(
@@ -358,7 +358,7 @@ describe('futures conditional orders fire through the book', () => {
     expect(await conditional(id)).toMatchObject({ status: 'filled', closeOrderId: taker });
   });
 
-  it('a book with nothing inside the band: the stop fails with its reason, the position is untouched and the take-profit stays armed', async () => {
+  it('a book with nothing inside the band: nothing closes, the take-profit stays armed, and the next tick tries again', async () => {
     const positionId = await aliceLong();
     const pair = await orders.replaceProtection(ALICE, positionId, { takeProfit: '110', stopLoss: '95', clientRequestId: 'empty' });
     const id = pair.stopLoss!.id;
@@ -374,22 +374,117 @@ describe('futures conditional orders fire through the book', () => {
     } as EngineSubmitResult);
     mark = A('94');
     await orders.evaluate({ enabled: true });
-    expect(await conditional(id)).toMatchObject({ status: 'failed', failureReason: 'trade.conditional_no_fill', closeOrderId: taker });
+    expect(await conditional(id)).toMatchObject({ status: 'triggered', failureReason: null, closeOrderId: taker, closedQuantity: '0' });
     expect(await conditional(pair.takeProfit!.id)).toMatchObject({ status: 'armed' });
     expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1', margin_current: '10' });
     expect((await ledger.balance(futuresOrderMarginAccount(ALICE, USDT, taker))).amount).toBe(0n);
+
+    // Liquidity comes back: the second attempt, a new order for what is left, closes the position.
+    const bid = await carolBid('1', '96');
+    const second = scriptFill(id, bid, '1', '96', undefined, 1);
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: second, qty: '1' });
+    expect(await conditional(id)).toMatchObject({ status: 'filled', closeOrderId: second, closedQuantity: '1' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
   });
 
-  it('a part fill fails the stop with that reason, and the rest of the position keeps its other leg', async () => {
+  it('a part fill keeps the stop working: the next attempt closes the rest, and the other leg stays armed meanwhile', async () => {
     const positionId = await aliceLong('2');
     const pair = await orders.replaceProtection(ALICE, positionId, { takeProfit: '110', stopLoss: '95', clientRequestId: 'part' });
-    const bid = await carolBid('1', '96');
+    const id = pair.stopLoss!.id;
+    const first = await carolBid('1', '96');
     mark = A('94');
-    scriptFill(pair.stopLoss!.id, bid, '1', '96', '1');
+    scriptFill(id, first, '1', '96', '1');
     await orders.evaluate({ enabled: true });
-    expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'failed', failureReason: 'trade.conditional_partial_fill' });
+    expect(await conditional(id)).toMatchObject({ status: 'triggered', failureReason: null, firedQuantity: null, closedQuantity: '1' });
     expect(await conditional(pair.takeProfit!.id)).toMatchObject({ status: 'armed' });
     expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
+
+    const rest = await carolBid('1', '95.5');
+    const second = scriptFill(id, rest, '1', '95.5', undefined, 1);
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: second, qty: '1' });
+    expect(await conditional(id)).toMatchObject({ status: 'filled', firedQuantity: '1', closedQuantity: '2' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
+    expect(await conditional(pair.takeProfit!.id)).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  });
+
+  it('a position-wide stop closes what the position’s other reduce-only orders do not already claim', async () => {
+    const positionId = await aliceLong('2');
+    const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'room' });
+    // A resting reduce-only take-profit limit the trader placed by hand claims 1 of the 2.
+    const resting = await book.place(principal(ALICE), {
+      ...limit(ALICE, 'sell', '1', '104', 'manual-tp'),
+      reduceOnly: true,
+    });
+    expect(resting.status).toBe('open');
+    const bid = await carolBid('1', '96');
+    mark = A('94');
+    const taker = scriptFill(pair.stopLoss!.id, bid, '1', '96');
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: taker, qty: '1' });
+    expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'filled', firedQuantity: '1' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
+  });
+
+  it('while a liquidation step holds the position the stop waits, then places once it is idle', async () => {
+    const positionId = await aliceLong();
+    const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'rung' });
+    const id = pair.stopLoss!.id;
+    let busy = true;
+    book = new MatchedFuturesOrders({
+      ...(book as unknown as { deps: ConstructorParameters<typeof MatchedFuturesOrders>[0] }).deps,
+      assertPositionIdle: async () => {
+        if (busy) throw new MatchedOrderError('a liquidation of this position is in progress', 'trade.liquidation_in_progress', 409);
+      },
+    });
+    const bid = await carolBid('1', '96');
+    mark = A('94');
+    const submitted = engine.submits.length;
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(await conditional(id)).toMatchObject({ status: 'triggered', failureReason: null });
+    expect(engine.submits).toHaveLength(submitted);
+    busy = false;
+    scriptFill(id, bid, '1', '96');
+    await orders.evaluate({ enabled: true });
+    expect(await conditional(id)).toMatchObject({ status: 'filled' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
+  });
+
+  it('a fired stop-limit places its reduce-only limit in the book', async () => {
+    const positionId = await aliceLong();
+    const created = await orders.create(ALICE, {
+      market: SYMBOL,
+      kind: 'stop_limit',
+      side: 'sell',
+      quantity: '1',
+      triggerPrice: '95',
+      limitPrice: '94.5',
+      reduceOnly: true,
+      clientOrderId: 'stop-limit-1',
+    });
+    mark = A('94');
+    await orders.evaluate({ enabled: true });
+    const taker = matchedOrderIdFor(ALICE, MARKET, `cond:${created.order.id}`);
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: taker, side: 'sell', qty: '1', price: '94.5', tif: 'GTC' });
+    expect(await conditional(created.order.id)).toMatchObject({ status: 'filled', closeOrderId: taker, firedQuantity: '1' });
+    const [row] = await sql<{ reduce_only: boolean; order_type: string; status: string }[]>`
+      SELECT reduce_only, order_type, status FROM trade.futures_orders WHERE id = ${taker}
+    `;
+    expect(row).toEqual({ reduce_only: true, order_type: 'limit', status: 'open' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
+  });
+
+  it('a row the at-mark path claimed is never placed in the book', async () => {
+    const positionId = await aliceLong();
+    const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'legacy' });
+    const id = pair.stopLoss!.id;
+    // Claimed before matching was switched on; its at-mark close may already have run.
+    await sql`UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`fire:${id}`} WHERE id = ${id}`;
+    const submitted = engine.submits.length;
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits).toHaveLength(submitted);
+    expect(await conditional(id)).toMatchObject({ status: 'triggered' });
   });
 
   it('admission that cannot be reached leaves the stop triggered, and the next tick places it', async () => {
@@ -428,7 +523,7 @@ describe('futures conditional orders fire through the book', () => {
     const positionId = await aliceLong();
     const pair = await orders.replaceProtection(ALICE, positionId, { stopLoss: '95', clientRequestId: 'gone' });
     const id = pair.stopLoss!.id;
-    await sql`UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`fire:${id}`} WHERE id = ${id}`;
+    await sql`UPDATE trade.futures_conditional_orders SET status = 'triggered', trigger_key = ${`book:${id}`} WHERE id = ${id}`;
     await sql`UPDATE trade.positions SET status = 'closed' WHERE id = ${positionId}`;
     const submitted = engine.submits.length;
     await orders.evaluate({ enabled: true });

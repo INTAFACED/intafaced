@@ -139,7 +139,7 @@ export class MatchedOrderError extends Error {
  * adjusted, an earlier fill on the same order or position is still being recorded, or a reduce loss past the bound
  * waits for the insurance fund. A fill refused with one of these waits in `trade.futures_fill_waits`.
  */
-const FILL_WAIT_CODES: readonly string[] = [
+export const FILL_WAIT_CODES: readonly string[] = [
   'trade.liquidation_in_progress',
   'trade.position_under_review',
   'trade.futures_fill_in_progress',
@@ -681,7 +681,7 @@ async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, position
  * settled, or, once it has left the book, what the engine says it filled less what has settled (a fill printed
  * before a cancel still arrives). Refused and rejected orders claim nothing.
  */
-async function reservedReduceQty(tx: TransactionSql, positionId: string): Promise<Amount> {
+export async function reservedReduceQty(tx: Sql | TransactionSql, positionId: string): Promise<Amount> {
   const rows = await tx<{ qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]>`
     SELECT qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
      WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
@@ -1242,14 +1242,6 @@ export class MatchedFuturesOrders {
   }
 
   /**
-   * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
-   * position's size less its other live reduce-only orders, and never past its bankruptcy price.
-   *
-   * The position row is locked while the bound is read and the order row is written, so two reduce orders placed at
-   * once cannot both claim the same size. Leverage and the leverage cap are not checked: reducing is always allowed,
-   * and the order carries its position's leverage.
-   */
-  /**
    * The one reduce-only order a fired conditional order places for its trader (D-orders-04, J-derivatives-03). No
    * session or key is behind it: the trader armed the conditional order, and admission names that order as a standing
    * instruction owned by svc-trade (`admitStanding`), whose caller has claimed it as fired. Everything after admission
@@ -1280,11 +1272,7 @@ export class MatchedFuturesOrders {
     }
     const inForce = await this.bandInForce(market.id, band);
     return this.placeReduceOnly(
-      (admission, businessId, payload) => {
-        if (typeof admission.admitStanding !== 'function')
-          refuse('authority.unavailable', 'standing-instruction admission is not configured', 503);
-        return admission.admitStanding(input.userId, instructionId, businessId, payload, 'svc-trade');
-      },
+      (admission, businessId, payload) => admission.admitStanding(input.userId, instructionId, businessId, payload, 'svc-trade'),
       input,
       clientOrderId,
       market,
@@ -1292,6 +1280,14 @@ export class MatchedFuturesOrders {
     );
   }
 
+  /**
+   * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
+   * position's size less its other live reduce-only orders, and never past its bankruptcy price.
+   *
+   * The position row is locked while the bound is read and the order row is written, so two reduce orders placed at
+   * once cannot both claim the same size. Leverage and the leverage cap are not checked: reducing is always allowed,
+   * and the order carries its position's leverage.
+   */
   private async placeReduceOnly(
     admit: (admission: TradingAdmissionPort, businessId: string, payload: Record<string, unknown>) => Promise<unknown>,
     input: PlaceMatchedOrderInput,
@@ -1332,6 +1328,13 @@ export class MatchedFuturesOrders {
       if (!position || position.status !== 'open') {
         refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
       }
+      // The same request placed at once twice: the one that wrote its row first holds the room, and this one is its
+      // replay (below), not a second claim on the same size refused as too large.
+      const [same] = await tx<{ id: string }[]>`
+        SELECT id FROM trade.futures_orders
+         WHERE user_id = ${input.userId} AND market_id = ${market.id} AND client_order_id = ${clientOrderId}
+      `;
+      if (same) return false;
       // The bound below is priced from the margin; one that is mid-change would price it from a figure about to move.
       if (position.margin_adjust_request != null) {
         refuse(
