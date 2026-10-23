@@ -1,9 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { date, useBankRead, type ActionSpec } from './components';
-import { destinationRemovedSchema, destinationSchema, type Destination, type WithdrawAsset } from './contracts';
+import {
+  destinationCheckSchema,
+  destinationRemovedSchema,
+  destinationSchema,
+  type Destination,
+  type DestinationCheck,
+  type WithdrawAsset,
+} from './contracts';
+import { moneyRefusalWords } from './money-refusal-copy';
 import { DepthPanel } from './DepthParts';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { checkAddress, checkLabel, checkTag, coolingOf, shortenAddress } from './withdraw-model';
@@ -158,7 +166,12 @@ export function draftProblems(draft: Draft, assets: readonly WithdrawAsset[]) {
   };
 }
 
-/** The add form. Saving needs a fresh confirmation (`trade:withdraw`): the code buys one token, used for this save only. */
+/**
+ * The add form. Saving needs a fresh confirmation (`trade:withdraw`): the code buys one token, used for this save only.
+ * Before the code is asked for, the bank checks the address (`ramps.destinations.check`, W-withdraw-03): a mixed-case
+ * address whose checksum does not match is refused at the field, and one that starts and ends like a saved address but
+ * is not (address poisoning) shows a warning that must be ticked before it can be saved. The bank checks both again on save.
+ */
 function AddForm({ onSaved }: { onSaved: () => void }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
@@ -167,29 +180,79 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   const [tried, setTried] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkProblem, setCheckProblem] = useState<string | null>(null);
+  const [checksumBad, setChecksumBad] = useState(false);
+  const [lookalike, setLookalike] = useState<NonNullable<DestinationCheck['lookalike']> | null>(null);
+  const [checked, setChecked] = useState(false);
+  const [untickedShown, setUntickedShown] = useState(false);
+  // The address as typed now, so a check answered after the field changed is dropped, not applied to the new address.
+  const typed = useRef('');
   if (networks.resource.status === 'loading') return <Loading />;
   if (networks.resource.status === 'failed') return <Failure result={networks.resource.failure} retry={networks.reload} />;
   const assets = networks.resource.data;
   if (assets.length === 0) return <EmptyState title={t('aNoAssetsTitle')}>{t('aNoAssetsBody')}</EmptyState>;
   const asset = assets.find((a) => a.assetId === draft.assetId);
-  const problems = draftProblems(draft, assets);
+  const local = draftProblems(draft, assets);
+  const problems = { ...local, address: local.address ?? (checksumBad ? ('aAddressChecksum' as const) : null) };
   const shown = (key: keyof typeof problems) => (tried ? problems[key] : null);
   const set = (patch: Partial<Draft>) => {
     setSaved(null);
+    setCheckProblem(null);
+    if (patch.address !== undefined) {
+      // A new address is a new check: the old warning and tick do not carry over.
+      typed.current = patch.address.trim();
+      setChecksumBad(false);
+      setLookalike(null);
+      setChecked(false);
+      setUntickedShown(false);
+    }
     setDraft((before) => ({ ...before, ...patch }));
   };
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    setTried(true);
-    if (Object.values(problems).every((p) => p === null)) setConfirming(true);
-  }
   const input = {
     assetId: draft.assetId,
     network: draft.network,
     ref: draft.address.trim(),
     label: draft.label.trim(),
     ...(draft.tag ? { tag: draft.tag } : {}),
+    ...(lookalike && checked ? { confirmLookalike: true } : {}),
   };
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setTried(true);
+    if (checking || Object.values(local).some((p) => p !== null)) return;
+    if (lookalike) {
+      // Already warned about this address: it goes ahead only once ticked.
+      if (checked) setConfirming(true);
+      else setUntickedShown(true);
+      return;
+    }
+    const ref = input.ref;
+    setChecking(true);
+    setCheckProblem(null);
+    try {
+      const answer = await api.query('bank', 'ramps.destinations.check', { ref }, destinationCheckSchema);
+      if (typed.current !== ref) return;
+      if (!answer.ok) {
+        setCheckProblem(moneyRefusalWords(answer.code) ?? t('aCheckFailed'));
+        return;
+      }
+      if (answer.data.address !== 'ok') {
+        setChecksumBad(answer.data.address === 'checksum_mismatch');
+        if (answer.data.address === 'invalid') setCheckProblem(t('aAddressBad'));
+        return;
+      }
+      if (answer.data.lookalike) {
+        setLookalike(answer.data.lookalike);
+        return;
+      }
+      setConfirming(true);
+    } catch {
+      if (typed.current === ref) setCheckProblem(t('aCheckFailed'));
+    } finally {
+      setChecking(false);
+    }
+  }
   return (
     <>
       <form className="bd-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
@@ -271,21 +334,53 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('tag') ?? 'aTagHint')}
           </small>
         </label>
+        {lookalike && (
+          <div className="bd-stack" role="alert" data-testid="address-lookalike">
+            <strong>{t('aLookalikeTitle')}</strong>
+            <p>
+              {lookalike.label
+                ? t('aLookalikeBody', { saved: lookalike.label, address: lookalike.refMasked })
+                : t('aLookalikeBodyUnnamed', { address: lookalike.refMasked })}
+            </p>
+            <label className="money-check">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(event) => {
+                  setChecked(event.target.checked);
+                  setUntickedShown(false);
+                }}
+              />
+              <span>{t('aLookalikeConfirm')}</span>
+            </label>
+            {untickedShown && !checked && <small role="alert">{t('aLookalikeUnticked')}</small>}
+          </div>
+        )}
         <p>{t('aSaveNote')}</p>
-        <Button type="submit" variant="primary">
+        <Button type="submit" variant="primary" disabled={checking}>
           {t('aSave')}
         </Button>
+        {checking && <p role="status">{t('aChecking')}</p>}
+        {checkProblem && <p role="alert">{checkProblem}</p>}
         {saved && <p role="status">{t('aSaved', { label: saved })}</p>}
       </form>
       {confirming && (
         <WithdrawStepUp
           why={t('aSaveWhy')}
-          run={(token) => api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token })}
+          run={async (token) => {
+            const answer = await api.mutate('bank', 'ramps.destinations.save', input, destinationSchema, { bearer: token });
+            // The two address refusals in the customer's own words; the check above makes them rare.
+            if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
+            if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
+            return answer;
+          }}
           onDone={() => {
             setConfirming(false);
             setSaved(input.label);
             setDraft(EMPTY);
             setTried(false);
+            setLookalike(null);
+            setChecked(false);
             onSaved();
           }}
           onCancel={() => setConfirming(false)}

@@ -193,6 +193,10 @@ describe('a team member writes on pay:onboard; an owner still needs pay:write (J
     const shut = await business('approved', 'closed');
     const stuck = await member(shut.merchantId, 'viewer');
     const invited = await member(shut.merchantId, 'viewer', 'invited');
+    // Joining a shut business would withdraw the person's own onboarding grant, so accepting is refused by name.
+    expect(await refusal(() => as(invited.userId, onboard()).merchantOps.team.acceptInvite({ memberId: invited.memberId }))).toBe(
+      'pay.team_business_shut',
+    );
     await expect(live(invited.userId).merchantOps.team.declineInvite({ memberId: invited.memberId })).resolves.toEqual({
       declined: true,
     });

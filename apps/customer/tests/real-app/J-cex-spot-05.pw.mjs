@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
-import { awayBid, free, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
+import { awayBid, confirm, free, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
 
 // J-cex-spot-05, in the running app (docs/roadmap/journeys.json): a person changes and cancels open orders, one by one
 // or all at once, and the hold matches the order after every step. One test per step, titled "J-cex-spot-05 #<n>", run
@@ -300,7 +300,8 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
   await expect(dialog).toContainText('Review your sell');
   expect(await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText()).toBe(reference);
   expect(posts).toHaveLength(0);
-  await dialog.getByRole('button', { name: 'Confirm sell' }).click();
+  // The TEST market can move the protection price between review and confirm; the desk then asks again, before sending.
+  await confirm(page, 'sell');
   await expect(page.locator('form.dk-form[data-side="sell"]')).toContainText(/Your sell order (filled|is in)/, { timeout: 20_000 });
   expect(posts).toHaveLength(1);
   expect(posts[0]).toMatchObject({ symbol: 'BTC/USDT', side: 'sell', type: 'market', amount: btcFree });

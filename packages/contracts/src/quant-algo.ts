@@ -264,6 +264,20 @@ export const quantBacktestMetricsSchema = z.object({
 });
 export type QuantBacktestMetrics = z.infer<typeof quantBacktestMetricsSchema>;
 
+/**
+ * One line of a run's log, derived from the stored run on every read (AL-backtest-03). `warn` marks what a reader must
+ * weigh: a gap in the bars, an order that did not fill, a modelling choice that shaped the result. Text is the screen's;
+ * the line carries a code and its values.
+ */
+export const QUANT_BACKTEST_LOG_LEVELS = ['info', 'warn'] as const;
+export const quantBacktestLogLineSchema = z.object({
+  level: z.enum(QUANT_BACKTEST_LOG_LEVELS),
+  code: z.string(),
+  ts: z.string().nullable(),
+  values: z.record(z.string()),
+});
+export type QuantBacktestLogLine = z.infer<typeof quantBacktestLogLineSchema>;
+
 export const quantBacktestResultSchema = z.object({
   runId: z.string(),
   runKey: z.string(),
@@ -295,8 +309,27 @@ export const quantBacktestResultSchema = z.object({
   }),
   /** Derived from the stored trades and equity on every read, so a run stored before the report existed has one too. */
   metrics: quantBacktestMetricsSchema,
+  log: z.array(quantBacktestLogLineSchema),
   simulated: z.literal(true),
   live: z.literal(false),
   claimLabel: z.literal('Historical simulation — not a forecast'),
 });
 export type QuantBacktestResult = z.infer<typeof quantBacktestResultSchema>;
+
+/** One stored bar backtest of the caller's, as the run history lists it: newest first, with its label. */
+export const quantBacktestHistoryRowSchema = z.object({
+  runId: z.string(),
+  strategyId: z.string().nullable(),
+  strategyVersion: z.number().int().positive().nullable(),
+  started: z.string(),
+  finished: z.string().nullable(),
+  outcome: z.string().nullable(),
+  label: z.string().nullable(),
+});
+export type QuantBacktestHistoryRow = z.infer<typeof quantBacktestHistoryRowSchema>;
+export const quantBacktestHistorySchema = z.object({
+  runs: z.array(quantBacktestHistoryRowSchema),
+  nextCursor: z.string().nullable(),
+});
+/** A run's label: the person's own name for it. Renaming never touches the stored result. */
+export const QUANT_RUN_LABEL_MAX = 80;

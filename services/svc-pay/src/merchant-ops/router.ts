@@ -564,6 +564,9 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           list: read
             .input(z.object({}).strict())
             .query(({ ctx }) => wrapOps(async () => need().notifications.preferences(await callerOf(ctx)))),
+          history: read
+            .input(z.object({ limit: limitInput, cursor: cursorInput }))
+            .query(({ ctx, input }) => wrapOps(async () => need().notifications.preferenceHistory(await callerOf(ctx), input))),
           set: memberWrite
             .input(
               z.object({

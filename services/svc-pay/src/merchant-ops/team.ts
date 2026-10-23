@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
+import { SHUT } from '../owner-pay-grant-recheck.js';
 import { MerchantOpsError } from './errors.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage, type Page } from './pagination.js';
 import { assertPermission, type MerchantCaller, type MerchantRole, type TeamRole } from './roles.js';
@@ -406,6 +407,13 @@ export class TeamService {
       const owns = await tx`SELECT 1 FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
       const busy = await tx`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${userId} AND status = 'active' LIMIT 1`;
       if (owns[0] || busy[0]) throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
+      // Joining a suspended or closed business would withdraw the person's own onboarding grant until they leave.
+      // FOR SHARE orders this check against a suspension committing at the same time.
+      const business = await tx<
+        Array<{ status: string }>
+      >`SELECT status::text AS status FROM pay.merchants WHERE id = ${row.merchant_id} FOR SHARE`;
+      if ((SHUT as ReadonlySet<string>).has(business[0]?.status ?? ''))
+        throw new MerchantOpsError('pay.team_business_shut', 'precondition');
       const stashed = readStashedInviteEmail(row.label);
       const label = stashed ? stashed.label : row.label;
       try {
