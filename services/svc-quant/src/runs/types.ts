@@ -66,6 +66,22 @@ export interface RunSummary {
   readonly outcome: string | null;
 }
 
+/** One of an account's own runs as its history lists it, newest first, with the person's label. */
+export interface RunHistoryRow {
+  readonly id: string;
+  readonly strategyId: string | null;
+  readonly strategyVersion: number | null;
+  readonly started: string;
+  readonly finished: string | null;
+  readonly outcome: string | null;
+  readonly label: string | null;
+}
+
+export interface RunHistoryPage {
+  readonly runs: readonly RunHistoryRow[];
+  readonly nextCursor: string | null;
+}
+
 export interface RunListPage {
   readonly runs: readonly RunSummary[];
   readonly nextCursor: string | null;

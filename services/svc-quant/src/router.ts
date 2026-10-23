@@ -13,7 +13,9 @@ import {
   quantDisclosureStatusOutputSchema,
   quantBacktestFeeSchema,
   quantBacktestInputSchema,
+  quantBacktestHistorySchema,
   quantBacktestResultSchema,
+  QUANT_RUN_LABEL_MAX,
   quantCompileOutputSchema,
   quantQuickStartOutputSchema,
   quantSignalRulesSchema,
@@ -31,7 +33,14 @@ import {
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
-import { prepareBacktest, presentBacktest, readWindowBars, runOnBars, type StoredBacktest } from './engine/run.js';
+import {
+  BACKTEST_HISTORY_PAGE_MAX,
+  prepareBacktest,
+  presentBacktest,
+  readWindowBars,
+  runOnBars,
+  type StoredBacktest,
+} from './engine/run.js';
 import { backtestBodyOf, runBacktest } from './backtest/run.js';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
@@ -888,9 +897,64 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           try {
             const userId = accountOf(ctx, input.accountId);
             const row = await runs.get({ userId, id: input.runId });
-            const parsed = quantBacktestResultSchema.omit({ runId: true, metrics: true }).safeParse(row?.response);
+            const parsed = quantBacktestResultSchema.omit({ runId: true, metrics: true, log: true }).safeParse(row?.response);
             if (!row || row.kind !== 'backtest' || !parsed.success) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
             return presentBacktest(parsed.data, row.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The caller's own bar backtests, newest first, with label, version and outcome (AL-backtest-03). */
+      history: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z.object({
+            limit: z.number().int().min(1).max(BACKTEST_HISTORY_PAGE_MAX),
+            cursor: z.string().optional().nullable(),
+            ...accountField,
+          }),
+        )
+        .output(quantBacktestHistorySchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const cursor = input.cursor?.trim() ? input.cursor.trim() : null;
+            const page = await runs.history({ userId, kind: 'backtest', limit: input.limit, cursor });
+            return {
+              runs: page.runs.map((row) => ({
+                runId: row.id,
+                strategyId: row.strategyId,
+                strategyVersion: row.strategyVersion,
+                started: row.started,
+                finished: row.finished,
+                outcome: row.outcome,
+                label: row.label,
+              })),
+              nextCursor: page.nextCursor,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Names one of the caller's own runs. The same label again changes nothing; the run and its stored result are
+       * never touched. Another account's run reads as not found.
+       */
+      rename: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1), label: z.string(), ...accountField }))
+        .output(z.object({ runId: z.string(), label: z.string() }))
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const label = input.label.trim();
+            if (!label || label.length > QUANT_RUN_LABEL_MAX) {
+              throw new QuantError('quant.params_invalid', `label — a run label is 1 to ${QUANT_RUN_LABEL_MAX} characters`);
+            }
+            const row = await runs.get({ userId, id: input.runId });
+            if (!row || row.kind !== 'backtest') throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            const saved = await runs.setLabel({ userId, runId: row.id, label });
+            return { runId: row.id, label: saved.label };
           } catch (err) {
             toTrpc(err);
           }
