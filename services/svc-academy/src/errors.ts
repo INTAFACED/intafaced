@@ -207,7 +207,11 @@ export type AcademyErrorCode =
   | 'academy.price_unset'
   /** The course's outline is empty, so it is not published. */
   | 'academy.course_outline_empty'
-  | 'academy.courses_list_limit_unset';
+  | 'academy.courses_list_limit_unset'
+  /** AC-course-structure-02: the owner has not set the outline section and item limits. */
+  | 'academy.outline_limits_unset'
+  /** The outline has more sections or items than the owner allows. */
+  | 'academy.outline_too_large';
 
 export class AcademyError extends Error {
   constructor(
@@ -330,6 +334,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.price_unset',
   'academy.course_outline_empty',
   'academy.courses_list_limit_unset',
+  'academy.outline_limits_unset',
+  'academy.outline_too_large',
 ] as const;
 
 /** L3 — catalog size. */

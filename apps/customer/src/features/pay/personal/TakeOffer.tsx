@@ -6,6 +6,7 @@ import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { PayDetails } from '../components';
+import { formatDateTime } from '../portal/ui/format';
 import { wasPlacedUnderHeldReference, type PersonalPayApi } from '../pay-api';
 import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
@@ -41,6 +42,14 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failQuoteChanged');
     case 'quoteExpired':
       return t('failQuoteExpired');
+    case 'orderCap':
+      return t('failOrderCapPlain');
+    case 'pairLimit':
+      return t('failPairLimitPlain');
+    case 'verificationLimit':
+      return t('failVerificationPlain');
+    case 'limitsUnset':
+      return t('failLimitsUnset');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -76,10 +85,47 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
   }
 }
 
+/**
+ * A take limit in words, with the figures the service sent: the bound, what is left and when it ends, or that it has
+ * no end time. Without the figures the kind's plain sentence stands.
+ */
+function limitText(
+  t: CopyT,
+  kind: TakeFailure,
+  failure: Extract<ApiResult<unknown>, { ok: false }>,
+  limitTime: (iso: string) => string,
+): string | null {
+  if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
+  const limit = failure.p2pLimit;
+  if (!limit) return null;
+  const { cap, min, max, remaining, currency, until } = limit;
+  if (kind === 'orderCap' && cap) return t('failOrderCap', { cap });
+  if (kind === 'pairLimit' && min && max && currency) {
+    return t('failPairLimit', { min: displayAmount(min), max: displayAmount(max), currency });
+  }
+  if (kind !== 'verificationLimit' || !currency) return null;
+  switch (failure.code) {
+    case 'p2p.verification_daily_limit':
+      return remaining && until
+        ? t('failVerificationDaily', { remaining: displayAmount(remaining), currency, time: limitTime(until) })
+        : null;
+    case 'p2p.verification_lifetime_limit':
+      return remaining ? t('failVerificationLifetime', { remaining: displayAmount(remaining), currency }) : null;
+    case 'p2p.verification_order_min':
+      return min ? t('failVerificationMin', { min: displayAmount(min), currency }) : null;
+    case 'p2p.verification_order_max':
+      return max ? t('failVerificationMax', { max: displayAmount(max), currency }) : null;
+  }
+  return null;
+}
+
 /** A failed attempt, in words. An unconfirmed one is called that: it is never described as refused or unchanged. */
 export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResult<unknown>, { ok: false }>; context: 'quote' | 'take' }) {
-  const { t } = p2pDepth.useCopy();
+  const { t, requestedLocale } = p2pDepth.useCopy();
   const kind = takeFailureKind(failure);
+  const limitTime = (iso: string) => formatDateTime(iso, requestedLocale)?.short ?? iso;
+  const open = kind === 'orderCap' ? (failure.p2pLimit?.openTradeIds ?? []) : [];
+  const capUntil = kind === 'orderCap' ? failure.p2pLimit?.until : null;
   return (
     <div
       className="failure"
@@ -88,10 +134,30 @@ export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResu
       data-kind={kind}
     >
       {kind === 'unconfirmed' || kind === 'notFound' ? <h3>{t('failUnconfirmedTitle')}</h3> : null}
-      <p>{takeFailureText(t, kind, context)}</p>
+      <p>{limitText(t, kind, failure, limitTime) ?? takeFailureText(t, kind, context)}</p>
+      {capUntil ? <p>{t('failOrderCapUntil', { time: limitTime(capUntil) })}</p> : null}
+      {open.length > 0 ? (
+        <nav aria-label={t('failOrderCapOpen')}>
+          <ul>
+            {open.map((id) => (
+              <li key={id}>
+                <a className="text-link" href={`/p2p/orders/${encodeURIComponent(id)}`} data-testid="take-open-order">
+                  {t('failOrderCapOrder', { ref: id.slice(0, 8) })}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      ) : null}
       {kind === 'verify' ? (
         <a className="text-link" href="/verification">
           {t('failVerifyLink')}
+        </a>
+      ) : null}
+      {/* Only the buyer's own figures come back, so the link is shown to the person whose level it is. */}
+      {kind === 'verificationLimit' && failure.p2pLimit && failure.code !== 'p2p.verification_order_min' ? (
+        <a className="text-link" href="/verification">
+          {t('failVerificationRaise')}
         </a>
       ) : null}
     </div>

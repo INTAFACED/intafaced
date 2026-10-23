@@ -11,6 +11,7 @@ import {
   type StatusPage,
   statusReadingInputSchema,
   STATUS_UPTIME_DAYS_MAX,
+  noticeCategorySchema,
 } from '@intafaced/contracts';
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusPageError, type StatusPageBook } from './book.js';
@@ -45,6 +46,7 @@ const definitionOutput = z.object({
   uptimeDays: z.number().int().nullable(),
   challengeBits: z.number().int().nullable(),
   subscribeRatePerHour: z.number().int().nullable(),
+  noticeCategories: z.array(noticeCategorySchema).nullable(),
   revision: z.number().int(),
   updatedAt: z.string().nullable(),
   /** The public site address (no trailing slash) the founder console builds badge snippets on; null when not set. */

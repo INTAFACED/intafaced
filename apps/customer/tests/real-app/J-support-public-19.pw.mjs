@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { draftNotice, openNotices, publishAs, publishNotice } from './notices.mjs';
+import { draftNotice, openNotices, publishAs, publishNotice, publishedNotices } from './notices.mjs';
 import {
   configureStatusPage,
   incidentTemplates,
@@ -728,6 +728,95 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   await visitor.context().close();
   await a.context().close();
   await b.context().close();
+});
+
+/** Founder `key` on the console's announcement desk. */
+async function noticesDesk(browser, key) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, key);
+  await page.goto('/notify/notices');
+  await expect(page.getByRole('heading', { level: 1, name: 'Announcements' })).toBeVisible();
+  return page;
+}
+
+const noticesOutcome = (page) => page.getByTestId('notices-desk-outcome');
+const noticeCard = (page, title) => page.getByTestId('notice-card').filter({ has: page.getByRole('heading', { name: title }) });
+
+test(`${J} #9 an announcement with a kind and a category: off the list refused, then published once with both`, async ({ browser }) => {
+  const before = (await statusDefinition()).noticeCategories ?? null;
+  const a = await noticesDesk(browser, 'a');
+  const b = await noticesDesk(browser, 'b');
+  try {
+    // The founders' category list, an owner value: labelled TEST here and put back as it was at the end.
+    const categories = a.getByTestId('notice-categories');
+    await categories
+      .getByLabel('One per line, as id: Name (blank clears the list)')
+      .fill('j19-listings: TEST new listings\nj19-risk: TEST risk notices');
+    await categories.getByLabel('Reason for the change').fill(`TEST journey ${J} #9 categories`);
+    await categories.getByRole('button', { name: 'Save categories' }).click();
+    await expect(noticesOutcome(a)).toContainText('Done: categories saved');
+    await expect(a.getByTestId('notice-categories-list')).toContainText('TEST new listings');
+
+    // A category off the list is refused by svc-notify, whoever sends it.
+    await expect(
+      draftNotice({
+        kind: 'announcement',
+        title: 'TEST off the list',
+        body: 'TEST',
+        minutes: 5,
+        key: `j19-cat-off:${RUN}`,
+        category: 'j19-delistings',
+      }),
+    ).rejects.toThrow(/status\.category_unknown/);
+
+    const TITLE = `TEST journey ${J}: a new market opens (run ${RUN})`;
+    const draft = a.getByTestId('notice-draft');
+    await draft.getByLabel('Title').fill(TITLE);
+    await draft.getByLabel('Message').fill('TEST The TEST/USDT market opens on Monday.');
+    await draft.getByLabel('Category').selectOption({ label: 'TEST new listings' });
+    await draft.getByRole('button', { name: 'Save draft' }).click();
+    await expect(noticesOutcome(a)).toContainText('Done: drafted');
+    const card = noticeCard(a, TITLE);
+    await expect(card).toHaveAttribute('data-status', 'draft');
+    await expect(card.getByTestId('notice-filing')).toContainText('Kind: announcement. Category: TEST new listings.');
+    expect((await publishedNotices()).some((n) => n.title === TITLE)).toBe(false);
+
+    await card.getByRole('button', { name: 'Ask for approval' }).click();
+    await expect(noticesOutcome(a)).toContainText('Done: requested');
+    await b.getByRole('button', { name: 'Read again' }).click();
+    await noticeCard(b, TITLE).getByRole('button', { name: 'Approve' }).click();
+    await expect(noticesOutcome(b)).toContainText('Done: approved');
+    await expect(noticeCard(b, TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+    await a.getByRole('button', { name: 'Read again' }).click();
+    await card.getByRole('button', { name: 'Publish' }).click();
+    await expect(noticesOutcome(a)).toContainText('Done: published');
+    await expect(card).toHaveAttribute('data-status', 'published');
+
+    // On the public board once, with its kind and the category as filed.
+    const shown = (await publishedNotices()).filter((n) => n.title === TITLE);
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ kind: 'announcement', category: { id: 'j19-listings', name: 'TEST new listings' } });
+
+    // A signed-out visitor reads it on /notice, /announcement and its own page, filed under its category.
+    const visitor = await browser.newPage({ baseURL: ORIGIN });
+    try {
+      for (const path of ['/notice', '/announcement', `/notice/${shown[0].id}`]) {
+        await visitor.goto(path);
+        const entry = visitor.getByTestId(`notice-${shown[0].id}`);
+        await expect(entry).toContainText(TITLE);
+        await expect(entry.getByTestId('notice-category')).toHaveText('TEST new listings');
+      }
+    } finally {
+      await visitor.context().close();
+    }
+  } finally {
+    const now = await statusDefinition();
+    if (JSON.stringify(now.noticeCategories ?? null) !== JSON.stringify(before))
+      await configureStatusPage({ noticeCategories: before }, `TEST journey ${J} #9: categories put back`);
+    await a.context().close();
+    await b.context().close();
+  }
 });
 
 test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per component, on the public site`, async ({ browser }) => {

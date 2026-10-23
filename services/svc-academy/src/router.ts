@@ -46,6 +46,7 @@ import {
   academyCreateCourseInputSchema,
   academyUpdateCourseInputSchema,
   academySetCourseStateInputSchema,
+  academySaveOutlineInputSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -848,7 +849,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.price_unset':
     case 'academy.course_outline_empty':
     case 'academy.courses_list_limit_unset':
+    case 'academy.outline_limits_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+
+    case 'academy.outline_too_large':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
@@ -2809,6 +2814,12 @@ export function createAcademyRouter(
         .input(academySetCourseStateInputSchema)
         .output(academyCourseSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-02: replace a draft's outline (sections of typed items) over the revision read, inside the owner's limits. */
+      saveOutline: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveOutlineInputSchema)
+        .output(academyCourseDetailSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveOutline({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })

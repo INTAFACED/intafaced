@@ -6,11 +6,13 @@ import { draftFrom } from '@/lib/academy/courses-model';
 import {
   checkCreate,
   checkMove,
+  checkOutline,
   checkUpdate,
   createCourse,
   loadCourseDetail,
   loadCourseList,
   moveCourse,
+  saveOutline,
   updateCourse,
 } from '@/lib/academy/courses-server';
 
@@ -22,6 +24,7 @@ import {
  *   POST { op: 'create', slug, title, summary, thumbnailUrl, pricing, price, priceAsset }   a draft; keyed by its slug
  *   POST { op: 'update', courseId, revision, title, summary, thumbnailUrl, pricing, price, priceAsset }   over the revision read
  *   POST { op: 'move', courseId, to: 'published', revision, reason }   one lifecycle move with its reason
+ *   POST { op: 'outline', courseId, revision, sections: [{ title, items: [{ kind, title, indent, url }] }] }   the whole outline
  *
  * Founder-only. svc-academy records the founder from their own token. No money moves: a price is a catalogue figure.
  */
@@ -89,6 +92,11 @@ export async function POST(request: Request) {
         const check = checkMove({ courseId: str(body.courseId), to: 'published', revision, reason: str(body.reason) });
         if (!check.ok) return incomplete(check.why);
         return send(await moveCourse(session, check.input));
+      }
+      case 'outline': {
+        const check = checkOutline({ courseId: body.courseId, revision: body.revision, sections: body.sections });
+        if (!check.ok) return incomplete(check.why);
+        return send(await saveOutline(session, check.input));
       }
       default:
         return incomplete('Unknown action.');

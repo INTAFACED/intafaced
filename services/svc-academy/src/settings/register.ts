@@ -37,6 +37,8 @@ export interface SettingRow {
 /** The env subset the register reads. Every field optional: absent means blank. */
 export interface SettingsEnv {
   readonly ACADEMY_MAX_ROOM_CAPACITY?: number | undefined;
+  readonly ACADEMY_OUTLINE_MAX_SECTIONS?: number | undefined;
+  readonly ACADEMY_OUTLINE_MAX_ITEMS?: number | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
   readonly TRADE_URL?: string | undefined;
   readonly ACADEMY_STREAM_PROVIDER?: 'none' | 'livekit' | undefined;
@@ -75,8 +77,6 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'custom_role_count',
   'mail_recipient_limit',
   'mail_digest_limit',
-  'section_limit',
-  'item_limit',
   'assistant_provider',
 ];
 
@@ -173,6 +173,20 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'refuse_closed',
       readOnly: true,
       refusalCode: 'academy.ambassador_revenue_share.rates_unset',
+    },
+    {
+      key: 'section_limit',
+      state: state(positiveInt(env.ACADEMY_OUTLINE_MAX_SECTIONS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.outline_limits_unset',
+    },
+    {
+      key: 'item_limit',
+      state: state(positiveInt(env.ACADEMY_OUTLINE_MAX_ITEMS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.outline_limits_unset',
     },
     {
       // No store and no recipe: always not set, always refuse-closed.

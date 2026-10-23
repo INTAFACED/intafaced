@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  academySaveOutlineInputSchema,
   academyCourseListSchema,
   academyCreateCourseInputSchema,
   academySetCourseStateInputSchema,
@@ -52,5 +53,20 @@ describe('academy course records (AC-course-structure-01)', () => {
     const counts = { draft: 0, published: 0, concluded: 0, archived: 0, deleted: 0 };
     expect(academyCourseListSchema.safeParse({ courses: [], counts }).success).toBe(true);
     expect(academyCourseListSchema.safeParse({ courses: [], counts: { draft: 0 } }).success).toBe(false);
+  });
+});
+
+describe('course outline (AC-course-structure-02)', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const item = { kind: 'lesson', title: 'Position size', indent: 0, url: null };
+  it('sections of typed items; a link and only a link carries an https address', () => {
+    const ok = (items: unknown[]) =>
+      academySaveOutlineInputSchema.safeParse({ courseId: id, revision: 1, sections: [{ title: 'S', items }] }).success;
+    expect(ok([item, { kind: 'subheader', title: 'Part 1', indent: 0, url: null }])).toBe(true);
+    expect(ok([{ kind: 'link', title: 'Docs', indent: 1, url: 'https://example.com' }])).toBe(true);
+    expect(ok([{ kind: 'link', title: 'Docs', indent: 0, url: null }])).toBe(false);
+    expect(ok([{ ...item, url: 'https://example.com' }])).toBe(false);
+    expect(ok([{ ...item, indent: 3 }])).toBe(false);
+    expect(ok([{ ...item, kind: 'tool' }])).toBe(false);
   });
 });

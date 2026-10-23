@@ -334,6 +334,10 @@ export type TakeFailure =
   | 'termsChanged'
   | 'quoteChanged'
   | 'quoteExpired'
+  | 'orderCap'
+  | 'pairLimit'
+  | 'verificationLimit'
+  | 'limitsUnset'
   | 'ownOffer'
   | 'unavailable'
   | 'blocked'
@@ -358,6 +362,17 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.quote_changed',
   'p2p.quote_not_found',
   'p2p.quote_mismatch',
+  // The owner's take limits are checked before anything is reserved (svc-p2p take-limits.ts, verification-limits.ts).
+  'p2p.active_order_cap',
+  'p2p.pair_limit_exceeded',
+  'p2p.config_unset',
+  'p2p.verification_order_min',
+  'p2p.verification_order_max',
+  'p2p.verification_daily_limit',
+  'p2p.verification_lifetime_limit',
+  'p2p.verification_limit_currency',
+  'p2p.verification_limits_invalid',
+  'p2p.verification_level_unwired',
   'p2p.invalid_amount',
   'p2p.amount_below_min',
   'p2p.amount_above_max',
@@ -420,6 +435,20 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.quote_expired':
     case 'p2p.quote_not_found':
       return 'quoteExpired';
+    case 'p2p.active_order_cap':
+      return 'orderCap';
+    case 'p2p.pair_limit_exceeded':
+      return 'pairLimit';
+    case 'p2p.verification_order_min':
+    case 'p2p.verification_order_max':
+    case 'p2p.verification_daily_limit':
+    case 'p2p.verification_lifetime_limit':
+    case 'p2p.verification_limit_currency':
+      return 'verificationLimit';
+    case 'p2p.config_unset':
+    case 'p2p.verification_limits_invalid':
+    case 'p2p.verification_level_unwired':
+      return 'limitsUnset';
     case 'pay.take_own_offer':
     case 'p2p.self_trade':
       return 'ownOffer';

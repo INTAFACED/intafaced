@@ -137,3 +137,100 @@ describe('the list', () => {
     expect((await records().list({ state: 'published', limit: 5 })).courses).toEqual([]);
   });
 });
+
+describe('the outline (AC-course-structure-02)', () => {
+  const limited = () => new CourseRecords(db.sql, { maxSections: 2, maxItems: 3 });
+  const outline = [
+    {
+      title: 'Start here',
+      items: [
+        { kind: 'subheader' as const, title: 'Part 1', indent: 0, url: null },
+        { kind: 'lesson' as const, title: 'Position size', indent: 1, url: null },
+      ],
+    },
+    { title: 'Practice', items: [{ kind: 'link' as const, title: 'Reading list', indent: 0, url: 'https://example.com/read' }] },
+  ];
+
+  it('blank limits refuse the save before anything is read or written', async () => {
+    const course = await records().create({ ...free, operatorId: A, now: NOW });
+    await expect(
+      records().saveOutline({ courseId: course.id, revision: 1, sections: outline, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.outline_limits_unset' });
+    await expect(
+      new CourseRecords(db.sql, { maxSections: 2, maxItems: null }).saveOutline({
+        courseId: course.id,
+        revision: 1,
+        sections: outline,
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.outline_limits_unset' });
+    expect((await records().get(course.id)).outline).toEqual([]);
+  });
+
+  it('saves sections of typed items in order; subheaders are not counted; a repeat answers with it; too large refuses', async () => {
+    const course = await records().create({ ...free, operatorId: A, now: NOW });
+    const saved = await limited().saveOutline({ courseId: course.id, revision: 1, sections: outline, operatorId: A, now: NOW });
+    expect(saved.course).toMatchObject({ revision: 2, items: 2 });
+    expect(saved.limits).toEqual({ maxSections: 2, maxItems: 3 });
+    expect(saved.outline.map((s) => [s.title, s.items.map((i) => [i.kind, i.title, i.indent])])).toEqual([
+      [
+        'Start here',
+        [
+          ['subheader', 'Part 1', 0],
+          ['lesson', 'Position size', 1],
+        ],
+      ],
+      ['Practice', [['link', 'Reading list', 0]]],
+    ]);
+    expect(saved.events[0]).toMatchObject({ kind: 'outline', revision: 2, actor: A });
+    const again = await limited().saveOutline({ courseId: course.id, revision: 1, sections: outline, operatorId: A, now: NOW });
+    expect(again.course.revision).toBe(2);
+    await expect(
+      limited().saveOutline({ courseId: course.id, revision: 1, sections: outline.slice(0, 1), operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_revision_stale' });
+    await expect(
+      limited().saveOutline({ courseId: course.id, revision: 2, sections: [...outline, outline[1]!], operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.outline_too_large' });
+    expect((await records().get(course.id)).course.revision).toBe(2);
+    // The item limit counts what a learner can open, as the desk's item count does: two more subheaders fit under 3.
+    const labels = [
+      { ...outline[0]!, items: [...outline[0]!.items, ...outline[0]!.items.filter((i) => i.kind === 'subheader')] },
+      outline[1]!,
+    ];
+    const withLabels = await limited().saveOutline({ courseId: course.id, revision: 2, sections: labels, operatorId: A, now: NOW });
+    expect(withLabels.course).toMatchObject({ revision: 3, items: 2 });
+    expect(withLabels.outline[0]!.items).toHaveLength(3);
+  });
+
+  it('a course with items publishes with its reason; a paid one still needs its price first', async () => {
+    const course = await records().create({ ...free, pricing: 'paid', operatorId: A, now: NOW });
+    await limited().saveOutline({ courseId: course.id, revision: 1, sections: outline, operatorId: A, now: NOW });
+    await expect(
+      records().setState({ courseId: course.id, to: 'published', revision: 2, reason: 'ready', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.price_unset' });
+    const edit = { ...free, courseId: course.id, revision: 2, pricing: 'paid' as const, price: '10', priceAsset: 'USDT' };
+    await records().update({ ...edit, operatorId: A, now: NOW });
+    const published = await records().setState({
+      courseId: course.id,
+      to: 'published',
+      revision: 3,
+      reason: 'ready',
+      operatorId: A,
+      now: NOW,
+    });
+    expect(published).toMatchObject({ state: 'published', revision: 4, items: 2 });
+    expect(
+      await records().setState({ courseId: course.id, to: 'published', revision: 3, reason: 'ready', operatorId: A, now: NOW }),
+    ).toEqual(published);
+    expect((await records().get(course.id)).events[0]).toMatchObject({
+      kind: 'state',
+      fromState: 'draft',
+      toState: 'published',
+      reason: 'ready',
+    });
+    await expect(
+      limited().saveOutline({ courseId: course.id, revision: 4, sections: outline, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_editable' });
+  });
+});

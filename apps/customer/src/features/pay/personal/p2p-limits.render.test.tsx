@@ -1,0 +1,81 @@
+// @vitest-environment happy-dom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ApiResult } from '../../../shared/api';
+import { TakeFailureNote } from './TakeOffer';
+import { takeFailureKind, takeRefusalIsDefinite } from './p2p-model';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let host: HTMLDivElement;
+let root: Root | null = null;
+beforeEach(() => {
+  host = document.createElement('div');
+  document.body.append(host);
+});
+afterEach(() => {
+  act(() => root?.unmount());
+  root = null;
+  host.remove();
+});
+
+type Failure = Extract<ApiResult<unknown>, { ok: false }>;
+const refused = (code: string, p2pLimit?: Failure['p2pLimit']): Failure => ({
+  ok: false,
+  reason: 'error',
+  message: 'service text',
+  code,
+  status: 409,
+  ...(p2pLimit ? { p2pLimit } : {}),
+});
+
+async function note(failure: Failure) {
+  root = createRoot(host);
+  const mounted = root;
+  await act(async () => mounted.render(<TakeFailureNote failure={failure} context="quote" />));
+  return host.querySelector<HTMLElement>('[data-testid="take-failure"]')!;
+}
+
+const TRADE = '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+
+describe('take limits in plain words (P-trade-orders-03, P-disputes-security-15)', () => {
+  it('names the order cap, the soonest deadline and links each ongoing order', async () => {
+    const shown = await note(refused('p2p.active_order_cap', { until: '2026-10-23T18:04:05.000Z', cap: '2', openTradeIds: [TRADE] }));
+    expect(shown.dataset.kind).toBe('orderCap');
+    expect(shown.textContent).toContain('You already have 2 ongoing orders');
+    expect(shown.textContent).toContain('The soonest of them reaches its deadline at');
+    const link = shown.querySelector<HTMLAnchorElement>('[data-testid="take-open-order"]')!;
+    expect(link.getAttribute('href')).toBe(`/p2p/orders/${TRADE}`);
+    expect(link.textContent).toBe('Order 0b6f1c1e');
+    expect(shown.textContent).not.toContain('service text');
+  });
+
+  it('gives the pair bounds and says the limit has no end time', async () => {
+    const shown = await note(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }));
+    expect(shown.textContent).toContain('between 10 and 500 EUR');
+    expect(shown.textContent).toContain('no end time');
+  });
+
+  it('gives what is left today and when the daily allowance starts again, with the way to raise it', async () => {
+    const shown = await note(
+      refused('p2p.verification_daily_limit', { until: '2026-10-24T00:00:00.000Z', remaining: '11.6', currency: 'EUR' }),
+    );
+    expect(shown.dataset.kind).toBe('verificationLimit');
+    expect(shown.textContent).toContain('11.6 EUR is left today');
+    expect(shown.textContent).toContain('starts again at');
+    expect(shown.querySelector('a[href="/verification"]')?.textContent).toBe('Raise your verification level');
+  });
+
+  it('falls back to the plain sentence when the figures are missing', async () => {
+    const shown = await note(refused('p2p.active_order_cap'));
+    expect(shown.textContent).toContain('You already have the most ongoing orders');
+    expect(shown.querySelector('[data-testid="take-open-order"]')).toBeNull();
+  });
+
+  it('counts every limit as a refusal before anything was reserved', () => {
+    for (const code of ['p2p.active_order_cap', 'p2p.pair_limit_exceeded', 'p2p.config_unset', 'p2p.verification_daily_limit']) {
+      expect(takeRefusalIsDefinite({ reason: 'error', code, status: 409 })).toBe(true);
+    }
+    expect(takeFailureKind({ reason: 'error', code: 'p2p.config_unset' })).toBe('limitsUnset');
+  });
+});

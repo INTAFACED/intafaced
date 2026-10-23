@@ -6,12 +6,14 @@ import {
   parseLiquidationDesk,
   parsePosition,
   parsePositionsPage,
+  parsePriceBandView,
   parseRiskCurrent,
   parseRiskHistory,
   type AdminPositionRow,
   type InsuranceHistory,
   type LiquidationDesk,
   type PositionsPage,
+  type PriceBandView,
   type RiskCurrent,
   type RiskVersionRow,
 } from './desk-parse';
@@ -49,6 +51,11 @@ export function readRisk(ctx: TradeCtx, market: string): Promise<Outcome<RiskCur
 /** admin.risk.history: every version, oldest first. */
 export function readRiskHistory(ctx: TradeCtx, market: string): Promise<Outcome<readonly RiskVersionRow[]>> {
   return edgeCall(ctx, trpcSpec('trade', 'admin.risk.history', 'query', { market }, parseRiskHistory));
+}
+
+/** admin.risk.priceBand: a futures market's band as the job last worked it out, and each change, newest first. */
+export function readPriceBand(ctx: TradeCtx, market: string): Promise<Outcome<PriceBandView>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.risk.priceBand', 'query', { market }, parsePriceBandView));
 }
 
 /**

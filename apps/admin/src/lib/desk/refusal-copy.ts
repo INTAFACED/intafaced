@@ -408,6 +408,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
   },
+  'status.category_unknown': {
+    title: 'That category is not on the list',
+    body: "An announcement may name only a category on the founders' list, and none while no list is set. Nothing was saved.",
+    next: 'Choose a category from the list, or none, or set the list first.',
+  },
   'status.maintenance_illegal_move': {
     title: 'That move does not follow',
     body: 'A window goes from in progress to verifying, then to completed, and is cancelled only before it is verifying. Scheduled and in progress follow from its start. Nothing was changed.',
@@ -657,6 +662,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The course has nothing in it yet',
     body: 'Its outline has no sections or items, so there is nothing for a learner to open and it was not published.',
     next: 'Build the outline first. Nothing was changed.',
+  },
+  'academy.outline_limits_unset': {
+    title: 'The outline limits are not set',
+    body: 'The owner has not set how many sections and items a course outline may hold, so no outline is saved.',
+    next: 'The owner sets both limits for this deployment. Nothing was saved.',
+  },
+  'academy.outline_too_large': {
+    title: 'The outline is over the limit',
+    body: 'It has more sections or items than the owner allows for one course.',
+    next: 'Remove some, then save again. Nothing was saved.',
   },
   'academy.course_not_found': {
     title: 'No such course',

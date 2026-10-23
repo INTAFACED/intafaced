@@ -22,6 +22,7 @@ export const STATUS_PAGE_ERROR_CODES = [
   'status.reading_in_future',
   'status.reading_conflict',
   'status.page_revision_stale',
+  'status.category_unknown',
 ] as const;
 export type StatusPageErrorCode = (typeof STATUS_PAGE_ERROR_CODES)[number];
 
@@ -72,6 +73,16 @@ export const statusComponentDefinitionSchema = z
   .strict();
 export type StatusComponentDefinition = z.infer<typeof statusComponentDefinitionSchema>;
 
+/**
+ * Notice categories (SP-status-03): an owner-set list a founder files an announcement under, beside its kind. Blank (null)
+ * means the kinds alone: a notice that names a category is then refused (`status.category_unknown`), as is one naming a
+ * category not on the list.
+ */
+export const NOTICE_CATEGORY_ID = /^[a-z][a-z0-9-]{1,39}$/;
+export const NOTICE_CATEGORIES_MAX = 20;
+export const noticeCategorySchema = z.object({ id: z.string().regex(NOTICE_CATEGORY_ID), name: text(60) }).strict();
+export type NoticeCategory = z.infer<typeof noticeCategorySchema>;
+
 const ownerValue = (max: number) => z.number().int().min(1).max(max).nullable();
 
 /**
@@ -87,12 +98,17 @@ export const statusPageConfigureInputSchema = z
     /** Subscriptions (SP-status-04): proof-of-work strength in leading zero bits, and subscribe requests per address per hour. */
     challengeBits: ownerValue(32).optional(),
     subscribeRatePerHour: ownerValue(1000).optional(),
+    /** The whole category list, in display order; `null` clears it. */
+    noticeCategories: z.array(noticeCategorySchema).min(1).max(NOTICE_CATEGORIES_MAX).nullable().optional(),
     expectedRevision: z.number().int().min(0).max(2_147_483_646),
     reason: text(STATUS_PAGE_REASON_MAX),
   })
   .strict()
   .refine((input) => new Set((input.components ?? []).map((c) => c.id)).size === (input.components ?? []).length, {
     message: 'status.component_duplicate',
+  })
+  .refine((input) => new Set((input.noticeCategories ?? []).map((c) => c.id)).size === (input.noticeCategories ?? []).length, {
+    message: 'status.category_duplicate',
   });
 export type StatusPageConfigureInput = z.infer<typeof statusPageConfigureInputSchema>;
 

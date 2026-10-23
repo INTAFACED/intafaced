@@ -4,6 +4,7 @@
  */
 
 import type { Sql } from 'postgres';
+import type { NoticeCategory } from '@intafaced/contracts';
 import {
   INCIDENT_IMPACTS,
   INCIDENT_PHASES,
@@ -38,6 +39,7 @@ type NoticePg = {
   phase: string | null;
   changelog: unknown;
   reminder_offsets: number[] | null;
+  category: NoticeCategory | null;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -95,6 +97,7 @@ function fromPg(row: NoticePg): NoticeRow {
     phase: asPhase(row.phase),
     changelog: asChangelog(row.changelog),
     reminderOffsets: row.reminder_offsets ?? [],
+    category: row.category ?? null,
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -105,7 +108,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets,
+  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -125,7 +128,8 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, author_id, client_request_id
+        impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, author_id,
+        client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
@@ -133,6 +137,7 @@ export class PostgresNoticeStore implements NoticeStore {
         ${row.asset}, ${row.network}, ${row.phase},
         ${row.changelog ? this.sql.json(row.changelog as never) : null},
         ${[...(row.reminderOffsets ?? [])]}::integer[],
+        ${row.category ? this.sql.json(row.category as never) : null},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;

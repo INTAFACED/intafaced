@@ -77,27 +77,28 @@ Lobbies still run without it: seats, presence, capacity, invites and the 2D scen
 
 tRPC, mounted at `/trpc`, reached through svc-edge at `/api/academy` (port 4016).
 
-| Procedure                        | Scope           | Purpose                                                              |
-| -------------------------------- | --------------- | -------------------------------------------------------------------- |
-| `health`                         | public          | Liveness                                                             |
-| `curriculum`                     | `academy:read`  | List the spine (filter by Blueprint path / kind)                     |
-| `curriculumItem`                 | `academy:read`  | One item: markdown body **plus** its teaching scaffolding            |
-| `curriculumStudyGuide`           | `academy:read`  | One item's objectives / key terms / self-check, no body              |
-| `curriculumStudyGuides`          | `academy:read`  | Study guides for a whole path — one call for an index                |
-| `curriculumDepth`                | `academy:read`  | Depth inventory; **names** anything under the floor                  |
-| `rooms` / `room`                 | `academy:read`  | Lobbies and their terms                                              |
-| `session`                        | `academy:read`  | One session and its live occupancy                                   |
-| `join` / `leave`                 | `academy:write` | Take or vacate a seat                                                |
-| `streamCredential`               | `academy:write` | Join token for the stage — refused while provider is `none`          |
-| `createRoom`                     | `academy:write` | Host a lobby — **also gated on §4.1 `lobbyHostRights`**              |
-| `invite`                         | `academy:write` | Invite somebody to an invite-only room (host only)                   |
-| `scheduleSession`                | `academy:write` | Schedule a session in a room (host only)                             |
-| `startSession` / `endSession`    | `academy:write` | Host controls                                                        |
-| `updateScene`                    | `academy:write` | Write the 2D scene (host only)                                       |
-| `admin.courses` / `admin.course` | `admin:read`    | Courses staff created (with counts by state) / one with its history  |
-| `admin.createCourse`             | `admin:write`   | A draft course: title, fixed slug, thumbnail, free or paid           |
-| `admin.updateCourse`             | `admin:write`   | A draft's details, over the revision read                            |
-| `admin.setCourseState`           | `admin:write`   | Publish with a reason; refuses `price_unset`, `course_outline_empty` |
+| Procedure                        | Scope           | Purpose                                                                                                                                                                                             |
+| -------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `health`                         | public          | Liveness                                                                                                                                                                                            |
+| `curriculum`                     | `academy:read`  | List the spine (filter by Blueprint path / kind)                                                                                                                                                    |
+| `curriculumItem`                 | `academy:read`  | One item: markdown body **plus** its teaching scaffolding                                                                                                                                           |
+| `curriculumStudyGuide`           | `academy:read`  | One item's objectives / key terms / self-check, no body                                                                                                                                             |
+| `curriculumStudyGuides`          | `academy:read`  | Study guides for a whole path — one call for an index                                                                                                                                               |
+| `curriculumDepth`                | `academy:read`  | Depth inventory; **names** anything under the floor                                                                                                                                                 |
+| `rooms` / `room`                 | `academy:read`  | Lobbies and their terms                                                                                                                                                                             |
+| `session`                        | `academy:read`  | One session and its live occupancy                                                                                                                                                                  |
+| `join` / `leave`                 | `academy:write` | Take or vacate a seat                                                                                                                                                                               |
+| `streamCredential`               | `academy:write` | Join token for the stage — refused while provider is `none`                                                                                                                                         |
+| `createRoom`                     | `academy:write` | Host a lobby — **also gated on §4.1 `lobbyHostRights`**                                                                                                                                             |
+| `invite`                         | `academy:write` | Invite somebody to an invite-only room (host only)                                                                                                                                                  |
+| `scheduleSession`                | `academy:write` | Schedule a session in a room (host only)                                                                                                                                                            |
+| `startSession` / `endSession`    | `academy:write` | Host controls                                                                                                                                                                                       |
+| `updateScene`                    | `academy:write` | Write the 2D scene (host only)                                                                                                                                                                      |
+| `admin.courses` / `admin.course` | `admin:read`    | Courses staff created (with counts by state) / one with its history                                                                                                                                 |
+| `admin.createCourse`             | `admin:write`   | A draft course: title, fixed slug, thumbnail, free or paid                                                                                                                                          |
+| `admin.updateCourse`             | `admin:write`   | A draft's details, over the revision read                                                                                                                                                           |
+| `admin.setCourseState`           | `admin:write`   | Publish with a reason; refuses `price_unset`, `course_outline_empty`                                                                                                                                |
+| `admin.saveOutline`              | `admin:write`   | Ordered sections of typed items, over the revision read; refuses `outline_limits_unset` while `ACADEMY_OUTLINE_MAX_SECTIONS` or `ACADEMY_OUTLINE_MAX_ITEMS` is blank, `outline_too_large` past them |
 
 ### Curriculum
 
