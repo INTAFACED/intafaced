@@ -142,7 +142,7 @@ export default function TradeScreenerScreen(_props: ScreenProps) {
     const taken = new Set(saved.value.map((screen) => screen.id));
     const id = existing ? existing.id : slugId(trimmed, taken);
     const record = screenRecord(id, trimmed, filters, columns, timeframe);
-    const outcome = await saved.commit(withScreen(saved.value, record));
+    const outcome = await saved.commit((latest) => withScreen(latest, record));
     if (outcome.ok) {
       setNotice({ tone: 'ok', text: existing ? t('Replaced {name}', { name: trimmed }) : t('Saved as {name}', { name: trimmed }) });
       setName('');
