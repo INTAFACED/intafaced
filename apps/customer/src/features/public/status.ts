@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { marketSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Fetcher } from '../../data/poll';
+import { statusPageSchema } from '@intafaced/contracts/status-page';
 import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
+import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
 
 export type MaintenanceWindow = StatusFeed['maintenance'][number];
 
@@ -58,4 +60,13 @@ const KNOWN: ReadonlySet<string> = new Set<ModeKey>([
 /** The mode we have words for, or null (no state reported, or a state this page does not describe). */
 export function knownMode(state: string | null): ModeKey | null {
   return state !== null && KNOWN.has(state) ? (state as ModeKey) : null;
+}
+
+export type StatusPage = ContractData<typeof statusPageRead>;
+
+const statusPageRead = contractProcedure('notify', 'statusPage.read', { output: statusPageSchema });
+
+/** The founders' status page: defined components, their states, the uptime strip and incidents. Signed-out. */
+export function statusPageFetcher(api: ApiClient): Fetcher<StatusPage> {
+  return (signal) => readContract(api, statusPageRead, undefined, { signal });
 }
