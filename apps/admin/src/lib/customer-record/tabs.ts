@@ -3,7 +3,7 @@
  * constants without the desk catalogue.
  */
 
-export const CUSTOMER_TABS = ['money', 'trade', 'pay', 'cards', 'tickets'] as const;
+export const CUSTOMER_TABS = ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'] as const;
 export type CustomerTab = (typeof CUSTOMER_TABS)[number];
 
 export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
@@ -11,6 +11,7 @@ export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
   trade: 'Trade',
   pay: 'Pay',
   cards: 'Cards',
+  documents: 'Documents',
   tickets: 'Tickets',
 };
 

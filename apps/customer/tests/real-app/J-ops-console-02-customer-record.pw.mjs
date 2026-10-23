@@ -5,12 +5,12 @@ import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
-// J-ops-console-02 steps #3 and #4: /accounts/:userId shows the risk card (no ruleset exists, so no risk level) and the
-// money, trade, pay, cards and tickets tabs for one account; each read loads or refuses on its own, and a part no service
+// J-ops-console-02 steps #3 to #5: /accounts/:userId shows the risk card (no ruleset exists, so no risk level) and the
+// money, trade, pay, cards, documents and tickets tabs for one account; each read loads or refuses on its own, and a part no service
 // can read for one account names why. The account looked at is the stack's
 // second TEST founder, an account that always exists on the stack.
 
-test('J-ops-console-02 #3 #4 one customer record: the risk card, and five tabs each loading or refusing on its own', async ({ page }) => {
+test('J-ops-console-02 #3 #4 #5 one customer record: the risk card, and six tabs each loading or refusing on its own', async ({ page }) => {
   test.setTimeout(240_000);
   const ctx = await makeContext({ log: () => {} });
   const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
@@ -23,7 +23,8 @@ test('J-ops-console-02 #3 #4 one customer record: the risk card, and five tabs e
   await page.getByRole('button', { name: 'Open customer record' }).click();
   await page.waitForURL((url) => url.pathname === `/accounts/${customer}`, { timeout: 60_000 });
   await expect(page.getByTestId('customer-record-id')).toHaveText(customer);
-  for (const tab of ['money', 'trade', 'pay', 'cards', 'tickets']) await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
+  for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
+    await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
 
   // Step #4, the risk card: no risk ruleset exists, so the record says there is no risk level and why, never a made-up score.
   const risk = page.getByTestId('customer-risk-card');
@@ -61,6 +62,14 @@ test('J-ops-console-02 #3 #4 one customer record: the risk card, and five tabs e
       .getByText(/As of /)
       .first(),
   ).toBeVisible();
+
+  // Step #5, documents: identity's document list for this account answers in words (a list or "holds no document"), and the
+  // per-document decisions identity does not keep name their blocker.
+  await page.getByTestId('customer-tab-documents').click();
+  await expect(page.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
+  const documents = page.getByTestId('read-identity.documents');
+  await expect(documents.getByText(/As of /).first()).toBeVisible();
+  await expect(page.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
   for (const tab of ['cards', 'tickets']) {
     await page.getByTestId(`customer-tab-${tab}`).click();

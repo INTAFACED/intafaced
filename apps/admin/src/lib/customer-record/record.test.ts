@@ -39,6 +39,11 @@ describe('what each tab reads', () => {
     expect(tabPlan('tickets', USER).reads).toEqual([]);
     expect(tabPlan('cards', USER).unwired[0]!.reason).toContain('no operator read of one customer’s cards');
     expect(tabPlan('tickets', USER).unwired[0]!.reason).toContain('refuses on purpose to answer about an arbitrary account');
+    const docs = tabPlan('documents', USER);
+    expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
+      ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
+    ]);
+    expect(docs.unwired.map((u) => u.id)).toEqual(['documents.decisions']);
   });
   it('names procedures the owning services serve today', () => {
     const bank = service('svc-bank/src/router.ts');
@@ -48,6 +53,10 @@ describe('what each tab reads', () => {
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
     expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().uuid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
+    // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
+    expect(service('svc-identity/src/router.ts')).toMatch(
+      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.uuid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
+    );
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);
     expect(allowlist).toMatch(/\bpolicy: founder/);

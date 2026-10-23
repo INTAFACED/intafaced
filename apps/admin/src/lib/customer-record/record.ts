@@ -5,7 +5,7 @@ import type { CustomerTab } from './tabs';
 export { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, customerId, customerTab, type CustomerTab } from './tabs';
 
 /**
- * One customer's record across money, trade, pay, cards and tickets (OPS-founder-01, ops-console-founder-002), at
+ * One customer's record across money, trade, pay, cards, documents and tickets (OPS-founder-01, ops-console-founder-002), at
  * `/accounts/:userId`. Each tab reads the owning service's own operator read for this one account, as the signed-in founder,
  * and each read loads or refuses on its own: one service down refuses its own block, never the tab beside it.
  *
@@ -18,6 +18,7 @@ export { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, customerId
 const col = (key: string, label: string, kind: Column['kind'], extra: Partial<Column> = {}): Column => ({ key, label, kind, ...extra });
 
 const CONTROL_HISTORY_LIMIT = 50;
+const DOCUMENT_LIMIT = 50;
 
 /** An account-control history for one target: every restrict or restore attempt, newest first, as the owning service logged it. */
 function controlHistory(id: string, module: 'identity' | 'trade', area: 'identity' | 'trading', userId: string, service: string): ReadSpec {
@@ -134,6 +135,40 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             'cards.list',
             'Cards issued to this account',
             'svc-bank keeps each customer’s cards, but its card list answers only the signed-in owner; it has no operator read of one customer’s cards.',
+          ),
+        ],
+      };
+    case 'documents':
+      return {
+        reads: [
+          {
+            id: 'identity.documents',
+            title: 'Identity documents',
+            note: 'Every document identity’s vault holds for this account, newest first: what it is and when it was stored. Only the description is read here; opening a document’s contents needs a second founder.',
+            module: 'identity',
+            plainName: 'identity’s document vault',
+            procedure: 'kyc.listDocuments',
+            input: { userId, limit: DOCUMENT_LIMIT },
+            shape: 'list',
+            idKey: 'id',
+            page: DOCUMENT_LIMIT,
+            columns: [
+              col('createdAt', 'Stored', 'time'),
+              col('contentType', 'Type', 'text'),
+              col('byteLength', 'Size (bytes)', 'int'),
+              col('storedBy', 'Stored by', 'text', { nullable: true }),
+              col('id', 'Document id', 'text', { detail: true }),
+            ],
+            emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
+            forbiddenText:
+              'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
+          },
+        ],
+        unwired: [
+          un(
+            'documents.decisions',
+            'Document decisions and requests',
+            'Identity keeps no accept, reject or request-again decision per document, and no request to the customer for a new one (OPS-cases-07). Review decisions are on the Identity desk’s case queue.',
           ),
         ],
       };
