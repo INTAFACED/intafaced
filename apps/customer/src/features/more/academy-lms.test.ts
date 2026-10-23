@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import {
   buildTracking,
   certificateCards,
@@ -19,7 +20,10 @@ import {
   rememberLastLesson,
   resumeTarget,
   roomSummary,
-  tabForSection,
+  academyRoute,
+  academySectionRedirect,
+  academyTabHref,
+  academyTabs,
   type CertDefinition,
   type CertGrant,
   type CertProgressRow,
@@ -292,14 +296,30 @@ describe('moments', () => {
   });
 });
 
-describe('section links', () => {
-  it('opens the matching tab and falls back to Learning', () => {
-    expect(tabForSection('certificates')).toBe('Certificates');
-    expect(tabForSection('videos')).toBe('Videos');
-    expect(tabForSection('programmes')).toBe('Programmes');
-    expect(tabForSection('rooms')).toBe('Rooms');
-    expect(tabForSection(null)).toBe('Learning');
-    expect(tabForSection('constructor')).toBe('Learning');
+describe('tab addresses (AC-order-01)', () => {
+  it('gives each of the five tabs its own address, and the tab segment wins over a lesson', () => {
+    expect(academyTabs.map(([name]) => name)).toEqual(['Learning', 'Certificates', 'Rooms', 'Videos', 'Programmes']);
+    expect(academyRoute('/academy')).toEqual({ kind: 'tab', tab: 'Learning' });
+    for (const [name, slug] of academyTabs) {
+      expect(academyRoute(`/academy/${slug}`)).toEqual({ kind: 'tab', tab: name });
+      expect(academyTabHref(name)).toBe(`/academy/${slug}`);
+    }
+    expect(academyRoute('/academy/progress')).toEqual({ kind: 'progress' });
+    expect(academyRoute('/academy/foundations-risk-first')).toEqual({ kind: 'reader', slug: 'foundations-risk-first' });
+    expect(academyRoute('/academy/%E0%A4%A')).toEqual({ kind: 'reader', slug: undefined });
+  });
+
+  it('reserves exactly the segments the service refuses as lesson slugs', () => {
+    expect([...academyTabs.map(([, slug]) => slug), 'progress'].sort()).toEqual([...ACADEMY_RESERVED_TAB_SLUGS].sort());
+  });
+
+  it('sends an old ?section= link to the tab address and keeps its other parameters', () => {
+    expect(academySectionRedirect('/academy', '?section=videos')).toBe('/academy/videos');
+    expect(academySectionRedirect('/academy', '?cert=c1&section=certificates')).toBe('/academy/certificates?cert=c1');
+    expect(academySectionRedirect('/academy', '?section=progress')).toBe('/academy/progress');
+    expect(academySectionRedirect('/academy', '?section=constructor')).toBeUndefined();
+    expect(academySectionRedirect('/academy', '?path=markets')).toBeUndefined();
+    expect(academySectionRedirect('/academy/videos', '?section=rooms')).toBeUndefined();
   });
 });
 
