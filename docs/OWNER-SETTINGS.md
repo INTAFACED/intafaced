@@ -4,11 +4,7 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-<<<<<<< HEAD
-168 env settings, 232 owner values read elsewhere, 216 page sizes the caller sends. 565 distinct `_unset` codes in all.
-=======
-169 env settings, 232 owner values read elsewhere, 216 page sizes the caller sends. 566 distinct `_unset` codes in all.
->>>>>>> origin/main
+170 env settings, 232 owner values read elsewhere, 216 page sizes the caller sends. 567 distinct `_unset` codes in all.
 
 ## TEST profile
 
