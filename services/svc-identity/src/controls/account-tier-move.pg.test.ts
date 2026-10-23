@@ -66,14 +66,18 @@ if (!available) {
   });
   const approved = async (by: Context, approver: string, input: AccountTierMoveInput): Promise<AccountTierMoveInput> => ({
     ...input,
-    approvalId: await approvedTierMove(db.sql, { isFounder: (userId) => controls.isLiveFounder(userId) }, {
-      requesterId: id(by),
-      approverId: approver,
-      userId: input.userId,
-      tierId: input.tierId,
-      reason: input.reason,
-      expectedVersion: input.expectedVersion,
-    }),
+    approvalId: await approvedTierMove(
+      db.sql,
+      { isFounder: (userId) => controls.isLiveFounder(userId) },
+      {
+        requesterId: id(by),
+        approverId: approver,
+        userId: input.userId,
+        tierId: input.tierId,
+        reason: input.reason,
+        expectedVersion: input.expectedVersion,
+      },
+    ),
   });
   const approvalStatus = async (approvalId: string) =>
     (await db.sql<Array<{ status: string }>>`SELECT status FROM action_approvals WHERE approval_id = ${approvalId}`)[0]!.status;

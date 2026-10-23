@@ -313,9 +313,7 @@ export const accountTierTermsSchema = z
 export type AccountTierTerms = z.infer<typeof accountTierTermsSchema>;
 export const ACCOUNT_TIER_TERM_KEYS = ['ratePercent', 'monthlyFee', 'feeAssetId', 'dailyLimit', 'clearingDays'] as const;
 
-export const accountTierSchema = z
-  .object({ id: tierId, name: z.string().trim().min(1).max(64), terms: accountTierTermsSchema })
-  .strict();
+export const accountTierSchema = z.object({ id: tierId, name: z.string().trim().min(1).max(64), terms: accountTierTermsSchema }).strict();
 export type AccountTier = z.infer<typeof accountTierSchema>;
 
 /** The tiers on offer. Unset (blank, or not a valid list) is its own answer, never an empty list. */

@@ -150,6 +150,11 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "IDENTITY_ACCOUNT_TIERS": {
+      "service": "identity",
+      "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
+      "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
     }
   }
 }
