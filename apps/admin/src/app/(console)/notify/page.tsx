@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { NotifyDesk } from '@/components/notify-desk';
@@ -23,6 +24,11 @@ export default async function NotifyPage() {
   if (config.channels.kind === 'ok') for (const c of config.channels.data) if (c.notConnected) notConnected[c.channel] = c.notConnected;
   return (
     <>
+      <nav className="dk-row" aria-label="Notify desks">
+        <Link href="/notify/status" className="adm-link">
+          Status page desk
+        </Link>
+      </nav>
       <NotifyDesk initial={health} />
       <RecipientsPanel initial={recipients} notConnected={notConnected satisfies NotConnected} />
       <NotifyConfigDesk view={config} />

@@ -62,10 +62,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
-    // operator lists (admin:compliance) and svc-market's vendor desk (market:ops). Identity adds them only to a
-    // founder's own signed-in session with a second factor, never to an API key or a sub-account. admin:write,
-    // support:ops and every money-moving scope stay off.
-    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:compliance,market:ops',
+    // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), and the notify desk's writes
+    // (admin:write: the status page, notices and their two-person publish). Identity adds them only to a founder's own
+    // signed-in session with a second factor, never to an API key or a sub-account. support:ops and every
+    // money-moving scope stay off.
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops',
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',

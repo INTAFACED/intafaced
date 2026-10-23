@@ -343,6 +343,36 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',
     next: 'Ask engineering. Nothing was changed.',
   },
+  'status.component_cap_unset': {
+    title: 'The component cap is blank',
+    body: 'svc-notify refuses any list of components until a founder sets how many the page may hold. Nothing was changed.',
+    next: 'Fill in the component cap in the same change, then save again.',
+  },
+  'status.component_cap_reached': {
+    title: 'More components than the cap allows',
+    body: 'The list is longer than the component cap, so svc-notify kept the page as it was.',
+    next: 'Remove components or raise the cap, then save again.',
+  },
+  'status.component_unknown': {
+    title: 'That component is not on the page',
+    body: 'svc-notify has no component with that id, so no reading was stored.',
+    next: 'Read the page again and pick a component it lists.',
+  },
+  'status.reading_in_future': {
+    title: 'That reading is in the future',
+    body: 'A reading cannot be later than the service clock, so nothing was stored.',
+    next: 'Check the time and enter the reading again.',
+  },
+  'status.reading_conflict': {
+    title: 'A different reading exists for that moment',
+    body: 'svc-notify already holds another state for this component at that exact time. Nothing was stored.',
+    next: 'Read the page again; enter a new reading for the time it is now.',
+  },
+  'status.page_revision_stale': {
+    title: 'Someone changed the page first',
+    body: 'The definition moved on since you read it, so your change was not applied.',
+    next: 'Read the page again and make your change on what it says now.',
+  },
   'operator.denied': {
     title: 'Not allowed',
     body: 'The service did not accept your founder session for this action.',
