@@ -1522,6 +1522,74 @@ describe('personal bill pay and global send', () => {
       expect(transfers(ledger)).toHaveLength(1);
     });
 
+    /** The send's row as stored. */
+    const stored = async (key: string) =>
+      (
+        await sql<{ status: string; ledger_tx_id: string | null }[]>`
+        SELECT status, ledger_tx_id FROM bank.global_sends WHERE user_id = ${USER} AND idempotency_key = ${key}
+      `
+      )[0];
+
+    /** A ledger that accepts the next forward entry and loses its answer, as a timeout after the ledger took it would. */
+    function loseNextForwardAnswer(ledger: MemoryLedger) {
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (tx) => {
+        const done = await post(tx);
+        if (tx.reason === 'bank.transfer.manual') {
+          ledger.post = post;
+          throw new Error('answer lost');
+        }
+        return done;
+      };
+    }
+
+    it('a forward entry the ledger accepted but whose answer was lost is paid at the lock on the retry, even after the lock ran out', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      loseNextForwardAnswer(ledger);
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toThrow();
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+      expect(await stored(body.idempotencyKey)).toEqual({ status: 'submitted', ledger_tx_id: null });
+      // The customer retries after the lock ran out (it was confirmed inside it): the posted send is paid at its lock, not
+      // failed with the debit stranded.
+      await sql`
+        UPDATE bank.global_quotes
+        SET valid_until = (SELECT created_at FROM bank.global_sends WHERE quote_id = ${lock.quoteId}) + interval '1 millisecond'
+        WHERE id = ${lock.quoteId}
+      `;
+      const sent = await me.global.send({ ...body, quoteId: lock.quoteId });
+      expect(sent).toMatchObject({ status: 'sent', quoteId: lock.quoteId, quoteRate: '2', quoteReceive: '80' });
+      expect(sent.ledgerTxId).toBe(transfers(ledger)[0]!.id);
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a posted but unrecorded send whose corridor went away before the retry is left open as unknown, never failed with the debit stranded', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      loseNextForwardAnswer(ledger);
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toThrow();
+      // The partner's catalogue drops the corridor before the retry: a refusal now would strand the posted debit.
+      const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'))!;
+      const later = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        nativeAssetId: 'IFC',
+        recipients: memoryRecipientState(),
+        global: globalSimPorts({ ...catalogue, corridors: catalogue.corridors.filter((row) => row.country !== 'DE') }),
+        sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'),
+        payeeControls: PAYEE_OK,
+        exchangeAllowance: ALLOWANCE_NONE,
+        proofLimits: stackValue('BANK_PROOF_LIMITS_JSON'),
+        holdCancelHours: '',
+      });
+      await expect(caller(later, USER, write).global.send({ ...body, quoteId: lock.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_outcome_unknown' },
+      });
+      expect(await stored(body.idempotencyKey)).toEqual({ status: 'submitted', ledger_tx_id: transfers(ledger)[0]!.id });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
     it('a send held for review is paid at the lock it was confirmed on, even when released after the lock ran out', async () => {
       const { ledger, bank, me, body, balance } = await ready();
       await ledger.post(

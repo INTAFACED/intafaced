@@ -907,6 +907,20 @@ export class GlobalSendService {
     }
     if (row.status !== 'submitted') return sendView(row);
 
+    // A forward entry that posted but was never recorded (a stop between the two, or the ledger's answer lost after it
+    // accepted) is recorded before any refusal below: a posted send is then paid at its lock, or left open as unknown,
+    // and is never failed while the rail boundary holds its value.
+    if (!row.ledger_tx_id) {
+      const posted = await this.ledger.getTxByKey(forwardKey(row.id));
+      if (posted) {
+        await this.sql`
+          UPDATE bank.global_sends SET ledger_tx_id = ${posted.id}, updated_at = now()
+          WHERE id = ${row.id} AND status = 'submitted' AND ledger_tx_id IS NULL
+        `;
+        row = { ...row, ledger_tx_id: posted.id };
+      }
+    }
+
     if (this.ports.corridors.status() !== 'live') return this.definite(row, 'bank.global_corridors_unset');
     const catalogue = await this.corridors();
     const match = catalogue.find(
