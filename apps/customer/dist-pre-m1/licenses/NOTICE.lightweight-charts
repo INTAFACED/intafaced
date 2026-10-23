@@ -1,0 +1,23 @@
+Lightweight Charts(TM) 5.2.1
+Copyright (c) 2019-present, TradingView, Inc.
+Licensed under the Apache License, Version 2.0.
+
+Official npm artifact:
+https://registry.npmjs.org/lightweight-charts/-/lightweight-charts-5.2.1.tgz
+npm integrity:
+sha512-IVwoK1RLFiLPubaKIjNbtjWLnpPMqiABSrTay6whmNa8L1+19292VtHJ+BWyPUuLCwF0tcQlhEWd1CLB2a1nsQ==
+Official standalone source SHA-256:
+e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf
+
+Webpack 3/Uglify cannot parse the official bundle's modern JavaScript syntax.
+The checked-in standalone is a mechanical syntax downlevel of that exact
+official file using TypeScript 5.9.3 with `allowJs`, `target=ES5`, `module=none`,
+and legal comments retained. No source semantics or license text were edited.
+Checked-in downlevel SHA-256:
+4be63f3bf444da3641add791571d768d15ef81a65b774724b149cbc2072024a8
+
+The distribution incorporates parts of tslib, Copyright Microsoft
+Corporation, licensed under the BSD Zero Clause License. See the upstream
+package and source repository for the corresponding notices.
+
+Lightweight Charts is a trademark of TradingView, Inc.

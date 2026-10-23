@@ -1,0 +1,9 @@
+LiveKit JavaScript client SDK 2.22.3
+Copyright LiveKit, Inc. and contributors.
+License: Apache License 2.0; see LICENSE.livekit-client.
+Official npm browser bundle copied without modification.
+Source: https://github.com/livekit/client-sdk-js
+Package: https://registry.npmjs.org/livekit-client/-/livekit-client-2.22.3.tgz
+SDK reference: https://docs.livekit.io/reference/client-sdk-js/
+Bundle SHA-256: 7fa17e37af5e996d8a25f15a637dcc0620215bc01b394e5d209f726afe7dc04d
+No provider credential is included in this artifact.
