@@ -1472,7 +1472,7 @@ describe('svc-p2p payment instruments', () => {
       await expect(callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).resolves.toMatchObject({
         details: { account_reference: CANARY, holder_name: 'A Seller' },
         // P-trade-orders-08: the buyer is told the seller no longer keeps this destination.
-        payeeChange: { kind: 'removed', at: expect.any(String) },
+        payeeChange: { kind: 'removed' },
       });
 
       // And it is gone for everything that has not started yet.
@@ -1510,12 +1510,29 @@ describe('svc-p2p payment instruments', () => {
       const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
       expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
       // P-trade-orders-08: and the buyer is told the seller's details changed since the order was placed.
-      expect(view.payeeChange).toEqual({ kind: 'changed', at: expect.any(String) });
+      expect(view.payeeChange).toEqual({ kind: 'changed' });
 
       // The owner's own copy did change — the edit was legitimate, it just does
       // not reach backwards.
       const own = await callerFor(SELLER).instruments.reveal({ instrumentId: created.id });
       expect(own.details).toEqual({ account_reference: 'SWITCHED-ACCOUNT', holder_name: 'A Seller' });
+    });
+  });
+
+  describe('the labels on an in-flight trade', () => {
+    it('are display only: a stored schema that cannot be read still shows the details, under their keys', async () => {
+      await sellerInstrument();
+      const { trade } = await liveTrade();
+      await sql`UPDATE p2p.payment_method_schemas SET fields = ${sql.json([{ nope: 1 }] as never)}`;
+      const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
+      expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
+      expect(view.fields).toHaveLength(2);
+      expect(view.fields).toEqual(
+        expect.arrayContaining([
+          { key: 'account_reference', label: 'account_reference' },
+          { key: 'holder_name', label: 'holder_name' },
+        ]),
+      );
     });
   });
 

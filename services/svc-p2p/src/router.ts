@@ -1567,7 +1567,7 @@ export function createP2pRouter(
             fields: z.array(z.object({ key: z.string(), label: z.string() })),
             attachedAt: z.string(),
             /** P-trade-orders-08: the seller changed or removed this destination after the order was placed. The order still pays the details above. */
-            payeeChange: z.object({ kind: z.enum(['changed', 'removed']), at: z.string().nullable() }).nullable(),
+            payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
           }),
         )
         .query(async ({ ctx, input }) =>
@@ -1586,7 +1586,7 @@ export function createP2pRouter(
               details: { ...view.details },
               fields: view.fields.map((field) => ({ key: field.key, label: field.label })),
               attachedAt: view.attachedAt.toISOString(),
-              payeeChange: view.payeeChange && { kind: view.payeeChange.kind, at: view.payeeChange.at?.toISOString() ?? null },
+              payeeChange: view.payeeChange && { kind: view.payeeChange.kind },
             };
           }),
         ),
