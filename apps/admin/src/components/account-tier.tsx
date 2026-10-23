@@ -15,7 +15,8 @@ function blankTerms(tier: AccountTier) {
  */
 export function AccountTierPanel({ userId, founderId, onChanged }: { userId: string; founderId: string; onChanged: () => void }) {
   const [list, setList] = useState<AccountTierList | null>(null);
-  const [state, setState] = useState<AccountTierState | null>(null);
+  /** undefined while reading or unreadable, null when identity has no such account. */
+  const [state, setState] = useState<AccountTierState | null | undefined>(undefined);
   const [history, setHistory] = useState<AccountTierResult[]>([]);
   const [error, setError] = useState('');
   const [tierId, setTierId] = useState('');
@@ -29,7 +30,7 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
       fetch(`/api/accounts/tier?id=${id}&history=true&limit=50`, { cache: 'no-store' }),
     ]);
     if (!listResponse.ok || !stateResponse.ok || !historyResponse.ok) {
-      setState(null);
+      setState(undefined);
       setError('Identity (svc-identity) did not answer for this account’s tier. Nothing can be moved until it does.');
       return;
     }
@@ -70,7 +71,10 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
           {error}
         </p>
       )}
-      {!state && !error && <p className="adm-subtle">Reading the account’s tier…</p>}
+      {state === undefined && !error && <p className="adm-subtle">Reading the account’s tier…</p>}
+      {state === null && !error && (
+        <p data-testid="account-tier-status">Identity has no account with this id, so it has no tier (target.not_found).</p>
+      )}
       {state && list && (
         <>
           <p data-testid="account-tier-status">
@@ -130,7 +134,7 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
             </label>
           )}
           <ControlDesk
-            key={`tier:${userId}:${state.version}:${tierId}`}
+            key={`tier:${userId}:${state.version}`}
             endpoint="/api/accounts/tier"
             userId={founderId}
             blockedReason={blocked}

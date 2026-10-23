@@ -477,8 +477,8 @@ const p2pClosureCheck = httpClosureChecker({
   secret: closureSecret,
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
 });
-// A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
 founderControls.useAccountTiers(parseAccountTiers(env.IDENTITY_ACCOUNT_TIERS));
+// A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
 founderControls.useClosureChecks(async (input) => {
   const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);
   if (results.some((result) => !result.ok)) return { ok: false };
