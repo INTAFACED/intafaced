@@ -361,3 +361,88 @@ describe('lesson import (AC-course-structure-03)', () => {
     expect(done.lesson.importMaxBytes).toBe(8192);
   });
 });
+
+describe('the authoring assistant (AC-course-structure-04)', () => {
+  it('the model path waits for an owner decision; the template draft is stored and goes nowhere until accepted', async () => {
+    const { course, lesson } = await draftWithOutline();
+    await lessons().save({ itemId: lesson.id, revision: 0, blocks: text('Live'), operatorId: A, now: NOW });
+    await lessons().publish({
+      itemId: lesson.id,
+      lessonRevision: 1,
+      courseRevision: course.revision,
+      reason: 'go',
+      operatorId: A,
+      now: NOW,
+    });
+    await expect(
+      lessons().assistantDraft({ itemId: lesson.id, revision: 1, path: 'model', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'owner.decision' });
+    const drafted = await lessons().assistantDraft({ itemId: lesson.id, revision: 1, path: 'template', operatorId: A, now: NOW });
+    expect(drafted.draft).toMatchObject({ basedOnRevision: 1, kind: 'template', createdBy: A });
+    expect(drafted.draft!.blocks[0]).toEqual({ type: 'text', markdown: '# Position size\n\nPart of “Start here” in “Risk basics”.' });
+    expect(drafted.draft!.blocks.at(-1)).toEqual({ type: 'text', markdown: '## In this section\n\n- Reading' });
+    // Nothing moved: no revision was written and learners see revision 1.
+    expect(drafted.revisions.map((r) => r.revision)).toEqual([1]);
+    expect(drafted.item.liveRevision).toBe(1);
+    // A repeat answers with the same draft.
+    expect(await lessons().assistantDraft({ itemId: lesson.id, revision: 1, path: 'template', operatorId: B, now: LATER })).toEqual(
+      drafted,
+    );
+    const accepted = await lessons().decideDraft({
+      itemId: lesson.id,
+      basedOnRevision: 1,
+      kind: 'template',
+      decision: 'accept',
+      operatorId: B,
+      now: LATER,
+    });
+    expect(accepted.draft).toBeNull();
+    expect(accepted.revisions[0]).toMatchObject({ revision: 2, source: 'assisted', actor: B, blocks: drafted.draft!.blocks });
+    expect(accepted.item.liveRevision).toBe(1);
+    expect(
+      await lessons().decideDraft({
+        itemId: lesson.id,
+        basedOnRevision: 1,
+        kind: 'template',
+        decision: 'accept',
+        operatorId: B,
+        now: LATER,
+      }),
+    ).toEqual(accepted);
+    await expect(
+      lessons().decideDraft({ itemId: lesson.id, basedOnRevision: 1, kind: 'template', decision: 'discard', operatorId: B, now: LATER }),
+    ).rejects.toMatchObject({ code: 'academy.draft_not_found' });
+  });
+
+  it('a draft from an old revision is not accepted over newer words; it can be discarded', async () => {
+    const { lesson } = await draftWithOutline();
+    await lessons().assistantDraft({ itemId: lesson.id, revision: 0, path: 'template', operatorId: A, now: NOW });
+    const saved = await lessons().save({ itemId: lesson.id, revision: 0, blocks: text('Mine'), operatorId: A, now: NOW });
+    // The old draft is no longer offered to accept.
+    expect(saved.draft).toBeNull();
+    await expect(
+      lessons().decideDraft({ itemId: lesson.id, basedOnRevision: 0, kind: 'template', decision: 'accept', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.revision_stale' });
+    const discarded = await lessons().decideDraft({
+      itemId: lesson.id,
+      basedOnRevision: 0,
+      kind: 'template',
+      decision: 'discard',
+      operatorId: A,
+      now: NOW,
+    });
+    expect(discarded.draft).toBeNull();
+    expect(discarded.revisions.map((r) => r.source)).toEqual(['saved']);
+    await expect(
+      lessons().assistantDraft({ itemId: lesson.id, revision: 0, path: 'template', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.revision_stale' });
+  });
+
+  it('after a discard, asking for the template draft again drafts it again', async () => {
+    const { lesson } = await draftWithOutline();
+    await lessons().assistantDraft({ itemId: lesson.id, revision: 0, path: 'template', operatorId: A, now: NOW });
+    await lessons().decideDraft({ itemId: lesson.id, basedOnRevision: 0, kind: 'template', decision: 'discard', operatorId: A, now: NOW });
+    const again = await lessons().assistantDraft({ itemId: lesson.id, revision: 0, path: 'template', operatorId: B, now: LATER });
+    expect(again.draft).toMatchObject({ basedOnRevision: 0, kind: 'template' });
+  });
+});

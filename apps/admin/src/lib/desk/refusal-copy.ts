@@ -708,6 +708,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This lesson file is larger than the owner allows, so it was refused before it was read.',
     next: 'Split the lesson or shorten it. Nothing was created.',
   },
+  'academy.draft_not_found': {
+    title: 'No such draft',
+    body: 'This lesson has no open assistant draft by that name, or it was already decided the other way.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'owner.decision': {
+    title: 'Waiting for an owner decision',
+    body: 'This path needs a choice the owner has not made yet, so it is off. Nothing was sent anywhere.',
+    next: 'Use the path that works now, or ask the owner to decide. Nothing was changed.',
+  },
   'academy.course_not_found': {
     title: 'No such course',
     body: 'svc-academy has no course with this id.',

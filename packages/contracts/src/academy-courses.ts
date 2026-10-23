@@ -241,7 +241,7 @@ export const academyDuplicateItemInputSchema = z
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
 
-export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported'] as const;
+export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported', 'assisted'] as const;
 export const academyLessonRevisionSchema = z.object({
   revision: z.number().int().positive(),
   source: z.enum(ACADEMY_LESSON_SOURCES),
@@ -265,6 +265,16 @@ export const academyLessonSchema = z.object({
   revisions: z.array(academyLessonRevisionSchema),
   /** The owner's lesson import size limit in bytes (`ACADEMY_LESSON_IMPORT_MAX_BYTES`), or null when it is not set. */
   importMaxBytes: z.number().int().positive().nullable(),
+  /** The assistant draft waiting for a person to accept or discard it, or null. It is never what learners see. */
+  draft: z
+    .object({
+      basedOnRevision: z.number().int().nonnegative(),
+      kind: z.literal('template'),
+      blocks: academyLessonBlocksSchema,
+      createdBy: z.string().uuid(),
+      createdAt: isoInstant,
+    })
+    .nullable(),
 });
 export type AcademyLesson = z.infer<typeof academyLessonSchema>;
 
@@ -289,3 +299,26 @@ export const academyImportLessonResultSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('invalid'), problems: z.array(academyImportProblemSchema).min(1), lesson: academyLessonSchema }),
 ]);
 export type AcademyImportLessonResult = z.infer<typeof academyImportLessonResultSchema>;
+
+/**
+ * AC-course-structure-04: the authoring assistant. `template` drafts a lesson from the course's own structure (its
+ * title, section and neighbours) with headings to fill in, and needs no provider. `model` is the model-backed path: it
+ * refuses `owner.decision` while the owner has not chosen a provider, and copy never names one. A draft is keyed
+ * `draft:<item>:<revision>:<kind>` and goes nowhere until a person accepts it, which writes a new lesson revision.
+ */
+export const ACADEMY_ASSISTANT_PATHS = ['template', 'model'] as const;
+export const academyAssistantDraftInputSchema = z
+  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), path: z.enum(ACADEMY_ASSISTANT_PATHS) })
+  .strict();
+export type AcademyAssistantDraftInput = z.infer<typeof academyAssistantDraftInputSchema>;
+
+/** `admin.decideDraft`: a person accepts (a new lesson revision, with them as the actor) or discards the open draft. */
+export const academyDecideDraftInputSchema = z
+  .object({
+    itemId: z.string().uuid(),
+    basedOnRevision: z.number().int().nonnegative(),
+    kind: z.literal('template'),
+    decision: z.enum(['accept', 'discard']),
+  })
+  .strict();
+export type AcademyDecideDraftInput = z.infer<typeof academyDecideDraftInputSchema>;

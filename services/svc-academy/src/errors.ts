@@ -225,7 +225,9 @@ export type AcademyErrorCode =
   /** The owner has not set the lesson import size limit. */
   | 'academy.import_limit_unset'
   /** The lesson file is over the owner's size limit; it was not parsed. */
-  | 'academy.import_too_large';
+  | 'academy.import_too_large'
+  /** AC-course-structure-04: no such assistant draft, or it was already decided the other way. */
+  | 'academy.draft_not_found';
 
 export class AcademyError extends Error {
   constructor(
@@ -357,6 +359,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.item_kind_locked',
   'academy.import_limit_unset',
   'academy.import_too_large',
+  'academy.draft_not_found',
 ] as const;
 
 /** L3 — catalog size. */
