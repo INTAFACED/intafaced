@@ -240,8 +240,9 @@ test(`${J}, part of #4: Needs you is on Home, and while Home's list settings can
   await page.goto('/');
   const work = page.locator('section[aria-labelledby="home-work-title"]');
   await expect(work).toBeVisible();
-  // svc-ops on the local stack does not serve Home's owner values yet (`home.config`: the cap and order), so it answers
-  // home.config_unwired. The list is refused and named; an empty list here would claim that nothing needs the person.
+  // svc-ops runs on the local stack but has no `home.config` procedure yet (Home's owner values: the cap and order). Edge
+  // answers 404 and the app names it home.config_unwired. The list is refused and named; an empty list here would claim
+  // that nothing needs the person.
   await expect(work.locator('[data-slot="state-block"]')).toContainText('Not served here');
   await expect(work).toContainText('home.config_unwired');
   await expect(work).not.toContainText('Nothing needs you');

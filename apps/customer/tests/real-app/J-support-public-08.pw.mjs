@@ -106,8 +106,8 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
 
   // The store is down: the visitor is told it did not go through, and nothing is recorded for the invite.
   const failing = await inviteCampaign(`${key}-down`);
-  tool('local-test-stack.mjs', 'stop', 'ops');
   try {
+    tool('local-test-stack.mjs', 'stop', 'ops');
     const down = await visitor(browser);
     await down.goto(`${JOIN}/partner?source=${failing.sourceKey}`);
     await contact(down, `${key.toLowerCase()}-down@example.org`);

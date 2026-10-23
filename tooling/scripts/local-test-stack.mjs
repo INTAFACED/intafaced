@@ -702,11 +702,18 @@ function ensureAdminBuilt(rebuild) {
   writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
 }
 
-/** The invitation site is built once and again on --rebuild; its intake code is shared source that rarely changes. */
+const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
+
+/** The invitation site is rebuilt when its own source, a package or the lockfile changed since its last build, or on --rebuild. */
 function ensureInvitationBuilt(rebuild) {
-  if (!rebuild && fs.existsSync(path.join(P.invitationDist, 'index.html'))) return;
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
+  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
   say('  build: invitation site (apps/invitation)…');
   runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
+  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
 }
 
 function ensureBuilt(rebuild) {
@@ -1410,7 +1417,12 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
-  if (def.name === 'ops') writeProcs({ ...readProcs(), ops: { ...readProcs().ops, foundersPinned: Boolean(env.OPS_OUTREACH_CONFIG) } });
+  if (def.name === 'ops') {
+    // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
+    const procs = readProcs();
+    procs.ops.outreachConfig = env.OPS_OUTREACH_CONFIG ?? null;
+    writeProcs(procs);
+  }
   await waitHealthy(def.name, url, pid);
 }
 
@@ -1448,13 +1460,13 @@ async function ensureLocalTestFounders() {
     await restartIdentity();
   }
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
-  await pinOpsFounders();
 }
 
-/** svc-ops reads the founder pair at start. When it started before the pair was enrolled, restart it once with the pair. */
+/** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
 async function pinOpsFounders() {
   const procs = readProcs();
-  if (!ownedAlive(procs.ops) || !opsOutreachEnv().OPS_OUTREACH_CONFIG || procs.ops.foundersPinned) return;
+  const wanted = opsOutreachEnv().OPS_OUTREACH_CONFIG;
+  if (!ownedAlive(procs.ops) || !wanted || procs.ops.outreachConfig === wanted) return;
   say('  ops: restarting so the outreach intake knows the local test founder pair');
   await stopProc('ops', procs.ops);
   await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
@@ -1648,6 +1660,7 @@ async function cmdStart(flags) {
   for (const def of wanted) await startNodeService(def);
   try {
     await ensureLocalTestFounders();
+    if (!only || only.includes('ops')) await pinOpsFounders();
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
