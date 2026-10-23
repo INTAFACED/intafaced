@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import { Button } from '@intafaced/ui';
+import { dec } from '../../../data/decimal';
 import { fmtAmount, fmtPct, fmtPrice } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import { refusalCopy } from '../../../data/refusals';
@@ -225,13 +226,15 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
     busyRef.current = true;
     setBusy(true);
     const before = order.data.hold ?? null;
+    const filledBefore = order.data.filled;
     env.poller.recordExternalRequest();
     const result = await tradeApi.cancel({ id: order.data.id, symbol: order.data.symbol });
     busyRef.current = false;
     setBusy(false);
+    // The hold this page read is what came back only if nothing filled since that read; otherwise it states no number.
     if (result.ok)
       setCancelled(
-        before
+        before && dec(filledBefore) !== null && dec(result.data.filled) === dec(filledBefore)
           ? { tone: 'good', text: t('cancelDone', { amount: fmtAmount(before.amount, { places: 8 }), asset: before.asset }) }
           : { tone: 'good', text: t('cancelDoneNoHold') },
       );
