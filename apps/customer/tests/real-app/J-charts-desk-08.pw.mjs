@@ -71,9 +71,17 @@ test(`${J} #3 turns on sync for symbol, interval, crosshair and date range in on
   for (let i = 0; i < 4; i += 1)
     await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
   // Crosshair: hovering chart 1 puts the crosshair at the same time on charts 2 and 3, not on 4.
+  // The stack's TEST trades may cover only part of the plot, so sweep across it until the pointer is over a bar.
   const box = await canvasOf(page, 0).boundingBox();
-  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2);
-  await expect.poll(async () => (await cell(page, 0).getAttribute('data-crosshair')) ?? '').not.toBe('');
+  await expect
+    .poll(async () => {
+      for (let f = 0.05; f < 0.95; f += 0.05) {
+        await page.mouse.move(box.x + box.width * f, box.y + box.height / 2);
+        if (await cell(page, 0).getAttribute('data-crosshair')) return true;
+      }
+      return false;
+    })
+    .toBe(true);
   const at = await cell(page, 0).getAttribute('data-crosshair');
   for (const i of [1, 2]) await expect(cell(page, i)).toHaveAttribute('data-crosshair', at);
   await expect(cell(page, 3)).not.toHaveAttribute('data-crosshair', at);
