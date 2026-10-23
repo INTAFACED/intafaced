@@ -109,6 +109,7 @@ export const EVENT_BUS_MATRIX = {
   orderAccepted: { kind: 'socket', socketClass: 'A' },
   orderFilled: { kind: 'live' },
   orderCancelled: { kind: 'live' },
+  orderTriggered: { kind: 'socket', socketClass: 'A' },
   spreadFilled: { kind: 'socket', socketClass: 'A' },
   orderUpdated: { kind: 'live' },
   fillSettled: { kind: 'live' },

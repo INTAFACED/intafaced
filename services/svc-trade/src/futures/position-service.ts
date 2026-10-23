@@ -78,6 +78,7 @@ import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
 import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
@@ -324,6 +325,8 @@ export interface PositionServiceDeps {
     enabled: boolean;
     priceBand: Amount | null;
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
+    /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
+    feeRates?: ((userId: string) => Promise<FeeRates>) | null;
   };
 }
 
@@ -381,6 +384,8 @@ interface PresentExtras {
   realizedPnl?: string | null;
   /** A closed matched position: the summed quantity of its applied reduce fills. */
   closedSize?: string | null;
+  /** The fees the position's fills through the book paid; null when it has none. Omitted when not read. */
+  fees?: string | null;
   maintenanceMargin?: string | null;
   maintenanceReason?: string | null;
   /** The ladder's liquidation price at today's depth (`liquidation-price.ts`); shown only, never stored. */
@@ -444,6 +449,7 @@ export class PositionService {
       },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
+      feeRates: matchedOrders?.feeRates ?? null,
     });
   }
 
@@ -1015,7 +1021,8 @@ export class PositionService {
             AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
   }
 
   /**
@@ -1072,34 +1079,68 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    const realized = await this.matchedRealized(rows);
-    return Promise.all(rows.map((row) => this.presentListed(row, realized.get(row.id))));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
   }
 
   /**
-   * A position closed by reduce-only orders through the book realised its result fill by fill: the sum of its applied
-   * reduce fills, each the amount that was paid, owed or booked (migration 0096). The row's accepted mark is only the
-   * last reduce's price, so it would report the last fill alone. Closed rows only; a liquidation also hands part to ADL.
+   * What a position's fills through the book say about it (migrations 0096 and 0099).
+   *
+   * FEES. Every applied fill on the position, opening or reducing, paid its fee into house fees; the position reports
+   * their sum. A position with no fill through the book (an older at-mark row) reports none, with the reason.
+   *
+   * A CLOSED POSITION realised its result fill by fill: the sum of its applied reduce fills, each the amount that was
+   * paid, owed or booked. The row's accepted mark is only the last reduce's price, so it would report the last fill
+   * alone. The sums are used only when the reduce fills close exactly what the opening fills opened. A position whose
+   * fills do not cover its whole history reports its result as unknown, since neither the sum nor the row's last figure
+   * is the whole of it: one opened through the book but also shrunk some other way (auto-deleveraging, or an at-mark
+   * close while the book was off), and one with reduce fills but no opening fill (opened at the mark before the book).
+   * A position with no fill through the book keeps the row's own figures. Liquidated rows keep theirs: a liquidation
+   * hands part to ADL.
    */
-  private async matchedRealized(rows: readonly PositionRow[]): Promise<Map<string, { realizedPnl: string | null; closedSize: string }>> {
-    const ids = rows.filter((row) => row.status === 'closed').map((row) => row.id);
+  private async matchedFigures(rows: readonly PositionRow[]): Promise<Map<string, PresentExtras>> {
+    const ids = rows.map((row) => row.id);
     if (ids.length === 0) return new Map();
-    const sums = await this.sql<{ position_id: string; realized: string | null; closed: string }[]>`
-      SELECT position_id::text AS position_id, (CASE WHEN count(*) = count(realized_pnl) THEN sum(realized_pnl) END)::text AS realized, sum(qty)::text AS closed
+    const sums = await this.sql<
+      { position_id: string; realized: string | null; closed: string | null; opened: string | null; fees: string }[]
+    >`
+      SELECT position_id::text AS position_id,
+             (CASE WHEN count(*) FILTER (WHERE kind = 'reduce') = count(realized_pnl) FILTER (WHERE kind = 'reduce')
+                   THEN sum(realized_pnl) FILTER (WHERE kind = 'reduce') END)::text AS realized,
+             (sum(qty) FILTER (WHERE kind = 'reduce'))::text AS closed,
+             (sum(qty) FILTER (WHERE kind = 'open'))::text AS opened,
+             sum(fee)::text AS fees
       FROM trade.futures_order_fills
-      WHERE kind = 'reduce' AND state = 'applied' AND position_id IN ${this.sql(ids)}
+      WHERE state = 'applied' AND position_id IN ${this.sql(ids)}
       GROUP BY position_id
     `;
-    // A fill with no recorded result (a liquidation fill keeps its result on the rung) leaves the sum unknown, never zero.
-    return new Map(
-      sums.map((row) => [
-        row.position_id,
-        {
-          realizedPnl: row.realized == null ? null : formatAmount(parseAmount(row.realized)),
-          closedSize: formatAmount(parseAmount(row.closed)),
-        },
-      ]),
-    );
+    const byId = new Map(sums.map((row) => [row.position_id, row]));
+    const out = new Map<string, PresentExtras>();
+    for (const row of rows) {
+      const sum = byId.get(row.id);
+      if (!sum) {
+        out.set(row.id, { fees: null });
+        continue;
+      }
+      const extras: { fees: string; realizedPnl?: string | null; closedSize?: string } = { fees: formatAmount(parseAmount(sum.fees)) };
+      // A fill with no recorded result leaves the sum unknown, never zero (the table refuses one, migration 0096).
+      if (row.status === 'closed' && sum.closed != null) {
+        if (sum.opened != null && parseAmount(sum.closed) === parseAmount(sum.opened)) {
+          extras.realizedPnl = sum.realized == null ? null : formatAmount(parseAmount(sum.realized));
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        } else {
+          // Its fills do not cover its whole history: opened at the mark before orders went through the book (no
+          // opening fill, and it may have been partly closed at the mark too), or shrunk by auto-deleveraging, which
+          // leaves no fill row. The reduce fills are part of its result and so is what happened outside them, and the
+          // row's own figure is only its last remainder. Unknown, never partial. The size closed through the book is
+          // what its fills record.
+          extras.realizedPnl = null;
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        }
+      }
+      out.set(row.id, extras);
+    }
+    return out;
   }
 
   /**
@@ -1119,8 +1160,8 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    const realized = await this.matchedRealized([row]);
-    return this.presentListed(row, realized.get(row.id));
+    const figures = await this.matchedFigures([row]);
+    return this.presentListed(row, figures.get(row.id));
   }
 
   /**
@@ -3068,6 +3109,7 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;
   if (realizedPnl == null && realizedReason) fieldReasons.realizedPnl = realizedReason;
   if (closedAt == null && closedReason) fieldReasons.closedAt = closedReason;
+  if (extras?.fees === null) fieldReasons.fees = 'fees_not_recorded';
   if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
 
   return {
@@ -3097,6 +3139,7 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
     percentage,
     closedAt,
     updatedAt,
+    ...(extras?.fees !== undefined ? { fees: extras.fees } : {}),
     ...(extras?.replayed === true ? { replayed: true } : {}),
     fieldReasons,
   };

@@ -154,6 +154,15 @@ export function createMemoryRunRepository(cap: number | null | undefined): RunRe
       };
     },
 
+    async variantCount(input) {
+      return [...rows.values()].filter((row) => {
+        if (row.userId !== input.userId || row.kind !== 'backtest' || row.outcome !== 'ok') return false;
+        if (row.strategyId !== input.strategyId || !row.idempotencyKey.startsWith(input.keyPrefix)) return false;
+        const response = row.response as { symbol?: unknown; coverage?: { barSize?: unknown } } | null;
+        return response?.symbol === input.symbol && response.coverage?.barSize === input.barSize;
+      }).length;
+    },
+
     async setLabel(input) {
       const row = rows.get(input.runId);
       if (!row || row.userId !== input.userId) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');

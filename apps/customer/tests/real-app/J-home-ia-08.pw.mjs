@@ -59,6 +59,14 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   await switcher(page).getByRole('link', { name: 'Web3' }).click();
   await expect(page).toHaveURL(/\/dex\/pools$/);
   await expectWeb3(page);
+
+  // Narrower than 1280 px the signed-in bar has no room for the switch, so the account menu carries it.
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto('/money');
+  await expect(switcher(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await switcher(page).getByRole('link', { name: 'Web3' }).click();
+  await expect(page).toHaveURL(/\/dex\/pools$/);
   await page.context().close();
 });
 
@@ -104,6 +112,18 @@ test(`${J} #4 switching back returns the last Exchange room; a device with no hi
   await switcher(fresh).getByRole('link', { name: 'Exchange' }).click();
   await expect(fresh).toHaveURL(new RegExp(`^${ORIGIN}/?$`));
   await context.close();
+
+  // Signed out on a phone there is no account menu, so the Exchange bar keeps the switch itself.
+  const phone = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 390, height: 844 } });
+  const visitor = await phone.newPage();
+  await visitor.goto('/trade');
+  await expect(switcher(visitor).getByRole('link', { name: 'Exchange' })).toHaveAttribute('aria-current', 'page');
+  await switcher(visitor).getByRole('link', { name: 'Web3' }).click();
+  await expect(visitor).toHaveURL(/\/dex$/);
+  await expect(visitor.locator('[data-shell="web3"]')).toBeVisible();
+  await expect(switcher(visitor).getByRole('link', { name: 'Web3' })).toHaveAttribute('aria-current', 'page');
+  expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await phone.close();
 });
 
 test(`${J} #5 /dex signed out is the public read-only view with a prompt to sign in`, async ({ browser }) => {

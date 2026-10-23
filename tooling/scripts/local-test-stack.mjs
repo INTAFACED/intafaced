@@ -42,6 +42,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { profileEnvFor } from './owner-settings.mjs';
 import {
   FOUNDER_VAULT_NAME,
   enrolledFounderPair,
@@ -948,11 +949,15 @@ function serviceDefs(secrets) {
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
         // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
+        // The perpetual block is LOCAL TEST too: the regular-tier perpetual rates OKX is widely reported to publish,
+        // maker 2 bps and taker 5 bps (not checked against its own page). Futures orders keep these rates; without the
+        // block they refuse trade.fee_product_unpublished (svc-trade futures/matched-order-plan.ts perpetualFeeRates).
         TRADE_FEE_SCHEDULE: JSON.stringify({
           published: true,
           version: 'local-test:okx-regular-spot-reference',
           makerBps: '8',
           takerBps: '10',
+          perpetual: { makerBps: '2', takerBps: '5' },
         }),
         // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
         // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
@@ -1178,7 +1183,13 @@ function serviceDefs(secrets) {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
       // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
+      // The out-of-sample criteria and the holdout are the TEST profile's labelled values (tooling/profiles/test-owner-values.json).
+      env: () => ({
+        ...c('svc-quant', PORTS.quant),
+        DATABASE_URL: dbUrl('svc_quant', secrets),
+        TRADE_URL: urlOf('trade'),
+        ...profileEnvFor('quant', 'dev'),
+      }),
     },
     {
       name: 'execution',

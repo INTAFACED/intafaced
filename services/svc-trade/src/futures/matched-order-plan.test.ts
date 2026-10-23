@@ -6,11 +6,15 @@ import {
   adverseDistance,
   adverseNumerator,
   bankruptcyPrice,
+  feeSplit,
+  fillFee,
   fillMargin,
   fillWithinLimit,
   limitWithinBand,
   marginNeed,
   marketReduceLimit,
+  orderFeeReserve,
+  perpetualFeeRates,
   orderHoldAmount,
   parsePriceBand,
   planReduceFill,
@@ -23,6 +27,7 @@ import {
   withinBankruptcy,
 } from './matched-order-plan.js';
 import { unrealizedPnl } from './liquidation-planner.js';
+import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from '../spot/fee-schedule.js';
 
 const A = (s: string) => parseAmount(s);
 
@@ -323,5 +328,75 @@ describe('matched order plan: reduce-only, the bankruptcy bound and the reduce f
     expect(planReduceFill({ ...last, roundingAllowance: k })).toMatchObject({ fromMargin: row.margin, unbooked: 1n, fromInsurance: 0n });
     // Without the allowance the same unit would have to come from the insurance fund.
     expect(planReduceFill(last)).toMatchObject({ fromInsurance: 1n, unbooked: 0n });
+  });
+});
+
+describe('trading fees per fill (migration 0099)', () => {
+  const rates = { makerBps: 10, takerBps: 20 };
+
+  it('takes the owner’s perpetual block less the rank discount, and refuses a blank one with its own code', () => {
+    const schedule = parseFeeScheduleJson(
+      JSON.stringify({ published: true, version: 'v1', makerBps: '8', takerBps: '10', perpetual: { makerBps: '10', takerBps: '20' } }),
+    );
+    expect(perpetualFeeRates(schedule, 0)).toEqual(rates);
+    expect(perpetualFeeRates(schedule, 5000)).toEqual({ makerBps: 5, takerBps: 10 });
+    expect(() => perpetualFeeRates(UNPUBLISHED_FEE_SCHEDULE, 0)).toThrow(expect.objectContaining({ code: 'trade.fee_schedule_blank' }));
+    // The spot rates are not a substitute for an unpublished perpetual block.
+    const spotOnly = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v1', makerBps: '8', takerBps: '10' }));
+    expect(() => perpetualFeeRates(spotOnly, 0)).toThrow(expect.objectContaining({ code: 'trade.fee_product_unpublished' }));
+  });
+
+  it('charges its own side’s rate at its own price, rounded up to the unit once', () => {
+    expect(fillFee({ qty: A('2'), price: A('100'), role: 'maker', rates })).toBe(A('0.2'));
+    expect(fillFee({ qty: A('2'), price: A('100'), role: 'taker', rates })).toBe(A('0.4'));
+    // 1e-18 × 1 × 0.1% is far below a unit: it is charged as one unit, never as zero.
+    expect(fillFee({ qty: 1n, price: A('1'), role: 'maker', rates })).toBe(1n);
+    expect(fillFee({ qty: A('2'), price: A('100'), role: 'taker', rates: { makerBps: 0, takerBps: 0 } })).toBe(0n);
+    expect(fillFee({ qty: 0n, price: A('100'), role: 'taker', rates })).toBe(0n);
+  });
+
+  it('reserves the higher rate on the most the order can cost: a buy at its limit, a sell at the top of its band', () => {
+    expect(orderFeeReserve({ side: 'buy', qty: A('2'), limit: A('100'), bandHigh: A('105'), rates })).toBe(A('0.4'));
+    expect(orderFeeReserve({ side: 'sell', qty: A('2'), limit: A('100'), bandHigh: A('105'), rates })).toBe(A('0.42'));
+    expect(orderFeeReserve({ side: 'sell', qty: A('2'), limit: A('106'), bandHigh: A('105'), rates })).toBe(A('0.424'));
+    expect(orderFeeReserve({ side: 'buy', qty: A('2'), limit: A('100'), bandHigh: A('105'), rates: { makerBps: 0, takerBps: 0 } })).toBe(
+      0n,
+    );
+  });
+
+  it('a reserve covers two fills that split the quantity inside its bound, but for one rounding unit the waiver records', () => {
+    const draw = rng(99);
+    const next = (lo: bigint, hi: bigint) => lo + draw(hi - lo);
+    for (let i = 0; i < 300; i += 1) {
+      const qty = next(1n, A('50'));
+      const limit = next(A('1'), A('200'));
+      const bandHigh = limit + next(0n, A('10'));
+      const side = i % 2 === 0 ? ('buy' as const) : ('sell' as const);
+      const reserve = orderFeeReserve({ side, qty, limit, bandHigh, rates });
+      const bound = side === 'buy' ? limit : bandHigh;
+      // Two fills that together are the whole quantity, each rounded up on its own.
+      const first = next(0n, qty);
+      const paid =
+        fillFee({ qty: first, price: bound, role: 'taker', rates }) + fillFee({ qty: qty - first, price: bound, role: 'taker', rates });
+      // Each fill's own ceiling may add one unit over the reserve's single ceiling; the waiver records that unit.
+      expect(paid <= reserve + 1n, `fills ${paid} vs reserve ${reserve}`).toBe(true);
+    }
+  });
+
+  it('splits a fee between what its source can pay and what is waived, never negative', () => {
+    expect(feeSplit(A('0.4'), A('1'))).toEqual({ charged: A('0.4'), waived: 0n });
+    expect(feeSplit(A('0.4'), A('0.1'))).toEqual({ charged: A('0.1'), waived: A('0.3') });
+    expect(feeSplit(A('0.4'), 0n)).toEqual({ charged: 0n, waived: A('0.4') });
+    expect(feeSplit(A('0.4'), -5n)).toEqual({ charged: 0n, waived: A('0.4') });
+    expect(feeSplit(0n, A('1'))).toEqual({ charged: 0n, waived: 0n });
+  });
+
+  it('a reducing fill whose share is all fee posts a fee-only release; no fee and no share posts none', () => {
+    const base = { fillKey: 'm:9:p', positionId: 'p', userId: '11111111-1111-4111-8111-111111111111', assetId: 'USDT' };
+    const feeOnly = reduceFillRecipes({ ...base, plan: { fromMargin: A('10'), fromInsurance: 0n, release: 0n }, fee: A('0.05') });
+    expect(feeOnly.release?.meta).toMatchObject({ fee: A('0.05').toString() });
+    expect(feeOnly.release?.entries).toHaveLength(2);
+    const none = reduceFillRecipes({ ...base, plan: { fromMargin: A('10'), fromInsurance: 0n, release: 0n }, fee: 0n });
+    expect(none.release).toBeNull();
   });
 });
