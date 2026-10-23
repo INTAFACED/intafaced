@@ -141,6 +141,7 @@ const SCHEMAS = [
   'market',
   'blueprint',
   'quant',
+  'tax',
   'mining_pool',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
@@ -984,6 +985,9 @@ function serviceDefs(secrets) {
         // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
         TRADE_FUTURES_MATCHING_ENABLED: 'true',
         TRADE_FUTURES_PRICE_BAND: '0.05',
+        // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
+        // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
+        TRADE_COLLATERAL_HAIRCUT_BPS: '0',
         TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },
@@ -1047,6 +1051,9 @@ function serviceDefs(secrets) {
         BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
+        // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
+        BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
+        BANK_WALLET_PROOF_VALID_DAYS: '180',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
@@ -1213,8 +1220,16 @@ function serviceDefs(secrets) {
       // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
       // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
       // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
+      // DATABASE_URL is this stack's svc_tax role. tax is in SCHEMAS, so db:migrate runs before the process listens.
+      // DATABASE_POOL_MAX is the stack's common setting, not a size invented here.
       name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger'), TRADE_URL: urlOf('trade'), TAX_DEPOSIT_BASIS: 'customer' }),
+      env: () => ({
+        ...c('svc-tax', PORTS.tax),
+        LEDGER_URL: urlOf('ledger'),
+        TRADE_URL: urlOf('trade'),
+        TAX_DEPOSIT_BASIS: 'customer',
+        DATABASE_URL: dbUrl('svc_tax', secrets),
+      }),
     },
     {
       // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and

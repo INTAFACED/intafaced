@@ -62,9 +62,9 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
-  { path: '/lab', title: 'Campaigns', description: 'Public activities', area: 'public' },
-  { path: '/lab/detail/:id', title: 'Campaign', description: 'Activity details', area: 'public', hidden: true },
-  { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
+  { path: '/lab', title: 'Lab', description: 'Entries the owner publishes', area: 'public' },
+  { path: '/lab/detail/:id', title: 'Lab entry', description: 'One Lab entry', area: 'public', hidden: true },
+  { path: '/bzb', title: 'Lab', description: 'Entries the owner publishes', area: 'public', alias: '/lab' },
   { path: '/home', title: 'Home', description: 'Your money and markets', door: 'Home', area: 'home', screen: 'home' },
   { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Assets', area: 'money', screen: 'money' },
   {

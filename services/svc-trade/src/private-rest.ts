@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
@@ -167,6 +168,8 @@ export interface PrivateRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  /** Ledger history and statement export (J-cex-spot-07 #5, #6). Absent: those routes answer 503 `trade.statements_unmounted`. */
+  statements?: StatementRestDeps;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
@@ -220,6 +223,10 @@ export interface PrivateRestDeps {
   cancelAllOrders(principal: Principal, marketId?: string, kind?: 'spot' | 'futures' | 'options'): Promise<OrderRecord[]>;
   /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
   armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
+  /** The caller's countdown and the owner's published timeouts (null = not published). Absent = door not mounted. */
+  readCancelAllAfter?(
+    principal: Principal,
+  ): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null; published: readonly number[] | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
   massCancelOrders(principal: Principal, marketId: string): Promise<OrderRecord[]>;
   /**
@@ -1206,6 +1213,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
+  attachStatementRoutes(app, deps.statements, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -2937,6 +2945,32 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * When the deadline passes the sweep cancels every open order of the caller. The allowed timeouts are the
    * owner's published set (blank = typed refusal); the credential must outlive the deadline.
    */
+  /**
+   * GET /api/v1/orders/cancel-all-after: the caller's countdown (armed, timeout, triggerTime) and the timeouts the owner
+   * has published (`timeouts`, null while none are). The desk reads it to offer only published values and to show
+   * the trigger time after a reload.
+   */
+  app.get('/api/v1/orders/cancel-all-after', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.readCancelAllAfter) {
+      return sendCcxt(reply, badRequest('cancel-all-after is not available on this venue', 'trade.cancel_all_after_unset'));
+    }
+    try {
+      const out = await deps.readCancelAllAfter(principal);
+      return reply.code(200).send({
+        armed: out.armed,
+        timeout: out.timeoutSec,
+        triggerTime: out.deadline ? out.deadline.toISOString() : null,
+        timeouts: out.published ? [...out.published] : null,
+      });
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
   app.post('/api/v1/orders/cancel-all-after', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
