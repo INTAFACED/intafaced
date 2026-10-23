@@ -105,6 +105,30 @@ const migrations = readdirSync(drizzleDir)
       await expect(db.sql`TRUNCATE operator_access_log`).rejects.toThrow(/append-only/);
     });
 
+    it('stores a transaction lookup and a business-key trace with their own action (0026)', async () => {
+      const txId = '99999999-9999-4999-8999-999999999999';
+      await recordOperatorAccess(db.sql, {
+        actorId: OPERATOR,
+        ownerType: 'transaction',
+        ownerId: txId,
+        requestId: 'req-db-3',
+        action: 'transaction.read',
+      });
+      await recordOperatorAccess(db.sql, {
+        actorId: OPERATOR,
+        ownerType: 'business_key',
+        ownerId: 'deposit:crypto-native:0xabc',
+        requestId: 'req-db-3',
+        action: 'trace.read',
+      });
+      const rows =
+        await db.sql`SELECT action, target_owner_type, target_owner_id FROM operator_access_log WHERE request_id = 'req-db-3' ORDER BY id`;
+      expect(rows.map((r) => ({ ...r }))).toEqual([
+        { action: 'transaction.read', target_owner_type: 'transaction', target_owner_id: txId },
+        { action: 'trace.read', target_owner_type: 'business_key', target_owner_id: 'deposit:crypto-native:0xabc' },
+      ]);
+    });
+
     it('refuses an empty actor and an unknown action', async () => {
       await expect(recordOperatorAccess(db.sql, { actorId: '', ownerType: 'user', ownerId: USER, requestId: null })).rejects.toThrow();
       await expect(
