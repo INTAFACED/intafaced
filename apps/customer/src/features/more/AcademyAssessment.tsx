@@ -1,38 +1,24 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  academyQuizAttemptSchema,
+  academyQuizReviewSchema,
+  type AcademyQuiz,
+  type AcademyQuizAttempt,
+  type AcademyQuizReview,
+} from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
-import {
-  academyCodeOf,
-  academyRefusalKey,
-  maxScoreOf,
-  newAttemptId,
-  readAssessment,
-  readAttempts,
-  submitAssessment,
-  type Assessment as AssessmentData,
-  type Attempt,
-} from './academy-flows';
+import { academyCodeOf, academyRefusalKey, readAttempts, readQuiz, type Attempt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatMoment } from './academy-lms';
-import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
+import { AcademyRefusal } from './AcademyLmsParts';
 import './academy-lms.css';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 export type History = { status: 'loading' } | { status: 'ready'; data: Attempt[] } | { status: 'failed'; failure: Failure };
-export type Problem = { kind: 'failure'; failure: Failure } | { kind: 'unconfirmed'; failure: Failure };
-export type Result = { attempt: Attempt; recovered: boolean };
-
-export type SubmitBlock = { key: 'submitInFlight' } | { key: 'submitNeedsAnswers'; remaining: number };
-
-/** Why Submit is off, or null when it is on. A request in flight comes before anything the person can fix by answering. */
-export function submitBlock(state: { sending: boolean; remaining: number }): SubmitBlock | null {
-  if (state.sending) return { key: 'submitInFlight' };
-  if (state.remaining > 0) return { key: 'submitNeedsAnswers', remaining: state.remaining };
-  return null;
-}
 
 /** This account's attempts at one assessment, read from Academy. A refresh keeps the last answer on screen while it runs. */
 function useAttemptHistory(slug: string) {
@@ -118,230 +104,352 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
   );
 }
 
-export type QuizViewProps = {
-  assessment: AssessmentData;
-  answers: Readonly<Record<string, string>>;
-  onAnswer: (questionId: string, choiceId: string) => void;
+/** Seconds as m:ss, the way a quiz clock reads. */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+export type TimedQuizViewProps = {
+  quiz: AcademyQuiz;
+  attempt: AcademyQuizAttempt | null;
+  /** The open attempt's time left, counted down on screen from the server's figure; null with no time limit. */
+  secondsLeft: number | null;
+  /** The open attempt was found already running when the page opened (a refresh, another device). */
+  resumed: boolean;
+  timeUp: boolean;
+  position: number;
+  saving: 'idle' | 'saving' | 'saved';
   sending: boolean;
-  result: Result | null;
-  problem: Problem | null;
+  review: AcademyQuizReview | null;
+  problem: Failure | null;
   history: History;
-  block: SubmitBlock | null;
-  onSubmit: () => void;
-  onAnswerAgain: () => void;
-  onResend: () => void;
+  onStart: () => void;
+  onAnswer: (questionId: string, choiceId: string) => void;
+  onMove: (position: number) => void;
+  onFinish: () => void;
   onRetryHistory: () => void;
-  onReloadQuestions: () => void;
 };
 
-/** The questions, the submit control with its reason, the result, and the attempts. Pure: every state arrives as a prop. */
-export function QuizView(props: QuizViewProps) {
+/**
+ * A timed quiz (AC-quizzes-03), one question at a time. Pure: every state arrives as a prop. The rules come first (time
+ * limit, attempts, what the review shows); an open attempt shows its number, the clock and the saved answer; a finished
+ * one shows the score and the review the quiz allows.
+ */
+export function TimedQuizView(props: TimedQuizViewProps) {
   const { t } = copy.useCopy();
   const id = useId();
-  const { assessment, answers, result, problem, block } = props;
-  const total = assessment.questions.length;
-  const answered = assessment.questions.filter((q) => answers[q.id] !== undefined).length;
-  const resultRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (result) resultRef.current?.focus();
-  }, [result]);
-  // After a lost reply the answers stay exactly as sent: the repeat must be the same attempt. Only "Answer again" unlocks them.
-  const locked = props.sending || result !== null || problem?.kind === 'unconfirmed';
-  const invalidAnswers = problem?.kind === 'failure' && academyCodeOf(problem.failure) === 'academy.assessment_invalid';
-  const reasonText = block
-    ? block.key === 'submitNeedsAnswers'
-      ? t('submitNeedsAnswers', { remaining: block.remaining })
-      : t(block.key)
-    : null;
+  const { quiz, attempt, review, problem } = props;
+  const total = quiz.questions.length;
+  const maxScore = quiz.questions.reduce((sum, q) => sum + q.points, 0);
+  const open = attempt !== null && attempt.result === null;
+  const question = open ? quiz.questions[Math.min(Math.max(props.position, 0), total - 1)] : undefined;
+  const answered = open ? quiz.questions.filter((q) => attempt.answers[q.id] !== undefined).length : 0;
+  const choiceText = (questionId: string, choiceId: string | null) =>
+    review?.questions?.find((q) => q.id === questionId)?.choices.find((c) => c.id === choiceId)?.text ?? choiceId ?? '';
   return (
-    <div className="academy-lms-stack">
+    <div className="academy-lms-stack" data-quiz={quiz.slug} data-quiz-state={open ? 'open' : attempt?.result ? 'finished' : 'ready'}>
       <div className="academy-lms-meta">
-        <span>{t('assessmentPassMark', { passMark: assessment.passMark, maxScore: maxScoreOf(assessment) })}</span>
-        <span>{t('answeredCount', { answered, total })}</span>
+        <span>{t('assessmentPassMark', { passMark: quiz.passMark, maxScore })}</span>
+        <span>
+          {quiz.timeLimitSeconds === null ? t('quizNoTimeLimit') : t('quizTimeLimit', { minutes: Math.ceil(quiz.timeLimitSeconds / 60) })}
+        </span>
+        <span>{quiz.attemptLimit === null ? t('quizNoAttemptLimit') : t('quizAttemptLimit', { limit: quiz.attemptLimit })}</span>
       </div>
-      <form
-        className="academy-lms-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!block && !result && problem?.kind !== 'unconfirmed') props.onSubmit();
-        }}
-        aria-busy={props.sending}
-      >
-        <div className="academy-lms-stack">
-          {assessment.questions.map((question, index) => (
-            <fieldset key={question.id} disabled={locked}>
-              <legend>
-                <small className="muted">
-                  {t('questionLegend', { position: index + 1, total })} ·{' '}
-                  {question.points === 1 ? t('questionPointsOne') : t('questionPoints', { points: question.points })}
-                </small>
-                <span lang="und" style={{ display: 'block' }}>
-                  {question.prompt}
-                </span>
-              </legend>
-              {question.choices.map((choice) => (
-                <label key={choice.id} className="academy-lms-choice">
-                  <input
-                    type="radio"
-                    name={`${id}-${question.id}`}
-                    value={choice.id}
-                    checked={answers[question.id] === choice.id}
-                    onChange={() => props.onAnswer(question.id, choice.id)}
-                  />
-                  <span lang="und">{choice.text}</span>
-                </label>
-              ))}
-            </fieldset>
-          ))}
-        </div>
-        {!result && problem?.kind !== 'unconfirmed' && (
-          <GuardedButton type="submit" reasonId={`${id}-reason`} reason={reasonText} variant="primary">
-            {props.sending ? t('submitting') : t('submitAnswers')}
-          </GuardedButton>
-        )}
-      </form>
-      {props.sending && <Loading label={t('submitting')} />}
-      {problem?.kind === 'failure' && <AcademyRefusal failure={problem.failure} />}
-      {problem?.kind === 'unconfirmed' && (
-        <div className="failure" role="alert">
-          <p>{t('submitUnconfirmed')}</p>
-          <GuardedButton
-            type="button"
-            variant="secondary"
-            reasonId={`${id}-resend-reason`}
-            reason={props.sending ? t('submitInFlight') : null}
-            onClick={props.onResend}
-          >
-            {props.sending ? t('submitting') : t('resendSame')}
-          </GuardedButton>
-          <div>
-            <Button variant="secondary" onClick={props.onAnswerAgain}>
-              {t('answerAgain')}
-            </Button>
-          </div>
-        </div>
-      )}
-      {invalidAnswers && (
-        <div>
-          <Button variant="secondary" onClick={props.onReloadQuestions}>
-            {t('reloadQuestions')}
-          </Button>
-        </div>
-      )}
-      {result && (
-        <div className="academy-lms-result" role="status" tabIndex={-1} ref={resultRef}>
-          <h4>{t('resultTitle')}</h4>
-          <p>{t('resultScore', { score: result.attempt.score, maxScore: result.attempt.maxScore })}</p>
+      <p className="muted">{quiz.reviewMode === 'answers' ? t('quizReviewAnswers') : t('quizReviewScoreOnly')}</p>
+      {open && question ? (
+        <form
+          className="academy-lms-form"
+          aria-busy={props.sending}
+          onSubmit={(event) => {
+            event.preventDefault();
+            props.onFinish();
+          }}
+        >
           <div className="academy-lms-meta">
-            <span className="academy-lms-chip" data-status={result.attempt.pass ? 'passed' : 'failed'}>
-              {result.attempt.pass ? t('resultPassed') : t('resultNotPassed')}
-            </span>
-            <span>{t('assessmentPassMark', { passMark: assessment.passMark, maxScore: result.attempt.maxScore })}</span>
+            <strong>{t('quizAttemptNumber', { number: attempt.number })}</strong>
+            {props.secondsLeft !== null && (
+              <span role="timer" data-seconds-left={props.secondsLeft}>
+                {t('quizTimeLeft', { time: clock(props.secondsLeft) })}
+              </span>
+            )}
+            <span>{t('answeredCount', { answered, total })}</span>
           </div>
-          {result.recovered && <p className="muted">{t('resultRecovered')}</p>}
-          <div>
-            <Button variant="secondary" onClick={props.onAnswerAgain}>
-              {t('answerAgain')}
+          {props.resumed && <p className="muted">{t('quizResumed')}</p>}
+          <fieldset key={question.id} disabled={props.sending} data-quiz-question={question.id}>
+            <legend>
+              <small className="muted">
+                {t('questionLegend', { position: props.position + 1, total })} ·{' '}
+                {question.points === 1 ? t('questionPointsOne') : t('questionPoints', { points: question.points })}
+              </small>
+              <span lang="und" style={{ display: 'block' }}>
+                {question.prompt}
+              </span>
+            </legend>
+            {question.choices.map((choice) => (
+              <label key={choice.id} className="academy-lms-choice">
+                <input
+                  type="radio"
+                  name={`${id}-${question.id}`}
+                  value={choice.id}
+                  checked={attempt.answers[question.id] === choice.id}
+                  onChange={() => props.onAnswer(question.id, choice.id)}
+                />
+                <span lang="und">{choice.text}</span>
+              </label>
+            ))}
+          </fieldset>
+          <p className="muted" role="status">
+            {props.saving === 'saving' ? t('quizSaving') : props.saving === 'saved' ? t('quizSaved') : ''}
+          </p>
+          <div className="academy-outline-nav">
+            <Button type="button" variant="secondary" disabled={props.position === 0} onClick={() => props.onMove(props.position - 1)}>
+              {t('quizPrevious')}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={props.position >= total - 1}
+              onClick={() => props.onMove(props.position + 1)}
+            >
+              {t('quizNext')}
+            </Button>
+            <Button type="submit" disabled={props.sending}>
+              {props.sending ? t('quizFinishing') : t('quizFinish')}
             </Button>
           </div>
-        </div>
+        </form>
+      ) : (
+        <>
+          {attempt?.result && (
+            <div className="academy-lms-result" role="status" data-quiz-result={attempt.attemptId}>
+              <h4>{t('resultTitle')}</h4>
+              {props.timeUp && <p>{t('quizTimeUp')}</p>}
+              <p>{t('resultScore', { score: attempt.result.score, maxScore: attempt.result.maxScore })}</p>
+              <span className="academy-lms-chip" data-status={attempt.result.pass ? 'passed' : 'failed'}>
+                {attempt.result.pass ? t('resultPassed') : t('resultNotPassed')}
+              </span>
+              {review &&
+                (review.questions === null ? (
+                  <p className="muted" data-quiz-review="score_only">
+                    {t('quizScoreOnly')}
+                  </p>
+                ) : (
+                  <section className="academy-lms-stack" data-quiz-review="answers" aria-label={t('quizReviewTitle')}>
+                    <h4>{t('quizReviewTitle')}</h4>
+                    <ol className="academy-lms-stack">
+                      {review.questions.map((q) => (
+                        <li key={q.id} data-review-question={q.id} data-review-correct={q.correct}>
+                          <span lang="und">{q.prompt}</span>
+                          <div className="academy-lms-meta">
+                            <span>
+                              {q.chosenChoiceId === null
+                                ? t('quizNoAnswer')
+                                : t('quizYourAnswer', { choice: choiceText(q.id, q.chosenChoiceId) })}
+                            </span>
+                            <span>{t('quizCorrectAnswer', { choice: choiceText(q.id, q.correctChoiceId) })}</span>
+                            <span className="academy-lms-chip" data-status={q.correct ? 'passed' : 'failed'}>
+                              {q.correct ? t('quizCorrect') : t('quizIncorrect')}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ))}
+            </div>
+          )}
+          <div>
+            <Button disabled={props.sending} onClick={props.onStart}>
+              {attempt?.result ? t('quizStartAnother') : t('quizStart')}
+            </Button>
+          </div>
+        </>
       )}
+      {problem && <AcademyRefusal failure={problem} />}
       <AttemptHistory history={props.history} onRetry={props.onRetryHistory} />
     </div>
   );
 }
 
 /**
- * Answering state for one assessment. Answers are sent under one attempt reference. When a reply is lost nothing is
- * guessed from the attempt history: the answers lock and the person sends the same answers again, which Academy
- * answers with the result it stored for that reference.
+ * The timed attempt's state. The server holds the attempt, its deadline and the saved answers, so a refresh reads the
+ * same attempt back. Start, Finish and each answer are each safe to send twice: Academy returns the open attempt for a
+ * second Start, scores a Finish once, and an answer is the latest choice. A lost reply is settled by reading again.
  */
-function Quiz({ assessment, onReload }: { assessment: AssessmentData; onReload: () => void }) {
+function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () => void }) {
   const api = useApi();
-  const { history, refresh } = useAttemptHistory(assessment.slug);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const { history, refresh } = useAttemptHistory(quiz.slug);
+  const [attempt, setAttempt] = useState<AcademyQuizAttempt | null>(null);
+  const [resumed, setResumed] = useState(false);
+  const [timeUp, setTimeUp] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<Result | null>(null);
-  const [problem, setProblem] = useState<Problem | null>(null);
-  const attemptId = useRef(newAttemptId());
-  const firstReplyLost = useRef(false);
+  const [review, setReview] = useState<AcademyQuizReview | null>(null);
+  const [problem, setProblem] = useState<Failure | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const inFlight = useRef(false);
   const live = useRef(true);
+  const clockEnd = useRef<number | null>(null);
+  // Answers save one after another, in the order chosen, and Finish waits for them: the last choice is the one scored.
+  const saves = useRef<Promise<void>>(Promise.resolve());
+  const latestSave = useRef(0);
   useEffect(() => {
     live.current = true;
     return () => {
       live.current = false;
     };
   }, []);
-  const remaining = assessment.questions.filter((q) => answers[q.id] === undefined).length;
-  const block = submitBlock({ sending, remaining });
 
-  async function send() {
-    if (inFlight.current || result || remaining > 0) return;
+  const show = useCallback(
+    (next: AcademyQuizAttempt | null) => {
+      setAttempt(next);
+      // The clock runs from the server's figure; the browser's own time never sets the deadline.
+      clockEnd.current = next && next.result === null && next.secondsLeft !== null ? performance.now() + next.secondsLeft * 1000 : null;
+      setSecondsLeft(next && next.result === null ? next.secondsLeft : null);
+      if (next?.result) {
+        void api.query('academy', 'assessment.review', { attemptId: next.attemptId }, academyQuizReviewSchema).then((r) => {
+          if (live.current && r.ok) setReview(r.data);
+        });
+        void refresh();
+      } else setReview(null);
+    },
+    [api, refresh],
+  );
+
+  const firstOpen = (next: AcademyQuizAttempt) =>
+    Math.max(
+      0,
+      quiz.questions.findIndex((q) => next.answers[q.id] === undefined),
+    );
+
+  // A refresh or another device: the open attempt comes back with the same deadline and the answers saved so far.
+  useEffect(() => {
+    void api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable()).then((r) => {
+      if (!live.current) return;
+      if (!r.ok) return setProblem(r);
+      if (r.data) {
+        setResumed(true);
+        setPosition(firstOpen(r.data));
+        show(r.data);
+      }
+    });
+  }, [api, quiz.slug]);
+
+  const run = async (request: () => Promise<void>) => {
+    if (inFlight.current) return;
     inFlight.current = true;
     setSending(true);
     setProblem(null);
-    const outcome = await submitAssessment(api, {
-      slug: assessment.slug,
-      clientAttemptId: attemptId.current,
-      answers: assessment.questions.map((q) => ({ questionId: q.id, choiceId: answers[q.id]! })),
-    });
-    inFlight.current = false;
-    if (!live.current) return;
-    setSending(false);
-    if (outcome.kind === 'scored') setResult({ attempt: outcome.attempt, recovered: firstReplyLost.current });
-    else if (outcome.kind === 'unconfirmed') {
-      firstReplyLost.current = true;
-      setProblem({ kind: 'unconfirmed', failure: outcome.failure });
-    } else if (firstReplyLost.current && academyCodeOf(outcome.failure) === null) {
-      // Not Academy's answer (sign-in, access, a cut connection): the first send may still have landed, so stay locked.
-      setProblem({ kind: 'unconfirmed', failure: outcome.failure });
-    } else {
-      // An Academy-coded refusal means Academy stored nothing under this reference, so there is no lost reply to account for.
-      firstReplyLost.current = false;
-      setProblem({ kind: 'failure', failure: outcome.failure });
+    try {
+      await request();
+    } finally {
+      inFlight.current = false;
+      if (live.current) setSending(false);
     }
-    // The list is only a display; it never decides what this attempt scored.
-    void refresh();
-  }
+  };
 
-  function answerAgain() {
-    attemptId.current = newAttemptId();
-    firstReplyLost.current = false;
-    setAnswers({});
-    setResult(null);
+  const finish = (attemptId: string, byClock = false) =>
+    run(async () => {
+      await saves.current;
+      let done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      // Finishing twice scores once, so a lost reply is settled by asking again.
+      if (!done.ok && done.reason === 'uncertain')
+        done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      if (!live.current) return;
+      if (!done.ok) return setProblem(done);
+      setTimeUp(byClock);
+      show(done.data);
+      onFinished?.();
+    });
+
+  useEffect(() => {
+    if (clockEnd.current === null || !attempt || attempt.result) return;
+    const tick = window.setInterval(() => {
+      const left = Math.max(0, Math.ceil((clockEnd.current! - performance.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) {
+        window.clearInterval(tick);
+        void finish(attempt.attemptId, true);
+      }
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [attempt]);
+
+  const start = () =>
+    run(async () => {
+      let started = await api.mutate('academy', 'assessment.start', { slug: quiz.slug }, academyQuizAttemptSchema);
+      if (!started.ok && started.reason === 'uncertain') {
+        // The reply was lost: Academy may have opened the attempt. Reading it back returns that same attempt.
+        const open = await api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable());
+        if (open.ok && open.data) started = { ok: true, data: open.data };
+      }
+      if (!live.current) return;
+      if (!started.ok) return setProblem(started);
+      setResumed(false);
+      setTimeUp(false);
+      setPosition(firstOpen(started.data));
+      show(started.data);
+    });
+
+  const answer = (questionId: string, choiceId: string) => {
+    if (!attempt || attempt.result) return;
+    const { attemptId } = attempt;
+    setAttempt({ ...attempt, answers: { ...attempt.answers, [questionId]: choiceId } });
+    setSaving('saving');
     setProblem(null);
-  }
+    const mine = ++latestSave.current;
+    saves.current = saves.current.then(async () => {
+      const saved = await api.mutate('academy', 'assessment.answer', { attemptId, questionId, choiceId }, academyQuizAttemptSchema);
+      if (!live.current) return;
+      if (saved.ok) {
+        // Only the newest save's reply speaks for the screen; an earlier one would show answers from before it.
+        if (mine === latestSave.current) {
+          setSaving('saved');
+          setAttempt((now) => (now && now.attemptId === saved.data.attemptId ? { ...now, answers: saved.data.answers } : now));
+        }
+        return;
+      }
+      setSaving('idle');
+      setProblem(saved);
+      // A closed attempt (its time ran out): read its result rather than leave the answers editable.
+      if (academyCodeOf(saved) === 'academy.attempt_closed') void finish(attemptId, true);
+    });
+  };
 
   return (
-    <QuizView
-      assessment={assessment}
-      answers={answers}
-      onAnswer={(questionId, choiceId) => setAnswers((old) => ({ ...old, [questionId]: choiceId }))}
+    <TimedQuizView
+      quiz={quiz}
+      attempt={attempt}
+      secondsLeft={secondsLeft}
+      resumed={resumed}
+      timeUp={timeUp}
+      position={position}
+      saving={saving}
       sending={sending}
-      result={result}
+      review={review}
       problem={problem}
       history={history}
-      block={block}
-      onSubmit={() => void send()}
-      onAnswerAgain={answerAgain}
-      onResend={() => void send()}
+      onStart={() => void start()}
+      onAnswer={answer}
+      onMove={setPosition}
+      onFinish={() => attempt && void finish(attempt.attemptId)}
       onRetryHistory={() => void refresh()}
-      onReloadQuestions={onReload}
     />
   );
 }
 
 /**
- * Lesson-end assessment. The questions and scoring belong to Academy: this reads the published questions, sends the
- * chosen answers once, and shows the score and attempts Academy returns. A lesson with no published assessment says so
- * in the service's own words and keeps its study questions.
+ * Lesson-end quiz. The questions, the clock and the scoring belong to Academy: this reads the published quiz, keeps one
+ * attempt open on the server, and shows the score and the review Academy returns. A lesson with no published quiz says
+ * so in the service's own words and keeps its study questions.
  */
-export function Assessment({ slug, prompts }: { slug: string; prompts: readonly string[] }) {
+export function Assessment({ slug, prompts, onFinished }: { slug: string; prompts: readonly string[]; onFinished?: () => void }) {
   const { t } = copy.useCopy();
   const api = useApi();
   const { userId } = useSession();
-  const quiz = useResource((signal) => readAssessment(api, slug, signal), `assessment:${userId}:${slug}`);
+  const quiz = useResource((signal) => readQuiz(api, slug, signal), `assessment:${userId}:${slug}`);
   const { resource } = quiz;
   return (
     <section className="academy-lms-assessment" aria-label={t('assessmentTitle')}>
@@ -358,12 +466,7 @@ export function Assessment({ slug, prompts }: { slug: string; prompts: readonly 
           <StudyQuestions prompts={prompts} />
         </>
       )}
-      {resource.status === 'ready' && (
-        <>
-          <p className="muted">{t('assessmentIntro')}</p>
-          <Quiz assessment={resource.data} onReload={quiz.reload} />
-        </>
-      )}
+      {resource.status === 'ready' && <TimedQuiz quiz={resource.data} onFinished={onFinished} />}
     </section>
   );
 }

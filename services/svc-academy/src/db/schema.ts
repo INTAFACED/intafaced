@@ -392,6 +392,44 @@ export const assessmentAttempts = academy.table(
   (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
 );
 
+/** AC-quizzes-03: a staff-published quiz per curriculum item. The answer key is in `definition` and never leaves the service. */
+export const quizzes = academy.table('quizzes', {
+  slug: text('slug').primaryKey(),
+  definition: jsonb('definition').notNull(),
+  passMark: integer('pass_mark'),
+  attemptLimit: integer('attempt_limit'),
+  timeLimitSeconds: integer('time_limit_seconds'),
+  reviewMode: text('review_mode').notNull(),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
+/** AC-quizzes-03: one started attempt; finishing writes its score row into assessment_attempts as well. */
+export const quizAttempts = academy.table(
+  'quiz_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    slug: text('slug').notNull(),
+    number: integer('number').notNull(),
+    startedAt: tstz('started_at').notNull(),
+    deadlineAt: tstz('deadline_at'),
+    answers: jsonb('answers').notNull(),
+    finishedAt: tstz('finished_at'),
+    score: integer('score'),
+    maxScore: integer('max_score'),
+    passed: boolean('passed'),
+    quiz: jsonb('quiz').notNull(),
+  },
+  (t) => [
+    uniqueIndex('quiz_attempts_number_uq').on(t.userId, t.slug, t.number),
+    uniqueIndex('quiz_attempts_open_uq')
+      .on(t.userId, t.slug)
+      .where(sql`${t.finishedAt} IS NULL`),
+  ],
+);
+
 export const itemPrerequisites = academy.table(
   'item_prerequisites',
   {
@@ -470,6 +508,8 @@ export const schema = {
   itemCompletionEvents,
   certGrants,
   assessmentAttempts,
+  quizzes,
+  quizAttempts,
   certHolderNameRequests,
   itemPrerequisites,
   itemWindows,

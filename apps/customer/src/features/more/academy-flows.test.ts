@@ -4,18 +4,14 @@ import {
   academyCodeOf,
   academyRefusalKey,
   academyRefusalText,
-  assessmentFor,
   enrolReceipt,
   enrolmentsFor,
   leaveReceipt,
-  maxScoreOf,
   missingProgrammes,
-  newAttemptId,
-  readAssessment,
+  readQuiz,
   readAttempts,
   readEnrolments,
   settleByReading,
-  submitAssessment,
   verifyCertificate,
 } from './academy-flows';
 import { academyLmsCopy } from './academy-lms-copy';
@@ -28,6 +24,9 @@ const quiz = {
   slug,
   kind: 'quiz',
   passMark: 3,
+  timeLimitSeconds: 600,
+  attemptLimit: 2,
+  reviewMode: 'answers',
   questions: [
     {
       id: 'q1',
@@ -91,26 +90,23 @@ const lostReply = () => new TypeError('network dropped');
 describe('assessment reads', () => {
   it('asks assessment.get by lesson slug and keeps the published questions', async () => {
     const { api, of } = harness({ 'assessment.get': [ok(quiz)] });
-    const result = await readAssessment(api, slug);
+    const result = await readQuiz(api, slug);
     expect(result.ok && result.data.questions).toHaveLength(2);
     const [call] = of('assessment.get');
     expect(call!.method).toBe('GET');
     expect(call!.url.pathname).toBe('/api/academy/trpc/assessment.get');
     expect(JSON.parse(call!.url.searchParams.get('input')!)).toEqual({ slug });
-    expect(result.ok && maxScoreOf(result.data)).toBe(3);
+    expect(result.ok && result.data.timeLimitSeconds).toBe(600);
   });
 
-  it('does not accept questions for another lesson, repeated question ids or a single choice', () => {
-    expect(assessmentFor(slug).safeParse({ ...quiz, slug: 'other' }).success).toBe(false);
-    expect(assessmentFor(slug).safeParse({ ...quiz, questions: [quiz.questions[0], quiz.questions[0]] }).success).toBe(false);
-    const oneChoice = { ...quiz.questions[0]!, choices: [quiz.questions[0]!.choices[0]] };
-    expect(assessmentFor(slug).safeParse({ ...quiz, questions: [oneChoice] }).success).toBe(false);
-    expect(assessmentFor(slug).safeParse(quiz).success).toBe(true);
+  it('does not accept repeated question ids', async () => {
+    const { api } = harness({ 'assessment.get': [ok({ ...quiz, questions: [quiz.questions[0], quiz.questions[0]] })] });
+    expect((await readQuiz(api, slug)).ok).toBe(false);
   });
 
   it('turns a reply that does not match into a failed read, not a half-drawn quiz', async () => {
     const { api } = harness({ 'assessment.get': [ok({ ...quiz, slug: 'someone-elses' })] });
-    const result = await readAssessment(api, slug);
+    const result = await readQuiz(api, slug);
     expect(result.ok).toBe(false);
   });
 
@@ -130,121 +126,11 @@ describe('assessment reads', () => {
         refusal(412, 'PRECONDITION_FAILED', 'academy.assessment_unpublished', `academy.assessment_unpublished slug=${slug}`),
       ],
     });
-    const result = await readAssessment(api, slug);
+    const result = await readQuiz(api, slug);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('academy.assessment_unpublished');
     expect(academyRefusalText(result, academyLmsCopy.t)).toBe('Academy has no scored assessment published for this lesson.');
-  });
-});
-
-describe('submitting answers', () => {
-  const input = {
-    slug,
-    clientAttemptId: 'attempt-1',
-    answers: [
-      { questionId: 'q1', choiceId: 'a' },
-      { questionId: 'q2', choiceId: 'a' },
-    ],
-  };
-
-  it('sends the answers and the attempt reference once and returns the score Academy computed', async () => {
-    const { api, of } = harness({ 'assessment.submit': [ok(attempt(3, '2026-10-12T10:00:00.000Z'))] });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome).toMatchObject({ kind: 'scored', attempt: { score: 3, maxScore: 3, pass: true } });
-    expect(of('assessment.submit')).toHaveLength(1);
-    expect(of('assessment.submit')[0]!.method).toBe('POST');
-    expect(of('assessment.submit')[0]!.body).toEqual({ slug, clientAttemptId: 'attempt-1', answers: input.answers });
-    expect(of('assessment.attempts')).toHaveLength(0);
-  });
-
-  it('does not accept a score for another lesson or one above the maximum', async () => {
-    const wrong = harness({
-      'assessment.submit': [ok(attempt(3, '2026-10-12T10:00:00.000Z', { slug: 'other' })), ok(attempt(9, '2026-10-12T10:00:00.000Z'))],
-      'assessment.attempts': [ok([])],
-    });
-    expect((await submitAssessment(wrong.api, input)).kind).not.toBe('scored');
-    expect((await submitAssessment(wrong.api, input)).kind).not.toBe('scored');
-  });
-
-  it.each([
-    ['academy.attempt_limit', 429, 'TOO_MANY_REQUESTS', 'You have used every attempt this assessment allows.'],
-    [
-      'academy.attempt_cooldown',
-      429,
-      'TOO_MANY_REQUESTS',
-      'The wait this assessment requires between attempts has not passed. Try again later.',
-    ],
-    [
-      'academy.pass_mark_unset',
-      412,
-      'PRECONDITION_FAILED',
-      'This assessment has questions but no pass mark is set, so Academy does not show or score it.',
-    ],
-    [
-      'academy.assessment_invalid',
-      400,
-      'BAD_REQUEST',
-      'Academy did not accept those answers because they do not match the published questions. Reload the questions and answer again.',
-    ],
-    ['academy.assessment_unpublished', 412, 'PRECONDITION_FAILED', 'Academy has no scored assessment published for this lesson.'],
-  ])('shows %s in plain words and does not resend or guess', async (academyCode, status, trpcCode, words) => {
-    const { api, of } = harness({ 'assessment.submit': [refusal(status, trpcCode, academyCode, `${academyCode} slug=${slug}`)] });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome.kind).toBe('refused');
-    if (outcome.kind !== 'refused') return;
-    expect(outcome.failure.code).toBe(academyCode);
-    expect(academyRefusalText(outcome.failure, academyLmsCopy.t)).toBe(words);
-    expect(of('assessment.submit')).toHaveLength(1);
-    expect(of('assessment.attempts')).toHaveLength(0);
-  });
-
-  it('does not guess from the attempt history when the reply is lost: it reports unconfirmed and sends nothing more', async () => {
-    const { api, of } = harness({
-      'assessment.submit': [lostReply()],
-      'assessment.attempts': [ok([attempt(2, '2026-10-12T10:00:00.000Z')])],
-    });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome.kind).toBe('unconfirmed');
-    expect(of('assessment.submit')).toHaveLength(1);
-    expect(of('assessment.attempts')).toHaveLength(0);
-  });
-
-  it('never shows another tab’s score as this attempt’s: a history that grew meanwhile changes nothing', async () => {
-    // Another tab scored 3 while this tab's reply was lost. The history has grown, but its rows carry no attempt reference.
-    const other = attempt(3, '2026-10-12T10:00:00.000Z');
-    const { api } = harness({
-      'assessment.submit': [json(502, { error: 'bad gateway' })],
-      'assessment.attempts': [ok([other, attempt(1, '2026-10-11T10:00:00.000Z')])],
-    });
-    const outcome = await submitAssessment(api, input);
-    expect(outcome.kind).toBe('unconfirmed');
-    expect(JSON.stringify(outcome)).not.toContain('"score":3');
-  });
-
-  it('settles a lost reply by sending the same answers under the same reference, and shows what Academy returns for it', async () => {
-    const stored = attempt(2, '2026-10-12T10:00:00.000Z');
-    const { api, of } = harness({ 'assessment.submit': [lostReply(), ok(stored)] });
-    expect((await submitAssessment(api, input)).kind).toBe('unconfirmed');
-    const second = await submitAssessment(api, input);
-    expect(second).toMatchObject({ kind: 'scored', attempt: { score: 2 } });
-    const bodies = of('assessment.submit').map((call) => call.body as typeof input);
-    expect(bodies).toHaveLength(2);
-    expect(bodies[0]!.clientAttemptId).toBe(bodies[1]!.clientAttemptId);
-    expect(bodies[0]!.answers).toEqual(bodies[1]!.answers);
-  });
-
-  it('shows a typed refusal for the repeat as the answer for this attempt', async () => {
-    const { api } = harness({
-      'assessment.submit': [lostReply(), refusal(429, 'TOO_MANY_REQUESTS', 'academy.attempt_limit', 'academy.attempt_limit slug=x')],
-    });
-    expect((await submitAssessment(api, input)).kind).toBe('unconfirmed');
-    expect((await submitAssessment(api, input)).kind).toBe('refused');
-  });
-
-  it('makes a fresh attempt reference for every answering session', () => {
-    expect(newAttemptId()).not.toBe(newAttemptId());
-    expect(newAttemptId().length).toBeLessThanOrEqual(200);
   });
 });
 

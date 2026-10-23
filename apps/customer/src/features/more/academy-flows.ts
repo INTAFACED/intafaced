@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academyQuizSchema } from '@intafaced/contracts/academy-catalogue';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { publicCertCode, type AcademyPath } from './academy-lms';
 import type { academyLmsCopy } from './academy-lms-copy';
@@ -7,7 +8,7 @@ import type { academyLmsCopy } from './academy-lms-copy';
  * The Academy procedures behind assessments, public certificate checks and programme enrolments, with the answers
  * checked against what was asked. Nothing here invents a field: a reply that does not match is a failed read.
  *
- * Procedures (svc-academy router): assessment.get, assessment.submit, assessment.attempts, certVerify (public),
+ * Procedures (svc-academy router): assessment.get, assessment.attempts, certVerify (public),
  * myEnrollments, enrollCertPath, leaveCertPath.
  */
 
@@ -17,28 +18,7 @@ const ref = z.string().min(1);
 
 // ---------------------------------------------------------------- assessments
 
-const question = z
-  .object({
-    id: ref,
-    prompt: ref,
-    kind: z.literal('single'),
-    points: z.number().int().positive(),
-    choices: z.array(z.object({ id: ref, text: ref })).min(2),
-  })
-  .refine((q) => new Set(q.choices.map((c) => c.id)).size === q.choices.length);
-export type AssessmentQuestion = z.infer<typeof question>;
-
-/** The published questions for one lesson. The service never sends the answer key. */
-export function assessmentFor(slug: string) {
-  return z
-    .object({ slug: ref, kind: z.literal('quiz'), passMark: z.number().int().nonnegative(), questions: z.array(question).min(1).max(100) })
-    .refine((view) => view.slug === slug && new Set(view.questions.map((q) => q.id)).size === view.questions.length);
-}
-export type Assessment = z.infer<ReturnType<typeof assessmentFor>>;
-
-export const maxScoreOf = (assessment: Pick<Assessment, 'questions'>) => assessment.questions.reduce((sum, q) => sum + q.points, 0);
-
-/** One scored attempt, as submit and attempts both return it. */
+/** One scored attempt, as the attempts list returns it. */
 export function attemptFor(slug: string) {
   return z
     .object({
@@ -53,42 +33,17 @@ export function attemptFor(slug: string) {
 export type Attempt = z.infer<ReturnType<typeof attemptFor>>;
 export const attemptsFor = (slug: string) => z.array(attemptFor(slug));
 
-export const readAssessment = (api: ApiClient, slug: string, signal?: AbortSignal) =>
-  api.query('academy', 'assessment.get', { slug }, assessmentFor(slug), { signal });
+/** The published quiz for one lesson (AC-quizzes-03). The service never sends the answer key. */
+export const readQuiz = (api: ApiClient, slug: string, signal?: AbortSignal) =>
+  api.query(
+    'academy',
+    'assessment.get',
+    { slug },
+    academyQuizSchema.refine((quiz) => quiz.slug === slug && new Set(quiz.questions.map((q) => q.id)).size === quiz.questions.length),
+    { signal },
+  );
 export const readAttempts = (api: ApiClient, slug: string, signal?: AbortSignal) =>
   api.query('academy', 'assessment.attempts', { slug }, attemptsFor(slug), { signal });
-
-/** One reference per answering session. The service stores one attempt per reference, so a resend cannot count twice. */
-export const newAttemptId = () => `attempt-${crypto.randomUUID()}`;
-
-export type SubmitOutcome =
-  /** Academy replied with the score. */
-  | { kind: 'scored'; attempt: Attempt }
-  /** The reply never arrived. Nothing is known about this attempt until the same reference is sent again. */
-  | { kind: 'unconfirmed'; failure: Failure }
-  /** Academy refused the submission in words (attempt limit, cooldown, answers that do not match). */
-  | { kind: 'refused'; failure: Failure };
-
-/**
- * Send answers under one attempt reference. A reply that never arrives (connection dropped, gateway error) is never
- * guessed at from the attempt history: its rows carry no reference, so another tab's attempt could be mistaken for this
- * one. The caller keeps the reference and sends the same answers again; the service answers a repeated reference with
- * the row it stored for it, without scoring again and before any attempt-limit or cooldown check.
- */
-export async function submitAssessment(
-  api: ApiClient,
-  input: { slug: string; clientAttemptId: string; answers: readonly { questionId: string; choiceId: string }[] },
-): Promise<SubmitOutcome> {
-  const result = await api.mutate(
-    'academy',
-    'assessment.submit',
-    { slug: input.slug, clientAttemptId: input.clientAttemptId, answers: input.answers },
-    attemptFor(input.slug),
-  );
-  if (result.ok) return { kind: 'scored', attempt: result.data };
-  if (result.reason !== 'uncertain') return { kind: 'refused', failure: result };
-  return { kind: 'unconfirmed', failure: result };
-}
 
 // ------------------------------------------------------------ certificate check
 
@@ -198,7 +153,11 @@ export type RefusalKey =
   | 'refEnrolmentClosed'
   | 'refItemNotOpen'
   | 'refCompletionRuleUnmet'
-  | 'refRequestReused';
+  | 'refRequestReused'
+  | 'refAttemptClosed'
+  | 'refAttemptNotFound'
+  | 'refAttemptOpen'
+  | 'refAttemptRequired';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -254,6 +213,14 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refCompletionRuleUnmet';
     case 'academy.request_reused':
       return 'refRequestReused';
+    case 'academy.attempt_closed':
+      return 'refAttemptClosed';
+    case 'academy.attempt_not_found':
+      return 'refAttemptNotFound';
+    case 'academy.attempt_open':
+      return 'refAttemptOpen';
+    case 'academy.attempt_required':
+      return 'refAttemptRequired';
     default:
       return null;
   }

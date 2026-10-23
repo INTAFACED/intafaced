@@ -169,6 +169,22 @@ Journey J-academy-03 steps 1, 2 and 10. The course outline beside an open item c
 
 A rule is `score` when a quiz is published for the item (a passing attempt meets it; a quiz with no pass mark refuses `academy.pass_mark_unset`), otherwise `view`, which opening the item meets. `watch` is in the contract for the video slice (AC-videos-01) and is not returned yet. `cert_item_completions` holds what is complete now; `item_completion_events` (migration 0015) keeps every Complete and Undo, so completing again after an Undo is a new event. A certificate already granted is not taken back by an Undo.
 
+### Timed quizzes (AC-quizzes-03)
+
+Journey J-academy-03 steps 6 and 7. Staff publish a quiz on an item; the learner takes it one question at a time against a clock the server keeps.
+
+| Procedure            | Scope           | Purpose                                                                                                                                                                                      |
+| -------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.setQuiz`      | `admin:write`   | Publishes (or, with `quiz: null`, takes down) a quiz on an item, with a reason. Questions carry the key; a slug in the code catalogue refuses                                                |
+| `assessment.get`     | `academy:read`  | The quiz as the learner reads it: pass mark, `timeLimitSeconds`, `attemptLimit`, `reviewMode`, questions without the key                                                                     |
+| `assessment.start`   | `academy:write` | Returns the open attempt, or opens one with a deadline of now plus the time limit. Refuses `academy.pass_mark_unset` with no pass mark and `academy.attempt_limit` once the limit is used up |
+| `assessment.current` | `academy:read`  | The open attempt with the same deadline and the answers saved so far; `secondsLeft` is counted on the server at each read, so a refresh shows the same time left                             |
+| `assessment.answer`  | `academy:write` | Saves one choice (the latest wins). An attempt past its deadline is finished first and refuses `academy.attempt_closed`                                                                      |
+| `assessment.finish`  | `academy:write` | Scores the saved answers once; a second finish returns the same result                                                                                                                       |
+| `assessment.review`  | `academy:read`  | A finished attempt of the caller's own: each answer against the key, or the score only (`questions: null`). Refuses `academy.attempt_not_found` and `academy.attempt_open`                   |
+
+`quizzes` and `quiz_attempts` (migration 0016) hold the published quizzes and timed attempts; at most one attempt per learner and item is open. Each attempt keeps a copy of the quiz as it was at Start (key included, never sent), so a later staff edit or take-down changes neither its scoring nor its review, and an open attempt can still be finished. A finished attempt also writes one row to `assessment_attempts` (`client_attempt_id = quiz-attempt:<id>`), so the attempt history, the attempt limit, the cooldown and the `score` completion rule read one place. Start keeps the same attempt limit and cooldown as `assessment.submit`, under the same per-learner lock. A staff-published or timed quiz refuses `assessment.submit` with `academy.attempt_required`, and any quiz refuses it while an attempt is open (`academy.attempt_open`), so the clock cannot be skipped. An attempt left open past its deadline is finished at the deadline by the next read or write; its score was fixed by what was saved by then, so a read only records it. A pass mark above the questions' points is refused. Quizzes in the code catalogue (`ASSESSMENT_CATALOG`) still take precedence.
+
 ### Video player tracks (AC-videos-01)
 
 Journey J-academy-03 step 4. The Videos screen already calls `videos` and `videoPlayback`. Those still play the file when captions, the transcript, or the watch threshold are blank.

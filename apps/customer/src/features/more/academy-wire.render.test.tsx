@@ -8,10 +8,11 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { SessionProvider } from '../session/session';
-import { Assessment, AttemptHistory, QuizView, StudyQuestions, submitBlock, type QuizViewProps } from './AcademyAssessment';
+import type { AcademyQuiz, AcademyQuizAttempt, AcademyQuizReview } from '@intafaced/contracts/academy-catalogue';
+import { Assessment, AttemptHistory, StudyQuestions, TimedQuizView, clock, type TimedQuizViewProps } from './AcademyAssessment';
 import { CertificateShelf, VerifyPanel, VerifyResult } from './AcademyCertificates';
 import { PathProgrammesView, busyOf, programmeGuards, type ProgrammeBusy } from './AcademyProgrammeOverview';
-import type { Assessment as AssessmentData, Attempt, Enrolment } from './academy-flows';
+import type { Attempt, Enrolment } from './academy-flows';
 import { groupByPath, type LessonSummary } from './academy-lms';
 import { academyLmsCopy } from './academy-lms-copy';
 
@@ -19,10 +20,13 @@ const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{n
 const owner = '11111111-1111-4111-8111-111111111111';
 const code = '0123456789abcdef0123456789abcdef';
 
-const assessment: AssessmentData = {
+const quizData: AcademyQuiz = {
   slug: 'foundations-01',
   kind: 'quiz',
   passMark: 3,
+  timeLimitSeconds: 600,
+  attemptLimit: 2,
+  reviewMode: 'answers',
   questions: [
     {
       id: 'q1',
@@ -46,157 +50,211 @@ const assessment: AssessmentData = {
     },
   ],
 };
-const attempt = (score: number, at: string): Attempt => ({ slug: assessment.slug, score, maxScore: 3, pass: score >= 3, submittedAt: at });
-const history = { status: 'ready' as const, data: [attempt(3, '2026-10-12T10:00:00.000Z'), attempt(1, '2026-10-11T10:00:00.000Z')] };
-const noop = () => undefined;
-const quizProps = (over: Partial<QuizViewProps> = {}): QuizViewProps => ({
-  assessment,
+const attemptId = '22222222-2222-4222-8222-222222222222';
+const openAttempt = (over: Partial<AcademyQuizAttempt> = {}): AcademyQuizAttempt => ({
+  attemptId,
+  slug: quizData.slug,
+  number: 1,
+  startedAt: '2026-10-12T10:00:00.000Z',
+  deadlineAt: '2026-10-12T10:10:00.000Z',
+  secondsLeft: 425,
   answers: {},
-  onAnswer: noop,
-  sending: false,
   result: null,
-  problem: null,
-  history,
-  block: null,
-  onSubmit: noop,
-  onAnswerAgain: noop,
-  onResend: noop,
-  onRetryHistory: noop,
-  onReloadQuestions: noop,
   ...over,
 });
-const quiz = (over: Partial<QuizViewProps> = {}) => html(<QuizView {...quizProps(over)} />);
+const finished = openAttempt({
+  secondsLeft: null,
+  answers: { q1: 'a', q2: 'b' },
+  result: { score: 2, maxScore: 3, pass: false, finishedAt: '2026-10-12T10:05:00.000Z' },
+});
+const [q1, q2] = quizData.questions as [AcademyQuiz['questions'][number], AcademyQuiz['questions'][number]];
+const reviewOf = (questions: AcademyQuizReview['questions']): AcademyQuizReview => ({
+  attemptId,
+  slug: quizData.slug,
+  number: 1,
+  score: 2,
+  maxScore: 3,
+  pass: false,
+  finishedAt: '2026-10-12T10:05:00.000Z',
+  reviewMode: questions === null ? 'score_only' : 'answers',
+  questions,
+});
+const attempt = (score: number, at: string): Attempt => ({ slug: quizData.slug, score, maxScore: 3, pass: score >= 3, submittedAt: at });
+const history = { status: 'ready' as const, data: [attempt(3, '2026-10-12T10:00:00.000Z'), attempt(1, '2026-10-11T10:00:00.000Z')] };
+const noop = () => undefined;
+const quiz = (over: Partial<TimedQuizViewProps> = {}) =>
+  html(
+    <TimedQuizView
+      quiz={quizData}
+      attempt={null}
+      secondsLeft={null}
+      resumed={false}
+      timeUp={false}
+      position={0}
+      saving="idle"
+      sending={false}
+      review={null}
+      problem={null}
+      history={history}
+      onStart={noop}
+      onAnswer={noop}
+      onMove={noop}
+      onFinish={noop}
+      onRetryHistory={noop}
+      {...over}
+    />,
+  );
+const button = (page: string, label: string) => new RegExp(`<button[^>]*>(?:<[^>]+>)*${label}`).exec(page)?.[0] ?? '';
 const submitButton = (page: string) => /<button[^>]*type="submit"[^>]*>/.exec(page)?.[0] ?? '';
 const failure = (code: string, message = code) => ({ ok: false as const, reason: 'error' as const, code, message });
 
-describe('assessment questions', () => {
-  it('lays out every question as a labelled radio group with its points, the pass mark and the count answered', () => {
+describe('timed quiz before an attempt', () => {
+  it('states the rules first: pass mark, time limit, attempts allowed and what the review shows, then Start quiz', () => {
     const page = quiz();
-    expect((page.match(/<fieldset/g) ?? []).length).toBe(2);
-    expect((page.match(/<legend/g) ?? []).length).toBe(2);
-    expect((page.match(/type="radio"/g) ?? []).length).toBe(4);
-    expect(page).toContain('What is a spot trade?');
-    expect(page).toContain('Immediate delivery');
-    expect(page).toContain('Question 1 of 2');
-    expect(page).toContain('2 points');
-    expect(page).toContain('1 point');
+    expect(page).toContain('data-quiz-state="ready"');
     expect(page).toContain('Pass mark: 3 of 3 points');
-    expect(page).toContain('0 of 2 questions answered');
-    expect(page).not.toContain('placeholder');
-    expect(page).not.toContain('<textarea');
+    expect(page).toContain('Time limit: 10 min');
+    expect(page).toContain('Attempts allowed: 2');
+    expect(page).toContain('When you finish, you see your own answers against the key.');
+    expect(button(page, 'Start quiz')).not.toContain('disabled');
+    expect(page).not.toContain('<fieldset');
+    expect(page).not.toContain('role="timer"');
   });
 
-  it('marks the chosen answers and counts them', () => {
-    const page = quiz({ answers: { q1: 'a' } });
-    expect(page).toMatch(/<input[^>]*checked=""[^>]*value="a"/);
-    expect(page).toContain('1 of 2 questions answered');
+  it('says when no limit applies, and when the review is the score only', () => {
+    const page = quiz({ quiz: { ...quizData, timeLimitSeconds: null, attemptLimit: null, reviewMode: 'score_only' } });
+    expect(page).toContain('No time limit');
+    expect(page).toContain('No attempt limit');
+    expect(page).toContain('When you finish, you see your score only.');
   });
 
-  it('keeps Submit off with its reason beside it until every question is answered', () => {
-    const block = submitBlock({ sending: false, remaining: 2 });
-    const page = quiz({ block });
-    const button = submitButton(page);
-    expect(button).toContain('disabled');
-    const reasonId = /aria-describedby="([^"]+)"/.exec(button)?.[1];
-    expect(reasonId).toBeTruthy();
-    expect(page).toContain(`id="${reasonId}"`);
-    expect(page).toContain('Answer every question to submit. 2 still to answer.');
-  });
-
-  it('turns Submit on, with no reason shown, when everything is answered and the history is loaded', () => {
-    const block = submitBlock({ sending: false, remaining: 0 });
-    expect(block).toBeNull();
-    const page = quiz({ answers: { q1: 'a', q2: 'b' }, block });
-    expect(submitButton(page)).not.toContain('disabled');
-    expect(submitButton(page)).not.toContain('aria-describedby');
-    expect(page).not.toContain('Answer every question');
-  });
-
-  it('turns Submit off while a request is in flight, locks the answers and says so', () => {
-    const block = submitBlock({ sending: true, remaining: 0 });
-    const page = quiz({ answers: { q1: 'a', q2: 'b' }, sending: true, block });
-    expect(submitButton(page)).toContain('disabled');
-    expect(page).toContain('Your answers are being sent. Wait for Academy to reply.');
-    expect((page.match(/<fieldset[^>]*disabled/g) ?? []).length).toBe(2);
-    expect(page).toContain('aria-busy="true"');
-    expect(page).toContain('Sending answers');
-  });
-
-  it('puts the reasons in order: in flight, unanswered, then on', () => {
-    expect(submitBlock({ sending: true, remaining: 1 })).toEqual({ key: 'submitInFlight' });
-    expect(submitBlock({ sending: false, remaining: 1 })).toEqual({ key: 'submitNeedsAnswers', remaining: 1 });
-    expect(submitBlock({ sending: false, remaining: 0 })).toBeNull();
-  });
-
-  it('does not announce every click: the answered count is plain text, not a live region', () => {
-    expect(quiz()).not.toMatch(/role="status"[^>]*>0 of 2 questions answered/);
+  it('words a typed refusal at the attempt limit and keeps the history', () => {
+    const page = quiz({ problem: failure('academy.attempt_limit', 'academy.attempt_limit slug=x') });
+    expect(page).toContain('You have used every attempt this assessment allows.');
+    expect(page).not.toContain('academy.attempt_limit');
+    expect(page).toContain('2 attempts recorded');
   });
 });
 
-describe('assessment result and refusals', () => {
-  it('shows the score Academy returned, the pass state, and a way to answer again instead of Submit', () => {
-    const page = quiz({ answers: { q1: 'a', q2: 'a' }, result: { attempt: attempt(3, '2026-10-12T10:00:00.000Z'), recovered: false } });
-    expect(page).toContain('Your result');
-    expect(page).toContain('You scored 3 of 3 points.');
-    expect(page).toContain('Passed');
-    expect(page).toContain('Answer again');
-    expect(submitButton(page)).toBe('');
-    expect(page).not.toContain('The reply was lost');
-    expect(page).toContain('tabindex="-1"');
+describe('timed quiz while an attempt is open', () => {
+  it('shows one question at a time with its number, points, the clock from the server and the count answered', () => {
+    const page = quiz({ attempt: openAttempt({ answers: { q1: 'a' } }), secondsLeft: 425 });
+    expect(page).toContain('data-quiz-state="open"');
+    expect((page.match(/<fieldset/g) ?? []).length).toBe(1);
+    expect(page).toContain('data-quiz-question="q1"');
+    expect(page).not.toContain('What does a limit order set?');
+    expect(page).toContain('Question 1 of 2');
+    expect(page).toContain('2 points');
+    expect(page).toContain('Attempt 1');
+    expect(page).toContain('role="timer"');
+    expect(page).toContain('data-seconds-left="425"');
+    expect(page).toContain('Time left: 7:05');
+    expect(page).toContain('1 of 2 questions answered');
+    expect(page).toMatch(/<input[^>]*checked=""[^>]*value="a"/);
+    expect(button(page, 'Previous question')).toContain('disabled');
+    expect(button(page, 'Next question')).not.toContain('disabled');
+    expect(button(page, 'Finish and submit')).toContain('type="submit"');
   });
 
-  it('says a result was read back from the attempt history when the reply was lost', () => {
-    const page = quiz({ result: { attempt: attempt(1, '2026-10-12T10:00:00.000Z'), recovered: true } });
+  it('moves to the last question with Next off there, and has no clock when the quiz has no time limit', () => {
+    const page = quiz({ attempt: openAttempt({ deadlineAt: null, secondsLeft: null }), position: 1 });
+    expect(page).toContain('data-quiz-question="q2"');
+    expect(page).toContain('Question 2 of 2');
+    expect(page).toContain('1 point');
+    expect(button(page, 'Next question')).toContain('disabled');
+    expect(page).not.toContain('role="timer"');
+  });
+
+  it('says an attempt found open on arrival is the same one, and reports the autosave', () => {
+    expect(quiz({ attempt: openAttempt(), secondsLeft: 300, resumed: true })).toContain('Academy keeps the clock');
+    expect(quiz({ attempt: openAttempt(), saving: 'saving' })).toContain('Saving your answer…');
+    expect(quiz({ attempt: openAttempt(), saving: 'saved' })).toContain('Answer saved.');
+  });
+
+  it('locks the question and Finish while the submit is in flight', () => {
+    const page = quiz({ attempt: openAttempt(), sending: true });
+    expect(page).toMatch(/<fieldset[^>]*disabled/);
+    expect(button(page, 'Submitting…')).toContain('disabled');
+    expect(page).toContain('aria-busy="true"');
+  });
+
+  it('reads the clock as minutes and seconds, never below zero', () => {
+    expect(clock(0)).toBe('0:00');
+    expect(clock(65)).toBe('1:05');
+    expect(clock(-3)).toBe('0:00');
+    expect(clock(600)).toBe('10:00');
+  });
+});
+
+describe('timed quiz after an attempt', () => {
+  it('shows the score Academy returned, the pass state and the learner’s own answers against the key', () => {
+    const review = reviewOf([
+      {
+        id: 'q1',
+        prompt: 'What is a spot trade?',
+        choices: q1.choices,
+        chosenChoiceId: 'a',
+        correctChoiceId: 'a',
+        correct: true,
+      },
+      {
+        id: 'q2',
+        prompt: 'What does a limit order set?',
+        choices: q2.choices,
+        chosenChoiceId: 'b',
+        correctChoiceId: 'a',
+        correct: false,
+      },
+    ]);
+    const page = quiz({ attempt: finished, review });
+    expect(page).toContain('data-quiz-state="finished"');
+    expect(page).toContain(`data-quiz-result="${attemptId}"`);
+    expect(page).toContain('You scored 2 of 3 points.');
     expect(page).toContain('Not passed');
-    expect(page).toContain('The first reply was lost.');
-    expect(page).toContain('so it was not counted twice');
-    expect(page).not.toContain('read back from your attempt history');
+    expect(page).toContain('data-quiz-review="answers"');
+    expect(page).toContain('Your answer: Immediate delivery');
+    expect(page).toContain('Your answer: A volume');
+    expect(page).toContain('Correct answer: A worst price');
+    expect(page).toContain('data-review-correct="false"');
+    expect(button(page, 'Start another attempt')).not.toContain('disabled');
+    expect(page).not.toContain('<fieldset');
   });
 
-  it('words a typed refusal and keeps the answers on screen', () => {
-    const page = quiz({
-      answers: { q1: 'a', q2: 'a' },
-      problem: { kind: 'failure', failure: failure('academy.attempt_limit', 'academy.attempt_limit slug=x') },
-    });
-    expect(page).toContain('You have used every attempt this assessment allows.');
-    expect(page).not.toContain('academy.attempt_limit');
-    expect(page).toMatch(/<input[^>]*checked=""[^>]*value="a"/);
+  it('shows the score only when the quiz says so, and says time ran out when the clock submitted', () => {
+    const page = quiz({ attempt: finished, review: reviewOf(null), timeUp: true });
+    expect(page).toContain('data-quiz-review="score_only"');
+    expect(page).toContain('This quiz shows your score only, not the answers.');
+    expect(page).not.toContain('Correct answer');
+    expect(page).toContain('Time is up. Academy submitted the answers you had saved.');
   });
 
-  it('offers to reload the questions when Academy says the answers do not match them', () => {
-    const page = quiz({ problem: { kind: 'failure', failure: failure('academy.assessment_invalid') } });
-    expect(page).toContain('Reload questions');
-    expect(quiz({ problem: { kind: 'failure', failure: failure('academy.attempt_limit') } })).not.toContain('Reload questions');
+  it('says an unanswered question had no answer', () => {
+    const review = reviewOf([
+      {
+        id: 'q1',
+        prompt: 'What is a spot trade?',
+        choices: q1.choices,
+        chosenChoiceId: null,
+        correctChoiceId: 'a',
+        correct: false,
+      },
+    ]);
+    expect(quiz({ attempt: finished, review })).toContain('Your answer: none');
   });
 
-  it('after a lost reply locks the answers, hides Submit and offers to send the same answers again', () => {
-    const page = quiz({ answers: { q1: 'a', q2: 'a' }, problem: { kind: 'unconfirmed', failure: failure('x') } });
-    expect(page).toContain('Send the same answers again');
-    expect(page).toContain('cannot count it twice');
-    expect(page).toContain('may count as a second one');
-    expect(submitButton(page)).toBe('');
-    expect((page.match(/<fieldset[^>]*disabled/g) ?? []).length).toBe(2);
-    expect(page).not.toContain('Check attempt history');
-    expect(page).not.toContain('shows no new attempt');
-    expect(page).toMatch(/<input[^>]*checked=""[^>]*value="a"/);
-  });
-
-  it('turns the resend off while it is in flight, with its reason', () => {
-    const page = quiz({ answers: { q1: 'a', q2: 'a' }, sending: true, problem: { kind: 'unconfirmed', failure: failure('x') } });
-    expect(page).toMatch(/<button[^>]*disabled[^>]*>(?:<[^>]+>)*Sending answers/);
-    expect(page).toContain('Your answers are being sent. Wait for Academy to reply.');
-  });
-
-  it('keeps the answers editable after a typed refusal', () => {
-    const page = quiz({ answers: { q1: 'a', q2: 'a' }, problem: { kind: 'failure', failure: failure('academy.attempt_limit') } });
-    expect((page.match(/<fieldset[^>]*disabled/g) ?? []).length).toBe(0);
-  });
-
-  it('words a refusal in Spanish and French too', () => {
-    const f = failure('academy.attempt_cooldown');
-    expect(academyLmsCopy.forLocale('es').t('refAttemptCooldown')).toContain('espera');
-    expect(academyLmsCopy.forLocale('fr').t('refAttemptCooldown')).toContain('attente');
-    expect(quiz({ problem: { kind: 'failure', failure: f } })).toContain('Try again later.');
+  it('words the new refusals in all three languages without the raw code', () => {
+    for (const [code, key] of [
+      ['academy.attempt_closed', 'refAttemptClosed'],
+      ['academy.attempt_open', 'refAttemptOpen'],
+      ['academy.attempt_not_found', 'refAttemptNotFound'],
+      ['academy.attempt_required', 'refAttemptRequired'],
+    ] as const) {
+      const page = quiz({ problem: failure(code) });
+      expect(page).toContain(academyLmsCopy.forLocale('en').t(key));
+      expect(page).not.toContain(code);
+      for (const locale of ['es', 'fr'] as const)
+        expect(academyLmsCopy.forLocale(locale).t(key)).not.toBe(academyLmsCopy.forLocale('en').t(key));
+    }
   });
 });
 

@@ -16,6 +16,10 @@ import {
   academyMyCourseSchema,
   academyAccessGrantSchema,
   academyCourseOutlineSchema,
+  academyQuizAttemptSchema,
+  academyQuizReviewSchema,
+  academyQuizSchema,
+  academySetQuizInputSchema,
   academyUndoCompletionInputSchema,
   academyUndoCompletionSchema,
   academyPublicHubSchema,
@@ -782,7 +786,13 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.request_reused':
+    case 'academy.attempt_closed':
+    case 'academy.attempt_open':
+    case 'academy.attempt_required':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.attempt_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
     case 'academy.attempt_cooldown':
@@ -2397,23 +2407,46 @@ export function createAcademyRouter(
     assessment: router({
       get: scopedProcedure('academy:read', { module: 'academy' })
         .input(z.object({ slug: z.string().min(1).max(120) }))
-        .output(
-          z.object({
-            slug: z.string(),
-            kind: z.literal('quiz'),
-            passMark: z.number().int(),
-            questions: z.array(
-              z.object({
-                id: z.string(),
-                prompt: z.string(),
-                kind: z.literal('single'),
-                points: z.number().int(),
-                choices: z.array(z.object({ id: z.string(), text: z.string() })),
-              }),
-            ),
-          }),
+        .output(academyQuizSchema)
+        .query(({ input }) => guard(() => academy.getAssessment(input.slug))),
+
+      /** AC-quizzes-03: Start a timed attempt, or get back the one already open with its server-held time left. */
+      start: scopedProcedure('academy:write', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.startQuizAttempt({ userId: ctx.principal.userId, slug: input.slug }))),
+
+      /** The caller's open attempt on this quiz, or null (one past its deadline is finished on this read). */
+      current: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+        .output(academyQuizAttemptSchema.nullable())
+        .query(({ input, ctx }) => guard(() => academy.currentQuizAttempt({ userId: ctx.principal.userId, slug: input.slug }))),
+
+      /** Autosave one answer on the caller's open attempt. */
+      answer: scopedProcedure('academy:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              attemptId: z.string().uuid(),
+              questionId: z.string().min(1).max(80),
+              choiceId: z.string().min(1).max(80),
+            })
+            .strict(),
         )
-        .query(({ input }) => guard(async () => academy.getAssessment(input.slug))),
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.answerQuizAttempt({ userId: ctx.principal.userId, ...input }))),
+
+      /** Score the saved answers once; finishing again answers with the same result. */
+      finish: scopedProcedure('academy:write', { module: 'academy' })
+        .input(z.object({ attemptId: z.string().uuid() }).strict())
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.finishQuizAttempt({ userId: ctx.principal.userId, attemptId: input.attemptId }))),
+
+      /** A finished attempt of the caller's own, with answers against the key or the score only. */
+      review: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ attemptId: z.string().uuid() }).strict())
+        .output(academyQuizReviewSchema)
+        .query(({ input, ctx }) => guard(() => academy.reviewQuizAttempt({ userId: ctx.principal.userId, attemptId: input.attemptId }))),
 
       submit: scopedProcedure('academy:write', { module: 'academy' })
         .input(
@@ -2654,6 +2687,12 @@ export function createAcademyRouter(
         .input(z.object({ itemSlug: z.string().min(1).max(120).nullable(), reason: z.string().max(500) }).strict())
         .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
         .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-quizzes-03: publish or take down the quiz on one curriculum item. The answer key never leaves the service. */
+      setQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetQuizInputSchema)
+        .output(z.object({ slug: z.string(), published: z.boolean() }))
+        .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
       setCourseStart: scopedProcedure('admin:write', { module: 'academy' })

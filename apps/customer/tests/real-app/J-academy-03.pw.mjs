@@ -5,7 +5,7 @@ import { signIn, signUp, verify } from './desk.mjs';
 // J-academy-03, in the running app (docs/roadmap/journeys.json): work through a course. One test per step, titled
 // "J-academy-03 #<n>", run in order. The learner is a verified TEST account signed up in the browser and enrolled from
 // the course page; the course is what svc-academy publishes. Each test is its own browser context, so #10 is a second
-// device by construction. Staff rules (a TEST prerequisite) go through Academy's own admin door and come off at the end.
+// device by construction. Staff rules (a TEST prerequisite, a TEST quiz) go through Academy's own admin door and come off at the end.
 const J = 'J-academy-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -50,9 +50,55 @@ async function staff(procedure, input) {
 }
 const setPrerequisites = (itemSlug, prerequisites) => staff('admin.setItemPrerequisites', { itemSlug, prerequisites });
 
+/** A TEST quiz staff publish on one item for steps #6 and #7, and take down at the end. */
+const testQuiz = (reviewMode) => ({
+  passMark: 2,
+  attemptLimit: 2,
+  timeLimitSeconds: 600,
+  reviewMode,
+  questions: [
+    {
+      id: 'q1',
+      prompt: 'TEST: what does a spot trade settle?',
+      points: 1,
+      choices: [
+        { id: 'a', text: 'TEST: now' },
+        { id: 'b', text: 'TEST: later' },
+      ],
+      correctChoiceId: 'a',
+    },
+    {
+      id: 'q2',
+      prompt: 'TEST: what does a limit order fix?',
+      points: 1,
+      choices: [
+        { id: 'a', text: 'TEST: the worst price' },
+        { id: 'b', text: 'TEST: the size of the book' },
+      ],
+      correctChoiceId: 'a',
+    },
+  ],
+});
+const setQuiz = (slug, quiz) => staff('admin.setQuiz', { slug, quiz, reason: `${J} TEST quiz` });
+
+/** The learner's open quiz attempt, read from Academy with a session of their own. */
+async function openAttempt(who, slug) {
+  const res = await (await api(who)).get(`/api/academy/trpc/assessment.current?input=${encodeURIComponent(JSON.stringify({ slug }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+async function attemptsOn(who, slug) {
+  const res = await (await api(who)).get(`/api/academy/trpc/assessment.attempts?input=${encodeURIComponent(JSON.stringify({ slug }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 const outline = (page, course) => page.locator(`[data-academy-outline="${course}"]`);
 const completion = (page, slug) => page.locator(`[data-item-completion="${slug}"]`);
 const myCourse = (page, slug) => page.locator(`[data-my-learning-section] [data-my-course="${slug}"]`);
+const quizBox = (page, slug) => page.locator(`[data-quiz="${slug}"]`);
+const secondsLeft = async (page, slug) => Number(await quizBox(page, slug).getByRole('timer').getAttribute('data-seconds-left'));
 
 test(`${J} #1 Complete and continue records the completion once, pressed twice, and opens the next item`, async ({ page }) => {
   const course = (await publicRead('publicCourses')).find((card) => card.slug);
@@ -135,6 +181,130 @@ test(`${J} #3 an item that needs an earlier one is locked with a link to it, and
     await expect(completion(page, items[1]).getByRole('button', { name: 'Complete and continue', exact: true })).toBeVisible();
   } finally {
     await setPrerequisites(items[2], []);
+  }
+});
+
+test(`${J} #6 a timed quiz keeps one attempt and its clock on the server: Start with the reply lost, autosave, refresh`, async ({
+  page,
+}) => {
+  const { who, items } = state('who', 'items');
+  const slug = items[1];
+  await setQuiz(slug, testQuiz('answers'));
+  try {
+    await signIn(page, who);
+    await page.goto(`/academy/${slug}`);
+    // Step #1's course rule: with a quiz on the item, Complete and continue waits for a pass and says so.
+    const control = completion(page, slug);
+    await expect(control.getByText('Pass this item’s quiz to complete it.')).toBeVisible();
+    await expect(control.getByRole('button', { name: 'Complete and continue', exact: true })).toBeDisabled();
+
+    const box = quizBox(page, slug);
+    await expect(box).toHaveAttribute('data-quiz-state', 'ready');
+    await expect(box.getByText('Time limit: 10 min')).toBeVisible();
+    await expect(box.getByText('Attempts allowed: 2')).toBeVisible();
+    const starts = [];
+    // Academy opens the attempt and answers; the browser never sees the answer, as when a connection drops.
+    await page.route('**/api/academy/trpc/assessment.start**', async (route) => {
+      starts.push(route.request().url());
+      await route.fetch();
+      await route.abort('connectionreset');
+    });
+    await box.getByRole('button', { name: 'Start quiz', exact: true }).dblclick();
+    await expect(box).toHaveAttribute('data-quiz-state', 'open');
+    expect(starts).toHaveLength(1);
+    await page.unroute('**/api/academy/trpc/assessment.start**');
+    const opened = await openAttempt(who, slug);
+    expect(opened.number).toBe(1);
+    await expect(box.getByText('Attempt 1', { exact: true })).toBeVisible();
+
+    // One question at a time; the choice is saved without a button.
+    await expect(box.locator('[data-quiz-question]')).toHaveCount(1);
+    await expect(box.locator('[data-quiz-question]')).toHaveAttribute('data-quiz-question', 'q1');
+    await expect(box.getByText('TEST: what does a limit order fix?')).toHaveCount(0);
+    const saved = page.waitForResponse((r) => r.url().includes('/api/academy/trpc/assessment.answer') && r.ok());
+    await box.getByRole('radio', { name: 'TEST: now' }).check();
+    await saved;
+    await expect(box.getByText('Answer saved.')).toBeVisible();
+    expect((await openAttempt(who, slug)).answers).toEqual({ q1: 'a' });
+
+    // A refresh comes back to the same attempt, the same deadline, and the time left the server counts.
+    await page.reload();
+    await expect(box).toHaveAttribute('data-quiz-state', 'open');
+    await expect(box.getByText(/^Your attempt is still open/)).toBeVisible();
+    const after = await openAttempt(who, slug);
+    expect(after.attemptId).toBe(opened.attemptId);
+    expect(after.deadlineAt).toBe(opened.deadlineAt);
+    const shown = await secondsLeft(page, slug);
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThanOrEqual(600);
+    expect(Math.abs(shown - after.secondsLeft)).toBeLessThanOrEqual(3);
+    // It opens on the first unanswered question; the saved answer is there going back.
+    await expect(box.locator('[data-quiz-question]')).toHaveAttribute('data-quiz-question', 'q2');
+    await box.getByRole('button', { name: 'Previous question', exact: true }).click();
+    await expect(box.getByRole('radio', { name: 'TEST: now' })).toBeChecked();
+    run.write({ quizSlug: slug, quizAttempt: opened.attemptId });
+  } catch (error) {
+    await setQuiz(slug, null);
+    throw error;
+  }
+});
+
+test(`${J} #7 finishing twice scores once, the review shows my own answers or the score only, and the limit refuses Start`, async ({
+  page,
+}) => {
+  const { who, items, quizSlug, quizAttempt } = state('who', 'items', 'quizSlug', 'quizAttempt');
+  try {
+    await signIn(page, who);
+    await page.goto(`/academy/${quizSlug}`);
+    const box = quizBox(page, quizSlug);
+    await expect(box).toHaveAttribute('data-quiz-state', 'open');
+    await expect(box.locator('[data-quiz-question]')).toHaveAttribute('data-quiz-question', 'q2');
+    const saved = page.waitForResponse((r) => r.url().includes('/api/academy/trpc/assessment.answer') && r.ok());
+    await box.getByRole('radio', { name: 'TEST: the worst price' }).check();
+    await saved;
+
+    const finishes = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/academy/trpc/assessment.finish')) finishes.push(request.url());
+    });
+    await box.getByRole('button', { name: 'Finish and submit', exact: true }).dblclick();
+    const result = box.locator(`[data-quiz-result="${quizAttempt}"]`);
+    await expect(result.getByText('You scored 2 of 2 points.')).toBeVisible();
+    await expect(result.getByText('Passed', { exact: true })).toBeVisible();
+    expect(finishes).toHaveLength(1);
+    // A second Finish, as from another tab, returns the same score and records nothing new.
+    const again = await (await api(who)).post('/api/academy/trpc/assessment.finish', { attemptId: quizAttempt });
+    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+    expect(again.body.result.data.result).toMatchObject({ score: 2, maxScore: 2, pass: true });
+    expect(await attemptsOn(who, quizSlug)).toHaveLength(1);
+
+    // The review is this learner's own attempt, answer by answer.
+    const review = result.locator('[data-quiz-review="answers"]');
+    await expect(review.locator('[data-review-question]')).toHaveCount(2);
+    await expect(review.getByText('Your answer: TEST: now')).toBeVisible();
+    await expect(review.getByText('Your answer: TEST: the worst price')).toBeVisible();
+    // The course rule is met now: Complete and continue is on.
+    await expect(completion(page, quizSlug).getByRole('button', { name: 'Complete and continue', exact: true })).toBeEnabled();
+
+    // Staff switch the quiz to score only; the second (and last) attempt shows the score and no answers.
+    await setQuiz(quizSlug, testQuiz('score_only'));
+    await page.reload();
+    await expect(box).toHaveAttribute('data-quiz-state', 'ready');
+    await box.getByRole('button', { name: 'Start quiz', exact: true }).click();
+    await expect(box.getByText('Attempt 2', { exact: true })).toBeVisible();
+    await box.getByRole('button', { name: 'Finish and submit', exact: true }).click();
+    await expect(box.getByText('You scored 0 of 2 points.')).toBeVisible();
+    await expect(box.locator('[data-quiz-review="score_only"]')).toHaveText('This quiz shows your score only, not the answers.');
+    await expect(box.locator('[data-review-question]')).toHaveCount(0);
+
+    // At the limit, Start refuses with its reason in words.
+    await box.getByRole('button', { name: 'Start another attempt', exact: true }).click();
+    await expect(box.getByText('You have used every attempt this assessment allows.')).toBeVisible();
+    await expect(box).not.toHaveAttribute('data-quiz-state', 'open');
+    expect(await openAttempt(who, quizSlug)).toBeNull();
+    expect(await attemptsOn(who, quizSlug)).toHaveLength(2);
+  } finally {
+    await setQuiz(quizSlug ?? items[1], null);
   }
 });
 
