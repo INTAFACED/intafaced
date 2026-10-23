@@ -2349,6 +2349,8 @@ export function createP2pRouter(
             offers: z.array(z.unknown()),
             trades: z.array(z.unknown()),
             disputes: z.array(z.unknown()),
+            /** Reviews this person wrote or received, including hidden ones. They are still held. */
+            orderReviews: z.array(z.unknown()),
             reputation: z.unknown().nullable(),
             /**
              * Headers only. The values live behind `instruments.reveal`, which

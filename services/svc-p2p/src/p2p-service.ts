@@ -3632,6 +3632,11 @@ export class P2pService {
 
   /** P-ads-merchant-21: hide a review. The audit row commits with the hide. */
   async moderateOrderReview(input: { reviewId: string; actorId: string; reason: string }): Promise<ReviewRecord> {
+    // Same rule as resolveDispute and escalateOpenDispute. admin:compliance admits
+    // this session at the router; a non-person id must not be written as hidden_by.
+    if (!isNaturalPersonId(input.actorId)) {
+      throw new P2pError(`A review is hidden by a person. "${input.actorId}" is not a natural-person id.`, 'p2p.ruling_not_attributed');
+    }
     return this.asReview(() => moderateReview(this.sql, input));
   }
 

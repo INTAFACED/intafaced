@@ -270,7 +270,24 @@ describe('p2p export and erasure', () => {
 
     it('returns nothing for someone this service has never seen', async () => {
       const out = await erasure.exportFor('99999999-9999-4999-8999-999999999999');
-      expect(out).toMatchObject({ offers: [], trades: [], disputes: [], reputation: null, instruments: [] });
+      expect(out).toMatchObject({ offers: [], trades: [], disputes: [], orderReviews: [], reputation: null, instruments: [] });
+    });
+
+    it('returns a review the caller wrote or received', async () => {
+      const { trade } = await completedTrade();
+      const review = await p2p.leaveOrderReview({
+        tradeId: trade.id,
+        authorId: TAKER,
+        rating: 'bad',
+        explanation: 'the other party was late',
+      });
+
+      const about = await erasure.exportFor(MAKER);
+      const written = await erasure.exportFor(TAKER);
+      expect(about.orderReviews).toEqual([
+        expect.objectContaining({ id: review.id, subject_id: MAKER, author_id: TAKER, explanation: 'the other party was late' }),
+      ]);
+      expect(written.orderReviews).toEqual([expect.objectContaining({ id: review.id, author_id: TAKER, subject_id: MAKER })]);
     });
   });
 
@@ -472,6 +489,32 @@ describe('p2p export and erasure', () => {
       await erasure.eraseFor(MAKER);
       const second = await erasure.eraseFor(MAKER);
       expect(second.erased.every((l) => l.rows === 0)).toBe(true);
+    });
+
+    it('names an order review and leaves the row', async () => {
+      const { trade } = await completedTrade();
+      const review = await p2p.leaveOrderReview({
+        tradeId: trade.id,
+        authorId: TAKER,
+        rating: 'bad',
+        explanation: 'the other party was late',
+      });
+
+      const subject = await erasure.eraseFor(MAKER);
+      const subjectLine = subject.retained.find((line) => line.category === 'order reviews');
+      expect(subjectLine).toMatchObject({
+        rows: 1,
+        reason: expect.stringContaining("The other party's rating and words stay"),
+      });
+      expect(subject.erased.some((line) => line.category.toLowerCase().includes('review'))).toBe(false);
+
+      const author = await erasure.eraseFor(TAKER);
+      expect(author.retained.find((line) => line.category === 'order reviews')).toMatchObject({ rows: 1 });
+
+      const still = await sql<Array<{ id: string; explanation: string | null }>>`
+        SELECT id, explanation FROM p2p.order_reviews WHERE id = ${review.id}
+      `;
+      expect(still).toEqual([{ id: review.id, explanation: 'the other party was late' }]);
     });
   });
 });

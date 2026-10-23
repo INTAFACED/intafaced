@@ -125,7 +125,12 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
   }
 
   const SECRET = 'p2p-reviews-edge-secret-long-enough';
-  function caller(userId: string, scopes: string[] = ['p2p:read', 'p2p:write'], moderatorUserIds: readonly string[] = []) {
+  function caller(
+    userId: string,
+    scopes: string[] = ['p2p:read', 'p2p:write'],
+    moderatorUserIds: readonly string[] = [],
+    options?: { placePrincipal?: boolean },
+  ) {
     vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'none');
     vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture:p2p-reviews');
     vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'false');
@@ -140,16 +145,19 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
       expiresAt: new Date(Date.now() + 60_000),
     } as Principal;
     const raw = encodePrincipal(principal);
-    return createP2pRouter(p2p, instruments, undefined, { moderatorUserIds: [...moderatorUserIds] }).createCaller(
-      edge({
-        headers: {
-          'x-intafaced-principal': raw,
-          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
-          'x-intafaced-region': 'DE',
-        },
-        id: 'req-reviews',
-      }),
-    );
+    const verified = edge({
+      headers: {
+        'x-intafaced-principal': raw,
+        'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+        'x-intafaced-region': 'DE',
+      },
+      id: 'req-reviews',
+    });
+    // The edge header schema refuses a non-UUID user id, so a machine session
+    // never arrives that way. placePrincipal is that session once it is on the
+    // context: kid stays unset, and admin:compliance still passes isModerator.
+    const ctx = options?.placePrincipal ? { ...verified, principal } : verified;
+    return createP2pRouter(p2p, instruments, undefined, { moderatorUserIds: [...moderatorUserIds] }).createCaller(ctx);
   }
 
   it('lets both parties rate a released trade once and returns the first on a second leave', async () => {
@@ -277,6 +285,27 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
     expect(author.reviews).toMatchObject([{ id: review.id, hidden: true, hiddenReason: 'abusive' }]);
     const card = await caller(OTHER, ['p2p:read']).reputation.get({ userId: MAKER });
     expect(card.rating).toBeNull();
+  });
+
+  it('refuses a system:p2p-backstop session with admin:compliance and writes no audit row', async () => {
+    await fund(MAKER, '1000');
+    const trade = await released();
+    const review = await caller(TAKER).reviews.leave({ tradeId: trade.id, rating: 'bad', explanation: 'abuse' });
+    await expect(
+      caller('system:p2p-backstop', ['p2p:read', 'admin:compliance'], [], { placePrincipal: true }).reviews.moderate({
+        reviewId: review.id,
+        reason: 'hide it',
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: expect.objectContaining({ code: 'p2p.ruling_not_attributed' }),
+    });
+    const audit = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.order_review_audit`;
+    expect(audit[0]?.n).toBe(0);
+    const stored = await sql<Array<{ hidden: boolean; hidden_by: string | null }>>`
+      SELECT hidden, hidden_by FROM p2p.order_reviews WHERE id = ${review.id}
+    `;
+    expect(stored[0]).toEqual({ hidden: false, hidden_by: null });
   });
 
   it('pages every review once and refuses a blank page or a bad cursor', async () => {
