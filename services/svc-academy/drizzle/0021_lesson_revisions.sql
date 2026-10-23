@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS "academy"."lesson_revisions" (
 );
 
 ALTER TABLE "academy"."course_items" ADD COLUMN IF NOT EXISTS "live_revision" integer;
+-- The course revision the live revision was published at, so a repeated publish finds its own result.
+ALTER TABLE "academy"."course_items" ADD COLUMN IF NOT EXISTS "live_course_revision" integer;
+-- A duplicate's source and the course revision it was made at, so a repeated duplicate finds its copy.
+ALTER TABLE "academy"."course_items" ADD COLUMN IF NOT EXISTS "copied_from" uuid;
+ALTER TABLE "academy"."course_items" ADD COLUMN IF NOT EXISTS "copied_at_revision" integer;
 ALTER TABLE "academy"."course_items" DROP CONSTRAINT IF EXISTS "course_items_live_fk";
 ALTER TABLE "academy"."course_items"
   ADD CONSTRAINT "course_items_live_fk" FOREIGN KEY ("id", "live_revision")

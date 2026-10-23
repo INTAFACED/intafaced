@@ -338,9 +338,9 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
-          {/* Remounts only when the stored outline changes (a save writes new ids), so a details save keeps unsaved outline edits. */}
+          {/* Remounts when a stored section or item is added or removed, so new items take their ids; a details save keeps unsaved outline edits. */}
           <OutlineEditor
-            key={detail.data.outline.map((s) => s.id).join() || 'empty'}
+            key={detail.data.outline.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]).join() || 'empty'}
             detail={detail.data}
             busy={busy}
             onSave={(sections) => void send({ op: 'outline', courseId, revision: detail.data.course.revision, sections })}

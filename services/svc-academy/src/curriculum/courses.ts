@@ -266,6 +266,14 @@ export class CourseRecords {
         if (i.id !== undefined && !ownItems.has(i.id))
           throw new AcademyError('the outline names an item this course does not hold', 'academy.outline_item_unknown');
     }
+    // An item with a lesson stays a kind that holds one, so its revisions (and what learners see) are never orphaned.
+    const labelled = sections.flatMap((s) => s.items).filter((i) => i.id !== undefined && (i.kind === 'subheader' || i.kind === 'link'));
+    if (labelled.length > 0) {
+      const [written] = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM academy.lesson_revisions WHERE item_id = ANY(${labelled.map((i) => i.id!)}::uuid[])
+      `;
+      if (written!.n > 0) throw new AcademyError('an item with a lesson does not become a subheader or a link', 'academy.item_kind_locked');
+    }
     await tx`UPDATE academy.course_items SET position = -1 - position WHERE course_id = ${courseId}`;
     await tx`UPDATE academy.course_sections SET position = -1 - position WHERE course_id = ${courseId}`;
     const sectionRows = sections.map((s, position) => ({ id: s.id ?? randomUUID(), course_id: courseId, position, title: s.title }));

@@ -10,6 +10,7 @@ import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchLesson, postLessonChange } from '@/lib/academy/lessons-browser';
 import { liveOf, type AcademyLesson, type AcademyLessonBlock, type LessonDeskReply, type LessonView } from '@/lib/academy/lessons-model';
 import { AcademyNav, Failed, Outcome } from '@/components/academy-courses-desk';
+import { move } from '@/components/academy-outline-editor';
 
 /**
  * LESSON EDITOR (AC-course-structure-03).
@@ -54,14 +55,6 @@ export const blockOf = (d: Draft): AcademyLessonBlock => {
       return { type: 'code', language: d.language.trim(), source: d.text };
   }
 };
-
-function move<T>(list: readonly T[], from: number, to: number): T[] {
-  if (to < 0 || to >= list.length) return [...list];
-  const next = [...list];
-  const [one] = next.splice(from, 1);
-  next.splice(to, 0, one!);
-  return next;
-}
 
 /** A lesson as a learner reads it: text as written, media by its https address, code as code. */
 function Blocks({ blocks, testId }: { blocks: readonly AcademyLessonBlock[]; testId: string }) {

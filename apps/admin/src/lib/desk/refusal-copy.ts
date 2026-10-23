@@ -693,6 +693,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A subheader is a label and a link opens its address, so neither has lesson content.',
     next: 'Write the lesson on another item. Nothing was changed.',
   },
+  'academy.item_kind_locked': {
+    title: 'This item has a lesson',
+    body: 'An item with lesson revisions stays a type that holds a lesson, so it does not become a subheader or a link.',
+    next: 'Add a new subheader or link instead. Nothing was saved.',
+  },
   'academy.course_not_found': {
     title: 'No such course',
     body: 'svc-academy has no course with this id.',

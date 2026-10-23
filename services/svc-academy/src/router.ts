@@ -851,6 +851,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.item_transition_illegal':
     case 'academy.outline_item_unknown':
     case 'academy.revision_stale':
+    case 'academy.item_kind_locked':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.price_unset':

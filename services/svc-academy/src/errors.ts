@@ -219,7 +219,9 @@ export type AcademyErrorCode =
   /** No such revision of this lesson. */
   | 'academy.lesson_revision_unknown'
   /** A subheader or a link holds no lesson. */
-  | 'academy.item_has_no_lesson';
+  | 'academy.item_has_no_lesson'
+  /** An item with a lesson does not become a subheader or a link. */
+  | 'academy.item_kind_locked';
 
 export class AcademyError extends Error {
   constructor(
@@ -348,6 +350,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.revision_stale',
   'academy.lesson_revision_unknown',
   'academy.item_has_no_lesson',
+  'academy.item_kind_locked',
 ] as const;
 
 /** L3 — catalog size. */

@@ -36,6 +36,7 @@ type ItemRow = {
   indent: number;
   url: string | null;
   live_revision: number | null;
+  live_course_revision: number | null;
   course_state: string;
   course_revision: number;
 };
@@ -50,7 +51,17 @@ type RevisionRow = {
   at: Date;
 };
 
-const sameBlocks = (a: readonly AcademyLessonBlock[], b: readonly AcademyLessonBlock[]) => JSON.stringify(a) === JSON.stringify(b);
+/** jsonb stores object keys in its own order, so blocks compare with their keys sorted. */
+const canonical = (value: unknown): string =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value !== null && typeof value === 'object'
+      ? `{${Object.keys(value)
+          .sort()
+          .map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`)
+          .join(',')}}`
+      : JSON.stringify(value);
+const sameBlocks = (a: readonly AcademyLessonBlock[], b: readonly AcademyLessonBlock[]) => canonical(a) === canonical(b);
 
 export class LessonRecords {
   constructor(
@@ -97,7 +108,12 @@ export class LessonRecords {
   async publish(input: AcademyPublishLessonInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
     return this.sql.begin(async (tx) => {
       const item = await this.lockItem(tx, input.itemId);
-      if (item.course_revision === input.courseRevision + 1 && item.live_revision === input.lessonRevision) {
+      // This item's own publish at the next course revision, by this founder: a repeat after a lost reply.
+      if (
+        item.course_revision === input.courseRevision + 1 &&
+        item.live_revision === input.lessonRevision &&
+        item.live_course_revision === item.course_revision
+      ) {
         const [own] = await tx<Array<{ kind: string }>>`
           SELECT kind FROM academy.course_events
           WHERE course_id = ${item.course_id} AND revision = ${item.course_revision} AND actor = ${input.operatorId}
@@ -112,9 +128,13 @@ export class LessonRecords {
       const [exists] = await tx<Array<{ revision: number }>>`
         SELECT revision FROM academy.lesson_revisions WHERE item_id = ${item.id} AND revision = ${input.lessonRevision}
       `;
+      if (item.course_state !== 'draft' && item.course_state !== 'published')
+        throw new AcademyError(`a ${item.course_state} course's lessons are not published`, 'academy.course_not_editable');
       if (!exists) throw new AcademyError(`the lesson has no revision ${input.lessonRevision}`, 'academy.lesson_revision_unknown');
-      await tx`UPDATE academy.course_items SET live_revision = ${input.lessonRevision} WHERE id = ${item.id}`;
-      await this.courseEvent(tx, item, 'lesson', input.operatorId, input.reason, input.now);
+      const next = await this.courseEvent(tx, item, 'lesson', input.operatorId, input.reason, input.now);
+      await tx`
+        UPDATE academy.course_items SET live_revision = ${input.lessonRevision}, live_course_revision = ${next} WHERE id = ${item.id}
+      `;
       return this.read(tx, item.id);
     });
   }
@@ -126,16 +146,15 @@ export class LessonRecords {
    */
   async duplicate(input: AcademyDuplicateItemInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
     return this.sql.begin(async (tx) => {
-      const item = await this.lockItem(tx, input.itemId);
+      const item = await this.lockItem(tx, input.itemId, false);
       if (item.course_revision === input.courseRevision + 1) {
-        const [copy] = await tx<Array<{ item_id: string }>>`
-          SELECT r.item_id FROM academy.course_events e
-          JOIN academy.lesson_revisions r ON r.from_item_id = ${item.id} AND r.revision = 1 AND r.actor = ${input.operatorId}
-            AND r.at = e.at
-          WHERE e.course_id = ${item.course_id} AND e.revision = ${item.course_revision} AND e.actor = ${input.operatorId}
-            AND e.kind = 'outline'
+        const [copy] = await tx<Array<{ id: string }>>`
+          SELECT i.id FROM academy.course_items i
+          JOIN academy.course_events e ON e.course_id = i.course_id AND e.revision = i.copied_at_revision
+          WHERE i.copied_from = ${item.id} AND i.copied_at_revision = ${item.course_revision}
+            AND e.actor = ${input.operatorId} AND e.kind = 'outline'
         `;
-        if (copy) return this.read(tx, copy.item_id);
+        if (copy) return this.read(tx, copy.id);
       }
       if (item.course_revision !== input.courseRevision)
         throw new AcademyError(
@@ -150,16 +169,16 @@ export class LessonRecords {
         UPDATE academy.course_items SET position = -2 - position WHERE section_id = ${item.section_id} AND position > ${item.position}
       `;
       await tx`UPDATE academy.course_items SET position = -1 - position WHERE section_id = ${item.section_id} AND position < 0`;
+      const at = await this.courseEvent(tx, item, 'outline', input.operatorId, null, input.now);
       const copyId = randomUUID();
       await tx`
-        INSERT INTO academy.course_items (id, course_id, section_id, position, kind, title, indent, url)
-        VALUES (${copyId}, ${item.course_id}, ${item.section_id}, ${item.position + 1}, ${item.kind}, ${item.title}, ${item.indent}, ${item.url})
+        INSERT INTO academy.course_items (id, course_id, section_id, position, kind, title, indent, url, copied_from, copied_at_revision)
+        VALUES (${copyId}, ${item.course_id}, ${item.section_id}, ${item.position + 1}, ${item.kind}, ${item.title}, ${item.indent},
+                ${item.url}, ${item.id}, ${at})
       `;
+      // An item with no lesson (or a subheader or link) is copied without one.
       const newest = await this.newest(tx, item.id);
-      // An item with no lesson is copied without one. The event and the copy's first revision share `now`, which the
-      // replay above uses to find this copy again.
       if (newest) await this.insert(tx, copyId, 1, 'duplicated', null, item.id, newest.blocks, input.operatorId, input.now);
-      await this.courseEvent(tx, item, 'outline', input.operatorId, null, input.now);
       return this.read(tx, copyId);
     });
   }
@@ -168,16 +187,23 @@ export class LessonRecords {
     return this.read(this.sql, itemId);
   }
 
+  /** The newest revisions, and the live one even when it is older than those, so the editor always shows it. */
   private async read(sql: Sql | TransactionSql, itemId: string): Promise<AcademyLesson> {
-    const [row] = await sql<Array<ItemRow & { course_title: string; lesson_revision: number | null }>>`
-      SELECT i.*, c.state AS course_state, c.revision AS course_revision, c.title AS course_title,
-        (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision
-      FROM academy.course_items i JOIN academy.courses c ON c.id = i.course_id WHERE i.id = ${itemId}
-    `;
+    const [[row], revisions] = await Promise.all([
+      sql<Array<ItemRow & { course_title: string; lesson_revision: number | null }>>`
+        SELECT i.*, c.state AS course_state, c.revision AS course_revision, c.title AS course_title,
+          (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision
+        FROM academy.course_items i JOIN academy.courses c ON c.id = i.course_id WHERE i.id = ${itemId}
+      `,
+      sql<RevisionRow[]>`
+        (SELECT * FROM academy.lesson_revisions WHERE item_id = ${itemId} ORDER BY revision DESC LIMIT ${REVISIONS_SHOWN})
+        UNION
+        (SELECT r.* FROM academy.lesson_revisions r JOIN academy.course_items i ON i.id = r.item_id AND i.live_revision = r.revision
+          WHERE r.item_id = ${itemId})
+        ORDER BY revision DESC
+      `,
+    ]);
     if (!row) throw new AcademyError('no outline item with that id', 'academy.outline_item_unknown');
-    const revisions = await sql<RevisionRow[]>`
-      SELECT * FROM academy.lesson_revisions WHERE item_id = ${itemId} ORDER BY revision DESC LIMIT ${REVISIONS_SHOWN}
-    `;
     return {
       courseId: row.course_id,
       courseTitle: row.course_title,
@@ -205,14 +231,14 @@ export class LessonRecords {
   }
 
   /** The item and its course, the course row locked: every lesson change on a course is one at a time. */
-  private async lockItem(tx: TransactionSql, itemId: string): Promise<ItemRow> {
+  private async lockItem(tx: TransactionSql, itemId: string, holdsLesson = true): Promise<ItemRow> {
     const [row] = await tx<ItemRow[]>`
       SELECT i.*, c.state AS course_state, c.revision AS course_revision
       FROM academy.course_items i JOIN academy.courses c ON c.id = i.course_id
       WHERE i.id = ${itemId} FOR UPDATE OF c, i
     `;
     if (!row) throw new AcademyError('no outline item with that id', 'academy.outline_item_unknown');
-    if ((ACADEMY_ITEMS_WITHOUT_LESSON as readonly string[]).includes(row.kind))
+    if (holdsLesson && (ACADEMY_ITEMS_WITHOUT_LESSON as readonly string[]).includes(row.kind))
       throw new AcademyError(`a ${row.kind} holds no lesson`, 'academy.item_has_no_lesson');
     return row;
   }
@@ -248,7 +274,7 @@ export class LessonRecords {
     actor: string,
     reason: string | null,
     now: Date,
-  ): Promise<void> {
+  ): Promise<number> {
     const [next] = await tx<Array<{ revision: number }>>`
       UPDATE academy.courses SET revision = revision + 1, updated_at = ${now} WHERE id = ${item.course_id} RETURNING revision
     `;
@@ -256,5 +282,6 @@ export class LessonRecords {
       INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at)
       VALUES (${item.course_id}, ${next!.revision}, ${kind}, ${item.course_state}, ${item.course_state}, ${actor}, ${reason}, ${now})
     `;
+    return next!.revision;
   }
 }

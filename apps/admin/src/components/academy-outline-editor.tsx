@@ -89,7 +89,8 @@ function LessonLink({ courseId, item, name }: { courseId: string; item: Item; na
   );
 }
 
-function move<T>(list: readonly T[], from: number, to: number): T[] {
+/** One entry moved from `from` to `to`; out of range leaves the list as it is. */
+export function move<T>(list: readonly T[], from: number, to: number): T[] {
   if (to < 0 || to >= list.length) return [...list];
   const next = [...list];
   const [one] = next.splice(from, 1);

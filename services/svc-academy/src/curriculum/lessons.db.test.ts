@@ -231,4 +231,85 @@ describe('lesson revisions (AC-course-structure-03)', () => {
       lessons().duplicate({ itemId: lesson.id, courseRevision: detail.course.revision, operatorId: A, now: NOW }),
     ).rejects.toMatchObject({ code: 'academy.outline_too_large' });
   });
+
+  it("review findings: image replay, another item's publish, a lesson-less duplicate replay, kind lock, an old live revision", async () => {
+    const { course, section, subheader, lesson, link } = await draftWithOutline();
+    // jsonb reorders keys; a repeat of an image block still answers with its own revision.
+    const image = [{ type: 'image' as const, url: 'https://example.com/a.png', alt: 'A chart' }];
+    const saved = await lessons().save({ itemId: lesson.id, revision: 0, blocks: image, operatorId: A, now: NOW });
+    expect(await lessons().save({ itemId: lesson.id, revision: 0, blocks: image, operatorId: A, now: LATER })).toEqual(saved);
+    // A second lesson item, published; then a stale publish of it over the first item's publish is refused.
+    const copy = await lessons().duplicate({ itemId: lesson.id, courseRevision: course.revision, operatorId: A, now: NOW });
+    const first = await lessons().publish({
+      itemId: copy.item.id,
+      lessonRevision: 1,
+      courseRevision: copy.courseRevision,
+      reason: 'copy live',
+      operatorId: A,
+      now: NOW,
+    });
+    const other = await lessons().publish({
+      itemId: lesson.id,
+      lessonRevision: 1,
+      courseRevision: first.courseRevision,
+      reason: 'source live',
+      operatorId: A,
+      now: NOW,
+    });
+    await expect(
+      lessons().publish({
+        itemId: copy.item.id,
+        lessonRevision: 1,
+        courseRevision: first.courseRevision,
+        reason: 'stale tab',
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.course_revision_stale' });
+    // A subheader duplicates (with no lesson), and a repeat after a lost reply finds that copy.
+    const label = await lessons().duplicate({ itemId: subheader.id, courseRevision: other.courseRevision, operatorId: A, now: NOW });
+    expect(label.item).toMatchObject({ kind: 'subheader', lessonRevision: null });
+    expect(await lessons().duplicate({ itemId: subheader.id, courseRevision: other.courseRevision, operatorId: A, now: LATER })).toEqual(
+      label,
+    );
+    // An item with a lesson does not become a link.
+    const detail = await courses().get(course.id);
+    const keep = detail.outline[0]!.items.map((i) => ({ id: i.id, kind: i.kind, title: i.title, indent: i.indent, url: i.url }));
+    await expect(
+      courses().saveOutline({
+        courseId: course.id,
+        revision: detail.course.revision,
+        sections: [
+          {
+            id: section.id,
+            title: 'Start here',
+            items: keep.map((i) => (i.id === lesson.id ? { ...i, kind: 'link' as const, url: 'https://example.com' } : i)),
+          },
+        ],
+        operatorId: A,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.item_kind_locked' });
+    expect(link.kind).toBe('link');
+  });
+
+  it('the live revision is in the read even when 50 newer revisions are saved after it', async () => {
+    const { course, lesson } = await draftWithOutline();
+    await lessons().save({ itemId: lesson.id, revision: 0, blocks: text('Live'), operatorId: A, now: NOW });
+    await lessons().publish({
+      itemId: lesson.id,
+      lessonRevision: 1,
+      courseRevision: course.revision,
+      reason: 'go',
+      operatorId: A,
+      now: NOW,
+    });
+    for (let r = 1; r <= 51; r++)
+      await lessons().save({ itemId: lesson.id, revision: r, blocks: text(`Draft ${r}`), operatorId: A, now: NOW });
+    const read = await lessons().get(lesson.id);
+    expect(read.revisions).toHaveLength(51);
+    expect(read.revisions[0]!.revision).toBe(52);
+    expect(read.revisions.at(-1)).toMatchObject({ revision: 1, blocks: text('Live') });
+    expect(read.item.liveRevision).toBe(1);
+  });
 });

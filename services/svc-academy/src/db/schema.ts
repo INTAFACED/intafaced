@@ -620,6 +620,9 @@ export const courseItems = academy.table(
     url: text('url'),
     /** The lesson revision learners see (AC-course-structure-03); only an explicit publish moves it. */
     liveRevision: integer('live_revision'),
+    liveCourseRevision: integer('live_course_revision'),
+    copiedFrom: uuid('copied_from'),
+    copiedAtRevision: integer('copied_at_revision'),
   },
   (t) => [uniqueIndex('course_items_position_uq').on(t.sectionId, t.position), index('course_items_course_idx').on(t.courseId)],
 );
