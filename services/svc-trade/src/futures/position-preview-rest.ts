@@ -14,8 +14,9 @@ import {
   priceBandAround,
   splitPlan,
   SPLIT_MAX_CHILDREN,
+  honouredSlippageCapBps,
 } from './matched-order-plan.js';
-import { LIMIT_MAX_ORDER, limitAmount } from './pretrade-limits.js';
+import { LIMIT_MAX_ORDER, limitAmount, MAX_ORDER_UNSET, notionalCeil } from './pretrade-limits.js';
 import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -259,8 +260,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       const at = priceBandAround(markAmount, bandFraction);
       band = { fraction: formatAmount(bandFraction), low: formatAmount(at.low), high: formatAmount(at.high) };
       if (type === 'market') {
-        const cap = deps.slippageCapBps ? await deps.slippageCapBps(market.id) : null;
-        slippageCapBps = cap !== null && Number.isInteger(cap) && cap >= 1 && cap <= 5000 ? cap : null;
+        slippageCapBps = honouredSlippageCapBps(deps.slippageCapBps ? await deps.slippageCapBps(market.id) : null);
         if (slippageCapBps === null) {
           refusals.push({
             code: 'trade.slippage_cap_unset',
@@ -290,8 +290,9 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     const maxOrder = deps.maxOrder ? deps.maxOrder() : null;
     let split: PositionPreviewWire['split'] = null;
     if (maxOrder === null) {
-      refusals.push({ code: 'trade.max_order_unset', field: 'size', message: 'the owner has not published the max-order limit' });
-    } else if (orderValue !== null && markAmount !== null && orderValue > limitAmount(maxOrder)) {
+      refusals.push({ code: MAX_ORDER_UNSET, field: 'size', message: 'the owner has not published the max-order limit' });
+    } else if (markAmount !== null && notionalCeil(markAmount, size) > limitAmount(maxOrder)) {
+      // Compared as the order path compares it (`checkMaxOrder`: price x qty rounded up), so the boundary agrees.
       const plan = splitPlan({
         qty: size,
         // As the order path sizes children: at the band's high edge, or at the mark while the band is unset (refused above).

@@ -61,6 +61,7 @@
  *
  * Nothing here holds a balance. Every amount is recomputed from the order row, the intent row, or the ledger.
  */
+import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
@@ -102,6 +103,7 @@ import {
   correctToBand,
   splitPlan,
   SPLIT_MAX_CHILDREN,
+  honouredSlippageCapBps,
   reduceFillProfitId,
   reduceFillRecipes,
   reducingSide,
@@ -198,6 +200,14 @@ export interface PlaceMatchedOrderInput {
    * the order rests or fills there. Any other value refuses.
    */
   readonly priceCorrection?: unknown;
+}
+
+/** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
+export interface SplitPlacement {
+  readonly parts: number;
+  readonly orders: MatchedOrderView[];
+  /** The child (1-based) a typed refusal stopped at; the children before it are live. Null when every child placed. */
+  readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
 }
 
 export interface MatchedOrderView {
@@ -668,9 +678,8 @@ export class MatchedFuturesOrders {
     let limit: Amount;
     if (input.type === 'market') {
       if (this.deps.slippageCapBps) {
-        const cap = await this.deps.slippageCapBps(marketId);
-        // The cap's own range (admin.risk.set and the spot reader): an out-of-range value is not a cap.
-        if (cap === null || !Number.isInteger(cap) || cap < 1 || cap > 5000) {
+        const cap = honouredSlippageCapBps(await this.deps.slippageCapBps(marketId));
+        if (cap === null) {
           refuse(
             'trade.slippage_cap_unset',
             'no slippage cap is published for this market, so a market open has no protection price; use a limit',
@@ -695,21 +704,24 @@ export class MatchedFuturesOrders {
   }
 
   /**
-   * An opening order above the owner's max-order (`TRADE_MAX_ORDER`, valued at the mark) placed as children of at most
-   * the cap each (`splitPlan`), keyed `<clientOrderId>:1..N`. Before any child is placed, the children not yet placed
-   * must together pass what one order would: max-position and max-loss on their total, and the free balance and the
-   * haircut credit for their total hold. Then each child goes through `place` with every check of its own.
+   * An opening order above the owner's max-order (`TRADE_MAX_ORDER`) placed as children of at most the cap each
+   * (`splitPlan`), keyed `<clientOrderId>:<n>:<tag>`, where the tag is a digest of the request (`splitRequestTag`), so a
+   * key names one request: the same clientOrderId with any other size, side, price or leverage refuses
+   * `trade.client_order_id_conflict` before anything is placed, and so does a clientOrderId that already names a single
+   * order. Before any child is placed, the whole order must be a lot multiple and the children not yet placed must
+   * together pass what one order would: max-position and max-loss on their total, and the free balance and the haircut
+   * credit for their total hold. Then each child goes through `place` with every check of its own.
    *
-   * A crash or a refusal after child k leaves children 1..k as ordinary orders the trader can see and cancel; the same
-   * request again replays those by key and places the rest, never one twice. A child whose mark moved enough between
-   * the plan and its own check can still be refused for size: the request then answers that refusal, and the same
-   * request later plans again from the new mark.
+   * A crash after child k leaves children 1..k as ordinary orders the trader can see and cancel; the same request again
+   * replays those by key and places the rest, never one twice. A child refused on its own check (the mark moved past
+   * the band it was sized at, say) stops the request there: the answer lists every child placed and names the refusal
+   * in `stopped`, so nothing live is reported as nothing placed. The same request later plans again and finishes.
    */
   async placeSplit(
     principal: Principal,
     input: PlaceMatchedOrderInput,
     context: { readonly region?: string | null } = {},
-  ): Promise<{ readonly parts: number; readonly orders: MatchedOrderView[] }> {
+  ): Promise<SplitPlacement> {
     if (!this.deps.enabled) {
       refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
     }
@@ -719,6 +731,11 @@ export class MatchedFuturesOrders {
     }
     const base = input.clientOrderId?.trim() ?? '';
     if (base.length === 0) refuse('trade.client_order_id_required', 'clientOrderId is required: each child is keyed by it');
+    const tag = splitRequestTag(input);
+    const key = (n: number) => `${base}:${n}:${tag}`;
+    if (key(SPLIT_MAX_CHILDREN).length > 64) {
+      refuse('trade.client_order_id_required', `clientOrderId is too long to key the children (64 chars with the ":<n>:${tag}" suffix)`);
+    }
     refuseMalformedOrder(input);
     // The precheck below sizes the children's hold with this leverage, so it is checked first; each child checks it again.
     if (this.deps.maxLeverage == null || this.deps.maxLeverage <= 0n) {
@@ -729,26 +746,40 @@ export class MatchedFuturesOrders {
     const resolved = resolveAdmissionLimits();
     if ('refusal' in resolved) throw new MatchedOrderError(resolved.refusal.message, resolved.refusal.code, 400);
     const maxOrder = resolved.limits.maxOrder;
-    if (maxOrder === null) return { parts: 1, orders: [await this.place(principal, input, context)] };
-
     const band = this.deps.priceBand;
     if (band === null) {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
     const market = await this.loadMarket(input.symbol);
+    const lotSize = market.lot_size == null ? null : parseAmount(market.lot_size);
+    // Every full child is a lot multiple, so a whole order off the lot step would only fail on its last child.
+    const lot = checkCloseQuantity({ quantity: input.qty, size: input.qty, lotSize });
+    if (!lot.ok) refuse(lot.code, lot.reason);
+
+    if (await this.findOrderByClientId(input.userId, input.symbol, base)) {
+      refuse('trade.client_order_id_conflict', 'this clientOrderId names a single order, not a split', 409);
+    }
+    const children = await this.findSplitChildren(input.userId, market.id, base);
+    if (children.some((row) => row.tag !== tag)) {
+      refuse('trade.client_order_id_conflict', 'this clientOrderId names a different split order', 409);
+    }
+    const placedByKey = new Map(children.map((row) => [row.row.client_order_id, row.row]));
+    // A retry plans with the child size its first attempt used, so every key names the same child as before.
+    const first = placedByKey.get(key(1));
     // The plan's mark sizes the children and prechecks them together; it authorises no size. Each child's own `place`
     // reads a mark the book's depth backs for that child's size, as any single order does.
     const mark = await this.deps.markFor(market.id, market.symbol, this.deps.now(), null);
-    // A retry plans with the child size its first attempt used, so every key names the same child as before.
-    const first = await this.findOrderByClientId(input.userId, input.symbol, `${base}:1`);
     // Sized at the band's high edge, so a child's own max-order check passes while the mark stays inside the band.
-    const plan = splitPlan({
-      qty: input.qty,
-      sizedAt: priceBandAround(mark, band).high,
-      maxOrderNotional: limitAmount(maxOrder),
-      lotSize: market.lot_size == null ? null : parseAmount(market.lot_size),
-      ...(first ? { childSize: parseAmount(first.qty) } : {}),
-    });
+    const plan =
+      maxOrder === null
+        ? { ok: true as const, parts: [input.qty] }
+        : splitPlan({
+            qty: input.qty,
+            sizedAt: priceBandAround(mark, band).high,
+            maxOrderNotional: limitAmount(maxOrder),
+            lotSize,
+            ...(first ? { childSize: parseAmount(first.qty) } : {}),
+          });
     if (!plan.ok) {
       refuse(
         LIMIT_MAX_ORDER,
@@ -758,14 +789,9 @@ export class MatchedFuturesOrders {
         PRETRADE_LIMIT_HTTP_STATUS,
       );
     }
-    if (plan.parts.length === 1) return { parts: 1, orders: [await this.place(principal, input, context)] };
-    const ids = plan.parts.map((_, n) => `${base}:${n + 1}`);
-    if (ids.some((id) => id.length > 64)) {
-      refuse('trade.client_order_id_required', `clientOrderId is too long to key ${plan.parts.length} children (64 chars with the suffix)`);
-    }
+    const ids = plan.parts.map((_, n) => key(n + 1));
 
-    const placed = await Promise.all(ids.map((id) => this.findOrderByClientId(input.userId, input.symbol, id)));
-    const waiting = plan.parts.filter((_, n) => !placed[n]);
+    const waiting = plan.parts.filter((_, n) => !placedByKey.has(ids[n]!));
     if (waiting.length > 0) {
       const total = waiting.reduce((sum, part) => sum + part, 0n);
       const pretrade = await checkOpenAdmission({
@@ -807,9 +833,33 @@ export class MatchedFuturesOrders {
 
     const orders: MatchedOrderView[] = [];
     for (const [n, qty] of plan.parts.entries()) {
-      orders.push(await this.place(principal, { ...input, qty, clientOrderId: ids[n]! }, context));
+      try {
+        orders.push(await this.place(principal, { ...input, qty, clientOrderId: ids[n]! }, context));
+      } catch (err) {
+        // A typed refusal after a child is live is an answer, not a failure: the children placed are named with it.
+        // Anything else (an engine or ledger answer that never came) leaves the outcome unknown, so it is thrown.
+        const refusal = typedRefusal(err);
+        if (orders.length > 0 && refusal) return { parts: plan.parts.length, orders, stopped: { child: n + 1, ...refusal } };
+        throw err;
+      }
     }
-    return { parts: plan.parts.length, orders };
+    return { parts: plan.parts.length, orders, stopped: null };
+  }
+
+  /** The children of a split already written under `base` on this market, with the request tag their key carries. */
+  private async findSplitChildren(userId: string, marketId: string, base: string): Promise<{ row: OrderRow; tag: string }[]> {
+    const prefix = `${base.replace(/[\\%_]/g, (c) => `\\${c}`)}:%`;
+    const rows = await this.deps.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE user_id = ${userId} AND market_id = ${marketId} AND client_order_id LIKE ${prefix} ESCAPE '\\'
+    `;
+    const out: { row: OrderRow; tag: string }[] = [];
+    for (const row of rows) {
+      // Only `<base>:<n>:<tag>` is a child of this base; `<base>:x:...` is some other key that shares the prefix.
+      const child = /^(\d+):([0-9a-f]{8})$/.exec(row.client_order_id.slice(base.length + 1));
+      if (child) out.push({ row, tag: child[2]! });
+    }
+    return out;
   }
 
   // ── placement ─────────────────────────────────────────────────────────────
@@ -2669,6 +2719,32 @@ export class MatchedFuturesOrders {
     if (!m) refuse('trade.market_not_found', `market ${marketId} not found`, 404);
     return m;
   }
+}
+
+/**
+ * The request a split's keys name: a short digest of everything that decides its children, so the same clientOrderId
+ * with another size, side, price, correction, leverage or collateral never replays or adds to the first one's children.
+ */
+export function splitRequestTag(input: PlaceMatchedOrderInput): string {
+  const parts = [
+    input.symbol,
+    input.side,
+    input.type,
+    formatAmount(input.qty),
+    input.limitPrice === undefined ? '' : formatAmount(input.limitPrice),
+    input.priceCorrection === 'adjust' ? 'adjust' : 'reject',
+    formatAmount(input.leverage),
+    typeof input.collateralClass === 'string' ? input.collateralClass : 'cash',
+  ];
+  return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 8);
+}
+
+/** A typed refusal (a code and a 4xx status) from a child's own checks; null for anything that left the outcome unknown. */
+function typedRefusal(err: unknown): { code: string; message: string } | null {
+  if (!(err instanceof Error)) return null;
+  const { code, status } = err as Error & { code?: unknown; status?: unknown };
+  if (typeof code !== 'string' || typeof status !== 'number' || status >= 500) return null;
+  return { code, message: err.message };
 }
 
 /** The order's own shape, before anything is read: the same refusals for a single order and a split. */

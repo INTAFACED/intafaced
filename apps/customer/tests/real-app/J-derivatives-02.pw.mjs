@@ -310,10 +310,11 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   // Two children on the book, keyed by the open's id, each worth no more than the cap, resting at the band's low edge.
   const open = await me.get('/api/v1/futures/orders?scope=open&limit=10');
   expect(open.status).toBe(200);
-  const children = open.body.filter((o) => /:[12]$/.test(o.clientOrderId ?? ''));
+  // Each child is keyed `<open id>:<n>:<tag>`, the tag naming this one request.
+  const children = open.body.filter((o) => /:[12]:[0-9a-f]{8}$/.test(o.clientOrderId ?? ''));
   expect(children, JSON.stringify(open.body)).toHaveLength(2);
-  const base = children[0].clientOrderId.replace(/:\d$/, '');
-  expect(children.map((o) => o.clientOrderId).sort()).toEqual([`${base}:1`, `${base}:2`]);
+  const [, base, tag] = /^(.*):\d:([0-9a-f]{8})$/.exec(children[0].clientOrderId);
+  expect(children.map((o) => o.clientOrderId).sort()).toEqual([`${base}:1:${tag}`, `${base}:2:${tag}`]);
   expect(children.reduce((sum, o) => sum + toUnits(o.qty), 0n)).toBe(toUnits(size));
   for (const child of children) {
     expect(child).toMatchObject({ side: 'buy', type: 'limit', status: 'open', reduceOnly: false });
@@ -338,6 +339,21 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   });
   expect(again.status, JSON.stringify(again.body)).toBe(200);
   expect(again.body.orders.map((o) => o.orderId).sort()).toEqual(children.map((o) => o.orderId).sort());
+  expect((await me.balances()).USDT.free).toBe(during.USDT.free);
+  // The same key with another size names another request: refused, nothing placed.
+  const other = await me.post('/api/v1/futures/orders/split', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    amount: fromUnits(toUnits(size) * 2n),
+    price: far,
+    priceCorrection: 'adjust',
+    leverage: LEVERAGE,
+    marginMode: 'isolated',
+    clientOrderId: base,
+  });
+  expect(other.status, JSON.stringify(other.body)).toBe(409);
+  expect(other.body.error).toBe('trade.client_order_id_conflict');
   expect((await me.balances()).USDT.free).toBe(during.USDT.free);
 
   // Cancelled, every hold comes back: nothing was ever filled.

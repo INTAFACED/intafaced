@@ -837,7 +837,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
         ) : null}
         {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
           <>
-            <p className={note}>{t('Not found body')}</p>
+            <p className={note}>{outcome.found ? t('Split partly found', { count: String(outcome.found.length) }) : t('Not found body')}</p>
             <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
               {t('Send same request again')}
             </Button>
@@ -854,10 +854,20 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
     // What the book did: filled (a position is open), resting (a limit waits on the book), or partly filled.
     const resting = order?.status === 'open';
     const partly = order !== undefined && order.status === 'cancelled' && isPositive(order.filledQty);
-    if (outcome.orders && outcome.orders.length > 1)
+    if (outcome.orders && (outcome.orders.length > 1 || outcome.stopped)) {
+      const stopped = outcome.stopped ? futuresRefusal({ code: outcome.stopped.code, message: outcome.stopped.message }) : null;
       return (
         <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
-          <h3 className="text-sm font-medium">{t('Split placed title', { parts: String(outcome.orders.length) })}</h3>
+          <h3 className="text-sm font-medium">
+            {stopped
+              ? t('Split stopped title', { placed: String(outcome.orders.length) })
+              : t('Split placed title', { parts: String(outcome.orders.length) })}
+          </h3>
+          {stopped ? (
+            <p className="text-xs text-warn" data-code={stopped.code ?? undefined}>
+              {t('Split stopped body', { reason: `${stopped.title}. ${stopped.body}` })}
+            </p>
+          ) : null}
           <ul className="flex flex-col gap-1 text-sm">
             {outcome.orders.map((child) => (
               <li key={child.orderId} className="if-num">
@@ -872,6 +882,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
           </Button>
         </div>
       );
+    }
     return (
       <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
         <h3 className="text-sm font-medium">{resting ? t('Resting title') : partly ? t('Partly title') : t('Opened title')}</h3>

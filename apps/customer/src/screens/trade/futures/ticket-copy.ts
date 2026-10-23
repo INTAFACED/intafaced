@@ -56,6 +56,10 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Split placed title': 'Placed as {parts} orders',
   'Split child resting': '{qty} rests at {price}',
   'Split child filled': '{filled} of {qty} filled',
+  'Split stopped title': '{placed} orders placed, then one was refused',
+  'Split stopped body': 'The orders below are live. The rest of the size was not placed: {reason}',
+  'Split partly found':
+    '{count} of its orders are on the book, not the whole size. Sending the same request again places only the rest; none is placed twice.',
   'Type limit': 'Limit',
   'Type stop market': 'Stop market',
   'Type stop limit': 'Stop limit',

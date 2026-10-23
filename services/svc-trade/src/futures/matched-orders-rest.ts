@@ -32,7 +32,11 @@ export interface MatchedOrdersRestDeps {
     principal: Principal,
     input: PlaceMatchedOrderInput,
     context: { readonly region?: string | null },
-  ) => Promise<{ readonly parts: number; readonly orders: readonly FuturesOrderWire[] }>;
+  ) => Promise<{
+    readonly parts: number;
+    readonly orders: readonly FuturesOrderWire[];
+    readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
+  }>;
   readonly cancel?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire>;
   readonly list?: (
     principal: Principal,

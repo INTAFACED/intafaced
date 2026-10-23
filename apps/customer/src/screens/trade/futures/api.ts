@@ -279,7 +279,13 @@ export interface PreviewInput {
   priceCorrection?: 'adjust';
 }
 
-export const futuresSplitSchema = z.object({ parts: z.number().int(), orders: z.array(futuresOrderSchema) });
+export const futuresSplitSchema = z.object({
+  parts: z.number().int(),
+  orders: z.array(futuresOrderSchema),
+  /** The child a typed refusal stopped at; the children before it are live. */
+  stopped: z.object({ child: z.number().int(), code: z.string(), message: z.string() }).nullable(),
+});
+export type FuturesSplit = z.infer<typeof futuresSplitSchema>;
 
 export function createFuturesApi(api: ApiClient) {
   return {
@@ -302,6 +308,8 @@ export function createFuturesApi(api: ApiClient) {
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),
+    /** Every recent order on one contract, up to the service's page cap: where a split's children are looked up. */
+    ordersOn: (symbol: string) => api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope: 'all', limit: 500, symbol } }),
     orderTypes: (signal?: AbortSignal) => api.rest('/futures/order-types', orderTypeCatalogueSchema, { query: { limit: 50 }, signal }),
     gatedList: (signal?: AbortSignal) => api.rest('/account/gated-list', gatedListSchema, { signal }),
     agreements: (signal?: AbortSignal) => api.rest('/account/agreements', agreementsSchema, { signal }),

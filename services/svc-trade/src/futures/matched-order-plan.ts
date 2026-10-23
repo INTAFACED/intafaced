@@ -71,6 +71,14 @@ export function protectiveLimit(side: OrderSide, band: PriceBand): Amount {
 }
 
 /**
+ * A slippage cap the order path honours: a whole number of bps from 1 to 5000, the range `admin.risk.set` and the spot
+ * reader take. Anything else, null included, is no cap, and a market open refuses `trade.slippage_cap_unset`.
+ */
+export function honouredSlippageCapBps(cap: number | null | undefined): number | null {
+  return typeof cap === 'number' && Number.isInteger(cap) && cap >= 1 && cap <= 5000 ? cap : null;
+}
+
+/**
  * The protective limit of a market OPEN: the band edge, or nearer the mark when the slippage cap is tighter. The cap's
  * distance rounds down, so the limit never sits past the cap. A market close keeps the band edge (`protectiveLimit`):
  * reducing risk is never held to a tighter price than the band.
@@ -89,7 +97,7 @@ export function marketOpenLimit(side: OrderSide, mark: Amount, band: PriceBand, 
  * The most children one split request places. A request bound, not a money limit: it keeps one call from planning,
  * looking up and placing an unbounded number of orders. Max-position still bounds the total.
  */
-export const SPLIT_MAX_CHILDREN = 100;
+export const SPLIT_MAX_CHILDREN = 25;
 
 /**
  * An opening order above the owner's max-order notional as children of at most the cap each: as many full children as
