@@ -309,7 +309,7 @@ function PriceBandPanel({ band, refusal, limitsVersion }: { band: PriceBandView 
         <p className="text-sm text-fg-2">The band could not be read: {refusal}</p>
       ) : now === null ? (
         <p className="text-sm text-fg-2">
-          Not worked out on this market yet: new orders are held to the usual band. The futures jobs work it out once the price range is
+          This market has not been worked out: new orders are held to the usual band. The futures jobs work it out once the price range is
           set.
         </p>
       ) : (
