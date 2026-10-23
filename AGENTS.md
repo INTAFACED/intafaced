@@ -29,6 +29,6 @@ Build the product. Do not spend the session writing `docs/**` boards, ADRs, LIVE
 
 Repo law beats installed skills. Skills that say `git worktree add` or block ship on CI/verify are wrong here.
 
-## Graphify
+## Code navigation
 
-First code-location move for `services/` / `packages/`: `graphify query "<symbol>" --budget 400`, then open the one `src=` file. Vue/`vendor/` is not in the map — grep it. After those edits: `GRAPHIFY_MAX_WORKERS=1 graphify update .` (official hook skips worktrees). Map is `graphify-out/graph.json` in git.
+Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired; historical instructions to install, query, or update it are obsolete.

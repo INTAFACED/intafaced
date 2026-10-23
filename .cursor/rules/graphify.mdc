@@ -1,6 +1,0 @@
----
-description: Query Graphify before grepping this repo.
-alwaysApply: true
----
-
-If `graphify-out/graph.json` exists, the first **backend** code-location move is `graphify query "<symbol>" --budget 400`. Then open the one `src=` file. Do not grep `services/` to find a symbol. Vue/`vendor/` is not in the map — grep it. Never pass `--help` as a query.
