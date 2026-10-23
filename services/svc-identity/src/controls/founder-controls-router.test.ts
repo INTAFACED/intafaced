@@ -58,6 +58,15 @@ function fixture() {
     async history() {
       return [];
     },
+    async closure() {
+      throw new Error('not used here');
+    },
+    async closureState() {
+      return null;
+    },
+    async closureHistory() {
+      return [];
+    },
     async changeEntitlement() {
       return { outcome: 'refused', auditId: REQUEST, entitlement: null, code: 'operator.denied' };
     },
