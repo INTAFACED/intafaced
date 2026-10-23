@@ -137,6 +137,7 @@ describe('tax.lotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
+        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
       },
     ]);
     expect(book.residuals).toEqual([]);
@@ -159,7 +160,8 @@ describe('tax.lotBook', () => {
     ledger();
     const api = createTaxRouter(service()).createCaller(await signed());
     expect((await api.lotBook({ method: 'LIFO' })).method).toBe('LIFO');
-    await expect(service().lotBook({ userId: USER, method: 'AVERAGE' })).rejects.toMatchObject({ code: TAX_LOT_METHOD_REQUIRED });
+    expect((await api.lotBook({ method: 'AVERAGE' })).method).toBe('AVERAGE');
+    await expect(service().lotBook({ userId: USER, method: 'LOFO' })).rejects.toMatchObject({ code: TAX_LOT_METHOD_REQUIRED });
   });
 
   it('names a read that hit the page ceiling instead of showing a short book', async () => {
