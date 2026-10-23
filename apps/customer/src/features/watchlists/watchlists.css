@@ -1,0 +1,239 @@
+/* The watchlist panel beside the chart. Colours and type come from the shared tokens; nothing here is a money value. */
+.wl {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--if-bg);
+  border: 1px solid var(--if-line);
+  border-radius: 12px;
+  font-family: var(--if-font-ui);
+  color: var(--if-fg);
+}
+.wl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wl-head h2 {
+  margin: 0;
+  font-size: var(--if-text-lg, 16px);
+}
+.wl-head-actions,
+.wl-add,
+.wl-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wl-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--if-fg-2);
+  font-size: 12px;
+}
+.wl-field select,
+.wl-field input,
+.wl-add input,
+.wl-inline input {
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--if-field);
+  color: var(--if-fg);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font: inherit;
+}
+.wl-search input {
+  width: 220px;
+}
+.wl-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--if-fg);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wl-btn:hover:not(:disabled) {
+  background: var(--if-hover);
+}
+.wl-btn:disabled,
+.wl-btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.wl-file {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.wl-file:disabled {
+  cursor: default;
+}
+.wl-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+}
+.wl-note {
+  margin: 0;
+  color: var(--if-fg-2);
+  font-size: 12px;
+}
+.wl-notice {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--if-r-sm, 6px);
+  border: 1px solid var(--if-line);
+  font-size: 12px;
+}
+.wl-notice[data-tone='warn'] {
+  color: var(--if-down);
+}
+.wl-body {
+  overflow-x: auto;
+}
+.wl-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.wl-table th,
+.wl-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--if-line);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wl-table thead th {
+  position: relative;
+  color: var(--if-fg-2);
+  font-weight: 500;
+}
+.wl-table th[scope='row'],
+.wl-table thead th:first-child {
+  text-align: left;
+}
+.wl-sort {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wl-grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+.wl-grip:hover {
+  background: var(--if-line);
+}
+.wl-section th {
+  text-align: left;
+  background: var(--if-field);
+  color: var(--if-fg);
+}
+.wl-collapse {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.wl-count {
+  margin-left: 8px;
+  color: var(--if-fg-2);
+  font-weight: 400;
+}
+.wl-symbol {
+  color: var(--if-fg);
+  text-decoration: none;
+  font-weight: 600;
+}
+.wl-symbol:hover {
+  text-decoration: underline;
+}
+.wl-table tr[draggable='true'] {
+  cursor: grab;
+}
+.wl-quote[data-tick='up'] {
+  color: var(--if-up);
+  transition: color var(--if-t-fast, 120ms) var(--if-ease, ease);
+}
+.wl-quote[data-tick='down'] {
+  color: var(--if-down);
+  transition: color var(--if-t-fast, 120ms) var(--if-ease, ease);
+}
+.wl-nodata {
+  color: var(--if-fg-2);
+  font-style: italic;
+}
+.wl-actions {
+  white-space: nowrap;
+}
+.wl-actions .wl-btn {
+  margin-left: 4px;
+  padding: 2px 6px;
+}
+.wl-empty td {
+  text-align: left;
+  color: var(--if-fg-2);
+}
+.wl-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.wl-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+}
+.wl-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.wl-stat dt {
+  color: var(--if-fg-2);
+}
+.wl-stat dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wl-sub {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
