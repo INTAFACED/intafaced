@@ -88,13 +88,19 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
                   <div>
                     <strong>{t('attemptRow', { number: history.data.length - index })}</strong>
                     <div className="academy-lms-meta">
-                      <span>{t('attemptScore', { score: attempt.score, maxScore: attempt.maxScore })}</span>
+                      <span>
+                        {attempt.hiddenUntil === null
+                          ? t('attemptScore', { score: attempt.score, maxScore: attempt.maxScore })
+                          : t('attemptHidden', { date: formatMoment(attempt.hiddenUntil, language) })}
+                      </span>
                       <time dateTime={attempt.submittedAt}>{formatMoment(attempt.submittedAt, language)}</time>
                     </div>
                   </div>
-                  <span className="academy-lms-chip" data-status={attempt.pass ? 'passed' : 'failed'}>
-                    {attempt.pass ? t('resultPassed') : t('resultNotPassed')}
-                  </span>
+                  {attempt.hiddenUntil === null && (
+                    <span className="academy-lms-chip" data-status={attempt.pass ? 'passed' : 'failed'}>
+                      {attempt.pass ? t('resultPassed') : t('resultNotPassed')}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -138,6 +144,7 @@ export type TimedQuizViewProps = {
  */
 export function TimedQuizView(props: TimedQuizViewProps) {
   const { t } = copy.useCopy();
+  const { language } = usePreferences();
   const id = useId();
   const { quiz, attempt, review, problem } = props;
   const total = quiz.questions.length;
@@ -225,10 +232,18 @@ export function TimedQuizView(props: TimedQuizViewProps) {
             <div className="academy-lms-result" role="status" data-quiz-result={attempt.attemptId}>
               <h4>{t('resultTitle')}</h4>
               {props.timeUp && <p>{t('quizTimeUp')}</p>}
-              <p>{t('resultScore', { score: attempt.result.score, maxScore: attempt.result.maxScore })}</p>
-              <span className="academy-lms-chip" data-status={attempt.result.pass ? 'passed' : 'failed'}>
-                {attempt.result.pass ? t('resultPassed') : t('resultNotPassed')}
-              </span>
+              {attempt.result.hidden ? (
+                <p data-quiz-hidden={attempt.result.hiddenUntil}>
+                  {t('quizResultHidden', { date: formatMoment(attempt.result.hiddenUntil, language) })}
+                </p>
+              ) : (
+                <>
+                  <p>{t('resultScore', { score: attempt.result.score, maxScore: attempt.result.maxScore })}</p>
+                  <span className="academy-lms-chip" data-status={attempt.result.pass ? 'passed' : 'failed'}>
+                    {attempt.result.pass ? t('resultPassed') : t('resultNotPassed')}
+                  </span>
+                </>
+              )}
               {review &&
                 (review.questions === null ? (
                   <p className="muted" data-quiz-review="score_only">
@@ -308,7 +323,8 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
       // The clock runs from the server's figure; the browser's own time never sets the deadline.
       clockEnd.current = next && next.result === null && next.secondsLeft !== null ? performance.now() + next.secondsLeft * 1000 : null;
       setSecondsLeft(next && next.result === null ? next.secondsLeft : null);
-      if (next?.result) {
+      // A hidden result has no review to read until its date.
+      if (next?.result && !next.result.hidden) {
         void api.query('academy', 'assessment.review', { attemptId: next.attemptId }, academyQuizReviewSchema).then((r) => {
           if (live.current && r.ok) setReview(r.data);
         });

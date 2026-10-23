@@ -182,7 +182,17 @@ export type AcademyErrorCode =
   /** The attempt is still open, so there is nothing to review. */
   | 'academy.attempt_open'
   /** A timed or staff-published quiz is taken with Start, not sent in one go. */
-  | 'academy.attempt_required';
+  | 'academy.attempt_required'
+  /** AC-progress-02: the result is hidden until its date; the response says so rather than a number. */
+  | 'academy.grades_hidden'
+  /** The owner has not set how many to-do items a learner may keep. */
+  | 'academy.planner_limit_unset'
+  /** The learner already keeps as many to-do items as the owner allows. */
+  | 'academy.planner_full'
+  /** No to-do item of the caller's with this id. */
+  | 'academy.todo_not_found'
+  /** The goal is out of bounds, or there is no goal with its reminder on to send. */
+  | 'academy.goal_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -292,6 +302,11 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.attempt_closed',
   'academy.attempt_open',
   'academy.attempt_required',
+  'academy.grades_hidden',
+  'academy.planner_limit_unset',
+  'academy.planner_full',
+  'academy.todo_not_found',
+  'academy.goal_invalid',
 ] as const;
 
 /** L3 — catalog size. */

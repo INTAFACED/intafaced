@@ -7,5 +7,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
     ACADEMY_STREAM_PROVIDER: 'none', // no LiveKit / video storage: live classes and video stay unconnected
+    ACADEMY_PLANNER_TODO_LIMIT: '50', // TEST: the owner sets the real cap; the stack needs one so the planner journey can add
   }),
 });

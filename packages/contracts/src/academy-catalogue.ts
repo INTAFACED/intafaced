@@ -252,13 +252,21 @@ export const academyQuizAttemptSchema = z.object({
   deadlineAt: isoInstant.nullable(),
   secondsLeft: z.number().int().nonnegative().nullable(),
   answers: z.record(z.string(), z.string()),
+  /**
+   * Null while open. A finished attempt on a quiz whose results staff hide until a date (AC-progress-02) carries
+   * `hiddenUntil` and no score, pass or maximum until then.
+   */
   result: z
-    .object({
-      score: z.number().int().nonnegative(),
-      maxScore: z.number().int().nonnegative(),
-      pass: z.boolean(),
-      finishedAt: isoInstant,
-    })
+    .discriminatedUnion('hidden', [
+      z.object({
+        hidden: z.literal(false),
+        score: z.number().int().nonnegative(),
+        maxScore: z.number().int().nonnegative(),
+        pass: z.boolean(),
+        finishedAt: isoInstant,
+      }),
+      z.object({ hidden: z.literal(true), hiddenUntil: isoInstant, finishedAt: isoInstant }),
+    ])
     .nullable(),
 });
 export type AcademyQuizAttempt = z.infer<typeof academyQuizAttemptSchema>;
@@ -298,6 +306,8 @@ export const academySetQuizInputSchema = z
         attemptLimit: z.number().int().positive().nullable(),
         timeLimitSeconds: z.number().int().positive().nullable(),
         reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+        /** AC-progress-02: results stay hidden (a pending grade, no score) until this instant; null or absent shows them at once. */
+        resultsHiddenUntil: isoInstant.nullable().optional(),
         questions: z
           .array(
             z.object({
@@ -316,3 +326,102 @@ export const academySetQuizInputSchema = z
   })
   .strict();
 export type AcademySetQuizInput = z.infer<typeof academySetQuizInputSchema>;
+
+/**
+ * AC-progress-02: the learner's progress page. Per enrolled course, percent complete from the items the learner can see
+ * (every published item of the course; nothing is hidden from a learner today), with a check mark per item. Percentages
+ * are decimal strings with one decimal place.
+ */
+const percent = z.string().regex(/^\d{1,3}\.\d$/);
+export const academyCourseProgressSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    visible: z.number().int().positive(),
+    completed: z.number().int().nonnegative(),
+    percent,
+    items: z.array(
+      z.object({
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+        completedAt: isoInstant.nullable(),
+      }),
+    ),
+  })
+  .refine((row) => row.completed <= row.visible && row.items.length === row.visible, { message: 'progress does not add up' });
+export type AcademyCourseProgress = z.infer<typeof academyCourseProgressSchema>;
+
+/**
+ * AC-progress-02: the learner's grades. One row per quiz they have finished an attempt on, at their best score, as
+ * decimal strings. A result staff hide until a date is `pending`: no score, the date it shows. Averages are per item type
+ * over released results only (sum of points over sum of possible); no row means no average, never a zero.
+ */
+export const ACADEMY_GRADE_TYPES = ['quiz'] as const;
+const points = z.string().regex(/^\d+$/);
+export const academyGradesSchema = z.object({
+  rows: z.array(
+    z.discriminatedUnion('pending', [
+      z.object({
+        pending: z.literal(false),
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_GRADE_TYPES),
+        attempts: z.number().int().positive(),
+        score: points,
+        possible: points,
+        percent,
+        passed: z.boolean(),
+      }),
+      z.object({
+        pending: z.literal(true),
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_GRADE_TYPES),
+        attempts: z.number().int().positive(),
+        hiddenUntil: isoInstant,
+      }),
+    ]),
+  ),
+  averages: z.array(z.object({ type: z.enum(ACADEMY_GRADE_TYPES), percent, count: z.number().int().positive() })),
+});
+export type AcademyGrades = z.infer<typeof academyGradesSchema>;
+
+export const academyProgressPageSchema = z.object({ courses: z.array(academyCourseProgressSchema), grades: academyGradesSchema });
+export type AcademyProgressPage = z.infer<typeof academyProgressPageSchema>;
+
+/**
+ * AC-progress-02: the learner's planner. To-do items and a weekly goal are the learner's own and private. `todoLimit` is
+ * the owner's per-learner cap (null: unset, and adding refuses `academy.planner_limit_unset`). `revision` counts every
+ * to-do ever added, so a new item's key `todo:<revision>` names one add. The goal reminder's mail names `vendor.email`
+ * while Academy has no mail sender.
+ */
+export const academyPlannerTodoSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string().min(1).max(200),
+  createdAt: isoInstant,
+  doneAt: isoInstant.nullable(),
+});
+export type AcademyPlannerTodo = z.infer<typeof academyPlannerTodoSchema>;
+export const academyGoalSchema = z.object({
+  itemsPerWeek: z.number().int().positive(),
+  reminder: z.boolean(),
+  setAt: isoInstant,
+  /** Items the learner completed in the seven days up to this read. */
+  doneThisWeek: z.number().int().nonnegative(),
+});
+export const academyPlannerSchema = z.object({
+  todos: z.array(academyPlannerTodoSchema),
+  todoLimit: z.number().int().positive().nullable(),
+  revision: z.number().int().nonnegative(),
+  goal: academyGoalSchema.nullable(),
+  reminderMail: z.literal('vendor.email'),
+});
+export type AcademyPlanner = z.infer<typeof academyPlannerSchema>;
+export const academyAddTodoInputSchema = z
+  .object({ clientKey: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(200) })
+  .strict();
+export const academySetTodoDoneInputSchema = z.object({ todoId: z.string().uuid(), done: z.boolean() }).strict();
+export const academyRemoveTodoInputSchema = z.object({ todoId: z.string().uuid() }).strict();
+export const academySetGoalInputSchema = z.object({ itemsPerWeek: z.number().int(), reminder: z.boolean() }).strict();
+/** Sending the goal reminder now: `sent` is false and `mail` names the missing dependency while Academy has no mail sender. */
+export const academyGoalReminderSchema = z.object({ sent: z.literal(false), mail: z.literal('vendor.email') });

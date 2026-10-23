@@ -388,6 +388,8 @@ export const assessmentAttempts = academy.table(
     maxScore: integer('max_score').notNull(),
     passed: boolean('passed').notNull(),
     submittedAt: tstz('submitted_at').notNull().defaultNow(),
+    /** AC-progress-02: the quiz's hide-until date at finish; the result shows after the later of this and the quiz's date. */
+    hiddenUntil: tstz('hidden_until'),
   },
   (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
 );
@@ -403,6 +405,8 @@ export const quizzes = academy.table('quizzes', {
   reason: text('reason').notNull(),
   setBy: uuid('set_by').notNull(),
   setAt: tstz('set_at').notNull(),
+  /** AC-progress-02: results are pending until this instant; null shows them at once. */
+  resultsHiddenUntil: tstz('results_hidden_until'),
 });
 
 /** AC-quizzes-03: one started attempt; finishing writes its score row into assessment_attempts as well. */
@@ -493,7 +497,32 @@ export const certHolderNameRequests = academy.table(
   (t) => [uniqueIndex('cert_holder_name_requests_pk').on(t.userId, t.clientRequestId)],
 );
 
+/** AC-progress-02: the learner's own to-do items; `client_key` names one add, and a removed item keeps its row. */
+export const plannerTodos = academy.table(
+  'planner_todos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    clientKey: text('client_key').notNull(),
+    text: text('text').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    doneAt: tstz('done_at'),
+    removedAt: tstz('removed_at'),
+  },
+  (t) => [uniqueIndex('planner_todos_key_uq').on(t.userId, t.clientKey)],
+);
+
+/** AC-progress-02: one weekly goal per learner. */
+export const learningGoals = academy.table('learning_goals', {
+  userId: uuid('user_id').primaryKey(),
+  itemsPerWeek: integer('items_per_week').notNull(),
+  reminder: boolean('reminder').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
 export const schema = {
+  plannerTodos,
+  learningGoals,
   rooms,
   roomInvites,
   sessions,

@@ -308,6 +308,93 @@ test(`${J} #7 finishing twice scores once, the review shows my own answers or th
   }
 });
 
+test(`${J} #8 /academy/progress shows percent complete with check marks, the grade chart and average, a pending banner, and an empty state`, async ({
+  page,
+}) => {
+  const { who, course, items } = state('who', 'course', 'items');
+  // A learner with no attempts sees the grades say so in words, never a zero chart.
+  const fresh = await signUp(page, 'ja3e');
+  await verify(page, fresh);
+  await signIn(page, fresh);
+  await page.goto('/academy/progress');
+  await expect(page.getByText(/^No quiz attempts on your account\./)).toBeVisible();
+  await expect(page.locator('[data-grade-chart]')).toHaveCount(0);
+  await page.context().clearCookies();
+
+  // Staff hide the results of a TEST quiz on the third item until next week; the learner takes it.
+  const hiddenUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await setQuiz(items[2], { ...testQuiz('answers'), timeLimitSeconds: null, attemptLimit: null, resultsHiddenUntil: hiddenUntil });
+  try {
+    const learner = await api(who);
+    const started = await learner.post('/api/academy/trpc/assessment.start', { slug: items[2] });
+    expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+    const finished = await learner.post('/api/academy/trpc/assessment.finish', { attemptId: started.body.result.data.attemptId });
+    expect(finished.body.result.data.result).toMatchObject({ hidden: true, hiddenUntil });
+
+    await signIn(page, who);
+    await page.goto('/academy/progress');
+    const done = new Set((await completions(who)).map((row) => row.itemSlug));
+    const completed = items.filter((slug) => done.has(slug)).length;
+    const card = page.locator(`[data-course-progress="${course}"]`);
+    await expect(card.getByText(new RegExp(`% complete: ${completed} of ${items.length} items$`))).toBeVisible();
+    await expect(card.locator(`[data-progress-item="${items[0]}"]`)).toHaveAttribute('data-completed', 'true');
+    await expect(card.locator(`[data-progress-item="${items[3]}"]`)).toHaveAttribute('data-completed', 'false');
+
+    const chart = page.locator('[data-grade-chart]');
+    await expect(chart.locator(`[data-grade-row="${items[1]}"]`).getByText('2 of 2 points (100.0%)')).toBeVisible();
+    await expect(page.locator('[data-grade-average="quiz"]')).toHaveText(/^Quiz average: 100\.0% from one quiz/);
+    await expect(page.locator('[data-grades-pending="1"]')).toHaveText(/^One result is hidden until its release date\./);
+    const pending = chart.locator(`[data-grade-row="${items[2]}"]`);
+    await expect(pending).toHaveAttribute('data-grade-state', 'pending');
+    await expect(pending).not.toContainText('points');
+  } finally {
+    await setQuiz(items[2], null);
+  }
+});
+
+test(`${J} #9 a to-do shows on another device; saving the goal works and sending its reminder shows the email notice`, async ({
+  page,
+  browser,
+}) => {
+  const { who } = state('who');
+  const text = `TEST: revisit the order types quiz ${Date.now()}`;
+  const first = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    const desk = await first.newPage();
+    await signIn(desk, who);
+    await desk.goto('/academy/progress');
+    const planner = desk.locator('[data-planner]');
+    await planner.getByLabel('New to-do item').fill(text);
+    await planner.getByRole('button', { name: 'Add to-do', exact: true }).click();
+    const row = planner.locator('[data-todo]').filter({ hasText: text });
+    await expect(row).toHaveCount(1);
+    await row.getByRole('checkbox').check();
+    await expect(row).toHaveAttribute('data-todo-done', 'true');
+  } finally {
+    await first.close();
+  }
+
+  // This page is a second device: the item and its done mark come from Academy.
+  await signIn(page, who);
+  await page.goto('/academy/progress');
+  const planner = page.locator('[data-planner]');
+  const row = planner.locator('[data-todo]').filter({ hasText: text });
+  await expect(row).toHaveAttribute('data-todo-done', 'true');
+  await expect(row.getByRole('checkbox')).toBeChecked();
+
+  await planner.getByLabel('Items to complete each week').fill('3');
+  await planner.getByLabel('Email me a reminder for this goal').check();
+  await planner.getByRole('button', { name: 'Save goal', exact: true }).click();
+  await expect(planner.getByText('Goal saved.')).toBeVisible();
+  await page.reload();
+  await expect(planner.locator('[data-goal="3"]')).toContainText('Goal: 3 items a week.');
+  await expect(planner.locator('[data-goal="3"]')).toContainText('Email reminder on.');
+  await planner.getByRole('button', { name: 'Send reminder now', exact: true }).click();
+  await expect(planner.locator('[data-not-connected="vendor.email"]')).toContainText(
+    'The goal reminder email needs an email delivery provider.',
+  );
+});
+
 test(`${J} #10 Continue on another device opens the item last read`, async ({ page, browser }) => {
   const { who, course, items } = state('who', 'course', 'items');
   // The first device reads the fourth item.

@@ -24,6 +24,7 @@ import {
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCourse, AcademyHub } from './AcademyHub';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
+import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
@@ -413,7 +414,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
   );
 }
 
-/** `/academy/progress`: the learner's certificate grant records on their own page (AC-order-01), outside the five tabs. */
+/**
+ * `/academy/progress`: course progress, grades and the planner (AC-progress-02), then the access records and certificate
+ * grant records (AC-order-01), on their own page outside the five tabs.
+ */
 function AcademyProgress({ action }: { action: AcademyAction }) {
   const api = useApi(),
     { userId } = useSession();
@@ -423,6 +427,8 @@ function AcademyProgress({ action }: { action: AcademyAction }) {
   );
   return (
     <div className="academy-grant-certificates">
+      <AcademyCourseProgress />
+      <AcademyPlanner />
       <AcademyAccessGrants />
       {/* Without the definitions the records still list, by reference; the failure says why the titles are missing. */}
       {definitions.resource.status === 'failed' && <AcademyRefusal failure={definitions.resource.failure} retry={definitions.reload} />}

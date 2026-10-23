@@ -240,7 +240,7 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
     });
     expect(await academy.currentQuizAttempt({ userId: USER, slug: SLUG, now: late })).toBeNull();
     const done = await academy.finishQuizAttempt({ userId: USER, attemptId, now: late });
-    expect(done.result).toEqual({ score: 1, maxScore: 2, pass: false, finishedAt: '2026-10-23T10:01:00.000Z' });
+    expect(done.result).toEqual({ hidden: false, score: 1, maxScore: 2, pass: false, finishedAt: '2026-10-23T10:01:00.000Z' });
     const second = await academy.startQuizAttempt({ userId: USER, slug: SLUG, now: late });
     expect(second).toMatchObject({ number: 2 });
     expect(second.attemptId).not.toBe(attemptId);
@@ -257,7 +257,7 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
     expect({ deadlineAt, secondsLeft }).toEqual({ deadlineAt: null, secondsLeft: null });
     await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q1', choiceId: 'b' });
     await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q2', choiceId: 'c' });
-    expect((await academy.finishQuizAttempt({ userId: USER, attemptId })).result?.pass).toBe(true);
+    expect((await academy.finishQuizAttempt({ userId: USER, attemptId })).result).toMatchObject({ hidden: false, pass: true });
     expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({ ruleMet: true });
     expect((await academy.markCurriculumComplete({ userId: USER, itemSlug: SLUG })).itemSlug).toBe(SLUG);
   });

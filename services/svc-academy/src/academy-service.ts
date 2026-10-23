@@ -36,7 +36,8 @@ import {
 } from './ambassadors/residency.js';
 import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/catalog.js';
 import { ASSESSMENT_CATALOG, type AssessmentDefinition } from './assessment/catalog.js';
-import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
+import { AssessmentRepository, type AttemptRow, type VisibleAttemptRow } from './assessment/repository.js';
+import { PlannerStore } from './learning/planner.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
@@ -51,6 +52,7 @@ import type {
   AcademyEnrolmentTrack,
   AcademyMyCourse,
   AcademyQuiz,
+  AcademyProgressPage,
   AcademyQuizAttempt,
   AcademyQuizReview,
   AcademySetQuizInput,
@@ -238,6 +240,8 @@ export interface AcademyServiceOptions {
    * createRoom refuses `academy.room_capacity_unset`. Never invent 5000.
    */
   maxRoomCapacity?: number;
+  /** AC-progress-02: owner-set to-do items per learner (`ACADEMY_PLANNER_TODO_LIMIT`). Undefined: unset, adding refuses. */
+  plannerTodoLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -264,6 +268,7 @@ export class AcademyService {
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
   private readonly courseStarts: CourseStarts;
+  private readonly plannerStore: PlannerStore;
 
   constructor(
     private readonly sql: Sql,
@@ -282,6 +287,7 @@ export class AcademyService {
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
     this.courseStarts = new CourseStarts(sql);
+    this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1729,7 +1735,7 @@ export class AcademyService {
         input.userId,
         releases.map(({ row }) => row.slug),
       ),
-      this.assessments.passedSlugs(input.userId),
+      this.assessments.passedSlugs(input.userId, now),
       this.assessments.publishedSlugs(),
     ]);
     const items = releases.map(({ row, view }) => {
@@ -1759,6 +1765,98 @@ export class AcademyService {
     const rows = listCurriculum({ path });
     const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now, courseStartsAt })));
     return rows.map((row, i) => ({ row, view: views[i]! }));
+  }
+
+  /**
+   * AC-progress-02: the progress page. Per enrolled course, percent complete over every item the learner can see (every
+   * published item: none is hidden from a learner today) with each item's completion; and the grades, best attempt per
+   * quiz, pending while staff hide results, with per-type averages over released results only.
+   */
+  async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
+    const [enrolments, grades] = await Promise.all([this.publishedEnrolments(userId), this.assessments.grades(userId, now)]);
+    const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
+    const times = await this.completionTimes(
+      userId,
+      paths.flatMap((path) => listCurriculum({ path }).map((item) => item.slug)),
+    );
+    const courses = paths.map((path) => {
+      const items = listCurriculum({ path });
+      const completed = items.filter((item) => times.has(item.slug)).length;
+      return {
+        slug: path,
+        visible: items.length,
+        completed,
+        percent: tenths(completed, items.length),
+        items: items.map((item) => ({
+          slug: item.slug,
+          title: item.title,
+          kind: item.kind,
+          completedAt: times.get(item.slug)?.toISOString() ?? null,
+        })),
+      };
+    });
+    const rows = grades.map((row) => {
+      const title = getCurriculumItem(row.slug)?.title ?? row.slug;
+      return row.pending
+        ? {
+            pending: true as const,
+            slug: row.slug,
+            title,
+            type: 'quiz' as const,
+            attempts: row.attempts,
+            hiddenUntil: row.hiddenUntil.toISOString(),
+          }
+        : {
+            pending: false as const,
+            slug: row.slug,
+            title,
+            type: 'quiz' as const,
+            attempts: row.attempts,
+            score: String(row.score),
+            possible: String(row.possible),
+            percent: tenths(row.score, row.possible),
+            passed: row.passed,
+          };
+    });
+    const released = grades.filter((row) => !row.pending);
+    const averages =
+      released.length === 0
+        ? []
+        : [
+            {
+              type: 'quiz' as const,
+              count: released.length,
+              percent: tenths(
+                released.reduce((sum, row) => sum + row.score, 0),
+                released.reduce((sum, row) => sum + row.possible, 0),
+              ),
+            },
+          ];
+    return { courses, grades: { rows, averages } };
+  }
+
+  planner(userId: string) {
+    return this.plannerStore.read(userId);
+  }
+
+  addTodo(input: { userId: string; clientKey: string; text: string; now?: Date }) {
+    return this.plannerStore.addTodo(input);
+  }
+
+  setTodoDone(input: { userId: string; todoId: string; done: boolean; now?: Date }) {
+    return this.plannerStore.setTodoDone(input);
+  }
+
+  removeTodo(input: { userId: string; todoId: string; now?: Date }) {
+    return this.plannerStore.removeTodo(input);
+  }
+
+  setGoal(input: { userId: string; itemsPerWeek: number; reminder: boolean; now?: Date }) {
+    return this.plannerStore.setGoal(input);
+  }
+
+  sendGoalReminder(input: { userId: string }) {
+    return this.plannerStore.sendGoalReminder(input);
   }
 
   /** AC-access-grants-01: the caller's access records, one per active enrolment. */
@@ -2246,7 +2344,7 @@ export class AcademyService {
     return this.assessments.submit(input);
   }
 
-  assessmentAttempts(userId: string, slug: string): Promise<AttemptRow[]> {
+  assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
     return this.assessments.attempts(userId, slug);
   }
 
@@ -2267,7 +2365,7 @@ export class AcademyService {
     return this.assessments.finish(input);
   }
 
-  reviewQuizAttempt(input: { userId: string; attemptId: string }): Promise<AcademyQuizReview> {
+  reviewQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {
     return this.assessments.review(input);
   }
 
@@ -2398,6 +2496,13 @@ export class AcademyService {
       );
     }
   }
+}
+
+/** `part` of `whole` as a percentage with one decimal place, rounded half up, as a decimal string. Integer arithmetic only. */
+function tenths(part: number, whole: number): string {
+  if (whole <= 0) return '0.0';
+  const t = Math.floor((part * 2000 + whole) / (2 * whole));
+  return `${Math.floor(t / 10)}.${t % 10}`;
 }
 
 function curriculumItemView(slug: string) {
