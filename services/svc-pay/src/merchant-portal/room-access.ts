@@ -13,9 +13,11 @@ import { PortalError } from './errors.js';
  * before the role table. The owner's own profile.manage is the exception:
  * that owner can submit the business profile before KYB is approved. An
  * admin's profile.manage still waits for approval. A pending account is not
- * inactive. Money still requires an active account, and an allowed refund or
- * payout names step-up. Nothing here moves money, and a missing KYB status
- * is refused rather than treated as verified.
+ * inactive, except where the procedure refuses any status other than active:
+ * payment links, subscription writes, and sending a payout (the same cut-off
+ * as assertMerchantActive). Refund and a payout request do not use that
+ * cut-off. An allowed refund or payout names step-up. Nothing here moves
+ * money, and a missing KYB status is refused rather than treated as verified.
  */
 
 export type RoomActionReason = 'role' | 'kyb' | 'step_up' | 'inactive' | 'session';
@@ -25,7 +27,7 @@ type MoneyAct = 'send' | 'request';
 type ActionNeed =
   | { kind: 'open' }
   | { kind: 'permission'; permission: MerchantPermission }
-  | { kind: 'owner' }
+  | { kind: 'owner'; activeAccount: boolean }
   | { kind: 'money'; money: 'refund' | 'payout'; act: MoneyAct };
 
 type ActionDef = { id: string; need: ActionNeed };
@@ -35,11 +37,13 @@ const OPEN: ActionDef = { id: 'open', need: { kind: 'open' } };
 const refund = (id = 'refund'): ActionDef => ({ id, need: { kind: 'money', money: 'refund', act: 'send' } });
 const payoutRequest: ActionDef = { id: 'payout.request', need: { kind: 'money', money: 'payout', act: 'request' } };
 const payoutSend: ActionDef = { id: 'payout.send', need: { kind: 'money', money: 'payout', act: 'send' } };
+const subscriptionManage: ActionDef = { id: 'subscription.manage', need: { kind: 'owner', activeAccount: true } };
+const linkCreate: ActionDef = { id: 'link.create', need: { kind: 'owner', activeAccount: true } };
 
 const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly ActionDef[]>> = {
-  subscriptions: [{ id: 'subscription.manage', need: { kind: 'owner' } }],
-  subscription: [{ id: 'subscription.manage', need: { kind: 'owner' } }],
-  'subscription-new': [{ id: 'subscription.manage', need: { kind: 'owner' } }],
+  subscriptions: [subscriptionManage],
+  subscription: [subscriptionManage],
+  'subscription-new': [subscriptionManage],
   settings: [{ id: 'profile.manage', need: { kind: 'permission', permission: 'profile.manage' } }],
   'developer-webhooks': [{ id: 'webhook.manage', need: { kind: 'permission', permission: 'webhooks.manage' } }],
   'developer-endpoint': [{ id: 'webhook.manage', need: { kind: 'permission', permission: 'webhooks.manage' } }],
@@ -48,9 +52,9 @@ const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly Act
   'invoice-new': [{ id: 'invoice.create', need: { kind: 'permission', permission: 'invoices.write' } }],
   'report-exports': [{ id: 'export.create', need: { kind: 'permission', permission: 'exports.create' } }],
   reports: [{ id: 'export.create', need: { kind: 'permission', permission: 'exports.create' } }],
-  links: [{ id: 'link.create', need: { kind: 'owner' } }],
-  'link-new': [{ id: 'link.create', need: { kind: 'owner' } }],
-  link: [{ id: 'link.create', need: { kind: 'owner' } }],
+  links: [linkCreate],
+  'link-new': [linkCreate],
+  link: [linkCreate],
   refunds: [refund()],
   'refund-new': [refund()],
   refund: [refund()],
@@ -64,7 +68,7 @@ const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly Act
   payout: [payoutRequest, payoutSend],
   approvals: [{ id: 'payout.approve', need: { kind: 'permission', permission: 'payout.approve' } }],
   'payout-new': [payoutRequest, payoutSend],
-  'checkout-settings': [{ id: 'checkout.save', need: { kind: 'owner' } }],
+  'checkout-settings': [{ id: 'checkout.save', need: { kind: 'owner', activeAccount: false } }],
 };
 
 export interface RoomAccessContext {
@@ -77,10 +81,13 @@ export interface RoomAccessContext {
 export function decideRoomAction(ctx: RoomAccessContext, need: ActionNeed): { allowed: boolean; reason: RoomActionReason | null } {
   if (need.kind === 'open') return { allowed: true, reason: null };
   if (!ctx.sessionInteractive) return { allowed: false, reason: 'session' };
-  // Money refuses pending as well as suspended and closed. Other writes leave a
-  // pending account in onboarding, and only a suspended or closed one is inactive.
-  const inactive =
-    need.kind === 'money' ? ctx.accountStatus !== 'active' : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
+  // createPaymentLink, subscription writes, and payoutSettlement refuse any
+  // status other than active before KYB, the same cut-off as assertMerchantActive.
+  // Refund and a payout approval request do not. Other writes leave a pending
+  // account in onboarding, and only a suspended or closed one is inactive.
+  const requiresActive =
+    (need.kind === 'owner' && need.activeAccount) || (need.kind === 'money' && need.money === 'payout' && need.act === 'send');
+  const inactive = requiresActive ? ctx.accountStatus !== 'active' : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
   if (inactive) return { allowed: false, reason: 'inactive' };
   const ownerProfile = need.kind === 'permission' && need.permission === 'profile.manage' && ctx.role === 'owner';
   if (ctx.kybStatus !== 'approved' && !ownerProfile) return { allowed: false, reason: 'kyb' };

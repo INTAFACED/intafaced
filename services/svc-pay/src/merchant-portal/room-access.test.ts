@@ -96,7 +96,6 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
     });
     const writes = [
       ['team', 'team.manage'],
-      ['links', 'link.create'],
       ['invoices', 'invoice.create'],
       ['developer-webhooks', 'webhook.manage'],
       ['approvals', 'payout.approve'],
@@ -112,6 +111,40 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
       expect(action('owner', room, id, { accountStatus: 'suspended' })).toEqual({ action: id, allowed: false, reason: 'inactive' });
       expect(action('owner', room, id, { accountStatus: 'closed' })).toEqual({ action: id, allowed: false, reason: 'inactive' });
     }
+    for (const room of ['links', 'link-new', 'link'] as const) {
+      expect(action('owner', room, 'link.create', { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
+        action: 'link.create',
+        allowed: false,
+        reason: 'inactive',
+      });
+      expect(action('owner', room, 'link.create', { accountStatus: 'pending' })).toEqual({
+        action: 'link.create',
+        allowed: false,
+        reason: 'inactive',
+      });
+      expect(action('owner', room, 'link.create', { accountStatus: 'suspended' })).toEqual({
+        action: 'link.create',
+        allowed: false,
+        reason: 'inactive',
+      });
+      expect(action('owner', room, 'link.create', { accountStatus: 'closed' })).toEqual({
+        action: 'link.create',
+        allowed: false,
+        reason: 'inactive',
+      });
+    }
+    for (const room of ['subscriptions', 'subscription', 'subscription-new'] as const) {
+      expect(action('owner', room, 'subscription.manage', { accountStatus: 'pending' })).toEqual({
+        action: 'subscription.manage',
+        allowed: false,
+        reason: 'inactive',
+      });
+      expect(action('owner', room, 'subscription.manage', { accountStatus: 'suspended' })).toEqual({
+        action: 'subscription.manage',
+        allowed: false,
+        reason: 'inactive',
+      });
+    }
     expect(action('owner', 'settings', 'profile.manage', { accountStatus: 'suspended', kybStatus: 'none' })).toEqual({
       action: 'profile.manage',
       allowed: false,
@@ -119,11 +152,26 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
     });
     expect(action('owner', 'payments', 'refund', { accountStatus: 'pending' })).toEqual({
       action: 'refund',
+      allowed: true,
+      reason: 'step_up',
+    });
+    expect(action('owner', 'refund-new', 'refund', { accountStatus: 'suspended' })).toEqual({
+      action: 'refund',
       allowed: false,
       reason: 'inactive',
     });
     expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
       action: 'payout.request',
+      allowed: false,
+      reason: 'kyb',
+    });
+    expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'pending' })).toEqual({
+      action: 'payout.request',
+      allowed: true,
+      reason: 'step_up',
+    });
+    expect(action('owner', 'payout-new', 'payout.send', { accountStatus: 'pending' })).toEqual({
+      action: 'payout.send',
       allowed: false,
       reason: 'inactive',
     });
