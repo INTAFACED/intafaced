@@ -6,7 +6,7 @@ import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 // J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
 // or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
 // who starts signed in, verified, with a saved signal-rules strategy and one completed backtest. The out-of-sample
-// criteria and the holdout come from the local stack's TEST owner values (tooling/profiles/test-owner-values.json):
+// criteria and the holdout come from the local stack's TEST owner values (tooling/profiles/test-owner-values/quant.json):
 // minimum one round trip, minimum return 0 %, maximum drawdown 10 %, the holdout the last 15 minutes, and the maximum
 // shortfall left blank on purpose. Every figure in Algo dev is simulated; nothing here moves money.
 const J = 'J-algo-dev-02';
