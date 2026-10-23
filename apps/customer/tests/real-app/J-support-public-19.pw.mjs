@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { configureStatusPage, statusDefinition } from './status-page.mjs';
+import { draftNotice, publishAs, publishNotice } from './notices.mjs';
+import { configureStatusPage, statusDefinition, statusRead } from './status-page.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-support-public-19, in the running app (docs/roadmap/journeys.json): two operators publish an incident, a maintenance
@@ -30,12 +31,42 @@ async function statusDesk(browser) {
   return page;
 }
 
+/** Every incident this journey declares starts with this, so a run that stopped half way can be closed by the next. */
+const INCIDENT_PREFIX = `TEST journey ${J}:`;
+const RUN = Date.now().toString(36);
+const TEMPLATE = {
+  id: 'j19-payments-slow',
+  name: 'Payments slow',
+  group: 'Payments',
+  title: `${INCIDENT_PREFIX} card payments are slow`,
+  body: 'TEST We are looking into slow card payments.',
+};
+
+/** Resolves any incident of this journey still open on the page (a run that failed part way leaves one behind). */
+async function resolveLeftovers() {
+  for (const incident of (await statusRead()).incidents)
+    if (incident.resolvedAt === null && incident.title.startsWith(INCIDENT_PREFIX)) {
+      const row = await draftNotice({
+        kind: 'incident',
+        title: incident.title,
+        body: 'TEST Closed by the next journey run.',
+        minutes: 5,
+        key: `j19-leftover:${incident.id}`,
+        parentId: incident.id,
+        resolves: true,
+      });
+      await publishNotice(row, `j19-leftover:${incident.id}`);
+    }
+}
+
 /** The definition this journey found, put back after it so the stack keeps what other journeys set. */
 let found;
 test.beforeAll(async () => {
   found = await statusDefinition();
+  await resolveLeftovers();
 });
 test.afterAll(async () => {
+  await resolveLeftovers();
   if (!found) return;
   await configureStatusPage(
     {
@@ -109,6 +140,204 @@ test(`${J} #1 define components and groups and a manual outside entry: it shows 
   await expect(visitor.locator('[data-testid="status-component-sms-gateway"]')).toContainText(/no data/i);
   await visitor.context().close();
   await page.context().close();
+});
+
+/** Founder `key` on the console's incident desk, in a context of its own. */
+async function incidentDesk(browser, key) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, key);
+  await page.goto('/notify/incidents');
+  await expect(page.getByRole('heading', { level: 1, name: 'Incidents' })).toBeVisible();
+  return page;
+}
+
+const outcome = (page) => page.getByTestId('incident-desk-outcome');
+const incidentCard = (page, title) => page.getByTestId('incident').filter({ has: page.getByRole('heading', { name: title }) });
+const entry = (page, title, body) => incidentCard(page, title).getByTestId('incident-entry').filter({ hasText: body });
+const readAgain = (page) => page.getByRole('button', { name: 'Read again' }).click();
+
+/** The incident declared in #2 and carried through #3 and #4. */
+const INCIDENT_TITLE = `${TEMPLATE.title} (run ${RUN})`;
+
+/** A asks, B approves, A publishes one entry of the incident, all on the desk. */
+async function publishEntry(a, b, body) {
+  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Ask for approval' }).click();
+  await expect(outcome(a)).toContainText('Done: requested');
+  await readAgain(b);
+  await entry(b, INCIDENT_TITLE, body).getByRole('button', { name: 'Approve' }).click();
+  await expect(outcome(b)).toContainText('Done: approved');
+  await readAgain(a);
+  await entry(a, INCIDENT_TITLE, body).getByRole('button', { name: 'Publish' }).click();
+  await expect(outcome(a)).toContainText('Done: published');
+  await expect(entry(a, INCIDENT_TITLE, body)).toHaveAttribute('data-status', 'published');
+}
+
+test(`${J} #2 declare an incident from a template: no template is supplied, the founder defines one and declares from it`, async ({
+  browser,
+}) => {
+  const a = await incidentDesk(browser, 'a');
+  // Start from no templates at all, so the picker shows that none is supplied.
+  const templates = a.getByTestId('incident-templates');
+  for (const row of await templates.locator('[data-testid^="incident-template-"]').all()) {
+    const id = await row.getAttribute('data-testid');
+    await row.getByRole('button', { name: 'Retire' }).click();
+    await expect(templates.getByTestId(id)).toHaveCount(0);
+  }
+  await expect(templates.getByRole('button', { name: 'Retire' })).toHaveCount(0);
+  const declare = a.getByTestId('incident-declare');
+  await expect(declare.getByTestId('incident-templates-none')).toBeVisible();
+  await expect(declare.getByLabel('Template').locator('option')).toHaveText(['No templates']);
+  await expect(declare.getByLabel('Title')).toHaveValue('');
+  await expect(declare.getByLabel('First update')).toHaveValue('');
+
+  // The founder's own wording, naming the component it affects.
+  await templates.getByLabel('Template id (lowercase, digits, dashes)').fill(TEMPLATE.id);
+  await templates.getByLabel('Name').fill(TEMPLATE.name);
+  await templates.getByLabel('Group (optional)').fill(TEMPLATE.group);
+  await templates.getByLabel('Incident title').fill(TEMPLATE.title);
+  await templates.getByLabel('First update').fill(TEMPLATE.body);
+  await templates.getByLabel('Impact').selectOption('minor');
+  await templates.getByRole('checkbox', { name: 'Payments' }).check();
+  await templates.getByRole('button', { name: 'Save template' }).click();
+  await expect(outcome(a)).toContainText('Done: template saved');
+  await expect(templates.getByTestId(`incident-template-${TEMPLATE.id}`)).toContainText(`${TEMPLATE.name} (${TEMPLATE.group})`);
+
+  // Declared from the template: it fills the incident, and the founder names this run in the title.
+  await declare.getByLabel('Template').selectOption({ label: TEMPLATE.name });
+  await expect(declare.getByLabel('Title')).toHaveValue(TEMPLATE.title);
+  await expect(declare.getByLabel('First update')).toHaveValue(TEMPLATE.body);
+  await expect(declare.getByLabel('Impact')).toHaveValue('minor');
+  await expect(declare.getByRole('checkbox', { name: 'Payments' })).toBeChecked();
+  await expect(declare.getByRole('checkbox', { name: 'API' })).not.toBeChecked();
+  await declare.getByLabel('Title').fill(INCIDENT_TITLE);
+  await declare.getByRole('button', { name: 'Save draft' }).click();
+  await expect(outcome(a)).toContainText('Done: drafted');
+  const card = incidentCard(a, INCIDENT_TITLE);
+  await expect(card).toHaveAttribute('data-state', 'draft');
+  await expect(card).toContainText('Impact: Minor. Components: Payments.');
+  await expect(entry(a, INCIDENT_TITLE, TEMPLATE.body)).toHaveAttribute('data-status', 'draft');
+  // A draft is not public.
+  expect((await statusRead()).incidents.some((i) => i.title === INCIDENT_TITLE)).toBe(false);
+  await a.context().close();
+});
+
+test(`${J} #3 a second founder approves, the approver cannot also publish, and the published incident is on /status`, async ({
+  browser,
+}) => {
+  const a = await incidentDesk(browser, 'a');
+  const b = await incidentDesk(browser, 'b');
+  const first = (page) => entry(page, INCIDENT_TITLE, TEMPLATE.body);
+
+  await first(a).getByRole('button', { name: 'Ask for approval' }).click();
+  await expect(outcome(a)).toContainText('Done: requested');
+  await expect(first(a).getByTestId('incident-approval')).toHaveAttribute('data-status', 'PENDING');
+  await expect(first(a)).toContainText('asked by you');
+
+  // The founder who asked cannot approve: identity refuses.
+  await first(a).getByRole('button', { name: 'Approve' }).click();
+  await expect(outcome(a)).toHaveAttribute('data-code', 'action_approval.same_person');
+  await expect(first(a).getByTestId('incident-approval')).toHaveAttribute('data-status', 'PENDING');
+
+  // B approves. The desk offers B no Publish (the founder who asked publishes), and svc-notify refuses B if B tries
+  // anyway with the approval: the approver cannot also publish, and the approval is spent.
+  await readAgain(b);
+  await expect(first(b)).toContainText('asked by another founder');
+  await first(b).getByRole('button', { name: 'Approve' }).click();
+  await expect(outcome(b)).toContainText('Done: approved');
+  await expect(first(b).getByTestId('incident-approval')).toHaveAttribute('data-status', 'APPROVED');
+  await expect(first(b)).toContainText('Approved by you. The founder who asked publishes it');
+  await expect(first(b).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+  await readAgain(a);
+  const approval = first(a).getByTestId('incident-approval');
+  await expect(approval).toHaveAttribute('data-status', 'APPROVED');
+  const held = {
+    id: await incidentCard(a, INCIDENT_TITLE).getAttribute('data-incident-id'),
+    approvalId: await approval.getAttribute('data-approval-id'),
+    operationId: await approval.getAttribute('data-operation-id'),
+  };
+  expect(await publishAs('b', held)).toBe('notify.notice_publish_same_operator');
+  await readAgain(a);
+  await expect(first(a)).toHaveAttribute('data-status', 'draft');
+  await expect(first(a)).toContainText('The last approval is consumed.');
+  expect((await statusRead()).incidents.some((i) => i.title === INCIDENT_TITLE)).toBe(false);
+
+  // Asked again, approved by B, published by A.
+  await publishEntry(a, b, TEMPLATE.body);
+  await expect(incidentCard(a, INCIDENT_TITLE)).toHaveAttribute('data-state', 'open');
+
+  // The visitor sees it on /status with its first update, and the component it names follows its impact.
+  const page = await statusRead();
+  const published = page.incidents.find((i) => i.title === INCIDENT_TITLE);
+  expect(published).toMatchObject({ impact: 'minor', components: ['payments'], resolvedAt: null });
+  expect(page.components.find((c) => c.id === 'payments')).toMatchObject({ state: 'degraded', incidentId: published.id });
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  const shown = visitor.getByTestId(`status-incident-${published.id}`);
+  await expect(shown).toContainText(INCIDENT_TITLE);
+  await expect(shown).toContainText(TEMPLATE.body);
+  await expect(visitor.getByTestId('status-component-payments')).toHaveAttribute('data-state', 'degraded');
+  await visitor.context().close();
+  await a.context().close();
+  await b.context().close();
+});
+
+test(`${J} #4 post updates, then resolve: the component goes back to its own status, and a resolved incident takes no update`, async ({
+  browser,
+}) => {
+  const a = await incidentDesk(browser, 'a');
+  const b = await incidentDesk(browser, 'b');
+  const card = incidentCard(a, INCIDENT_TITLE);
+  const update = card.getByTestId('incident-update');
+  const UPDATE = `TEST A fix is deployed and we are watching (run ${RUN}).`;
+  const RESOLVED = `TEST Card payments are back to normal (run ${RUN}).`;
+
+  await update.getByLabel('Update', { exact: true }).fill(UPDATE);
+  await update.getByLabel('Impact now').selectOption('minor');
+  await update.getByRole('button', { name: 'Save update draft' }).click();
+  await expect(outcome(a)).toContainText('Done: drafted');
+  await publishEntry(a, b, UPDATE);
+  await expect(card).toHaveAttribute('data-state', 'open');
+
+  await update.getByLabel('Update', { exact: true }).fill(RESOLVED);
+  await update.getByRole('checkbox', { name: /resolves the incident/ }).check();
+  await update.getByRole('button', { name: 'Save update draft' }).click();
+  await expect(outcome(a)).toContainText('Done: drafted');
+  await expect(entry(a, INCIDENT_TITLE, RESOLVED)).toContainText('resolves the incident');
+  await publishEntry(a, b, RESOLVED);
+  await expect(card).toHaveAttribute('data-state', 'resolved');
+  await expect(card).toContainText('Resolved, and final.');
+  await expect(card.getByTestId('incident-update')).toHaveCount(0);
+
+  // On /status: resolved, with its whole timeline, and the component no longer follows it.
+  const page = await statusRead();
+  const resolved = page.incidents.find((i) => i.title === INCIDENT_TITLE);
+  expect(resolved.resolvedAt).not.toBeNull();
+  expect(resolved.updates.map((u) => u.body)).toEqual(expect.arrayContaining([TEMPLATE.body, UPDATE, RESOLVED]));
+  const payments = page.components.find((c) => c.id === 'payments');
+  expect(payments.incidentId).toBeNull();
+  expect(payments.basis).not.toBe('incident');
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  const shown = visitor.getByTestId(`status-incident-${resolved.id}`);
+  for (const body of [TEMPLATE.body, UPDATE, RESOLVED]) await expect(shown).toContainText(body);
+  await expect(shown).toContainText(/resolved/i);
+  await expect(visitor.getByTestId('status-component-payments')).toHaveAttribute('data-state', payments.state);
+  await visitor.context().close();
+
+  // An update after resolve is refused by svc-notify, not only hidden by the desk.
+  await expect(
+    draftNotice({
+      kind: 'incident',
+      title: INCIDENT_TITLE,
+      body: 'TEST One more update',
+      minutes: 5,
+      key: `j19-after-resolve:${RUN}`,
+      parentId: resolved.id,
+    }),
+  ).rejects.toThrow(/notify\.notice_incident_resolved/);
+  await a.context().close();
+  await b.context().close();
 });
 
 test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per component, on the public site`, async ({ browser }) => {

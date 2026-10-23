@@ -196,6 +196,22 @@ an open incident or active maintenance notice that names it, else its newest rea
   `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
 - Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
 
+### Incident desk (SP-status-02)
+
+The founder console's incident desk (`/notify/incidents`) writes incidents through the notice board, so a publish
+still spends an identity four-eyes approval (`notify.notice.publish`) and the approver cannot also publish.
+
+- `notify.operatorNotices` (`admin:write`) lists notices of one kind, drafts included, newest written first, with the
+  incident fields and the author. `notify.noticeProposal` (same scope) answers the exact approval a draft's publish
+  spends (action, target, version and payload hash), so the console never computes the hash itself.
+- A resolved incident is final: a draft update naming it, or publishing an update drafted before it resolved, is refused
+  with `notify.notice_incident_resolved`.
+- `statusPage.templates.list | define | retire` (`admin:write`) keep the founders' incident templates in
+  `notify.status_incident_templates` (migration 0029): id, name, optional group, title, first update, impact and the
+  components it names (each must be defined on the page; an incident template naming components must name its impact).
+  None is seeded. At most 100 active (`status.template_cap_reached`); the same wording defined again is a replay, and a
+  retired id defined again comes back.
+
 ### Status badge (SP-status-05)
 
 `GET /status/badge.svg?component=<id>` (through Edge at `/api/notify/status/badge.svg`) draws the top level, or one

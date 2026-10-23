@@ -179,6 +179,25 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows.map(fromPg);
   }
 
+  async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+    const rows =
+      kind == null
+        ? await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `
+        : await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices WHERE kind = ${kind} ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `;
+    return rows.map(fromPg);
+  }
+
+  async children(parentId: string): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices WHERE parent_id = ${parentId} ORDER BY created_at ASC, id ASC
+    `;
+    return rows.map(fromPg);
+  }
+
   async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
     const rows = await this.sql<{ id: string }[]>`
       UPDATE notify.notices

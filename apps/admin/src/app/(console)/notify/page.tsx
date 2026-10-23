@@ -28,6 +28,9 @@ export default async function NotifyPage() {
         <Link href="/notify/status" className="adm-link">
           Status page desk
         </Link>
+        <Link href="/notify/incidents" className="adm-link">
+          Incident desk
+        </Link>
       </nav>
       <NotifyDesk initial={health} />
       <RecipientsPanel initial={recipients} notConnected={notConnected satisfies NotConnected} />

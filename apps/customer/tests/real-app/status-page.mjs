@@ -24,6 +24,12 @@ export async function statusDefinition() {
   return data(await ctx.edge.query('notify', 'statusPage.definition', undefined, await pair.a.tradeOpsToken()), 'statusPage.definition');
 }
 
+/** The page a visitor reads, as svc-notify answers it: components with their state and basis, and incidents. */
+export async function statusRead() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'statusPage.read'), 'statusPage.read');
+}
+
 /** Change the definition from the revision it reads now. Fields left out stay as they are. */
 export async function configureStatusPage(fields, reason = 'TEST journey J-support-public-07') {
   const { ctx, pair } = await founders();

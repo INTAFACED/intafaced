@@ -1297,6 +1297,51 @@ export function createNotifyRouter(
           }
         }),
 
+      /**
+       * The founders' notice desk: drafts and published notices, newest written first, with the incident fields and the
+       * author. Drafts never leave this door; the signed-out reads list published rows only.
+       */
+      operatorNotices: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({ kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(), limit: z.number().int().min(1) }),
+        )
+        .output(
+          z.array(
+            noticeWireOutput.extend({
+              impact: statusImpact.nullable(),
+              components: z.array(z.string()),
+              parentId: z.string().uuid().nullable(),
+              resolves: z.boolean(),
+              authorId: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        )
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return (await notify.notices.operatorNotices({ kind: input.kind ?? null, limit: input.limit })).map((n) => ({
+              ...n,
+              components: [...n.components],
+            }));
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** What identity's approval for one draft's publish has to carry: action, target, version and payload hash. */
+      noticeProposal: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid() }))
+        .output(proposalOutput.extend({ actionType: z.literal('notify.notice.publish'), targetService: z.literal('svc-notify') }))
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return await notify.notices.publishProposal(input.id);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
       publishNotice: scopedProcedure('admin:write', { module: 'notify' })
         .input(
           z.object({

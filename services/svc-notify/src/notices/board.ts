@@ -62,6 +62,7 @@ export type NoticeCode =
   | 'notify.notice_scope_invalid'
   | 'notify.notice_phase_unset'
   | 'notify.notice_phase_invalid'
+  | 'notify.notice_incident_resolved'
   | ChangelogCode;
 
 export class NoticeError extends Error {
@@ -123,6 +124,27 @@ export type NoticeRow = {
   createdAt: Date;
 };
 
+/** A notice as the founders' desk reads it: drafts too, with the incident fields and who wrote it. */
+export type OperatorNotice = NoticeWire & {
+  readonly impact: IncidentImpact | null;
+  readonly components: readonly StatusComponent[];
+  readonly parentId: string | null;
+  readonly resolves: boolean;
+  readonly authorId: string;
+  readonly createdAt: string;
+};
+
+/** What the second person's approval has to carry to publish one draft. */
+export type NoticePublishProposal = {
+  readonly actionType: typeof NOTICE_PUBLISH_ACTION;
+  readonly targetService: 'svc-notify';
+  readonly targetId: string;
+  readonly expectedVersion: string;
+  readonly payloadHash: string;
+};
+
+export const NOTICE_PUBLISH_ACTION = 'notify.notice.publish';
+
 export type NoticeStatusRead = {
   readonly incidents: readonly NoticeWire[];
   readonly maintenance: readonly NoticeWire[];
@@ -149,6 +171,10 @@ export interface NoticeStore {
   listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
+  /** Drafts and published rows, newest created first: the founders' desk. */
+  listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /** Every entry that updates one incident, drafts included. */
+  children(parentId: string): Promise<readonly NoticeRow[]>;
   markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void>;
   approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null>;
   recordApproval(
@@ -187,6 +213,18 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     network: row.network,
     phase: row.phase,
     changelog: row.changelog,
+  };
+}
+
+export function toOperatorNotice(row: NoticeRow): OperatorNotice {
+  return {
+    ...toNoticeWire(row),
+    impact: row.impact,
+    components: row.components,
+    parentId: row.parentId,
+    resolves: row.resolves,
+    authorId: row.authorId,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -273,6 +311,17 @@ export class MemoryNoticeStore implements NoticeStore {
       .filter((row) => row.status === 'published' && (row.kind === 'incident' || row.kind === 'maintenance'))
       .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
       .slice(0, limit);
+  }
+
+  async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter((row) => kind == null || row.kind === kind)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async children(parentId: string): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()].filter((row) => row.parentId === parentId);
   }
 
   async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
@@ -396,6 +445,7 @@ export class NoticeBoard {
     if (parentId !== null) {
       parent = await this.store.findById(parentId);
       if (!parent || parent.kind !== 'incident' || parent.parentId !== null) throw new NoticeError('notify.notice_parent_invalid');
+      if (await this.resolvedIncident(parentId)) throw new NoticeError('notify.notice_incident_resolved');
     }
     const scope = this.scopeFields(input, incident, resolves, parent);
     return { impact: impact as IncidentImpact | null, components: components as StatusComponent[], parentId, resolves, ...scope };
@@ -436,6 +486,33 @@ export class NoticeBoard {
       throw new NoticeError('notify.notice_scope_invalid');
     }
     return { asset, network, phase: phase as IncidentPhase | null };
+  }
+
+  /** A resolved incident is final: a published entry closed it, and a recurrence is a new incident. */
+  private async resolvedIncident(rootId: string): Promise<boolean> {
+    return (await this.store.children(rootId)).some((row) => row.status === 'published' && row.resolves);
+  }
+
+  /** The founders' desk: drafts and published notices, newest written first. */
+  async operatorNotices(input: { kind?: string | null; limit: number }): Promise<readonly OperatorNotice[]> {
+    const limit = clampNoticeLimit(input.limit);
+    const kind = input.kind == null || input.kind === '' ? null : input.kind;
+    if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
+    return (await this.store.listAll(kind, limit)).map(toOperatorNotice);
+  }
+
+  /** The exact approval a draft's publish spends: the founder asks identity for one bound to this, a different founder approves it. */
+  async publishProposal(id: string): Promise<NoticePublishProposal> {
+    const row = await this.store.findById(id);
+    if (!row) throw new NoticeError('notify.notice_not_found');
+    if (row.status === 'published') throw new NoticeError('notify.notice_published_immutable');
+    return {
+      actionType: NOTICE_PUBLISH_ACTION,
+      targetService: 'svc-notify',
+      targetId: row.id,
+      expectedVersion: String(row.version),
+      payloadHash: payloadHash(row),
+    };
   }
 
   async notices(input: { kind?: string | null; limit: number }): Promise<readonly NoticeWire[]> {
@@ -545,6 +622,8 @@ export class NoticeBoard {
     if (row.parentId) {
       const parent = await this.store.findById(row.parentId);
       if (!parent || parent.status !== 'published') return fail('notify.notice_parent_invalid');
+      // An update drafted before another one resolved the incident is not published after it.
+      if (await this.resolvedIncident(row.parentId)) return fail('notify.notice_incident_resolved');
     }
     if (!this.approvals) return fail('notify.notice_publish_approval_unavailable');
     const spent = await this.store.approvalOutcome(input.approvalId);
