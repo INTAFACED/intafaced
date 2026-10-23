@@ -350,7 +350,13 @@ describe('merchant team reads, list pages, and stored detail', () => {
     expect(both.status).toBe('captured');
 
     const exports = new ExportService(sql);
-    const caller = { userId: OWNER, merchantId: mine.id, role: 'owner' as const };
+    const caller = {
+      userId: OWNER,
+      merchantId: mine.id,
+      role: 'owner' as const,
+      viaApiKey: false,
+      interactive: true,
+    };
     await expect(
       exports.create(caller, { requestId: randomUUID(), kind: 'payments', filters: { amountMin: '' }, columns: ['payment_id', 'amount'] }),
     ).rejects.toMatchObject({ code: 'pay.export_filter_invalid' });
