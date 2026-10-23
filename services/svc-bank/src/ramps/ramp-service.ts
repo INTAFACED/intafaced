@@ -1,3 +1,4 @@
+import { listWithdrawNetworks, type WithdrawAsset, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -212,6 +213,11 @@ export interface RampServiceOptions {
    * Unset refuses `bank.offramp_fee_unset`. A zero fee is not assumed.
    */
   offrampFees?: OfframpFeeSource | null;
+  /**
+   * svc-ledger's asset and network registry: which asset may be withdrawn on which network. Unset refuses saving an
+   * address with `bank.asset_registry_unavailable`; no network is accepted on its looks.
+   */
+  withdrawNetworks?: WithdrawNetworkSource | null;
 }
 
 export class RampService {
@@ -222,6 +228,7 @@ export class RampService {
   private readonly onrampQuotes: OnrampQuoteSource | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
+  private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
 
   constructor(
     private readonly sql: Sql,
@@ -239,6 +246,7 @@ export class RampService {
     this.onrampQuotes = options.onrampQuotes ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
+    this.withdrawNetworkSource = options.withdrawNetworks ?? null;
   }
 
   private customerDeps(): CustomerRampDeps {
@@ -250,6 +258,7 @@ export class RampService {
       payments: this.onrampPayments,
       fees: this.offrampFees,
       destinations: this.destinations,
+      networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
     };
   }
@@ -290,6 +299,11 @@ export class RampService {
   /** Saved wallets and bank accounts. Cooling end is the owner window, or a named unset. */
   listDestinations(userId: string): Promise<DestinationView[]> {
     return listDestinations(this.customerDeps(), userId);
+  }
+
+  /** Assets an address may be saved for, with their networks, from svc-ledger's registry. */
+  withdrawNetworks(): Promise<WithdrawAsset[]> {
+    return listWithdrawNetworks(this.withdrawNetworkSource);
   }
 
   /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */

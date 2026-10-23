@@ -1,3 +1,4 @@
+import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -32,6 +33,7 @@ export interface CustomerRampDeps {
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
+  networks: WithdrawNetworkSource | null;
   coolingRaw: () => string | undefined;
 }
 
@@ -353,6 +355,8 @@ export async function listDestinations(deps: CustomerRampDeps, userId: string): 
 }
 
 export async function saveDestination(deps: CustomerRampDeps, input: SaveDestinationInput): Promise<DestinationView> {
+  // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
+  await assertWithdrawNetwork(deps.networks, input.assetId, input.network);
   return viewOf(await deps.destinations.save(input), readOfframpCoolingHours(deps.coolingRaw()));
 }
 

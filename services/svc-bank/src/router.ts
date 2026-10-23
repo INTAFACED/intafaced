@@ -474,6 +474,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ramp_invalid_amount':
       case 'bank.ramp_invalid_asset':
       case 'bank.ramp_invalid_destination':
+      case 'bank.withdraw_network_unsupported':
       case 'bank.ramp_conflict':
       case 'bank.business_payroll_empty':
       case 'bank.earn_resume_pending_limit_unset':
@@ -625,6 +626,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.step_up_unavailable':
       case 'bank.party_handles_unavailable':
       case 'bank.business_directory_unavailable':
+      // The ledger's asset registry could not be read; nothing was saved. Retry later.
+      case 'bank.asset_registry_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       case 'bank.business_directory_rate_limited':
@@ -3812,10 +3815,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         .query(async ({ ctx }) => guard(async () => bank.ramps.listDestinations(ctx.principal.userId))),
 
       /**
+       * The assets an address may be saved for, each with the networks it is sent on: svc-ledger's registry, filtered
+       * to active assets that allow withdrawals. An empty list is the honest answer while nothing is published.
+       */
+      networks: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.array(
+            z
+              .object({
+                assetId: z.string(),
+                precision: z.number().int(),
+                networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
+                defaultNetworkId: z.string().nullable(),
+              })
+              .strict(),
+          ),
+        )
+        .query(async () => guard(async () => bank.ramps.withdrawNetworks())),
+
+      /**
        * Save an address-book entry. `trade:withdraw` (the step-up scope), like removing one: a leaked key or a
        * stolen access token must not be able to add the address that money is then sent to. The same
        * (asset, network, address, tag) again returns the stored entry. The label is unique per customer, and the
-       * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`).
+       * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`). The
+       * network must be one svc-ledger's registry lists for the asset (`bank.withdraw_network_unsupported`).
        */
       save: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(

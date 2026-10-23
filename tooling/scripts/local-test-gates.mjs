@@ -8,6 +8,7 @@
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
@@ -20,7 +21,8 @@
  *   2. the compliance officer who accepts the local test sanctions list (the stack env, not this file),
  *   3. the operator who verifies test accounts,
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
- *   5. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   5. the two founders who publish which assets and networks are supported (the address book refuses while none are),
+ *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -744,6 +746,103 @@ export async function setBookHalt(ctx, symbol, halted) {
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
 
+// ── 2c. Supported assets and networks (two-person approval) ─────────────────
+
+/**
+ * LOCAL TEST registry rows: not owner values. The ledger's asset registry starts blank (W-balances-05), and with no
+ * published row the address book offers no asset and refuses every save. Both networks are EVM chains, the only
+ * address form the address book checks today.
+ */
+export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
+  id,
+  kind: 'crypto',
+  precision: 6,
+  networks: [
+    { networkId: 'ethereum', label: 'TEST Ethereum' },
+    { networkId: 'base', label: 'TEST Base' },
+  ],
+  defaultNetworkId: 'ethereum',
+  allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'],
+  state: 'active',
+}));
+export const ASSET_EDIT_ACTION = 'ledger.asset_edit';
+
+/** True when the published row already says what the TEST row says (revision and clock aside). */
+export function assetRowMatches(row, want) {
+  if (!row) return false;
+  const pick = (r) =>
+    JSON.stringify([
+      r.kind,
+      r.precision,
+      Array.isArray(r.networks) ? r.networks.map((n) => [n.networkId, n.label]) : null,
+      r.defaultNetworkId,
+      [...(r.allowedActions ?? [])].sort(),
+      r.state,
+    ]);
+  return pick(row) === pick(want);
+}
+
+export function assetEditProposal(edit, revision, payloadHash) {
+  return {
+    actionType: ASSET_EDIT_ACTION,
+    targetService: 'svc-ledger',
+    targetId: edit.id,
+    expectedVersion: String(revision),
+    payloadHash,
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+async function treasuryCall(ctx, op, method, route, body) {
+  if (method !== 'GET') assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const token = await mintOperatorToken(ctx, op, ['admin:treasury']);
+  const res = await fetch(`${ctx.url('ledger')}${route}`, {
+    redirect: 'error',
+    method,
+    headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
+  return { status: res.status, json, text };
+}
+
+/**
+ * Publish each TEST row through the founders' door: one founder proposes `ledger.asset_edit` for the row's current
+ * revision, the other approves, and the first applies it at svc-ledger POST /operator/assets/apply-edit
+ * (admin:treasury, second factor). A row that already says the same is left alone.
+ */
+export async function publishAssetRegistry(ctx) {
+  const sessions = await approverSessions(ctx);
+  const listed = await treasuryCall(ctx, sessions.a.op, 'GET', '/operator/assets');
+  if (listed.status !== 200 || !Array.isArray(listed.json?.assets))
+    throw new Error(`ledger GET /operator/assets refused (${listed.status}): ${listed.text.slice(0, 300)}`);
+  const out = [];
+  for (const want of TEST_ASSET_ROWS) {
+    const row = listed.json.assets.find((a) => a.id === want.id) ?? null;
+    if (assetRowMatches(row, want)) {
+      out.push({ assetId: want.id, status: 'already published', revision: row.revision });
+      continue;
+    }
+    const edit = { ...want, reason: `${MARKERS.label}: TEST asset and networks` };
+    const revision = row?.revision ?? 0;
+    const ids = await twoPerson(ctx, sessions, assetEditProposal(edit, revision, ctx.contracts.assetEditPayloadHash(edit)));
+    const res = await treasuryCall(ctx, sessions.a.op, 'POST', '/operator/assets/apply-edit', { ...ids, edit });
+    if (res.status !== 200) throw new Error(`ledger apply-edit for ${want.id} refused (${res.status}): ${res.text.slice(0, 300)}`);
+    out.push({ assetId: want.id, status: 'published', revision: res.json?.revision ?? revision + 1, approvalId: ids.approvalId });
+    ctx.log(
+      `asset ${want.id}: ${want.networks.map((n) => n.networkId).join(', ')} published (${MARKERS.label}); approval ${ids.approvalId}`,
+    );
+  }
+  return out;
+}
+
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
 
 /**
@@ -1125,6 +1224,7 @@ async function main() {
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
+      for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status}`);
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       sayCharts(await publishCharts(ctx));
@@ -1132,6 +1232,8 @@ async function main() {
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+    } else if (cmd === 'assets') {
+      for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status} (revision ${r.revision})`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
@@ -1160,7 +1262,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

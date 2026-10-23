@@ -805,6 +805,8 @@ function serviceDefs(secrets) {
         LEDGER_POSTING_ENABLED: 'true',
         // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
         RECONCILE_CRON_MINUTES: '60',
+        // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.
+        IDENTITY_URL: urlOf('identity'),
       }),
     },
     {
@@ -984,6 +986,11 @@ function serviceDefs(secrets) {
         BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
         BANK_SPACE_LIMIT: '5',
         BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
+        // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
+        // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
+        // blocked (bank.offramp_cooling_unset).
+        BANK_ADDRESS_BOOK_CAP: '10',
+        BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
