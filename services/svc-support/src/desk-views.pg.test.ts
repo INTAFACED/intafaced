@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
-import { SqlViewBook, VIEW_CAP_UNSET } from './desk-views.js';
+import { SqlViewBook, VIEW_CAP_UNSET, viewLogKey } from './desk-views.js';
 
 /** SP-desk-01 — the view book on Postgres: one row, a replay, a stale revision, a blank cap, an append-only log. */
 
@@ -112,6 +112,34 @@ if (!url) {
         at: AT,
       });
       await expect(db.sql`DELETE FROM support.desk_view_log`).rejects.toThrow(/append-only/);
+    });
+
+    it('refuses to save Mine again at revision 0 after delete and writes no row', async () => {
+      const book = new SqlViewBook(db.sql, { personal: 2, shared: 1 });
+      const input = {
+        name: 'Mine',
+        ownerId: OWNER,
+        expectedRevision: 0,
+        shared: false,
+        filter,
+        sort: null,
+        layout: null,
+        favourite: false,
+        reason: 'My queue',
+        at: AT,
+      };
+      const first = await book.save(input);
+      await book.remove({ viewId: first.id, actorId: OWNER, reason: 'Clearing it', at: AT });
+      const before = (
+        await db.sql<{ key: string; fingerprint: string }[]>`SELECT key, fingerprint FROM support.desk_view_log ORDER BY key`
+      ).map((row) => ({ key: row.key, fingerprint: row.fingerprint }));
+      expect(before.map((row) => row.key)).toContain(viewLogKey(OWNER, 'Mine', 0));
+      await expect(book.save(input)).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
+      expect(await db.sql`SELECT 1 FROM support.desk_views`).toHaveLength(0);
+      const after = (
+        await db.sql<{ key: string; fingerprint: string }[]>`SELECT key, fingerprint FROM support.desk_view_log ORDER BY key`
+      ).map((row) => ({ key: row.key, fingerprint: row.fingerprint }));
+      expect(after).toEqual(before);
     });
   });
 }

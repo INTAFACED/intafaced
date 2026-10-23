@@ -3,6 +3,7 @@
  *
  * Personal and shared caps are owner values. A null cap refuses `support.view_cap_unset` and names the setting.
  * No reference cap (10, 100) is filled in. A save is keyed by owner, view name and the revision it read.
+ * Deleting the view leaves that key, so the same save refuses `support.idempotency_conflict`.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
@@ -311,9 +312,10 @@ function canonical(value: unknown): string {
 
 type LogHit = { readonly fingerprint: string; readonly after: SupportView };
 
-function replayOrRefuse(log: LogHit | undefined, fingerprint: string): SupportView {
-  if (!log) throw new ViewError(VIEW_REVISION_STALE);
-  if (log.fingerprint !== fingerprint) throw new ViewError(VIEW_CONFLICT);
+/** A logged business key is append-only. Replay only while its view row remains and the fingerprint matches. */
+function replayLoggedSave(log: LogHit | undefined, rowPresent: boolean, fingerprint: string): SupportView | undefined {
+  if (!log) return undefined;
+  if (!rowPresent || log.fingerprint !== fingerprint) throw new ViewError(VIEW_CONFLICT);
   return log.after;
 }
 
@@ -354,7 +356,9 @@ export class MemoryViewBook implements ViewBook {
     if (input.viewId && !current) throw new ViewError('support.not_found');
     if (current && current.ownerId !== input.ownerId) throw new ViewError(current.shared ? VIEW_NOT_OWNER : 'support.not_found');
     if (current && current.name !== input.name) throw new ViewError(FILTER_INVALID);
-    if (current && current.revision !== input.expectedRevision) return replayOrRefuse(this.logs.get(key), fingerprint);
+    const replay = replayLoggedSave(this.logs.get(key), current !== undefined, fingerprint);
+    if (replay) return replay;
+    if (current && current.revision !== input.expectedRevision) throw new ViewError(VIEW_REVISION_STALE);
     if (!current && input.expectedRevision !== 0) throw new ViewError(VIEW_REVISION_STALE);
     assertCap(this.caps, input, [...this.views.values()], current);
     const next: SupportView = {
@@ -441,10 +445,10 @@ export class SqlViewBook implements ViewBook {
     return this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('support.desk_views'))`;
       const current = await lockedView(tx, input);
-      if (current && current.revision !== input.expectedRevision) {
-        const logged = await tx<PgLog[]>`SELECT fingerprint, after FROM support.desk_view_log WHERE key = ${key}`;
-        return replayOrRefuse(logged[0], fingerprint);
-      }
+      const logged = await tx<PgLog[]>`SELECT fingerprint, after FROM support.desk_view_log WHERE key = ${key}`;
+      const replay = replayLoggedSave(logged[0], current !== undefined, fingerprint);
+      if (replay) return replay;
+      if (current && current.revision !== input.expectedRevision) throw new ViewError(VIEW_REVISION_STALE);
       if (!current && input.expectedRevision !== 0) throw new ViewError(VIEW_REVISION_STALE);
       const all = await tx<PgView[]>`SELECT ${tx.unsafe(VIEW_COLUMNS)} FROM support.desk_views`;
       assertCap(this.caps, input, all.map(fromRow), current ? fromRow(current) : undefined);

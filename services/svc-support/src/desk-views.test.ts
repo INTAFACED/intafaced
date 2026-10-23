@@ -215,3 +215,26 @@ describe('saved views (SP-desk-01)', () => {
     });
   });
 });
+
+describe('MemoryViewBook', () => {
+  it('refuses to save Mine again at revision 0 after delete and writes no row', async () => {
+    const book = new MemoryViewBook({ personal: 2, shared: 1 });
+    const input = {
+      name: 'Mine',
+      ownerId: AGENT,
+      expectedRevision: 0,
+      shared: false,
+      filter: OPEN,
+      sort: null,
+      layout: null,
+      favourite: false,
+      reason: 'My queue',
+      at: '2026-10-23T01:00:00.000Z',
+    };
+    const first = await book.save(input);
+    await book.remove({ viewId: first.id, actorId: AGENT, reason: 'Clearing it', at: input.at });
+    await expect(book.save(input)).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
+    expect(await book.get(first.id)).toBeNull();
+    expect(await book.listVisible(AGENT)).toEqual([]);
+  });
+});
