@@ -16,6 +16,7 @@
  *   REVIEW   every check is green except the merge seal, which only waits for the independent review of this head.
  *   RESEAL   the review is in but the seal stayed red and the sign-off workflow could not re-run it: re-run it once.
  *   RED      the lines say what failed.
+ *   SUPERSEDED  a newer push to the PR cancelled this head's run.
  *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
@@ -123,7 +124,14 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
 
   const sealSeen = checks.some((c) => c.name === SEAL);
   const othersRunning = running.filter((c) => c.name !== SEAL);
-  if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
+  // A newer push to the same PR cancels this head's run (ci.yml concurrency): nothing on this head to fix.
+  const superseded =
+    others.length > 0 &&
+    others.every(
+      (c) => c.conclusion === 'cancelled' && (annotations[c.id] ?? []).some((a) => /higher priority waiting request/.test(a.message ?? '')),
+    );
+  if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
+  else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
   else if (othersRunning.length > 0 || !seal)
@@ -265,6 +273,15 @@ function selfTest() {
     sealFirst.findIndex((l) => l.includes(SEAL)) > sealFirst.findIndex((l) => l.includes('Tests (changed)')),
     'the seal prints after the jobs it follows',
   );
+
+  const cancelledByPush = fail('Canceling since a higher priority waiting request for CI-refs/pull/1/merge exists');
+  const supersededRun = summarize({
+    ...base,
+    checks: [{ ...red(10, 'Tests (1/8)'), conclusion: 'cancelled' }, red(2, SEAL)],
+    annotations: { 10: [cancelledByPush], 2: [fail('needed job tests-full: cancelled')] },
+  });
+  assert(last(supersededRun).startsWith('SUPERSEDED'), 'a run cancelled by a newer push says so');
+  assert(last(summarize(cancelled)).startsWith('RED'), 'a cancel for another reason stays RED');
 
   const rerun = summarize({
     ...base,
