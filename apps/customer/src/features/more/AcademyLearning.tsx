@@ -603,7 +603,7 @@ function inlineText(text: string): ReactNode {
       ),
     );
 }
-function LessonBody({ body, title }: { body: string; title: string }) {
+export function LessonBody({ body, title }: { body: string; title: string }) {
   return (
     <>
       {body

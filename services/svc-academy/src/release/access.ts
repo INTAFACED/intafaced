@@ -250,6 +250,28 @@ export class ReleaseAccess {
     refuseRelease(view);
   }
 
+  /**
+   * A signed-out read (AC-catalogue-01). An item with a prerequisite depends on the reader's own record, so it
+   * asks for sign-in; a published window applies to everyone; anything else is open.
+   */
+  async assertMayReadSignedOut(input: { itemSlug: string; now?: Date }): Promise<void> {
+    const itemSlug = requireCurriculumSlug(input.itemSlug);
+    const prerequisites = await this.sql<Array<{ prerequisite_slug: string }>>`
+      SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = ${itemSlug} LIMIT 1
+    `;
+    if (prerequisites.length > 0) {
+      throw new AcademyError('academy.sign_in_required this item has a prerequisite', 'academy.sign_in_required');
+    }
+    const windows = await this.sql<WindowRow[]>`
+      SELECT available_from, available_until, due_at FROM academy.item_windows WHERE item_slug = ${itemSlug}
+    `;
+    const row = windows[0];
+    const window = row ? { availableFrom: row.available_from, availableUntil: row.available_until, dueAt: row.due_at } : null;
+    refuseRelease(
+      decideRelease({ completed: false, started: false, missing: [], window, extensionUntil: null, now: input.now ?? new Date() }),
+    );
+  }
+
   async assertMayComplete(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
     await this.assertMayRead(input);
   }
