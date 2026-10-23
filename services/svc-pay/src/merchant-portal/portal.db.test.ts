@@ -528,8 +528,10 @@ describe('merchant portal procedures', () => {
   });
 
   it('a merchant second approver does not apply a legal name, and a removed maker is auto-rejected', async () => {
+    expect((await as(stranger).merchant.businessProfile.get({ merchantId: merchantB })).secondApprovalEnabled).toBe(false);
     await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: true });
     const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    expect(current.secondApprovalEnabled).toBe(true);
     const submitted = await as(stranger).merchant.businessProfile.submit({
       merchantId: merchantB,
       expectedVersion: current.version,

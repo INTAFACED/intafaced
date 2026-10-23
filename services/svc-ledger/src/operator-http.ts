@@ -5,7 +5,7 @@ import { LedgerError } from '@intafaced/ledger-client';
 import { ASSET_EDIT_STALE, ASSET_OPERATION_CONFLICT, REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
-import { LOOKUP_UNRECORDED, LookupUnrecordedError, type LookupActor } from './ledger/operator-lookup.js';
+import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type LookupActor } from './ledger/operator-lookup.js';
 import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
@@ -61,7 +61,9 @@ import type { LedgerService } from './service.js';
  * ── Authentication ─────────────────────────────────────────────────────────
  *
  * `admin:treasury`, which is in `INTERACTIVE_ONLY_SCOPES`, so `requireScope`
- * rejects a token without `mfa` on its own. No session carries it
+ * rejects a token without `mfa` on its own. The two object lookups are the one
+ * exception: they also take a founder's `admin:read` with a second factor
+ * (`requireLookupAuthority`, owner decision 2026-10-23). No session carries it
  * (`SESSION_SCOPES` excludes every `admin:*` scope and `auth.test.ts` asserts
  * that), and `assertDelegatableScopes` refuses to mint an API key with it.
  *
@@ -164,23 +166,28 @@ export function registerOperatorHttp(
   tokens: TokenConfig,
   approvals: ActionApprovalConsumer,
 ): void {
-  const authenticate = async (header: string | undefined): Promise<Principal> => {
+  // Also enforces MFA, because `admin:treasury` is interactive-only.
+  const treasury = (principal: Principal) => requireScope(principal, 'admin:treasury');
+
+  const authenticate = async (header: string | undefined, authorize: (principal: Principal) => void): Promise<Principal> => {
     const token = bearerToken(header ?? null);
     if (!token) throw new AuthError('An operator access token is required', 'token.invalid');
 
     const principal = await verifyAccessToken(token, tokens);
-    // Also enforces MFA, because `admin:treasury` is interactive-only.
-    requireScope(principal, 'admin:treasury');
+    authorize(principal);
     return principal;
   };
 
   const guarded =
-    (handle: (operator: Principal, body: unknown, req: OperatorRequest, reply: FastifyReply) => Promise<unknown>) =>
+    (
+      handle: (operator: Principal, body: unknown, req: OperatorRequest, reply: FastifyReply) => Promise<unknown>,
+      authorize: (principal: Principal) => void = treasury,
+    ) =>
     async (req: OperatorRequest, reply: FastifyReply) => {
       let operator: Principal;
       try {
         const header = req.headers.authorization;
-        operator = await authenticate(typeof header === 'string' ? header : undefined);
+        operator = await authenticate(typeof header === 'string' ? header : undefined, authorize);
       } catch (err) {
         if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ message: err.message, code: err.code });
         throw err;
@@ -330,6 +337,8 @@ export function registerOperatorHttp(
    * Object lookup (OPS-rules-monitoring-12 on OPS-ledger-desk-01's reads): one booked transaction by its id, or the
    * transaction a business key booked. Reads, never posts, and they answer while the posting freeze is on.
    *
+   * Who may look: `requireLookupAuthority` (a founder's `admin:read` with a second factor, or `admin:treasury`).
+   *
    * Each lookup writes one `operator_access_log` row FIRST, inside the read function (`operator-lookup.ts`); a row that
    * cannot be written refuses with 503 and reads nothing. An unknown transaction id is 404 `ledger.tx_not_found`; a key
    * that never booked is an honest `found: false`. A read that fails after it was recorded is 503 with a fixed message,
@@ -364,7 +373,7 @@ export function registerOperatorHttp(
         app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
         return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
       }
-    });
+    }, requireLookupAuthority);
 
   app.get(
     '/operator/transactions/:txId',

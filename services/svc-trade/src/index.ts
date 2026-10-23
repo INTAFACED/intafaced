@@ -23,7 +23,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
-import { FUTURES_PRICE_BAND_UNSET, parsePriceBand } from './futures/matched-order-plan.js';
+import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
@@ -543,6 +543,9 @@ const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+/** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
+const futuresFeeRates = async (userId: string) =>
+  perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
   emailProof,
@@ -560,6 +563,8 @@ const positions = new PositionService(sql, ledger, {
     enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
     priceBand: futuresPriceBand,
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
+    // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
+    feeRates: futuresFeeRates,
   },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
@@ -577,7 +582,8 @@ const positions = new PositionService(sql, ledger, {
 // are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
 // earlier process must reach the futures path, never fall through to spot (which ignores an order it does not know).
 const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
-const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
+const stopTriggers = sqlStopTrigger(sql);
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
@@ -865,6 +871,8 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The rate an opening order would keep as taker, from the same schedule the order path reads.
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
   // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is
   // null, which the preview refuses with its reason.
   liquidationPriceFor: async ({ market, side, size, markPrice, initialMargin }) => {
@@ -1175,7 +1183,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
-  stopTriggers: sqlStopTrigger(sql),
+  stopTriggers,
   ocoExits: (ids) => readOcoIntents(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

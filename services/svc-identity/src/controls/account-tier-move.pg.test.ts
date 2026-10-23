@@ -31,6 +31,7 @@ const TIERS = parseAccountTiers(
     { id: 'standard', name: 'Standard', terms },
     { id: 'plus', name: 'Plus', terms: { ...terms, monthlyFee: '9.99' } },
     { id: 'premier', name: 'Premier', terms: { ...terms, monthlyFee: null } },
+    { id: 'signature', name: 'Signature', terms: { ...terms, monthlyFee: '19.99' } },
   ]),
 )!;
 
@@ -158,6 +159,10 @@ if (!available) {
         code: 'identity.tier_approval_mismatch',
       });
       const forPlus = await approved(first, id(second), move('plus', '1'));
+      // An approval for Plus does not move the account to another fully termed tier.
+      expect(await controls.tierMove(first, { ...forPlus, requestId: randomUUID(), tierId: 'signature' })).toMatchObject({
+        code: 'identity.tier_approval_mismatch',
+      });
       expect(await controls.tierMove(first, { ...forPlus, requestId: randomUUID(), tierId: 'premier' })).toMatchObject({
         code: 'identity.tier_terms_unset',
       });

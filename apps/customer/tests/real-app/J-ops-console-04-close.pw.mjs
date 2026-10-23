@@ -1,12 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, signUpInBrowser } from './stack.mjs';
+import { verify } from './desk.mjs';
 
 // J-ops-console-04 step #7: staff close an account with a second approver, then reopen it. Founder A asks on Account
 // controls with a reason code; a run before anyone approved changes nothing; founder B approves the same account, version,
 // code and reason on their own console; the run closes it once and the history names both. An account closed at the
 // customer's request reopens the same way; one closed for a bank reason is refused (identity.reopen_not_allowed).
+// While the customer still holds a card (the stack's TEST card simulator, never a live issuer) the approved close is
+// refused with the card named and the approval kept; once the customer closes the card, the same approval closes it.
 
 const login = (who) =>
   fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -63,7 +66,19 @@ test('J-ops-console-04 #7 close with a second approver, reopen a customer-closed
   test.setTimeout(420_000);
   const tag = randomUUID().slice(0, 8);
   const who = { handle: `ops47${tag}`, email: `ops47-${tag}@local-test.invalid`, password: `Ops47-${tag}-Test!pass` };
-  await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
+  const customer = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  await signUpInBrowser(customer, who);
+  await verify(customer, who);
+  const own = await api(who);
+  const cardId = randomUUID();
+  const issued = await own.post('/api/bank/trpc/cards.issue', {
+    cardId,
+    assetId: 'USDT',
+    perAuthorizationLimit: '50',
+    cardType: 'virtual',
+  });
+  expect(issued.status, JSON.stringify(issued.body).slice(0, 300)).toBe(200);
+  expect(issued.body.result.data).toMatchObject({ status: 'active', simulated: true });
   const signedIn = await login(who);
   expect(signedIn.status, 'the open customer can sign in').toBe(200);
   const userId = (await signedIn.json()).result.data.userId;
@@ -92,8 +107,18 @@ test('J-ops-console-04 #7 close with a second approver, reopen a customer-closed
   await expect(desk.getByTestId('step-reply')).toContainText('That approval is not for this change');
   expect((await login(who)).status, 'still open after the refusal').toBe(200);
 
-  // B approves; A runs it: closed once, the customer is out, the history names both.
+  // B approves; A runs it while the card is still open: refused with the card named, nothing changed, approval kept.
   await approveOn(b, userId, closePacket, closePhrase, `Close account ${userId}`);
+  await desk.getByLabel(/to approve or run it$/).fill(closePhrase);
+  await desk.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(desk.getByTestId('step-reply')).toContainText('The account still has open products or balances');
+  await expect(desk.getByTestId('step-reply')).toContainText('Still open: 1 × card not closed.');
+  expect((await login(who)).status, 'still open while a card is open').toBe(200);
+
+  // The customer closes their card; the same approval now closes the account once.
+  const cardClosed = await own.post('/api/bank/trpc/cards.setStatus', { cardId, status: 'closed' });
+  expect(cardClosed.status, JSON.stringify(cardClosed.body).slice(0, 300)).toBe(200);
+  expect(cardClosed.body.result.data.status).toBe('closed');
   await desk.getByLabel(/to approve or run it$/).fill(closePhrase);
   await desk.getByRole('button', { name: 'Run the approved request' }).click();
   await expect(desk.getByTestId('account-closure-status')).toContainText('Closed by the customer (customer request)', { timeout: 60_000 });
@@ -106,6 +131,13 @@ test('J-ops-console-04 #7 close with a second approver, reopen a customer-closed
   await expect(closed).toHaveCount(1);
   await expect(closed).toContainText(founderA.userId.slice(0, 8));
   await expect(closed).toContainText(founderB.userId.slice(0, 8));
+  await expect(
+    desk
+      .getByTestId('account-closure-history')
+      .locator('tbody tr')
+      .filter({ hasText: 'identity.close_blocked' })
+      .filter({ hasText: closeWhy }),
+  ).toContainText('still open: 1 × card not closed');
 
   // Reopen: B asks this time, A approves, B runs it. The customer can sign in again.
   const deskB = await openAccount(b, userId);

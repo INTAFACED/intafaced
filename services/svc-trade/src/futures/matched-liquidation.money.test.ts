@@ -18,6 +18,7 @@ import {
   formatAmount,
   futuresLossSink,
   futuresOrderMarginAccount,
+  houseFees,
   insuranceFund,
   parseAmount,
   positionCollateralAccount,
@@ -32,7 +33,9 @@ import type { EngineCancelResult, EngineFill, EngineSubmitRequest, EngineSubmitR
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
 import {
+  orderFeeReserve,
   orderHoldAmount,
   liquidationLimit,
   planLiquidationFill,
@@ -241,6 +244,8 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
   let engine: BookEngine;
   let mark: bigint;
   let admission: TradingAdmissionPort;
+  /** The perpetual rates the injected schedule gives every account. */
+  let feeRates: FeeRates;
   let acks: AdlDisclosureStore;
   let acceptedMarks: ReturnType<typeof memoryAcceptedMarkStore>;
   let eventSeq: number;
@@ -252,6 +257,9 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
                trade.liquidation_attempts
       RESTART IDENTITY CASCADE
     `;
+    // The listing row's maker_bps/taker_bps are not a fee schedule and are never charged: the rates come from `feeRates`
+    // (the owner's perpetual schedule in production). They are zero here, so these tests prove the margin path and a zero
+    // fee posts exactly what it did before fees; the trading-fee tests publish rates themselves.
     await sql`
       INSERT INTO trade.markets (
         id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
@@ -267,6 +275,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
     acks = memoryAdlDisclosureStore();
     acceptedMarks = memoryAcceptedMarkStore();
     admission = { admit: vi.fn(async () => ({})) } as unknown as TradingAdmissionPort;
+    feeRates = { makerBps: 0, takerBps: 0 };
     for (const userId of [ALICE, BOB, CAROL, DAVE]) {
       await ledger.post(
         recipes.deposit({ userId, assetId: USDT, amount: A('1000'), rail: 'test', railRef: `fund-${userId}-${randomUUID()}` }),
@@ -288,6 +297,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       lifecycleProof: async () => PROOF,
       admission,
       emailProof: { get: async () => 'accepted' },
+      feeRates: async () => feeRates,
       ...overrides,
     });
   }
@@ -452,6 +462,10 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
         applied_amount: string;
         released_amount: string;
         reduce_only: boolean;
+        band_high: string;
+        maker_fee_bps: string;
+        taker_fee_bps: string;
+        fee_charged: string;
       }[]
     >`SELECT * FROM trade.futures_orders WHERE market_id = ${MARKET}`;
     for (const o of orders) {
@@ -464,8 +478,17 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
             limit: parseAmount(o.limit_price),
             mark: parseAmount(o.mark_price),
             leverage: parseAmount(o.leverage),
+          }) +
+          orderFeeReserve({
+            side: o.side,
+            qty: parseAmount(o.qty),
+            limit: parseAmount(o.limit_price),
+            bandHigh: parseAmount(o.band_high),
+            rates: { makerBps: Number(o.maker_fee_bps), takerBps: Number(o.taker_fee_bps) },
           });
-      expect(held, `hold of ${o.id}`).toBe(locked - parseAmount(o.applied_amount) - parseAmount(o.released_amount));
+      expect(held, `hold of ${o.id}`).toBe(
+        locked - parseAmount(o.applied_amount) - parseAmount(o.fee_charged) - parseAmount(o.released_amount),
+      );
     }
     expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE state = 'pending'`).toHaveLength(0);
     expect(ledger.reconcile()).toEqual({ ok: true });
@@ -596,6 +619,30 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       const again = await tick();
       expect(again.items.find((i) => i.positionId === alice.id)).toBeUndefined();
       expect(engine.submits.filter((s) => s.tif === 'IOC')).toHaveLength(1);
+    });
+
+    it('a liquidation fill pays no trading fee on a listing that publishes one; the bid it hits still pays its own', async () => {
+      const { alice } = await aliceLongBobShort();
+      feeRates = { makerBps: 10, takerBps: 20 };
+      const carol = await carolBids(A('2'), A('91'));
+      mark = A('89');
+      await tick();
+
+      expect(await positionRow(alice.id)).toMatchObject({ status: 'liquidated' });
+      const [order] = await liquidationOrders();
+      const [fill] = await sql<{ fee: string; fee_waived: string }[]>`
+        SELECT fee, fee_waived FROM trade.futures_order_fills WHERE order_id = ${order!.id}
+      `;
+      expect(parseAmount(fill!.fee)).toBe(0n);
+      expect(parseAmount(fill!.fee_waived)).toBe(0n);
+      // Exactly what the fee-free listing gives Alice back; the only fee is Carol's maker fee (0.1% of 182).
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('2'));
+      expect(await bal(houseFees('trade', USDT))).toBe(A('0.182'));
+      const [carolFill] = await sql<{ fee: string; fee_role: string }[]>`
+        SELECT fee, fee_role FROM trade.futures_order_fills WHERE order_id = ${carol.orderId}
+      `;
+      expect(carolFill).toMatchObject({ fee_role: 'maker' });
+      await assertBooksAgree();
     });
 
     it('fills past the bound with the insurance fund covering exactly the loss past the margin', async () => {

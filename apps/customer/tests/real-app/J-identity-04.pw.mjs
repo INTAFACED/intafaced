@@ -317,3 +317,39 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides o
   // With the code removed, the next mail carries none.
   expect(await noticeMail()).not.toContain('anti_phishing=');
 });
+
+test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or says codes should work and offers replace; a new phone is a guided replace`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('ck');
+  await signUpInBrowser(page, who);
+  await addAuthenticator(page, totp);
+
+  // With the right time: codes should work, and Replace is offered.
+  await page.goto('/uc/safe');
+  const real = page.locator('.security__card[aria-label="Authenticator app"]');
+  await real.getByRole('button', { name: 'My codes do not work' }).click();
+  const ok = real.getByRole('region', { name: 'When codes do not work' });
+  await expect(ok.getByRole('status')).toContainText('so codes should work');
+  await expect(ok).toContainText('Apps that sync codes');
+  await expect(ok.getByRole('listitem')).toHaveCount(4);
+  // Moving to a new phone starts the card's own replace, which first confirms it is you.
+  await ok.getByRole('button', { name: 'Move to a new phone' }).click();
+  await expect(ok).toHaveCount(0);
+  await expect(real.getByRole('heading', { name: 'Confirm it is you' })).toBeVisible();
+
+  // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
+  await page.context().clock.install({ time: new Date(Date.now() + 90_000) });
+  await page.context().clock.resume();
+  const skewed = await page.context().newPage();
+  await skewed.goto('/uc/safe');
+  const card = skewed.locator('.security__card[aria-label="Authenticator app"]');
+  await card.getByRole('button', { name: 'My codes do not work' }).click();
+  const help = card.getByRole('region', { name: 'When codes do not work' });
+  await expect(help).toContainText('Codes depend on the clock.');
+  await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
+  await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
+  await skewed.close();
+});

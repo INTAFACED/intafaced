@@ -37,10 +37,12 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
@@ -294,6 +296,7 @@ function HomeSimple() {
   return (
     <div className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
       <div className="home-grid">
         <div className="home-main">
           <div className="home-label">
@@ -320,6 +323,8 @@ function HomeSimple() {
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {
+              case 'work':
+                return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
                   <HoldingsSkeleton key={id} />

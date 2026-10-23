@@ -71,10 +71,9 @@ export type AppRouter = typeof appRouter;
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
-// Built before the listener opens. The edge secret is still required even
-// though every procedure is permissionless: a signed principal may arrive (a
-// user who also holds a Fiat Plane account), and if one does, it must be
-// verified rather than believed.
+// Built before the listener opens. The edge secret is required: quote may
+// ignore a principal, but limitOrder requires one, and a signed principal
+// must be verified rather than believed.
 const edgeContext = buildEdgeContext(env);
 
 app.get('/health', async () =>

@@ -1,3 +1,4 @@
+import { supportSurveyCapEnv } from './survey-cap-env.js';
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
@@ -65,6 +66,8 @@ const schema = serviceEnvSchema
        */
       SUPPORT_ATTACHMENT_STORE: z.string().optional(),
       SUPPORT_MALWARE_SCANNER: z.string().optional(),
+      /** SP-csat-02: owner cap on how many surveys exist; blank allows only the first. */
+      SUPPORT_SURVEY_CAP: supportSurveyCapEnv,
       /**
        * How many requests one bulk change may hold. Blank is an owner value left unset: a bulk change refuses
        * support.bulk_cap_unset and the desk says so. Never defaulted.

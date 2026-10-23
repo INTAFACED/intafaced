@@ -85,11 +85,15 @@ const messages = {
   'Profit and loss': 'Profit and loss',
   'Pnl indicator label': 'This is an indicator worked out from your own trades. It is not tax advice and not a tax form.',
   'Pnl method rule':
-    'Each sale is matched against the lots you bought, one lot at a time, using the method you pick. Fees are already taken out of what you received. Coins that arrived by deposit or transfer have no cost recorded, so a sale of them has no result.',
+    'Each sale is matched against the lots you bought, one lot at a time, using the method you pick. The fee on a buy is inside the cost: you paid the full price and received the coins less the fee, so the average price includes it. Coins that arrived by deposit or transfer have no cost recorded, so a sale of them has no result.',
   'Matching method': 'Matching method',
-  'Method FIFO': 'Oldest first',
-  'Method LIFO': 'Newest first',
-  'Method HIFO': 'Dearest first',
+  'Method FIFO': 'FIFO: oldest first',
+  'Method LIFO': 'LIFO: newest first',
+  'Method HIFO': 'HIFO: dearest first',
+  'Method not offered': 'That matching method isn’t offered',
+  'Method not offered body':
+    'Profit and loss can match sales oldest first (FIFO), newest first (LIFO) or dearest first (HIFO). Pick one of them above. Nothing was worked out.',
+  'Average price': 'Average price',
   Realised: 'Realised',
   Unrealised: 'Unrealised',
   'Realised rule':

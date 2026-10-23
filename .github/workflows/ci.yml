@@ -161,6 +161,7 @@ jobs:
       - run: node tooling/ci/review-marker.mjs --self-test
       - run: node tooling/ci/review-signoff.mjs --self-test
       - run: node tooling/ci/main-trust.mjs --self-test
+      - run: node tooling/ci/post-merge-trust.mjs --self-test
       - run: node tooling/ci/bisect-main.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test

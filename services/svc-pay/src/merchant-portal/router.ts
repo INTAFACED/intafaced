@@ -26,6 +26,7 @@ import {
 } from '@intafaced/contracts';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { merchantProfileReviewFields } from '../approval-bindings.js';
+import { createMerchantCustomerEmails } from '../customer-emails/router.js';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { isInteractivePrincipal } from '../merchant-ops/roles.js';
@@ -149,6 +150,8 @@ export function merchantPortalExtensions(deps: {
           }),
         ),
     }),
+    // Not merged as its own `merchant` key: `createPayRouter` already owns that key and spreads this object.
+    customerEmails: createMerchantCustomerEmails({ sql: deps.sql }),
   };
   return {
     merchant,
