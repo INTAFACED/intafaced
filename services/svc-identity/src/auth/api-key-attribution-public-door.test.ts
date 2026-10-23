@@ -57,6 +57,9 @@ function signedHeaders(scopes?: string[]): Record<string, string> {
 
 function mockAuth(): AuthService {
   const auth = {
+    async acceptFreshFactor() {
+      return 'totp' as const;
+    },
     async createApiKey() {
       return { id: KEY_ID, key: 'ifc_live_attribution_key', prefix: 'ifc_live', mode: 'live' as const };
     },
@@ -165,7 +168,7 @@ describe('API-key attribution public door (PTX-M01-R05)', () => {
         method: 'POST',
         url: '/trpc/attribution.mint',
         headers: signedHeaders(),
-        payload: { name: 'desk', scopes: ['trade:write'] },
+        payload: { name: 'desk', scopes: ['trade:write'], factorProof: { totpCode: '123456' } },
       });
       expect(res.statusCode).toBe(200);
       const data = unwrapData(res.json() as WireBody) as {

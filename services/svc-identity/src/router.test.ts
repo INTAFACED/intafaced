@@ -51,7 +51,15 @@ const kycDual = { approvalId: 'appr-1', operationId: 'op-1' };
 
 async function ctx(
   scopes: string[],
-  opts: { mfa?: boolean; userId?: string; region?: string; service?: string | null; apiKeyId?: string; stepUpScopes?: string[] } = {},
+  opts: {
+    mfa?: boolean;
+    userId?: string;
+    region?: string;
+    service?: string | null;
+    apiKeyId?: string;
+    stepUpScopes?: string[];
+    subAccountId?: string;
+  } = {},
 ): Promise<Context> {
   const region = opts.region ?? 'DE';
   if (scopes.length === 0) {
@@ -67,6 +75,7 @@ async function ctx(
       mfa: opts.mfa ?? true,
       ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
       ...(opts.stepUpScopes ? { stepUpScopes: opts.stepUpScopes } : {}),
+      ...(opts.subAccountId ? { subAccountId: opts.subAccountId } : {}),
     },
     authConfig,
   );
@@ -145,6 +154,7 @@ function stubServices(): Stub {
       allowCredentials: [{ type: 'public-key' as const, id: 'cred-1' }],
       userVerification: 'preferred' as const,
     })),
+    acceptFreshFactor: async () => 'totp' as const,
     createApiKey: record('createApiKey', () => ({ id: 'key-1', key: 'ifc_secret', prefix: 'ifc_abc', mode: 'live' as const })),
     exchangeApiKey: record('exchangeApiKey', () => ({
       accessToken: 'api.key.jwt',
@@ -717,7 +727,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // stops being passed at all — the check downstream has nothing to compare
     // against and any account can mint any scope again.
     const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] });
+    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: { totpCode: '123456' } });
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write', 'trade:read']);
@@ -728,7 +738,12 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // A body naming its own grantor must not reach the service. `grantorScopes`
     // is spread AFTER `...input` in the router for exactly this reason.
     const api = await caller(['identity:write']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['identity:read'], grantorScopes: ['admin:compliance'] } as never);
+    await api.apiKeys.create({
+      name: 'bot',
+      scopes: ['identity:read'],
+      factorProof: { totpCode: '123456' },
+      grantorScopes: ['admin:compliance'],
+    } as never);
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write']);
@@ -737,8 +752,22 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
   it('surfaces a refused delegation as BAD_REQUEST, not a 500', async () => {
     stub.fail(new Error('Cannot grant scopes the granting session does not hold: admin:compliance'));
     const api = await caller(['identity:write']);
-    const err = await api.apiKeys.create({ name: 'escalate', scopes: ['admin:compliance'] }).catch((e: unknown) => e);
+    const err = await api.apiKeys
+      .create({ name: 'escalate', scopes: ['admin:compliance'], factorProof: { totpCode: '123456' } })
+      .catch((e: unknown) => e);
     expect(codeOf(err)).toBe('BAD_REQUEST');
+  });
+
+  it('refuses a sub-account principal minting a key', async () => {
+    const api = await caller(['identity:write', 'trade:read'], {
+      subAccountId: '77777777-7777-4777-8777-777777777777',
+    });
+    const err = await api.apiKeys
+      .create({ name: 'nested', scopes: ['trade:read'], factorProof: { totpCode: '123456' } })
+      .catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect((err as Error).message).toMatch(/cannot create keys/);
+    expect(argsOf('createApiKey')).toHaveLength(0);
   });
 
   it('refuses an API-key principal minting a further key', async () => {
@@ -761,7 +790,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
 
   it('passes payStepUp when the token stp claim lists the requested pay scope', async () => {
     const api = await caller(['identity:write', 'pay:refund'], { stepUpScopes: ['pay:refund'] });
-    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'] });
+    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'], factorProof: { totpCode: '123456' } });
     const [args] = argsOf('createApiKey');
     expect(args!.payStepUp).toBe(true);
     expect(args!.scopes).toEqual(['pay:refund']);
@@ -770,7 +799,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
 
   it('session grantor has no kid on the mint call', async () => {
     const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] });
+    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: { totpCode: '123456' } });
     const [args] = argsOf('createApiKey');
     expect(args!.grantorKid).toBeUndefined();
   });

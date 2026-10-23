@@ -2,7 +2,15 @@ import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { ApiKeyProductError } from './auth/api-key-product.js';
-import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { AuthError } from './auth/auth-service.js';
+import {
+  apiKeyFactorProofSchema,
+  assertKeyGrantor,
+  assertPayKeyScopes,
+  requireFreshApiKeyFactor,
+  rethrowApiKeyDoor,
+  type FreshFactorVerifier,
+} from './auth/api-key-fresh-factor.js';
 import { bindApiKeyProductScope, requestProductAls } from './auth/auth-service-product.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyWithProductScope } from './auth/mint-api-key-product.js';
@@ -60,27 +68,43 @@ function toProductTrpc(err: unknown): never {
  * apiKeys) so mergeRouters cannot replace apiKeys.exchange. identity:write
  * except the public named-product exchange. Empty list stays unset.
  */
-export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
+export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger & FreshFactorVerifier) {
   return router({
     bindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), products: z.array(z.string()) }))
+      .input(
+        z.object({
+          keyId: z.string().uuid(),
+          products: z.array(z.string()),
+          factorProof: apiKeyFactorProofSchema.optional(),
+        }),
+      )
       .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          await requireFreshApiKeyFactor(minter, ctx.principal, input.factorProof);
           return await bindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.products, ctx.principal.scopes);
         } catch (err) {
+          rethrowApiKeyDoor(err);
           toProductTrpc(err);
         }
       }),
     unbindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), product: z.string() }))
+      .input(
+        z.object({
+          keyId: z.string().uuid(),
+          product: z.string(),
+          factorProof: apiKeyFactorProofSchema.optional(),
+        }),
+      )
       .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          await requireFreshApiKeyFactor(minter, ctx.principal, input.factorProof);
           return await unbindApiKeyProductScope(sql, ctx.principal.userId, input.keyId, input.product);
         } catch (err) {
+          rethrowApiKeyDoor(err);
           toProductTrpc(err);
         }
       }),
@@ -92,6 +116,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
           products: z.array(z.string()),
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
+          factorProof: apiKeyFactorProofSchema.optional(),
         }),
       )
       .output(
@@ -105,7 +130,9 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          const payStepUp = assertPayKeyScopes(input.scopes, ctx.principal);
+          const factor = await requireFreshApiKeyFactor(minter, ctx.principal, input.factorProof);
           return await mintApiKeyWithProductScope(minter, sql, {
             userId: ctx.principal.userId,
             name: input.name,
@@ -115,8 +142,11 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger) {
             products: input.products,
             domainWhitelist: input.domainWhitelist,
             mode: input.mode,
+            payStepUp,
+            stepUpAudit: { sessionId: ctx.principal.sid, factor },
           });
         } catch (err) {
+          rethrowApiKeyDoor(err);
           toProductTrpc(err);
         }
       }),

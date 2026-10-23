@@ -21,7 +21,6 @@ import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from '
 import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
-  assertDelegateCannotGrant,
   assertOperatorKycReview,
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
@@ -31,6 +30,7 @@ import {
   type AuthService,
   type KycRecordView,
 } from './auth/auth-service.js';
+import { apiKeyFactorProofSchema, assertKeyGrantor, assertPayKeyScopes, requireFreshApiKeyFactor } from './auth/api-key-fresh-factor.js';
 import type { RankService } from './rank/rank-service.js';
 import { HANDLE_LOOKUP_RATE_LIMITED, HandleLookupLimiter, normaliseHandleQuery, type HandleLookupLimiterPort } from './handle-lookup.js';
 import { normalisePayeeEmail, normalisePayeePhone } from './payee-search.js';
@@ -1731,6 +1731,12 @@ export function createIdentityRouter(
             domainWhitelist: z.array(z.string()).optional(),
             /** pay.public-api step 4 — sandbox keys route to the sandbox rail. */
             mode: z.enum(['live', 'sandbox']).optional(),
+            /**
+             * Fresh passkey or authenticator, or a proof from the last five minutes.
+             * Absent is `auth.step_up_required`. pay:refund / pay:payout also need
+             * the access token from `auth.stepUpPay` (`stp`).
+             */
+            factorProof: apiKeyFactorProofSchema.optional(),
           }),
         )
         .output(
@@ -1747,28 +1753,37 @@ export function createIdentityRouter(
             // `grantorScopes` comes from the verified principal, never from the
             // body. A key is a delegation of THIS session's authority, so the
             // ceiling has to be read from the token that asked for it.
-            // A key (`kid`) is already a delegate and cannot mint another.
-            assertDelegateCannotGrant(ctx.principal.kid);
-            const money = input.scopes.filter((scope) => scope === 'pay:refund' || scope === 'pay:payout');
-            const stepped = new Set(ctx.principal.stp ?? []);
-            const payStepUp = money.length > 0 && money.every((scope) => stepped.has(scope) && ctx.principal.scopes.includes(scope));
-            if (money.length > 0 && !payStepUp) {
-              throw new TRPCError({
-                code: 'PRECONDITION_FAILED',
-                message: `${userCopy('auth.step_up_required')} [auth.step_up_required]`,
-              });
-            }
+            // A key (`kid`) or a sub-account cannot mint another.
+            assertKeyGrantor(ctx.principal);
+            const payStepUp = assertPayKeyScopes(input.scopes, ctx.principal);
+            const factor = await requireFreshApiKeyFactor(auth, ctx.principal, input.factorProof);
             const created = await auth.createApiKey({
               userId: ctx.principal.userId,
-              ...input,
+              name: input.name,
+              scopes: input.scopes,
+              domainWhitelist: input.domainWhitelist,
+              mode: input.mode,
               grantorScopes: ctx.principal.scopes,
               grantorKid: ctx.principal.kid,
               payStepUp,
+              stepUpAudit: { sessionId: ctx.principal.sid, factor },
             });
             return { ...created, scopes: created.scopes ?? input.scopes };
           } catch (err) {
             if (err instanceof TRPCError) throw err;
-            if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
+            if (
+              err instanceof AuthError &&
+              (err.code === 'auth.delegate_cannot_grant' ||
+                err.code === 'auth.step_up_required' ||
+                err.code === 'auth.step_up_expired' ||
+                err.code === 'auth.mfa_invalid' ||
+                err.code === 'auth.mfa_not_enrolled' ||
+                err.code === 'auth.webauthn_invalid' ||
+                err.code === 'auth.webauthn_not_enrolled' ||
+                err.code === 'auth.session_invalid' ||
+                err.code === 'auth.too_many_attempts' ||
+                err.code === 'auth.account_frozen')
+            ) {
               throw toTrpcError(err);
             }
             throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });

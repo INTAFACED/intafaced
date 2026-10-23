@@ -97,6 +97,9 @@ describe('exchange routes accept request material only from svc-edge', () => {
       async revokeApiKey() {
         return true;
       },
+      async acceptFreshFactor() {
+        throw new Error('factor is not this test');
+      },
       async exchangeApiKey() {
         calls += 1;
         return {

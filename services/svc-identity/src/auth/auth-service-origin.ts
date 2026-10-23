@@ -22,6 +22,17 @@ export function normalizeOrigin(value: string | null | undefined): string | null
   return host;
 }
 
+/** Null when this user has no live key with that id. */
+export async function loadApiKeyOriginAllowlist(sql: Sql, userId: string, keyId: string): Promise<string[] | null> {
+  const rows = await sql<Array<{ domain_whitelist: string[] | null }>>`
+    SELECT domain_whitelist FROM api_keys
+    WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return row.domain_whitelist ?? [];
+}
+
 export async function bindApiKeyOriginAllowlist(
   sql: Sql,
   userId: string,

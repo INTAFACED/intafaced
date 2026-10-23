@@ -54,7 +54,6 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
-import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
@@ -326,7 +325,9 @@ installApiKeyIpExchange(auth, sql);
 installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
-installPasskeyMintRefuse(auth, sql);
+// A historical passkey timestamp is not a fresh factor. Create, scope change,
+// allowlist widening, and secret re-reveal go through requireFreshApiKeyFactor
+// (passkey or TOTP within five minutes). TOTP-only accounts can mint.
 installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey);
@@ -394,7 +395,7 @@ export const appRouter = mergeRouters(
     account,
   }),
   createApiKeyIpRouter(sql, auth),
-  createApiKeyRequestSignRouter(sql, signingEncKey),
+  createApiKeyRequestSignRouter(sql, signingEncKey, auth),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
   createApiKeyRotateRouter(sql, auth, signingEncKey),

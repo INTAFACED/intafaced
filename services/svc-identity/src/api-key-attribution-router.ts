@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
+import { AuthError, type AuthService } from './auth/auth-service.js';
+import {
+  apiKeyFactorProofSchema,
+  assertKeyGrantor,
+  assertPayKeyScopes,
+  requireFreshApiKeyFactor,
+  rethrowApiKeyDoor,
+} from './auth/api-key-fresh-factor.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { userCopy } from './user-copy.js';
@@ -87,6 +94,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             scopes: z.array(z.string()).min(1),
             domainWhitelist: z.array(z.string()).optional(),
             mode: z.enum(['live', 'sandbox']).optional(),
+            factorProof: apiKeyFactorProofSchema.optional(),
           }),
         )
         .output(
@@ -100,7 +108,9 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            assertDelegateCannotGrant(ctx.principal.kid);
+            assertKeyGrantor(ctx.principal);
+            const payStepUp = assertPayKeyScopes(input.scopes, ctx.principal);
+            const factor = await requireFreshApiKeyFactor(auth, ctx.principal, input.factorProof);
             const minted = await auth.createApiKey({
               userId: ctx.principal.userId,
               name: input.name,
@@ -109,6 +119,8 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
               mode: input.mode,
               grantorScopes: ctx.principal.scopes,
               grantorKid: ctx.principal.kid,
+              payStepUp,
+              stepUpAudit: { sessionId: ctx.principal.sid, factor },
             });
             const stamp = requireAttribution({
               sessionId: ctx.principal.sid,
@@ -116,6 +128,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             });
             return { ...minted, attribution: attributedSurfaces(stamp) };
           } catch (err) {
+            rethrowApiKeyDoor(err);
             mapAttributionErr(err);
           }
         }),

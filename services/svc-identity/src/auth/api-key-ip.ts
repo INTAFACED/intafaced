@@ -21,6 +21,28 @@ export function apiKeyIpAllowed(allowlist: readonly string[], requestIp: string 
   return false;
 }
 
+/**
+ * True when `next` lets the key be used from more places than `current`.
+ * Empty means unrestricted, so clearing a non-empty list opens the key.
+ * Adding addresses to an already-empty list narrows it.
+ */
+export function ipAllowlistWidens(current: readonly string[], next: readonly string[]): boolean {
+  const cur = new Set<string>();
+  for (const entry of current) {
+    const ip = normalizeIp(entry);
+    if (ip) cur.add(ip);
+  }
+  const nxt: string[] = [];
+  for (const entry of next) {
+    const ip = normalizeIp(entry);
+    if (ip) nxt.push(ip);
+  }
+  if (cur.size === 0) return false;
+  if (nxt.length === 0) return true;
+  for (const ip of nxt) if (!cur.has(ip)) return true;
+  return false;
+}
+
 /** Trim + IPv4/IPv6 literal. Returns null for blank, CIDR, hostname, or junk. */
 export function normalizeIp(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;

@@ -3,6 +3,14 @@ import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/
 import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import {
+  apiKeyFactorProofSchema,
+  assertKeyGrantor,
+  assertPayKeyScopes,
+  requireFreshApiKeyFactor,
+  rethrowApiKeyDoor,
+  type FreshFactorVerifier,
+} from './auth/api-key-fresh-factor.js';
 import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
@@ -62,7 +70,7 @@ function toAccountTrpc(err: unknown): never {
  * so mergeRouters cannot replace apiKeys.exchange. identity:write except the
  * public named-account exchange. Empty account id refuses.
  */
-export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
+export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger & FreshFactorVerifier) {
   return router({
     bindApiKeyAccount: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), accountId: z.string().uuid() }))
@@ -83,6 +91,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
           accountId: z.string().uuid(),
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
+          factorProof: apiKeyFactorProofSchema.optional(),
         }),
       )
       .output(
@@ -96,7 +105,9 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          const payStepUp = assertPayKeyScopes(input.scopes, ctx.principal);
+          const factor = await requireFreshApiKeyFactor(minter, ctx.principal, input.factorProof);
           return await mintApiKeyBoundToAccount(minter, sql, {
             userId: ctx.principal.userId,
             name: input.name,
@@ -106,8 +117,11 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
             accountId: input.accountId,
             domainWhitelist: input.domainWhitelist,
             mode: input.mode,
+            payStepUp,
+            stepUpAudit: { sessionId: ctx.principal.sid, factor },
           });
         } catch (err) {
+          rethrowApiKeyDoor(err);
           toAccountTrpc(err);
         }
       }),

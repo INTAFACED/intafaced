@@ -1,8 +1,15 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
-import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { AuthError } from './auth/auth-service.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
+import {
+  apiKeyFactorProofSchema,
+  assertKeyGrantor,
+  requireFreshApiKeyFactor,
+  rethrowApiKeyDoor,
+  type FreshFactorVerifier,
+} from './auth/api-key-fresh-factor.js';
 
 /**
  * Top-level opt-in (not nested under apiKeys) so mergeRouters cannot replace
@@ -22,7 +29,7 @@ function mapSignError(err: unknown): never {
   throw err;
 }
 
-export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = null) {
+export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null, factors: FreshFactorVerifier) {
   return router({
     setApiKeyRequestSigning: scopedProcedure('identity:write')
       .input(
@@ -30,6 +37,7 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
           keyId: z.string().uuid(),
           requireSignature: z.boolean(),
           requireNonEmptyIpAllowlist: z.boolean(),
+          factorProof: apiKeyFactorProofSchema.optional(),
         }),
       )
       .output(
@@ -42,7 +50,10 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          if (input.requireSignature) {
+            await requireFreshApiKeyFactor(factors, ctx.principal, input.factorProof);
+          }
           return await setApiKeyRequestSigning(
             sql,
             ctx.principal.userId,
@@ -54,6 +65,7 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
             encKey,
           );
         } catch (err) {
+          rethrowApiKeyDoor(err);
           mapSignError(err);
         }
       }),
@@ -63,13 +75,15 @@ export function createApiKeyRequestSignRouter(sql: Sql, encKey: Buffer | null = 
      * The new secret is returned once. identity:write, and the caller must own the key.
      */
     rotateSigningSecret: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid() }))
+      .input(z.object({ keyId: z.string().uuid(), factorProof: apiKeyFactorProofSchema.optional() }))
       .output(z.object({ id: z.string().uuid(), signingSecret: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
+          assertKeyGrantor(ctx.principal);
+          await requireFreshApiKeyFactor(factors, ctx.principal, input.factorProof);
           return await rotateSigningSecret(sql, ctx.principal.userId, input.keyId, encKey);
         } catch (err) {
+          rethrowApiKeyDoor(err);
           mapSignError(err);
         }
       }),

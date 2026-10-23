@@ -4,6 +4,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { createApiKeyIpRouter } from '../api-key-ip-router.js';
 import { createApiKeyOriginRouter } from '../api-key-origin-router.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
+import type { FreshFactorVerifier } from './api-key-fresh-factor.js';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const keyId = '22222222-2222-4222-8222-222222222222';
@@ -21,7 +22,7 @@ describe('delegated keys cannot remove their access restrictions', () => {
       reads += 1;
       throw new Error('delegated removal reached storage');
     }) as unknown as Sql;
-    const minter = {} as ApiKeyMinter;
+    const minter = {} as ApiKeyMinter & FreshFactorVerifier;
     const { token } = await issueAccessToken(
       { userId, sessionId: '33333333-3333-4333-8333-333333333333', scopes: ['identity:write'], apiKeyId: keyId },
       tokenConfig,

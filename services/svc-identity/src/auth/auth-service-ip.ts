@@ -21,6 +21,17 @@ export class ApiKeyIpError extends Error {
   }
 }
 
+/** Null when this user has no live key with that id. */
+export async function loadApiKeyIpAllowlist(sql: Sql, userId: string, keyId: string): Promise<string[] | null> {
+  const rows = await sql<Array<{ ip_allowlist: string[] | null }>>`
+    SELECT ip_allowlist FROM api_keys
+    WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return row.ip_allowlist ?? [];
+}
+
 export async function bindApiKeyIpAllowlist(
   sql: Sql,
   userId: string,

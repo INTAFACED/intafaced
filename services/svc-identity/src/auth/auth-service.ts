@@ -1607,6 +1607,8 @@ export class AuthService {
     mode?: 'live' | 'sandbox';
     /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
     payStepUp?: boolean;
+    /** Set by a door that already proved a fresh factor. Written in the same transaction as the key. */
+    stepUpAudit?: { sessionId: string; factor: 'totp' | 'passkey' | 'proof' };
   }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
     assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
@@ -1617,9 +1619,25 @@ export class AuthService {
       async (tx) => {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-        return tx<
+        const inserted = await tx<
           Array<{ id: string }>
         >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+        const id = inserted[0]?.id;
+        if (!id) throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        if (input.stepUpAudit) {
+          await tx`
+            INSERT INTO api_key_create_audit (audit_id, user_id, session_id, key_id, scopes, factor)
+            VALUES (
+              ${randomUUID()},
+              ${input.userId},
+              ${input.stepUpAudit.sessionId},
+              ${id},
+              ${input.scopes},
+              ${input.stepUpAudit.factor}
+            )
+          `;
+        }
+        return inserted;
       },
       { isolation: 'read committed' },
     );
@@ -2154,7 +2172,7 @@ export class AuthService {
     if (requested.length === 0) {
       throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
     }
-    const factor = await this.acceptPayStepUpFactor(input.userId, input.sessionId, input.factorProof);
+    const factor = await this.acceptFreshFactor(input.userId, input.sessionId, input.factorProof);
     await this.assertPayStepUpRole(input.userId, input.merchantId, requested);
     const base = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...base];
@@ -2178,11 +2196,7 @@ export class AuthService {
     return { accessToken: token, expiresAt, scopes, refreshable: false };
   }
 
-  private async acceptPayStepUpFactor(
-    userId: string,
-    sessionId: string,
-    proof: PayStepUpFactorProof,
-  ): Promise<'totp' | 'passkey' | 'proof'> {
+  async acceptFreshFactor(userId: string, sessionId: string, proof: PayStepUpFactorProof): Promise<'totp' | 'passkey' | 'proof'> {
     if ('proofId' in proof) {
       const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
         SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}

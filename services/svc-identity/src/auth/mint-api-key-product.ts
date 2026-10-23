@@ -21,6 +21,8 @@ export async function mintApiKeyWithProductScope(
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
+    payStepUp?: boolean;
+    stepUpAudit?: { sessionId: string; factor: 'totp' | 'passkey' | 'proof' };
   },
 ): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; productScopes: string[] }> {
   const next: string[] = [];
@@ -43,6 +45,8 @@ export async function mintApiKeyWithProductScope(
     domainWhitelist: input.domainWhitelist,
     expiresAt: input.expiresAt,
     mode: input.mode,
+    payStepUp: input.payStepUp,
+    stepUpAudit: input.stepUpAudit,
   });
 
   try {

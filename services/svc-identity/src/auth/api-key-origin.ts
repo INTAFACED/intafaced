@@ -18,6 +18,27 @@ export function apiKeyOriginAllowed(whitelist: readonly string[], requestOrigin:
   return false;
 }
 
+/**
+ * True when `next` lets the key be used from more origins than `current`.
+ * Empty means unrestricted, so clearing a non-empty list opens the key.
+ */
+export function originAllowlistWidens(current: readonly string[], next: readonly string[]): boolean {
+  const cur = new Set<string>();
+  for (const entry of current) {
+    const host = normalizeOriginHost(entry);
+    if (host) cur.add(host);
+  }
+  const nxt: string[] = [];
+  for (const entry of next) {
+    const host = normalizeOriginHost(entry);
+    if (host) nxt.push(host);
+  }
+  if (cur.size === 0) return false;
+  if (nxt.length === 0) return true;
+  for (const host of nxt) if (!cur.has(host)) return true;
+  return false;
+}
+
 export function normalizeOriginHost(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   const trimmed = value.trim().toLowerCase();

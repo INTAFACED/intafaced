@@ -21,6 +21,8 @@ export async function mintApiKeyBoundToAccount(
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
+    payStepUp?: boolean;
+    stepUpAudit?: { sessionId: string; factor: 'totp' | 'passkey' | 'proof' };
   },
 ): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; accountId: string }> {
   const accountId = requireAccountId(input.accountId);
@@ -44,6 +46,8 @@ export async function mintApiKeyBoundToAccount(
     domainWhitelist: input.domainWhitelist,
     expiresAt: input.expiresAt,
     mode: input.mode,
+    payStepUp: input.payStepUp,
+    stepUpAudit: input.stepUpAudit,
   });
 
   try {

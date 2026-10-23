@@ -19,6 +19,8 @@ export async function mintApiKeyWithOriginAllowlist(
     origins: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
+    payStepUp?: boolean;
+    stepUpAudit?: { sessionId: string; factor: 'totp' | 'passkey' | 'proof' };
   },
 ): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; originAllowlist: string[] }> {
   const next: string[] = [];
@@ -37,6 +39,8 @@ export async function mintApiKeyWithOriginAllowlist(
     domainWhitelist: next,
     expiresAt: input.expiresAt,
     mode: input.mode,
+    payStepUp: input.payStepUp,
+    stepUpAudit: input.stepUpAudit,
   });
 
   try {

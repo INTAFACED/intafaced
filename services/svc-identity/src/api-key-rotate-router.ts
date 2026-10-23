@@ -1,19 +1,25 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
-import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { AuthError } from './auth/auth-service.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
-import { RotateApiKeyError } from './auth/rotate-api-key.js';
-import { rotateApiKeyAfterPasskey } from './auth/rotate-api-key-passkey.js';
+import { rotateApiKey, RotateApiKeyError } from './auth/rotate-api-key.js';
+import {
+  apiKeyFactorProofSchema,
+  assertKeyGrantor,
+  requireFreshApiKeyFactor,
+  rethrowApiKeyDoor,
+  type FreshFactorVerifier,
+} from './auth/api-key-fresh-factor.js';
 
 /**
  * Top-level rotate (not nested under apiKeys) so mergeRouters cannot
  * replace apiKeys.exchange. identity:write. No invented secret.
  */
-export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter, encKey: Buffer | null = null) {
+export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter & FreshFactorVerifier, encKey: Buffer | null = null) {
   return router({
     rotateApiKey: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid() }))
+      .input(z.object({ keyId: z.string().uuid(), factorProof: apiKeyFactorProofSchema.optional() }))
       .output(
         z.object({
           id: z.string(),
@@ -26,8 +32,9 @@ export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter, encKey:
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          assertDelegateCannotGrant(ctx.principal.kid);
-          return await rotateApiKeyAfterPasskey(
+          assertKeyGrantor(ctx.principal);
+          const factor = await requireFreshApiKeyFactor(minter, ctx.principal, input.factorProof);
+          return await rotateApiKey(
             minter,
             sql,
             {
@@ -35,10 +42,13 @@ export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter, encKey:
               keyId: input.keyId,
               grantorScopes: ctx.principal.scopes,
               grantorKid: ctx.principal.kid,
+              stepUpScopes: ctx.principal.stp,
+              stepUpAudit: { sessionId: ctx.principal.sid, factor },
             },
             encKey,
           );
         } catch (err) {
+          rethrowApiKeyDoor(err);
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
           }

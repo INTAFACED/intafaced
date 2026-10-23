@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiKeyIpAllowed, normalizeIp } from './api-key-ip.js';
+import { apiKeyIpAllowed, ipAllowlistWidens, normalizeIp } from './api-key-ip.js';
 
 describe('apiKeyIpAllowed', () => {
   it('allows any / missing IP when the allowlist is empty', () => {
@@ -33,6 +33,16 @@ describe('apiKeyIpAllowed', () => {
     expect(apiKeyIpAllowed(['app.example.com'], 'app.example.com')).toBe(false);
     expect(apiKeyIpAllowed(['203.0.113.10', '10.0.0.0/8'], '203.0.113.10')).toBe(true);
     expect(apiKeyIpAllowed(['203.0.113.10', '10.0.0.0/8'], '10.0.0.1')).toBe(false);
+  });
+});
+
+describe('ipAllowlistWidens', () => {
+  it('treats an empty list as already open, and clearing a list as opening it', () => {
+    expect(ipAllowlistWidens([], ['203.0.113.10'])).toBe(false);
+    expect(ipAllowlistWidens(['203.0.113.10'], [])).toBe(true);
+    expect(ipAllowlistWidens(['203.0.113.10'], ['203.0.113.10', '203.0.113.11'])).toBe(true);
+    expect(ipAllowlistWidens(['203.0.113.10', '203.0.113.11'], ['203.0.113.10'])).toBe(false);
+    expect(ipAllowlistWidens(['203.0.113.10'], ['  203.0.113.10  '])).toBe(false);
   });
 });
 

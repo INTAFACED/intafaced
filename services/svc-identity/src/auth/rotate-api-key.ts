@@ -4,6 +4,7 @@
  * Same name, scopes, mode, domain list, expiry, IP allowlist, account bind.
  */
 import type { Sql } from 'postgres';
+import { AuthError } from './auth-service.js';
 import { bindApiKeyAccount } from './bind-api-key-account.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { issueSigningSecret } from './api-key-request-sign.js';
@@ -33,7 +34,15 @@ export type RotatedApiKey = {
 export async function rotateApiKey(
   minter: ApiKeyMinter,
   sql: Sql,
-  input: { userId: string; keyId: string; grantorScopes: readonly string[]; grantorKid?: string | null },
+  input: {
+    userId: string;
+    keyId: string;
+    grantorScopes: readonly string[];
+    grantorKid?: string | null;
+    /** `stp` from the caller. pay:refund / pay:payout are copied only when each is listed. */
+    stepUpScopes?: readonly string[];
+    stepUpAudit?: { sessionId: string; factor: 'totp' | 'passkey' | 'proof' };
+  },
   encKey: Buffer | null = null,
 ): Promise<RotatedApiKey> {
   const rows = await sql<
@@ -63,6 +72,12 @@ export async function rotateApiKey(
     throw new RotateApiKeyError('API key signing is not configured', 'auth.not_configured');
   }
 
+  const money = old.scopes.filter((scope) => scope === 'pay:refund' || scope === 'pay:payout');
+  const stepped = new Set(input.stepUpScopes ?? []);
+  const payStepUp = money.length > 0 && money.every((scope) => stepped.has(scope) && input.grantorScopes.includes(scope));
+  if (money.length > 0 && !payStepUp) {
+    throw new AuthError("Confirm it's you with a passkey or authenticator code.", 'auth.step_up_required');
+  }
   const minted = await minter.createApiKey({
     userId: input.userId,
     name: old.name,
@@ -72,6 +87,8 @@ export async function rotateApiKey(
     domainWhitelist: old.domain_whitelist ?? [],
     expiresAt: old.expires_at ?? undefined,
     mode: old.mode === 'sandbox' ? 'sandbox' : 'live',
+    payStepUp,
+    stepUpAudit: input.stepUpAudit,
   });
 
   let signingSecret: string | null = null;
