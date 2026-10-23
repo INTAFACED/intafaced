@@ -142,7 +142,10 @@ export type AppRouter = typeof appRouter;
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous
 // (docs/decisions/mount-boundary.md).
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_PUBLIC_KEY ?? env.EDGE_PRINCIPAL_SECRET,
+  serviceName: env.SERVICE_NAME,
+});
 
 await registerIndexerPublicHttp(app, {
   indexer,

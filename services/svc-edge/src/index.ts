@@ -305,9 +305,7 @@ registerNetworkAccessGuard(app);
 registerAdminRoutes(
   app,
   admin,
-  env.MATCHING_URL && edgeSigningKey
-    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, edgeSigningKey)
-    : null,
+  env.MATCHING_URL && edgeSigningKey ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, edgeSigningKey) : null,
 );
 
 const matchingUrl = readMatchingUrl(env.MATCHING_URL);

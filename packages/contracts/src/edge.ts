@@ -145,9 +145,7 @@ export function edgePrincipalPublicKeyOf(material: string): string {
 
 function signingKey(material: string): KeyObject {
   if (isRawEd25519PublicKey(material)) {
-    throw new EdgeTrustError(
-      'a raw Ed25519 public key cannot mint a user principal. Only svc-edge holds EDGE_PRINCIPAL_PRIVATE_KEY.',
-    );
+    throw new EdgeTrustError('a raw Ed25519 public key cannot mint a user principal. Only svc-edge holds EDGE_PRINCIPAL_PRIVATE_KEY.');
   }
   const pkcs8 = pkcs8Seed(material);
   if (pkcs8) return privateKeyFromPkcs8(pkcs8);
