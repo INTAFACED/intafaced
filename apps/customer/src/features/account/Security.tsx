@@ -15,6 +15,7 @@ import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
+import { SecurityLock } from './SecurityLock';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
 import {
@@ -814,6 +815,7 @@ export function Security() {
           <AntiPhishing />
           <Authenticator onChanged={methodsChanged} />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+          <SecurityLock />
           <FreezeAccount />
           <CloseAccount />
           <section className="security__sessions security__card">

@@ -21,6 +21,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:3210',
     headless: true,
+    // Full Chromium in its new headless mode, as a person's browser runs. The default headless shell always reports
+    // notifications as blocked, even after a grant, so the push card (J-home-ia-05, J-home-ia-06) could never be proved.
+    channel: 'chromium',
     viewport: { width: 1440, height: 900 },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',

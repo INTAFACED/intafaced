@@ -85,6 +85,8 @@ export interface BookLot {
   readonly daysHeld: number | null;
   /** Short or long term is a tax rule the owner has not published, so it is never filled in. */
   readonly termClass: null;
+  /** Present only when this lot's cost is a price the customer entered. */
+  readonly basisSource?: 'customer-entered';
 }
 
 export interface BookMatch {
@@ -93,6 +95,8 @@ export interface BookMatch {
   readonly costUsd: string | null;
   readonly proceedsUsd: string | null;
   readonly realizedUsd: string | null;
+  /** Present only when this part's cost is a price the customer entered. */
+  readonly basisSource?: 'customer-entered';
 }
 
 export interface BookSale {
@@ -107,6 +111,8 @@ export interface BookSale {
   readonly realizedUsd: string | null;
   /** The lots the sale drew on, in the order taken. */
   readonly matches: BookMatch[];
+  /** Present when any part of this sale used a price the customer entered. */
+  readonly basisSource?: 'customer-entered';
 }
 
 export interface LotBook {
@@ -120,6 +126,20 @@ export interface LotBook {
   /** The short-or-long-term rule is an owner value that is not published. */
   readonly termRule: { readonly status: 'unset'; readonly code: typeof TAX_TERM_RULE_UNSET };
   readonly residuals: string[];
+  /** Customer-typed positions held apart from balances. Absent when there are none. */
+  readonly manualPositions?: ManualPosition[];
+}
+
+export interface ManualPosition {
+  readonly id: string;
+  readonly assetId: string;
+  readonly acquiredAt: string;
+  readonly qty: string;
+  readonly costUsd: string;
+  readonly pricePerUnit: string;
+  readonly sourceNote: string;
+  readonly basisSource: 'customer-entered';
+  readonly heldApart: true;
 }
 
 function movementsOf(fills: readonly Fill[], residuals: Set<string>): EngineMovement[] {
@@ -175,6 +195,8 @@ export function buildLotBook(input: {
   /** Coins that reached the customer other than by a fill, each a lot of its own. */
   inflows?: readonly Inflow[];
   now?: Date;
+  /** Dollars per unit for a lot that has no cost of its own. Keyed by lot id. Ignored when the lot already has a cost. */
+  overridePricePerUnit?: ReadonlyMap<string, Amount>;
 }): LotBook {
   const residuals = new Set<string>();
   if (input.truncated) residuals.add(TAX_LOT_BOOK_INCOMPLETE);
@@ -193,7 +215,7 @@ export function buildLotBook(input: {
       valuedAt: inflow.valuedAt,
     });
   }
-  const run = runLotEngine(movements, input.method);
+  const run = runLotEngine(movements, input.method, input.overridePricePerUnit);
   for (const r of run.residuals) residuals.add(r);
 
   // Open quantity per asset. If more or less is open than the customer holds, coins arrived or left in a way the book
@@ -237,23 +259,31 @@ export function buildLotBook(input: {
   for (const assetId of soldAssets) if (input.outsideInflows?.has(assetId) && !PAR_ASSETS.has(assetId.toUpperCase())) outside.add(assetId);
 
   const blank = (assetId: string) => input.truncated || outside.has(assetId);
-  const sales: BookSale[] = run.sales.map((sale) => ({
-    assetId: sale.assetId,
-    txId: sale.txId,
-    disposedAt: sale.postedAt.toISOString(),
-    qty: formatAmount(sale.qty),
-    unmatchedQty: formatAmount(sale.unmatchedQty),
-    proceedsUsd: money(sale.proceedsUsd),
-    costUsd: blank(sale.assetId) ? null : money(sale.costUsd),
-    realizedUsd: blank(sale.assetId) ? null : money(sale.realizedUsd),
-    matches: sale.matches.map((m) => ({
-      lotId: m.lotId,
-      qty: formatAmount(m.qty),
-      costUsd: blank(sale.assetId) ? null : money(m.costUsd),
-      proceedsUsd: money(m.proceedsUsd),
-      realizedUsd: blank(sale.assetId) ? null : money(m.realizedUsd),
-    })),
-  }));
+  const sales: BookSale[] = run.sales.map((sale) => {
+    const matches = sale.matches.map((m) => {
+      const costUsd = blank(sale.assetId) ? null : money(m.costUsd);
+      return {
+        lotId: m.lotId,
+        qty: formatAmount(m.qty),
+        costUsd,
+        proceedsUsd: money(m.proceedsUsd),
+        realizedUsd: blank(sale.assetId) ? null : money(m.realizedUsd),
+        ...(m.customerEntered && costUsd !== null ? { basisSource: 'customer-entered' as const } : {}),
+      };
+    });
+    return {
+      assetId: sale.assetId,
+      txId: sale.txId,
+      disposedAt: sale.postedAt.toISOString(),
+      qty: formatAmount(sale.qty),
+      unmatchedQty: formatAmount(sale.unmatchedQty),
+      proceedsUsd: money(sale.proceedsUsd),
+      costUsd: blank(sale.assetId) ? null : money(sale.costUsd),
+      realizedUsd: blank(sale.assetId) ? null : money(sale.realizedUsd),
+      matches,
+      ...(matches.some((m) => m.basisSource === 'customer-entered') ? { basisSource: 'customer-entered' as const } : {}),
+    };
+  });
   const now = (input.now ?? new Date()).getTime();
   const lots: BookLot[] = run.lots.map((lot) => ({
     id: lot.id,
@@ -276,6 +306,7 @@ export function buildLotBook(input: {
           },
     daysHeld: lot.remaining === 0n ? null : Math.max(0, Math.floor((now - lot.acquiredAt.getTime()) / DAY_MS)),
     termClass: null,
+    ...(!input.truncated && lot.customerEntered && lot.costUsd !== null ? { basisSource: 'customer-entered' as const } : {}),
   }));
 
   let realizedTotal: Amount | null = 0n;

@@ -1,7 +1,8 @@
 import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { Academy } from './Academy';
+import { AcademyRoom } from './Academy';
+import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
@@ -47,13 +48,16 @@ function MoreRooms({ path }: { path: string }) {
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
-    let slug = url.searchParams.get('slug') ?? undefined;
-    try {
-      if (p.split('/')[2]) slug = decodeURIComponent(p.split('/')[2]!);
-    } catch {
-      slug = undefined;
-    }
-    content = <Academy key={`${p}:${url.search}`} slug={slug} initialPath={url.searchParams.get('path') ?? undefined} />;
+    content = (
+      <AcademyRoom
+        key={`${p}:${url.search}`}
+        pathname={p}
+        search={url.search}
+        route={academyRoute(p)}
+        slug={url.searchParams.get('slug') ?? undefined}
+        initialPath={url.searchParams.get('path') ?? undefined}
+      />
+    );
   } else if (p === '/agents') {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');

@@ -1,0 +1,60 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "TRANSFER_BATCH_SIZE": {
+      "service": "bank",
+      "value": "10",
+      "note": ""
+    },
+    "LOAN_SWEEP_BATCH_SIZE": {
+      "service": "bank",
+      "value": "10",
+      "note": ""
+    },
+    "LOAN_QUOTE_ASSET_ID": {
+      "service": "bank",
+      "value": "USDT",
+      "note": ""
+    },
+    "BANK_ACCOUNT_TERMS_JSON": {
+      "service": "bank",
+      "value": "{\"tier\": \"TEST base tier\", \"version\": \"local-test-1\", \"currency\": \"USDT\", \"monthlyFee\": \"0\", \"minimumBalance\": \"0\", \"overdraftFee\": null, \"included\": [\"TEST spaces for your goals\", \"TEST moves between your spaces\"]}",
+      "note": "Made-up base-tier terms labelled TEST so the account panel has something to read; not a price."
+    },
+    "BANK_ACCOUNT_CURRENCIES": {
+      "service": "bank",
+      "value": "USDT,USDC,BTC,ETH",
+      "note": "Which currencies a TEST account can add."
+    },
+    "BANK_SPACE_LIMIT": {
+      "service": "bank",
+      "value": "5",
+      "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
+    },
+    "BANK_ACCOUNT_DETAILS_CURRENCIES": {
+      "service": "bank",
+      "value": "EUR,GBP,USD",
+      "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "BANK_ADDRESS_BOOK_CAP": {
+      "service": "bank",
+      "value": "10",
+      "note": "How many withdrawal addresses one person may save (J-wallet-04)."
+    },
+    "BANK_OFFRAMP_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes a wallet ownership proof stays open for signing (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_VALID_DAYS": {
+      "service": "bank",
+      "value": "180",
+      "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    }
+  }
+}

@@ -13,6 +13,7 @@ import { ATTEMPT_POLICY } from './attempt-lockout.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
 import { FounderControls, parseFounderPair } from '../controls/founder-controls.js';
+import { SecurityLock } from './security-lock.js';
 import { RankService } from '../rank/rank-service.js';
 import { userCopy } from '../user-copy.js';
 import { totp } from './totp.js';
@@ -140,6 +141,52 @@ if (!available) {
       const user = await register();
       const api = await callerOf(user); // mfa: false
       expect(await api.auth.changePassword({ currentPassword: OLD, newPassword: NEW })).toEqual({ ok: true });
+    });
+
+    it('refuses while the security lock holds, spends no password guess, and changes once the lock has ended', async () => {
+      const user = await register();
+      const before = await hashOf(user.userId);
+      const api = await callerOf(user);
+      const lock = new SecurityLock(db.sql, 0);
+      await lock.lock(user.userId, { kind: 'self', userId: user.userId });
+
+      const refused = await refusal(api.auth.changePassword({ currentPassword: OLD, newPassword: NEW }));
+      // A wrong current password is refused for the lock too, before it can count as a guess.
+      const guessed = await refusal(api.auth.changePassword({ currentPassword: 'not my password at all', newPassword: NEW }));
+
+      expect(refused).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'identity.security_locked' });
+      expect(guessed).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'identity.security_locked' });
+      expect(await hashOf(user.userId)).toBe(before);
+      expect(await attemptRows(user.userId)).toHaveLength(0);
+      // A published wait of zero ends the lock on the request; the change then goes through.
+      expect(await lock.requestUnlock(user.userId)).toMatchObject({ locked: false, changed: true });
+      expect(await api.auth.changePassword({ currentPassword: OLD, newPassword: NEW })).toEqual({ ok: true });
+    });
+
+    it('a lock that lands after the first check, while the change waits on the account row, still refuses it', async () => {
+      const user = await register();
+      const before = await hashOf(user.userId);
+      const api = await callerOf(user);
+      let change: Promise<unknown> | undefined;
+      await db.sql.begin(async (holder) => {
+        const pid = (await holder<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
+        await holder`SELECT id FROM users WHERE id = ${user.userId} FOR UPDATE`;
+        change = refusal(api.auth.changePassword({ currentPassword: OLD, newPassword: NEW }));
+        // The change has passed the unlocked check and now waits on this row.
+        for (let waited = 0; ; waited += 20) {
+          const blocked = (
+            await db.sql<Array<{ blocked: number }>>`
+            SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`
+          )[0]!.blocked;
+          if (blocked > 0) break;
+          if (waited > 10_000) throw new Error('the password change never reached the row lock');
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        await holder`INSERT INTO account_security_locks (user_id, set_by, set_by_user_id) VALUES (${user.userId}, 'self', ${user.userId})`;
+      });
+
+      expect(await change).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'identity.security_locked' });
+      expect(await hashOf(user.userId)).toBe(before);
     });
 
     it('refuses a wrong current password exactly like login, and leaves the hash alone', async () => {
