@@ -161,7 +161,7 @@ export class EmailChange {
     const expiresAt = this.deps.now();
     return deliver(this.deps, {
       userId,
-      run: () => mail.send({ email: oldEmail, code: '', expiresAt, purpose: 'email-change-notice' }),
+      run: () => mail.send({ email: oldEmail, userId, code: '', expiresAt, purpose: 'email-change-notice' }),
     });
   }
 }

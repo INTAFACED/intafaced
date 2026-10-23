@@ -3,8 +3,8 @@ import { defineCopy } from '../../shared/i18n';
 const messages = {
   title: 'Anti-phishing code',
   body: 'Pick a word that only you and we know, so you can tell a real security message from us from a fake one.',
-  parked:
-    'Our security emails do not show this code: the step that adds it to an email is not connected on this service. Meanwhile, a message without the code proves nothing.',
+  carried:
+    'Every email we send to your account’s confirmed address about your account shows this code: password resets, sign-in help, address change notices and sign-up attempts with your address. Such an email without it is not ours. Emails to an address you have not confirmed do not show it.',
   current: 'Your code: {code}',
   setAt: 'Set {time}',
   none: 'No anti-phishing code is set.',
@@ -42,8 +42,8 @@ export const antiPhishingCopy = defineCopy('account.anti-phishing', messages, {
   es: {
     title: 'Código antiphishing',
     body: 'Elige una palabra que solo conozcamos tú y nosotros, para distinguir un mensaje de seguridad nuestro real de uno falso.',
-    parked:
-      'Nuestros correos de seguridad no muestran este código: el paso que lo añade a un correo no está conectado en este servicio. Mientras tanto, un mensaje sin el código no demuestra nada.',
+    carried:
+      'Todos los correos que enviamos a la dirección confirmada de tu cuenta sobre tu cuenta muestran este código: restablecer la contraseña, ayuda para entrar, avisos de cambio de dirección e intentos de registro con tu dirección. Un correo así sin él no es nuestro. Los correos a una dirección que no has confirmado no lo muestran.',
     current: 'Tu código: {code}',
     setAt: 'Establecido {time}',
     none: 'No hay ningún código antiphishing.',
@@ -79,8 +79,8 @@ export const antiPhishingCopy = defineCopy('account.anti-phishing', messages, {
   fr: {
     title: 'Code anti-hameçonnage',
     body: 'Choisissez un mot que vous seul et nous connaissons, pour distinguer un vrai message de sécurité de notre part d’un faux.',
-    parked:
-      'Nos e-mails de sécurité n’affichent pas ce code : l’étape qui l’ajoute à un e-mail n’est pas connectée sur ce service. D’ici là, un message sans le code ne prouve rien.',
+    carried:
+      'Chaque e-mail que nous envoyons à l’adresse confirmée de votre compte au sujet de votre compte affiche ce code : réinitialisation du mot de passe, aide à la connexion, avis de changement d’adresse et tentatives d’inscription avec votre adresse. Un tel e-mail sans ce code n’est pas de nous. Les e-mails vers une adresse que vous n’avez pas confirmée ne l’affichent pas.',
     current: 'Votre code : {code}',
     setAt: 'Défini {time}',
     none: 'Aucun code anti-hameçonnage n’est défini.',
