@@ -148,3 +148,49 @@ test(`${J} #4 an active incident shows its update timeline and sets the affected
   await expect(component(main, 'trading')).toHaveAttribute('data-state', 'operational');
   await page.context().close();
 });
+
+test(`${J} #5 /notice lists published notices with their kind, and maintenance as scheduled, in progress or completed`, async ({
+  browser,
+}) => {
+  // Each window's times are taken just before it is drafted. The scheduled one is ten years ahead, so no stack that
+  // stays up ever sees it open; the in-progress one is published last and ends within J-home-ia-06's seven-minute wait
+  // for an empty board, in case both run on one stack.
+  const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
+  const windows = [
+    ['scheduled', 'Scheduled', () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)]],
+    ['completed', 'Completed', () => [at(-120), at(-60)]],
+    ['in_progress', 'In progress', () => [at(-5), at(6)]],
+  ];
+  const published = [];
+  for (const [phase, , times] of windows) {
+    const key = `${J}-maint-${phase}-${RUN}`;
+    const [startsAt, endsAt] = times();
+    published.push(
+      await publishNotice(
+        await draftNotice({
+          kind: 'maintenance',
+          title: `TEST ${phase} maintenance ${RUN}`,
+          body: `TEST ${phase} window`,
+          key,
+          startsAt,
+          endsAt,
+        }),
+        key,
+      ),
+    );
+  }
+  const page = await visitor(browser);
+  await page.goto('/notice');
+  const main = page.locator('main');
+  for (const [i, [phase, label]] of windows.entries()) {
+    const card = main.getByTestId(`notice-${published[i].id}`);
+    await expect(card.getByRole('heading', { name: `TEST ${phase} maintenance ${RUN}` })).toBeVisible();
+    await expect(card).toHaveAttribute('data-kind', 'maintenance');
+    await expect(card).toHaveAttribute('data-phase', phase);
+    await expect(card).toContainText(`Maintenance · ${label}`);
+  }
+  // Only maintenance carries a phase.
+  await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
+  await expect(main.getByText('No public notices are published')).toHaveCount(0);
+  await page.context().close();
+});
