@@ -271,36 +271,37 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
   }
 });
 
-/** The run's own topic and one answer in it, narrowed to an audience; taken down and retired by `cleanup`. */
-async function narrowedAnswer(step, slug, audience) {
+/**
+ * The run's own topic and one answer in it, narrowed to an audience. `cleanup` is set before anything is made, so a step
+ * that throws part-way still takes down what it made and retires the topic.
+ */
+async function narrowedAnswer(step, slug, audience, made) {
   const category = { id: `j01-${RUN}-${slug}`, name: `TEST ${J} ${RUN} ${slug}`, position: 9003, reason: `TEST ${J} ${step}` };
   const section = { id: `j01-${RUN}-${slug}1`, categoryId: category.id, name: `TEST ${slug} ${RUN}`, position: 0, reason: category.reason };
+  made.cleanup = async () => {
+    if (made.answer) await unpublish(made.answer.id, made.answer.revision);
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} ${step} retire the run's topic` });
+  };
   await saveCategory(category);
   await saveSection(section);
-  const word = `j01${slug}${RUN}`;
-  const published = await publishText({
+  made.word = `j01${slug}${RUN}`;
+  made.answer = await publishText({
     id: `j01-${RUN}-${slug}-answer`,
-    title: `TEST ${audience} answer ${word}`,
-    body: `TEST Only for ${audience}: ${word} body text.`,
+    title: `TEST ${audience} answer ${made.word}`,
+    body: `TEST Only for ${audience}: ${made.word} body text.`,
     language: 'en',
     sectionId: section.id,
     baseRevision: 0,
   });
-  const narrowed = await setAudience(published.id, published.revision, audience);
-  return {
-    answer: narrowed,
-    word,
-    cleanup: async () => {
-      await unpublish(narrowed.id, narrowed.revision);
-      await saveCategory({ ...category, retired: true, reason: `TEST ${J} ${step} retire the run's topic` });
-    },
-  };
+  made.answer = await setAudience(made.answer.id, made.answer.revision, audience);
+  return made;
 }
 
 test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and shows no body`, async ({ browser }) => {
-  const { answer, word, cleanup } = await narrowedAnswer('#6', 'si', 'signed_in');
+  const made = {};
   let page = null;
   try {
+    const { answer, word } = await narrowedAnswer('#6', 'si', 'signed_in', made);
     page = await visitor(browser);
     const who = await signUp(page, 'j01a');
     await page.context().clearCookies();
@@ -323,16 +324,17 @@ test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and 
     await expect(main.locator('.help__body')).toContainText(`${word} body text.`);
   } finally {
     await page?.context().close();
-    await cleanup();
+    await made.cleanup?.();
   }
 });
 
 test(`${J} #7 a staff-only answer reads as an address that never existed, and is absent from the list and the search`, async ({
   browser,
 }) => {
-  const { answer, word, cleanup } = await narrowedAnswer('#7', 'st', 'staff');
+  const made = {};
   let page = null;
   try {
+    const { answer, word } = await narrowedAnswer('#7', 'st', 'staff', made);
     page = await visitor(browser);
     const main = page.locator('main');
     // Signed out and then signed in as a customer: the staff answer and an id that never existed read the same.
@@ -359,6 +361,6 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
     }
   } finally {
     await page?.context().close();
-    await cleanup();
+    await made.cleanup?.();
   }
 });
