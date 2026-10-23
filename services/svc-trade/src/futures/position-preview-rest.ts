@@ -6,12 +6,22 @@ import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import { checkCollateralClassForMargin, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
+import {
+  correctToBand,
+  FUTURES_PRICE_BAND_UNSET,
+  limitWithinBand,
+  marketOpenLimit,
+  priceBandAround,
+  protectiveLimit,
+  splitPlan,
+} from './matched-order-plan.js';
+import { LIMIT_MAX_ORDER, limitAmount } from './pretrade-limits.js';
 import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
 export interface PositionPreviewRefusal {
   code: string;
-  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral';
+  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral' | 'price' | 'slippage' | 'size';
   message: string;
 }
 
@@ -28,6 +38,20 @@ export interface PositionPreviewWire {
   initialMargin: string | null;
   estimatedFee: string | null;
   liquidationPrice: string | null;
+  /** What the ticket would send: a market open, or a limit at `limitPrice`. */
+  type: 'market' | 'limit';
+  /** The owner's band around the mark this order must stay inside; null while the band is unset or there is no mark. */
+  band: { fraction: string; low: string; high: string } | null;
+  /** A market open's slippage cap in bps; null is unset, and a market open refuses. */
+  slippageCapBps: number | null;
+  /** The price the order would be held and sent at: the protective limit of a market open, or the limit itself. */
+  orderPrice: string | null;
+  /** A limit moved to the band edge under `priceCorrection: 'adjust'`: the price asked and the one applied. */
+  priceCorrection: { asked: string; applied: string } | null;
+  /** The owner's max-order notional (TRADE_MAX_ORDER) in the quote asset; null is unset. */
+  maxOrderNotional: string | null;
+  /** Above the max-order: the children `POST /api/v1/futures/orders/split` would place, largest first. */
+  split: { parts: number; sizes: string[] } | null;
   orderable: boolean;
   refusals: PositionPreviewRefusal[];
 }
@@ -50,6 +74,12 @@ export interface PositionPreviewRestDeps {
    * Optional execution-policy calculator. Production leaves this absent until
    * a named maintenance/depth policy exists; preview must not invent one.
    */
+  /** The owner's band as a fraction of the mark (`TRADE_FUTURES_PRICE_BAND`); null is unset. */
+  priceBand?: Amount | null;
+  /** The slippage cap a market open on this market answers to, as the order path reads it. */
+  slippageCapBps?: (marketId: string) => Promise<number | null>;
+  /** The owner's max-order in whole quote units (TRADE_MAX_ORDER), as the order path reads it; null is unset. */
+  maxOrder?: () => number | null;
   liquidationPriceFor?(input: {
     market: Market;
     side: 'long' | 'short';
@@ -89,7 +119,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode', 'collateralClass']);
+    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode', 'collateralClass', 'type', 'limitPrice', 'priceCorrection']);
     const suppliedServerValues = Object.keys(body).filter((key) => !allowedFields.has(key));
     if (suppliedServerValues.length > 0) {
       return sendError(
@@ -108,6 +138,14 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
     const size = parsePositive(sizeWire);
     const leverage = parsePositive(leverageWire);
+    const type = body.type === undefined || body.type === 'market' ? 'market' : body.type === 'limit' ? 'limit' : null;
+    const askedPrice = typeof body.limitPrice === 'string' ? parsePositive(body.limitPrice.trim()) : null;
+    if (type === null || (type === 'limit' && askedPrice === null) || (type === 'market' && body.limitPrice !== undefined)) {
+      return sendError(reply, 400, 'trade.position_preview_invalid', 'type is market or limit; a limit needs a positive decimal-string limitPrice');
+    }
+    if (body.priceCorrection !== undefined && body.priceCorrection !== 'reject' && body.priceCorrection !== 'adjust') {
+      return sendError(reply, 400, 'trade.price_correction_invalid', 'priceCorrection is reject or adjust');
+    }
     if (!symbol || !side || size === null || leverage === null) {
       return sendError(
         reply,
@@ -193,6 +231,68 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
         liquidationPrice = await deps.liquidationPriceFor({ market, side, size, leverage, markPrice: markAmount, initialMargin: margin });
       }
     }
+    // The price the order path would hold and send at, and the limits on it, from the same functions it uses.
+    let band: PositionPreviewWire['band'] = null;
+    let orderPrice: Amount | null = null;
+    let priceCorrection: PositionPreviewWire['priceCorrection'] = null;
+    let slippageCapBps: number | null = null;
+    const bookSide = side === 'long' ? 'buy' : 'sell';
+    const bandFraction = deps.priceBand ?? null;
+    if (bandFraction === null) {
+      refusals.push({ code: FUTURES_PRICE_BAND_UNSET, field: 'price', message: 'the owner has not published the futures price band' });
+    } else if (markAmount !== null) {
+      const at = priceBandAround(markAmount, bandFraction);
+      band = { fraction: formatAmount(bandFraction), low: formatAmount(at.low), high: formatAmount(at.high) };
+      if (type === 'market') {
+        const cap = deps.slippageCapBps ? await deps.slippageCapBps(market.id) : null;
+        slippageCapBps = cap !== null && Number.isInteger(cap) && cap >= 1 && cap <= 5000 ? cap : null;
+        if (slippageCapBps === null) {
+          refusals.push({
+            code: 'trade.slippage_cap_unset',
+            field: 'slippage',
+            message: 'no slippage cap is published for this market, so a market open is refused; use a limit',
+          });
+        } else {
+          orderPrice = deps.slippageCapBps ? marketOpenLimit(bookSide, markAmount, at, slippageCapBps) : protectiveLimit(bookSide, at);
+        }
+      } else {
+        const asked = askedPrice!;
+        const applied = body.priceCorrection === 'adjust' ? correctToBand(asked, at) : asked;
+        if (applied !== asked) priceCorrection = { asked: formatAmount(asked), applied: formatAmount(applied) };
+        if (limitWithinBand(applied, at)) {
+          orderPrice = applied;
+        } else {
+          refusals.push({
+            code: 'trade.futures_price_outside_band',
+            field: 'price',
+            message: `the limit is outside the band ${band.low} to ${band.high}; choose to move it to the edge, or change it`,
+          });
+        }
+      }
+    }
+
+    // The owner's max-order on the order's value at the mark; above it, the split the order path would place.
+    const maxOrder = deps.maxOrder ? deps.maxOrder() : null;
+    let split: PositionPreviewWire['split'] = null;
+    if (maxOrder === null) {
+      refusals.push({ code: 'trade.max_order_unset', field: 'size', message: 'the owner has not published the max-order limit' });
+    } else if (orderValue !== null && markAmount !== null && orderValue > limitAmount(maxOrder)) {
+      const plan = splitPlan({
+        qty: size,
+        mark: markAmount,
+        maxOrderNotional: limitAmount(maxOrder),
+        lotSize: market.lotSize == null ? null : parseAmount(market.lotSize),
+      });
+      if (plan.ok) split = { parts: plan.parts.length, sizes: plan.parts.map((p) => formatAmount(p)) };
+      refusals.push({
+        code: LIMIT_MAX_ORDER,
+        field: 'size',
+        message: plan.ok
+          ? `the order is worth more than the max-order of ${maxOrder} ${market.quoteAsset}; it can be placed as ${plan.parts.length} orders`
+          : `one lot is worth more than the max-order of ${maxOrder} ${market.quoteAsset}`,
+      });
+    }
+
     if (liquidationPrice === null) {
       refusals.push({
         code: 'trade.position_preview_liquidation_unavailable',
@@ -214,6 +314,13 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       initialMargin: margin === null ? null : formatAmount(margin),
       estimatedFee: estimatedFee === null ? null : formatAmount(estimatedFee),
       liquidationPrice: liquidationPrice === null ? null : formatAmount(liquidationPrice),
+      type,
+      band,
+      slippageCapBps,
+      orderPrice: orderPrice === null ? null : formatAmount(orderPrice),
+      priceCorrection,
+      maxOrderNotional: maxOrder === null ? null : String(maxOrder),
+      split,
       orderable: refusals.length === 0,
       refusals,
     };

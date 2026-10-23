@@ -70,6 +70,52 @@ export function protectiveLimit(side: OrderSide, band: PriceBand): Amount {
   return side === 'buy' ? band.high : band.low;
 }
 
+/**
+ * The protective limit of a market OPEN: the band edge, or nearer the mark when the slippage cap is tighter. The cap's
+ * distance rounds down, so the limit never sits past the cap. A market close keeps the band edge (`protectiveLimit`):
+ * reducing risk is never held to a tighter price than the band.
+ */
+export function marketOpenLimit(side: OrderSide, mark: Amount, band: PriceBand, slippageCapBps: number): Amount {
+  const delta = (mark * BigInt(slippageCapBps)) / 10_000n;
+  if (side === 'buy') {
+    const capped = mark + delta;
+    return capped < band.high ? capped : band.high;
+  }
+  const capped = mark - delta;
+  return capped > band.low ? capped : band.low;
+}
+
+/**
+ * An opening order above the owner's max-order notional (valued at the mark) as children of at most the cap each: as
+ * many full children as fit, then the rest. Each child is the largest lot multiple whose notional at the mark is
+ * within the cap, so none of them is refused for size. Not splittable when one lot is already over the cap.
+ */
+export function splitPlan(input: {
+  qty: Amount;
+  mark: Amount;
+  maxOrderNotional: Amount;
+  lotSize: Amount | null;
+  /** The child size an earlier attempt of the same request already used: a retry keeps it, so its keys still match. */
+  childSize?: Amount;
+}): { ok: true; parts: Amount[] } | { ok: false } {
+  let child = input.childSize ?? (input.maxOrderNotional * SCALE) / input.mark;
+  if (input.childSize === undefined && input.lotSize !== null && input.lotSize > 0n) child -= child % input.lotSize;
+  if (child <= 0n) return { ok: false };
+  if (input.qty <= child) return { ok: true, parts: [input.qty] };
+  const full = input.qty / child;
+  const rest = input.qty - full * child;
+  const parts: Amount[] = Array.from({ length: Number(full) }, () => child);
+  if (rest > 0n) parts.push(rest);
+  return { ok: true, parts };
+}
+
+/** A limit outside the band, moved to the nearer edge (the order's `priceCorrection: 'adjust'`). Inside, unchanged. */
+export function correctToBand(limit: Amount, band: PriceBand): Amount {
+  if (limit > band.high) return band.high;
+  if (limit < band.low) return band.low;
+  return limit;
+}
+
 /** How far a price is worse than the mark for this side. Zero when it is at or better than the mark. */
 export function adverseDistance(side: OrderSide, price: Amount, mark: Amount): Amount {
   if (side === 'buy') return price > mark ? price - mark : 0n;
