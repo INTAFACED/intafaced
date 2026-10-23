@@ -70,6 +70,25 @@ describe('order hold on the wire', () => {
     expect(orderSchema.safeParse(got.json()).success).toBe(true);
   });
 
+  it('a failed hold read states nothing and the orders read still answers', async () => {
+    const app = Fastify();
+    const live = fakeOrder({ id: 'o-live', userId: ALICE, marketId: market.id, clientOrderId: 'live-1' });
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      orderHolds: async () => {
+        throw new Error('fills read failed');
+      },
+      marketById: async () => market,
+      openOrders: async () => [live],
+      getOrder: async () => live,
+    } as unknown as PrivateRestDeps);
+    await app.ready();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/orders/open?limit=50', headers: signed(ALICE) });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as Array<{ hold?: unknown }>)[0]?.hold).toBeNull();
+  });
+
   it('with no store wired, no order claims a hold either way', async () => {
     const app = await build(false);
     const res = await app.inject({ method: 'GET', url: '/api/v1/orders/o-live', headers: signed(ALICE) });

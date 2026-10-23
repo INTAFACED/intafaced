@@ -560,9 +560,12 @@ async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]
   };
 }
 
-/** A live order carries what it still holds as `hold`; closed and unresolved orders carry `null` (nothing stated). */
+/**
+ * An open order carries what it still holds as `hold`; other orders carry `null` (nothing stated). The hold is shown
+ * beside the order, never needed to act on it: a failed hold read states nothing rather than failing the orders read.
+ */
 async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const holds = deps.orderHolds && orders.length > 0 ? await deps.orderHolds(orders) : null;
+  const holds = deps.orderHolds && orders.length > 0 ? await deps.orderHolds(orders).catch(() => new Map<string, OrderHold>()) : null;
   return <W extends object>(order: OrderRecord, wire: W): W => (holds ? { ...wire, hold: holds.get(order.id) ?? null } : wire);
 }
 

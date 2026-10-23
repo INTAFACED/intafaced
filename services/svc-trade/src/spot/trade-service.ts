@@ -97,6 +97,7 @@ import {
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
 import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
+import { holdLeft } from './order-holds.js';
 import { assertEmailProved, type EmailProofSource } from './email-proof.js';
 import {
   MatchingNoBookError,
@@ -2691,22 +2692,21 @@ export class TradeService {
         // The operator's limits for this pair (fat finger, price band, published rules) BEFORE the cancel, the same gate
         // place runs: a replacement priced outside the band is refused with the original still live. The replacement
         // takes the original's slot, so the open-order cap does not count it.
-        if (!market.paper) {
-          try {
-            await assertOperatorRiskOnPlace(
-              this.sql,
-              market,
-              principal.userId,
-              { side: input.side, price: input.price ?? null, qty: input.qty, rests: false },
-              () => this.touch(market.id),
-              !this.allowUnpublishedPairRules,
-            );
-          } catch (err) {
-            if (err instanceof TradeError) {
-              return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
-            }
-            throw err;
+        // A paper market was refused above, so this is always the funded gate.
+        try {
+          await assertOperatorRiskOnPlace(
+            this.sql,
+            market,
+            principal.userId,
+            { side: input.side, price: input.price ?? null, qty: input.qty, rests: false },
+            () => this.touch(market.id),
+            !this.allowUnpublishedPairRules,
+          );
+        } catch (err) {
+          if (err instanceof TradeError) {
+            return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
           }
+          throw err;
         }
 
         // Authority is required before cancel, so an unavailable PX-S01 source
@@ -3879,7 +3879,7 @@ export class TradeService {
         FROM trade.fills WHERE order_id = ${order.id}
     `;
     const consumed = parseAmount(rows[0]?.consumed ?? '0');
-    const remaining = sub(sub(order.holdAmount, consumed), order.amendReleased);
+    const remaining = holdLeft(order, consumed);
 
     if (remaining < 0n) {
       // The fills say this order spent more than it was funded for. That is not

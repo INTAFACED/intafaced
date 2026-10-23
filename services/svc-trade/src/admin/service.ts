@@ -909,7 +909,7 @@ export class TradeOpsAdmin {
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'mm_seed', fingerprint);
     if (prior) return prior as { market: string; enabled: boolean; version: string };
     const [versionRow] = await this.deps.sql<Array<{ version: string }>>`
-      SELECT version::text FROM trade.operator_mm_seed WHERE market_id = ${input.market} ORDER BY version DESC LIMIT 1`;
+      SELECT version::text FROM trade.operator_mm_seed WHERE market_id = ${input.market} ORDER BY operator_mm_seed.version DESC LIMIT 1`;
     const version = versionRow?.version ?? '0';
     const body = { actionType: 'trade.mm_seed', market: input.market, enabled: input.enabled, expectedVersion: version };
     const consumed = await consumeApproval(this.deps.approvals, {

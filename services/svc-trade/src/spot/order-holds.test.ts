@@ -42,16 +42,16 @@ describe('readOrderHolds', () => {
     expect(holds.get('n')).toEqual({ asset: 'USDT', amount: '100' });
   });
 
-  it('states nothing for closed or unresolved orders, and asks the database only about live ones', async () => {
+  it('states nothing for pending, closed or unresolved orders, and asks the database only about open ones', async () => {
     const { sql, asked } = fillsSql([]);
     const holds = await readOrderHolds(sql, [
-      order('p', { status: 'pending' }),
-      ...(['filled', 'cancelled', 'rejected', 'expired', 'recovery_required', 'hold_unknown'] as const).map((status) =>
+      order('o'),
+      ...(['pending', 'filled', 'cancelled', 'rejected', 'expired', 'recovery_required', 'hold_unknown'] as const).map((status) =>
         order(status, { status }),
       ),
     ]);
-    expect([...holds.keys()]).toEqual(['p']);
-    expect(asked).toEqual([['p']]);
+    expect([...holds.keys()]).toEqual(['o']);
+    expect(asked).toEqual([['o']]);
   });
 
   it('never queries for an empty list', async () => {
