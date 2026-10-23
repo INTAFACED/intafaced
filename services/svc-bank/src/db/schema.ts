@@ -1184,6 +1184,19 @@ export const railSendIntents = bank.table('rail_send_intents', {
   createdAt: createdAt(),
 });
 
+/** One saved bank-rail recipient (J-bank-04 #2, migration 0059). One live row per destination; removed rows stay. */
+export const railPayees = bank.table('rail_payees', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  nickname: text('nickname').notNull(),
+  country: text('country').notNull(),
+  rail: text('rail').notNull(),
+  recipient: jsonb('recipient').notNull(),
+  destinationKey: text('destination_key').notNull(),
+  createdAt: createdAt(),
+  removedAt: tstz('removed_at'),
+});
+
 /** Address custody issued. Not a locally derived key and not a balance. */
 export const depositAddresses = bank.table(
   'deposit_addresses',

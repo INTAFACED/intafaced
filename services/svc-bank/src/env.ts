@@ -245,6 +245,14 @@ const schema = serviceEnvSchema
       BANK_OFFRAMP_COOLING_HOURS: z.string().optional(),
 
       /**
+       * Owner-set hours a new bank-rail recipient waits before money may go to it (BK-xfer-06, J-bank-04 #2).
+       *
+       * No default. Blank / unset / not a whole number → a send to a saved recipient refuses
+       * `bank.payee_cooling_unset`. Zero is a real owner choice (no wait).
+       */
+      BANK_PAYEE_COOLING_HOURS: z.string().optional(),
+
+      /**
        * Owner-set number of saved withdrawal addresses one customer may hold.
        *
        * No default. Blank / unset / zero / not a whole number → saving an address refuses

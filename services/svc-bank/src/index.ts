@@ -111,6 +111,7 @@ const bus = await JetStreamEventBus.connect({
 
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS,
   // Deposit catalogue and addresses come from svc-pay over the signed seam. With no PAY_URL every answer is "not published"
   // and the doors refuse `bank.deposit_custody_unset`; svc-bank derives no key.
   deposits: {

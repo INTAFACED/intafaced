@@ -3,12 +3,16 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { date, funds, useBankRead } from './components';
-import { railSendCheckSchema, railSendSchema, type RailRequirements, type RailSend } from './contracts';
+import { railSendCheckSchema, railSendSchema, type RailSend } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { currentSpace } from './space-context';
+import { RailForm, filled, type Key } from './rail-form';
+import { CoolingWords, PAYEE_PAGE, RecipientBook } from './RecipientBook';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
+
+const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 
 /**
  * Send to a bank account (J-bank-04 #1): pick how to send (ACH, a domestic wire, a real-time payment, SEPA or a phone
@@ -16,57 +20,6 @@ import './bank-depth.css';
  * carries any rail in this build, so the form says so with `rail.bank` before anything is asked; sending anyway needs a
  * fresh confirmation (`trade:withdraw`) and is kept, refused with that code, in the list below. Nothing leaves a space.
  */
-
-type Rail = RailRequirements['rails'][number];
-// The keys a rail, field or choice name maps to: words with no placeholder.
-type Key = Exclude<Parameters<ReturnType<typeof railSendCopy.useCopy>['t']>[0], 'noPartner' | 'reference'>;
-
-const amountOk = (value: string) => decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
-
-function RailForm({
-  rail,
-  values,
-  onChange,
-}: {
-  rail: Rail;
-  values: Record<string, string>;
-  onChange: (name: string, value: string) => void;
-}) {
-  const { t } = railSendCopy.useCopy();
-  const id = useId();
-  return (
-    <>
-      {rail.fields.map((field) =>
-        field.choices ? (
-          <label className="field" htmlFor={`${id}-${field.name}`} key={field.name}>
-            <span>{t(`field_${field.name}` as Key)}</span>
-            <select
-              id={`${id}-${field.name}`}
-              value={values[field.name] ?? field.choices[0] ?? ''}
-              onChange={(event) => onChange(field.name, event.target.value)}
-            >
-              {field.choices.map((choice) => (
-                <option key={choice} value={choice}>
-                  {t(`choice_${choice}` as Key)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <Field
-            key={field.name}
-            label={t(`field_${field.name}` as Key)}
-            name={field.name}
-            autoComplete="off"
-            spellCheck={false}
-            value={values[field.name] ?? ''}
-            onChange={(event) => onChange(field.name, event.target.value)}
-          />
-        ),
-      )}
-    </>
-  );
-}
 
 function Sends({ rows }: { rows: readonly RailSend[] }) {
   const { t } = railSendCopy.useCopy();
@@ -99,6 +52,8 @@ export function BankRailSend() {
   const requirements = useBankRead('railSends.requirements', undefined);
   const spaces = useBankRead('spaces.list', { limit: 200 });
   const sends = useBankRead('railSends.list', { limit: 20 });
+  const payees = useBankRead('railSends.payees', { limit: PAYEE_PAGE });
+  const [payeeId, setPayeeId] = useState('');
   const [railId, setRailId] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});
   const [spaceId, setSpaceId] = useState('');
@@ -111,21 +66,28 @@ export function BankRailSend() {
   const [problem, setProblem] = useState<string | null>(null);
   const railField = useId();
   const spaceField = useId();
+  const toField = useId();
 
   const rails = requirements.resource.status === 'ready' ? requirements.resource.data.rails : [];
   const rail = rails.find((row) => row.rail === railId) ?? null;
   const rows = spaces.resource.status === 'ready' ? spaces.resource.data : [];
   const usable = rows.filter((space) => currentSpace(rows, space.id, userId ?? ''));
   const from = usable.find((space) => space.id === spaceId) ?? usable[0] ?? null;
-  // A choice field starts on its first choice, as its select shows.
-  const recipient = rail
-    ? Object.fromEntries(
-        rail.fields
-          .map((field) => [field.name, (values[field.name] ?? (field.choices ? field.choices[0] : '') ?? '').trim()] as const)
-          .filter(([, value]) => value !== ''),
-      )
-    : {};
-  const missing = rail ? rail.fields.some((field) => field.required && !recipient[field.name]) : true;
+  const book = payees.resource.status === 'ready' ? payees.resource.data : [];
+  const payee = book.find((row) => row.payeeId === payeeId) ?? null;
+  const recipient = filled(rail, values);
+  const missing = payee ? false : rail ? rail.fields.some((field) => field.required && !recipient[field.name]) : true;
+  // A send to a saved recipient carries only its id: the bank reads the rail and the details from the book.
+  const target = payee ? { payeeId: payee.payeeId } : rail ? { rail: rail.rail, recipient } : null;
+  // The rail the send goes over, and its notice: the saved recipient's rail, or the one picked.
+  const shown = payee ? (rails.find((row) => row.rail === payee.rail) ?? null) : rail;
+
+  function choose(next: string) {
+    setPayeeId(next);
+    setOutcome(null);
+    setTouched(false);
+    setProblem(null);
+  }
 
   function pick(next: string) {
     setRailId(next);
@@ -139,18 +101,24 @@ export function BankRailSend() {
   async function send() {
     setTouched(true);
     setProblem(null);
-    if (!rail || !from || missing || !amountOk(amount) || checking) return;
+    if (!target || !from || missing || !amountOk(amount) || checking) return;
     setOutcome(null);
     setChecking(true);
     const checked = await api.query(
       'bank',
       'railSends.check',
-      { fromSpaceId: from.id, amount: amount.trim(), rail: rail.rail, recipient },
+      { fromSpaceId: from.id, amount: amount.trim(), ...target },
       railSendCheckSchema,
     );
     setChecking(false);
     if (!checked.ok) {
-      setProblem(checked.message || t('missing'));
+      if (checked.code === 'bank.payee_cooling_active' && payee?.cooling.endsAt) {
+        setProblem(`${t('coolingActive', { time: date(payee.cooling.endsAt) })} ${t('reference', { code: checked.code })}`);
+      } else if (checked.code === 'bank.payee_cooling_unset') {
+        setProblem(`${t('coolingUnset')} ${t('reference', { code: checked.code })}`);
+      } else {
+        setProblem(checked.message || t('missing'));
+      }
       return;
     }
     // Each send is a new ask with its own id; a retry inside the confirmation keeps it, so it is the same send.
@@ -170,35 +138,59 @@ export function BankRailSend() {
           <Failure result={spaces.resource.failure} retry={spaces.reload} />
         ) : (
           <div className="bd-stack">
-            <label className="field" htmlFor={railField}>
-              <span>{t('rail')}</span>
-              <select id={railField} value={railId} onChange={(event) => pick(event.target.value)}>
-                <option value="" />
-                {rails.map((row) => (
-                  <option key={row.rail} value={row.rail}>
-                    {t(`rail_${row.rail}` as Key)}
+            <label className="field" htmlFor={toField}>
+              <span id={`${toField}-label`}>{t('sendTo')}</span>
+              <select
+                id={toField}
+                aria-labelledby={`${toField}-label`}
+                value={payee?.payeeId ?? ''}
+                onChange={(event) => choose(event.target.value)}
+              >
+                <option value="">{t('newDetails')}</option>
+                {book.map((row) => (
+                  <option key={row.payeeId} value={row.payeeId}>
+                    {row.nickname} · {row.recipient}
                   </option>
                 ))}
               </select>
             </label>
-            {rail && (
+            {payee ? (
+              <p className="money-caption" data-testid="rail-send-payee">
+                {t(`rail_${payee.rail}` as Key)} · <span lang="und">{payee.recipient}</span> · <CoolingWords payee={payee} />
+              </p>
+            ) : (
+              <label className="field" htmlFor={railField}>
+                <span>{t('rail')}</span>
+                <select id={railField} value={railId} onChange={(event) => pick(event.target.value)}>
+                  <option value="" />
+                  {rails.map((row) => (
+                    <option key={row.rail} value={row.rail}>
+                      {t(`rail_${row.rail}` as Key)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {shown && (
               <>
-                {rail.partner === null && (
+                {shown.partner === null && (
                   <p className="failure" role="status" data-testid="rail-send-notice">
-                    {t('noPartner', { rail: t(`rail_${rail.rail}` as Key) })}{' '}
-                    {rail.blocker && <small className="muted">{t('reference', { code: rail.blocker })}</small>}
+                    {t('noPartner', { rail: t(`rail_${shown.rail}` as Key) })}{' '}
+                    {shown.blocker && <small className="muted">{t('reference', { code: shown.blocker })}</small>}
                   </p>
                 )}
-                <div className="bd-stack" data-testid="rail-send-form" data-rail={rail.rail}>
-                  <RailForm
-                    rail={rail}
-                    values={values}
-                    onChange={(name, value) => {
-                      setProblem(null);
-                      setValues((now) => ({ ...now, [name]: value }));
-                    }}
-                  />
-                </div>
+                {rail && !payee && (
+                  <div className="bd-stack" data-testid="rail-send-form" data-rail={rail.rail}>
+                    <RailForm
+                      rail={rail}
+                      values={values}
+                      onChange={(name, value) => {
+                        setProblem(null);
+                        setValues((now) => ({ ...now, [name]: value }));
+                      }}
+                    />
+                  </div>
+                )}
                 {usable.length === 0 ? (
                   <p className="money-caption">{t('noSpace')}</p>
                 ) : (
@@ -256,14 +248,14 @@ export function BankRailSend() {
         )}
       </DepthPanel>
 
-      {confirming && rail && from && (
+      {confirming && target && from && (
         <WithdrawStepUp
           why={t('confirmWhy')}
           run={async (token) => {
             const answer = await api.mutate(
               'bank',
               'railSends.send',
-              { requestId, fromSpaceId: from.id, amount: amount.trim(), rail: rail.rail, recipient },
+              { requestId, fromSpaceId: from.id, amount: amount.trim(), ...target },
               railSendSchema,
               { bearer: token },
             );
@@ -291,6 +283,23 @@ export function BankRailSend() {
           )}
         </div>
       </DepthPanel>
+
+      <RecipientBook
+        requirements={requirements.resource.status === 'ready' ? requirements.resource.data : null}
+        payees={payees.resource.status === 'ready' ? payees.resource.data : null}
+        failure={
+          payees.resource.status === 'failed'
+            ? payees.resource.failure
+            : requirements.resource.status === 'failed'
+              ? requirements.resource.failure
+              : null
+        }
+        retry={() => {
+          payees.reload();
+          requirements.reload();
+        }}
+        reload={payees.reload}
+      />
     </div>
   );
 }

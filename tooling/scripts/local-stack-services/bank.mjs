@@ -58,6 +58,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_PARTNER: 'global-sim',
     BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
     BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
+    // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
+    // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
+    BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',

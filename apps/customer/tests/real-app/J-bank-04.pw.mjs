@@ -8,7 +8,7 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // One test per step, titled "J-bank-04 #<n>", run in order on TEST accounts: A sends (with an authenticator app), B
 // receives, and C is frozen by staff. The stack's gates publish TEST send terms for USDT and USDC with a zero fee
 // (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack, and balances
-// are read through each person's own API. Not here yet: #2 and #5 to #7 (each lands with its own slice).
+// are read through each person's own API. Not here yet: #5 to #7 (each lands with its own slice).
 const J = 'J-bank-04';
 const AMOUNT = '40';
 const NOTE = 'Lunch, TEST';
@@ -172,6 +172,85 @@ test(`${J} #1 opens Send and picks the rail: each rail has its own form, and wit
   await expect(rows.first()).toContainText('Reference: rail.bank');
   // The full account number is never shown back.
   await expect(panel.getByTestId('rail-send-list')).not.toContainText('000123456789');
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before));
+});
+
+test(`${J} #2 adds a recipient: forms per country, a name check and an invite, and a new payee inside the window refuses with its end time`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await people(page);
+  await signInSender(page);
+  const before = await senderUsdt();
+  await page.goto('/bank/transfers');
+  const book = page.getByTestId('payee-book');
+  // The country picks the forms: a US account is paid over ACH, a wire or a real-time payment; a German one over SEPA.
+  const country = book.getByLabel('Country of the account');
+  const how = book.getByLabel('How they are paid');
+  await country.selectOption({ label: 'United States' }, { timeout: 30_000 });
+  await expect(how.locator('option')).toHaveText([
+    '',
+    'ACH (US bank account)',
+    'Domestic wire (US)',
+    'Real-time payment (US)',
+    'Phone number or email',
+  ]);
+  await country.selectOption({ label: 'Germany' });
+  await expect(how.locator('option')).toHaveText(['', 'SEPA (euro bank account)', 'Phone number or email']);
+  await how.selectOption({ label: 'SEPA (euro bank account)' });
+  const form = book.getByTestId('payee-form');
+  await expect(form.locator('label > span:first-child')).toHaveText([
+    'Account holder’s full name',
+    'IBAN',
+    'BIC (optional)',
+    'Transfer type',
+  ]);
+  await form.getByLabel('Account holder’s full name').fill('Bea TEST');
+  // A French IBAN is not an account in Germany: the bank says so on the form, before any code is asked for.
+  await form.getByLabel('IBAN').fill('FR14 2004 1010 0505 0001 3M02 606');
+  await book.getByLabel('Nickname').fill('Bea in Berlin');
+  await book.getByRole('button', { name: 'Save recipient' }).click();
+  await expect(book.getByTestId('payee-problem')).toContainText('not an account in DE', { timeout: 30_000 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await form.getByLabel('IBAN').fill('DE89 3704 0044 0532 0130 00');
+  await book.getByRole('button', { name: 'Save recipient' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm it’s you' });
+  await dialog.getByLabel('Authenticator code or recovery code').fill(await code());
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 30_000 });
+  const row = book.getByTestId('payee-row');
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+  await expect(row).toContainText('Bea in Berlin');
+  await expect(row).toContainText('Bea TEST · …3000');
+  // Name verification needs a banking partner: cannot check, named rail.bank. The TEST window is 24 hours.
+  await expect(row.getByTestId('payee-name-check')).toHaveText(
+    'Name check: cannot check. It needs bank rails, which are switched off in this build. Reference: rail.bank',
+  );
+  const waiting = (await row.getByTestId('payee-cooling').innerText()).trim();
+  expect(waiting).toMatch(/^New recipient: money can go to them from .+\.$/);
+  const ends = waiting.replace(/^New recipient: money can go to them from /, '').replace(/\.$/, '');
+  // The invite emails a link, and email delivery is switched off here: refused by name.
+  const invite = book.getByTestId('payee-invite');
+  await invite.getByLabel('Their email').fill('bea.test@example.com');
+  await invite.getByRole('button', { name: 'Send the invite' }).click();
+  await expect(invite.getByTestId('payee-invite-answer')).toHaveText(
+    'Invites are sent by email, and email delivery is switched off in this build. Reference: bank.payee_invite_unwired',
+    { timeout: 30_000 },
+  );
+  // Sending to the new payee inside the window refuses with its end time; nothing is asked for, kept or taken.
+  const panel = page.getByTestId('rail-send');
+  await panel.getByLabel('Send to', { exact: true }).selectOption({ label: 'Bea in Berlin · Bea TEST · …3000' });
+  await expect(panel.getByTestId('rail-send-notice')).toContainText('SEPA (euro bank account)');
+  const source = panel.getByLabel('Send from');
+  await source.selectOption({ label: (await source.locator('option', { hasText: 'USDT' }).first().innerText()).trim() });
+  await panel.getByLabel('Amount to send').fill('10');
+  await panel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(panel.getByTestId('rail-send-problem')).toHaveText(
+    `New recipient: money can go to them from ${ends}. Reference: bank.payee_cooling_active`,
+    { timeout: 30_000 },
+  );
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(panel.getByTestId('rail-send-row')).toHaveCount(1);
   expect(toUnits(await senderUsdt())).toBe(toUnits(before));
 });
 
