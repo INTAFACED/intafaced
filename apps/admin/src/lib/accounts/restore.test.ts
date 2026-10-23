@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { restoreReply, restoreRequestId } = await import('./restore');
+const { restoreReply } = await import('./restore');
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const FOUNDER = '11111111-1111-4111-8111-111111111111';
@@ -17,15 +17,6 @@ const base = {
   occurredAt: '2026-10-23T01:00:00.000Z',
 };
 const state = (restricted: boolean, version: string) => ({ target: base.target, version, restricted });
-
-describe('restore request id', () => {
-  it('is the same UUID for the same approval, and different for another', () => {
-    const a = restoreRequestId('appr-1', 'op-1');
-    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(restoreRequestId('appr-1', 'op-1')).toBe(a);
-    expect(restoreRequestId('appr-2', 'op-1')).not.toBe(a);
-  });
-});
 
 describe('what identity answered to a restore', () => {
   it('counts a lifted freeze as done and names the approver', () => {

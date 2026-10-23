@@ -92,14 +92,15 @@ test('J-ops-console-04 #6 unfreezing needs a different approver: refused alone, 
   await expect(row).toContainText(founderB.userId.slice(0, 8));
   expect((await login(who)).status, 'the customer can sign in again').toBe(200);
 
-  // The spent approval cannot lift a second freeze: a re-run replays identity's first answer and changes nothing.
+  // The spent approval cannot lift a second freeze.
   await staffFreeze(who, `LOCAL TEST J-ops-console-04 #6 refreeze ${tag}`);
-  await step(b, {
+  const again = await step(b, {
     step: 'execute',
     request: packet.request,
     confirm: phrase,
     approvalId: packet.approvalId,
     operationId: packet.operationId,
   });
+  expect(again.body).toMatchObject({ ok: false, refusal: { code: 'restriction_approval_consumed' } });
   expect((await login(who)).status, 'the refrozen customer stays frozen').toBe(403);
 });
