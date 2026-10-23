@@ -22,6 +22,7 @@ const messages = {
   'Cancel position_closed': 'The position closed, so this one is no longer needed.',
   'Cancel position_gone': 'The position was already gone when this one fired.',
   'Cancel cancelled': 'You cancelled it.',
+  'Cancel linked': 'Its linked take profit or stop loss filled, so this one was cancelled.',
   'Cancel other': 'Cancelled by the service ({reason}).',
   'Triggers heading': 'Take profit, stop loss and stops',
   'Triggers table': 'Take-profit, stop-loss and stop orders',

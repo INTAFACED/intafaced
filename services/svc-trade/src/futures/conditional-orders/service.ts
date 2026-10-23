@@ -54,6 +54,8 @@ export interface ConditionalOrderView {
   readonly clientOrderId: string;
   readonly positionId: string | null;
   readonly attachment: AttachmentLeg | null;
+  /** A take profit or stop loss that closes the position as it is when it fires. False on a part leg and on a stop. */
+  readonly wholePosition: boolean;
   readonly status: ConditionalStatus;
   readonly cancelReason: string | null;
   readonly failureReason: string | null;
@@ -171,6 +173,7 @@ interface OrderRow {
   trail_extreme: string | null;
   reduce_only: boolean;
   attachment: AttachmentLeg | null;
+  part_leg: boolean;
   status: ConditionalStatus;
   cancel_reason: string | null;
   failure_reason: string | null;
@@ -200,6 +203,11 @@ function money(raw: string | null): string | null {
   return formatAmount(parseAmount(raw));
 }
 
+/** A take profit or stop loss that closes the position as it is when it fires, not a part of it. */
+function wholeLeg(row: Pick<OrderRow, 'attachment' | 'part_leg'>): boolean {
+  return row.attachment != null && row.part_leg !== true;
+}
+
 function fireResult(raw: unknown): FireResult {
   return raw != null && typeof raw === 'object' ? (raw as FireResult) : {};
 }
@@ -221,6 +229,7 @@ function present(row: OrderRow): ConditionalOrderView {
     clientOrderId: row.client_order_id,
     positionId: row.position_id,
     attachment: row.attachment,
+    wholePosition: wholeLeg(row),
     status: row.status,
     cancelReason: row.cancel_reason,
     failureReason: row.failure_reason,
@@ -250,6 +259,22 @@ function passes(err: unknown, code: string | null): boolean {
   return code == null || (typeof status === 'number' && status >= 500);
 }
 
+/**
+ * One leg of a protection replace: a price string covers the whole position; `{ price, quantity }` covers that part
+ * of it. Absent or null is no leg.
+ */
+function protectionLeg(field: string, raw: unknown): { price: Amount; quantity: Amount | null } | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'string') return { price: optionalPrice(field, raw)!, quantity: null };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new FuturesError(`${field} must be a price or { price, quantity }`, 'trade.conditional_amount_invalid', 400);
+  }
+  const leg = raw as { price?: unknown; quantity?: unknown };
+  const price = optionalPrice(`${field}.price`, leg.price);
+  if (price == null) throw new FuturesError(`${field}.price is required`, 'trade.conditional_amount_invalid', 400);
+  return { price, quantity: optionalPrice(`${field}.quantity`, leg.quantity) };
+}
+
 function optionalPrice(field: string, raw: unknown): Amount | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== 'string') {
@@ -267,6 +292,18 @@ function optionalPrice(field: string, raw: unknown): Amount | null {
 
 export function createConditionalOrderService(deps: ConditionalOrderDeps) {
   const { sql } = deps;
+
+  /**
+   * `s` is the linked sibling of `f`: the other part leg of the same protection request (`p:<request>:tp` and
+   * `p:<request>:sl`). Whole-position legs are never linked this way: closing the position cancels them.
+   */
+  const linkedSibling = (q: Sql | TransactionSql = sql) => q`
+    f.part_leg AND s.part_leg AND s.id <> f.id
+    AND s.user_id = f.user_id AND s.position_id = f.position_id
+    AND s.attachment IS NOT NULL AND s.attachment <> f.attachment
+    AND s.request_hash = f.request_hash
+    AND left(s.client_order_id, -3) = left(f.client_order_id, -3)
+  `;
 
   async function findByClient(userId: string, clientOrderId: string): Promise<OrderRow | null> {
     const [row] = await sql<OrderRow[]>`
@@ -330,6 +367,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       trailingDistance: Amount | null;
       trailExtreme: Amount | null;
       attachment: AttachmentLeg | null;
+      partLeg?: boolean;
       requestHash: string;
     },
   ): Promise<OrderRow> {
@@ -338,7 +376,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       INSERT INTO trade.futures_conditional_orders (
         id, user_id, market_id, position_id, client_order_id, kind, side, quantity,
         trigger_price, limit_price, trailing_distance, trail_extreme, reduce_only,
-        attachment, status, request_hash
+        attachment, part_leg, status, request_hash
       ) VALUES (
         ${id}, ${input.userId}, ${input.marketId}, ${input.positionId}, ${input.clientOrderId},
         ${input.kind}, ${input.side}, ${formatAmount(input.quantity)},
@@ -346,7 +384,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         ${input.limitPrice == null ? null : formatAmount(input.limitPrice)},
         ${input.trailingDistance == null ? null : formatAmount(input.trailingDistance)},
         ${input.trailExtreme == null ? null : formatAmount(input.trailExtreme)},
-        true, ${input.attachment}, 'armed', ${input.requestHash}
+        true, ${input.attachment}, ${input.partLeg === true}, 'armed', ${input.requestHash}
       )
       RETURNING *
     `;
@@ -470,12 +508,17 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
 
   async function replaceProtection(userId: string, positionId: string, raw: ProtectionInput): Promise<ProtectionView> {
     const clientRequestId = requireClientKey(raw.clientRequestId, 'clientRequestId', 'trade.client_request_id_required');
-    const takeProfit = optionalPrice('takeProfit', raw.takeProfit);
-    const stopLoss = optionalPrice('stopLoss', raw.stopLoss);
+    const tpLeg = protectionLeg('takeProfit', raw.takeProfit);
+    const slLeg = protectionLeg('stopLoss', raw.stopLoss);
+    const takeProfit = tpLeg?.price ?? null;
+    const stopLoss = slLeg?.price ?? null;
+    // A whole-position request hashes as it always has, so a retry from before part legs existed still replays.
     const hash = requestHash({
       positionId,
       takeProfit: takeProfit == null ? '' : formatAmount(takeProfit),
       stopLoss: stopLoss == null ? '' : formatAmount(stopLoss),
+      ...(tpLeg?.quantity != null ? { takeProfitQuantity: formatAmount(tpLeg.quantity) } : {}),
+      ...(slLeg?.quantity != null ? { stopLossQuantity: formatAmount(slLeg.quantity) } : {}),
     });
 
     return sql.begin(async (tx) => {
@@ -538,12 +581,13 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       }
 
       const size = parseAmount(pos.size);
-      const lot = checkCloseQuantity({
-        quantity: size,
-        size,
-        lotSize: pos.lot_size == null ? null : parseAmount(pos.lot_size),
-      });
-      if (!lot.ok) throw new FuturesError(lot.reason, lot.code, 400);
+      const lotSize = pos.lot_size == null ? null : parseAmount(pos.lot_size);
+      // A part leg's own quantity: above zero, on the lot, and at most the position. A whole leg checks the size.
+      for (const leg of [tpLeg, slLeg]) {
+        if (leg == null) continue;
+        const lot = checkCloseQuantity({ quantity: leg.quantity ?? size, size, lotSize });
+        if (!lot.ok) throw new FuturesError(lot.reason, lot.code, 400);
+      }
 
       await tx`
         UPDATE trade.futures_conditional_orders
@@ -566,12 +610,13 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           clientOrderId: `p:${clientRequestId}:tp`,
           kind: 'take_profit',
           side,
-          quantity: size,
+          quantity: tpLeg?.quantity ?? size,
           triggerPrice: takeProfit,
           limitPrice: null,
           trailingDistance: null,
           trailExtreme: null,
           attachment: 'take_profit',
+          partLeg: tpLeg?.quantity != null,
           requestHash: hash,
         });
         legs.takeProfit = present(row);
@@ -585,12 +630,13 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           clientOrderId: `p:${clientRequestId}:sl`,
           kind: 'stop_market',
           side,
-          quantity: size,
+          quantity: slLeg?.quantity ?? size,
           triggerPrice: stopLoss,
           limitPrice: null,
           trailingDistance: null,
           trailExtreme: null,
           attachment: 'stop_loss',
+          partLeg: slLeg?.quantity != null,
           requestHash: hash,
         });
         legs.stopLoss = present(row);
@@ -635,7 +681,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     if (!pos || pos.status !== 'open') return 'gone';
     const room = parseAmount(pos.size) - (await reservedReduceQty(sql, pos.id));
     const left = parseAmount(row.quantity) - parseAmount(fired.closed ?? '0');
-    const qty = row.attachment != null ? room : left < room ? left : room;
+    const qty = wholeLeg(row) ? room : left < room ? left : room;
     if (qty <= 0n) {
       // The room may be taken by this very attempt, placed by another worker that fixed its quantity first.
       const [now] = await sql<{ result: unknown }[]>`SELECT result FROM trade.futures_conditional_orders WHERE id = ${row.id}`;
@@ -738,7 +784,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         return;
       }
       const finalClosed = closed + fills.settled;
-      if (row.attachment == null && finalClosed >= parseAmount(row.quantity)) {
+      if (!wholeLeg(row) && finalClosed >= parseAmount(row.quantity)) {
         await setOutcome(row.id, key, 'filled', null, {
           ...result,
           filledQty: formatAmount(fills.settled),
@@ -782,10 +828,18 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     reason: string | null,
     result: FireResult,
   ): Promise<void> {
+    // A filled part leg cancels its linked sibling in the same statement, so a crash cannot leave the sibling armed.
     await sql`
-      UPDATE trade.futures_conditional_orders
-      SET status = ${status}, failure_reason = ${reason}, result = ${sql.json(result as never)}, updated_at = now()
-      WHERE id = ${id} AND trigger_key = ${key} AND status = 'triggered'
+      WITH done AS (
+        UPDATE trade.futures_conditional_orders
+        SET status = ${status}, failure_reason = ${reason}, result = ${sql.json(result as never)}, updated_at = now()
+        WHERE id = ${id} AND trigger_key = ${key} AND status = 'triggered'
+        RETURNING *
+      )
+      UPDATE trade.futures_conditional_orders s
+      SET status = 'cancelled', cancel_reason = 'linked', updated_at = now()
+      FROM done f
+      WHERE f.status = 'filled' AND ${linkedSibling()} AND s.status = 'armed'
     `;
   }
 
@@ -795,8 +849,8 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       return;
     }
     const key = `fire:${row.id}`;
-    const [pos] = await sql<{ id: string; status: string }[]>`
-      SELECT id, status FROM trade.positions
+    const [pos] = await sql<{ id: string; status: string; size: string }[]>`
+      SELECT id, status, size FROM trade.positions
       WHERE id = ${row.position_id} AND user_id = ${row.user_id}
     `;
     if (!pos || pos.status !== 'open') {
@@ -834,13 +888,21 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     }
     try {
       await deps.closeQuantity(row.user_id, pos.id, {
-        quantity: parseAmount(row.quantity),
+        // A whole-position leg closes what the position holds now, which a part leg may already have reduced.
+        quantity: wholeLeg(row) ? parseAmount(pos.size) : parseAmount(row.quantity),
         clientCloseId: `cond:${row.id}`,
       });
       await sql`
-        UPDATE trade.futures_conditional_orders
-        SET status = 'filled', updated_at = now()
-        WHERE id = ${row.id} AND trigger_key = ${key} AND status = 'triggered'
+        WITH done AS (
+          UPDATE trade.futures_conditional_orders
+          SET status = 'filled', updated_at = now()
+          WHERE id = ${row.id} AND trigger_key = ${key} AND status = 'triggered'
+          RETURNING *
+        )
+        UPDATE trade.futures_conditional_orders s
+        SET status = 'cancelled', cancel_reason = 'linked', updated_at = now()
+        FROM done f
+        WHERE ${linkedSibling()} AND s.status = 'armed'
       `;
     } catch (err) {
       if (err instanceof FuturesError && (err.code === 'trade.position_not_found' || err.code === 'trade.position_not_open')) {
@@ -937,12 +999,24 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       }
       if (trigger == null || !triggerCrossed({ kind: row.kind, side: row.side, mark, trigger })) continue;
       const key = deps.placeReduce ? bookKey(row.id) : `fire:${row.id}`;
-      const claimed = await sql<{ id: string }[]>`
-        UPDATE trade.futures_conditional_orders
-        SET status = 'triggered', trigger_key = ${key}, updated_at = now()
-        WHERE id = ${row.id} AND status = 'armed' AND trigger_key IS NULL
-        RETURNING id
-      `;
+      const claimed = await sql.begin(async (tx) => {
+        // One leg of a linked pair at a time: while its sibling is closing, this one waits (and is cancelled if it
+        // fills). The pair's lock makes two workers claiming the two legs at once take turns.
+        if (row.part_leg) {
+          const pair = `trade.conditional-pair:${row.user_id}:${row.position_id}:${row.client_order_id.slice(0, -3)}`;
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${pair}, 0))`;
+        }
+        return tx<{ id: string }[]>`
+          UPDATE trade.futures_conditional_orders
+          SET status = 'triggered', trigger_key = ${key}, updated_at = now()
+          WHERE id = ${row.id} AND status = 'armed' AND trigger_key IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM trade.futures_conditional_orders s, trade.futures_conditional_orders f
+              WHERE f.id = ${row.id} AND ${linkedSibling(tx)} AND s.status = 'triggered'
+            )
+          RETURNING id
+        `;
+      });
       if (claimed.length === 0) continue;
       fired += 1;
       await work(row);

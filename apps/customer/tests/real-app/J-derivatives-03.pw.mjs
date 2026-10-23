@@ -174,6 +174,31 @@ test(`${J} #2 sets a take profit on the wrong side of the mark: refused in words
   expect(after.map((o) => [o.id, o.status, o.triggerPrice])).toEqual(before.map((o) => [o.id, o.status, o.triggerPrice]));
 });
 
+test(`${J} #3 sets a part take profit: the size it covers and the remainder shown, the stop loss still on the whole`, async ({ page }) => {
+  const me = await api(account());
+  const { positionId } = run.read();
+  await desk(page);
+  const dialog = await protection(page);
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+  // 40% of the 0.01 long; the stop loss field is left as it is, so it stays on the whole position.
+  const PART = '0.004';
+  await dialog.getByLabel('Take-profit size (optional)').fill(PART);
+  await expect(dialog.getByText(`If ${PART} of the position closed at this price: +`)).toBeVisible();
+  const sent = page.waitForResponse((r) => r.url().includes(`/positions/${positionId}/protection`) && r.request().method() === 'PUT');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  const answer = await sent;
+  expect(answer.status()).toBe(200);
+  expect(answer.request().postDataJSON().takeProfit).toMatchObject({ quantity: PART });
+  await expect(current.locator('[data-leg="take_profit"]')).toContainText(`Covers ${PART} of ${SIZE}; 0.006 not covered by it`);
+  await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Covers the whole position');
+
+  const armed = (await legs(me, positionId)).filter((o) => o.status === 'armed');
+  expect(armed.map((o) => [o.attachment, o.quantity, o.wholePosition]).sort()).toEqual([
+    ['stop_loss', SIZE, true],
+    ['take_profit', PART, false],
+  ]);
+});
+
 test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
   page,
 }) => {
@@ -192,6 +217,9 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
     const sl = fromUnits(mark - (mark * 3n) / 10_000n - 10n ** 18n);
     await dialog.getByLabel(/Take-profit trigger/).fill(tp.split('.')[0]);
     await dialog.getByLabel(/Stop-loss trigger/).fill(sl.split('.')[0]);
+    // Both on the whole position again, so whichever fires closes it.
+    await dialog.getByLabel('Take-profit size (optional)').fill('');
+    await dialog.getByLabel('Stop-loss size (optional)').fill('');
     const sent = page.waitForResponse((r) => r.url().includes(`/positions/${positionId}/protection`) && r.request().method() === 'PUT');
     await dialog.getByRole('button', { name: 'Save' }).click();
     const answer = await sent;

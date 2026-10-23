@@ -128,11 +128,11 @@ describe('futures conditional orders fire through the book', () => {
   let orders: ConditionalOrderService;
   let seq: number;
 
-  function conditionalService(): ConditionalOrderService {
+  function conditionalService(publishedMark = async () => formatAmount(mark)): ConditionalOrderService {
     return createConditionalOrderService({
       sql,
       triggerScheduled: true,
-      publishedMark: async () => formatAmount(mark),
+      publishedMark,
       closeQuantity: async () => {
         throw new Error('the at-mark close is retired while futures orders go through the book');
       },
@@ -280,6 +280,148 @@ describe('futures conditional orders fire through the book', () => {
     // It fires once: later ticks place nothing more.
     expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(engine.submits).toHaveLength(submitted + 1);
+  });
+
+  it('a part take-profit closes only its own quantity, and its part stop-loss is cancelled with it (linked)', async () => {
+    const positionId = await aliceLong();
+    const pair = await orders.replaceProtection(ALICE, positionId, {
+      takeProfit: { price: '110', quantity: '0.4' },
+      stopLoss: { price: '90', quantity: '0.4' },
+      clientRequestId: 'part-pair',
+    });
+    expect(pair.takeProfit).toMatchObject({ quantity: '0.4', wholePosition: false, status: 'armed' });
+    expect(pair.stopLoss).toMatchObject({ quantity: '0.4', wholePosition: false, status: 'armed' });
+    mark = A('109');
+    const bid = await carolBid('1', '110');
+    const submitted = engine.submits.length;
+    mark = A('111');
+    const taker = scriptFill(pair.takeProfit!.id, bid, '0.4', '110');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+
+    expect(engine.submits).toHaveLength(submitted + 1);
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: taker, side: 'sell', qty: '0.4' });
+    expect(await conditional(pair.takeProfit!.id)).toMatchObject({ status: 'filled', firedQuantity: '0.4', closedQuantity: '0.4' });
+    expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'cancelled', cancelReason: 'linked' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '0.6' });
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 0 });
+  });
+
+  it('a part take-profit beside a whole-position stop-loss leaves the stop-loss guarding what is left', async () => {
+    const positionId = await aliceLong();
+    const pair = await orders.replaceProtection(ALICE, positionId, {
+      takeProfit: { price: '110', quantity: '0.4' },
+      stopLoss: '93',
+      clientRequestId: 'part-whole',
+    });
+    expect(pair.stopLoss).toMatchObject({ quantity: '1', wholePosition: true });
+    mark = A('109');
+    const bid = await carolBid('1', '110');
+    mark = A('111');
+    scriptFill(pair.takeProfit!.id, bid, '0.4', '110');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(await conditional(pair.stopLoss!.id)).toMatchObject({ status: 'armed' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '0.6' });
+
+    // The stop-loss then closes the 0.6 left, not the 1 it was armed beside (above the 10x long's bankruptcy price).
+    mark = A('95');
+    const low = await carolBid('1', '92');
+    mark = A('92');
+    const taker = scriptFill(pair.stopLoss!.id, low, '0.6', '92');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(engine.submits.at(-1)).toMatchObject({ orderId: taker, qty: '0.6' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'closed' });
+  });
+
+  it("while a part leg is still closing, its linked sibling waits; a later request's leg is never cancelled as linked", async () => {
+    const positionId = await aliceLong();
+    const first = await orders.replaceProtection(ALICE, positionId, {
+      takeProfit: { price: '104', quantity: '0.4' },
+      stopLoss: { price: '97', quantity: '0.4' },
+      clientRequestId: 'pair-wait',
+    });
+    const tpId = first.takeProfit!.id;
+    /** The book has nothing inside the band for the take-profit's attempt `n`: it comes off, and the next tick tries again. */
+    const nothing = (n: number) => {
+      const taker = matchedOrderIdFor(ALICE, MARKET, n > 0 ? `cond:${tpId}:${n}` : `cond:${tpId}`);
+      engine.script.push({
+        accepted: true,
+        sequence: 7100 + n,
+        fills: [],
+        resting: null,
+        rejected: null,
+        cancellations: [{ orderId: taker, accountId: ALICE, remainingQty: '0.4', sequence: 7100 + n, reason: 'ioc' }],
+        triggered: [],
+      } as EngineSubmitResult);
+    };
+    // The take-profit crosses with nothing inside the band: it stays triggered and keeps trying.
+    nothing(0);
+    mark = A('105');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(await conditional(tpId)).toMatchObject({ status: 'triggered' });
+
+    // The mark swings through the stop-loss: it is not claimed while its linked take-profit is closing.
+    nothing(1);
+    mark = A('96');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await conditional(first.stopLoss!.id)).toMatchObject({ status: 'armed' });
+
+    // A new request arms a new part stop-loss: the old armed one is replaced, the triggered take-profit keeps working.
+    mark = A('100');
+    const second = await orders.replaceProtection(ALICE, positionId, {
+      stopLoss: { price: '95', quantity: '0.4' },
+      clientRequestId: 'pair-later',
+    });
+    expect(await conditional(first.stopLoss!.id)).toMatchObject({ status: 'cancelled', cancelReason: 'replaced' });
+    expect(await conditional(tpId)).toMatchObject({ status: 'triggered' });
+
+    // The take-profit's next attempt fills: the later request's stop-loss is not its sibling and stays armed.
+    mark = A('105');
+    const bid = await carolBid('1', '104');
+    scriptFill(tpId, bid, '0.4', '104', undefined, 2);
+    await orders.evaluate({ enabled: true });
+    expect(await conditional(tpId)).toMatchObject({ status: 'filled', closedQuantity: '0.4' });
+    expect(await conditional(second.stopLoss!.id)).toMatchObject({ status: 'armed' });
+    expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '0.6' });
+  });
+
+  it('two workers that see the two legs of a linked pair cross at once claim only one of them', async () => {
+    const positionId = await aliceLong();
+    const pair = await orders.replaceProtection(ALICE, positionId, {
+      takeProfit: { price: '104', quantity: '0.4' },
+      stopLoss: { price: '97', quantity: '0.4' },
+      clientRequestId: 'pair-race',
+    });
+    // One worker reads a mark through the take-profit, the other through the stop-loss. Admission stays out of
+    // reach, so whichever leg is claimed stays triggered (closing) and its sibling must wait.
+    admitStanding.mockRejectedValue(new TradingControlError('authority.unavailable'));
+    mark = A('105');
+    const low = conditionalService(async () => '96');
+    for (let round = 0; round < 5; round += 1) {
+      await sql`
+        UPDATE trade.futures_conditional_orders SET status = 'armed', trigger_key = NULL, result = NULL
+         WHERE id IN (${pair.takeProfit!.id}, ${pair.stopLoss!.id})
+      `;
+      const [one, two] = await Promise.all([orders.evaluate({ enabled: true }), low.evaluate({ enabled: true })]);
+      expect(one.fired + two.fired).toBe(1);
+      const rows = await sql<{ status: string }[]>`
+        SELECT status FROM trade.futures_conditional_orders WHERE id IN (${pair.takeProfit!.id}, ${pair.stopLoss!.id})
+      `;
+      expect(rows.map((r) => r.status).sort()).toEqual(['armed', 'triggered']);
+    }
+  });
+
+  it('a part leg is refused above the position or off the lot, and nothing is stored', async () => {
+    const positionId = await aliceLong();
+    await expect(
+      orders.replaceProtection(ALICE, positionId, { takeProfit: { price: '110', quantity: '1.5' }, clientRequestId: 'too-big' }),
+    ).rejects.toMatchObject({ code: 'trade.close_quantity_exceeds_size' });
+    await expect(
+      orders.replaceProtection(ALICE, positionId, { stopLoss: { price: '90', quantity: '0.00005' }, clientRequestId: 'off-lot' }),
+    ).rejects.toMatchObject({ code: 'trade.close_quantity_lot_step' });
+    await expect(
+      orders.replaceProtection(ALICE, positionId, { takeProfit: { quantity: '0.4' }, clientRequestId: 'no-price' }),
+    ).rejects.toMatchObject({ code: 'trade.conditional_amount_invalid' });
+    expect(await orders.list(ALICE)).toEqual([]);
   });
 
   it('two workers on a crossed stop place one order', async () => {

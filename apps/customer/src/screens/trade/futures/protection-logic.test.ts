@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ConditionalOrder } from './api';
-import { estimatedResult, isLive, legsOf, priceProblem, sideOfMark } from './protection-logic';
+import { coverage, estimatedResult, isLive, legsOf, partProblem, priceProblem, sideOfMark } from './protection-logic';
 
 // TEST figures only: nothing here is a real balance or price.
 const position: Position = {
@@ -76,6 +76,8 @@ describe('estimatedResult', () => {
     expect(estimatedResult({ ...position, side: 'short' }, '95.5')).toBe('2.25');
     // Size is in the base asset, as the service's notional and unrealised PnL are: the contract size is not a factor.
     expect(estimatedResult({ ...position, contractSize: '0.001' }, '120')).toBe('10');
+    // A part leg: the result on its own size.
+    expect(estimatedResult(position, '120', '0.2')).toBe('4');
   });
   it('is unknown, never zero, when a figure is missing or the price is not usable', () => {
     expect(estimatedResult(position, '')).toBeNull();
@@ -96,5 +98,20 @@ describe('sideOfMark and priceProblem', () => {
     expect(priceProblem('64000.5')).toBeNull();
     expect(priceProblem('0')).toBe('invalid');
     expect(priceProblem('abc')).toBe('invalid');
+  });
+});
+
+describe('part legs', () => {
+  it('a size is empty (whole), above zero, and at most the position', () => {
+    expect(partProblem('', '0.5')).toBeNull();
+    expect(partProblem('0.2', '0.5')).toBeNull();
+    expect(partProblem('0.5', '0.5')).toBeNull();
+    expect(partProblem('0.6', '0.5')).toBe('overPosition');
+    expect(partProblem('0', '0.5')).toBe('invalid');
+  });
+  it('says what a leg covers and what is left beside it', () => {
+    expect(coverage(leg({ wholePosition: true }), '0.5')).toEqual({ whole: true });
+    expect(coverage(leg({}), '0.5')).toEqual({ whole: true });
+    expect(coverage(leg({ wholePosition: false, quantity: '0.2' }), '0.5')).toEqual({ whole: false, part: '0.2', rest: '0.3' });
   });
 });

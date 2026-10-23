@@ -176,6 +176,8 @@ export const conditionalOrderSchema = z.object({
   limitPrice: decimalSchema.nullable(),
   positionId: z.string().nullable(),
   attachment: z.enum(['take_profit', 'stop_loss']).nullable(),
+  /** A take profit or stop loss that closes the position as it is when it fires. Older answers carry none: whole. */
+  wholePosition: z.boolean().optional(),
   status: z.enum(['armed', 'triggered', 'filled', 'cancelled', 'failed']),
   cancelReason: z.string().nullable(),
   failureReason: z.string().nullable(),
@@ -194,6 +196,18 @@ export const protectionSchema = z.object({
   stopLoss: conditionalOrderSchema.nullable(),
 });
 export type Protection = z.infer<typeof protectionSchema>;
+
+export interface ProtectionInput {
+  positionId: string;
+  takeProfit: string | null;
+  stopLoss: string | null;
+  /** Part of the position this leg closes. Absent or null: the whole position. */
+  takeProfitQuantity?: string | null;
+  stopLossQuantity?: string | null;
+  clientRequestId: string;
+}
+
+const legBody = (price: string, quantity: string | null | undefined) => (quantity ? { price, quantity } : price);
 
 export const orderTypeEntrySchema = z.object({
   id: z.string(),
@@ -378,13 +392,16 @@ export function createFuturesApi(api: ApiClient) {
     /** Cancel one armed order. One that already fired or ended answers with the service's refusal. */
     cancelConditional: (id: string) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { method: 'DELETE' }),
-    /** Replace a position's take-profit and stop-loss. A missing price clears that leg; the same request id replays. */
-    setProtection: (input: { positionId: string; takeProfit: string | null; stopLoss: string | null; clientRequestId: string }) =>
+    /**
+     * Replace a position's take-profit and stop-loss. A missing price clears that leg; a quantity covers that part of
+     * the position, none the whole of it. The same request id replays.
+     */
+    setProtection: (input: ProtectionInput) =>
       api.rest(`/positions/${encodeURIComponent(input.positionId)}/protection`, protectionSchema, {
         method: 'PUT',
         body: {
-          ...(input.takeProfit ? { takeProfit: input.takeProfit } : {}),
-          ...(input.stopLoss ? { stopLoss: input.stopLoss } : {}),
+          ...(input.takeProfit ? { takeProfit: legBody(input.takeProfit, input.takeProfitQuantity) } : {}),
+          ...(input.stopLoss ? { stopLoss: legBody(input.stopLoss, input.stopLossQuantity) } : {}),
           clientRequestId: input.clientRequestId,
         },
       }),

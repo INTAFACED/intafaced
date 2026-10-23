@@ -477,6 +477,26 @@ describe('futures conditional orders', () => {
     expect((await orders.get(ALICE, swapped.stopLoss!.id)).cancelReason).toBe('position_closed');
   });
 
+  it('at the mark, a part take-profit closes its part and the whole stop-loss then closes what is left', async () => {
+    const pos = await openAlice('open-part-at-mark');
+    const pair = await orders.replaceProtection(ALICE, pos.id!, {
+      takeProfit: { price: '51000', quantity: '0.4' },
+      stopLoss: '49000',
+      clientRequestId: 'part-at-mark',
+    });
+    feed('51500');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect((await orders.get(ALICE, pair.takeProfit!.id)).status).toBe('filled');
+    const [left] = await sql<{ size: string; status: string }[]>`SELECT size, status FROM trade.positions WHERE id = ${pos.id!}`;
+    expect({ size: formatAmount(amt(left!.size)), status: left!.status }).toEqual({ size: '0.6', status: 'open' });
+
+    feed('48500');
+    expect(await orders.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect((await orders.get(ALICE, pair.stopLoss!.id)).status).toBe('filled');
+    const [after] = await sql<{ status: string }[]>`SELECT status FROM trade.positions WHERE id = ${pos.id!}`;
+    expect(after!.status).toBe('closed');
+  });
+
   it('refuses to arm a conditional order or a protection leg while the trigger job is not scheduled', async () => {
     const pos = await openAlice('open-unscheduled');
     const unscheduled = createConditionalOrderService({
