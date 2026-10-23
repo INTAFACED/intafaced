@@ -191,6 +191,16 @@
       "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
       "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
     },
+    "IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "Ten minutes after sign-up to attach a referrer through a link, so a new invitee attaches and an older account is refused (J-campaigns-05)."
+    },
+    "IDENTITY_REFERRAL_CODE_LENGTH": {
+      "service": "identity",
+      "value": "8",
+      "note": "Eight characters per short referral code."
+    },
     "QUANT_OOS_MIN_TRADES": {
       "service": "quant",
       "value": "1",

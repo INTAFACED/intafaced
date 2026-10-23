@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { academyCurriculumSummarySchema, academyPublicCatalogueInputSchema, academyPublicItemSchema } from './academy-catalogue.js';
+import {
+  academyCurriculumSummarySchema,
+  academyPublicCatalogueInputSchema,
+  academyPublicCourseSchema,
+  academyPublicHubSchema,
+  academyPublicItemSchema,
+} from './academy-catalogue.js';
 
 const row = { slug: 's', title: 'T', kind: 'lesson', path: 'markets', order: 1, summary: '', estimatedMinutes: 2 };
 
@@ -10,5 +16,12 @@ describe('academy signed-out catalogue shapes (AC-catalogue-01)', () => {
     expect(academyPublicCatalogueInputSchema.safeParse({ q: 'risk', sort: 'name_desc', limit: 5 }).success).toBe(true);
     expect(academyPublicCatalogueInputSchema.safeParse({ userId: 'x', limit: 5 }).success).toBe(false);
     expect(academyPublicCatalogueInputSchema.safeParse({ sort: 'popular', limit: 5 }).success).toBe(false);
+  });
+
+  it('a course has at least one syllabus item; summary, instructor and certificate may be blank, never invented', () => {
+    const course = { slug: 'markets', summary: null, instructor: null, outcomes: [], syllabus: [row], certificate: null };
+    expect(academyPublicCourseSchema.parse(course)).toEqual(course);
+    expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [] }).success).toBe(false);
+    expect(academyPublicHubSchema.parse({ featured: null })).toEqual({ featured: null });
   });
 });

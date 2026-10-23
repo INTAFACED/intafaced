@@ -122,8 +122,10 @@ if (!available) {
       expect(hit.hits).toBe(1);
       expect(hit.referrerId).toBe(REF);
 
+      expect(await share.referrerOf(rec.token)).toBe(REF);
       await share.revokeShare(REF);
       await expect(share.shareHits(rec.token)).rejects.toMatchObject({ code: 'share.revoked' });
+      expect(await share.referrerOf(rec.token)).toBeNull();
 
       const next = await share.createShare(REF);
       expect(next.token).not.toBe(rec.token);

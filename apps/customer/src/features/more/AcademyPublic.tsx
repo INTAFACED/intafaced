@@ -20,6 +20,7 @@ import { academyTabHref, academyTabs, isAcademyPath, type AcademyRoute } from '.
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { LessonBody } from './AcademyLearning';
 import { VerifyPanel } from './AcademyCertificates';
+import { AcademyCourse, AcademyCourseCards, AcademyHub } from './AcademyHub';
 
 /**
  * The Academy for a visitor with no account (J-academy-01): the same five tabs at the same addresses, the published
@@ -43,7 +44,7 @@ function SignIn() {
 }
 
 export function AcademyPublic({ route }: { route: AcademyRoute }) {
-  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' ? 'Learning' : '';
+  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
   const { t } = copy.useCopy();
   return (
     <div className="more-grid" data-academy-visitor="true">
@@ -63,7 +64,10 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
         }}
         label={copyText('academy.academy.sections')}
       />
-      {route.kind === 'reader' && route.slug ? (
+      {route.kind === 'tab' && route.hub && <AcademyHub />}
+      {route.kind === 'course' ? (
+        <AcademyCourse slug={route.slug} signedIn={false} />
+      ) : route.kind === 'reader' && route.slug ? (
         <PublicReader slug={route.slug} />
       ) : route.kind === 'progress' || tab === 'Certificates' ? (
         <PublicCertificates />
@@ -78,7 +82,12 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
       ) : tab === 'Videos' ? (
         <PublicVideos />
       ) : (
-        <PublicCatalogue />
+        <>
+          <Panel title={t('publicCourses')}>
+            <AcademyCourseCards />
+          </Panel>
+          <PublicCatalogue />
+        </>
       )}
     </div>
   );

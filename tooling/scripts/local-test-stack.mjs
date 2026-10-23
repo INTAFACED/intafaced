@@ -923,6 +923,12 @@ function serviceDefs(secrets) {
         // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
         IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
           .value,
+        // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
+        // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
+        IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values
+          .IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS.value,
+        IDENTITY_REFERRAL_CODE_LENGTH: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values
+          .IDENTITY_REFERRAL_CODE_LENGTH.value,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),

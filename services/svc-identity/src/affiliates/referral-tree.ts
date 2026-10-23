@@ -15,7 +15,16 @@
 export const DEFAULT_MAX_REFERRAL_DEPTH = 5;
 
 export type ReferralErrorCode =
-  'referral.self' | 'referral.cycle' | 'referral.depth' | 'referral.already_set' | 'referral.unknown_referrer' | 'referral.invalid';
+  | 'referral.self'
+  | 'referral.cycle'
+  | 'referral.depth'
+  | 'referral.already_set'
+  | 'referral.unknown_referrer'
+  | 'referral.invalid'
+  | 'referral.attach_window_unset'
+  | 'referral.attach_window_closed'
+  | 'referral.code_length_unset'
+  | 'referral.code_exhausted';
 
 export class ReferralError extends Error {
   constructor(
