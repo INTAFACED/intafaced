@@ -356,3 +356,57 @@ test(`${J} #8 a published incident on a chosen component is emailed once with an
   }
   await page.context().close();
 });
+
+test(`${J} #9 copy the badge snippet for a component: operational with a cache time within the staleness window, or no data; an unknown id is not found`, async ({
+  browser,
+}) => {
+  await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES });
+  await recordReading({
+    componentId: 'trading',
+    state: 'operational',
+    observedAt: new Date(Date.now() - 30_000).toISOString(),
+    source: 'TEST probe',
+  });
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN });
+  const page = await context.newPage();
+  await page.goto('/status');
+  const share = page.getByTestId('status-share');
+  await expect(share.getByRole('heading', { name: 'Share this status' })).toBeVisible();
+  await share.getByLabel('Show').selectOption('trading');
+  await share.getByRole('button', { name: 'Copy HTML' }).click();
+  await expect(share.getByRole('button', { name: 'Copied' })).toBeVisible();
+  const snippet = await page.evaluate(() => navigator.clipboard.readText());
+  const image = `${ORIGIN}/api/notify/status/badge.svg?component=trading`;
+  expect(snippet).toBe(`<a href="${ORIGIN}/status"><img src="${image}" alt="Trading status"></a>`);
+  // The preview on the page is the badge itself, drawn by the service.
+  await expect(share.getByTestId('status-share-image')).toHaveJSProperty('complete', true);
+  expect(await share.getByTestId('status-share-image').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+
+  const fresh = await fetch(image);
+  expect(fresh.status).toBe(200);
+  expect(fresh.headers.get('content-type')).toContain('image/svg+xml');
+  const svg = await fresh.text();
+  expect(svg).toContain('<title>Trading: operational</title>');
+  expect(svg).not.toMatch(/<script|<foreignObject/i);
+  // The cache time: never longer than the 600-second staleness window (Edge sends no-store, which is shorter still).
+  const cache = fresh.headers.get('cache-control') ?? '';
+  const maxAge = /max-age=(\d+)/.exec(cache)?.[1];
+  expect(cache.includes('no-store') || (maxAge !== undefined && Number(maxAge) <= TEST_VALUES.stalenessSeconds)).toBe(true);
+  const json = await (
+    await fetch(`${ORIGIN}/api/notify/trpc/statusPage.badge?input=${encodeURIComponent(JSON.stringify({ componentId: 'trading' }))}`)
+  ).json();
+  expect(json.result.data).toMatchObject({ state: 'operational', label: 'operational' });
+  expect(json.result.data.maxAgeSeconds).toBeLessThanOrEqual(TEST_VALUES.stalenessSeconds);
+
+  // A component with no reading says no data.
+  expect(await (await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=wallets`)).text()).toContain(
+    '<title>Wallets: no data</title>',
+  );
+  // An unknown id is not found, and no image comes back.
+  const unknown = await fetch(`${ORIGIN}/api/notify/status/badge.svg?component=no-such-component`);
+  expect(unknown.status).toBe(404);
+  expect(unknown.headers.get('content-type')).not.toContain('image/');
+  expect(await unknown.json()).toEqual({ code: 'status.component_unknown' });
+  await context.close();
+});

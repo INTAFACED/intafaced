@@ -173,3 +173,39 @@ export type StatusPage = z.infer<typeof statusPageSchema>;
 export function statusPageConfigureKey(expectedRevision: number): string {
   return `status.page:r${expectedRevision}`;
 }
+
+/**
+ * Status badge (SP-status-05): the top level or one component as a small image another page can show, and the JSON the
+ * share panel reads. The image carries no script and no personal data, and is cached no longer than the staleness
+ * window (at most STATUS_BADGE_MAX_AGE_SECONDS); with the window unset it is not cached and every state reads no data.
+ */
+export const STATUS_BADGE_MAX_AGE_SECONDS = 300;
+
+/** Any short string: an id the page does not define, in any shape, is not found, the same answer the image route gives. */
+export const statusBadgeInputSchema = z.object({ componentId: z.string().min(1).max(64).nullable() }).strict();
+export type StatusBadgeInput = z.infer<typeof statusBadgeInputSchema>;
+
+export const statusBadgeSchema = z
+  .object({
+    /** null for the whole page. */
+    componentId: z.string().nullable(),
+    name: z.string(),
+    state: z.union([z.enum(STATUS_PAGE_STATES), z.literal('none_defined')]),
+    /** The words the image shows. */
+    label: z.string(),
+    /** How long the image may be cached, in seconds: never longer than the staleness window. */
+    maxAgeSeconds: z.number().int().min(0),
+    asOf: z.string(),
+  })
+  .strict();
+export type StatusBadge = z.infer<typeof statusBadgeSchema>;
+
+export const STATUS_BADGE_LABELS: Readonly<Record<StatusBadge['state'], string>> = {
+  operational: 'operational',
+  degraded: 'degraded',
+  partial_outage: 'partial outage',
+  major_outage: 'major outage',
+  maintenance: 'maintenance',
+  no_data: 'no data',
+  none_defined: 'no components',
+};

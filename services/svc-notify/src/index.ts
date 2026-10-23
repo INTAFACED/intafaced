@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
+import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -24,6 +24,8 @@ import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
 import { SqlStatusPageBook } from './status-page/book.js';
+import { statusBadge, statusBadgeCacheControl, statusBadgeSvg } from './status-page/badge.js';
+import { readStatusPage } from './status-page/router.js';
 import { openStatusMailer } from './status-page/mailer.js';
 import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
@@ -331,6 +333,7 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
+const statusPageDeps = { book: statusBook, notices, subscriptions: statusSubscriptions };
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
@@ -341,7 +344,7 @@ export const appRouter = createNotifyRouter(
     unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
     retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
   },
-  { book: statusBook, notices, subscriptions: statusSubscriptions },
+  statusPageDeps,
 );
 export type AppRouter = typeof appRouter;
 
@@ -356,6 +359,39 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 
 const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
+
+// The status badge as an image another page can show (SP-status-05). Public through Edge; no script, no personal data.
+// Hot-linked pages can ask often, so one page read serves every badge for a few seconds.
+let badgePage: { at: number; page: Promise<StatusPage> } | null = null;
+const badgeRead = () => {
+  const at = Date.now();
+  if (!badgePage || at - badgePage.at > 5_000) {
+    const page = readStatusPage(statusPageDeps, new Date(at));
+    badgePage = { at, page };
+    page.catch(() => {
+      if (badgePage?.page === page) badgePage = null;
+    });
+  }
+  return badgePage.page;
+};
+app.get<{ Querystring: { component?: unknown } }>('/status/badge.svg', async (request, reply) => {
+  const raw = request.query.component;
+  reply.header('cache-control', 'no-store');
+  if (raw !== undefined && typeof raw !== 'string') return reply.code(404).send({ code: 'status.component_unknown' });
+  let page: StatusPage;
+  try {
+    page = await badgeRead();
+  } catch {
+    return reply.code(503).send({ code: 'notify.status_page_unavailable' });
+  }
+  const badge = statusBadge(page, raw === undefined || raw === '' ? null : raw);
+  if (!badge) return reply.code(404).send({ code: 'status.component_unknown' });
+  return reply
+    .header('content-type', 'image/svg+xml; charset=utf-8')
+    .header('cache-control', statusBadgeCacheControl(badge))
+    .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'")
+    .send(statusBadgeSvg(badge));
+});
 
 app.get('/health', async () => ({
   ok: true,
