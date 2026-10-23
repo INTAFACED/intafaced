@@ -5,6 +5,7 @@ import { centreCopy } from './centre-copy';
 import { pushKey, registerTarget } from './notify-api';
 import { askPermission, deviceAddress, readPermission, type DevicePermission, type PushHost } from './push-device';
 import { registerNote, type RegisterNote } from './prefs';
+import { ServiceOffNotice, type NotConnectedCode } from '../../shared/service-off';
 
 type Step =
   | { kind: 'idle' }
@@ -18,7 +19,7 @@ type Step =
 
 const browser = (): PushHost => (typeof window === 'undefined' ? { navigator: {} } : (window as unknown as PushHost));
 /** The allowlisted not-connected code for the push delivery gateway. */
-const NOT_CONNECTED = 'vendor.push';
+const NOT_CONNECTED: NotConnectedCode = 'vendor.push';
 
 /**
  * "Allow notifications on this device" (HM-notifications-02). The browser is asked only when the person presses the
@@ -82,9 +83,7 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
       {step.kind === 'denied' && <p className="nf-why">{copy.t('pushDeniedHow')}</p>}
       {step.kind === 'dismissed' && <p className="nf-why">{copy.t('pushDismissed')}</p>}
       {step.kind === 'noGateway' && (
-        <p className="nf-why nf-push__off" data-not-connected={NOT_CONNECTED}>
-          {copy.t('pushNoGateway')} <span className="nf-muted">{NOT_CONNECTED}</span>
-        </p>
+        <ServiceOffNotice code={NOT_CONNECTED} action={copy.t('pushRegisterAction')} className="nf-why nf-push__off" />
       )}
       {step.kind === 'keyFailed' && <p className="nf-note">{copy.t('actionFailed')}</p>}
       {step.kind === 'subscribeFailed' && <p className="nf-note">{copy.t('pushSubscribeFailed')}</p>}
