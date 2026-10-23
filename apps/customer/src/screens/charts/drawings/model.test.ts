@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDrawing,
+  barIndexAt,
   EMPTY_DOC,
   groupDrawings,
   isVisible,
@@ -47,19 +48,26 @@ describe('adding drawings', () => {
 describe('moving by a delta', () => {
   it('moves both points of a line by the same bar and price delta, on the tick', () => {
     const moved = shiftPoints([at(100, '65000.00'), at(120, '65100.50')], bars, 5, '12.25', '0.25');
-    expect(typeof moved).toBe('object');
-    if (typeof moved === 'string') return;
-    expect(moved.points).toEqual([
+    expect(moved).toEqual([
       { time: bars[105], price: '65012.25' },
       { time: bars[125], price: '65112.75' },
     ]);
-    expect(moved.clamped).toBe(false);
   });
 
-  it('clamps a move past the loaded bars and says so', () => {
-    const moved = shiftPoints([at(190, '1.00')], bars, 50, '0.00', '0.01');
-    expect(typeof moved === 'object' && moved.clamped).toBe(true);
-    if (typeof moved === 'object') expect(moved.points[0]!.time).toBe(bars[199]);
+  it('refuses a move past the loaded bars, and never collapses a point onto an edge', () => {
+    expect(shiftPoints([at(190, '1.00')], bars, 50, '0.00', '0.01')).toBe('outside-bars');
+    expect(shiftPoints([at(5, '1.00')], bars, -10, '0.00', '0.01')).toBe('outside-bars');
+  });
+
+  it('refuses a point that has no bar on this interval (outside the loaded range)', () => {
+    expect(shiftPoints([{ time: bars[0]! - 60, price: '1.00' }], bars, 1, '0.00', '0.01')).toBe('outside-bars');
+  });
+
+  it('maps a stored time to the nearest loaded bar only inside the range', () => {
+    expect(barIndexAt(bars, bars[40]! + 20)).toBe(40);
+    expect(barIndexAt(bars, bars[0]! - 1)).toBeNull();
+    expect(barIndexAt(bars, bars[199]! + 1)).toBeNull();
+    expect(barIndexAt([], 5)).toBeNull();
   });
 
   it('refuses a blank price delta', () => {

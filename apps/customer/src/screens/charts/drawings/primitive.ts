@@ -5,7 +5,7 @@
  * what is under a pixel (`hit`).
  */
 import { planDrawing, hitTest, type Hit, type Op, type Plan, type View } from './render';
-import type { Drawing } from './model';
+import { barIndexAt, type Drawing } from './model';
 import type { Decimal } from './decimal';
 
 export interface PrimitiveState {
@@ -15,7 +15,8 @@ export interface PrimitiveState {
   /** A drawing being placed, painted dimmed and never hit-tested. */
   preview: Drawing | null;
   tick: Decimal;
-  indexOf(time: number): number;
+  /** The loaded bars' times on the current interval, sorted. A stored time maps to the nearest of them. */
+  barTimes: readonly number[];
   t(key: string, vars?: Record<string, string>): string;
 }
 
@@ -102,12 +103,17 @@ export class DrawingsPrimitive {
     return {
       width,
       height,
-      x: (time) => timeScale.timeToCoordinate(time),
+      // A stored time is drawn on the nearest loaded bar of this interval, so a drawing made on another interval stays
+      // visible where its time falls; a time outside the loaded bars is not drawn (the plan says so).
+      x: (time) => {
+        const index = barIndexAt(state.barTimes, time);
+        return index === null ? null : timeScale.timeToCoordinate(state.barTimes[index]!);
+      },
       y: (price) => {
         const value = Number(price);
         return Number.isFinite(value) ? series.priceToCoordinate(value) : null;
       },
-      indexOf: state.indexOf,
+      indexOf: (time) => barIndexAt(state.barTimes, time),
       tick: state.tick,
       t: state.t,
     };

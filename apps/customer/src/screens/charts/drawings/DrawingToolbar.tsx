@@ -80,7 +80,7 @@ export function DrawingToolbar({ api }: { api: DrawingsApi }) {
         {api.hint}
       </p>
       {api.notice ? (
-        <p className="dw-notice" role="alert">
+        <p className="dw-notice" role="alert" data-code={api.noticeCode ?? undefined}>
           {api.notice}
           <button type="button" className="dw-link" onClick={api.clearNotice}>
             {t('Dismiss')}

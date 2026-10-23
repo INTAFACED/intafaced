@@ -27,6 +27,39 @@ export function DrawingsLayer({
   limits: DrawingLimits;
 }) {
   const { userId } = useSession();
+  // Keyed by the person as well as the workbench: a sign-in change remounts the tools, so one person's drawings are never
+  // written under another's key, even when the workbench itself does not change.
+  return (
+    <DrawingsTools
+      key={`${userId ?? 'guest'}:${workbench}`}
+      host={host}
+      bars={bars}
+      workbench={workbench}
+      userId={userId}
+      symbol={symbol}
+      tickSize={tickSize}
+      limits={limits}
+    />
+  );
+}
+
+function DrawingsTools({
+  host,
+  bars,
+  workbench,
+  userId,
+  symbol,
+  tickSize,
+  limits,
+}: {
+  host: ChartHost | null;
+  bars: readonly Candle[];
+  workbench: string;
+  userId: string | null;
+  symbol: string;
+  tickSize: string;
+  limits: DrawingLimits;
+}) {
   const api = useDrawings(host, bars, { userId, workbench, symbol, tickSize, limits });
   return (
     <div className="dw-layer">

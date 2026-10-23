@@ -101,6 +101,9 @@ const messages = {
 
   // Refusals (typed, each says what to do)
   'Refused cap-unset': 'No drawing limit is set for this workbench, so new drawings are refused.',
+  'Refused cap-loading': 'The drawing limit is still loading, so new drawings are refused until it arrives.',
+  'Refused cap-unavailable': 'The drawing limit could not be read, so new drawings are refused.',
+  'Outside the loaded bars': 'Outside the loaded bars',
   'Refused cap-reached': 'This chart has reached its drawing limit. Delete a drawing to add another.',
   'Refused degenerate': 'The two points are the same, so there is no line.',
   'Refused collinear': 'The three points are on one line, so the pitchfork has no angle.',
@@ -111,6 +114,8 @@ const messages = {
   'Refused bad-tick': 'This price cannot be placed at the market’s tick size.',
   'Refused bad-levels': 'A level is blank or not a number. Fix the list and save it.',
   'Refused brush-cap-unset': 'No brush point limit is set, so the brush is refused.',
+  'Refused brush-cap-loading': 'The brush point limit is still loading, so the brush is refused until it arrives.',
+  'Refused brush-cap-unavailable': 'The brush point limit could not be read, so the brush is refused.',
   'Refused brush-cap-reached': 'This stroke reached its point limit and ended.',
   'Refused wrong-side': 'Stop and target must sit on the right side of the entry.',
   'Refused no-risk': 'The stop is at the entry, so the risk is zero.',

@@ -145,15 +145,48 @@ export const KIND_KEYS: readonly DrawingKind[] = [
   'brush',
 ];
 
-/** Limits from the owner's settings. A blank limit (null) refuses: no number is assumed. */
+/** Why a limit is blank: the owner has not set it, its read is still loading, or the read failed. */
+export type CapWhy = 'unset' | 'loading' | 'unavailable';
+
+/** Limits from the owner's settings. A blank limit (null) refuses: no number is assumed, and the reason says why. */
 export interface DrawingLimits {
   /** Drawings per workbench and symbol. */
   drawingCap: number | null;
   /** Points per brush stroke. */
   brushPointCap: number | null;
+  /** Why drawingCap is blank (used only when it is null). */
+  drawingWhy?: CapWhy;
+  /** Why brushPointCap is blank (used only when it is null). */
+  brushWhy?: CapWhy;
 }
 
-export type ModelRefusal = Refusal | 'cap-unset' | 'cap-reached' | 'locked' | 'not-found' | 'brush-cap-unset' | 'outside-bars';
+export type ModelRefusal =
+  | Refusal
+  | 'cap-unset'
+  | 'cap-loading'
+  | 'cap-unavailable'
+  | 'cap-reached'
+  | 'locked'
+  | 'not-found'
+  | 'brush-cap-unset'
+  | 'brush-cap-loading'
+  | 'brush-cap-unavailable'
+  | 'outside-bars';
+
+const DRAWING_CAP_REFUSAL: Record<CapWhy, ModelRefusal> = {
+  unset: 'cap-unset',
+  loading: 'cap-loading',
+  unavailable: 'cap-unavailable',
+};
+const BRUSH_CAP_REFUSAL: Record<CapWhy, ModelRefusal> = {
+  unset: 'brush-cap-unset',
+  loading: 'brush-cap-loading',
+  unavailable: 'brush-cap-unavailable',
+};
+
+/** The refusal for a blank drawing limit, or for a blank brush limit. */
+export const blankCapRefusal = (why: CapWhy | undefined, brush: boolean): ModelRefusal =>
+  (brush ? BRUSH_CAP_REFUSAL : DRAWING_CAP_REFUSAL)[why ?? 'unset'];
 export type Result = { doc: DrawingDoc } | { refused: ModelRefusal };
 
 export const isRefused = (r: Result): r is { refused: ModelRefusal } => 'refused' in r;
@@ -168,7 +201,7 @@ export function degenerate(kind: DrawingKind, points: readonly Pt[]): boolean {
 }
 
 export function addDrawing(doc: DrawingDoc, drawing: Drawing, limits: DrawingLimits): Result {
-  if (limits.drawingCap === null) return { refused: 'cap-unset' };
+  if (limits.drawingCap === null) return { refused: blankCapRefusal(limits.drawingWhy, false) };
   if (doc.drawings.length >= limits.drawingCap) return { refused: 'cap-reached' };
   if (degenerate(drawing.kind, drawing.points)) return { refused: drawing.kind === 'pitchfork' ? 'collinear' : 'degenerate' };
   return { doc: { ...doc, drawings: [...doc.drawings, drawing] } };
@@ -232,7 +265,8 @@ export function isVisible(doc: DrawingDoc, drawing: Drawing): boolean {
 
 /**
  * Move every point of a drawing by the same bar and price delta. Bars are moved by index in the loaded bars, so a point
- * is never moved to a time that has no bar; a move past the first or last loaded bar is clamped and reported.
+ * is never moved to a time that has no bar. A point that is outside the loaded bars, or a move that would take any point
+ * past the first or last loaded bar, refuses as outside the bars: nothing is clamped, so no point collapses onto an edge.
  * Prices move by the decimal delta and are rounded to the tick.
  */
 export function shiftPoints(
@@ -241,23 +275,32 @@ export function shiftPoints(
   deltaBars: number,
   deltaPrice: Decimal,
   tick: Decimal,
-): { points: Pt[]; clamped: boolean } | Refusal {
+): Pt[] | Refusal {
   const delta = dec(deltaPrice);
   if (delta === null) return 'bad-price';
-  let clamped = false;
   const out: Pt[] = [];
   for (const p of points) {
-    const from = nearestIndex(barTimes, p.time);
-    let to = from + deltaBars;
-    if (to < 0 || to >= barTimes.length) clamped = true;
-    to = Math.min(barTimes.length - 1, Math.max(0, to));
+    const from = barIndexAt(barTimes, p.time);
+    if (from === null) return 'outside-bars';
+    const to = from + deltaBars;
+    if (to < 0 || to >= barTimes.length) return 'outside-bars';
     const price = dec(p.price);
     if (price === null) return 'bad-price';
     const moved = roundToTick(add(price, delta), tick);
     if (moved === null) return 'bad-tick';
     out.push({ time: barTimes[to]!, price: moved });
   }
-  return { points: out, clamped };
+  return out;
+}
+
+/**
+ * The index of the loaded bar a stored time maps to on the current interval: the nearest bar, when the time lies within the
+ * loaded range. A time before the first or after the last loaded bar has no bar here, so it is null (never clamped).
+ */
+export function barIndexAt(barTimes: readonly number[], time: number): number | null {
+  if (barTimes.length === 0) return null;
+  if (time < barTimes[0]! || time > barTimes[barTimes.length - 1]!) return null;
+  return nearestIndex(barTimes, time);
 }
 
 /** The index of the bar at or nearest a time. The loaded bars are sorted by time. */

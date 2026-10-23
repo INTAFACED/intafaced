@@ -94,7 +94,9 @@ function Page({
   const brushCap = ownerValue(owner, 'brushPointCap');
   const limits: DrawingLimits = {
     drawingCap: drawingCap.ok ? drawingCap.value : null,
+    drawingWhy: drawingCap.ok ? undefined : drawingCap.why,
     brushPointCap: brushCap.ok ? brushCap.value : null,
+    brushWhy: brushCap.ok ? undefined : brushCap.why,
   };
   return (
     <div className="cw-page" data-market={market.symbol} data-workbench={id}>
@@ -126,7 +128,15 @@ function Page({
         setScheme={setScheme}
         openSocket={openSocket}
         mainAddons={(host, bars) => (
-          <DrawingsLayer key={id} host={host} bars={bars} workbench={id} symbol={market.symbol} tickSize={market.tickSize} limits={limits} />
+          <DrawingsLayer
+            key={id}
+            host={host}
+            bars={bars}
+            workbench={id}
+            symbol={market.symbol}
+            tickSize={market.tickSize}
+            limits={limits}
+          />
         )}
       />
     </div>

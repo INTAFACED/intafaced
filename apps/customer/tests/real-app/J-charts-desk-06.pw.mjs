@@ -135,7 +135,8 @@ test(`${J} #6 measures between two bars and two prices: the bars, the price diff
   const times = timesOf(await pointText(measure).textContent()).map((t) => Date.parse(`${t.replace(' ', 'T')}:00Z`) / 1000);
   // The chart opens at 15m (the default interval): bars are the time difference over 900 seconds.
   const bars = Math.abs(times[1] - times[0]) / 900;
-  const diff = cents(Math.abs(prices[1] - prices[0]));
+  // The price difference keeps its sign: a fall from the first point to the second is negative.
+  const diff = cents(prices[1] - prices[0]);
   const span = Math.abs(times[1] - times[0]);
   const days = Math.floor(span / 86_400);
   const hours = String(Math.floor((span % 86_400) / 3_600)).padStart(2, '0');

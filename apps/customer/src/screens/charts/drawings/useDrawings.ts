@@ -12,16 +12,18 @@ import type { ChartHost } from '../chart-host';
 import { drawingsCopy } from './copy';
 import { barPrices, magnetSnap, type Pt, type Refusal } from './geometry';
 import { figureLines } from './figures';
+import { OWNER_VALUE_UNSET } from '../owner-values';
 import { dec, diffAtTick, priceFromNumber, type Decimal } from './decimal';
 import {
   addDrawing,
+  barIndexAt,
+  blankCapRefusal,
   clearAll as clearDoc,
   findDrawing,
   groupDrawings,
   isRefused,
   isVisible,
   makeDrawing,
-  nearestIndex,
   patchDrawing,
   pointsNeeded,
   removeDrawing,
@@ -75,6 +77,8 @@ export interface DrawingsApi {
   hint: string;
   /** The last refusal, in plain words, until the next action. */
   notice: string | null;
+  /** The typed code of an owner-limit note (OWNER_VALUE_UNSET, OWNER_VALUE_UNAVAILABLE), or null. */
+  noticeCode: string | null;
   clearNotice(): void;
   canUndo: boolean;
   canRedo: boolean;
@@ -121,8 +125,11 @@ const safeStorage = (): Pick<Storage, 'getItem' | 'setItem'> | null => {
 
 const defaultId = () => `dr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+/** The copy key of each refusal, and the typed code a refusal about an owner limit carries (as the grid's notes do). */
 const REFUSAL_KEY = {
   'cap-unset': 'Refused cap-unset',
+  'cap-loading': 'Refused cap-loading',
+  'cap-unavailable': 'Refused cap-unavailable',
   'cap-reached': 'Refused cap-reached',
   degenerate: 'Refused degenerate',
   collinear: 'Refused collinear',
@@ -133,9 +140,21 @@ const REFUSAL_KEY = {
   'bad-tick': 'Refused bad-tick',
   'bad-levels': 'Refused bad-levels',
   'brush-cap-unset': 'Refused brush-cap-unset',
+  'brush-cap-loading': 'Refused brush-cap-loading',
+  'brush-cap-unavailable': 'Refused brush-cap-unavailable',
   'wrong-side': 'Refused wrong-side',
   'no-risk': 'Refused no-risk',
 } as const satisfies Partial<Record<ModelRefusal | Refusal, string>>;
+
+const OWNER_VALUE_UNAVAILABLE = 'trade.chart.owner_value_unavailable' as const;
+
+/** The typed code for a refusal caused by an owner limit: unset is the owner's blank, unavailable is a failed read. */
+const REFUSAL_CODE: Partial<Record<ModelRefusal | Refusal, string>> = {
+  'cap-unset': OWNER_VALUE_UNSET,
+  'brush-cap-unset': OWNER_VALUE_UNSET,
+  'cap-unavailable': OWNER_VALUE_UNAVAILABLE,
+  'brush-cap-unavailable': OWNER_VALUE_UNAVAILABLE,
+};
 
 type Refused = { refused: ModelRefusal | Refusal };
 const isPointRefusal = (value: unknown): value is Refused => typeof value === 'object' && value !== null && 'refused' in value;
@@ -159,7 +178,13 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   const [checked, setChecked] = useState<string[]>([]);
   const [magnetOn, setMagnetOn] = useState(false);
   const [textValue, setTextValue] = useState('Text');
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNoticeText] = useState<string | null>(null);
+  const [noticeCode, setNoticeCode] = useState<string | null>(null);
+  /** Show a note; a note about an owner limit carries its typed code, and any other note carries none. */
+  const setNotice = (text: string | null, code: string | null = null) => {
+    setNoticeText(text);
+    setNoticeCode(text === null ? null : code);
+  };
   const [draftCount, setDraftCount] = useState(0);
   const [saved, setSaved] = useState(true);
 
@@ -202,7 +227,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
 
   const showRefusal = (reason: ModelRefusal | Refusal) => {
     const key = REFUSAL_KEY[reason as keyof typeof REFUSAL_KEY];
-    setNotice(key ? latest.current.t(key) : latest.current.t('Refused bad-price'));
+    setNotice(key ? latest.current.t(key) : latest.current.t('Refused bad-price'), REFUSAL_CODE[reason] ?? null);
   };
 
   /** Commit one step to the history (one placed drawing, one drag, one deletion). */
@@ -260,7 +285,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       selectedId: L.selectedId,
       preview,
       tick: L.tickSize,
-      indexOf: (time: number) => nearestIndex(L.barTimes, time),
+      barTimes: L.barTimes,
       t: (key, vars) => L.t(key, vars),
     });
   };
@@ -391,12 +416,21 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       const L = latest.current;
       let points: Pt[];
       if (d.index === 'middle') {
-        const deltaBars = nearestIndex(L.barTimes, at.time) - nearestIndex(L.barTimes, d.startTime);
+        const from = barIndexAt(L.barTimes, d.startTime);
+        const to = barIndexAt(L.barTimes, at.time);
+        if (from === null || to === null) {
+          showRefusal('outside-bars');
+          return;
+        }
+        const deltaBars = to - from;
         const deltaPrice = diffAtTick(d.startPrice, at.price, L.tickSize);
         if (deltaPrice === null) return;
         const shifted = shiftPoints(d.startPoints, L.barTimes, deltaBars, deltaPrice, L.tickSize);
-        if (typeof shifted === 'string') return;
-        points = shifted.points;
+        if (typeof shifted === 'string') {
+          showRefusal(shifted);
+          return;
+        }
+        points = shifted;
       } else {
         const index = d.index;
         points = d.startPoints.map((p, i) => (i === index ? { time: at.time, price: at.price } : p));
@@ -411,9 +445,26 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       refreshPrimitive();
     }
 
+    // A cancelled gesture (the browser takes a touch for scrolling) ends like a release, but commits nothing: the drag or the
+    // stroke is dropped, the chart is unfrozen, and the press is forgotten so no later release places a point.
+    function onCancel() {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      freeze(false);
+      downAt = null;
+      suppressClickRef.current = true;
+      if (drag?.mode === 'brush') draftRef.current = [];
+      drag = null;
+      liveRef.current = null;
+      setLive(null);
+      refreshPrimitive();
+    }
+
     function onUp() {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       freeze(false);
       if (!drag) return;
       if (drag.mode === 'brush') {
@@ -458,7 +509,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         freeze(true);
       } else if (toolKind(L.tool)?.kind === 'brush') {
         if (L.limits.brushPointCap === null) {
-          showRefusal('brush-cap-unset');
+          showRefusal(blankCapRefusal(L.limits.brushWhy, true));
           return;
         }
         const at = pointAt(x, y);
@@ -474,6 +525,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       }
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
     };
 
     // A click is taken on release, not from the chart's click event: the chart drops a click that follows another within
@@ -486,18 +538,37 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       const { x, y } = local(e);
       handleClick(x, y);
     };
+    // A cancelled press is no click: nothing is left waiting for a release.
+    const onAnyCancel = () => {
+      downAt = null;
+      suppressClickRef.current = true;
+    };
     element.addEventListener('pointerdown', onDown);
     window.addEventListener('pointerup', onAnyUp);
+    window.addEventListener('pointercancel', onAnyCancel);
     return () => {
       element.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointerup', onAnyUp);
+      window.removeEventListener('pointercancel', onAnyCancel);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       freeze(false);
     };
     // The handlers read the latest render through `latest`; only the chart and element identities matter here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host?.element, host?.chart, primitive]);
+
+  // While a drawing tool is active, the browser must not take a touch for scrolling: the drawing gets the gesture.
+  useEffect(() => {
+    const element = host?.element;
+    if (!element) return;
+    const before = element.style.touchAction;
+    if (!isCursorTool(tool)) element.style.touchAction = 'none';
+    return () => {
+      element.style.touchAction = before;
+    };
+  }, [host?.element, tool]);
 
   // Chart clicks place and select; crosshair moves update the preview of a drawing being placed.
   useEffect(() => {
@@ -534,6 +605,8 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // A dialog on top (the clear-all confirmation) owns the keys: nothing under it is deleted or undone.
+      if (document.querySelector('[role="alertdialog"], [role="dialog"]')) return;
       const L = latest.current;
       const mod = e.ctrlKey || e.metaKey;
       if ((e.key === 'Delete' || e.key === 'Backspace') && L.selectedId) {
@@ -598,6 +671,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     selected,
     hint,
     notice,
+    noticeCode,
     clearNotice: () => setNotice(null),
     canUndo: canUndo(hist),
     canRedo: canRedo(hist),
@@ -659,6 +733,6 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     saved,
     retrySave: () => setSaved(writeDoc(storage, storageKey, latest.current.doc)),
     drawings: doc.drawings,
-    figures: (drawing) => figureLines(drawing, options.tickSize, (time) => nearestIndex(barTimes, time), t),
+    figures: (drawing) => figureLines(drawing, options.tickSize, (time) => barIndexAt(barTimes, time), t),
   };
 }

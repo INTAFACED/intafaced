@@ -110,6 +110,16 @@ describe('measure and info figures', () => {
     expect(figures).toEqual({ bars: 50, priceDiff: '4.00', pct: '4.00', span: '0d 00h 00m' });
   });
 
+  it('keeps the sign of a fall: from 100 to 90 is -10 (-10.00%)', () => {
+    const figures = measureFigures(pt(40, '100'), pt(90, '90'), '0.01', (time) => time);
+    expect(figures).toEqual({ bars: 50, priceDiff: '-10.00', pct: '-10.00', span: '0d 00h 00m' });
+  });
+
+  it('refuses as outside the bars when a point has no bar, instead of counting clamped bars', () => {
+    const outside = (time: number) => (time > 60 ? null : time);
+    expect(measureFigures(pt(40, '100'), pt(90, '104'), '0.01', outside)).toBe('outside-bars');
+  });
+
   it('formats a whole span in days, hours and minutes', () => {
     expect(formatSpan(26 * 3600 + 30 * 60)).toBe('1d 02h 30m');
   });
