@@ -1,6 +1,6 @@
 import { defineCopy } from '../../shared/i18n';
 
-// English source only. Subscribing to status updates (SP-status-04): what is offered, what is not connected, and why.
+// English source only. Subscribing to status updates (SP-status-04): what is offered, what is not, and why.
 export const statusSubscribeCopy = defineCopy('public-status-subscribe', {
   title: 'Get status updates',
   lead: 'We email you when a published incident or maintenance notice concerns what you chose. You confirm by a link first; nothing else is sent before that.',
@@ -12,11 +12,11 @@ export const statusSubscribeCopy = defineCopy('public-status-subscribe', {
   workingHint: 'This page does a short calculation instead of a puzzle, so no third party sees you.',
   sent: 'Check your inbox. Open the link in the message to start getting updates.',
   pending:
-    'Your request is recorded, but email updates need an email sender, and it is switched off in this build. Nothing will be sent until it is connected.',
-  smsOff: 'Text messages: not connected in this build.',
-  pushOff: 'App notifications: not connected in this build.',
+    'Your request is recorded, but email updates need an email sender, and it is switched off in this build. Nothing is sent while it is off.',
+  smsOff: 'Text messages: not offered in this build.',
+  pushOff: 'App notifications: not offered in this build.',
   emailOff: 'Email updates need an email sender. It is switched off in this build.',
-  unset: 'Subscribing is not open yet: the founders have not set its safeguards.',
+  unset: 'Subscribing is closed: the founders have not set its safeguards.',
   rateLimited: 'Too many requests for this address in the last hour. Try again later.',
   challengeFailed: 'The browser check did not pass. Try again.',
   failed: 'Couldn’t subscribe. Try again.',

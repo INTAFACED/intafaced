@@ -225,7 +225,7 @@ test(`${J} #5 /notice lists published notices with their kind, and maintenance a
   await page.context().close();
 });
 
-test(`${J} #6 subscribe to status updates by email: proof of work in the browser, a failed check stores nothing, SMS and push named not connected`, async ({
+test(`${J} #6 subscribe to status updates by email: proof of work in the browser, a failed check stores nothing, SMS and push named not offered`, async ({
   browser,
 }) => {
   await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES, ...TEST_SAFEGUARDS });
@@ -246,7 +246,7 @@ test(`${J} #6 subscribe to status updates by email: proof of work in the browser
   await page.goto('/status');
   const form = page.getByTestId('status-subscribe');
   await expect(form.getByRole('heading', { name: 'Get status updates' })).toBeVisible();
-  await expect(form.getByTestId('status-subscribe-channels')).toContainText('Text messages: not connected in this build.');
+  await expect(form.getByTestId('status-subscribe-channels')).toContainText('Text messages: not offered in this build.');
   await expect(form.getByTestId('status-subscribe-email-off')).toHaveCount(0);
   await expect(form.getByTestId('status-subscribe-channels')).toContainText('vendor.sms');
   await expect(form.getByTestId('status-subscribe-channels')).toContainText('vendor.push');

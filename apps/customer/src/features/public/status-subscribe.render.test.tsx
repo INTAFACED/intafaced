@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe('status subscribe form', () => {
-  it('names the channels that are not connected, solves the challenge, and sends nothing else', async () => {
+  it('names the channels that are not offered, solves the challenge, and sends nothing else', async () => {
     answers = {
       'statusPage.subscriptions.policy': POLICY,
       'statusPage.subscriptions.challenge': { token: 'challenge-token', bits: 4 },
