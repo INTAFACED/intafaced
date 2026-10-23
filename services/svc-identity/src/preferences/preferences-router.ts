@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
+import { savedScreensPreferenceSchema, watchlistsPreferenceSchema } from '@intafaced/contracts/watchlists-preferences';
 import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
 import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
@@ -26,13 +27,22 @@ const tradeViewsPreference = z
 const accountDisplayPreference = z
   .object({ namespace: z.literal(ACCOUNT_DISPLAY_NAMESPACE), version: z.number().int(), value: accountDisplay.nullable() })
   .strict();
-const preference = z.union([tradeViewsPreference, accountDisplayPreference, uiViewPreferenceSchema, homeTilesPreferenceSchema]);
+const preference = z.union([
+  tradeViewsPreference,
+  accountDisplayPreference,
+  uiViewPreferenceSchema,
+  homeTilesPreferenceSchema,
+  watchlistsPreferenceSchema,
+  savedScreensPreferenceSchema,
+]);
 const stored = z.literal('stored');
 const storedPreference = z.union([
   tradeViewsPreference.extend({ outcome: stored }).strict(),
   accountDisplayPreference.extend({ outcome: stored }).strict(),
   uiViewPreferenceSchema.extend({ outcome: stored }).strict(),
   homeTilesPreferenceSchema.extend({ outcome: stored }).strict(),
+  watchlistsPreferenceSchema.extend({ outcome: stored }).strict(),
+  savedScreensPreferenceSchema.extend({ outcome: stored }).strict(),
 ]);
 
 function preferenceError(error: unknown): never {
