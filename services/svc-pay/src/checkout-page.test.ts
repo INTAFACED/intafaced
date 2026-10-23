@@ -245,6 +245,14 @@ describe('parsePayerAmount', () => {
 describe('stateForError', () => {
   it('maps only codes it has a page for, and falls to error otherwise', () => {
     expect(stateForError(payErr('pay.link_not_found', '')).kind).toBe('not_found');
+    expect(stateForError(payErr('pay.link_inactive', '   ')).kind).toBe('not_found');
+    const told = stateForError(payErr('pay.link_inactive', 'Closed for the day'));
+    expect(told).toEqual({ kind: 'inactive', message: 'Closed for the day' });
+    expect(renderCheckoutPage(told).html).toContain('Closed for the day');
+    const nasty = stateForError(payErr('pay.link_inactive', '<script>alert(1)</script>'));
+    const nastyHtml = renderCheckoutPage(nasty).html;
+    expect(nastyHtml).toContain('&lt;script&gt;');
+    expect(nastyHtml).not.toContain('<script>');
     expect(stateForError(payErr('pay.link_expired', '')).kind).toBe('expired');
     expect(stateForError(payErr('pay.link_exhausted', '')).kind).toBe('exhausted');
     expect(stateForError(payErr('pay.checkout_busy', '')).kind).toBe('busy');

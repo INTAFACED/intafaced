@@ -96,6 +96,7 @@ export type CheckoutPageState =
   | { kind: 'session'; session: CheckoutSessionPageView }
   | { kind: 'missing_token' }
   | { kind: 'not_found' }
+  | { kind: 'inactive'; message: string }
   | { kind: 'expired' }
   | { kind: 'exhausted' }
   /** No rail on this deployment can honestly take a public payment. */
@@ -167,6 +168,11 @@ export function renderCheckoutPage(state: CheckoutPageState, paths: CheckoutPath
           errorBody(resolvePayerCopy(PAYER_COPY_KEYS.notFound), resolvePayerCopy(PAYER_COPY_KEYS.notFound)),
           resolvePayerCopy(PAYER_COPY_KEYS.notFound),
         ),
+      };
+    case 'inactive':
+      return {
+        status: 404,
+        html: pageShell(errorBody(state.message, state.message), state.message),
       };
     case 'expired':
       return {
@@ -418,6 +424,11 @@ function pageShell(body: string, title: string, refreshSeconds?: number): string
 }
 
 /** Read `PayError.code` (or any error with a string `code`) without importing the service. */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return '';
+}
+
 function errorCode(err: unknown): string | undefined {
   if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
     return (err as { code: string }).code;
@@ -437,6 +448,11 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.link_not_found':
     case 'pay.checkout_session_not_found':
       return { kind: 'not_found' };
+    case 'pay.link_inactive': {
+      const message = errorMessage(err).trim();
+      if (!message || message === 'payment link not found') return { kind: 'not_found' };
+      return { kind: 'inactive', message };
+    }
     case 'pay.link_expired':
       return { kind: 'expired' };
     case 'pay.link_exhausted':

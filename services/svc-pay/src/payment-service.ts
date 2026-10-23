@@ -226,6 +226,8 @@ export type PayErrorCode =
   | 'pay.payment_link_list_limit_unset'
   | 'pay.profile_not_found'
   | 'pay.link_not_found'
+  /** The link is off and the merchant stored a sentence for the payer. */
+  | 'pay.link_inactive'
   | 'pay.link_expired'
   /** The link's `maxUses` has been reached. Never resolved by retrying. */
   | 'pay.link_exhausted'
@@ -2307,7 +2309,9 @@ export class PayService {
     // A message the merchant stored is the answer the holder of this token sees.
     if (!row) throw new PayError('payment link not found', 'pay.link_not_found');
     if (!row.active) {
-      throw new PayError(row.inactive_message ?? 'payment link not found', 'pay.link_not_found');
+      const message = row.inactive_message?.trim() ?? '';
+      if (!message) throw new PayError('payment link not found', 'pay.link_not_found');
+      throw new PayError(message, 'pay.link_inactive');
     }
     if (row.expires_at && row.expires_at.getTime() < this.now().getTime()) {
       throw new PayError('payment link expired', 'pay.link_expired');

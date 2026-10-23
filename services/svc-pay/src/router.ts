@@ -2528,6 +2528,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.profile_not_found':
       case 'pay.dispute_not_found':
       case 'pay.link_not_found':
+      case 'pay.link_inactive':
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':

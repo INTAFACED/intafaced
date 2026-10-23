@@ -89,7 +89,7 @@ describe.runIf(available)('payment link share', () => {
     expect(await pay.deactivatePaymentLink(merchantId, created.id, 'A later sentence')).toEqual({ deactivated: false });
     expect((await pay.getPaymentLink(merchantId, created.id)).inactiveMessage).toBe('Closed for the day');
     await expect(pay.resolvePaymentLink(created.token)).rejects.toMatchObject({
-      code: 'pay.link_not_found',
+      code: 'pay.link_inactive',
       message: 'Closed for the day',
     });
   });
