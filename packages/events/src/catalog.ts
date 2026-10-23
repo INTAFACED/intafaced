@@ -1016,9 +1016,10 @@ export const personalRequestSettled = defineEvent(
 );
 
 /**
- * PP-send-request-18. Receipts and mandatory notices. One fact per event: svc-notify writes
- * pay.transfer_sent for the sender and pay.transfer_received for the recipient from the same
- * posted transfer, so neither party can get a receipt the other does not. Published by svc-bank
+ * PP-send-request-18. Receipts. One fact per event: svc-notify writes pay.transfer_sent for the
+ * sender and pay.transfer_received for the recipient from the same posted transfer, so neither
+ * party can get a receipt the other does not. The in-app notice is always written; email and SMS
+ * copies follow each person's orders setting. Published by svc-bank
  * from its outbox: the posted row records the notice as owed in the same UPDATE that marks it
  * `posted`, and stays owed until the bus takes it; a lost consumer ack never changes money.
  */
@@ -1936,13 +1937,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
-  },
-  {
-    event: 'personalTransferPosted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-bank publishes it for every posted send and keeps it owed until the bus takes it. svc-notify writes the sent and received receipts in the PP-send-request-18 svc-notify PR (next), idempotent per person. No screen promises a receipt from this event today.',
   },
   {
     event: 'personalRefundPosted',

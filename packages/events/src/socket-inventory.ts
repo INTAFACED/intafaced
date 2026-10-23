@@ -100,7 +100,7 @@ export const EVENT_BUS_MATRIX = {
   bankMarginCalled: { kind: 'live' },
   personalRequestCreated: { kind: 'live' },
   personalRequestSettled: { kind: 'live' },
-  personalTransferPosted: { kind: 'socket', socketClass: 'A' },
+  personalTransferPosted: { kind: 'live' },
   personalRefundPosted: { kind: 'socket', socketClass: 'A' },
   personalDisputeUpdated: { kind: 'socket', socketClass: 'A' },
   blueprintCreated: { kind: 'live' },
