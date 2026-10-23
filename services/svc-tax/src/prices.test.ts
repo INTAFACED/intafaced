@@ -37,7 +37,11 @@ describe('price at time', () => {
 
   it('a minute with no trade uses the last minute before it that traded, never a later one', async () => {
     const { prices } = door({ 'BTC/USDT 1m': { body: [c(MIN - 300_000, '64100'), c(MIN + 120_000, '70000')] } });
-    expect(await prices.priceAt('BTC', new Date(T))).toMatchObject({ timeframe: '1m', price: amt('64100'), candleAt: new Date(MIN - 300_000) });
+    expect(await prices.priceAt('BTC', new Date(T))).toMatchObject({
+      timeframe: '1m',
+      price: amt('64100'),
+      candleAt: new Date(MIN - 300_000),
+    });
   });
 
   it('too many minutes since: an hourly candle that had ended by the arrival, never the hour it arrived in', async () => {
@@ -45,7 +49,11 @@ describe('price at time', () => {
       'BTC/USDT 1m': { status: 400, body: { code: 'BadRequest', intafacedCode: 'trade.candles_range_point_cap' } },
       'BTC/USDT 1h': { body: [c(HOUR - 3_600_000, '64300'), c(HOUR, '69000')] },
     });
-    expect(await prices.priceAt('BTC', new Date(T))).toMatchObject({ timeframe: '1h', price: amt('64300'), candleAt: new Date(HOUR - 3_600_000) });
+    expect(await prices.priceAt('BTC', new Date(T))).toMatchObject({
+      timeframe: '1h',
+      price: amt('64300'),
+      candleAt: new Date(HOUR - 3_600_000),
+    });
   });
 
   it('a coin with no USDT market is priced on its USDC market', async () => {
@@ -62,7 +70,14 @@ describe('price at time', () => {
   it('one failed read moves on to the next candle size; only when nothing answers is it a failure', async () => {
     const recovered = door({ 'BTC/USDT 1m': 'throw', 'BTC/USDT 1h': { body: [c(HOUR - 3_600_000, '64200')] } });
     expect(await recovered.prices.priceAt('BTC', new Date(T))).toMatchObject({ timeframe: '1h', price: amt('64200') });
-    const down = door({ 'BTC/USDT 1m': 'throw', 'BTC/USDT 1h': 'throw', 'BTC/USDT 1d': 'throw', 'BTC/USDC 1m': 'throw', 'BTC/USDC 1h': 'throw', 'BTC/USDC 1d': 'throw' });
+    const down = door({
+      'BTC/USDT 1m': 'throw',
+      'BTC/USDT 1h': 'throw',
+      'BTC/USDT 1d': 'throw',
+      'BTC/USDC 1m': 'throw',
+      'BTC/USDC 1h': 'throw',
+      'BTC/USDC 1d': 'throw',
+    });
     await expect(down.prices.priceAt('BTC', new Date(T))).rejects.toThrow(/connection reset/);
   });
 });
