@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
@@ -8,6 +9,7 @@ import { createTaxLedgerReads } from './ledger-reads.js';
 import { createTradePrices } from './prices.js';
 import { createTaxRouter, type TaxRouter } from './router.js';
 import { taxReadyHonesty } from './ready-honesty.js';
+import { createPgBasisStore } from './basis-store.js';
 import { indexerStatusFromUrl, lakeStatusFromUrl, TaxService } from './tax-service.js';
 
 registerProcessHooks(
@@ -27,6 +29,7 @@ registerProcessHooks(
  */
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger reads on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-tax');
+const basisSql = env.DATABASE_URL === undefined ? undefined : postgres(env.DATABASE_URL, { max: 4, onnotice: () => undefined });
 const tax = new TaxService({
   mapRaw: env.TAX_JURISDICTION_MAP_JSON,
   reads: createTaxLedgerReads(
@@ -39,6 +42,7 @@ const tax = new TaxService({
   historyYears: env.TAX_HISTORY_YEARS,
   ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
   ...(env.TRADE_URL === undefined ? {} : { prices: createTradePrices(env.TRADE_URL) }),
+  ...(basisSql === undefined ? {} : { basis: createPgBasisStore(basisSql) }),
 });
 
 const appRouter = createTaxRouter(tax);
@@ -64,6 +68,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       await app.close();
+      await basisSql?.end({ timeout: 2 });
       process.exit(0);
     })();
   });

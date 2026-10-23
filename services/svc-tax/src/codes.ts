@@ -29,6 +29,30 @@ export const TAX_TERM_RULE_UNSET = 'tax.term_rule_unset' as const;
 export const TAX_DEPOSIT_BASIS_POLICY_UNSET = 'tax.deposit_basis_policy_unset' as const;
 /** No candle priced a coin at the time it arrived, so its value then is not known. */
 export const TAX_PRICE_AT_TIME_UNAVAILABLE = 'tax.price_at_time_unavailable' as const;
+/** Customer basis rows need Postgres. Blank DATABASE_URL does not invent a store. */
+export const TAX_BASIS_STORE_UNWIRED = 'tax.basis_store_unwired' as const;
+/** A price the customer typed was blank. Never stored as zero. */
+export const TAX_BASIS_PRICE_UNSET = 'tax.basis_price_unset' as const;
+/** A price was present but not a positive decimal string. */
+export const TAX_BASIS_PRICE_INVALID = 'tax.basis_price_invalid' as const;
+/** The day the customer says the coins were acquired was blank. */
+export const TAX_BASIS_DATE_UNSET = 'tax.basis_date_unset' as const;
+/** The day was not a real instant. */
+export const TAX_BASIS_DATE_INVALID = 'tax.basis_date_invalid' as const;
+/** The note that says where the price came from was blank. */
+export const TAX_BASIS_NOTE_UNSET = 'tax.basis_note_unset' as const;
+/** The lot is not in this customer's book, or the id is not one this call may write. */
+export const TAX_BASIS_LOT_UNKNOWN = 'tax.basis_lot_unknown' as const;
+/** A manual position needs its own id, asset and quantity. It is not a balance. */
+export const TAX_MANUAL_POSITION_INCOMPLETE = 'tax.manual_position_incomplete' as const;
+/** Nothing is stored for this lot, so there is nothing to remove. */
+export const TAX_BASIS_OVERRIDE_ABSENT = 'tax.basis_override_absent' as const;
+/** Whether a customer-entered basis may appear in a regulator-facing pack is not published. */
+export const TAX_CUSTOMER_BASIS_EXPORT_UNSET = 'tax.customer_basis_export_unset' as const;
+/** A lot whose cost already comes from our fills or a market price is not overwritten. */
+export const PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED = 'portfolio.basis_override_not_allowed' as const;
+/** The realised effect of a missing basis. A sentence, never a made-up number. */
+export const UNKNOWN_SHARE = 'unknown share' as const;
 
 export type TaxRefuseCode =
   | typeof TAX_JURISDICTION_UNMAPPED
@@ -49,7 +73,18 @@ export type TaxRefuseCode =
   | typeof TAX_LOT_BOOK_UNRECONCILED
   | typeof TAX_TERM_RULE_UNSET
   | typeof TAX_DEPOSIT_BASIS_POLICY_UNSET
-  | typeof TAX_PRICE_AT_TIME_UNAVAILABLE;
+  | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
+  | typeof TAX_BASIS_STORE_UNWIRED
+  | typeof TAX_BASIS_PRICE_UNSET
+  | typeof TAX_BASIS_PRICE_INVALID
+  | typeof TAX_BASIS_DATE_UNSET
+  | typeof TAX_BASIS_DATE_INVALID
+  | typeof TAX_BASIS_NOTE_UNSET
+  | typeof TAX_BASIS_LOT_UNKNOWN
+  | typeof TAX_MANUAL_POSITION_INCOMPLETE
+  | typeof TAX_BASIS_OVERRIDE_ABSENT
+  | typeof TAX_CUSTOMER_BASIS_EXPORT_UNSET
+  | typeof PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED;
 
 export class TaxError extends Error {
   readonly code: TaxRefuseCode;
