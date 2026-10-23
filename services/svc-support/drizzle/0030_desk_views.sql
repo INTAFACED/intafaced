@@ -1,5 +1,5 @@
 -- svc-support · saved desk views (SP-desk-01)
--- Reversal: 0028_desk_views.down.sql
+-- Reversal: 0030_desk_views.down.sql
 --
 -- One row per view. Personal and shared caps are owner values and are not stored here. Every save or delete is
 -- appended to the log under a business key (`view:<owner>:<name>:r<revision>`); the log refuses update and delete.
