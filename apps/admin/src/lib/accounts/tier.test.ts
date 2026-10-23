@@ -6,7 +6,13 @@ const { tierReply } = await import('./tier');
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const FOUNDER = '11111111-1111-4111-8111-111111111111';
 const APPROVER = '22222222-2222-4222-8222-222222222222';
-const move = { kind: 'identity.account.tier_move' as const, userId: USER, tierId: 'plus', reason: 'Customer qualifies for plus', version: '0' };
+const move = {
+  kind: 'identity.account.tier_move' as const,
+  userId: USER,
+  tierId: 'plus',
+  reason: 'Customer qualifies for plus',
+  version: '0',
+};
 const base = {
   auditId: '33333333-3333-4333-8333-333333333333',
   requestId: '44444444-4444-4444-8444-444444444444',
