@@ -26,6 +26,11 @@
       "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
       "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
     },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
+    },
     "TRADE_MAX_ORDER": {
       "service": "trade",
       "value": "1000000",
@@ -161,6 +166,21 @@
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
     },
+    "BANK_WALLET_PROOF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes a wallet ownership proof stays open for signing (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_VALID_DAYS": {
+      "service": "bank",
+      "value": "180",
+      "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
+    "IDENTITY_ACCOUNT_TIERS": {
+      "service": "identity",
+      "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
+      "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
+    },
     "QUANT_OOS_MIN_TRADES": {
       "service": "quant",
       "value": "1",
@@ -195,6 +215,26 @@
       "service": "quant",
       "value": "1",
       "note": "TEST sensitivity threshold: warn when starting one bar later moves the return by over 1 percentage point."
+    },
+    "QUANT_ACCOUNT_MAX_LEVERAGE": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST simulated-account maximum leverage for margin backtests."
+    },
+    "QUANT_ACCOUNT_MARGIN_CALL_PERCENT": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST margin call when equity falls to the margin used."
+    },
+    "QUANT_ACCOUNT_STOP_OUT_PERCENT": {
+      "service": "quant",
+      "value": "90",
+      "note": "TEST stop-out close under the margin call, so a short TEST tape shows both events in order."
+    },
+    "TAX_DEPOSIT_BASIS": {
+      "service": "tax",
+      "value": "customer",
+      "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
     }
   }
 }

@@ -7,7 +7,14 @@ const blank = (over: Partial<ChartOwnerValuesView> = {}): ChartOwnerValuesView =
   canWrite: true,
   scalars: {
     version: null,
-    values: { compareCap: null, chartCountLimit: null, drawingCap: null, brushPointCap: null, delayedBoundarySeconds: null },
+    values: {
+      compareCap: null,
+      chartCountLimit: null,
+      drawingCap: null,
+      brushPointCap: null,
+      delayedBoundarySeconds: null,
+      renderBudgetMs: null,
+    },
     operatorId: null,
     reason: null,
     updatedAt: null,
@@ -33,7 +40,14 @@ describe('charts settings page', () => {
         initial={blank({
           scalars: {
             version: '2',
-            values: { compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 },
+            values: {
+              compareCap: 3,
+              chartCountLimit: 4,
+              drawingCap: 50,
+              brushPointCap: 2000,
+              delayedBoundarySeconds: 30,
+              renderBudgetMs: 500,
+            },
             operatorId: 'op',
             reason: 'TEST',
             updatedAt: '2026-10-22T09:00:00.000Z',

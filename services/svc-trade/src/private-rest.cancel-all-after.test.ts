@@ -178,3 +178,39 @@ describe('POST /api/v1/orders/cancel-all-after', () => {
     expect(res.statusCode).toBeLessThan(500);
   });
 });
+
+describe('GET /api/v1/orders/cancel-all-after', () => {
+  const get = (app: Awaited<ReturnType<typeof build>>, p: Principal = principal()) =>
+    app.inject({ method: 'GET', url: '/api/v1/orders/cancel-all-after', headers: signedHeaders(p) });
+
+  it("answers the caller's countdown and the published timeouts", async () => {
+    const deadline = new Date('2026-10-19T12:01:00.000Z');
+    const seen: string[] = [];
+    const app = await build(
+      deps({
+        readCancelAllAfter: async (p) => {
+          seen.push(p.userId);
+          return { armed: true, timeoutSec: 60, deadline, published: [10, 60] };
+        },
+      }),
+    );
+    const res = await get(app);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ armed: true, timeout: 60, triggerTime: '2026-10-19T12:01:00.000Z', timeouts: [10, 60] });
+    expect(seen).toEqual([USER]);
+  });
+
+  it('says "not published" as null timeouts, and not armed as a null trigger time', async () => {
+    const app = await build(deps({ readCancelAllAfter: async () => ({ armed: false, timeoutSec: 0, deadline: null, published: null }) }));
+    expect((await get(app)).json()).toEqual({ armed: false, timeout: 0, triggerTime: null, timeouts: null });
+  });
+
+  it('refuses where the door is not mounted, and an unsigned caller', async () => {
+    const app = await build();
+    const res = await get(app);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.cancel_all_after_unset' });
+    const unsigned = await app.inject({ method: 'GET', url: '/api/v1/orders/cancel-all-after' });
+    expect(unsigned.statusCode).toBeGreaterThanOrEqual(400);
+    expect(unsigned.statusCode).toBeLessThan(500);
+  });
+});

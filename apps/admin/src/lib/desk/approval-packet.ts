@@ -51,6 +51,14 @@ export type DeskRequest =
       readonly version: string;
     }
   | { readonly kind: 'identity.account.reopen'; readonly userId: string; readonly reason: string; readonly version: string }
+  /** Move one account onto another product tier (J-ops-console-04 #11). `version` is the account's tier version read. */
+  | {
+      readonly kind: 'identity.account.tier_move';
+      readonly userId: string;
+      readonly tierId: string;
+      readonly reason: string;
+      readonly version: string;
+    }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -105,7 +113,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-/** Identity keeps a closure reason to 255 characters. */
+/** Identity's tier ids: lowercase letters, digits, `_` and `-`, at most 32. */
+const TIER_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+/** Identity keeps a closure or tier reason to 255 characters. */
 function validClosureReason(value: unknown): value is string {
   return validReason(value) && value.length <= 255;
 }
@@ -174,6 +185,13 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.reopen', userId: raw.userId, reason: raw.reason, version: raw.version };
+  }
+  if (raw.kind === 'identity.account.tier_move') {
+    if (keys !== 'kind,reason,tierId,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
+    if (typeof raw.tierId !== 'string' || !TIER_ID.test(raw.tierId)) return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return { kind: 'identity.account.tier_move', userId: raw.userId, tierId: raw.tierId, reason: raw.reason, version: raw.version };
   }
   if (raw.kind === 'academy.ambassador.appoint') {
     if (keys !== 'kind,userId') return null;
@@ -363,6 +381,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `CLOSE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'identity.account.reopen':
       return `REOPEN ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'identity.account.tier_move':
+      return `MOVE TIER ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
     case 'protocol.pool.hide':
@@ -419,6 +439,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Close account ${request.userId} (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). Its owner is signed out and cannot sign in; sessions, API keys and sub-accounts are revoked. Identity refuses while the account still has open products or balances, and applies it only if the account is still at control version ${request.version}. ${request.reasonCode === 'customer_request' ? 'Closed at the customer’s request, it can be reopened later.' : 'Closed for this reason, it cannot be reopened.'}`;
     case 'identity.account.reopen':
       return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
+    case 'identity.account.tier_move':
+      return `Move account ${request.userId} onto tier "${request.tierId}" ("${request.reason}"). The account takes that tier's terms as identity holds them. Identity refuses a tier with any blank term, and applies it only if the account is still at tier version ${request.version}. Both people must be founders.`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':

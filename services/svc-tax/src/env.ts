@@ -50,6 +50,16 @@ const schema = baseEnvSchema
       CONNECT_DATA_LAKE_TSDB_URL: blankAsAbsent(z.string().url().optional()),
       /** Blank → `absent`. Set → `configured`/`tax.indexer_unprobed`, never `ok`. */
       INDEXER_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * svc-trade's public market data, for the price of a coin when it arrived (the lot book). Blank: arrivals are not
+       * valued and the book names `tax.price_at_time_unavailable`.
+       */
+      TRADE_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * Owner policy for the cost of a deposit, reward or transfer in: `market` (its value when it arrived) or `customer`
+       * (unknown until the customer enters one). Blank: unknown, named `tax.deposit_basis_policy_unset`. Never a default.
+       */
+      TAX_DEPOSIT_BASIS: blankAsAbsent(z.enum(['market', 'customer']).optional()),
     }),
   );
 
