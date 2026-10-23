@@ -6,6 +6,8 @@ import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Page, Panel, Stat, Tabs } from '../../shared/ui';
 import { createProtocolApi, type DexQuote } from './api';
+import { BLOCKER_REFUSAL } from '@intafaced/contracts/protocol-blockers';
+import { ServiceOffNotice } from '../../shared/service-off';
 import {
   blockersFor,
   chainReasonWords,
@@ -164,14 +166,21 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
           const reason = t(first.key, first.params);
           // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
           const standalone = capital(reason);
+          const refusal = BLOCKER_REFUSAL[first.code];
           return (
             <li key={action} data-action={action}>
               <Button variant="secondary" disabled aria-disabled="true" title={standalone}>
                 {t(`act_${action}`)}
               </Button>
-              <p className="protocol-actions__reason" role="note">
-                {t('blockedBy', { reason })}
-              </p>
+              {refusal ? (
+                // An outside dependency (the allowlist): the shell's one service-off sentence and code.
+                <ServiceOffNotice code={refusal} action={t(`act_${action}`)} className="protocol-actions__reason" />
+              ) : (
+                // Our own gap or a plain state: its reason, never an allowlist code.
+                <p className="protocol-actions__reason" role="note">
+                  {t('blockedBy', { reason })}
+                </p>
+              )}
               {found.length > 1 && (
                 <details>
                   <summary>{t('allBlockers')}</summary>
