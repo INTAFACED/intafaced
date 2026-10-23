@@ -8,8 +8,11 @@
  *   3. No migration silently drops a column or table without a marker comment —
  *      destructive changes are allowed, but they must be declared, because on a
  *      ledger a dropped column is a lost audit trail.
- *   4. A migration this change ADDS is numbered above main's highest for that
- *      service, so two PRs cannot both claim the next number.
+ *   4. A migration this change ADDS is named for the UTC time it was written,
+ *      `YYYYMMDDHHMMSS_name.sql`, so two PRs never claim the same name and
+ *      neither has to renumber when the other merges first.
+ *
+ *   node tooling/ci/migration-check.mjs --self-test   checks rule 4 on fixed cases
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
@@ -117,6 +120,90 @@ const migrationNumber = (file) => {
   return m ? Number(m[1]) : null;
 };
 
+/**
+ * Rule 4, naming. Four-digit numbers (`0061_x.sql`) made every PR race for main's
+ * next number: two open PRs in one service both took it, and whichever merged
+ * second had to rename and rebase (svc-bank 0055/0056, svc-trade 0101,
+ * svc-identity 0070-0074, 2026-10). A new migration is named for the UTC second
+ * it was written instead. The runners apply every file not yet recorded, keyed
+ * by name and in name order, so a timestamp sorts after every four-digit file
+ * and two PRs' migrations both apply whichever merges first. A migration that
+ * builds on a table another PR added must be stamped after that one; CI applies
+ * every migration to an empty database in name order, so a wrong order fails
+ * there, on the PR.
+ *
+ * A new four-digit name is still accepted while it is above main's highest, so a
+ * PR opened before this rule keeps passing; once one has to be renumbered, it
+ * takes a timestamp.
+ */
+const STAMPED = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_[a-z0-9_]+\.sql$/;
+const LEGACY = /^\d{4}_/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Problems with the names of `ups` that are not on main. `onMain` is main's file names (null when main is not fetched). */
+export function namingProblems(ups, onMain, now = Date.now()) {
+  if (!onMain) return [];
+  const legacyOnMain = [...onMain].filter((f) => LEGACY.test(f)).map(migrationNumber);
+  const legacyHighest = legacyOnMain.length ? Math.max(...legacyOnMain) : -1;
+  const stampedOnMain = [...onMain].some((f) => STAMPED.test(f));
+  const out = [];
+  for (const up of ups) {
+    if (onMain.has(up)) continue;
+    const m = STAMPED.exec(up);
+    if (m) {
+      const [, y, mo, d, h, mi, se] = m.map(Number);
+      const at = Date.UTC(y, mo - 1, d, h, mi, se);
+      const real = new Date(at).toISOString().replace(/\D/g, '').slice(0, 14) === up.slice(0, 14);
+      if (!real) out.push({ file: up, problem: `${up.slice(0, 14)} is not a real UTC date and time (YYYYMMDDHHMMSS)` });
+      else if (at > now + DAY_MS)
+        out.push({ file: up, problem: `${up.slice(0, 14)} is in the future: stamp it with the UTC time you write it` });
+      continue;
+    }
+    const n = LEGACY.test(up) ? migrationNumber(up) : null;
+    if (n !== null && !stampedOnMain && n > legacyHighest) continue;
+    out.push({
+      file: up,
+      problem:
+        `name a new migration for the UTC time you write it, \`$(date -u +%Y%m%d%H%M%S)_<what>.sql\` with its .down.sql ` +
+        `(lower-case name), so no other PR can claim the same number`,
+    });
+  }
+  return out;
+}
+
+function selfTest() {
+  const now = Date.UTC(2026, 9, 23, 22, 0, 0);
+  const main = new Set(['0060_a.sql', '0061_b.sql']);
+  const check = (ups, onMain = main) => namingProblems(ups, onMain, now).map((p) => p.file);
+  const cases = [
+    ['a stamped migration passes', check(['0060_a.sql', '0061_b.sql', '20261023213000_c.sql']), []],
+    ['two PRs stamped out of merge order both pass', check(['20261023100000_x.sql'], new Set([...main, '20261023110000_y.sql'])), []],
+    ['a four-digit name above main passes while main has no stamped one', check(['0062_c.sql']), []],
+    ["a four-digit name at main's highest fails", check(['0061_c.sql']), ['0061_c.sql']],
+    [
+      'a four-digit name fails once main has a stamped one',
+      check(['0099_c.sql'], new Set([...main, '20261023110000_y.sql'])),
+      ['0099_c.sql'],
+    ],
+    ['a date that does not exist fails', check(['20261332000000_c.sql']), ['20261332000000_c.sql']],
+    ['a stamp more than a day ahead fails', check(['20261025000000_c.sql']), ['20261025000000_c.sql']],
+    ['an upper-case name fails', check(['20261023213000_Bad.sql']), ['20261023213000_Bad.sql']],
+    ['files already on main are never judged', check(['0060_a.sql']), []],
+    ['main not fetched judges nothing', check(['0001_c.sql'], null), []],
+  ];
+  let failed = 0;
+  for (const [name, got, want] of cases) {
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    if (!ok) failed++;
+    console.log(`${ok ? '✓' : '✖'} ${name}${ok ? '' : ` — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`);
+  }
+  if (failed) process.exit(1);
+  console.log(`✓ migration-check --self-test OK (${cases.length} cases)`);
+  process.exit(0);
+}
+
+if (process.argv.includes('--self-test')) selfTest();
+
 const problems = [];
 let migrationsChecked = 0;
 let servicesChecked = 0;
@@ -175,19 +262,9 @@ for (const service of readdirSync(SERVICES)) {
     }
   }
 
-  // Numbering: a migration absent from origin/main must sit above main's highest.
-  const onMain = mainMigrations(service);
-  if (onMain && onMain.size > 0) {
-    const mainHighest = Math.max(...[...onMain].map(migrationNumber).filter((n) => n !== null));
-    for (const up of ups) {
-      const n = migrationNumber(up);
-      if (onMain.has(up) || n === null || n > mainHighest) continue;
-      problems.push({
-        service,
-        file: relative(ROOT, join(drizzleDir, up)),
-        problem: `number ${String(n).padStart(4, '0')} is not above main's highest (${String(mainHighest).padStart(4, '0')}) — renumber and rebase`,
-      });
-    }
+  // Naming: a migration absent from origin/main is stamped with the UTC time it was written.
+  for (const { file, problem } of namingProblems(ups, mainMigrations(service))) {
+    problems.push({ service, file: relative(ROOT, join(drizzleDir, file)), problem });
   }
 
   // Journal consistency.

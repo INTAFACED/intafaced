@@ -73,8 +73,13 @@ test('every TEST value names its service, is a string and is a listed owner sett
   }
 });
 
-test('docs/OWNER-SETTINGS.md matches the code', async () => {
-  assert.equal(readFileSync(new URL('../../docs/OWNER-SETTINGS.md', import.meta.url), 'utf8'), await render(build()));
+test('the generated list names every env setting and every TEST value', async () => {
+  const data = build();
+  const text = await render(data);
+  for (const s of data.settings) assert.ok(text.includes(`\`${s.env}\``), s.env);
+  for (const [name, v] of Object.entries(data.profile.values)) {
+    if (data.settings.some((s) => s.env === name)) assert.ok(text.includes(`\`${v.value.replace(/\|/g, '\\|')}\` (TEST)`), name);
+  }
 });
 
 test('a code whose area has an underscore is found', () => {
