@@ -21,7 +21,8 @@ export type OwnedMerchantLookup = (userId: string) => Promise<OwnerPayScopeMerch
 /** Statuses of the merchants `userId` is an ACTIVE team member of. */
 export type TeamMerchantStatusLookup = (userId: string) => Promise<ReadonlyArray<OwnerPayScopeMerchant['status']>>;
 
-const SHUT: ReadonlySet<OwnerPayScopeMerchant['status']> = new Set(['suspended', 'closed']);
+/** A merchant in one of these statuses grants nothing, to its owner or its team. */
+export const SHUT: ReadonlySet<OwnerPayScopeMerchant['status']> = new Set(['suspended', 'closed']);
 
 export function teamMerchantStatusesFromSql(sql: Sql): TeamMerchantStatusLookup {
   return async (userId) => {

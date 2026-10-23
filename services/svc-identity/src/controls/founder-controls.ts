@@ -4,10 +4,12 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
+  IDENTITY_UNFREEZE_ACTION_TYPE,
   TRADE_OPS_OPERATOR_PERMISSION,
   TRADING_RESTRICT_ACTION_TYPE,
   TRADING_RESTRICT_TARGET_SERVICE,
 } from '../auth/action-approval-audience.js';
+import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
@@ -204,6 +206,18 @@ export function tradingRestrictPayloadHash(input: {
   );
 }
 
+/**
+ * Canonical payload hash for `identity.account_unfreeze`: the account and the reason the approver read
+ * (`identityActionPayloadHash`, `{ targetId, reason }`). The version is bound on the approval row, not in the hash.
+ */
+export function identityUnfreezePayloadHash(input: { readonly userId: string; readonly reason: string }): string {
+  return identityActionPayloadHash(input.userId.toLowerCase(), { reason: input.reason.trim() });
+}
+
+type UnfreezeApproval =
+  | { readonly approverId: string; readonly refusal: null }
+  | { readonly approverId?: undefined; readonly refusal: 'restriction_approval_mismatch' | 'restriction_approval_consumed' };
+
 export class FounderControls {
   private configured = false;
   constructor(
@@ -350,9 +364,19 @@ export class FounderControls {
             actorUserId: actorId,
           };
           const refused = (
-            code: 'operator.denied' | 'mfa.required' | 'target.not_found' | 'restore.not_permitted' | 'request.conflict',
+            code:
+              | 'operator.denied'
+              | 'mfa.required'
+              | 'target.not_found'
+              | 'restore.not_permitted'
+              | 'request.conflict'
+              | 'restriction_no_four_eyes'
+              | 'restriction_approval_mismatch'
+              | 'restriction_approval_consumed',
             current: AccountControlState | null = null,
           ) => accountControlResultSchema.parse({ ...common, outcome: 'refused', changed: false, code, current });
+          let approverId: string | null = null;
+          let unfreeze: UnfreezeApproval | undefined;
           let result: AccountControlResult;
           if (actor.refusal) {
             result = refused(actor.refusal);
@@ -384,7 +408,14 @@ export class FounderControls {
               else if (input.action === 'restore' && user.status === 'closed') result = refused('restore.not_permitted', before);
               else if (before.restricted === (input.action === 'restrict'))
                 result = accountControlResultSchema.parse({ ...common, outcome: 'noop', changed: false, before, after: before });
+              else if (input.action === 'restore' && !input.approvalId) result = refused('restriction_no_four_eyes', before);
+              else if (
+                input.action === 'restore' &&
+                (unfreeze = await this.consumeUnfreezeApproval(tx, input, targetId, actorId!, clock!.at)).refusal
+              )
+                result = refused(unfreeze.refusal, before);
               else {
+                if (unfreeze?.approverId) approverId = unfreeze.approverId;
                 await tx`UPDATE users SET status = ${input.action === 'restrict' ? 'frozen' : 'active'}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
                 if (input.action === 'restrict') {
                   await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
@@ -398,11 +429,16 @@ export class FounderControls {
                   changed: true,
                   before,
                   after: { ...before, version: (BigInt(before.version) + 1n).toString(), restricted: input.action === 'restrict' },
+                  ...(approverId ? { approverUserId: approverId } : {}),
                 });
               }
             }
           }
-          await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, { fourEyes: false });
+          // An approval is named in the audit only when it was looked at (a restore); a freeze ignores one.
+          await this.audit(tx, input.requestId, actorId, 'identity', hash, result, auditId, {
+            fourEyes: approverId !== null,
+            ...(input.action === 'restore' && input.approvalId ? { approvalId: input.approvalId } : {}),
+          });
           if (!previous)
             await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
           return result;
@@ -536,8 +572,17 @@ export class FounderControls {
                 };
                 await tx`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${targetId}, ${restricted}, ${after.version}::bigint)
                   ON CONFLICT (user_id) DO UPDATE SET restricted = EXCLUDED.restricted, version = EXCLUDED.version, updated_at = now()`;
+                const approverUserId = approval.approverId!.toLowerCase();
                 result = changed
-                  ? accountControlResultSchema.parse({ ...common, actorUserId: actorId!, outcome: 'changed', changed: true, before, after })
+                  ? accountControlResultSchema.parse({
+                      ...common,
+                      actorUserId: actorId!,
+                      approverUserId,
+                      outcome: 'changed',
+                      changed: true,
+                      before,
+                      after,
+                    })
                   : accountControlResultSchema.parse({ ...common, actorUserId: actorId!, outcome: 'noop', changed: false, before, after });
               }
             }
@@ -558,6 +603,56 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /**
+   * Lifting an identity freeze takes a second person (J-ops-console-04 #6). The approval must be an approved,
+   * unexpired, unconsumed `identity.account_unfreeze` four-eyes row filed against svc-identity for this account,
+   * at the version the founder read, over the reason the approver read. The requester must be the founder restoring,
+   * the approver someone else, and neither may be the account being restored. It is spent in this transaction.
+   * Returns the approver, or the refusal when the row does not bind or was spent (the caller refuses and nothing changes).
+   */
+  private async consumeUnfreezeApproval(
+    tx: Sql,
+    input: IdentityAccountControlInput,
+    targetId: string,
+    actorId: string,
+    now: Date,
+  ): Promise<UnfreezeApproval> {
+    const approval = await sqlGetApprovalForUpdate(tx, input.approvalId!);
+    if (!approval) return { refusal: 'restriction_approval_mismatch' };
+    if (approval.status === 'CONSUMED') return { refusal: 'restriction_approval_consumed' };
+    const payloadHash = identityUnfreezePayloadHash({ userId: targetId, reason: input.reason });
+    const requester = approval.requesterId.toLowerCase();
+    const approver = approval.approverId?.toLowerCase() ?? null;
+    const bound =
+      approval.actionType === IDENTITY_UNFREEZE_ACTION_TYPE &&
+      approval.targetService === 'svc-identity' &&
+      approval.targetId.toLowerCase() === targetId &&
+      approval.payloadHash === payloadHash &&
+      approval.expectedVersion === input.expectedVersion &&
+      approval.status === 'APPROVED' &&
+      approval.kind !== 'same_person' &&
+      approver !== null &&
+      approver !== requester &&
+      requester === actorId.toLowerCase() &&
+      requester !== targetId &&
+      approver !== targetId &&
+      approval.expiresAt.getTime() > now.getTime();
+    if (!bound) return { refusal: 'restriction_approval_mismatch' };
+    const consumed = await sqlCasConsume(tx, {
+      approvalId: approval.approvalId,
+      operationId: approval.operationId,
+      payloadHash: approval.payloadHash,
+      targetService: approval.targetService,
+      targetId: approval.targetId,
+      expectedVersion: approval.expectedVersion,
+      now,
+      requestId: input.requestId,
+      consumedByService: 'svc-identity',
+      consumedByPrincipal: actorId,
+    });
+    return consumed ? { approverId: approver, refusal: null } : { refusal: 'restriction_approval_consumed' };
   }
 
   private tradeOpsRefusal(context: Context): 'operator.denied' | 'mfa.required' | null {

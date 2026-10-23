@@ -101,5 +101,16 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith({ userId, liftedAt: done.liftedAt!.toISOString() }, 'auth.self_freeze_lifted');
     });
+
+    it('assertDue refuses too soon without writing, and passes once due or with nothing open', async () => {
+      const userId = await frozenPerson();
+      await expect(new SelfFreezeLift(db.sql, 3600).assertDue(userId)).rejects.toMatchObject({
+        code: 'identity.self_freeze_lift_too_soon',
+      });
+      expect(await auth.selfFreezeStatus(userId)).toMatchObject({ frozen: true });
+      await expect(new SelfFreezeLift(db.sql, 0).assertDue(userId)).resolves.toBeUndefined();
+      expect(await auth.selfFreezeStatus(userId)).toMatchObject({ frozen: true });
+      await expect(new SelfFreezeLift(db.sql, 3600).assertDue('00000000-0000-4000-8000-0000000000ff')).resolves.toBeUndefined();
+    });
   });
 }

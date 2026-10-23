@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { formatAmount, type LedgerTx } from '@intafaced/ledger-client';
+import { recordLookup, type LookupActor, type LookupRecorder } from './operator-lookup.js';
 
 /**
  * OPERATOR TRACE: a business key to the transaction it booked (OPS-ledger-desk-01, ops-console-ledger-desk-005).
@@ -8,7 +9,8 @@ import { formatAmount, type LedgerTx } from '@intafaced/ledger-client';
  * read at all. This is that read, for a founder session holding `admin:treasury` (which requires a second factor).
  *
  * A read, never a post. Business keys are shown, never minted here. Amounts leave as decimal strings. A key with no
- * transaction is an honest `found: false`, never an invented row. Entries name opaque account ids only: no customer
+ * transaction is an honest `found: false`, never an invented row. The lookup writes an access row first and is refused
+ * if it cannot (`operator-lookup.ts`). Entries name opaque account ids only: no customer
  * profile data is returned.
  */
 
@@ -42,7 +44,7 @@ export const operatorTraceOutputSchema = z.discriminatedUnion('found', [
 ]);
 export type OperatorTraceOutput = z.infer<typeof operatorTraceOutputSchema>;
 
-export interface TraceReader {
+export interface TraceReader extends LookupRecorder {
   getTxByKey(idempotencyKey: string): Promise<LedgerTx | null>;
 }
 
@@ -55,8 +57,9 @@ export class TraceInconsistentError extends Error {
   }
 }
 
-export async function traceBusinessKey(reader: TraceReader, input: OperatorTraceInput): Promise<OperatorTraceOutput> {
+export async function traceBusinessKey(reader: TraceReader, actor: LookupActor, input: OperatorTraceInput): Promise<OperatorTraceOutput> {
   const { businessKey } = operatorTraceInputSchema.parse(input);
+  await recordLookup(reader, actor, { ownerType: 'business_key', ownerId: businessKey, action: 'trace.read' });
   const tx = await reader.getTxByKey(businessKey);
   if (!tx) return { found: false, businessKey };
   if (tx.idempotencyKey !== businessKey) throw new TraceInconsistentError(businessKey, tx.id);

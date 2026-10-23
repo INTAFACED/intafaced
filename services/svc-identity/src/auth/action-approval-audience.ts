@@ -48,6 +48,11 @@ export const FOUNDER_LEVEL_ACTION_TYPES: readonly string[] = ['edge.kill', 'ledg
 export const TRADING_RESTRICT_ACTION_TYPE = 'trading.restrict';
 export const TRADING_RESTRICT_TARGET_SERVICE = 'svc-identity';
 /**
+ * Lifting a staff freeze on one account, filed at svc-identity with the account id as target. Operator-level (it moves
+ * no money); identity's own restore door still admits only a live founder and spends the row there.
+ */
+export const IDENTITY_UNFREEZE_ACTION_TYPE = 'identity.account_unfreeze';
+/**
  * Trade-ops operator permission. The trade desk's operator token is `admin:write` plus MFA.
  * There is no separate `trade:ops` scope. `market:ops` and `support:ops` are not this permission.
  */

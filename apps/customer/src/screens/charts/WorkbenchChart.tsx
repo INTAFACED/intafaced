@@ -60,7 +60,7 @@ export interface WorkbenchChartProps {
   /** Move the view so this bar index is in the middle; `nonce` makes the same index move it again. */
   focus?: { index: number; nonce: number } | null;
   /** Add-ons drawn on top of the chart (studies, drawings), given the host once the chart exists. */
-  children?: (host: ChartHost | null) => ReactNode;
+  children?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
   /** Told the host whenever it changes (null when the chart goes), so a grid can link charts. */
   onHost?: (host: ChartHost | null) => void;
 }
@@ -308,7 +308,7 @@ export function WorkbenchChart({
           </span>
         </div>
       ) : null}
-      {children?.(host)}
+      {children?.(host, candles)}
     </div>
   );
 }

@@ -34,7 +34,7 @@ export const accountControlInputSchema = z
 export type AccountControlInput = z.infer<typeof accountControlInputSchema>;
 
 /**
- * svc-identity only. `approvalId` names a stored `trading.restrict` approval.
+ * svc-identity only. `approvalId` names a stored `trading.restrict` approval, or an `identity.account_unfreeze` one for an identity restore.
  * It is a reference, not authority: identity checks the row is approved, unexpired,
  * unconsumed, and bound to this account and payload before consuming it.
  * The shared schema refuses this field so another service cannot apply the
@@ -68,7 +68,14 @@ const auditFields = {
   reason,
   occurredAt: timestamp,
 };
-const completedFields = { ...auditFields, actorUserId: id, before: accountControlStateSchema, after: accountControlStateSchema };
+/** `approverUserId`: the second person whose approval was spent for this change (an identity unfreeze, a trading restriction). */
+const completedFields = {
+  ...auditFields,
+  actorUserId: id,
+  approverUserId: id.optional(),
+  before: accountControlStateSchema,
+  after: accountControlStateSchema,
+};
 
 /** Failed/no-op attempts are audited too; they never claim a successful state change. */
 export const accountControlResultSchema = z
