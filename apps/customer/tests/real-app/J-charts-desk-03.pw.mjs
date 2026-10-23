@@ -37,6 +37,7 @@ async function addStudy(page, search, name) {
 
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
+const host = (page) => page.locator('.cw .wc-host');
 
 /** A simple moving average of the closes, worked from the formula: the mean of the last `period` closes. */
 const sma = (closes, period) => closes.slice(-period).reduce((a, b) => a + b, 0) / period;
