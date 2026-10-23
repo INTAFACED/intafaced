@@ -113,6 +113,8 @@ export const ALERT_CONDITIONS = [
  * owner setting (`NOTIFY_ALERT_FREQUENCIES`); `once` is always allowed.
  */
 export type AlertFrequency = 'once' | 'every_crossing';
+export type AlertStopReason = 'burst';
+export const ALERT_STOP_REASONS = ['burst'] as const satisfies readonly AlertStopReason[];
 export const ALERT_FREQUENCIES = ['once', 'every_crossing'] as const satisfies readonly AlertFrequency[];
 
 /** Which side of the target the mark was last seen on. At the target counts as `at_or_above`. */
@@ -156,6 +158,11 @@ export type PriceAlert = {
   readonly fireCount: number;
   /** When a repeating alert last triggered. */
   readonly lastFiredAt: Date | null;
+  /** Why the alert is stopped when the platform, not the person, stopped it. `burst`: it triggered too often. */
+  readonly stopReason: AlertStopReason | null;
+  /** Internal burst window state; never on the wire. */
+  readonly burstStartedAt: Date | null;
+  readonly burstCount: number;
   /** Further level conditions on the same market. The alert fires only when the main condition AND every one of these holds. */
   readonly extras: readonly AlertExtra[];
   /** When the person last changed the alert (edit, stop, resume, cancel). The creation time until then. */
