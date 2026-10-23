@@ -261,6 +261,7 @@ describe('per-asset pause of new borrow and new supply (BK-loan-07)', () => {
       quoteAssetId: 'USDT',
       aprBps: 1_000,
       maxLtvBps: 5_000,
+      minPrincipal: 0n,
       policy: DEFAULT_LIQUIDATION_POLICY,
     });
     await ledger.post(recipes.deposit({ userId: OWNER, assetId: 'BTC', amount: parseAmount('3'), rail: 'test', railRef: randomUUID() }));
