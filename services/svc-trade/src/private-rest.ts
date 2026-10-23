@@ -564,8 +564,14 @@ async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]
  * An open order carries what it still holds as `hold`; other orders carry `null` (nothing stated). The hold is shown
  * beside the order, never needed to act on it: a failed hold read states nothing rather than failing the orders read.
  */
-async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const holds = deps.orderHolds && orders.length > 0 ? await deps.orderHolds(orders).catch(() => new Map<string, OrderHold>()) : null;
+async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[], log: { warn: (obj: object, msg: string) => void }) {
+  const holds =
+    deps.orderHolds && orders.length > 0
+      ? await deps.orderHolds(orders).catch((err: unknown) => {
+          log.warn({ err, orders: orders.length }, 'order hold read failed; the orders read states no hold');
+          return new Map<string, OrderHold>();
+        })
+      : null;
   return <W extends object>(order: OrderRecord, wire: W): W => (holds ? { ...wire, hold: holds.get(order.id) ?? null } : wire);
 }
 
@@ -1273,7 +1279,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
-      const withHeld = await withHold(deps, orders);
+      const withHeld = await withHold(deps, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
         wire.push({ ...withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))), serverTime });
@@ -1335,7 +1341,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
-      const withHeld = await withHold(deps, orders);
+      const withHeld = await withHold(deps, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
         wire.push(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
@@ -3038,7 +3044,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        const withHeld = await withHold(deps, [order]);
+        const withHeld = await withHold(deps, [order], req.log);
         return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
@@ -3060,7 +3066,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        const withHeld = await withHold(deps, [order]);
+        const withHeld = await withHold(deps, [order], req.log);
         return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
@@ -3082,7 +3088,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      const withHeld = await withHold(deps, [order]);
+      const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -3118,7 +3124,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      const withHeld = await withHold(deps, [order]);
+      const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);

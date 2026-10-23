@@ -473,6 +473,8 @@ const messages = {
   Asset: 'Asset',
   Available2: 'Available',
   'In orders': 'In orders',
+  Flatten: 'Flatten',
+  'Flatten label': 'Flatten {asset}: sell all {amount} {asset} you have free on {pair} at market, after a review',
   'Total held': 'Total',
   'Cancel order': 'Cancel',
   'Cancel order label': 'Cancel {side} order for {amount} {asset}',

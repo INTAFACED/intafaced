@@ -634,6 +634,32 @@ test('market sell: the review shows the floor and the fee; it sends no price and
   expect(m.errors).toEqual([]);
 });
 
+test('flatten: one control in Assets reviews a market sell of every free lot; the same review number on every retry', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Assets' }).click();
+  const flatten = page.getByRole('button', { name: /^Flatten BTC: sell all 0.25 BTC/ });
+  await flatten.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('Review your sell');
+  await expect(dialog).toContainText('Price protection');
+  expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing is sent before Confirm
+  const reference = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
+  // Leave and press Flatten again for the same coin: the same order, under the same number.
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await flatten.click();
+  await expect(dialog).toContainText('Review your sell');
+  expect(await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText()).toBe(reference);
+  await shot(page, 'desk-flatten-review');
+  await dialog.getByRole('button', { name: 'Confirm sell' }).click();
+  await expect(sellForm(page)).toContainText('Your sell order filled: 0.25 BTC');
+  const sent = m.requests('POST', 'orders');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].body).toMatchObject({ side: 'sell', type: 'market', amount: '0.25' });
+  expect(sent[0].body.clientOrderId.endsWith(`:${reference}`)).toBe(true);
+  expect(m.errors).toEqual([]);
+});
+
 test('a market sell the service refuses (no protection published) says so in words, and nothing is sent', async ({ page }) => {
   const exchange = new Exchange();
   exchange.opts.refusal = { code: 'trade.protection_unset', message: 'raw words from the service' };

@@ -8,6 +8,7 @@ import { useClosedOrders, useRefreshPrivate } from './data';
 import { HistoryFilters } from './HistoryFilters';
 import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
+import { parseAmount } from '../../../shared/money';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
 import { CancelMany } from './CancelMany';
@@ -25,11 +26,13 @@ interface Props {
   /** Controlled so a placed order can send the person to Open orders. */
   tab: Tab;
   onTab: (tab: Tab) => void;
+  /** Flatten a held coin: hand the order form a market sell of everything free in it, to review. */
+  onFlatten: (amount: string) => void;
 }
 export type { Tab as BottomTab };
 
 /** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history, Assets and Positions (not applicable on cash spot), Pro density (40 px rows). */
-export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab }: Props) {
+export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab, onFlatten }: Props) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const refresh = useRefreshPrivate();
@@ -132,6 +135,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
                     <th className="dk-num">{t('Total held')}</th>
                     <th className="dk-num">{t('Available2')}</th>
                     <th className="dk-num">{t('In orders')}</th>
+                    <th>{t('Action')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -148,6 +152,22 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
                         </td>
                         <td className="dk-num if-num">
                           <Amount value={fmtAmount(entry?.used ?? '0', { places: 8 })} />
+                        </td>
+                        <td>
+                          {asset === market.base && userId && market.open && parseAmount(entry?.free ?? '0') > 0n ? (
+                            <button
+                              type="button"
+                              className="dk-cancel-all"
+                              onClick={() => onFlatten(entry?.free ?? '0')}
+                              aria-label={t('Flatten label', {
+                                asset,
+                                amount: fmtAmount(entry?.free ?? '0', { places: 8 }),
+                                pair: market.symbol,
+                              })}
+                            >
+                              {t('Flatten')}
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     );
