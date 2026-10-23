@@ -137,6 +137,51 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity reopens only an account the customer closed. This one was closed by staff for another reason, so it stays closed. Nothing was changed.',
     next: 'The customer would need a new application.',
   },
+  'identity.account_tiers_unset': {
+    title: 'No account tiers are set',
+    body: 'The owner has not published the account tiers (IDENTITY_ACCOUNT_TIERS), so identity moves no account onto any tier. Nothing was changed.',
+    next: 'The owner sets the tiers and their terms; nothing here fills them in.',
+  },
+  'identity.tier_unknown': {
+    title: 'That tier is not on offer',
+    body: 'Identity does not list a tier with that id. Nothing was changed.',
+    next: 'Read the account again and choose one of the tiers listed.',
+  },
+  'identity.tier_terms_unset': {
+    title: 'That tier has blank terms',
+    body: 'A tier with any blank rate, fee, limit or clearing period cannot be assigned, and identity does not fill one in. Nothing was changed and the approval was not used.',
+    next: 'The owner completes the tier’s terms, or choose a tier whose terms are all set.',
+  },
+  'identity.tier_unchanged': {
+    title: 'The account is already on that tier',
+    body: 'Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.tier_self_forbidden': {
+    title: 'You cannot move your own account',
+    body: 'A founder does not change the tier of their own account. Nothing was changed.',
+    next: 'The other founder can make the request.',
+  },
+  'identity.tier_account_closed': {
+    title: 'The account is closed',
+    body: 'Identity does not move a closed account onto a tier. Nothing was changed.',
+    next: 'Reopen the account first if that is allowed.',
+  },
+  'identity.tier_requires_approver': {
+    title: 'A second founder must approve this first',
+    body: 'Identity moves an account onto a tier only with a second founder’s approval. Nothing was changed.',
+    next: 'Ask the other founder to approve the request, then run it.',
+  },
+  'identity.tier_approval_mismatch': {
+    title: 'That approval is not for this change',
+    body: 'The approval does not match this account, tier, reason or tier version, was not approved by a different founder who is still a founder, or has expired. Nothing was changed.',
+    next: 'Read the account again and make a new request if it still needs doing.',
+  },
+  'identity.tier_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'An approval runs once. Nothing was changed by this attempt.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the move is already there. If it still needs doing, make a new request.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',

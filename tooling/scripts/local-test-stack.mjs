@@ -887,6 +887,12 @@ function serviceDefs(secrets) {
         IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
         IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
         IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
+        // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
+        // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
+        // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
+        IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
+          .value,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
