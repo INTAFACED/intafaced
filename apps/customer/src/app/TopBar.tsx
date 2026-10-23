@@ -17,6 +17,7 @@ import { TopSearch } from './TopSearch';
 import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
+import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -245,6 +246,7 @@ export function TopBar({
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const moreTab = tabs.find((tab) => tab.door === 'More')!;
+  const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
@@ -269,6 +271,8 @@ export function TopBar({
           </ul>
         </nav>
         <div className="tb-right">
+          {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
+          <ShellSwitch current="exchange" here={here} className="max-[1280px]:hidden" />
           <TopSearch />
           {session ? (
             <>
@@ -293,6 +297,11 @@ export function TopBar({
         </div>
         {children}
       </header>
+      {session ? null : (
+        <div className="tb-switch-row min-[1280px]:hidden">
+          <ShellSwitch current="exchange" here={here} />
+        </div>
+      )}
     </>
   );
 }

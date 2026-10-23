@@ -1,27 +1,13 @@
-/* The Web3 frame reuses the shell's .tb bar and .mobile-doors; only the switch and the chips are new. */
+/* The Web3 frame reuses the shell's .tb bar and .mobile-doors; only the chips are new (the switch is shell-switch.css). */
 @layer components {
   .web3-bar {
     flex-wrap: nowrap;
   }
-  .web3-switch {
-    display: inline-flex;
-    border: 1px solid var(--tb-line);
-    border-radius: 999px;
-    overflow: hidden;
-    font-size: 13px;
-  }
-  .web3-switch a {
-    padding: 4px 12px;
-    color: var(--tb-fg-2);
-  }
-  .web3-switch a[aria-current='page'] {
-    background: var(--tb-hover);
-    color: var(--tb-fg);
-  }
   .web3-chips {
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
+    min-width: 0;
   }
   .web3-chip {
     border: 1px solid var(--tb-line);
@@ -30,11 +16,20 @@
     font-size: 12px;
     color: var(--tb-fg-2);
     white-space: nowrap;
+    flex: none;
+  }
+  /* Only the network chip gives way on a narrow bar; its whole sentence stays in its title. */
+  .web3-chip[data-chip='network'] {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .web3-chip--pill {
     color: var(--tb-fg);
   }
-  @media (max-width: 767px) {
+  /* Below a desktop's width the chips take a line of their own under the switch and the nav. */
+  @media (max-width: 1099px) {
     .web3-bar {
       height: auto;
       min-height: 48px;
@@ -43,6 +38,7 @@
     }
     .web3-chips {
       flex-basis: 100%;
+      flex-wrap: wrap;
       justify-content: flex-start;
     }
   }

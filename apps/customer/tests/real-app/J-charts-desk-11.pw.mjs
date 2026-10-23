@@ -126,8 +126,14 @@ test(`${J} #4 a row click shows that market on the chart at the interval the wor
   await row(page, 'ETH/USDT').getByRole('link', { name: 'ETH/USDT' }).click();
   await expect(page).toHaveURL(/\/charts\/ETH-USDT/);
   await expect(page.getByTestId('chart-title').first()).toHaveText('ETH/USDT · 15m');
-  // Drag a row onto the chart.
-  await row(page, 'BTC/USDT').dragTo(page.locator('.cw-split-chart'));
+  // Drag a row onto the chart, in steps: a single-jump dragTo never starts the browser's native drag here.
+  const from = await row(page, 'BTC/USDT').boundingBox();
+  const to = await page.locator('.cw-split-chart').boundingBox();
+  await page.mouse.move(from.x + 12, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 30, from.y + from.height / 2, { steps: 5 });
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 });
+  await page.mouse.up();
   await expect(page).toHaveURL(/\/charts\/BTC-USDT/);
   await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 15m');
 });

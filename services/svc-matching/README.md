@@ -81,11 +81,12 @@ every spread order `spread_fill_event_unwired` **before** it is journalled — a
 strand that maker's hold. Spread acceptances and cancellations use the normal `order.accepted` /
 `order.cancelled` subjects with `marketId` = the spread id.
 
-| Subject                              | When                                      | Idempotency key                                |
-| ------------------------------------ | ----------------------------------------- | ---------------------------------------------- |
-| `intafaced.matching.order.accepted`  | an order is admitted (once, at admission) | `matching.order.accepted:<market>:<orderId>`   |
-| `intafaced.matching.order.filled`    | every match                               | `matching.order.filled:<market>:<sequence>`    |
-| `intafaced.matching.order.cancelled` | requested cancel, IOC/market remainder    | `matching.order.cancelled:<market>:<sequence>` |
+| Subject                              | When                                           | Idempotency key                                |
+| ------------------------------------ | ---------------------------------------------- | ---------------------------------------------- |
+| `intafaced.matching.order.accepted`  | an order is admitted (once, at admission)      | `matching.order.accepted:<market>:<orderId>`   |
+| `intafaced.matching.order.filled`    | every match                                    | `matching.order.filled:<market>:<sequence>`    |
+| `intafaced.matching.order.cancelled` | requested cancel, IOC/market remainder         | `matching.order.cancelled:<market>:<sequence>` |
+| `intafaced.matching.order.triggered` | a stop fires (on a trade, an amend or arrival) | `matching.order.triggered:<market>:<sequence>` |
 
 Events for one submission are emitted **in engine-sequence order**, so a consumer reading the subject sees the
 order the book applied. The engine sequence is the business key: one fill has one sequence, forever, which is

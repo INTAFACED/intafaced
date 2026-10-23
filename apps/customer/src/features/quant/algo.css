@@ -29,3 +29,28 @@
   height: 1rem;
   accent-color: var(--if-lime);
 }
+
+/* The holdout choice in the Backtest form: the tick and its words on one line. */
+.quant-check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.quant-checks {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quant-checks > li {
+  padding: 12px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm);
+}
+
+.quant-checks > li[data-status='warning'] {
+  border-color: var(--if-warn);
+}
