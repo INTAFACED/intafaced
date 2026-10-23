@@ -85,14 +85,15 @@ export class EmailChange {
       maxAttempts: budget.maxAttempts,
     });
     let oldEmail = '';
+    let oldProved = false;
     let revoked: string[] = [];
     let auditId = '';
     try {
       const swapped = await transaction(
         this.deps.sql,
         async (tx) => {
-          const locked = await tx<Array<{ email: string; status: string }>>`
-            SELECT email, status FROM users WHERE id = ${input.userId} FOR UPDATE
+          const locked = await tx<Array<{ email: string; status: string; proved: boolean }>>`
+            SELECT email, status, email_verified_at IS NOT NULL AS proved FROM users WHERE id = ${input.userId} FOR UPDATE
           `;
           const user = locked[0];
           if (!user || user.status !== 'active') throw invalidCode();
@@ -118,11 +119,12 @@ export class EmailChange {
             newTarget: proof.target,
             oldNotice: 'unsent',
           });
-          return { oldEmail: user.email, revoked: others, auditId: id };
+          return { oldEmail: user.email, oldProved: user.proved, revoked: others, auditId: id };
         },
         { isolation: 'read committed', maxAttempts: 1 },
       );
       oldEmail = swapped.oldEmail;
+      oldProved = swapped.oldProved;
       revoked = swapped.revoked;
       auditId = swapped.auditId;
     } catch (err) {
@@ -143,7 +145,9 @@ export class EmailChange {
         );
       }
     }
-    const notice = await this.notice(input.userId, oldEmail);
+    // The notice names the account (so it carries the anti-phishing code) only when the old address was proved: the code
+    // never goes to an inbox its owner did not prove.
+    const notice = await this.notice(input.userId, oldEmail, oldProved);
     await markNotice(this.deps.sql, auditId, notice);
     return { ok: true };
   }
@@ -155,13 +159,13 @@ export class EmailChange {
     `;
   }
 
-  private async notice(userId: string, oldEmail: string): Promise<'sent' | 'failed' | 'unsent'> {
+  private async notice(userId: string, oldEmail: string, oldProved: boolean): Promise<'sent' | 'failed' | 'unsent'> {
     const mail: PasswordResetMail | undefined = this.deps.mail;
     if (!mail) return 'unsent';
     const expiresAt = this.deps.now();
     return deliver(this.deps, {
       userId,
-      run: () => mail.send({ email: oldEmail, userId, code: '', expiresAt, purpose: 'email-change-notice' }),
+      run: () => mail.send({ email: oldEmail, ...(oldProved ? { userId } : {}), code: '', expiresAt, purpose: 'email-change-notice' }),
     });
   }
 }
