@@ -122,6 +122,14 @@ export interface FuturesJobsDeps {
    */
   markBookFor?: MarkBookResolver | null;
   /**
+   * Stamp a matching depth read with the time it was read. Matching's depth reply carries no observation time, and
+   * #5033's rule is that a book with none is not turned into a quote and the caller's clock is not stored as one.
+   * While futures orders go through the book (TRADE_FUTURES_MATCHING_ENABLED) every order is banded around the mark,
+   * so a book mark is required: the engine answers from its live book, and the read time stands in for its own (as for
+   * the trailing mark in index.ts). Off: unchanged, a book with no time gives no mark.
+   */
+  stampDepthReads?: boolean;
+  /**
    * Optional external rate publisher hook for tests.
    * Production ops publishes into memoryFundingRateBook via a real oracle later.
    */
@@ -330,13 +338,13 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   const getPublishedRate = (marketId: string) => rates.peek(marketId);
 
   // Mark path always assembled — public REST + liq share one non-inventing port.
-  // Matching's depth read carries no timestamp. The engine answers from its live book, so the read time is the
-  // observation time (as for the trailing mark in index.ts); without it no futures book could ever give a mark.
+  // Matching's depth read carries no timestamp; it is stamped at read time only while `stampDepthReads` is on (above).
   const markBook = async (marketId: string): Promise<string | null> => (deps.markBookFor ? deps.markBookFor(marketId) : marketId);
   const depthMarks = markSourceFromDepth(async (marketId) => {
     const book = await markBook(marketId);
     if (book === null) return null;
-    return { ...(await deps.matching.depth(book, 1)), observedAt: deps.now ? deps.now() : new Date() };
+    const depth = await deps.matching.depth(book, 1);
+    return deps.stampDepthReads ? { ...depth, observedAt: deps.now ? deps.now() : new Date() } : depth;
   });
   const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
   // Blank selection returns `baseMarks` itself: today's behaviour, untouched.

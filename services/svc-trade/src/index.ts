@@ -487,6 +487,8 @@ const futuresJobs = startFuturesJobs({
     byId: (marketId) => trade.marketById(marketId),
     bySymbol: (symbol) => trade.marketBySymbol(symbol),
   }),
+  // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
+  stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,

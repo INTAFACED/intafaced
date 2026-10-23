@@ -160,16 +160,25 @@ describe('startFuturesJobs', () => {
     handle.stop();
   });
 
-  it('a depth read with no timestamp is stamped at read time, so a live futures book gives a mark', async () => {
-    const handle = startFuturesJobs({
-      sql: {} as never,
-      ledger: { post: vi.fn(), balance: vi.fn() },
-      matching: { depth: async () => ({ bids: [['99', '100']], asks: [['101', '100']], sequence: 1 }) } as never,
-      bus: null,
-      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
-    });
-    expect(await handle.markPrice('m1')).toBe('100');
-    handle.stop();
+  it('a depth read with no timestamp gives a mark only while depth reads are stamped (futures orders through the book)', async () => {
+    const start = (stampDepthReads?: boolean) =>
+      startFuturesJobs({
+        sql: {} as never,
+        ledger: { post: vi.fn(), balance: vi.fn() },
+        matching: { depth: async () => ({ bids: [['99', '100']], asks: [['101', '100']], sequence: 1 }) } as never,
+        bus: null,
+        ...(stampDepthReads === undefined ? {} : { stampDepthReads }),
+        config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+      });
+    const stamped = start(true);
+    expect(await stamped.markPrice('m1')).toBe('100');
+    stamped.stop();
+    // Off (and absent): #5033's rule holds — a book with no observation time is not turned into a quote.
+    for (const off of [false, undefined]) {
+      const handle = start(off);
+      expect(await handle.markPrice('m1'), String(off)).toBeNull();
+      handle.stop();
+    }
   });
 
   it('a paired spot book marks the futures market and rates its depth; an unfit pair reads no book at all', async () => {
@@ -184,6 +193,7 @@ describe('startFuturesJobs', () => {
       matching: { depth } as never,
       bus: null,
       markBookFor: async (id) => (id === 'perp' ? 'spot' : id === 'broken' ? null : id),
+      stampDepthReads: true,
       config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
     });
     expect(await handle.markPrice('perp')).toBe('65000');
