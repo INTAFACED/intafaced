@@ -300,12 +300,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     kind: 'module' | 'treasury' | 'lookup',
   ) => {
     try {
-      const principal =
-        kind === 'treasury'
-          ? await admin.authenticateTreasury(header)
-          : kind === 'lookup'
-            ? await admin.authenticateLookup(header)
-            : await admin.authenticate(header);
+      const authenticate = { module: admin.authenticate, treasury: admin.authenticateTreasury, lookup: admin.authenticateLookup }[kind];
+      const principal = await authenticate(header);
       return { principal, bearer: header as string };
     } catch (err) {
       if (err instanceof AuthError) {

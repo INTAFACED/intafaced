@@ -94,11 +94,13 @@ export type WarehouseDoorSnapshot = {
  * same authority and must not share a credential. An operator on the trading
  * desk needs the first; the second is the switch `flags.ts` calls "the most
  * consequential in the platform", and `svc-ledger` gates it on `admin:treasury`
- * on its own side too. The two ledger object lookups are reads and take a
- * founder's `admin:read` with a second factor instead (`authenticateLookup`,
- * owner decision 2026-10-23), on both sides. Checking it here as well is not redundancy for its own
+ * on its own side too. Checking it here as well is not redundancy for its own
  * sake — it means the edge refuses before it forwards a token, so an
  * under-scoped operator never reaches the money plane at all.
+ *
+ * The two ledger object lookups are reads and take a founder's `admin:read`
+ * with a second factor on a live session instead (`authenticateLookup`, owner
+ * decision 2026-10-23, ADR 2026-10-22 §3.9); svc-ledger applies the same rule.
  *
  * Mutate of `/admin/kill-switches` is dual-control: the signed `admin:write`
  * principal plus a distinct `confirmOperatorId`. Missing or same-as-operator
