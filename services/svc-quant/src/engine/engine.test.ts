@@ -190,4 +190,22 @@ describe('bar loop', () => {
       JSON.stringify(run(closes, { slippageBps: parseAmount('3.5') })),
     );
   });
+
+  // The look-ahead canary the checks panel cites (checks.ts): no bar can change what happened before it opened.
+  it('cannot read a bar before it closes: every prefix of the tape gives the same trades and equity up to its end', () => {
+    const closes = ['100', '101', '99', '104', '98', '107', '95', '110', '90', '120'];
+    const full = run(closes);
+    for (let k = 2; k <= closes.length; k += 1) {
+      const prefix = run(closes.slice(0, k));
+      const end = T0 + (k - 1) * HOUR;
+      expect(prefix.equity).toEqual(full.equity.slice(0, k));
+      expect(prefix.trades).toEqual(full.trades.filter((trade) => Date.parse(trade.ts) <= end));
+    }
+    // A wild last bar moves nothing that came before it.
+    const wild = run([...closes.slice(0, -1), '100000']);
+    expect(wild.equity.slice(0, -1)).toEqual(full.equity.slice(0, -1));
+    expect(wild.trades.filter((trade) => Date.parse(trade.ts) < T0 + 9 * HOUR)).toEqual(
+      full.trades.filter((trade) => Date.parse(trade.ts) < T0 + 9 * HOUR),
+    );
+  });
 });

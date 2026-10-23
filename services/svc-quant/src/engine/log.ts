@@ -1,6 +1,6 @@
 import type { QuantBacktestLogLine, QuantBacktestResult } from '@intafaced/contracts';
 
-type Stored = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log' | 'sections' | 'verdict'>;
+type Stored = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log' | 'sections' | 'verdict' | 'checks' | 'offsetRun'>;
 
 /** Modelling choices a reader must weigh are warnings; the ones every run makes are information. */
 const WARN_ASSUMPTIONS = new Set([

@@ -6,9 +6,11 @@ import {
   QUANT_SPLIT_PRESETS,
   quantBacktestResultSchema,
   quantOutOfSampleFrom,
+  quantCheckThresholdsSchema,
   quantVerdictCriteriaSchema,
   type QuantBacktestInput,
   type QuantBacktestResult,
+  type QuantCheckThresholds,
   type QuantSignalRules,
   type QuantSplitPreset,
   type QuantVerdictCriteria,
@@ -33,6 +35,7 @@ import { metricsOf } from './metrics.js';
 import type { FeePort, HistoryPort } from './ports.js';
 import { simulateSignalRules } from './simulate.js';
 import { sectionsOf, verdictOf } from './verdict.js';
+import { checksOf, returnOf } from './checks.js';
 import { z } from 'zod';
 
 type FillTiming = (typeof QUANT_FILL_TIMINGS)[number];
@@ -51,11 +54,14 @@ export interface Judgement {
   readonly criteria: QuantVerdictCriteria;
   /** An instant with its UTC offset, or an ISO duration read as that long before the request. */
   readonly holdoutStart: string | null;
+  /** The thresholds the overfitting and sensitivity checks warn above. */
+  readonly checks: QuantCheckThresholds;
 }
 
 export const NO_JUDGEMENT: Judgement = {
   criteria: { minTrades: null, minReturnPercent: null, maxDrawdownPercent: null, maxShortfallPercent: null },
   holdoutStart: null,
+  checks: { maxSampleGapPercent: null, maxVariants: null, maxOffsetShiftPercent: null },
 };
 
 /** A delay longer than this many bars is refused as out of range: it would outlast most windows the history holds. */
@@ -104,7 +110,9 @@ export interface PreparedBacktest {
   readonly riskSet: boolean;
   readonly split: { readonly preset: QuantSplitPreset; readonly outOfSampleFromMs: number } | null;
   readonly criteria: QuantVerdictCriteria;
-  readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null };
+  readonly checks: QuantCheckThresholds;
+  /** A holdout refusal waits until no stored run answers the key: a stored run reads back after the owner moves the holdout. */
+  readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null; readonly refusal: QuantError | null };
   readonly ignoredInputs: readonly string[];
 }
 
@@ -165,18 +173,23 @@ export function holdoutStartMs(setting: string | null, now: number): number | nu
  * out-of-sample part starts, or at the window's end when the run is not split. A run that does not ask says so.
  */
 function holdoutOf(enforced: boolean, setting: string | null, inSampleEndMs: number, now: number): PreparedBacktest['holdout'] {
-  if (!enforced) return { enforced: false, fromMs: null };
+  if (!enforced) return { enforced: false, fromMs: null, refusal: null };
   const fromMs = holdoutStartMs(setting, now);
   if (fromMs === null) {
-    throw new QuantError(QUANT_HOLDOUT_DATE_UNSET, 'holdout — the owner has not set where the holdout begins; nothing is assumed');
+    const refusal = new QuantError(
+      QUANT_HOLDOUT_DATE_UNSET,
+      'holdout — the owner has not set where the holdout begins; nothing is assumed',
+    );
+    return { enforced: true, fromMs: null, refusal };
   }
   if (inSampleEndMs > fromMs) {
-    throw new QuantError(
+    const refusal = new QuantError(
       QUANT_HOLDOUT_OVERLAP,
       `holdout — the in-sample part runs to ${new Date(inSampleEndMs).toISOString()}, into the holdout that begins ${new Date(fromMs).toISOString()}`,
     );
+    return { enforced: true, fromMs, refusal };
   }
-  return { enforced: true, fromMs };
+  return { enforced: true, fromMs, refusal: null };
 }
 
 function hash(value: unknown): string {
@@ -248,19 +261,22 @@ export async function prepareBacktest(
     riskSet: [strategy.risk.maxDrawdown, strategy.risk.maxNotional, strategy.risk.kill].some((value) => value.trim() !== ''),
     split,
     criteria: judgement.criteria,
+    checks: judgement.checks,
     holdout,
     ignoredInputs: SERVICE_ONLY_INPUTS.filter((name) => input[name] !== undefined),
   };
   // The split and the holdout choice are part of the window; the criteria decide the verdict, so a changed one is a new run.
   const windowHash = split || holdout.enforced ? hash([fromMs, toMs, split, holdout.enforced]) : hash([fromMs, toMs]);
-  const judged = split ? [prepared.criteria] : [];
-  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet, ...judged]);
+  // The owner's criteria and thresholds are stored with the run, not hashed into its key: the same inputs after the owner
+  // changes them read back the stored run, judged as it was, and stay one variant.
+  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
   return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
 
 /** The window's closed bars. An empty window refuses; no bar is invented. */
 export async function readWindowBars(prepared: PreparedBacktest, history: HistoryPort): Promise<Bar[]> {
+  if (prepared.holdout.refusal) throw prepared.holdout.refusal;
   const barSize = prepared.rules.barSize as BarSize;
   const bars = await history.bars({ symbol: prepared.rules.symbol, barSize, fromMs: prepared.fromMs, toMs: prepared.toMs });
   if (bars.length === 0) {
@@ -279,13 +295,16 @@ export async function readWindowBars(prepared: PreparedBacktest, history: Histor
  * existed reads as not split, not counted and not enforcing the holdout.
  */
 const storedBacktestSchema = quantBacktestResultSchema
-  .omit({ runId: true, metrics: true, log: true, sections: true, verdict: true })
+  .omit({ runId: true, metrics: true, log: true, sections: true, verdict: true, checks: true })
   .extend({
     split: quantBacktestResultSchema.shape.split.default(null),
     variantCount: quantBacktestResultSchema.shape.variantCount.default(null),
     holdout: quantBacktestResultSchema.shape.holdout.default({ enforced: false, from: null }),
     ignoredInputs: quantBacktestResultSchema.shape.ignoredInputs.default([]),
     criteria: quantVerdictCriteriaSchema.default(NO_JUDGEMENT.criteria),
+    // Undefined on a run stored before the sensitivity run existed: its check says it was not run, not that bars were short.
+    offsetRun: quantBacktestResultSchema.shape.offsetRun.optional(),
+    checkThresholds: quantCheckThresholdsSchema.default(NO_JUDGEMENT.checks),
   });
 export type StoredBacktest = z.infer<typeof storedBacktestSchema>;
 
@@ -297,22 +316,38 @@ export function readStoredBacktest(response: unknown): StoredBacktest | null {
 
 /** A stored run as the caller reads it: its row id, and the report, log, sections and verdict computed from it. */
 export function presentBacktest(stored: StoredBacktest, runId: string): QuantBacktestResult {
-  const { criteria, ...rest } = stored;
+  const { criteria, checkThresholds, ...rest } = stored;
   const sections = stored.split ? sectionsOf(stored, stored.split.outOfSampleFrom) : null;
-  return { ...rest, runId, metrics: metricsOf(stored), log: logOf(stored), sections, verdict: verdictOf(sections, criteria) };
+  return {
+    ...rest,
+    offsetRun: stored.offsetRun ?? null,
+    runId,
+    metrics: metricsOf(stored),
+    log: logOf(stored),
+    sections,
+    verdict: verdictOf(sections, criteria),
+    checks: checksOf(stored, sections, checkThresholds),
+  };
 }
 
 export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], variantCount: number | null = null): StoredBacktest {
+  if (prepared.holdout.refusal) throw prepared.holdout.refusal;
   const barSize = prepared.rules.barSize as BarSize;
-  const ran = simulateSignalRules({
-    rules: prepared.rules,
-    bars,
-    spanMs: barSpanMs(barSize),
-    cash: prepared.cash,
-    feeBps: prepared.feeBps,
-    slippageBps: prepared.slippageBps,
-    delayBars: prepared.delayBars,
-  });
+  const simulate = (on: readonly Bar[]) =>
+    simulateSignalRules({
+      rules: prepared.rules,
+      bars: on,
+      spanMs: barSpanMs(barSize),
+      cash: prepared.cash,
+      feeBps: prepared.feeBps,
+      slippageBps: prepared.slippageBps,
+      delayBars: prepared.delayBars,
+    });
+  const ran = simulate(bars);
+  // The sensitivity run: the same rules and costs from the window's second traded bar, by position, so a window that
+  // opens in a gap still starts one bar later. Under two bars left, there is none.
+  const later = bars.slice(1);
+  const offset = later.length >= 2 ? simulate(later) : null;
   return {
     runKey: prepared.key,
     strategyId: prepared.strategyId,
@@ -345,6 +380,11 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], vari
     },
     ignoredInputs: [...prepared.ignoredInputs],
     criteria: prepared.criteria,
+    offsetRun:
+      offset === null
+        ? null
+        : { from: new Date(later[0]!.openTimeMs).toISOString(), returnPercent: returnOf(offset.totals), trades: offset.trades.length },
+    checkThresholds: prepared.checks,
     simulated: true,
     live: false,
     claimLabel: 'Historical simulation — not a forecast',

@@ -228,6 +228,39 @@ const en = {
   partReturn: 'Return (%)',
   partDrawdown: 'Max drawdown (%)',
   partTrips: 'Round trips entered',
+  sectionsNote:
+    'A position still open at the cut is carried into the out-of-sample part: its return and drawdown include it, but its round trip counts in sample, where it was entered.',
+  tabChecks: 'Checks',
+  checksIntro:
+    'Overfitting, look-ahead and repainting checks on this run, each with what it measured. Every check is listed. Thresholds are the owner’s, as they stood when the run finished.',
+  k_sample_gap: 'In sample against out of sample',
+  k_variant_count: 'Variants tried',
+  k_bar_offset: 'Starting one bar later',
+  k_bar_type: 'Bar type',
+  k_look_ahead: 'Look-ahead',
+  k_repainting: 'Repainting',
+  s_warning: 'Warning',
+  s_clear: 'Clear',
+  s_not_set: 'Threshold not set, so no warning is raised',
+  s_not_applicable: 'Not checked',
+  s_by_construction: 'Ruled out by design',
+  checkThreshold: 'Warns above {threshold}.',
+  d_sample_gap: 'In sample returned {inSample} %, out of sample {outOfSample} %: a gap of {gap} percentage points.',
+  d_variant_count: '{variants} distinct runs of this strategy on this symbol and bar size, this one included.',
+  d_bar_offset:
+    'The run returned {base} %. Started at {from} UTC, one bar later, it returned {offset} %: a move of {shift} percentage points.',
+  d_bar_type: 'Time bars of {barSize}, built from the exchange’s own trades. No range, renko or tick bars are used.',
+  d_look_ahead:
+    'Each signal reads only bars that have closed and fills at a later bar’s open. A test of the engine proves a bar cannot change anything that happened before it.',
+  d_repainting: 'A stored run is never recomputed or rewritten: reading it again shows the same trades and equity.',
+  na_not_split: 'The run was not split, so there is no out-of-sample part to compare.',
+  na_section_undefined: 'A part has no return to compare.',
+  na_not_counted: 'This run was not counted.',
+  na_too_few_bars: 'The window has too few bars to start one bar later.',
+  na_return_undefined: 'The run has no return to compare.',
+  na_other: 'Not checked ({reason}).',
+  d_bar_type_other: 'Bars of {barSize} are not a standard time bar size, so the result may not match the market’s own bars.',
+  na_not_run: 'This run was stored before the check existed; run it again to make it.',
 } as const;
 
 export const backtestCopy = defineCopy('quant.backtest', en);

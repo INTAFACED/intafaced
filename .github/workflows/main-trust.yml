@@ -60,6 +60,7 @@ jobs:
     permissions:
       contents: read # compare commits
       actions: write # re-run failed jobs once, read runs and their journey reports
+      checks: read # a job's annotations: a cancel by the job time limit counts as red
       issues: write # open, comment on and close the break issues
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

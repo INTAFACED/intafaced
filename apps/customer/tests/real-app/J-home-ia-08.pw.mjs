@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
+import { expectServiceOff } from './service-off.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-home-ia-08, in the running app (docs/roadmap/journeys.json): I move between the Exchange and the Web3 shell. Tests titled
-// "J-home-ia-08 #<n>" prove a whole step. Step 3 (one shared service-off notice for a blocked action) belongs to
-// HM-shell-03 and is not proven here.
+// "J-home-ia-08 #<n>" prove a whole step.
 const J = 'J-home-ia-08';
 
 test.describe.configure({ mode: 'serial' });
@@ -89,6 +89,31 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   await expectWeb3(page);
   await expect(page.getByText('Not found on this network')).toBeVisible();
   await expect(page.getByText('The indexer reader for this page is not built in this build.')).toHaveCount(0);
+  await page.context().close();
+});
+
+test(`${J} #3 a blocked action names its blocker: an outside one is the shared service-off notice with its code, our own gap never has a code`, async ({
+  browser,
+}) => {
+  const page = await device(browser);
+  // Staking waits on the INTACHAIN launch go-ahead, an outside gate on the allowlist (chain.go).
+  await page.goto('/chain/validators');
+  await expectWeb3(page);
+  for (const [action, label] of [
+    ['stake', 'Stake'],
+    ['unstake', 'Unstake'],
+  ]) {
+    const row = page.locator(`[data-action="${action}"]`);
+    await expect(row.getByRole('button', { name: label })).toBeDisabled();
+    await expectServiceOff(row.locator('[data-not-connected]'), 'chain.go', label);
+  }
+  // Swapping is blocked by our own Protocol service not answering on this stack: it says so, with no allowlist code.
+  await page.goto('/dex');
+  await expectWeb3(page);
+  const swap = page.locator('[data-action="swap"]');
+  await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
+  await expect(swap.getByRole('note')).toHaveText(/^Blocked: .+/);
+  await expect(page.locator('[data-not-connected]')).toHaveCount(0);
   await page.context().close();
 });
 
