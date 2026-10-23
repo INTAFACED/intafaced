@@ -27,11 +27,10 @@ function sources(dir: string): string[] {
 }
 
 describe('the customer app reads money only', () => {
-  it('imports nothing from the ledger client but its math-only export', () => {
+  it('imports nothing from the ledger client; its math comes from @intafaced/money-math', () => {
     const offenders = sources(SRC).flatMap((file) =>
-      [...readFileSync(file, 'utf8').matchAll(/['"](@intafaced\/ledger-client(?:\/[^'"]*)?)['"]/g)]
+      [...readFileSync(file, 'utf8').matchAll(/['"](@intafaced\/ledger-client(?:\/[^'"]*)?|[^'"]*packages\/ledger-client[^'"]*)['"]/g)]
         .map((match) => match[1]!)
-        .filter((specifier) => specifier !== '@intafaced/ledger-client/money')
         .map((specifier) => `${path.relative(SRC, file)}: ${specifier}`),
     );
     expect(offenders).toEqual([]);

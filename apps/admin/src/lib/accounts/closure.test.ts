@@ -60,6 +60,20 @@ describe('what identity answered to a staff close or reopen', () => {
       ok: false,
       refusal: { code: 'identity.close_blocked', title: 'The account still has open products or balances' },
     });
+    expect(reply.ok === false && reply.refusal.body).toContain('Still open: 1 × bank.balance_open.');
+    const named = closureReply(close, {
+      ...base,
+      outcome: 'refused',
+      changed: false,
+      actorUserId: FOUNDER,
+      code: 'identity.close_blocked',
+      current: state('active', '1'),
+      blockers: [
+        { code: 'active_card', count: 2 },
+        { code: 'open_order', count: 1 },
+      ],
+    });
+    expect(named.ok === false && named.refusal.body).toContain('Still open: 2 × card not closed, 1 × open order.');
   });
   it('never calls an answer about another account or another action done', () => {
     const changed = {

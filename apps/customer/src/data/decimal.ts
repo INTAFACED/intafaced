@@ -2,10 +2,10 @@
  * Exact decimal helpers for the data layer (UI-SPEC principle 5).
  *
  * Money crosses the wire as decimal strings and is combined here as scaled
- * bigints from `@intafaced/ledger-client/money`. Nothing in this folder turns a
+ * bigints from `@intafaced/money-math`. Nothing in this folder turns a
  * money value into a JS number. Unknown or malformed input is `null`, never 0.
  */
-import { SCALE, add, compare, div, formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
+import { SCALE, add, compare, div, formatAmount, mul, parseAmount, sub } from '@intafaced/money-math';
 import type { Decimal } from './types';
 
 export type Scaled = bigint;
