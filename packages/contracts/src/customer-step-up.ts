@@ -28,6 +28,11 @@ export type CustomerStepUpDoor = {
   readonly purpose: string;
   /** Field names the client sends. `actor` is added by identity and is not here. */
   readonly clientFields: readonly string[];
+  /**
+   * Fields the bank door hashes only when they are set (a send's note, payment reference, or the request it settles).
+   * Sent, each must be non-empty and is hashed as sent; left out, it is not in the hash, exactly as svc-bank builds it.
+   */
+  readonly optionalFields?: readonly string[];
   readonly amountField?: string;
   readonly targetField?: string;
   /** When false, `target` may be omitted and the target field is the empty string. */
@@ -42,6 +47,8 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     scope: 'bank.step_up.transfers.toUser',
     purpose: 'transfers.toUser',
     clientFields: ['transferId', 'fromSpaceId', 'toUserId', 'assetId', 'amount'],
+    // svc-bank toUserBinding: note, reference and requestId join the hash only when the send carries them.
+    optionalFields: ['note', 'reference', 'requestId'],
     amountField: 'amount',
     targetField: 'toUserId',
     targetRequired: true,
@@ -53,6 +60,8 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     scope: 'bank.step_up.transfers.create',
     purpose: 'transfers.create',
     clientFields: ['transferId', 'fromSpaceId', 'toSpaceId', 'assetId', 'amount'],
+    // svc-bank createTransferBinding: note and reference join the hash only when the transfer carries them.
+    optionalFields: ['note', 'reference'],
     amountField: 'amount',
     targetField: 'toSpaceId',
     targetRequired: true,
@@ -569,12 +578,23 @@ export function bindCustomerStepUp(actor: string, input: CustomerStepUpBeginInpu
   if (input.purpose !== door.purpose) return { ok: false, code: 'step_up.purpose' };
 
   const keys = Object.keys(input.fields);
-  if (keys.includes('actor') || keys.length !== door.clientFields.length || door.clientFields.some((key) => !keys.includes(key))) {
+  const optional = door.optionalFields ?? [];
+  const sentOptional = optional.filter((key) => keys.includes(key));
+  if (
+    keys.includes('actor') ||
+    keys.length !== door.clientFields.length + sentOptional.length ||
+    door.clientFields.some((key) => !keys.includes(key))
+  ) {
     return { ok: false, code: 'step_up.fields' };
   }
   for (const key of door.clientFields) {
     const value = input.fields[key];
     if (value === undefined || !fieldShapeOk(door, key, value)) return { ok: false, code: 'step_up.fields' };
+  }
+  // An optional field the door hashes only when set: an empty one would hash a key the bank never adds.
+  for (const key of sentOptional) {
+    const value = input.fields[key];
+    if (typeof value !== 'string' || value.length === 0 || !fieldShapeOk(door, key, value)) return { ok: false, code: 'step_up.fields' };
   }
 
   if (door.amountField) {
@@ -597,6 +617,7 @@ export function bindCustomerStepUp(actor: string, input: CustomerStepUpBeginInpu
 
   const fields: Record<string, string> = { actor };
   for (const key of door.clientFields) fields[key] = input.fields[key]!;
+  for (const key of sentOptional) fields[key] = input.fields[key]!;
   return {
     ok: true,
     scope: door.scope,

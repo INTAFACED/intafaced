@@ -81,6 +81,49 @@ describe('customer step-up binding', () => {
     expect(spoofed).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
+  it('hashes a note, reference or settled request on a send only when the send carries one, and refuses an empty one', () => {
+    const fields = { transferId: 'transfer-1', fromSpaceId: 'space-from', toUserId: 'user-2', assetId: 'USDT', amount: '10.50' };
+    const begin = (extra: Record<string, string>) =>
+      bindCustomerStepUp(ACTOR, {
+        scope: 'bank.step_up.transfers.toUser',
+        purpose: 'transfers.toUser',
+        amount: '10.50',
+        target: 'user-2',
+        fields: { ...fields, ...extra },
+      });
+    const withNote = begin({ note: 'Lunch', reference: 'INV-1', requestId: 'req-1' });
+    expect(withNote).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('bank.step_up.transfers.toUser', {
+        actor: ACTOR,
+        ...fields,
+        note: 'Lunch',
+        reference: 'INV-1',
+        requestId: 'req-1',
+      }),
+    });
+    expect(begin({})).toMatchObject({ ok: true, payloadHash: 'sha256:ed94a0f0e49b1c63f030f1b90ba43575e859339a9ce3e63783f546024d22d406' });
+    expect(begin({ note: '' })).toEqual({ ok: false, code: 'step_up.fields' });
+    expect(begin({ memo: 'x' })).toEqual({ ok: false, code: 'step_up.fields' });
+    // An own-space-style door keeps its exact field list: a request id is not one of its fields.
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'bank.step_up.transfers.create',
+        purpose: 'transfers.create',
+        amount: '10.50',
+        target: 'space-2',
+        fields: {
+          transferId: 'transfer-1',
+          fromSpaceId: 'space-from',
+          toSpaceId: 'space-2',
+          assetId: 'USDT',
+          amount: '10.50',
+          requestId: 'r',
+        },
+      }),
+    ).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
   it('refuses an amount or target that does not match the fields', () => {
     const base = {
       scope: 'bank.step_up.transfers.toUser',
