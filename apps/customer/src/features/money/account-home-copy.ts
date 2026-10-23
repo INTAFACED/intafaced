@@ -28,6 +28,24 @@ const en = {
   send: 'Send',
   convert: 'Convert',
   working: 'Working',
+  profileTitle: 'Profile',
+  profileLead: 'Which account the bank is answering for. It checks the profile on every read.',
+  profilePersonal: 'Your personal account',
+  profileBusiness: '{name}',
+  profileRole: 'Your role: {role}',
+  profileNotHeldTitle: 'This profile is not yours',
+  profileNotHeldBody: 'The bank refused it and nothing changed. Choose Personal or one of your businesses from the account menu.',
+  companyTitle: 'No company account',
+  companyBody:
+    'A business has no account of its own here, so no company terms, currencies or balances are shown. Personal money is not shown as company money.',
+  role_admin: 'Administrator',
+  role_maker: 'Maker',
+  role_checker: 'Checker',
+  role_signer: 'Signer',
+  role_editor: 'Editor',
+  role_viewer: 'Viewer',
+  role_security_auditor: 'Security auditor',
+  role_non_signing_admin: 'Administrator who does not sign',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -58,6 +76,24 @@ const es: Record<keyof typeof en, string> = {
   send: 'Enviar',
   convert: 'Convertir',
   working: 'Procesando',
+  profileTitle: 'Perfil',
+  profileLead: 'La cuenta por la que responde el banco. Comprueba el perfil en cada lectura.',
+  profilePersonal: 'Tu cuenta personal',
+  profileBusiness: '{name}',
+  profileRole: 'Tu función: {role}',
+  profileNotHeldTitle: 'Este perfil no es tuyo',
+  profileNotHeldBody: 'El banco lo rechazó y no cambió nada. Elige Personal o una de tus empresas en el menú de la cuenta.',
+  companyTitle: 'Sin cuenta de empresa',
+  companyBody:
+    'Una empresa no tiene cuenta propia aquí, así que no se muestran condiciones, monedas ni saldos de empresa. El dinero personal no se muestra como dinero de la empresa.',
+  role_admin: 'Administrador',
+  role_maker: 'Creador',
+  role_checker: 'Revisor',
+  role_signer: 'Firmante',
+  role_editor: 'Editor',
+  role_viewer: 'Lector',
+  role_security_auditor: 'Auditor de seguridad',
+  role_non_signing_admin: 'Administrador que no firma',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -89,6 +125,24 @@ const fr: Record<keyof typeof en, string> = {
   send: 'Envoyer',
   convert: 'Convertir',
   working: 'En cours',
+  profileTitle: 'Profil',
+  profileLead: 'Le compte pour lequel la banque répond. Elle vérifie le profil à chaque lecture.',
+  profilePersonal: 'Votre compte personnel',
+  profileBusiness: '{name}',
+  profileRole: 'Votre rôle : {role}',
+  profileNotHeldTitle: 'Ce profil n’est pas le vôtre',
+  profileNotHeldBody: 'La banque l’a refusé et rien n’a changé. Choisissez Personnel ou l’une de vos entreprises dans le menu du compte.',
+  companyTitle: 'Pas de compte d’entreprise',
+  companyBody:
+    'Une entreprise n’a pas de compte propre ici, donc aucune condition, devise ni solde d’entreprise n’est affiché. L’argent personnel n’est pas affiché comme argent de l’entreprise.',
+  role_admin: 'Administrateur',
+  role_maker: 'Initiateur',
+  role_checker: 'Vérificateur',
+  role_signer: 'Signataire',
+  role_editor: 'Éditeur',
+  role_viewer: 'Lecteur',
+  role_security_auditor: 'Auditeur de sécurité',
+  role_non_signing_admin: 'Administrateur non signataire',
 };
 
 export const accountHomeCopy = defineCopy('customer.money.accountHome', en, { es, fr });

@@ -11,6 +11,8 @@ const en = {
   askDetails: 'Ask for details',
   askReason: 'This is off because account details come from a banking partner, and none is connected.',
   blocker: 'Reference: {code}',
+  companyUnwired:
+    'A business has no account of its own here, so it has no account details. Personal details are not shown as company details.',
   accountNumber: 'Account number',
   sortCode: 'Sort code',
   routingNumber: 'Routing number',
@@ -48,6 +50,8 @@ const es: Record<keyof typeof en, string> = {
   askDetails: 'Pedir los datos',
   askReason: 'Está desactivado porque los datos de cuenta los da un banco asociado y no hay ninguno conectado.',
   blocker: 'Referencia: {code}',
+  companyUnwired:
+    'Una empresa no tiene cuenta propia aquí, así que no tiene datos de cuenta. Los datos personales no se muestran como datos de la empresa.',
   accountNumber: 'Número de cuenta',
   sortCode: 'Código de sucursal',
   routingNumber: 'Número de ruta',
@@ -85,6 +89,8 @@ const fr: Record<keyof typeof en, string> = {
   askDetails: 'Demander les coordonnées',
   askReason: 'C’est désactivé car les coordonnées viennent d’une banque partenaire, et aucune n’est connectée.',
   blocker: 'Référence : {code}',
+  companyUnwired:
+    'Une entreprise n’a pas de compte propre ici, donc pas de coordonnées bancaires. Les coordonnées personnelles ne sont pas affichées comme celles de l’entreprise.',
   accountNumber: 'Numéro de compte',
   sortCode: 'Code guichet',
   routingNumber: 'Numéro de routage',

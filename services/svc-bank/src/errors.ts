@@ -690,7 +690,11 @@ export type BankErrorCode =
   /** The owner has not published how many spaces one account may hold (`BANK_SPACE_LIMIT`) (BK-pots-01). */
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
-  | 'bank.space_limit_reached';
+  | 'bank.space_limit_reached'
+  /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
+  | 'bank.profile_not_held'
+  /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
+  | 'bank.company_account_unwired';
 
 export class BankError extends Error {
   constructor(

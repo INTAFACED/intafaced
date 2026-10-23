@@ -20,6 +20,7 @@ import { StatementService } from './statements/statement-service.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
 import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
 import { CurrencyService } from './account-home/currencies.js';
+import { ProfileService } from './account-home/profile.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
@@ -61,6 +62,8 @@ export interface BankServices {
   readonly accountTerms: () => AccountTerms;
   /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
   readonly currencies: CurrencyService;
+  /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
+  readonly profiles: ProfileService;
   readonly loans: LoanService;
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
@@ -216,6 +219,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
   const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
+  const profiles = new ProfileService(sql);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -267,6 +271,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     accountDetails,
     accountTerms,
     currencies,
+    profiles,
     assetPauses,
     loans,
     cards,
