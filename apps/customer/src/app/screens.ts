@@ -22,6 +22,7 @@ export const screens: Record<ScreenId, ScreenComponent> = {
   'trade/otc': lazy(() => import('../screens/trade/otc')),
   'trade/futures': lazy(() => import('../screens/trade/futures')),
   'trade/margin': lazy(() => import('../screens/trade/margin')),
+  'trade/screener': lazy(() => import('../screens/trade/screener')),
   charts: lazy(() => import('../screens/charts')),
   pay: lazy(() => import('../screens/pay')),
   more: lazy(() => import('../screens/more')),

@@ -1,0 +1,153 @@
+/* The screener room. Colours and type come from the shared tokens; every figure shown is a value the feed sent. */
+.sc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  font-family: var(--if-font-ui);
+  color: var(--if-fg);
+  min-width: 0;
+}
+.sc-head h1 {
+  margin: 0;
+  font-size: var(--if-text-lg, 18px);
+}
+.sc-head p,
+.sc-note {
+  margin: 0;
+  color: var(--if-fg-2);
+  font-size: 12px;
+}
+.sc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sc-field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--if-fg-2);
+}
+.sc-field select,
+.sc-field input,
+.sc-save input {
+  min-width: 120px;
+  padding: 5px 8px;
+  background: var(--if-field);
+  color: var(--if-fg);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font: inherit;
+}
+.sc-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.sc-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.sc-count {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+}
+.sc-views {
+  display: inline-flex;
+  gap: 4px;
+}
+.sc-views button,
+.sc-bar > button,
+.sc-saved button,
+.sc-save button {
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--if-fg);
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sc-views button[aria-pressed='true'] {
+  background: var(--if-hover);
+}
+.sc-bar > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sc-table th,
+.sc-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--if-line);
+  text-align: right;
+  white-space: nowrap;
+}
+.sc-table th[scope='row'],
+.sc-table thead th:first-child {
+  text-align: left;
+}
+.sc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font-size: 12px;
+}
+.sc-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sc-saved h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.sc-saved ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sc-save {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sc-notice {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm, 6px);
+  font-size: 12px;
+}
+.sc-notice[data-tone='warn'] {
+  color: var(--if-down);
+}

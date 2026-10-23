@@ -222,6 +222,14 @@ export const rooms: readonly Room[] = [
     screen: 'trade/margin',
   },
   {
+    path: '/trade/screener',
+    title: 'Screener',
+    description: 'Screen the markets for what fits your rules',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/screener',
+  },
+  {
     path: '/trade/futures',
     title: 'Futures',
     description: 'Perpetual and dated contracts',

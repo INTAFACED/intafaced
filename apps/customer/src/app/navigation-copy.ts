@@ -175,6 +175,8 @@ const messages = {
   Margin: 'Margin',
   'Cross or isolated trading': 'Cross or isolated trading',
   'Isolated margin, health and collateral': 'Isolated margin, health and collateral',
+  Screener: 'Screener',
+  'Screen the markets for what fits your rules': 'Screen the markets for what fits your rules',
   Futures: 'Futures',
   'Perpetual and dated contracts': 'Perpetual and dated contracts',
   Options: 'Options',
