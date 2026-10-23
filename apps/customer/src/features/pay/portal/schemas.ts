@@ -137,6 +137,38 @@ export const invitationSchema = z.array(
 );
 export type Invitation = z.infer<typeof invitationSchema>[number];
 
+/**
+ * `merchantOps.permissions.catalogue`: the built-in roles and every permission, read from the service's role table. An
+ * area is any string, so one the service adds later still shows (under its key) instead of failing the whole page.
+ */
+export const permissionCatalogueSchema = z.object({
+  roles: z.array(
+    z.object({
+      role: memberRoleSchema,
+      builtIn: z.literal(true),
+      editable: z.literal(false),
+      description: z.string(),
+      grants: z.array(z.string()),
+    }),
+  ),
+  areas: z.array(
+    z.object({
+      area: z.string(),
+      permissions: z.array(
+        z.object({
+          key: z.string(),
+          area: z.string(),
+          kind: z.enum(['read', 'write']),
+          requires: z.array(z.string()),
+          heldBy: z.array(memberRoleSchema),
+          unheld: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+});
+export type PermissionCatalogue = z.infer<typeof permissionCatalogueSchema>;
+
 export const disputeStatuses = ['open', 'contested', 'accepted', 'won', 'lost'] as const;
 export type DisputeStatus = (typeof disputeStatuses)[number];
 export const disputeSchema = z.object({

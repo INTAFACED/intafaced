@@ -207,6 +207,54 @@ if (!databaseUrl) {
   });
 
   describe('account directory and session revoke', () => {
+    it('pages a long handle search with a marker, never cutting it silently, and refuses a forged marker', async () => {
+      const operator = await register();
+      const reader = await ctx(operator.userId, operator.sessionId, ['admin:compliance'], true);
+      // 27 matches, twelve of them signed up at the same instant, so the page break falls inside a tie.
+      for (let i = 0; i < 27; i += 1) {
+        const handle = `pgq${String(i).padStart(2, '0')}`;
+        await db.sql`
+          INSERT INTO users (handle, email, password_hash, created_at)
+          VALUES (${handle}, ${`${handle}@example.com`}, 'x', ${i >= 15 ? '2026-10-22T10:00:00.123456Z' : new Date(Date.UTC(2026, 9, 21, 0, i)).toISOString()}::text::timestamptz)
+        `;
+      }
+      const first = await searchAccounts(db.sql, reader, { handle: 'pgq' });
+      expect(first.rows).toHaveLength(25);
+      expect(first.nextCursor).toEqual(expect.any(String));
+      const second = await searchAccounts(db.sql, reader, { handle: 'pgq', cursor: first.nextCursor! });
+      expect(second.rows).toHaveLength(2);
+      expect(second.nextCursor).toBeNull();
+      const all = [...first.rows, ...second.rows].map((row) => row.handle);
+      expect(new Set(all).size).toBe(27);
+      expect(all.slice(0, 15)).toEqual(Array.from({ length: 15 }, (_, i) => `pgq${String(i).padStart(2, '0')}`));
+
+      const exact = await searchAccounts(db.sql, reader, { handle: 'pgq26' });
+      expect(exact.rows).toHaveLength(1);
+      expect(exact.nextCursor).toBeNull();
+
+      const marker = (at: string, id = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b') =>
+        Buffer.from(JSON.stringify([at, id])).toString('base64url');
+      for (const forged of [
+        'not-a-marker',
+        Buffer.from('["yesterday","x"]').toString('base64url'),
+        Buffer.from('{}').toString('base64url'),
+        marker('2026-02-30T00:00:00.000000Z'),
+        marker('2026-10-22 10:00:00.123456+00'),
+        marker('2026-10-22T10:00:00.123456Z', 'not-a-uuid'),
+      ]) {
+        await expect(searchAccounts(db.sql, reader, { handle: 'pgq', cursor: forged })).rejects.toMatchObject({
+          code: 'identity.search_cursor_invalid',
+        });
+      }
+      // A marker in the right shape for an instant before every match starts from the first match.
+      const fromStart = await searchAccounts(db.sql, reader, { handle: 'pgq', cursor: marker('2000-01-01T00:00:00.000000Z') });
+      expect(fromStart.rows[0]?.handle).toBe('pgq00');
+      const pages = await db.sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM operator_read_audit WHERE actor_id = ${operator.userId} AND kind = 'account_search'
+      `;
+      expect(pages[0]?.n).toBe('4');
+    });
+
     it('finds an exact email, refuses a short handle, audits, and refuses a customer', async () => {
       const operator = await register();
       const secret = await (async () => {

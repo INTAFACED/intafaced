@@ -294,6 +294,13 @@ export const EDGE_PERIMETER_MODULES: ReadonlySet<ModuleId> = new Set([
   'indexer',
   'notify',
   'academy',
+  'mining-pool',
+  'support',
+  'market',
+  'execution',
+  'tax',
+  'quant',
+  'core-ops',
 ]);
 
 export function isEdgePerimeterModule(id: ModuleId): boolean {

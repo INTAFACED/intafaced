@@ -1000,4 +1000,123 @@ describe('personal bill pay and global send', () => {
       meB.global.send({ ...sendBody, idempotencyKey: 'send-ex-05', amount: '1', fromSpaceId: spaceB.id, recipientId: exB.id }),
     ).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_unset' } });
   });
+
+  describe('when the payout rail refuses or its answer is lost (global.ts payout step)', () => {
+    type Answer = Awaited<ReturnType<GlobalPorts['payout']['submit']>>;
+    /** A payout port whose next answers the test sets; each call takes the next one. `throw` stands for a lost reply. */
+    function scriptedPayout(answers: Array<Answer | 'throw'>) {
+      const calls: string[] = [];
+      const port: GlobalPorts['payout'] = {
+        status: () => 'live',
+        railId: () => 'test-payout-rail',
+        async submit(input) {
+          calls.push(input.sendId);
+          const next = answers.shift();
+          if (next === undefined || next === 'throw') throw new Error('payout reply lost');
+          return next;
+        },
+      };
+      return { port, calls };
+    }
+
+    async function ready(payout: GlobalPorts['payout']) {
+      const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal({ payout }) });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: '123456789',
+        country: 'DE',
+      });
+      const body = {
+        fromSpaceId: space.id,
+        amount: '10',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'bank',
+        compliance: { originatorName: 'Ada' },
+        idempotencyKey: `send-${randomUUID()}`,
+      };
+      const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+      const row = async () =>
+        (
+          await sql<Array<{ status: string; failure_code: string | null; ledger_tx_id: string | null; provider_ref: string | null }>>`
+            SELECT status, failure_code, ledger_tx_id, provider_ref FROM bank.global_sends WHERE idempotency_key = ${body.idempotencyKey}
+          `
+        )[0];
+      return { ledger, me, body, balance, row };
+    }
+
+    it('a refused payout returns the money in the same step, once, and the send is failed with the reason', async () => {
+      const rail = scriptedPayout([{ ok: false }]);
+      const { ledger, me, body, balance, row } = await ready(rail.port);
+      await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_payout_refused' } });
+      expect(transfers(ledger)).toHaveLength(2); // out to the rail, and back
+      expect(await balance()).toBe(parseAmount('100'));
+      expect(await row()).toMatchObject({ status: 'failed', failure_code: 'bank.global_payout_refused', ledger_tx_id: null });
+
+      // The same request again: the rail is not asked again and nothing more is posted.
+      await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_payout_refused' } });
+      expect(rail.calls).toHaveLength(1);
+      expect(transfers(ledger)).toHaveLength(2);
+      expect(await balance()).toBe(parseAmount('100'));
+    });
+
+    it('a lost payout reply keeps the debit and says the outcome is unknown; the retry asks the rail again and never posts twice', async () => {
+      const rail = scriptedPayout(['throw', { ok: true, providerRef: 'payout-7', status: 'sent' }]);
+      const { ledger, me, body, balance, row } = await ready(rail.port);
+      await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_outcome_unknown' } });
+      // The rail may have paid: the money stays out, the send stays open with its ledger entry, nothing is refunded.
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('90'));
+      const open = await row();
+      expect(open).toMatchObject({ status: 'submitted', failure_code: null, provider_ref: null });
+      expect(open?.ledger_tx_id).toEqual(expect.any(String));
+
+      const settled = await me.global.send(body);
+      expect(settled).toMatchObject({ status: 'sent', providerRef: 'payout-7', ledgerTxId: open?.ledger_tx_id });
+      expect(rail.calls).toHaveLength(2);
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('90'));
+    });
+
+    it('a refused payout whose return cannot be posted stays open as unknown, and the retry returns the money once', async () => {
+      const rail = scriptedPayout([{ ok: false }, { ok: false }]);
+      const { ledger, me, body, balance, row } = await ready(rail.port);
+      const post = ledger.post.bind(ledger);
+      let failReturn = true;
+      ledger.post = async (tx) => {
+        // The forward entry is the first rail posting; the return is any rail posting after it.
+        if (failReturn && tx.reason === 'bank.transfer.manual' && transfers(ledger).length === 1) throw new Error('ledger down');
+        return post(tx);
+      };
+      await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_outcome_unknown' } });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('90'));
+      expect(await row()).toMatchObject({ status: 'submitted', failure_code: null });
+
+      failReturn = false;
+      await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_payout_refused' } });
+      expect(transfers(ledger)).toHaveLength(2);
+      expect(await balance()).toBe(parseAmount('100'));
+      expect(await row()).toMatchObject({ status: 'failed', failure_code: 'bank.global_payout_refused', ledger_tx_id: null });
+    });
+
+    it('an accepted payout with no usable reference or status is unknown, not sent: the debit stays and nothing is marked paid', async () => {
+      for (const answer of [
+        { ok: true, providerRef: '   ', status: 'sent' },
+        { ok: true, providerRef: 'x'.repeat(129), status: 'sent' },
+        { ok: true, providerRef: 'payout-8', status: 'delivered-maybe' },
+      ] as Answer[]) {
+        const rail = scriptedPayout([answer]);
+        const { ledger, me, body, balance, row } = await ready(rail.port);
+        await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_outcome_unknown' } });
+        expect(transfers(ledger)).toHaveLength(1);
+        expect(await balance()).toBe(parseAmount('90'));
+        expect(await row()).toMatchObject({ status: 'submitted', provider_ref: null });
+      }
+    });
+  });
 });

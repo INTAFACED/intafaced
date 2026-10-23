@@ -201,3 +201,99 @@ test(`${J} #5 the first authenticator code turns it on; recovery codes show once
   expect(stored).not.toContain(secret);
   await expect(page.locator('.security__authenticator')).toContainText('Start authenticator setup');
 });
+
+test(`${J}, part of #5: when the confirmation's answer is lost, the recovery codes still show, labelled as such`, async ({ page }) => {
+  test.setTimeout(120_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('ru');
+  await signUpInBrowser(page, who);
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
+  await page.getByRole('button', { name: 'Show setup key' }).click();
+  const secret = await page.getByLabel('Authenticator setup key').inputValue();
+
+  // Identity turns the authenticator on, then the answer never reaches the browser.
+  await page.route('**/totp.confirm**', async (route) => {
+    await route.fetch();
+    await route.abort('connectionreset');
+  });
+  await page.getByLabel('Six-digit authenticator code').fill(totp(secret));
+  await page.getByRole('button', { name: 'Confirm authenticator' }).click();
+
+  const recovery = page.locator('.security__recovery');
+  await expect(recovery).toContainText('We could not tell whether your authenticator was turned on');
+  await expect(recovery.locator('.recovery-codes li')).toHaveCount(10);
+  // The page no longer asks for the confirmation it may already have.
+  await expect(page.getByRole('button', { name: 'Confirm authenticator' })).toHaveCount(0);
+  await expect(page.locator('.security__authenticator')).not.toContainText('Confirmation is still required');
+  // It was on: the checklist says so.
+  const authenticatorRow = page
+    .locator('.security__checklist .security__row')
+    .filter({ has: page.getByText('An authenticator app', { exact: true }) });
+  await expect(authenticatorRow).toContainText('Done');
+  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe').check();
+  await recovery.getByRole('button', { name: 'I saved them' }).click();
+  await expect(recovery).toHaveCount(0);
+});
+
+test(`${J}, part of #8: the anti-phishing code sets with a confirmation, shows in the email preview, refuses the handle, changes and goes`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('ap');
+  await signUpInBrowser(page, who);
+  let { secret, step } = await addAuthenticator(page, totp);
+
+  await page.goto('/uc/safe');
+  const card = page.locator('.security__anti-phishing');
+  await expect(card).toContainText('No anti-phishing code is set');
+  // Mail does not carry the code on this service, and the card says so rather than promising it.
+  await expect(card).toContainText('Our security emails do not show this code');
+  await expect(card.locator('.security__mail-preview')).toContainText('You have not set an anti-phishing code.');
+
+  // Each save confirms with a fresh authenticator code, bound to the code typed.
+  async function save(code, button = 'Save with code') {
+    const next = await nextCode(totp, secret, step);
+    step = next.step;
+    if (code !== null) await card.getByLabel('New code (4 to 20 letters and digits)').fill(code);
+    await card.getByLabel('6-digit code from your authenticator app').fill(next.code);
+    await card.getByRole('button', { name: button }).click();
+  }
+
+  // A code that is the handle is refused, and nothing is set.
+  await card.getByRole('button', { name: 'Set a code' }).click();
+  await card.getByLabel('New code (4 to 20 letters and digits)').fill('ab');
+  await card.getByRole('button', { name: 'Save with code' }).click();
+  await expect(card.getByRole('alert')).toHaveText('Use 4 to 20 letters and digits.');
+  await save(who.handle.toUpperCase());
+  await expect(card.getByRole('alert')).toContainText('it is your handle, your email or your password');
+  await expect(card).toContainText('No anti-phishing code is set');
+
+  const code = `Owl${randomBytes(3).toString('hex')}`;
+  await save(code);
+  await expect(card.getByRole('status')).toHaveText('Anti-phishing code saved.');
+  await expect(card).toContainText(`Your code: ${code}`);
+  await expect(card.locator('.security__mail-preview')).toContainText(`Your anti-phishing code: ${code}`);
+  // The code is never left in a field, in storage or in the address bar.
+  await expect(card.locator('input')).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))).not.toContain(code);
+  expect(page.url()).not.toContain(code);
+
+  // After a reload the page reads it back from the service.
+  await page.reload();
+  await expect(card).toContainText(`Your code: ${code}`);
+
+  const changed = `Heron${randomBytes(3).toString('hex')}`;
+  await card.getByRole('button', { name: 'Change the code' }).click();
+  await save(changed);
+  await expect(card).toContainText(`Your code: ${changed}`);
+  await expect(card.locator('.security__mail-preview')).toContainText(`Your anti-phishing code: ${changed}`);
+
+  await card.getByRole('button', { name: 'Remove the code' }).click();
+  await expect(card).toContainText('Confirm it is you to remove the code.');
+  await save(null, 'Remove with code');
+  await expect(card.getByRole('status')).toHaveText('Anti-phishing code removed.');
+  await expect(card).toContainText('No anti-phishing code is set');
+});

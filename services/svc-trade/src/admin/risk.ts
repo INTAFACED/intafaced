@@ -71,6 +71,11 @@ export function validateLimits(input: RiskLimits): RiskLimits {
   const slippageCap = input.slippageCap == null ? null : exactInteger(input.slippageCap, 'slippageCap');
   const throttle = input.throttle == null ? null : exactInteger(input.throttle, 'throttle');
   const circuitBreaker = input.circuitBreaker == null ? null : exactInteger(input.circuitBreaker, 'circuitBreaker');
+  // A band is a fraction of the price on each side: 0 would refuse every price, 1 or more would take a buy at any
+  // price and a sell at zero.
+  if (collar != null && (parseAmount(collar) <= 0n || parseAmount(collar) >= parseAmount('1'))) {
+    throw new TradeOpsError('risk_limit_not_exact', 'collar must be a fraction above 0 and below 1 (0.1 is 10%)');
+  }
   if (slippageCap != null) {
     const bps = Number(slippageCap);
     if (!Number.isInteger(bps) || bps < 1 || bps > 5000) {
@@ -80,13 +85,15 @@ export function validateLimits(input: RiskLimits): RiskLimits {
   return { collar, fatFinger, slippageCap, throttle, circuitBreaker };
 }
 
+// Every ORDER BY names the table's bigint column: a bare `version` sorts by the `version::text` output column, where
+// "9" comes after "10", so from version 10 on the latest row read as an older one.
 export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersion | null> {
   const [row] = await sql<RiskRow[]>`
     SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
-     ORDER BY version DESC
+     ORDER BY operator_risk_limits.version DESC
      LIMIT 1`;
   return row ? present(row) : null;
 }
@@ -105,7 +112,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ANY(${[...marketIds]}::uuid[])
-     ORDER BY market_id, version DESC`;
+     ORDER BY market_id, operator_risk_limits.version DESC`;
   for (const row of rows) out.set(row.market_id, present(row));
   return out;
 }
@@ -116,7 +123,7 @@ export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersi
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
-     ORDER BY version ASC`;
+     ORDER BY operator_risk_limits.version ASC`;
   return rows.map(present);
 }
 
@@ -150,7 +157,10 @@ export function priceBandFor(collar: string, touch: Touch, tickSize: Amount): { 
 }
 
 /**
- * Order-path gate, the same for place and for the order check before Confirm. Unset fields do nothing. A set
+ * Order-path gate, the same for place and for the order check before Confirm. With `requirePublished`, the price band
+ * and the open-order cap are owner values the pair must publish: a priced order on a pair with no band refuses
+ * `trade.price_band_unset`, and an order that can rest on a pair with no cap refuses `trade.open_orders_cap_unset`.
+ * Nothing defaults (J-cex-spot-04 step 6). The other fields do nothing while unset. A set
  * fat-finger, price band (collar) or open-order cap (throttle) is enforced here. A buy priced above the band or a sell
  * priced below it refuses `trade.price_band` with the band's edges; an order that can rest, when the account already
  * has the cap's number open on this market, refuses `trade.operator_throttle` with the cap and how many are open. A set circuit breaker has no reference mark in this path, so the order
@@ -171,8 +181,17 @@ export async function assertOperatorRiskOnPlace(
     readonly protective?: boolean;
   },
   touch: () => Promise<Touch>,
+  requirePublished = true,
 ): Promise<void> {
   const limits = await currentRisk(sql, market.id);
+  if (requirePublished && input.protective !== true) {
+    if (input.price != null && limits?.collar == null) {
+      throw new TradeError('no price band is published for this market', 'trade.price_band_unset', { rule: 'price band' });
+    }
+    if (input.rests && limits?.throttle == null) {
+      throw new TradeError('no open-order cap is published for this market', 'trade.open_orders_cap_unset', { rule: 'open-order cap' });
+    }
+  }
   if (!limits) return;
   if (limits.fatFinger != null) {
     if (input.price == null) {

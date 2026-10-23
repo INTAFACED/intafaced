@@ -35,6 +35,7 @@ import {
 } from './ledger/operator-owner-balances.js';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
+import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 
@@ -479,6 +480,24 @@ export function createLedgerRouter(
         } catch (err) {
           if (err instanceof TraceInconsistentError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
+          }
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator transaction detail (OPS-ledger-desk-01): one booked transaction by id with its postings. A read; works
+     * while the posting freeze is on.
+     */
+    transactionGet: scopedProcedure('admin:treasury')
+      .input(operatorTxGetInputSchema)
+      .output(operatorTxGetOutputSchema)
+      .query(async ({ input }) => {
+        try {
+          return await operatorTxGet(ledger, input);
+        } catch (err) {
+          if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
+            throw new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
           }
           throw toTrpcError(err);
         }

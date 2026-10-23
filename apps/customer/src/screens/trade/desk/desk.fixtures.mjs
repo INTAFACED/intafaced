@@ -348,10 +348,33 @@ export class Exchange {
       if (this.opts.placeMode !== 'ok') return json(this.opts.placeMode.json, this.opts.placeMode.status);
       return json(this.commit(body));
     }
+    if (path === 'orders/batch-cancel' && method === 'POST') {
+      // Each id on its own, in order: cancelled, or refused (an id that is not open), never rolled back.
+      const results = (body?.ids ?? []).map((id, index) => {
+        const at = this.open.findIndex((order) => order.id === id);
+        if (at === -1)
+          return {
+            index,
+            orderId: id,
+            status: 'refused',
+            error: { code: 'OrderNotFound', message: 'gone', intafacedCode: 'trade.order_not_found' },
+          };
+        const [order] = this.open.splice(at, 1);
+        const cancelled = { ...order, status: 'canceled' };
+        this.releaseHold(order);
+        this.closed.unshift(cancelled);
+        return { index, orderId: id, status: 'success', order: cancelled };
+      });
+      return json({ atomic: false, results });
+    }
     if (path === 'orders' && method === 'DELETE') {
-      // Cancel every open order in one market.
-      const gone = this.open.filter((order) => order.symbol === query.symbol);
-      this.open = this.open.filter((order) => order.symbol !== query.symbol);
+      // Cancel every open order in one market, or in every market (no symbol). Every fixture market is spot, so
+      // `kind=spot` is every market here too; any other kind is refused as the service does.
+      if (query.kind !== undefined && !['spot', 'futures', 'options'].includes(query.kind))
+        return json({ code: 'BadRequest', message: 'kind', intafacedCode: 'trade.invalid_filter' }, 400);
+      const inScope = (order) => (query.symbol ? order.symbol === query.symbol : query.kind === undefined || query.kind === 'spot');
+      const gone = this.open.filter(inScope);
+      this.open = this.open.filter((order) => !inScope(order));
       const cancelled = gone.map((order) => ({ ...order, status: 'canceled' }));
       for (const order of gone) this.releaseHold(order);
       this.closed.unshift(...cancelled);
@@ -473,7 +496,14 @@ export class Exchange {
       }
     }
     if (draft.type === 'limit' && !(tif === 'IOC' || tif === 'FOK')) {
-      const order = this.wireOrder(draft, {});
+      // A resting order says what it holds, as the service does: a buy its price x amount in quote, a sell its amount.
+      const [base, quote] = draft.symbol.split('/');
+      const order = this.wireOrder(draft, {
+        hold:
+          draft.side === 'buy'
+            ? { asset: quote, amount: plain(mulFloor(scaled(draft.price), scaled(draft.amount))) }
+            : { asset: base, amount: draft.amount },
+      });
       this.open.unshift(order);
       if (draft.side === 'buy') {
         const hold = mulFloor(scaled(draft.price), scaled(draft.amount));

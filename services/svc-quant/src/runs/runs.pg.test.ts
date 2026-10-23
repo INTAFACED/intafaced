@@ -94,7 +94,7 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
 
   beforeAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
-    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0001_quant_runs.sql']) {
+    for (const file of ['drizzle/0000_quant_strategies.sql', 'drizzle/0001_quant_runs.sql', 'drizzle/0003_quant_signal_rules.sql']) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);
     }
@@ -127,6 +127,9 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
       idempotencyKey: 'idem-backtest',
     });
     expect(ran.strategyVersion).toBe(1);
+    // The quick start ticks from the stored rows: the owner has a strategy and an ok backtest; the other account nothing.
+    expect(await a.quickStart()).toEqual({ strategy: true, backtest: true, paperRun: false });
+    expect(await b.quickStart()).toEqual({ strategy: false, backtest: false, paperRun: false });
     const listedForOwner = await admin.ops.runs({ userId: ACCOUNT_A, kind: 'backtest', limit: 10 });
     const success = listedForOwner.runs.find((row) => row.outcome === 'ok');
     expect(success).toBeTruthy();

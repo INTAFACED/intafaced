@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -13,10 +13,8 @@ import {
   isHiddenPath,
   Money,
   refusalCopy,
-  roundScaled,
   Skeleton,
   StateBlock,
-  toFixedString,
   useActivity,
   useFavorites,
   useMarkets,
@@ -39,9 +37,9 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
-import { progress, readDismissed, writeDismissed } from './started';
-import { useGetStarted } from './started-data';
+import { useStartedTile } from './started-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
@@ -67,12 +65,6 @@ const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
 };
 /** Real pill widths, so the skeletons are the final size (critic M4). */
 const PILL_WIDTH: Record<ActionLabel, number> = { 'Add money': 112, Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
-
-/** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
-function cents(value: string | null): string | null {
-  const parsed = dec(value);
-  return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
-}
 
 function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
@@ -142,7 +134,7 @@ function HoldingsSkeleton() {
 
 function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
 
   if (portfolio.status === 'loading')
     return (
@@ -208,8 +200,9 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   return (
     <>
       <div className="home-total">
-        <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
+        <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
       </div>
+      <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" />
       {data.change24hUsd !== null && hasCrypto ? (
         <p className="home-change">
           <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -230,8 +223,8 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 /** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances, timeZone } = usePreferences();
-  const portfolio = useHomePortfolio();
+  const { hideBalances, timeZone, displayCurrency } = usePreferences();
+  const portfolio = useHomePortfolio(displayCurrency);
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);
@@ -290,18 +283,7 @@ function HomeSimple() {
           : 'normal';
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
-  // Get started: only for an account that holds nothing (the real balance read says so), until the person hides it
-  // (remembered per person on this device). The checklist's own reads start only while it can be shown, and it goes
-  // away once every step is done.
-  const [dismissed, setDismissed] = useState(() => readDismissed(userId));
-  useEffect(() => setDismissed(readDismissed(userId)), [userId]);
-  const hide = useCallback(() => {
-    writeDismissed(userId);
-    setDismissed(true);
-  }, [userId]);
-  const startedOn = accountEmpty && userId !== null && !dismissed;
-  const steps = useGetStarted({ portfolio, activity }, startedOn);
-  const showStarted = startedOn && !progress(steps).complete;
+  const started = useStartedTile(portfolio);
 
   return (
     <div className="if-home">
@@ -319,6 +301,12 @@ function HomeSimple() {
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </button>
             <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+            {isHiddenPath('/money') ? null : (
+              <a className="home-tile-link" href="/money">
+                {t('Assets')}
+                <ChevronRight size={14} aria-hidden="true" />
+              </a>
+            )}
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
@@ -359,9 +347,9 @@ function HomeSimple() {
           <LearnStrip />
         </div>
 
-        {showStarted ? (
+        {started.show ? (
           <div className="home-started-slot">
-            <GetStarted steps={steps} onHide={hide} />
+            <GetStarted steps={started.steps} onHide={started.hide} />
           </div>
         ) : null}
 

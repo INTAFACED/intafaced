@@ -22,8 +22,10 @@ import {
   type DepthNotionalSource,
   type LiquidationTickResult,
   type MarkSource,
+  type MatchedLiquidationPort,
 } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
+import type { MarkBookResolver } from './mark-from-spot-index.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, preferFundingRateSource, type FundingRateEntry } from './funding-rate-source.js';
 import {
@@ -114,6 +116,20 @@ export interface FuturesJobsDeps {
    */
   venueMarkSource?: MarkSource | null;
   /**
+   * Which book marks a futures market (`mark-from-spot-index.ts`, TRADE_FUTURES_INDEX_SPOT_MARKETS): a paired spot
+   * book, or none when the pair does not fit. The ladder's depth reads the same book as the mark. Null: every market
+   * reads its own book, as before.
+   */
+  markBookFor?: MarkBookResolver | null;
+  /**
+   * Stamp a matching depth read with the time it was read. Matching's depth reply carries no observation time, and
+   * #5033's rule is that a book with none is not turned into a quote and the caller's clock is not stored as one.
+   * While futures orders go through the book (TRADE_FUTURES_MATCHING_ENABLED) every order is banded around the mark,
+   * so a book mark is required: the engine answers from its live book, and the read time stands in for its own (as for
+   * the trailing mark in index.ts). Off: unchanged, a book with no time gives no mark.
+   */
+  stampDepthReads?: boolean;
+  /**
    * Optional external rate publisher hook for tests.
    * Production ops publishes into memoryFundingRateBook via a real oracle later.
    */
@@ -160,6 +176,12 @@ export interface FuturesJobsDeps {
   };
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  /**
+   * Liquidation through the book (futures ADR slice 7). Bound after the position service is built, which is after the
+   * jobs (it prices from their marks). The port's own switch decides whether NEW rungs go to the book; a live one is
+   * always worked to its end. Unbound: every rung closes at the mark, as before.
+   */
+  matchedLiquidation?: { readonly current: MatchedLiquidationPort | null };
 }
 
 export interface FuturesJobsHandle {
@@ -316,7 +338,14 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   const getPublishedRate = (marketId: string) => rates.peek(marketId);
 
   // Mark path always assembled — public REST + liq share one non-inventing port.
-  const depthMarks = markSourceFromDepth((marketId) => deps.matching.depth(marketId, 1));
+  // Matching's depth read carries no timestamp; it is stamped at read time only while `stampDepthReads` is on (above).
+  const markBook = async (marketId: string): Promise<string | null> => (deps.markBookFor ? deps.markBookFor(marketId) : marketId);
+  const depthMarks = markSourceFromDepth(async (marketId) => {
+    const book = await markBook(marketId);
+    if (book === null) return null;
+    const depth = await deps.matching.depth(book, 1);
+    return deps.stampDepthReads ? { ...depth, observedAt: deps.now ? deps.now() : new Date() } : depth;
+  });
   const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
   // Blank selection returns `baseMarks` itself: today's behaviour, untouched.
   const marks: MarkSource = deps.markConstruction
@@ -324,7 +353,11 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     : baseMarks;
 
   const ladderGate = {
-    depth: depthNotionalSourceFromDepth((marketId) => deps.matching.depth(marketId, 1)),
+    // The same book the mark comes from: a position is rated against the market that prices it.
+    depth: depthNotionalSourceFromDepth(async (marketId) => {
+      const book = await markBook(marketId);
+      return book === null ? null : deps.matching.depth(book, 1);
+    }),
     policy: deps.ladderPolicy,
   };
 
@@ -442,6 +475,10 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       publishedLiquidationLimits: null,
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
+      // The matched-order book also pulls a position's resting increasing orders before any rung (both paths).
+      ...(deps.matchedLiquidation?.current
+        ? { matched: deps.matchedLiquidation.current, increasingOrders: deps.matchedLiquidation.current.increasingOrders }
+        : {}),
     });
     reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });

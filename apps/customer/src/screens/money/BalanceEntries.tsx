@@ -6,6 +6,7 @@ import { usePreferences } from '../../shared/preferences';
 import { assetFromPath, balanceEntriesHref, accountFromSearch, signedOf, type BalanceEntryRow } from './balance-entries-model';
 import { useBalanceEntries } from './balance-entries-source';
 import { useNamedAccounts } from './portfolio-source';
+import { SetAside } from './SetAside';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -175,6 +176,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
         {spaces.map((space) => scope(space.id, space.name))}
       </div>
       {body}
+      {asset !== '' && <SetAside asset={asset} hidden={hideBalances} />}
     </div>
   );
 }

@@ -74,15 +74,18 @@ export interface Context {
   traceparent?: string;
   requestId: string;
   /**
-   * Optional recheck of an owner's `pay:read` / `pay:write` against the live
-   * merchant grant. Installed only by svc-pay production context. Callers who
-   * own no merchant (team members) are not refused here.
+   * Optional recheck of an owner's `pay:read` / `pay:write` / `pay:onboard`
+   * against the live merchant. Installed only by svc-pay production context.
+   * Callers who own no merchant (team members) are not refused here.
    */
   ownerPayGrant?: OwnerPayGrantRecheck;
 }
 
-/** The two acquiring scopes an API key can carry and a grant can later withdraw. */
-export type OwnerPayScope = 'pay:read' | 'pay:write';
+/**
+ * Owner scopes a later merchant change can withdraw: the two acquiring scopes an API key can carry, and
+ * `pay:onboard`, which a session keeps until it expires after its business is suspended or closed.
+ */
+export type OwnerPayScope = 'pay:read' | 'pay:write' | 'pay:onboard';
 
 export interface OwnerPayGrantRecheck {
   assertStillGranted(principal: Principal, scope: OwnerPayScope): Promise<void>;
@@ -324,7 +327,7 @@ function isOwnerGrantWithdrawn(err: unknown): err is TRPCError {
 }
 
 async function assertLiveOwnerPayScope(ctx: Context & { principal: Principal }, scope: Scope): Promise<void> {
-  if (scope !== 'pay:read' && scope !== 'pay:write') return;
+  if (scope !== 'pay:read' && scope !== 'pay:write' && scope !== 'pay:onboard') return;
   if (!ctx.ownerPayGrant) return;
   await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
 }

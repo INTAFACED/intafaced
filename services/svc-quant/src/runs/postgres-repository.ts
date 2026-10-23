@@ -297,6 +297,17 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
       };
     },
 
+    async okKinds(input) {
+      const ok = (kind: RunKind) =>
+        `EXISTS (SELECT 1 FROM ${runs} WHERE user_id = $1::uuid AND kind = '${kind}' AND finished_at IS NOT NULL AND outcome_code = 'ok')`;
+      const rows = await query<{ backtest: boolean; sandbox: boolean }>(
+        sql,
+        `SELECT ${ok('backtest')} AS backtest, ${ok('sandbox')} AS sandbox`,
+        [input.userId],
+      );
+      return { backtest: rows[0]?.backtest === true, sandbox: rows[0]?.sandbox === true };
+    },
+
     async counts(input) {
       const rows = await query<{ kind: string; outcome_code: string | null; n: string }>(
         sql,

@@ -10,7 +10,7 @@ const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\broom
 const tiles = [
   ['academy', '/academy', 'Academy', 'Learning paths and certificates'],
   ['agents', '/agents', 'Agents', 'Your agent fleet'],
-  ['quant', '/quant', 'Quant', 'Research and strategy sandbox'],
+  ['quant', '/quant', 'Algo dev', 'Build, backtest and paper-run strategies'],
   ['blueprint', '/blueprint', 'Blueprint', 'Your profile and connected intelligence'],
   ['market', '/market', 'Market', 'Browse available listings'],
   ['launch', '/launch', 'Launch', 'Issue and list an asset'],

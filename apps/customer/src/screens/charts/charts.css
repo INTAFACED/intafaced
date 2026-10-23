@@ -1,0 +1,405 @@
+/*
+ * Chart workbench (/charts/:symbol). Only --if-* tokens: no colour values live here. In `@layer components`, with the
+ * layer order declared again so it holds in any bundle order (the Home lesson).
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .cw-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    padding: 16px;
+  }
+  .cw-page--state {
+    min-height: 320px;
+  }
+  .cw-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cw-head h1 {
+    margin: 0;
+    font: 600 20px/28px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-head p {
+    margin: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cw-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .cw-select {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cw-select select {
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .cw-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .cw {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--if-bg);
+    border: 1px solid var(--if-line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .cw-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 12px;
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .cw-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cw-chips button,
+  .cw-more {
+    height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--if-fg-2);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .cw-chips button:hover,
+  .cw-more:hover {
+    color: var(--if-fg);
+  }
+  .cw-chips button[aria-pressed='true'],
+  .cw-more[data-active] {
+    background: var(--if-field);
+    color: var(--if-fg);
+  }
+  .cw-canvas {
+    position: relative;
+    height: clamp(260px, 52vh, 520px);
+    min-height: 0;
+  }
+  .cw-canvas > [data-slot='state-block'] {
+    height: 100%;
+  }
+  .cw-skeleton {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+  .cw-feed {
+    margin: 0;
+    padding: 6px 12px;
+    border-top: 1px solid var(--if-line);
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cw-more-charts {
+    display: flex;
+  }
+  .cw-title {
+    margin: 0;
+    padding: 8px 12px 0;
+    font: 600 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-bar--options {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    border-top: 1px solid var(--if-line);
+  }
+  .cw-select--inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+  .cw-select input {
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 500 14px/20px var(--if-font-ui);
+  }
+  .cw-date {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cw-date button {
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .cw-note {
+    margin: 0;
+    padding: 8px 12px;
+    border-top: 1px solid var(--if-line);
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  div.cw-note {
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .wc-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .wc-host {
+    position: absolute;
+    inset: 0;
+  }
+  .wc-host:focus-visible {
+    outline: 2px solid var(--if-fg-2);
+    outline-offset: -2px;
+  }
+  .wc-legend {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    pointer-events: none;
+    font: 400 12px/16px var(--if-font-mono);
+    color: var(--if-fg-2);
+  }
+  .wc-legend b {
+    font-weight: 500;
+    color: var(--if-fg);
+  }
+  .wc-change[data-direction='up'] {
+    color: var(--if-up);
+  }
+  .wc-change[data-direction='down'] {
+    color: var(--if-down);
+  }
+  .cw-second {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cw-second-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .cw-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-check input[type='checkbox'] {
+    appearance: auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--if-lime);
+  }
+  .cw-option {
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .cw-option[aria-pressed='true'] {
+    background: var(--if-field);
+  }
+  .cw-compare-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-compare-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .cw-compare-list button {
+    border: 0;
+    background: transparent;
+    color: var(--if-fg-2);
+    font: inherit;
+    cursor: pointer;
+  }
+  .cw-compare-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cw-compare .cw-note {
+    flex-basis: 100%;
+    padding: 0;
+    border: 0;
+  }
+  .cw-replay {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--if-line);
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-replay button {
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--if-fg);
+    font: 500 13px/18px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .cw-replay-note {
+    color: var(--if-fg-2);
+  }
+  .cg {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .cg-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .cg-sync {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .cg-sync legend {
+    float: left;
+    margin-right: 4px;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cg-area {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
+  .cg-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .cg-cell-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cg-border {
+    touch-action: none;
+  }
+  .cg-border--col {
+    cursor: col-resize;
+  }
+  .cg-border--row {
+    cursor: row-resize;
+  }
+  .cg-border:hover {
+    background: var(--if-line);
+  }
+  .cg-keys {
+    display: grid;
+    gap: 6px;
+    margin: 12px 0;
+  }
+  .cg-keys > div {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 12px;
+  }
+  .cg-keys dt,
+  .cg-keys dd {
+    margin: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cg-keys-note {
+    margin: 0;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  @media (max-width: 760px) {
+    .cw-page {
+      padding: 16px;
+    }
+    .cw-head,
+    .cw-head-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .cw-canvas {
+      height: clamp(240px, 46vh, 420px);
+    }
+  }
+}

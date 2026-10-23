@@ -3,6 +3,7 @@
  * here and nowhere else. Every entry is a live route on this build.
  */
 export const HOME_LINKS = {
+  account: '/uc/account',
   verification: '/verification',
   security: '/uc/safe',
   deposit: '/uc/recharge',

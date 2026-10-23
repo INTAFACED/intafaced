@@ -12,6 +12,7 @@ import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
+import { readOrderHolds } from './spot/order-holds.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
@@ -21,12 +22,15 @@ import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js
 import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { subscribeMatchingEvents } from './events.js';
+import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { parsePriceBand } from './futures/matched-order-plan.js';
+import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
@@ -94,6 +98,7 @@ import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
 import { parseFundingMarketIds, startFuturesJobs } from './futures/futures-jobs.js';
+import type { MatchedLiquidationPort } from './futures/matched-liquidation.js';
 import { presentMarginCallWire } from './futures/margin-call-transport.js';
 import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVenueMarkSymbols } from './futures/mark-from-venue.js';
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
@@ -117,6 +122,7 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
+import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -147,6 +153,8 @@ import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
+import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
+import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
@@ -161,6 +169,9 @@ registerProcessHooks(
 // Local-test stand-ins (ZZ screening list, SCREENING_FAIL_CLOSED=off, `local-test:` lifecycle
 // records) are refused unless APP_ENV is exactly dev/test. Reads the raw APP_ENV: unset = NOT dev.
 assertNoLocalTestFixtures(process.env);
+// LOCAL TEST tape retime (chart history on a fresh stack): throws here, before any connection, if the flag is on
+// outside explicit dev/test. Off, the route does not exist.
+const localTestTapeRetime = localTestTapeRetimeEnabled(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -264,7 +275,6 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
-const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
 const venueMarkSymbols = parseVenueMarkSymbols(env.TRADE_VENUE_MARK_SYMBOLS);
 const otcVenueSymbols = parseVenueMarkSymbols(env.TRADE_OTC_VENUE_SYMBOLS);
@@ -471,12 +481,20 @@ if (fundingMaxAbsRate) {
     'TRADE_FUTURES_FUNDING_MAX_ABS_RATE unset — funding markets empty; publish/settle still refuse rates until a max is set (no invented ceiling)',
   );
 }
+// Liquidation through the book (futures ADR slice 7): bound once the position service exists, below.
+const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
 const futuresJobs = startFuturesJobs({
   sql,
   ledger,
   matching,
   bus,
   venueMarkSource: venueMarkConfigured?.source ?? null,
+  markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+    byId: (marketId) => trade.marketById(marketId),
+    bySymbol: (symbol) => trade.marketBySymbol(symbol),
+  }),
+  // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
+  stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
@@ -488,6 +506,7 @@ const futuresJobs = startFuturesJobs({
     settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
+  matchedLiquidation,
 });
 const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
 const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
@@ -516,6 +535,14 @@ const positions = new PositionService(sql, ledger, {
   // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
   // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
   ladder: futuresJobs.ladderGate,
+  // Futures orders through svc-matching (slice 6). Off unless TRADE_FUTURES_MATCHING_ENABLED is set; the band is parsed here,
+  // so a malformed value stops boot rather than being read as a default.
+  matchedOrders: {
+    matching,
+    enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+    priceBand: parsePriceBand(env.TRADE_FUTURES_PRICE_BAND),
+    lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
+  },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
@@ -527,6 +554,31 @@ const positions = new PositionService(sql, ledger, {
       throw err;
     }
   },
+});
+// Matched futures fills settle into the position book this service owns (futures ADR slice 6). The matching events
+// are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
+// earlier process must reach the futures path, never fall through to spot (which ignores an order it does not know).
+const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
+// While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
+matchedLiquidation.current = positions.matchedLiquidation;
+// Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
+// orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
+// around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
+futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const sweep = await positions.cancelMatchedOrdersOutsideBand();
+  for (const item of sweep.skipped) {
+    app.log.error(
+      { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
+      'resting futures orders not checked against the band',
+    );
+  }
+});
+futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const retry = await positions.retryWaitingMatchedFills(MATCHED_FILL_RETRY_BATCH);
+  for (const item of retry.failed) {
+    app.log.error({ job: 'futures.fill_waits', sequence: item.sequence, err: item.message }, 'a waiting futures fill failed to settle');
+  }
 });
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
@@ -734,6 +786,7 @@ app.get('/ready', async (_req, reply) => {
 registerPublicRest(app, {
   markets: (limit) => trade.markets(limit),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  chartOwnerValues: chartOwnerValuesPublicReader(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
@@ -760,6 +813,7 @@ registerPublicRest(app, {
     };
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
+  futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -777,6 +831,8 @@ registerConditionalOrdersRest(app, {
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   orders: conditionalOrders,
+  // While futures orders go through the book, its routes own /api/v1/futures/orders (private-rest.ts).
+  restingRefusal: !env.TRADE_FUTURES_MATCHING_ENABLED,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -876,6 +932,9 @@ registerMarketLifecycleRoutes(app, {
   store: marketLifecycleStore,
   installRawBody: false,
 });
+if (localTestTapeRetime) {
+  registerLocalTestTapeRoutes(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, sql, installRawBody: false });
+}
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
 registerCopyLeaderFixturesRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -948,7 +1007,7 @@ registerPrivateRest(app, {
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   replaceOrder: (principal, orderId, input) => trade.replaceOrder(principal, orderId, input),
   amendOrder: (principal, orderId, input) => trade.amendOrder(principal, orderId, input),
-  cancelAllOrders: (principal, marketId) => trade.cancelAllOrders(principal, marketId),
+  cancelAllOrders: (principal, marketId, kind) => trade.cancelAllOrders(principal, marketId, kind),
   armCancelAllAfter: (principal, timeoutSec) =>
     (trade as unknown as CancelAllAfterHost).armCancelAllAfter(
       principal,
@@ -966,6 +1025,15 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
+  ...(env.TRADE_FUTURES_MATCHING_ENABLED
+    ? {
+        futuresOrders: {
+          place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+          cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
+          list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+        },
+      }
+    : {}),
   listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
@@ -1056,6 +1124,7 @@ registerPrivateRest(app, {
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers: sqlStopTrigger(sql),
   ocoExits: (ids) => readOcoIntents(sql, ids),
+  orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),

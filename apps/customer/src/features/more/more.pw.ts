@@ -1,20 +1,21 @@
 import { test, expect } from '@playwright/test';
-test('Quant Studio keeps the draft on this device, closes the shared library, and makes no list or save call', async ({ page }) => {
+test('Quant Studio keeps the draft on this device and offers Save to library only once the rules are complete', async ({ page }) => {
   const saves: unknown[] = [];
   await page.route('**/api/**', async (route) => {
     const proc = new URL(route.request().url()).pathname.split('/').at(-1);
-    if (proc === 'studio.save' || proc === 'studio.list') saves.push(proc);
-    await route.fulfill({ json: { result: { data: { strategies: [] } } } });
+    if (proc === 'studio.save') saves.push(proc);
+    await route.fulfill({ json: { result: { data: { strategies: [], nextCursor: null } } } });
   });
   await page.goto('/quant/studio');
   await page.getByLabel('Strategy name').fill('My experiment');
   await page.getByLabel('Simulated starting cash').fill('0.000000000000000123');
   await page.getByLabel('Block 1 symbol').fill('ACTUAL/USD');
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
-  await expect(page.getByText('Saving to a library is off on this service, so the library is closed.')).toBeVisible();
   const save = page.getByRole('button', { name: 'Save to library', exact: true });
   await expect(save).toBeDisabled();
-  await expect(page.getByText('Saving to a library is off on this service. Your draft stays on this device.')).toBeVisible();
+  await expect(
+    page.getByText('Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.'),
+  ).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
   await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
@@ -651,7 +652,7 @@ test('quant sandbox labels server output simulated and never offers live deploym
     }
     await route.fulfill({ json: { result: { data } } });
   });
-  await page.goto('/quant');
+  await page.goto('/quant/sandbox');
   await page.getByLabel('Simulated starting cash').fill('17.125', { timeout: 3000 });
   await page.getByLabel('Strategy source').fill('console.log("run");');
   await page.getByRole('button', { name: 'Review simulation' }).click();

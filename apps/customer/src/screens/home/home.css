@@ -93,6 +93,18 @@
   .home-eye:hover {
     color: var(--if-fg);
   }
+  /* The total's own door to the Assets room (Money). */
+  .home-tile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    color: var(--if-fg-2);
+    text-decoration: none;
+  }
+  .home-tile-link:hover {
+    color: var(--if-fg);
+  }
 
   .home-total {
     display: flex;
@@ -624,9 +636,17 @@
     gap: 16px;
     min-height: 56px;
     margin: 0 16px;
+    color: inherit;
+    text-decoration: none;
   }
-  .home-activity__row + .home-activity__row {
+  .home-activity > li {
+    list-style: none;
+  }
+  .home-activity > li + li > .home-activity__row {
     border-top: 1px solid var(--if-line);
+  }
+  .home-activity__row:hover .home-activity__kind {
+    text-decoration: underline;
   }
   .home-activity__what {
     display: flex;

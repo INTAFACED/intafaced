@@ -19,14 +19,24 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  founderSignIns,
   termsProposal,
   TEST_TRANSFER_TERMS,
+  TEST_ASSET_ROWS,
+  assetEditProposal,
+  assetRowMatches,
   needsFullTier,
   openProposal,
   openableMarkets,
   operatorIdentity,
   refusalText,
+  CHART_DATA_CLASS_ACTION,
+  TEST_CHART_COUNTS,
+  TEST_CHART_DATA_CLASSES,
+  chartDataClassPayloadHash,
+  chartDataClassProposal,
 } from './local-test-gates.mjs';
+import { draftFounderVault } from './local-test-founders.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -203,6 +213,34 @@ assert.ok(
 for (const t of TEST_TRANSFER_TERMS)
   for (const v of [t.perTransferLimit, t.dailyLimit, t.fee]) assert.match(v, /^(0|[1-9]\d*)(\.\d*[1-9])?$/, `${t.assetId} ${v}`);
 
+// Asset registry: the proposal names the row's revision and the action svc-ledger consumes; every TEST row is a valid
+// edit body (unique EVM networks, the default among them) and is matched again once published, so a rerun is a no-op.
+const regSrc = readFileSync(resolve(here, '..', '..', 'packages', 'contracts', 'src', 'asset-registry.ts'), 'utf8');
+assert.ok(regSrc.includes("ASSET_EDIT_ACTION_TYPE = 'ledger.asset_edit'"), 'asset edit action renamed; update assetEditProposal');
+const assetProposal = assetEditProposal({ id: 'USDT' }, 3, 'sha256:x');
+assert.deepEqual(
+  [
+    assetProposal.actionType,
+    assetProposal.targetService,
+    assetProposal.targetId,
+    assetProposal.expectedVersion,
+    assetProposal.policyVersion,
+  ],
+  ['ledger.asset_edit', 'svc-ledger', 'USDT', '3', 'local-test:v1'],
+);
+for (const row of TEST_ASSET_ROWS) {
+  const ids = row.networks.map((n) => n.networkId);
+  assert.equal(new Set(ids).size, ids.length, row.id);
+  assert.ok(ids.includes(row.defaultNetworkId), row.id);
+  assert.ok(row.allowedActions.includes('withdraw') && row.state === 'active', row.id);
+  for (const n of row.networks) assert.ok(n.label.startsWith('TEST '), n.label);
+  const published = { ...row, allowedActions: [...row.allowedActions].reverse(), revision: 4, updatedAt: '2026-10-23T00:00:00.000Z' };
+  assert.ok(assetRowMatches(published, row), `${row.id} published again on every run`);
+  assert.ok(!assetRowMatches({ ...published, networks: [] }, row), `${row.id} blank row taken as published`);
+  assert.ok(!assetRowMatches({ ...published, precision: null }, row));
+  assert.ok(!assetRowMatches(null, row));
+}
+
 // Operators are labelled and distinct.
 const a = operatorIdentity('a');
 const b = operatorIdentity('B');
@@ -243,6 +281,32 @@ assert.deepEqual(
 assert.equal(refusalText({ json: { error: { message: 'nope', data: { code: 'FORBIDDEN' } } }, text: '' }), 'nope [FORBIDDEN]');
 assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
 
+// Founder sign-ins: none until both founders are enrolled, then a and b in vault order, keyed like their TOTP steps.
+{
+  const vault = draftFounderVault();
+  assert.deepEqual(founderSignIns(null), []);
+  assert.deepEqual(founderSignIns(vault), []);
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `user-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  const pair = founderSignIns(vault);
+  assert.deepEqual(
+    pair.map((f) => [f.key, f.handle, f.totpSecret]),
+    [
+      ['a', 'local_test_founder_a', 'SECRET0'],
+      ['b', 'local_test_founder_b', 'SECRET1'],
+    ],
+  );
+  assert.ok(pair.every((f) => f.email && f.password));
+  vault.founders[1].totpConfirmed = false;
+  assert.deepEqual(founderSignIns(vault), [], 'a founder without a confirmed second factor cannot sign in');
+}
+// verify submits founders' requests; populate (which approves only its friend) does not.
+{
+  const src = readFileSync(script, 'utf8');
+  assert.match(src, /submitOwnedAccounts\(ctx, before, \{ founders: true \}\)/);
+  const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
+  assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
+}
+
 // The CLI help names every command.
 const src = readFileSync(script, 'utf8');
 for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(src.includes(`'${cmd}'`), cmd);
@@ -252,5 +316,23 @@ assert.equal(
   false,
   'gates must not write database rows',
 );
+
+// Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
+// data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
+assert.deepEqual(TEST_CHART_COUNTS, { compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 });
+assert.deepEqual(TEST_CHART_DATA_CLASSES, { 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
+assert.equal(Object.keys(TEST_CHART_DATA_CLASSES).includes('IFC/USDT'), false, 'IFC/USDT stays unset on purpose');
+assert.equal(
+  chartDataClassPayloadHash({ symbol: 'BTC/USDT', dataClass: 'real_time', expectedVersion: '0', reason: 'list BTC for the charts pilot' }),
+  'sha256:d51ed1f6e5d8fc7ea6c05ea66c3ebd4f92df8647963ae67d3b53710de74a6e67',
+);
+const proposal = chartDataClassProposal({ symbol: 'ETH/USDT', dataClass: null, expectedVersion: '2', reason: 'TEST: clear it' });
+assert.equal(proposal.actionType, CHART_DATA_CLASS_ACTION);
+assert.equal(proposal.actionType, 'trade.chart_data_class_set');
+assert.equal(proposal.targetService, 'svc-trade');
+assert.equal(proposal.targetId, 'ETH/USDT');
+assert.equal(proposal.expectedVersion, '2');
+assert.equal(proposal.policyVersion, 'trade-chart-data-class-v1', 'the same policy version the founder page proposes');
+assert.match(proposal.payloadHash, /^sha256:[0-9a-f]{64}$/);
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');

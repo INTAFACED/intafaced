@@ -293,6 +293,9 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(table.locator('tbody tr').first()).toContainText('BTC/USDT');
   await expect(table.locator('tbody tr').first()).toContainText('63,999.90');
   await expect(table.locator('tbody tr').first()).toContainText('Limit');
+  // What the order holds, from the service's wire (J-cex-spot-05 step 1).
+  await expect(table.locator('thead')).toContainText('Held');
+  await expect(table.locator('tbody tr').first()).toContainText('6.399990 USDT');
   await shotBoth(page, 'desk-open-order', { full: true });
 
   await table.getByRole('button', { name: /Cancel buy order/ }).click();
@@ -628,6 +631,32 @@ test('market sell: the review shows the floor and the fee; it sends no price and
   const sent = m.requests('POST', 'orders')[0].body;
   expect(sent).toMatchObject({ side: 'sell', type: 'market' });
   expect('price' in sent).toBe(false);
+  expect(m.errors).toEqual([]);
+});
+
+test('flatten: one control in Assets reviews a market sell of every free lot; the same review number on every retry', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Assets' }).click();
+  const flatten = page.getByRole('button', { name: /^Flatten BTC: sell all 0.25 BTC/ });
+  await flatten.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('Review your sell');
+  await expect(dialog).toContainText('Price protection');
+  expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing is sent before Confirm
+  const reference = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
+  // Leave and press Flatten again for the same coin: the same order, under the same number.
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await flatten.click();
+  await expect(dialog).toContainText('Review your sell');
+  expect(await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText()).toBe(reference);
+  await shot(page, 'desk-flatten-review');
+  await dialog.getByRole('button', { name: 'Confirm sell' }).click();
+  await expect(sellForm(page)).toContainText('Your sell order filled: 0.25 BTC');
+  const sent = m.requests('POST', 'orders');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].body).toMatchObject({ side: 'sell', type: 'market', amount: '0.25' });
+  expect(sent[0].body.clientOrderId.endsWith(`:${reference}`)).toBe(true);
   expect(m.errors).toEqual([]);
 });
 
@@ -1012,6 +1041,52 @@ test('cancel all: asks first, cancels only the orders of the market on screen, o
   expect(m.requests('DELETE', 'orders')).toHaveLength(1);
   await page.getByRole('alertdialog').getByRole('button', { name: 'Close' }).click();
   await expect(page.getByText('No open orders.')).toBeVisible();
+});
+
+test('cancel orders: ticked orders go in one batch, each id answered; an order already gone is named; spot only is one request', async ({
+  page,
+}) => {
+  const m = await mount(page);
+  await ready(page);
+  for (const price of ['63999.9', '63998.9', '63997.9']) {
+    await fillBuy(page, { price, amount: '0.0001' });
+    await openReview(page);
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  }
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(3);
+  const tick = (price) => openTable(page).locator('tbody tr').filter({ hasText: price }).getByRole('checkbox');
+  await tick('63,999.90').check();
+  await tick('63,998.90').check();
+  // One of the two finishes elsewhere before the batch is sent: the service answers that id on its own line.
+  const goneId = m.exchange.open.find((order) => order.price === '63998.9').id;
+  await page.getByRole('button', { name: 'Cancel orders…' }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog.getByRole('radio', { name: 'The 2 selected' })).toBeChecked();
+  expect(m.requests('POST', 'orders/batch-cancel')).toHaveLength(0);
+  m.exchange.open = m.exchange.open.filter((order) => order.id !== goneId);
+  await dialog.getByRole('button', { name: 'Cancel orders' }).click();
+  await expect(dialog).toContainText('1 of 2 cancelled.');
+  await expect(dialog).toContainText('Order to buy 0.0001 BTC at 63,999.9 on BTC/USDT: Cancelled');
+  await expect(dialog).toContainText('Order to buy 0.0001 BTC at 63,998.9 on BTC/USDT: Not cancelled: That order has already finished');
+  expect(m.requests('POST', 'orders/batch-cancel')).toHaveLength(1);
+  expect(m.requests('POST', 'orders/batch-cancel')[0].body.ids).toHaveLength(2);
+  await shot(page, 'desk-cancel-batch');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+
+  // Spot only: one DELETE with kind=spot, after the person confirms.
+  await page.getByRole('button', { name: 'Cancel orders…' }).click();
+  await expect(dialog.getByRole('radio', { name: /The selected orders/ })).toBeDisabled();
+  await expect(dialog.getByRole('radio', { name: /Every spot order/ })).toBeChecked();
+  await expect(dialog).toContainText('Futures and options orders stay open.');
+  const before = m.requests('DELETE', 'orders').length;
+  await dialog.getByRole('button', { name: 'Cancel orders' }).click();
+  await expect(dialog).toContainText('Cancelled 1 orders.');
+  expect(m.requests('DELETE', 'orders')).toHaveLength(before + 1);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByText('No open orders.')).toBeVisible();
+  expect(m.errors).toEqual([]);
 });
 
 test('data status: one chip, each feed on its own line; one failed feed makes it a problem', async ({ page }) => {

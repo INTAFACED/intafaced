@@ -1,0 +1,9 @@
+.quant-quick-start {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+  padding-left: 20px;
+}
+.quant-quick-start p {
+  margin: 2px 0 4px;
+}

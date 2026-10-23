@@ -35,6 +35,7 @@ import { MerchantAnalyticsService } from './analytics.js';
 import { PortalError, wrapPortal } from './errors.js';
 import { readOnboardingProgress } from './onboarding.js';
 import { MerchantProfileService } from './profile.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * Merchant portal procedures.
@@ -62,7 +63,7 @@ export function merchantPortalExtensions(deps: {
   const approvals = deps.approvals ?? unwiredApprovalConsumer();
   const profile = new MerchantProfileService(deps.sql, deps.pay, deps.trees, deps.team);
   const analytics = new MerchantAnalyticsService(deps.sql, deps.pay, deps.trees, deps.team);
-  const read = scopedProcedure('pay:read', { module: 'pay' });
+  const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
 

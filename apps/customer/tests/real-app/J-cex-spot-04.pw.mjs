@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, bestPrices, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { awayBid, fundedTrader, held, openDesk, openOrders, placements, previewed } from './desk.mjs';
 
 // J-cex-spot-04, in the running app (docs/roadmap/journeys.json): a person is told in words what a pair allows. One
 // test per step, titled "J-cex-spot-04 #<n>", run in order on one TEST account funded with TEST USDT through the real
 // ledger. The band and cap are the stack's LOCAL TEST values, set through the operator pair's two-person door
 // (`local-test-gates.mjs limits`); the journey reads them from the public market list and never assumes a number.
-// Step 6 (an unpublished band or cap refuses with a typed code) is its own change.
+// Step 6 takes BTC/USDC's band and cap away through the same door, and puts them back after.
 const J = 'J-cex-spot-04';
 const SYMBOL = 'BTC/USDT';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -197,6 +197,70 @@ test(`${J} #5 reaches the open-order cap: the next order is refused with the cap
     for (const id of placed) await trader.delete(`/api/v1/orders/${id}?symbol=BTC%2FUSDT`);
   }
   expect(await openOrders(who)).toHaveLength(0);
+});
+
+test(`${J} #6 trades a pair whose band or cap the owner has not published: a typed refusal names the missing rule, nothing held`, async ({
+  page,
+}) => {
+  const who = account();
+  const pair = 'BTC/USDC';
+  const published = (await rulesOf(pair)).protection;
+  expect(published.collar).not.toBe('not set');
+  expect(published.openOrdersPerMarket).not.toBe('not set');
+  expect(fund(who.email, 'USDC', '500').tx).toBeTruthy();
+  const trader = await api(who);
+  const before = held(await trader.balances(), 'USDC');
+  const price = await awayBid(95, pair);
+  const amount = amountFor(price, (await rulesOf(pair)).lot);
+  const send = (key) =>
+    trader.post('/api/v1/orders', {
+      symbol: pair,
+      type: 'limit',
+      side: 'buy',
+      amount,
+      price,
+      timeInForce: 'GTC',
+      clientOrderId: `${J}-6-${key}-${Date.now()}`,
+    });
+  try {
+    tool('local-test-gates.mjs', 'risk', pair, 'collar=unset', 'throttle=unset');
+    await expect.poll(async () => (await rulesOf(pair)).protection.collar).toBe('not set');
+
+    // The desk shows the rule as not published, and the order check refuses in words before review.
+    await openDesk(page, who, pair);
+    const sent = placements(page);
+    const rules = page.locator('details.dk-rules');
+    await rules.locator('summary').click();
+    const row = (name) => rules.locator('dl > div').filter({ has: page.locator('dt', { hasText: new RegExp(`^${name}$`) }) });
+    await expect(row('Price band').locator('dd')).toHaveText('Not published');
+    await expect(row('Open orders').locator('dd')).toHaveText('Not published');
+    await tab(page, 'Limit').click();
+    await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
+    await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
+    const note = buyForm(page).locator('.dk-note--bad');
+    await expect(note).toContainText('No price band is published');
+    await expect(note).not.toContainText('trade.');
+    await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    expect(sent).toHaveLength(0);
+
+    // The service refuses on its own, naming the rule, before any hold.
+    const noBand = await send('band');
+    expect(noBand.status).toBe(503);
+    expect(JSON.stringify(noBand.body)).toContain('trade.price_band_unset');
+
+    // With the band back and the cap still missing, an order that would rest is refused for the cap.
+    tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`);
+    await expect.poll(async () => (await rulesOf(pair)).protection.collar).toBe(published.collar);
+    const noCap = await send('cap');
+    expect(noCap.status).toBe(503);
+    expect(JSON.stringify(noCap.body)).toContain('trade.open_orders_cap_unset');
+    expect(await openOrders(who, pair)).toHaveLength(0);
+    expect(held(await trader.balances(), 'USDC')).toBe(before);
+  } finally {
+    tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`, `throttle=${published.openOrdersPerMarket}`);
+  }
+  const restored = (await rulesOf(pair)).protection;
+  expect([restored.collar, restored.openOrdersPerMarket]).toEqual([published.collar, published.openOrdersPerMarket]);
 });
 
 test(`${J} #7 sends an order whose request deadline has passed: refused as expired before any hold`, async () => {

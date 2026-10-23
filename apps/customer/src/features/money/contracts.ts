@@ -181,6 +181,15 @@ export const destinationSchema = z.object({
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
+export const withdrawAssetSchema = z.object({
+  assetId: z.string(),
+  precision: z.number().int(),
+  networks: z.array(z.object({ networkId: z.string(), label: z.string() })),
+  defaultNetworkId: z.string().nullable(),
+});
+export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
+export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),
@@ -218,7 +227,39 @@ export const eligibilitySchema = z.object({
     .nullable(),
 });
 export type Eligibility = z.infer<typeof eligibilitySchema>;
+/** svc-bank `bank.accounts.features`: the owner's base-tier terms, figures as published decimal strings (BK-acct-01). */
+export const accountTermsSchema = z.object({
+  tier: z.string(),
+  version: z.string(),
+  currency: z.string(),
+  monthlyFee: money,
+  minimumBalance: money,
+  overdraftFee: money.nullable(),
+  included: z.array(z.string()),
+});
+export type AccountTerms = z.infer<typeof accountTermsSchema>;
+const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });
+export type AccountCurrency = z.infer<typeof accountCurrencySchema>;
+/** svc-bank `bank.currencies.list`: the currencies on the account, and what the owner lets the customer add. */
+export const currencySetSchema = z.object({
+  currencies: z.array(accountCurrencySchema),
+  addable: z.array(z.string()).nullable(),
+  addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
+});
+/** svc-bank `bank.accounts.profile`: the profile in view, proved held by the person, with their role in a business. */
+export const bankProfileSchema = z.object({
+  profile: z.string(),
+  kind: z.enum(['personal', 'business']),
+  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
+});
+export const currencyWrites = {
+  add: accountCurrencySchema,
+  remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
+};
 export const bankReads = {
+  'accounts.features': accountTermsSchema,
+  'accounts.profile': bankProfileSchema,
+  'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'spaces.list': z.array(spaceSchema),
@@ -266,6 +307,7 @@ export const bankReads = {
   'ramps.offramps': z.array(offrampSchema),
   // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
   'ramps.destinations.list': z.array(destinationSchema),
+  'ramps.destinations.networks': z.array(withdrawAssetSchema),
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),

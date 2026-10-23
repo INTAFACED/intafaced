@@ -8,6 +8,9 @@
  *   pnpm local:market stop           stop it, cancel its resting orders, and forget it (ensure then leaves it off)
  *                                    (pnpm local:market:stop is the same as stop)
  *   node tooling/scripts/local-test-market.mjs check
+ *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
+ *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
+ *                                    past (fill times only) so charts have history. Skips any market that already traded.
  *
  * What it does, every few seconds, for each published market it has a TEST PRICE for:
  *   1. moves a deterministic, seedable synthetic price (integer arithmetic, no float money);
@@ -19,7 +22,8 @@
  * Every order goes through the real front door (Edge /api/v1 -> svc-trade -> svc-matching),
  * and every balance is a real ledger entry: funding reuses `local:fund` (svc-ledger deposit
  * recipe, rail ref LOCAL-TEST-...). Nothing here writes a balance, a fill or a price into any
- * database. Prices are TEST PRICES: invented starting points, not a market feed.
+ * database. Prices are TEST PRICES: invented starting points, not a market feed. `history` also asks
+ * svc-trade's signed LOCAL TEST route to move its own TEST tape fills into the past; it moves times, nothing else.
  *
  * Containment (failure it prevents: quoting or funding against a real environment): refuses
  * unless the local test stack's state directory and LOCAL-TEST-STACK.json marker exist and
@@ -44,6 +48,7 @@ import {
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
+import { TEST_ELIGIBILITY_ANSWERS } from './local-test-futures-terms.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -204,13 +209,17 @@ export const TEST_PRICES = {
   'ETH/USDT': { start: '2600', notional: '2000' },
   'ETH/USDC': { start: '2600', notional: '2000' },
   'IFC/USDT': { start: '1', notional: '500' },
+  // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
+  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so its quotes walk the same series and stay inside the band around that mark.
+  // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
+  'BTC/USDT:USDT': { start: '65000', notional: '3000', follows: 'BTC/USDT', cross: false },
   'XAU/USD': { start: '2650', notional: '3000' },
   'XAG/USD': { start: '31', notional: '1500' },
   'WTI/USD': { start: '72', notional: '1500' },
   'BRENT/USD': { start: '76', notional: '1500' },
   'NATGAS/USD': { start: '2.8', notional: '1500' },
 };
-const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT'];
+const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'BTC/USDT:USDT'];
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
   USDT: '1000000',
@@ -488,7 +497,17 @@ async function ensureFunds(client, who, assets, divisor) {
 // ── The loop ────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const opts = { seed: '1013', seconds: 8, levels: 3, symbols: null, foreground: false, edge: DEFAULT_EDGE };
+  const opts = {
+    seed: '1013',
+    seconds: 8,
+    levels: 3,
+    symbols: null,
+    foreground: false,
+    edge: DEFAULT_EDGE,
+    bars: 210,
+    stepMinutes: 15,
+    perBar: 2,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--seed') opts.seed = argv[++i];
@@ -497,12 +516,26 @@ function parseArgs(argv) {
     else if (a === '--markets') opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i].split(',');
     else if (a === '--edge-url') opts.edge = argv[++i];
     else if (a === '--foreground') opts.foreground = true;
+    else if (a === '--bars') opts.bars = Number(argv[++i]);
+    else if (a === '--step-minutes') opts.stepMinutes = Number(argv[++i]);
+    else if (a === '--trades-per-bar') opts.perBar = Number(argv[++i]);
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
-      die(`unexpected argument "${a}". Commands: start | stop | status | ensure | check (for example: pnpm local:market ${a})`, 2);
+      die(
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history (for example: pnpm local:market ${a})`,
+        2,
+      );
   }
   if (!Number.isInteger(opts.seconds) || opts.seconds < 2) die('--interval must be a whole number of seconds, at least 2', 2);
   if (!Number.isInteger(opts.levels) || opts.levels < 1 || opts.levels > 10) die('--levels must be 1..10', 2);
+  if (!Number.isInteger(opts.bars) || opts.bars < 1 || opts.bars > 2000) die('--bars must be 1..2000', 2);
+  if (!Number.isInteger(opts.stepMinutes) || opts.stepMinutes < 1 || opts.stepMinutes > 1440) die('--step-minutes must be 1..1440', 2);
+  if (![1, 2, 3, 4, 5, 6].includes(opts.perBar)) die('--trades-per-bar must be 1..6', 2);
+  // svc-trade's own limits on one retime (services/svc-trade/src/spot/local-test-tape.ts).
+  if (opts.bars * opts.perBar > 5000) die('--bars times --trades-per-bar must be at most 5000', 2);
+  // One bar of slack: the window ends at the start of the current bucket, not at now, so a full 31 days would start
+  // just past svc-trade's 31-day limit.
+  if ((opts.bars + 1) * opts.stepMinutes > 31 * 24 * 60) die('--bars plus one, times --step-minutes, must stay within 31 days', 2);
   return opts;
 }
 
@@ -510,9 +543,19 @@ async function discoverMarkets(edge, wanted) {
   const res = await edge.http('GET', '/api/v1/markets?limit=500', null, { auth: false });
   if (!Array.isArray(res.json)) throw new Error(`could not list markets (${res.status})`);
   return res.json
-    .filter((m) => m.active && m.orderable && m.spot && !m.paper && TEST_PRICES[m.symbol] && wanted.includes(m.symbol))
+    .filter(
+      (m) =>
+        m.active &&
+        m.orderable &&
+        (m.spot || (m.swap && m.test === true)) &&
+        !m.paper &&
+        TEST_PRICES[m.symbol] &&
+        wanted.includes(m.symbol),
+    )
     .map((m) => ({
+      id: m.id,
       symbol: m.symbol,
+      swap: m.swap === true,
       base: m.base,
       quote: m.quote,
       tick: toScaled(m.precision.price),
@@ -551,6 +594,7 @@ async function runLoop(opts, home) {
   const assets = [...new Set(markets.flatMap((m) => [m.base, m.quote]))];
   await ensureFunds(maker, 'maker', assets, 1);
   await ensureFunds(taker, 'taker', assets, 10);
+  if (markets.some((m) => m.swap)) await prepareFuturesMaker(maker);
 
   let saved = {};
   try {
@@ -561,8 +605,14 @@ async function runLoop(opts, home) {
   const walks = new Map();
   for (const m of markets) {
     const cfg = TEST_PRICES[m.symbol];
-    const walk = createPriceWalk({ seed: opts.seed, symbol: m.symbol, startScaled: toScaled(cfg.start), tickScaled: m.tick });
-    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]); // resume the same series
+    const walk = createPriceWalk({
+      seed: opts.seed,
+      symbol: cfg.follows ?? m.symbol,
+      startScaled: toScaled(cfg.start),
+      tickScaled: m.tick,
+    });
+    // Steps are saved per market symbol (below), so each market resumes its own count; a follower walks its series.
+    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]);
     walks.set(m.symbol, walk);
     log(`${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`);
   }
@@ -574,15 +624,17 @@ async function runLoop(opts, home) {
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
-    client.http('POST', '/api/v1/orders', {
-      symbol: m.symbol,
-      type: 'limit',
-      side,
-      amount,
-      price,
-      ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
-      clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
-    });
+    m.swap
+      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`)
+      : client.http('POST', '/api/v1/orders', {
+          symbol: m.symbol,
+          type: 'limit',
+          side,
+          amount,
+          price,
+          ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+          clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
+        });
 
   while (!STOP.requested) {
     cycle += 1;
@@ -606,7 +658,9 @@ async function runLoop(opts, home) {
       // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
       // them first, as before.
       let previous = quoted.get(m.symbol);
-      if (!previous) {
+      if (!previous && m.swap) {
+        previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
+      } else if (!previous) {
         const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
         const rows = Array.isArray(open.json) ? open.json : null;
         if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
@@ -619,13 +673,16 @@ async function runLoop(opts, home) {
         // that level is quoted again next cycle.
         const r = await place(maker, m, q.side, q.price, q.amount, 'GTC');
         if (r.status === 201 && r.json?.id) ids.push(r.json.id);
+        else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
       // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
       // 409 means it is already gone: filled or cancelled).
       const stale = [];
       for (const id of previous ?? []) {
-        const r = await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+        const r = m.swap
+          ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
+          : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
         if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
       }
       quoted.set(m.symbol, [...ids, ...stale]);
@@ -633,7 +690,7 @@ async function runLoop(opts, home) {
       log(
         `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
       );
-      if (cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
+      if (cfg.cross !== false && cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
         // Alternate per market (failure it prevents: every symbol here has the same name length, so a
         // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
         // every crossing then failed with 400 ledger.insufficient_funds).
@@ -656,8 +713,262 @@ async function runLoop(opts, home) {
   }
   EXIT.reason ??= 'stop requested';
   log('stopping: cancelling the test market-maker orders');
-  for (const m of markets) await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
+  for (const m of markets) {
+    if (!m.swap) {
+      await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
+      continue;
+    }
+    for (const id of (await openFuturesQuoteIds(maker, m).catch(() => null)) ?? []) {
+      await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`).catch(() => null);
+    }
+  }
   return 0;
+}
+
+// ── TEST tape history (past candles on a fresh stack) ───────────────────────
+// Failure it prevents: a wiped stack has no past trades, so a chart asking for 200 fifteen-minute bars shows nothing
+// and the chart journeys fail on the stack, not on the app. `history` makes real TEST trades now, through the same
+// front door and ledger as the loop (maker post-only, taker IOC at the same price, both labelled LTEST-TAPE-), then
+// asks svc-trade's LOCAL TEST route to spread their times back over past buckets
+// (services/svc-trade/src/spot/local-test-tape.ts). Only the fill times move. svc-trade refuses unless every fill on
+// the market is a tape trade, so this runs on a fresh market before the loop trades, and skips any market that
+// already has trades.
+
+export const TAPE_CLIENT_PREFIX = 'LTEST-TAPE-';
+export const TAPE_RETIME_ROUTE = '/internal/local-test/tape-retime';
+/** Below Edge's local budget of 1200 a minute per address (local-test-stack.mjs, EDGE_RATE_LIMIT_MAX), with room left. */
+export const HISTORY_ORDERS_PER_SECOND = 14;
+
+/**
+ * Where `trades` tape trades go, `perBar` to a bar of `stepMs`: evenly spaced, the last one in the newest closed bar,
+ * which ends where the current bucket starts.
+ */
+export function tapeWindow({ nowMs, trades, stepMs, perBar = 1 }) {
+  if (stepMs % perBar !== 0) throw new Error('the bar length must divide evenly by the trades per bar');
+  const gap = stepMs / perBar;
+  const end = Math.floor(nowMs / stepMs) * stepMs;
+  return { startMs: end - trades * gap, stepMs: gap };
+}
+
+async function signedTradePost(stateDir, tradeUrl, route, body) {
+  assertActiveLocalStack({ stateDir });
+  const secrets = JSON.parse(fs.readFileSync(path.join(stateDir, 'secrets.json'), 'utf8'));
+  if (!secrets?.internal) throw new Error('secrets.json has no internal secret');
+  let contracts;
+  try {
+    contracts = await import(pathToFileURL(path.join(REPO, 'packages/contracts/dist/index.js')).href);
+  } catch (err) {
+    throw new Error(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${tradeUrl}${route}`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-stack', secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
+  return { status: res.status, json, text };
+}
+
+async function runHistory(opts, home) {
+  const { paths: p, marker } = assertLocalTarget({ home, urls: [opts.edge] });
+  assertActiveLocalStack({ stateDir: p.stateDir });
+  if (runningPid(p))
+    die(`the test market is running (pid ${runningPid(p)}); history needs a quiet book. Stop it first: pnpm local:market stop`);
+  const stepMs = opts.stepMinutes * 60_000;
+  const accounts = loadAccounts(p);
+  const maker = new EdgeClient(opts.edge, accounts.maker);
+  const taker = new EdgeClient(opts.edge, accounts.taker);
+  log(`TEST TAPE HISTORY: ${opts.bars} bars of ${opts.stepMinutes}m per market, ${opts.perBar} TEST trades each. ${LABEL}`);
+  log(`maker ${await maker.ensureAccount()} (${accounts.maker.handle}); taker ${await taker.ensureAccount()} (${accounts.taker.handle})`);
+  save(p, accounts);
+  const outbox = path.join(p.stateDir, 'email-outbox.log');
+  log(`maker email ${await maker.proveEmail(outbox)}; taker email ${await taker.proveEmail(outbox)}`);
+
+  const wanted = opts.symbols ?? DEFAULT_SYMBOLS;
+  // Spot books only: the tape route and the candles it feeds are spot (svc-trade spot/local-test-tape.ts).
+  const markets = (await discoverMarkets(maker, wanted)).filter((m) => !m.swap);
+  if (markets.length === 0) die(`none of ${wanted.join(', ')} is an active, orderable spot market on this stack`);
+  const blockers = await preflight(
+    maker,
+    markets.map((m) => m.symbol),
+  );
+  if (blockers.length) {
+    for (const b of blockers) log(`  - ${b}`);
+    die('the services refuse orders on this stack (reasons above); run local-test-gates.mjs apply and verify first', 3);
+  }
+  const assets = [...new Set(markets.flatMap((m) => [m.base, m.quote]))];
+  await ensureFunds(maker, 'maker', assets, 1);
+  await ensureFunds(taker, 'taker', assets, 10);
+
+  let saved = {};
+  try {
+    saved = JSON.parse(fs.readFileSync(p.walkFile, 'utf8'));
+  } catch {
+    /* fresh walk */
+  }
+  const steps = { ...(saved.seed === opts.seed ? saved.steps : {}) };
+  const runId = crypto.randomBytes(3).toString('hex');
+  let counter = 0;
+  // Edge allows each address a fixed budget of requests a minute, and every market here shares 127.0.0.1 (failure it
+  // prevents: five markets at full speed ran into edge.rate_limited after about 200 trades each, and the market maker
+  // that started next could not even sign in). So orders go out at most HISTORY_ORDERS_PER_SECOND, and a 429 waits for
+  // the time Edge names, then sends the same order again: the same client id, so svc-trade returns the same order.
+  let nextSlot = 0;
+  const pace = async () => {
+    const now = Date.now();
+    const at = Math.max(now, nextSlot);
+    nextSlot = at + Math.ceil(1000 / HISTORY_ORDERS_PER_SECOND);
+    if (at > now) await sleep(at - now);
+  };
+  const place = async (client, m, side, price, amount, tif) => {
+    const body = {
+      symbol: m.symbol,
+      type: 'limit',
+      side,
+      amount,
+      price,
+      ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+      clientOrderId: `${TAPE_CLIENT_PREFIX}${runId}-${(counter += 1)}`,
+    };
+    for (let attempt = 1; ; attempt += 1) {
+      await pace();
+      const r = await client.http('POST', '/api/v1/orders', body);
+      if (r.status !== 429 || attempt >= 4) return r;
+      const wait = Math.min(60, Math.max(1, Number(r.json?.retryAfterSeconds) || 5));
+      log(`${m.symbol}: Edge asked to wait ${wait}s (edge.rate_limited); sending the same order again then`);
+      nextSlot = Math.max(nextSlot, Date.now() + wait * 1000);
+    }
+  };
+  const refusal = (r) => `HTTP ${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 160)}`;
+  const wantTrades = opts.bars * opts.perBar;
+  let retimes = Promise.resolve();
+  /** One market's history. Resolves true when every bar was written and moved into the past. */
+  const history = async (m) => {
+    const tape = await maker.http('GET', `/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false });
+    if (!Array.isArray(tape.json)) {
+      log(`${m.symbol}: could not read the public tape (${refusal(tape)}); skipped`);
+      return false;
+    }
+    if (tape.json.length > 0) {
+      log(`${m.symbol}: already has trades, so history is not written (it goes only on a fresh market); skipped`);
+      return true;
+    }
+    const cfg = TEST_PRICES[m.symbol];
+    const walk = createPriceWalk({ seed: opts.seed, symbol: m.symbol, startScaled: toScaled(cfg.start), tickScaled: m.tick });
+    if (steps[m.symbol]) walk.advance(steps[m.symbol]);
+    let made = 0;
+    for (let n = 1; n <= wantTrades; n += 1) {
+      const [level] = buildLadder({
+        mid: walk.next(),
+        tick: m.tick,
+        lot: m.lot,
+        minAmount: m.minAmount,
+        minCost: m.minCost,
+        levels: 1,
+        halfSpreadBps: 6n,
+        stepBps: 9n,
+        levelNotional: toScaled(cfg.notional),
+      }).filter((q) => q.side === (crossingSide(n) === 'buy' ? 'sell' : 'buy'));
+      const rest = await place(maker, m, level.side, level.price, level.amount, 'GTC');
+      if (rest.status !== 201) {
+        log(`${m.symbol}: TEST tape maker order ${n} refused (${refusal(rest)}); stopping this market`);
+        break;
+      }
+      const hit = await place(taker, m, crossingSide(n), level.price, level.amount, 'IOC');
+      if (hit.status !== 201 || toScaled(String(hit.json?.filled ?? '0')) !== toScaled(level.amount)) {
+        log(`${m.symbol}: TEST tape trade ${n} did not fill (${refusal(hit)}); stopping this market`);
+        await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
+        break;
+      }
+      made += 1;
+    }
+    steps[m.symbol] = walk.steps;
+    if (made === 0) return false;
+    const window = tapeWindow({ nowMs: Date.now(), trades: made, stepMs, perBar: opts.perBar });
+    // One retime at a time: each is a serializable transaction over the shared fills table, and two at once can make
+    // one of them fail (Postgres 40001).
+    const turn = retimes.then(() =>
+      signedTradePost(p.stateDir, `http://${LOCAL_HOST}:${marker.ports.trade}`, TAPE_RETIME_ROUTE, { marketId: m.id, ...window }),
+    );
+    retimes = turn.catch(() => null);
+    const r = await turn;
+    if (r.status !== 200) {
+      log(`${m.symbol}: ${made} TEST trades made, but svc-trade refused to move them into the past (${refusal(r)})`);
+      return false;
+    }
+    log(
+      `${m.symbol}: ${r.json.trades} TEST trades now span ${r.json.firstTs} .. ${r.json.lastTs} (${opts.perBar} per ${opts.stepMinutes}m bar)`,
+    );
+    return made === wantTrades;
+  };
+  // Markets are independent books, so they run side by side (failure it prevents: five markets one after another
+  // took several minutes of the journeys run).
+  const results = await Promise.all(markets.map((m) => history(m).catch((err) => (log(`${m.symbol}: ${err.message}`), false))));
+  fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
+  return results.every(Boolean) ? 0 : 1;
+}
+
+// ── The TEST perpetual ──────────────────────────────────────────────────────
+
+/** Leverage the maker quotes the TEST perpetual at: inside the TEST listing's own cap (fixture leverageCap 5). */
+export const FUTURES_QUOTE_LEVERAGE = '5';
+const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_unknown']);
+
+/**
+ * A futures order goes through the futures book (POST /api/v1/futures/orders) and answers to the doors a person's
+ * does: a proved email, the published TEST agreements accepted, the TEST quiz passed, the ADL notice acknowledged.
+ * Hedge mode, so the maker's bids and asks can rest at once. Each step logs what it got; a refusal stays visible, and
+ * the quotes then refuse with the same code.
+ */
+async function prepareFuturesMaker(maker) {
+  const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
+  const mode = await maker.http('PUT', '/api/v1/futures/position-mode', { mode: 'hedge', clientModeId: 'LTEST-maker-position-mode-hedge' });
+  say('position mode hedge', mode, mode.status === 200);
+  const agreements = await maker.http('GET', '/api/v1/account/agreements');
+  for (const a of agreements.json?.agreements ?? []) {
+    if (!a.available) {
+      log(`maker agreement ${a.kind}: not published (${a.reason ?? 'no reason given'})`);
+      continue;
+    }
+    if (a.accepted) continue;
+    const r = await maker.http('POST', '/api/v1/account/agreements/accept', { kind: a.kind, version: a.version });
+    say(`accepts TEST ${a.kind} v${a.version}`, r, r.status === 200);
+  }
+  const quiz = await maker.http('POST', '/api/v1/account/derivatives-eligibility/assess', {
+    clientSubmissionId: 'LTEST-maker-quiz-1',
+    answers: TEST_ELIGIBILITY_ANSWERS,
+  });
+  say('TEST quiz', quiz, quiz.status === 200);
+  const adl = await maker.http('POST', '/api/v1/futures/adl-disclosure/ack', {});
+  say('ADL notice acknowledged', adl, adl.status === 200);
+}
+
+function placeFutures(client, m, side, price, amount, clientOrderId) {
+  return client.http('POST', '/api/v1/futures/orders', {
+    symbol: m.symbol,
+    side,
+    type: 'limit',
+    amount,
+    price,
+    leverage: FUTURES_QUOTE_LEVERAGE,
+    clientOrderId,
+  });
+}
+
+/** The maker's live opening quotes on one futures market, or null when they cannot be read. */
+async function openFuturesQuoteIds(maker, m) {
+  const r = await maker.http('GET', `/api/v1/futures/orders?scope=open&limit=100&symbol=${encodeURIComponent(m.symbol)}`);
+  return r.status === 200 && Array.isArray(r.json) ? r.json.filter((o) => !o.reduceOnly).map((o) => o.orderId) : null;
 }
 
 // ── Process control ─────────────────────────────────────────────────────────
@@ -805,6 +1116,7 @@ async function main() {
     if (runningPid(p)) die(`the background test market is running (pid ${runningPid(p)}); stop it first (pnpm local:market stop)`);
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   }
+  if (cmd === 'history') process.exit(await runHistory(opts, os.homedir()));
   if (cmd === 'ensure') {
     const rec = readRecord(p);
     if (runningPid(p)) return console.log(`already running (pid ${runningPid(p)})`);
@@ -812,7 +1124,7 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check`, 2);
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history`, 2);
   await startBackground(p, rest, { wait: true });
 }
 

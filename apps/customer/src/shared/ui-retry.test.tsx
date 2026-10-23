@@ -26,6 +26,8 @@ describe('Try again is for trouble that can clear, not for a missing setting', (
     expect(canTryAgain(refusal({ code: 'bank.earn_rate_unset' }))).toBe(false);
     expect(canTryAgain(refusal({ code: 'token.params_missing' }))).toBe(false);
     expect(canTryAgain(refusal({ code: 'trade.market_not_found' }))).toBe(false);
+    expect(canTryAgain(refusal({ code: 'trade.price_band_unset' }))).toBe(false);
+    expect(canTryAgain(refusal({ code: 'trade.open_orders_cap_unset' }))).toBe(false);
     expect(canTryAgain(refusal({ code: 'denied.region_blocked' }))).toBe(false);
     expect(canTryAgain(refusal({ reason: 'not_mounted' }))).toBe(false);
     expect(canTryAgain(refusal({ reason: 'not_supported' }))).toBe(false);

@@ -6,9 +6,11 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { subaccountCopy as copy } from './subaccount-copy';
 import { SubaccountDelete } from './SubaccountDelete';
+import { SubaccountFeatures } from './SubaccountFeatures';
 import { isDeleteRefusal } from './sub-account-delete';
 import {
   KIND_KEYS,
+  createRefusalKey,
   finishSubaccount,
   isCreateRefusal,
   readSubaccounts,
@@ -53,6 +55,14 @@ type Receipt = {
   finalized?: boolean;
 };
 const emptyJournal: SubaccountJournal = { records: [], failed: false };
+
+/** A known create refusal in this page's words; any other refusal in the service's own words. */
+function RefusalSentence({ receipt }: { receipt: Receipt }) {
+  const { t } = copy.useCopy();
+  const key = receipt.original.kind === 'create' ? createRefusalKey(receipt.answer) : undefined;
+  if (key) return <p>{t(key)}</p>;
+  return receipt.answer.ok ? null : <p lang="und">{receipt.answer.message}</p>;
+}
 
 export function Account() {
   const { api, userId } = useSession();
@@ -407,6 +417,7 @@ export function Account() {
                               {t('reviewRevoke')}
                             </Button>
                           )}
+                          {!row.revoked && <SubaccountFeatures subAccountId={row.id} />}
                           {!row.revoked && <SubaccountDelete subAccountId={row.id} onDeleted={reload} />}
                         </li>
                       ))}
@@ -596,7 +607,7 @@ export function Account() {
                     </dl>
                     {!receipt.answer.ok && (
                       <div className="stack">
-                        <p lang="und">{receipt.answer.message}</p>
+                        <RefusalSentence receipt={receipt} />
                         <p className="subaccounts__ref" lang="zxx">
                           HTTP {receipt.answer.status} · {receipt.answer.code}
                         </p>

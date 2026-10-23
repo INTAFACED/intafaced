@@ -59,6 +59,8 @@ const pureEntries = [
   ['contracts-instruments-dist', 'packages/contracts/dist/instruments.js'],
   ['contracts-identity-source', 'packages/contracts/src/identity.ts'],
   ['contracts-identity-dist', 'packages/contracts/dist/identity.js'],
+  ['contracts-account-controls-source', 'packages/contracts/src/account-controls.ts'],
+  ['contracts-account-controls-dist', 'packages/contracts/dist/account-controls.js'],
 ];
 
 const unsafeEntries = [

@@ -13,7 +13,8 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
- *   static server + reverse proxy on http://127.0.0.1:3210
+ *   static server + reverse proxy on http://127.0.0.1:3210 · the founder console (apps/admin,
+ *   a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
@@ -38,6 +39,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
@@ -82,6 +84,8 @@ const P = {
   buildStamp: path.join(STATE, 'build-stamp.json'),
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
+  admin: path.join(REPO, 'apps', 'admin'),
+  adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
 };
 
 const PORTS = {
@@ -107,17 +111,20 @@ const PORTS = {
   quant: 14515,
   execution: 14516,
   tax: 14517,
+  'mining-pool': 14518,
   customer: 3210,
+  admin: 3100,
 };
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
+const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
-// svc-quant and svc-execution own no tables (execution keeps a file journal).
+// svc-execution owns no tables (it keeps a file journal).
 const SCHEMAS = [
   'identity',
   'ledger',
@@ -132,7 +139,12 @@ const SCHEMAS = [
   'support',
   'market',
   'blueprint',
+  'quant',
+  'mining_pool',
 ];
+// A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
+const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
+const serviceOfSchema = (s) => SCHEMA_SERVICE[s] ?? s;
 const STREAM_PREFIX = 'LOCAL_TEST';
 const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
@@ -238,12 +250,31 @@ function loadOrCreateSecrets() {
       changed = true;
     }
   }
+  // The founder console wants exactly 32 bytes as canonical base64url (apps/admin/src/lib/founder-session.ts).
+  if (!/^[A-Za-z0-9_-]{43}$/.test(s.adminSession ?? '')) {
+    s.adminSession = crypto.randomBytes(32).toString('base64url');
+    changed = true;
+  }
   if (changed) writePrivate(P.secrets, JSON.stringify(s, null, 2));
   return s;
 }
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** LOCAL TEST maintenance ladder for the TEST perpetual (TRADE_FUTURES_LADDER_POLICY). Same numbers as
+ * services/svc-trade/src/futures/ladder-policy.test-harness.ts: coarse on purpose, never an owner D3 table. */
+export const TEST_FUTURES_LADDER_POLICY = Object.freeze({
+  tiers: [
+    { uptoDepthBps: 500, maintenanceBps: 50 },
+    { uptoDepthBps: 2_000, maintenanceBps: 100 },
+    { uptoDepthBps: 5_000, maintenanceBps: 250 },
+    { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 500 },
+  ],
+  marginCallBps: 12_000,
+  targetBps: 15_000,
+  maxTrancheBps: 2_500,
+});
+
 const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
 
 /**
@@ -497,6 +528,7 @@ const BACKEND_PKGS = [
   'svc-quant',
   'svc-execution',
   'svc-tax',
+  'svc-mining-pool',
 ];
 
 function gitHead() {
@@ -518,10 +550,10 @@ function runPnpm(args, label, extraEnv = {}) {
 const SOURCE_PATHS = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
 
 /** True when no service, package or Customer source changed between two commits (tooling and docs do not count). */
-function sourceUnchangedSince(oldHead, head) {
+function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
   if (!oldHead) return false;
   if (oldHead === head) return true;
-  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...SOURCE_PATHS], { cwd: REPO });
+  const r = spawnSync('git', ['diff', '--quiet', oldHead, head, '--', ...paths], { cwd: REPO });
   return r.status === 0;
 }
 
@@ -647,6 +679,19 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   return { head, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
+// The founder console has its own stamp, so a console-only change never rebuilds the services and the reverse.
+const ADMIN_SOURCE_PATHS = ['apps/admin', 'packages', 'pnpm-lock.yaml'];
+
+function ensureAdminBuilt(rebuild) {
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  if (!rebuild && fs.existsSync(P.adminBuildId) && sourceUnchangedSince(stamp.adminHead, head, ADMIN_SOURCE_PATHS)) return;
+  say('  build: founder console (apps/admin)…');
+  runPnpm(['--filter', '@intafaced/admin...', 'build'], 'build-admin');
+  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
+}
+
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
@@ -655,6 +700,7 @@ function ensureBuilt(rebuild) {
   if (backend === 'none') {
     say('  build: up to date (use --rebuild to force)');
     if (stamp.head !== head) writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head }, null, 2));
+    ensureAdminBuilt(rebuild);
     return;
   }
   if (backend === 'missing') {
@@ -663,6 +709,7 @@ function ensureBuilt(rebuild) {
     say(`  build: ${missing.length} service(s) not built yet (${missing.map((m) => m.replace('svc-', '')).join(', ')})…`);
     runPnpm([...missing.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend-missing');
     writePrivate(P.buildStamp, JSON.stringify({ ...stamp, head, builtAt: stamp.builtAt ?? new Date().toISOString() }, null, 2));
+    ensureAdminBuilt(rebuild);
     return;
   }
   say('  build: backend packages and services (a few minutes on a cold tree)…');
@@ -671,12 +718,18 @@ function ensureBuilt(rebuild) {
     say('  build: customer app…');
     runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer');
   }
-  writePrivate(P.buildStamp, JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override }, null, 2));
+  writePrivate(
+    P.buildStamp,
+    JSON.stringify({ head, builtAt: new Date().toISOString(), customerBuilt: !override, adminHead: stamp.adminHead }, null, 2),
+  );
+  ensureAdminBuilt(rebuild);
 }
 
 function migrate(secrets, schemas = SCHEMAS) {
   for (const s of schemas) {
-    runPnpm(['--filter', `@intafaced/svc-${s}`, 'db:migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) });
+    runPnpm(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+      DATABASE_URL: dbUrl(`svc_${s}`, secrets),
+    });
   }
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
@@ -743,12 +796,11 @@ const EDGE_UPSTREAMS = {
   EXECUTION_URL: 'execution',
   QUANT_URL: 'quant',
   TAX_URL: 'tax',
+  MINING_POOL_URL: 'mining-pool',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  MINING_POOL_URL:
-    'svc-mining-pool hard-codes listen on 0.0.0.0 (services/svc-mining-pool/src/server.ts), which breaks the loopback-only rule. The Mining room is a static "unavailable" page; only its health probe answers 502.',
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
@@ -767,6 +819,8 @@ function serviceDefs(secrets) {
         LEDGER_POSTING_ENABLED: 'true',
         // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
         RECONCILE_CRON_MINUTES: '60',
+        // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.
+        IDENTITY_URL: urlOf('identity'),
       }),
     },
     {
@@ -818,6 +872,15 @@ function serviceDefs(secrets) {
         IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+        // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
+        // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
+        // operator lists (admin:compliance) and svc-market's vendor desk (market:ops). Identity adds them only to a
+        // founder's own signed-in session with a second factor, never to an API key or a sub-account. admin:write,
+        // support:ops and every money-moving scope stay off.
+        IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:compliance,market:ops',
+        // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
+        // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
+        IDENTITY_MAX_SUB_ACCOUNTS: '10',
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
@@ -857,6 +920,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
         // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
         // integers; it does not compare orders against them. Test funds only.
+        // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
+        // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
+        TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
         TRADE_MAX_ORDER: '1000000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',
@@ -883,6 +949,22 @@ function serviceDefs(secrets) {
           makerBps: '8',
           takerBps: '10',
         }),
+        // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
+        // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
+        // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
+        // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
+        TRADE_FUTURES_ENABLED: 'true',
+        TRADE_FUTURES_TEST_SEED: 'true',
+        TRADE_FUTURES_JOBS_ENABLED: 'true',
+        TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
+        TRADE_FUTURES_LADDER_POLICY: JSON.stringify(TEST_FUTURES_LADDER_POLICY),
+        // The code's own ceiling (DIRECTION §1); the TEST listing caps itself lower. Markets show orderable only with it.
+        TRADE_FUTURES_MAX_LEVERAGE: '10',
+        // Futures orders through the one book (futures ADR 2026-10-20): no open at mark. The TEST perpetual is marked
+        // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
+        TRADE_FUTURES_MATCHING_ENABLED: 'true',
+        TRADE_FUTURES_PRICE_BAND: '0.05',
+        TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },
     {
@@ -922,6 +1004,26 @@ function serviceDefs(secrets) {
         LOAN_QUOTE_ASSET_ID: 'USDT',
         TRANSFER_BATCH_SIZE: '1',
         LOAN_SWEEP_BATCH_SIZE: '1',
+        // LOCAL TEST, not owner decisions (BK-acct-01, BK-acct-03, BK-pots-01): blank refuses each by name, so the
+        // J-bank-01 journey can read labelled TEST account terms, add and remove a currency, make spaces up to a TEST
+        // limit and see the account details per currency switched off with rail.bank (no banking partner here).
+        BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
+          tier: 'TEST base tier',
+          version: 'local-test-1',
+          currency: 'USDT',
+          monthlyFee: '0',
+          minimumBalance: '0',
+          overdraftFee: null,
+          included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
+        }),
+        BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
+        BANK_SPACE_LIMIT: '5',
+        BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
+        // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
+        // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
+        // blocked (bank.offramp_cooling_unset).
+        BANK_ADDRESS_BOOK_CAP: '10',
+        BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
@@ -1015,6 +1117,9 @@ function serviceDefs(secrets) {
         // the verification-code lifetime is the .env.example value.
         NOTIFY_MAX_DELIVERY_ATTEMPTS: '3',
         NOTIFY_VERIFY_TTL_MINUTES: '15',
+        // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
+        // and every create is refused (notify.alert_quota_unset) until then.
+        NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
       }),
     },
     {
@@ -1054,7 +1159,8 @@ function serviceDefs(secrets) {
     },
     {
       name: 'quant',
-      env: () => ({ ...c('svc-quant', PORTS.quant) }), // no database; no data lake or venue vault is connected
+      // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
+      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets) }),
     },
     {
       name: 'execution',
@@ -1071,6 +1177,17 @@ function serviceDefs(secrets) {
       // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
       name: 'tax',
       env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
+    },
+    {
+      // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and
+      // stay unset (the service refuses by name), and MINING_PAYOUT_INTERVAL_MS stays unset, so no epoch job pays anything.
+      name: 'mining-pool',
+      entry: 'server.js', // dist/index.js only re-exports; server.js listens
+      env: () => ({
+        ...c('svc-mining-pool', PORTS['mining-pool']),
+        DATABASE_URL: dbUrl('svc_mining_pool', secrets),
+        LEDGER_URL: urlOf('ledger'),
+      }),
     },
     {
       name: 'edge',
@@ -1194,7 +1311,7 @@ async function startNodeService(def) {
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
-  const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', 'index.js');
+  const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
   await waitHealthy(def.name, url, pid);
 }
@@ -1244,6 +1361,48 @@ async function startCustomer() {
   await waitHealthy('customer', url, pid, 20_000);
 }
 
+/** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
+function adminEnv(secrets) {
+  return {
+    ...baseEnv(),
+    NODE_ENV: 'production',
+    APP_ENV: 'dev', // local http origin is accepted only for dev/test (founder-session.ts); never prod posture
+    EDGE_URL: urlOf('edge'),
+    ADMIN_ORIGIN,
+    ADMIN_SESSION_SECRET: secrets.adminSession,
+  };
+}
+
+async function startAdmin(secrets) {
+  const procs = readProcs();
+  const url = `${ADMIN_ORIGIN}/login`;
+  // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
+  if (ownedAlive(procs.admin)) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+  if (await portOpen(PORTS.admin)) fail(`port ${PORTS.admin} (admin) is in use by a process this script did not start`);
+  if (!fs.existsSync(P.adminBuildId)) fail('founder console build missing; run with --rebuild');
+  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], adminEnv(secrets), P.admin);
+  await waitHealthy('admin', url, pid, 60_000);
+}
+
+/**
+ * The founder console's production build, served in this script's own process so the recorded command line stays
+ * what was started (the `next` CLI renames its process, which ownership checks would then refuse to stop).
+ */
+async function serveAdmin(port = PORTS.admin) {
+  const req = createRequire(path.join(P.admin, 'package.json'));
+  const next = (await import(pathToFileURL(req.resolve('next')).href)).default;
+  const app = next({ dev: false, dir: P.admin, hostname: HOST, port });
+  const exit = (what, err) => {
+    console.error(`admin: ${what}: ${err?.message ?? err}`);
+    process.exit(1);
+  };
+  await app.prepare().catch((err) => exit('the build in apps/admin/.next could not be loaded (pnpm local:stack --rebuild)', err));
+  const handle = app.getRequestHandler();
+  const server = http.createServer((rq, rs) => handle(rq, rs));
+  server.on('error', (err) => exit(`cannot listen on ${HOST}:${port}`, err));
+  server.listen(port, HOST);
+}
+
 /** Every Node service this script runs, in start order (Edge last). */
 function serviceNames() {
   return serviceDefs(PLAN_SECRETS).map((d) => d.name);
@@ -1281,10 +1440,12 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.customer?.pid ?? '-',
     cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
   ]);
+  const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
+  rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
-  const w = [14, 12, 8];
+  const w = [17, 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
@@ -1296,7 +1457,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'customer'];
+  const known = [...serviceNames(), 'customer', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1346,7 +1507,7 @@ async function cmdStart(flags) {
   const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
   migrate(
     secrets,
-    SCHEMAS.filter((s) => toStart.some((d) => d.name === s)),
+    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
   await startNats();
   ensureStreams();
@@ -1366,6 +1527,7 @@ async function cmdStart(flags) {
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
+  if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
   const allOk = await healthTable();
@@ -1387,6 +1549,7 @@ async function cmdStart(flags) {
       : '  Founders: pair not pinned (identity and edge must both be up)',
   );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
+  say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
 }
@@ -1407,7 +1570,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['customer', ...serviceNames().reverse(), 'nats'];
+  const order = ['admin', 'customer', ...serviceNames().reverse(), 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1446,7 +1609,7 @@ function cmdPlan(flags) {
     name: d.name,
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
-    schema: SCHEMAS.includes(d.name) ? d.name : null,
+    schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
     running: ownedAlive(procs[d.name]),
   }));
   const edgeEnv = defs.find((d) => d.name === 'edge').env();
@@ -1478,7 +1641,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'customer'];
+  const known = [...serviceNames(), 'customer', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1783,6 +1946,7 @@ async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

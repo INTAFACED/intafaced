@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
+import { quantSignalRulesSchema, type QuantSignalRules } from '@intafaced/contracts';
 import { QUANT_STUDIO_NOT_FOUND, QuantError } from '../errors.js';
 import { decodeListCursor, idempotencyConflict } from './keys.js';
 import type {
@@ -27,6 +28,7 @@ interface Joined {
   source: string;
   cash: string;
   blocks: unknown;
+  modules: unknown;
   risk: unknown;
   environment: string;
   kind: string;
@@ -59,6 +61,13 @@ function readBlocks(value: unknown): StudioBlock[] {
     }
     return { side: rec.side, symbol: rec.symbol, qty: rec.qty };
   });
+}
+
+function readModules(value: unknown): QuantSignalRules | null {
+  if (value === null || value === undefined) return null;
+  const parsed = quantSignalRulesSchema.safeParse(value);
+  if (!parsed.success) throw new QuantError('quant.params_invalid', 'modules are not signal rules');
+  return parsed.data;
 }
 
 function readRisk(value: unknown): StudioRiskBlock {
@@ -97,6 +106,7 @@ function versionOf(row: Joined): StrategyVersionRecord {
     source: row.source,
     cash: row.cash,
     blocks: readBlocks(row.blocks),
+    modules: readModules(row.modules),
     risk: readRisk(row.risk),
     environment: readEnvironment(row.environment),
     kind: readKind(row.kind),
@@ -156,7 +166,7 @@ function isUniqueViolation(err: unknown): boolean {
 
 const JOINED = `
   s.id, s.account_id, s.client_strategy_id, s.deleted_at, s.created_at,
-  v.version, v.name, v.language, v.source, v.cash, v.blocks, v.risk,
+  v.version, v.name, v.language, v.source, v.cash, v.blocks, v.modules, v.risk,
   v.environment, v.kind, v.claim_label, v.live, v.simulated, v.created_at AS version_created_at
 `;
 
@@ -227,9 +237,9 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
       db,
       `INSERT INTO ${versions} (
          strategy_id, version, name, language, source, cash, blocks, risk,
-         environment, kind, claim_label, live, simulated, created_at
+         environment, kind, claim_label, live, simulated, created_at, modules
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, false, true, $12
+         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, false, true, $12, $13::jsonb
        )`,
       [
         strategyId,
@@ -244,6 +254,7 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
         draft.kind,
         draft.claimLabel,
         createdAt,
+        draft.modules,
       ],
     );
   }

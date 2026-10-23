@@ -10,6 +10,8 @@
  * quarantine count starts at 0.
  */
 
+import type { QuantSignalRules } from '@intafaced/contracts';
+
 export interface StudioRiskBlock {
   readonly maxDrawdown: string;
   readonly maxNotional: string;
@@ -29,6 +31,8 @@ export interface SavedStrategy {
   readonly source: string;
   readonly cash: string;
   readonly blocks: StudioBlock[];
+  /** Signal rules from the no-code builder; null for a strategy of order blocks. */
+  readonly modules: QuantSignalRules | null;
   readonly risk: StudioRiskBlock;
   readonly environment: 'paper' | 'backtest' | 'shadow';
   readonly kind: 'paper' | 'simulated';

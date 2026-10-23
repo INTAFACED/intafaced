@@ -11,6 +11,14 @@ import {
   quantDisclosurePublishOutputSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
+  quantCompileOutputSchema,
+  quantQuickStartOutputSchema,
+  quantSignalRulesSchema,
+  quantTemplateDetailSchema,
+  quantTemplateIdSchema,
+  quantTemplateListOutputSchema,
+  quantTemplatePublishInputSchema,
+  quantTemplateVersionSchema,
   router,
   scopedProcedure,
   TRPCError,
@@ -30,6 +38,9 @@ import {
   QUANT_DATABASE_POOL_MAX_UNSET,
   QUANT_DATABASE_URL_UNSET,
   QUANT_DISCLOSURE_UNSET,
+  QUANT_SIGNAL_RULES_SANDBOX,
+  QUANT_TEMPLATE_LIST_LIMIT_UNSET,
+  QUANT_TEMPLATE_NOT_FOUND,
   QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
@@ -56,6 +67,9 @@ import {
 } from './errors.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
+import type { TemplateRepository } from './templates/repository.js';
+import { openTemplateRepository } from './templates/open.js';
+import { blankTemplateRules } from './templates/rules.js';
 import { requireSimulatedStamp } from './honesty.js';
 import { claimFromRun } from './marketplace/claim.js';
 import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound, RUN_RESULT_MAX_BYTES } from './runs/limit.js';
@@ -65,6 +79,7 @@ import { trackRun } from './runs/track.js';
 import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
+import { compileSignalRules } from './studio/modules.js';
 import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
@@ -115,7 +130,7 @@ const runOutput = z
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
     const code =
-      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND
+      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND || err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -123,12 +138,14 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+            err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
             err.code === QUANT_RUN_UNFINISHED ||
             err.code === QUANT_RUN_NOT_SIMULATED ||
             err.code === QUANT_RUN_RESULT_CAP_UNSET ||
             err.code === QUANT_RUN_RESULT_TOO_LARGE ||
             err.code === QUANT_CLAIM_PNL_UNSET ||
             err.code === QUANT_DISCLOSURE_UNSET ||
+            err.code === QUANT_SIGNAL_RULES_SANDBOX ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -180,6 +197,7 @@ const strategyVersionRecord = z
     source: z.string(),
     cash: z.string(),
     blocks: z.array(studioBlock),
+    modules: quantSignalRulesSchema.nullable(),
     risk: z.object({
       maxDrawdown: z.string(),
       maxNotional: z.string(),
@@ -277,6 +295,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly runs?: RunRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly disclosure?: DisclosureRepository;
+  /** Omitted refuses by naming the missing database. Production passes Postgres. */
+  readonly templates?: TemplateRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
 }
@@ -302,6 +322,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
+  const templates = deps.templates ?? openTemplateRepository({}).repository;
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
   async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
@@ -342,7 +363,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           z
             .object({
               name: z.string().min(1).max(128),
-              blocks: z.array(studioBlock).min(1),
+              blocks: z.array(studioBlock),
+              modules: quantSignalRulesSchema.optional().nullable(),
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
@@ -371,6 +393,24 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
         ),
+
+      /**
+       * The no-code builder's check: the source the signal rules generate and the inputs they declare. A blank
+       * required input refuses by name (`quant.param_unset`, `quant.sizing_rule_unset`); nothing runs and nothing is
+       * stored.
+       */
+      compile: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ modules: quantSignalRulesSchema, ...accountField }))
+        .output(quantCompileOutputSchema)
+        .query(({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            const compiled = compileSignalRules(input.modules);
+            return { source: compiled.source, inputs: compiled.inputs.map((row) => ({ ...row })) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
 
       /**
        * Saved strategies for the caller's account. `limit` is optional so omit
@@ -419,7 +459,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             .object({
               id: z.string().min(1),
               name: z.string().min(1).max(128),
-              blocks: z.array(studioBlock).min(1),
+              blocks: z.array(studioBlock),
+              modules: quantSignalRulesSchema.optional().nullable(),
               risk: studioRisk,
               cash: decimal.optional().nullable(),
               ...accountField,
@@ -499,6 +540,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               {
                 name,
                 blocks: found.blocks,
+                modules: found.modules,
                 risk: found.risk,
                 cash: found.cash,
                 environment: input.environment ?? found.environment,
@@ -527,6 +569,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               const accountId = accountOf(ctx, input.accountId);
               const found = await strategies.get({ accountId, id: input.id });
               if (!found) missingStrategy();
+              // Signal rules are data for the bar engine; their generated source is a view and names helpers the
+              // sandbox does not have, so it is never run here.
+              if (found.modules) {
+                throw new QuantError(QUANT_SIGNAL_RULES_SANDBOX, 'signal rules run on bars in a backtest, not in the sandbox');
+              }
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               return await trackRun(
                 runs,
@@ -587,6 +634,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           }
         }),
     }),
+
+    /**
+     * The quick start on the Algo dev home: each step is ticked only from this account's own stored rows, never a
+     * fake progress. A paper run is a finished sandbox run (the sandbox is the paper book).
+     */
+    quickStart: publicJurisdictionProcedure('quant', 'fiat')
+      .input(z.object({ ...accountField }).optional())
+      .output(quantQuickStartOutputSchema)
+      .query(async ({ input, ctx }) => {
+        try {
+          const accountId = accountOf(ctx, input?.accountId);
+          const [saved, ran] = await Promise.all([
+            strategies.list({ accountId, limit: 1, cursor: null }),
+            runs.okKinds({ userId: accountId }),
+          ]);
+          return { strategy: saved.strategies.length > 0, backtest: ran.backtest, paperRun: ran.sandbox };
+        } catch (err) {
+          toTrpc(err);
+        }
+      }),
 
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')
@@ -835,6 +902,46 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         ),
     }),
 
+    /** First-party starter templates. Read by any signed-in person; only an operator publishes. */
+    template: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z
+            .object({
+              limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
+              cursor: quantTemplateIdSchema.optional().nullable(),
+              ...accountField,
+            })
+            .optional(),
+        )
+        .output(quantTemplateListOutputSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input?.accountId);
+            if (input?.limit === undefined)
+              throw new QuantError(QUANT_TEMPLATE_LIST_LIMIT_UNSET, 'pass limit; a page size is never invented');
+            const page = await templates.list({ limit: input.limit, cursor: input.cursor ?? null });
+            return { templates: page.templates.map((row) => ({ ...row })), nextCursor: page.nextCursor };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ id: quantTemplateIdSchema, ...accountField }))
+        .output(quantTemplateDetailSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            const versions = await templates.get(input.id);
+            if (!versions) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
+            return { id: input.id, versions: versions.map((row) => ({ ...row })) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     disclosure: router({
       current: publicJurisdictionProcedure('quant', 'fiat')
         .output(quantDisclosureCurrentSchema)
@@ -999,6 +1106,32 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      template: router({
+        /** The next version of a starter template. Every number stays blank; the row records who, why and when. */
+        publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplatePublishInputSchema)
+          .output(quantTemplateVersionSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.publish', { language: 'none' }, async () => {
+              try {
+                const published = await templates.publish({
+                  id: input.id,
+                  name: input.name,
+                  description: input.description,
+                  rules: blankTemplateRules(input.rules),
+                  releaseNote: input.releaseNote,
+                  reason: input.reason,
+                  publishedBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
+                return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+      }),
 
       disclosure: router({
         publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
