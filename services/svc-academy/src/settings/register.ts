@@ -39,6 +39,7 @@ export interface SettingsEnv {
   readonly ACADEMY_MAX_ROOM_CAPACITY?: number | undefined;
   readonly ACADEMY_OUTLINE_MAX_SECTIONS?: number | undefined;
   readonly ACADEMY_OUTLINE_MAX_ITEMS?: number | undefined;
+  readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
   readonly TRADE_URL?: string | undefined;
   readonly ACADEMY_STREAM_PROVIDER?: 'none' | 'livekit' | undefined;
@@ -187,6 +188,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.outline_limits_unset',
+    },
+    {
+      key: 'lesson_import_size_limit',
+      state: state(positiveInt(env.ACADEMY_LESSON_IMPORT_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.import_limit_unset',
     },
     {
       // No store and no recipe: always not set, always refuse-closed.

@@ -97,6 +97,16 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-course-structure-03: the largest lesson file, in bytes, the Academy desk imports. Blank / unset is
+       * unpublished: an import refuses `academy.import_limit_unset`, and a larger file refuses `academy.import_too_large`
+       * before it is parsed.
+       */
+      ACADEMY_LESSON_IMPORT_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1_048_576)]),
+      ),
+
+      /**
        * Stage-1 tournament ladder kill-switch (mirrors flag `academy.tournament`).
        * When false, season/standing procedures refuse `academy.tournament_disabled`.
        */

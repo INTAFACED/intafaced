@@ -673,6 +673,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'It has more sections or items than the owner allows for one course.',
     next: 'Remove some, then save again. Nothing was saved.',
   },
+  'academy.outline_item_unknown': {
+    title: 'The outline changed since you opened it',
+    body: 'Your outline names a section or item this course no longer holds.',
+    next: 'Read the course again and redo your change. Nothing was saved.',
+  },
+  'academy.revision_stale': {
+    title: 'The lesson changed since you opened it',
+    body: 'Someone saved this lesson after you read it, so your change was not applied.',
+    next: 'Read the lesson again and decide again. Nothing was changed.',
+  },
+  'academy.lesson_revision_unknown': {
+    title: 'No such lesson revision',
+    body: 'This lesson has no revision with that number.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'academy.item_has_no_lesson': {
+    title: 'This item holds no lesson',
+    body: 'A subheader is a label and a link opens its address, so neither has lesson content.',
+    next: 'Write the lesson on another item. Nothing was changed.',
+  },
+  'academy.item_kind_locked': {
+    title: 'This item has a lesson',
+    body: 'An item with lesson revisions stays a type that holds a lesson, so it does not become a subheader or a link.',
+    next: 'Add a new subheader or link instead. Nothing was saved.',
+  },
+  'academy.import_limit_unset': {
+    title: 'The import size limit is not set',
+    body: 'The owner has not set the largest lesson file the desk imports, so no file is imported.',
+    next: 'The owner sets the limit for this deployment. Nothing was read or created.',
+  },
+  'academy.import_too_large': {
+    title: 'The file is over the size limit',
+    body: 'This lesson file is larger than the owner allows, so it was refused before it was read.',
+    next: 'Split the lesson or shorten it. Nothing was created.',
+  },
   'academy.course_not_found': {
     title: 'No such course',
     body: 'svc-academy has no course with this id.',

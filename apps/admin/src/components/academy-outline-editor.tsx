@@ -1,7 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { ACADEMY_OUTLINE_ITEM_KINDS, type AcademyOutlineItemKind } from '@intafaced/contracts/academy-courses';
+import Link from 'next/link';
+import {
+  ACADEMY_ITEMS_WITHOUT_LESSON,
+  ACADEMY_OUTLINE_ITEM_KINDS,
+  type AcademyOutlineItemKind,
+} from '@intafaced/contracts/academy-courses';
 import type { AcademyCourseDetail } from '@/lib/academy/courses-model';
 
 /**
@@ -9,11 +14,21 @@ import type { AcademyCourseDetail } from '@/lib/academy/courses-model';
  *
  * Sections of typed items, in order, with an indent of 0 to 2. The whole outline is saved at once over the revision the
  * page read; svc-academy refuses while the owner's section and item limits are blank, and past them. A published course's
- * outline is shown, not edited here.
+ * outline is shown, not edited here. A stored item keeps its id, so its lesson (AC-course-structure-03) survives reordering
+ * and renaming; removing the item and saving deletes its lesson with it.
  */
 
-type Item = { kind: AcademyOutlineItemKind; title: string; indent: number; url: string };
-type Section = { title: string; items: Item[] };
+/** `id` is the stored item's or section's: it keeps an item's lesson across saves. A new one has none until saved. */
+type Item = {
+  id?: string;
+  kind: AcademyOutlineItemKind;
+  title: string;
+  indent: number;
+  url: string;
+  lessonRevision: number | null;
+  liveRevision: number | null;
+};
+type Section = { id?: string; title: string; items: Item[] };
 
 const KIND_WORDS: Record<AcademyOutlineItemKind, string> = {
   lesson: 'Lesson',
@@ -28,18 +43,54 @@ const KIND_WORDS: Record<AcademyOutlineItemKind, string> = {
 
 const fromDetail = (d: AcademyCourseDetail): Section[] =>
   d.outline.map((s) => ({
+    id: s.id,
     title: s.title,
-    items: s.items.map((i) => ({ kind: i.kind, title: i.title, indent: i.indent, url: i.url ?? '' })),
+    items: s.items.map((i) => ({
+      id: i.id,
+      kind: i.kind,
+      title: i.title,
+      indent: i.indent,
+      url: i.url ?? '',
+      lessonRevision: i.lessonRevision,
+      liveRevision: i.liveRevision,
+    })),
   }));
 
 /** What the service takes: a link keeps its address, every other kind sends none. */
 export const outlineBody = (sections: readonly Section[]) =>
   sections.map((s) => ({
+    ...(s.id ? { id: s.id } : {}),
     title: s.title.trim(),
-    items: s.items.map((i) => ({ kind: i.kind, title: i.title.trim(), indent: i.indent, url: i.kind === 'link' ? i.url.trim() : null })),
+    items: s.items.map((i) => ({
+      ...(i.id ? { id: i.id } : {}),
+      kind: i.kind,
+      title: i.title.trim(),
+      indent: i.indent,
+      url: i.kind === 'link' ? i.url.trim() : null,
+    })),
   }));
 
-function move<T>(list: readonly T[], from: number, to: number): T[] {
+/** Where an item's lesson is written, and what learners see of it. Only a saved item that holds a lesson has one. */
+function LessonLink({ courseId, item, name }: { courseId: string; item: Item; name: string }) {
+  if (!item.id || (ACADEMY_ITEMS_WITHOUT_LESSON as readonly string[]).includes(item.kind)) return null;
+  const state =
+    item.lessonRevision === null
+      ? 'nothing written'
+      : item.liveRevision === null
+        ? `revision ${item.lessonRevision}, not published`
+        : `revision ${item.lessonRevision}, learners see ${item.liveRevision}`;
+  return (
+    <span className="dk-muted">
+      <Link href={`/academy-ops/catalogue/courses/${courseId}/items/${item.id}`} aria-label={`Write ${name}`}>
+        Write
+      </Link>{' '}
+      ({state})
+    </span>
+  );
+}
+
+/** One entry moved from `from` to `to`; out of range leaves the list as it is. */
+export function move<T>(list: readonly T[], from: number, to: number): T[] {
   if (to < 0 || to >= list.length) return [...list];
   const next = [...list];
   const [one] = next.splice(from, 1);
@@ -84,7 +135,8 @@ export function OutlineEditor({
               <ol>
                 {s.items.map((i) => (
                   <li key={i.id} style={{ marginLeft: `${i.indent * 16}px` }}>
-                    {KIND_WORDS[i.kind]}: {i.title}
+                    {KIND_WORDS[i.kind]}: {i.title}{' '}
+                    <LessonLink courseId={detail.course.id} item={{ ...i, url: i.url ?? '' }} name={i.title} />
                   </li>
                 ))}
               </ol>
@@ -205,6 +257,7 @@ export function OutlineEditor({
                     >
                       Remove
                     </button>
+                    <LessonLink courseId={detail.course.id} item={item} name={name} />
                   </li>
                 );
               })}
@@ -212,7 +265,12 @@ export function OutlineEditor({
             <button
               type="button"
               className="adm-btn"
-              onClick={() => setSection(si, { ...section, items: [...section.items, { kind: 'lesson', title: '', indent: 0, url: '' }] })}
+              onClick={() =>
+                setSection(si, {
+                  ...section,
+                  items: [...section.items, { kind: 'lesson', title: '', indent: 0, url: '', lessonRevision: null, liveRevision: null }],
+                })
+              }
             >
               Add item to section {si + 1}
             </button>
