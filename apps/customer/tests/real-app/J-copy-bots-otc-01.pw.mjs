@@ -34,7 +34,7 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   // No journey ever lists a signal leader, so that tab is the empty directory: the words, and no row at all.
   await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
   await expect(page).toHaveURL(/tab=signal/);
-  await expect(page.getByText('No leaders are listed yet')).toBeVisible();
+  await expect(page.getByText('No leaders are listed')).toBeVisible();
   await expect(page.getByRole('table', { name: 'Leaders' }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
 
   // The desk state comes from the service (TEST fee share and country list are published on this stack).

@@ -187,7 +187,7 @@ const messages = {
     'No follow exists for that leader, so the request did not go through.',
   'No grid service exists. Nothing is simulated.': 'No grid service exists. Nothing is simulated.',
   'No leader matches that name': 'No leader matches that name',
-  'No leaders are listed yet': 'No leaders are listed yet',
+  'No leaders are listed': 'No leaders are listed',
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
@@ -196,7 +196,7 @@ const messages = {
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
     'No recurring-order service exists. Use Convert for a single trade.',
-  'No trades yet': 'No trades yet',
+  'No trades on record': 'No trades on record',
   'None set': 'None set',
   'None, each slice trades at the market': 'None, each slice trades at the market',
   'None, slices trade at the market': 'None, slices trade at the market',

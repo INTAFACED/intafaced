@@ -182,7 +182,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
           minWidth={900}
           errorState={trades.failure ? <RefusalNote failure={trades.failure} retry={trades.reload} /> : undefined}
           emptyState={
-            <EmptyState size="inline" title={t('No trades yet')} reason={t('This leader has not traded on a live spot market.')} />
+            <EmptyState size="inline" title={t('No trades on record')} reason={t('This leader has not traded on a live spot market.')} />
           }
         />
         <span className="cb-meta">

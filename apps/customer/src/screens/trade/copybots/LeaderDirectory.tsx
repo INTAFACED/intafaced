@@ -183,7 +183,7 @@ export function LeaderDirectory({
           <EmptyState
             size="inline"
             variant="empty"
-            title={query ? t('No leader matches that name') : t('No leaders are listed yet')}
+            title={query ? t('No leader matches that name') : t('No leaders are listed')}
             reason={
               query
                 ? t('Try another name, or clear the search.')
