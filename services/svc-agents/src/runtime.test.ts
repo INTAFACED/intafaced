@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { describe, expect, it, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
@@ -173,8 +173,14 @@ if (!available) {
   const balanceOf = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, 'IFC'))).amount);
   const houseOf = async () => formatAmount((await ledger.balance(houseFees('agents', 'IFC'))).amount);
 
+  let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
+
+  beforeAll(async () => {
+    lockConn = await sql.reserve();
+  });
+
   beforeEach(async () => {
-    await sql`select pg_advisory_lock(842671)`;
+    await lockConn`select pg_advisory_lock(842671)`;
     await sql`
       TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
       RESTART IDENTITY CASCADE
@@ -191,13 +197,14 @@ if (!available) {
     await runtime.registerAgent(THRIFTY);
     await fund(USER_A, '1000');
     await fund(USER_B, '1000');
-  }, 180_000);
+  }, 30_000);
 
   afterEach(async () => {
-    await sql`select pg_advisory_unlock(842671)`;
+    await lockConn`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {
+    lockConn.release();
     await sql.end({ timeout: 5 });
   });
 
@@ -1506,7 +1513,7 @@ if (!available) {
       const before = provider.callCount;
       await expect(
         unbilled.think({ sessionId: session.id, requestId: 'off-inflight', task: 'plan', messages: MESSAGES }),
-      ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
       expect(provider.callCount).toBe(before);
       const rows = await sql<Array<{ status: string; n: string }>>`
         SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status

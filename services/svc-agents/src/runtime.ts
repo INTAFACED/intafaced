@@ -484,12 +484,22 @@ export class AgentRuntime {
             { requestId: input.requestId },
           );
         }
-        // A committed or in-flight row does not authorize another completion.
-        // Metering-off used to call the provider again on that row, with no new
-        // hold. Decide a new reservation against the committed total first.
-        // If it does not fit, reserve throws agents.spend_limit and the
-        // provider is not called.
-        if (held.replayed && (held.status === 'committed' || held.status === 'held')) {
+        // An in-flight hold for this request id is the reservation. Reuse that
+        // row. A new key would be a second hold, and calling the provider on
+        // the old row would be a completion the hold did not authorize.
+        if (held.replayed && held.status === 'held') {
+          throw new AgentError(
+            `Request id "${input.requestId}" is already held on session ${session.id}`,
+            'agents.spend_reservation_conflict',
+            'agents.refused.spend_reservation_conflict',
+            { requestId: input.requestId },
+          );
+        }
+        // A committed row is a finished call. Metering-off must not invent
+        // agents.request_id_replay. A new reservation is decided against the
+        // committed total. If it does not fit, reserve throws agents.spend_limit
+        // and the provider is not called.
+        if (held.replayed && held.status === 'committed' && !shouldMeter) {
           reservationKey = randomUUID();
           held = await this.spend.reserve({
             userId: session.userId,
