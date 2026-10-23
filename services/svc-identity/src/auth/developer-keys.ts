@@ -209,7 +209,9 @@ class SameRequestRace extends Error {}
 
 async function assertNameFree(sql: Sql, userId: string, name: string): Promise<void> {
   const taken = await sql<Array<{ id: string }>>`
-    SELECT id FROM api_keys WHERE user_id = ${userId} AND revoked = false AND lower(name) = lower(${name}) LIMIT 1
+    SELECT id FROM api_keys
+    WHERE user_id = ${userId} AND revoked = false AND (expires_at IS NULL OR expires_at > now()) AND lower(name) = lower(${name})
+    LIMIT 1
   `;
   if (taken[0]) throw new DeveloperKeyError('You already have a key with this name', 'identity.key_name_taken');
 }
@@ -233,8 +235,15 @@ export async function createDeveloperKey(
   if (replay) return replay;
   // The name and the cap are checked before the factor is spent, so a refused form keeps its code. Both are decided
   // again under the lock below, which is the check that holds when two creates race.
-  await assertNameFree(deps.sql, caller.userId, checked.name);
-  await assertUnderCap(deps, caller.userId, deps.sql);
+  try {
+    await assertNameFree(deps.sql, caller.userId, checked.name);
+    await assertUnderCap(deps, caller.userId, deps.sql);
+  } catch (err) {
+    // The twin of this request may have committed since the replay read: its key is this request's answer, not a clash.
+    const twin = await replayOf(deps.sql, caller.userId, input.requestId, checked.fingerprint);
+    if (twin) return twin;
+    throw err;
+  }
   await deps.mayMint?.(caller.userId, !input.factorProof ? 'none' : 'webauthn' in input.factorProof ? 'passkey' : 'other');
   try {
     return await guardedApiKeyAction(

@@ -321,17 +321,44 @@ if (!available) {
     });
 
     it('makes one key when the same request id arrives twice at once', async () => {
+      // Repeated, so the twin can land at each point of the other's path: before its replay read, between that read
+      // and the name and cap checks, and while it waits for the lock.
+      for (let round = 0; round < 8; round += 1) {
+        const s = await register();
+        const c = await caller(s);
+        const asked = ask(s.userId, 'bot-1');
+        const [p1, p2] = [await proof(s), await proof(s)];
+        const results = await Promise.all([
+          c.developerKeys.create({ ...asked, factorProof: p1 }),
+          c.developerKeys.create({ ...asked, factorProof: p2 }),
+        ]);
+        expect(results.filter((r) => r.key !== null)).toHaveLength(1);
+        expect(results[0]!.record.id).toBe(results[1]!.record.id);
+        expect(await keysOf(s.userId)).toHaveLength(1);
+      }
+    });
+
+    it('lets only one of two different requests for the same name through', async () => {
       const s = await register();
       const c = await caller(s);
-      const asked = ask(s.userId, 'bot-1');
       const [p1, p2] = [await proof(s), await proof(s)];
-      const results = await Promise.all([
-        c.developerKeys.create({ ...asked, factorProof: p1 }),
-        c.developerKeys.create({ ...asked, factorProof: p2 }),
+      const results = await Promise.allSettled([
+        c.developerKeys.create({ ...ask(s.userId, 'bot-1'), factorProof: p1 }),
+        c.developerKeys.create({ ...ask(s.userId, 'BOT-1', { scopes: ['trade:read', 'trade:write'] }), factorProof: p2 }),
       ]);
-      expect(results.filter((r) => r.key !== null)).toHaveLength(1);
-      expect(results[0]!.record.id).toBe(results[1]!.record.id);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(String(refused.reason.message)).toContain('[identity.key_name_taken]');
       expect(await keysOf(s.userId)).toHaveLength(1);
+    });
+
+    it('frees the name of a key that has ended', async () => {
+      const s = await register();
+      const c = await caller(s);
+      const made = await c.developerKeys.create({ ...ask(s.userId, 'bot-1'), factorProof: await proof(s) });
+      await db.sql`UPDATE api_keys SET expires_at = now() - interval '1 second' WHERE id = ${made.record.id}`;
+      const again = await c.developerKeys.create({ ...ask(s.userId, 'bot-1', { scopes: ['trade:write'] }), factorProof: await proof(s) });
+      expect(again.key).toMatch(/^ifc_/);
     });
 
     it('refuses an API key or a sub-account caller on every door', async () => {
