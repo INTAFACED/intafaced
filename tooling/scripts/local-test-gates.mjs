@@ -770,14 +770,25 @@ export async function setBookHalt(ctx, symbol, halted) {
  * Blank is not a place count: publishing refuses rather than inventing one.
  */
 function labelledTestPrecision(assetId) {
-  const profile = readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json'), null);
-  const raw = profile?.values?.[`LEDGER_ASSET_PRECISION_${assetId}`]?.value;
-  const text = typeof raw === 'string' ? raw.trim() : '';
+  const dir = path.join(REPO, 'tooling', 'profiles', 'test-owner-values');
+  const key = `LEDGER_ASSET_PRECISION_${assetId}`;
+  let text = '';
+  if (fs.existsSync(dir)) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const profile = readJson(path.join(dir, name), null);
+      const raw = profile?.values?.[key]?.value;
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        text = raw.trim();
+        break;
+      }
+    }
+  }
   if (text === '') {
-    throw new Error(`TEST precision for ${assetId} is blank in tooling/profiles/test-owner-values.json`);
+    throw new Error(`TEST precision for ${assetId} is blank in tooling/profiles/test-owner-values/`);
   }
   if (!/^(0|[1-9]\d*)$/.test(text)) {
-    throw new Error(`TEST precision for ${assetId} is not an integer in tooling/profiles/test-owner-values.json`);
+    throw new Error(`TEST precision for ${assetId} is not an integer in tooling/profiles/test-owner-values/`);
   }
   const places = Number(text);
   if (places > 18) throw new Error(`TEST precision for ${assetId} is above 18`);
