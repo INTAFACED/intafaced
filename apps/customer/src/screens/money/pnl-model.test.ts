@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pnlView, type LotBook } from './pnl-model';
+import { methodFromQuery, pnlView, type LotBook } from './pnl-model';
 import type { MoneyRow } from './portfolio-source';
 
 // TEST data, hand-computed.
@@ -85,5 +85,27 @@ describe('pnlView', () => {
 
   it('an empty book has no assets and no total', () => {
     expect(pnlView(book({ assets: [], realizedUsd: null }), [])).toEqual({ assets: [], unrealisedUsd: null, realisedUsd: null });
+  });
+});
+
+describe('average price and the method in the link', () => {
+  it('average price is cost over the bought quantity, fee inside: 0.0999 BTC received for 7.7 USDT is 77.077077...', () => {
+    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '0.0999', openCostUsd: '7.7', held: '0.0999' }] }), [
+      row('BTC', '0.0999', '13.2867'),
+    ]);
+    expect(view.assets[0]!.avgPriceUsd).toBe('77.077077077077077077');
+    expect(view.assets[0]!.costUsd).toBe('7.7');
+  });
+
+  it('an unknown cost has no average price, never a zero', () => {
+    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '1' }] }), [row('BTC', '1', '250')]);
+    expect(view.assets[0]!.avgPriceUsd).toBeNull();
+  });
+
+  it('?method= picks FIFO by default, takes the three methods in any case, and names anything else as unknown', () => {
+    expect(methodFromQuery('')).toBe('FIFO');
+    expect(methodFromQuery('?method=lifo')).toBe('LIFO');
+    expect(methodFromQuery('?method=HIFO')).toBe('HIFO');
+    expect(methodFromQuery('?method=AVERAGE')).toEqual({ unknown: 'AVERAGE' });
   });
 });

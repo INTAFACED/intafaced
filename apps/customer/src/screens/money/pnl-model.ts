@@ -12,6 +12,14 @@ import type { MoneyRow } from './portfolio-source';
 export const LOT_METHODS = ['FIFO', 'LIFO', 'HIFO'] as const;
 export type LotMethod = (typeof LOT_METHODS)[number];
 
+/** `?method=` on /money/pnl: absent is the product default FIFO, one of the three is that method, anything else is refused. */
+export function methodFromQuery(search: string): LotMethod | { unknown: string } {
+  const raw = new URLSearchParams(search).get('method');
+  if (raw === null || raw === '') return 'FIFO';
+  const upper = raw.toUpperCase();
+  return (LOT_METHODS as readonly string[]).includes(upper) ? (upper as LotMethod) : { unknown: raw };
+}
+
 export const lotBookSchema = z.object({
   method: z.enum(LOT_METHODS),
   indicator: z.literal('indicator_not_tax_advice'),
@@ -42,6 +50,8 @@ export interface AssetPnl {
   /** Quantity held that no trade accounts for (arrived by deposit or transfer, or left another way). */
   otherQty: Decimal;
   costUsd: Decimal | null;
+  /** Cost per coin of the bought quantity (cost / bought quantity), fee included; null when the cost is unknown. */
+  avgPriceUsd: Decimal | null;
   valueUsd: Decimal | null;
   unrealisedUsd: Decimal | null;
   /** Unrealised as a ratio of cost ("0.25"); null when cost is zero or unknown. */
@@ -88,6 +98,7 @@ export function pnlView(book: LotBook, rows: readonly MoneyRow[] | null): PnlVie
       knownQty: line.openQty,
       otherQty: otherOf(dec(line.held), open),
       costUsd: line.openCostUsd,
+      avgPriceUsd: cost === null ? null : decOrNull(ratio(cost, open)),
       valueUsd: decOrNull(value),
       unrealisedUsd: decOrNull(unrealised),
       unrealisedRatio: unrealised !== null && cost !== null && cost > 0n ? decOrNull(ratio(unrealised, cost)) : null,

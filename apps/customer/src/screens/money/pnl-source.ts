@@ -6,18 +6,21 @@ import { lotBookSchema, type LotBook, type LotMethod } from './pnl-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
-export function useLotBook(method: LotMethod): Loadable<LotBook> {
+/** `null` is a method the service does not offer: nothing is asked, and the read is refused with the service's own code. */
+export function useLotBook(method: LotMethod | null): Loadable<LotBook> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        env.userId
-          ? env.poller.source<LotBook>(
-              `tax-lot-book:${env.userId}:${method}`,
-              (signal) => env.api.query('tax', 'lotBook', { method }, lotBookSchema, { signal }),
-              { intervalMs: LOT_BOOK_INTERVAL },
-            )
-          : constantSource<LotBook>({ status: 'refused', code: 'auth.required' }),
+        method === null
+          ? constantSource<LotBook>({ status: 'refused', code: 'tax.lot_method_required' })
+          : env.userId
+            ? env.poller.source<LotBook>(
+                `tax-lot-book:${env.userId}:${method}`,
+                (signal) => env.api.query('tax', 'lotBook', { method }, lotBookSchema, { signal }),
+                { intervalMs: LOT_BOOK_INTERVAL },
+              )
+            : constantSource<LotBook>({ status: 'refused', code: 'auth.required' }),
       [env, method],
     ),
   );

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
 import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
-import { LOT_METHODS, pnlView, type AssetPnl, type LotBook, type LotMethod, type UnknownReason } from './pnl-model';
+import { LOT_METHODS, methodFromQuery, pnlView, type AssetPnl, type LotBook, type LotMethod, type UnknownReason } from './pnl-model';
 import { useLotBook } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
@@ -35,7 +35,7 @@ function usd(value: string | null, copy: Copy, signed = false): string {
   return value === null ? copy.t('Not known') : fmtUsd(value, { showPlus: signed });
 }
 
-function MethodSwitch({ method, onChange, copy }: { method: LotMethod; onChange: (next: LotMethod) => void; copy: Copy }) {
+function MethodSwitch({ method, onChange, copy }: { method: LotMethod | null; onChange: (next: LotMethod) => void; copy: Copy }) {
   const { t } = copy;
   return (
     <div className="money-alloc__switch" role="group" aria-label={t('Matching method')}>
@@ -63,6 +63,9 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
               {t('Bought quantity')}
             </th>
             <th scope="col" className="money-num">
+              {t('Average price')}
+            </th>
+            <th scope="col" className="money-num">
               {t('Cost')}
             </th>
             <th scope="col" className="money-num">
@@ -85,7 +88,10 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
               <td className="money-num">
                 <Amount value={fmtAmount(a.knownQty)} hidden={hidden} />
               </td>
-              <td className="money-num">
+              <td className="money-num" data-col="average">
+                <Amount value={usd(a.avgPriceUsd, copy)} hidden={hidden} />
+              </td>
+              <td className="money-num" data-col="cost">
                 <Amount value={usd(a.costUsd, copy)} hidden={hidden} />
               </td>
               <td className="money-num">
@@ -169,11 +175,13 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
   );
 }
 
-export default function Pnl() {
+export default function Pnl({ search = '' }: { search?: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
   const { hideBalances } = usePreferences();
-  const [method, setMethod] = useState<LotMethod>('FIFO');
+  const asked = useMemo(() => methodFromQuery(search), [search]);
+  const [picked, setPicked] = useState<LotMethod | null>(null);
+  const method = picked ?? (typeof asked === 'string' ? asked : null);
   const book = useLotBook(method);
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
@@ -190,6 +198,16 @@ export default function Pnl() {
         title={t('Couldn’t load your profit and loss')}
         onRetry={book.retry}
         retryLabel={t('Try again')}
+      />
+    );
+  } else if (book.status === 'refused' && method === null) {
+    body = (
+      <StateBlock
+        kind="refused"
+        className="money-state"
+        title={t('Method not offered')}
+        body={t('Method not offered body')}
+        code={book.code}
       />
     );
   } else if (book.status === 'refused') {
@@ -257,7 +275,7 @@ export default function Pnl() {
       <p className="money-note" data-indicator="true">
         {t('Pnl indicator label')}
       </p>
-      <MethodSwitch method={method} onChange={setMethod} copy={copy} />
+      <MethodSwitch method={method} onChange={setPicked} copy={copy} />
       <p className="money-note">{t('Pnl method rule')}</p>
       {body}
       <p className="money-note">
