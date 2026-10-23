@@ -52,7 +52,13 @@ export interface ChartApi {
     setVisibleLogicalRange(range: { from: number; to: number }): void;
     subscribeVisibleLogicalRangeChange(handler: (range: { from: number; to: number } | null) => void): void;
     unsubscribeVisibleLogicalRangeChange(handler: (range: { from: number; to: number } | null) => void): void;
+    getVisibleRange(): { from: number; to: number } | null;
+    setVisibleRange(range: { from: number; to: number }): void;
+    subscribeVisibleTimeRangeChange(handler: (range: { from: number; to: number } | null) => void): void;
+    unsubscribeVisibleTimeRangeChange(handler: (range: { from: number; to: number } | null) => void): void;
   };
+  setCrosshairPosition(price: number, time: number, series: ChartSeries): void;
+  clearCrosshairPosition(): void;
   subscribeCrosshairMove(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   unsubscribeCrosshairMove(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
   subscribeClick(handler: (param: { time?: number; point?: { x: number; y: number }; logical?: number }) => void): void;
