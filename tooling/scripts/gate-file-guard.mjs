@@ -65,6 +65,7 @@ export const GATE_PATHS = [
   ['.agents/**', 'agent skills and rules'],
   ['docs/agents/**', 'the build, review and brief guides AGENTS.md tells every agent to read'],
   ['.cursor/rules/**', 'agent rules'],
+  ['.claude/**', 'the permissions, startup hook and subagents every Claude session in this repo loads'],
   ['turbo.json', 'which tasks CI runs and how they depend on each other'],
   ['.prettierignore', 'which files the format check skips'],
   ['package.json', 'the root scripts CI and verify run'],
