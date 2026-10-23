@@ -54,9 +54,6 @@ export const pagesCopy = defineCopy('public-pages', {
   participationBlueprint: 'Build a private profile that you choose whether to share.',
   campOpen: 'Open',
   campSignIn: 'Sign in to open',
-  campDetailTitle: 'This campaign is not published',
-  campDetailBody: 'No campaign with this reference exists.',
-  campBack: 'Back to campaigns',
   // About and landing
   insideTitle: 'What is inside today',
   insideIntro: 'Every room below is part of the app now. Some wait on a connected service and say so when you open them.',

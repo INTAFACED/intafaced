@@ -1852,7 +1852,9 @@ export class AuthService {
         if (err instanceof WebAuthnError) return refuse();
         throw err;
       }
-      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
+      // A passkey that just passed an assertion is a verified passkey (`requireVerifiedPasskey` reads this stamp).
+      const lastVerifiedAt = new Date().toISOString();
+      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter, lastVerifiedAt } : c));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
     });
   }

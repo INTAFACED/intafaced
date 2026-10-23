@@ -1,8 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { checkAccess, type KycTier } from '@intafaced/config';
+import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
+import { readPoolOverview } from './overview.js';
 import { readPoolTerms } from './pool-terms.js';
+import { dialPool, ProbeRateLimit, runProbe, type Dial } from './probe.js';
 import type { MiningReadStore } from './reads.js';
 
 const decimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
@@ -41,14 +45,50 @@ function refusal(code: string, message: string): never {
   throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: new MiningError(message, code) });
 }
 
+/** mining-pool on the fiat plane. Same `checkAccess` arguments as `workers.mine`, and no extra scope. */
+function refuseMiningPool(ctx: { readonly region: string; readonly principal: { readonly tier: KycTier } }): void {
+  const decision = checkAccess({
+    module: 'mining-pool',
+    plane: 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause: new JurisdictionError(decision) });
+  }
+}
+
+export type MiningPublishDeps = {
+  /** When set, readers use this map instead of `process.env` (tests). */
+  readonly env?: NodeJS.ProcessEnv;
+  readonly now?: () => number;
+  readonly dial?: Dial;
+  readonly limiter?: ProbeRateLimit;
+};
+
 /**
- * Signed reads for the customer Rewards room and the founder Mining desk.
+ * Signed reads for the customer Mining room and the founder Mining desk.
  * Own-account procedures require `ledger:read`. Operator procedures require
- * `admin:read`. No `mining:*` scope is introduced here.
+ * `admin:read`. Overview, connection and the reachability probe are signed-in
+ * reads with no extra scope. After authentication they run the same mining-pool
+ * fiat `checkAccess` as `workers.mine`, and refuse that decision before reading
+ * or dialing. No `mining:*` scope is introduced here.
  */
-export function createMiningRouter(reads: MiningReads, terms: () => ReturnType<typeof readPoolTerms> = () => readPoolTerms()) {
+export function createMiningRouter(
+  reads: MiningReads,
+  terms: () => ReturnType<typeof readPoolTerms> = () => readPoolTerms(),
+  publish: MiningPublishDeps = {},
+) {
   const customer = scopedProcedure('ledger:read', { module: 'mining-pool' });
   const operator = scopedProcedure('admin:read', { module: 'mining-pool' });
+  const envOf = () => publish.env ?? process.env;
+  const now = publish.now ?? Date.now;
+  const dial = publish.dial ?? dialPool;
+  const limiter = publish.limiter ?? new ProbeRateLimit();
+  const signed = protectedProcedure.use(({ ctx, next }) => {
+    refuseMiningPool(ctx);
+    return next({ ctx });
+  });
   return router({
     workers: router({
       mine: customer
@@ -214,6 +254,58 @@ export function createMiningRouter(reads: MiningReads, terms: () => ReturnType<t
         }),
       )
       .query(() => terms()),
+    overview: signed
+      .output(
+        z.object({
+          version: z.string().min(1),
+          what: z.string().nullable(),
+          coin: z.string().nullable(),
+          hardware: z.string().nullable(),
+          revenueSplit: z.string().nullable(),
+          notSupported: z.string().nullable(),
+        }),
+      )
+      .query(() => {
+        try {
+          return readPoolOverview(envOf());
+        } catch (err) {
+          fail(err);
+        }
+      }),
+    connection: signed
+      .output(
+        z.object({
+          host: z.string().min(1),
+          port: z.string().regex(/^[1-9]\d{0,4}$/),
+          secureUrl: z.string().nullable(),
+          accountId: z.string().min(1),
+          workerNamePattern: z.string().nullable(),
+          credentialOffered: z.literal(false),
+          credentialReason: z.literal(CREDENTIAL_NOT_ISSUED),
+        }),
+      )
+      .query(({ ctx }) => {
+        try {
+          return readPoolConnection(envOf(), ctx.principal.userId);
+        } catch (err) {
+          fail(err);
+        }
+      }),
+    probe: signed
+      .output(
+        z.object({
+          result: z.enum(['reachable', 'refused', 'timed_out']),
+          roundTripMs: z.string().regex(/^(0|[1-9]\d*)$/),
+          viewpoint: z.literal('pool_network'),
+        }),
+      )
+      .query(async ({ ctx }) => {
+        try {
+          return await runProbe({ env: envOf(), userId: ctx.principal.userId, nowMs: now(), limiter, dial });
+        } catch (err) {
+          fail(err);
+        }
+      }),
   });
 }
 

@@ -33,7 +33,7 @@ import {
   optionalListingCategory,
   requireListingCategory,
 } from './listing-categories.js';
-import { MARKET_OPS_SCOPE, MarketError, type VendorService } from '../vendor-service.js';
+import { MARKET_OPS_SCOPE, MarketError, type PublicVendorProfile, type VendorService } from '../vendor-service.js';
 
 /** Public `listings` page size unpublished. Blank is not 50. */
 export const MARKET_PUBLIC_LISTINGS_LIST_LIMIT_UNSET = 'market.public_listings_list_limit_unset' as const;
@@ -149,6 +149,14 @@ export interface ListingRecord {
 export interface PublicListingRecord extends ListingRecord {
   /** That vendor's listings with status `active`. Integer, not a float. */
   vendorListingCount: number;
+}
+
+/** Shopfront detail. Vendor is the public profile — no seller user id. */
+export interface PublicListingDetail {
+  listing: ListingRecord;
+  vendor: PublicVendorProfile;
+  /** Listings of this vendor with status `active`. A count, not money. */
+  activeListingCount: number;
 }
 
 export interface PublicListingsPage {
@@ -581,6 +589,44 @@ export class CommerceService {
   async getListing(listingId: string): Promise<ListingRecord | null> {
     const [row] = await this.sql<ListingRow[]>`SELECT * FROM market.listings WHERE id = ${listingId}`;
     return row ? toListing(row) : null;
+  }
+
+  /**
+   * One shopfront listing (MC-market-01). Blank commission refuses before the
+   * read. Missing, archived, taken down, a subscription with no period, an
+   * unlisted vendor and a slot that is not live are the same null.
+   * `market.stake_unavailable` is not folded into that null.
+   */
+  async publicListing(listingId: string): Promise<PublicListingDetail | null> {
+    this.requireCommissionConfigured();
+    const [row] = await this.sql<ListingRow[]>`
+      SELECT id, vendor_id, title, description, offer_type, asset_id, price::text AS price,
+             period_seconds, status, created_at, updated_at
+        FROM market.listings
+       WHERE id = ${listingId}
+    `;
+    if (!row || row.status !== 'active') return null;
+    if (row.offer_type === 'subscription' && (row.period_seconds == null || row.period_seconds === '')) return null;
+
+    const eligibility = await this.vendors.listingEligibility({ vendorId: row.vendor_id });
+    if (!eligibility.listed) return null;
+    if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) return null;
+    const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
+    if (!entitled.has(row.id)) return null;
+    const vendor = await this.vendors.publicProfile(row.vendor_id);
+    if (!vendor) return null;
+
+    const [countRow] = await this.sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n
+        FROM market.listings
+       WHERE vendor_id = ${row.vendor_id}
+         AND status = 'active'
+    `;
+    const activeListingCount = Number(countRow?.n);
+    if (!Number.isInteger(activeListingCount) || activeListingCount < 1) {
+      throw new MarketError('market.vendor_listing_count_unreadable', 'market.vendor_listing_count_unreadable');
+    }
+    return { listing: toListing(row), vendor, activeListingCount };
   }
 
   /**
