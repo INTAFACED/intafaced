@@ -160,6 +160,7 @@ const support = new SupportService(
     assistantModel: env.SUPPORT_ASSISTANT_MODEL ?? null,
     searchQueryMax: env.SUPPORT_SEARCH_QUERY_MAX ?? null,
   },
+  env.SUPPORT_COMMENT_CAP ?? null,
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(
