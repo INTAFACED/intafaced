@@ -48,11 +48,12 @@ export function statusPageRouter(deps?: StatusPageDeps) {
       call(async ({ book, notices }) => {
         const at = now();
         const definition = await book.definition();
-        const days = definition.uptimeDays ?? 1;
+        // Incidents resolved inside the uptime window are listed; with the window blank, the feed's own maximum.
+        const days = definition.uptimeDays ?? STATUS_UPTIME_DAYS_MAX;
         const ids = definition.components.map((c) => c.id);
         const [latest, window, feed] = await Promise.all([
           book.latest(),
-          definition.uptimeDays === null ? Promise.resolve([]) : book.since(uptimeStart(at, days)),
+          definition.uptimeDays === null ? Promise.resolve([]) : book.daily(uptimeStart(at, days)),
           notices
             ? notices.statusFeedFor(ids, { days: Math.min(days, STATUS_UPTIME_DAYS_MAX) }, at)
             : Promise.resolve({ incidents: [], maintenance: [] }),

@@ -111,6 +111,15 @@ export class PostgresNoticeStore implements NoticeStore {
   constructor(private readonly sql: Sql) {}
 
   async insert(row: NoticeRow): Promise<void> {
+    // The components trigger answers a name the page no longer defines (a definition changed after the board checked).
+    await this.insertRow(row).catch((err: { code?: string; message?: string }) => {
+      if (err?.code === '23514' && err.message === 'notify.notice_component_unknown')
+        throw new NoticeError('notify.notice_component_unknown');
+      throw err;
+    });
+  }
+
+  private async insertRow(row: NoticeRow): Promise<void> {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,

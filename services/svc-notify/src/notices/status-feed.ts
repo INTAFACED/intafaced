@@ -160,7 +160,8 @@ function dayKey(ms: number): string {
 
 /**
  * `components` is the set the feed is about: the built-in three by default, or the status page's own. An incident or
- * maintenance window lists only the components of that set, and one that names none of them is still listed.
+ * maintenance window lists only the components of that set; one that names components but none of the set is left out,
+ * and one that names no component at all is listed.
  */
 export function buildStatusFeed(
   rows: readonly NoticeRow[],
@@ -169,9 +170,11 @@ export function buildStatusFeed(
   components: readonly StatusComponent[] = STATUS_COMPONENTS,
 ): StatusFeed {
   const inSet = (named: readonly StatusComponent[]) => named.filter((c) => components.includes(c));
+  // A notice that names components, none of them in this set, is about another page and is left out.
+  const about = (named: readonly StatusComponent[]) => named.length === 0 || inSet(named).length > 0;
   const now = at.getTime();
   const windowStart = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) - (days - 1) * DAY_MS;
-  const threads = threadsOf(rows, at);
+  const threads = threadsOf(rows, at).filter((t) => about(t.segments.flatMap((s) => s.components)));
 
   const open = threads.filter((t) => t.resolvedAt === null);
   const inWindow = threads.filter((t) => t.resolvedAt !== null && t.resolvedAt.getTime() >= windowStart);
@@ -196,7 +199,7 @@ export function buildStatusFeed(
   }));
 
   const maintenance: StatusMaintenance[] = rows
-    .filter((row) => row.kind === 'maintenance' && row.publishedAt !== null)
+    .filter((row) => row.kind === 'maintenance' && row.publishedAt !== null && about(row.components))
     .filter((row) => (row.startsAt ? row.startsAt.getTime() <= now : true) && (row.endsAt ? row.endsAt.getTime() > now : true))
     .map((row) => ({
       id: row.id,

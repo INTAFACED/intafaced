@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { guestNotificationsRouter } from './guests/router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import type { GuestNotificationService } from './guests/service.js';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, STATUS_COMPONENTS_MAX } from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
@@ -1274,7 +1274,7 @@ export function createNotifyRouter(
             startsAt: z.string().datetime({ offset: true }).nullable().optional(),
             endsAt: z.string().datetime({ offset: true }).nullable().optional(),
             impact: statusImpact.nullable().optional(),
-            components: z.array(z.string().regex(STATUS_COMPONENT_PATTERN)).max(20).nullable().optional(),
+            components: z.array(z.string().regex(STATUS_COMPONENT_PATTERN)).max(STATUS_COMPONENTS_MAX).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
             asset: noticeAsset.nullable().optional(),

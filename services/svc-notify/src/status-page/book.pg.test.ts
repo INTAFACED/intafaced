@@ -65,7 +65,7 @@ describe.skipIf(!URL || !available)('status page book on the shared test databas
       await expect(book.record({ ...reading, componentId: 'pg-test-ghost' }, FOUNDER, at)).rejects.toMatchObject({
         code: 'status.component_unknown',
       });
-      expect((await book.since(reading.observedAt)).filter((r) => r.componentId === 'pg-test-trading')).toHaveLength(1);
+      expect((await book.daily(reading.observedAt)).find((d) => d.componentId === 'pg-test-trading')?.states).toEqual(['operational']);
       expect((await book.latest()).find((r) => r.componentId === 'pg-test-trading')).toMatchObject({ state: 'operational' });
 
       await expect(client!`DELETE FROM notify.status_readings WHERE component_id = 'pg-test-trading'`).rejects.toThrow(/append-only/);

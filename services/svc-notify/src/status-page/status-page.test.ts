@@ -156,7 +156,7 @@ describe('component state', () => {
     });
     await h.book.record(base, FOUNDER, NOW);
     await h.book.record(base, FOUNDER, NOW);
-    expect(await h.book.since(new Date(0))).toHaveLength(1);
+    expect(await h.book.daily(new Date(0))).toEqual([{ componentId: 'trading', date: '2026-10-23', states: ['operational'] }]);
     await expect(h.book.record({ ...base, state: 'degraded' }, FOUNDER, NOW)).rejects.toMatchObject({ code: 'status.reading_conflict' });
   });
 });
@@ -220,8 +220,19 @@ describe('incidents', () => {
     expect(page.components[0]).toMatchObject({ state: 'operational', basis: 'reading', incidentId: null });
     expect(page.incidents[0]!.updates.map((u) => u.body)).toEqual(['Investigating', 'Fixed']);
     expect(page.incidents[0]!.resolvedAt).not.toBeNull();
-    // The developer feed still lists only its three built-in components.
-    expect((await h.notices.statusFeed({ days: 1 })).incidents[0]!.components).toEqual([]);
+    // An incident about page components only is not on the developer feed, which reports its three built-in components.
+    expect((await h.notices.statusFeed({ days: 1 })).incidents).toEqual([]);
+    // And an incident about a built-in component only is not on the page.
+    await h.publish({
+      kind: 'incident',
+      title: 'API errors',
+      body: 'Investigating',
+      impact: 'minor',
+      components: ['api'],
+      clientRequestId: 'api',
+    });
+    expect((await h.read()).incidents.map((i) => i.title)).toEqual(['Slow fills']);
+    expect((await h.notices.statusFeed({ days: 1 })).incidents.map((i) => i.title)).toEqual(['API errors']);
   });
 
   it('says the page is unavailable when it is not wired', async () => {

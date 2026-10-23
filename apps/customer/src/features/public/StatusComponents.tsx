@@ -39,6 +39,7 @@ export function StatusComponents() {
       </p>
     );
   const page = load.data;
+  const grouped = groups(page.components);
   return (
     <>
       {page.overall === 'none_defined' ? (
@@ -61,9 +62,9 @@ export function StatusComponents() {
           </section>
           <section className="pub-card" aria-labelledby="status-components" data-testid="status-components">
             <h2 id="status-components">{copy.t('componentsTitle')}</h2>
-            {groups(page.components).map(([group, rows]) => (
+            {grouped.map(([group, rows]) => (
               <div key={group ?? ''} className="status-group">
-                {group !== null || groups(page.components).length > 1 ? <h3>{group ?? copy.t('ungrouped')}</h3> : null}
+                {group !== null || grouped.length > 1 ? <h3>{group ?? copy.t('ungrouped')}</h3> : null}
                 <ul className="status-components">
                   {rows.map((row) => (
                     <ComponentRow key={row.id} row={row} uptimeDays={page.settings.uptimeDays} />

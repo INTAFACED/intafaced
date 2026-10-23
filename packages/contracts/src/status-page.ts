@@ -19,7 +19,6 @@ export const STATUS_PAGE_ERROR_CODES = [
   'status.component_cap_unset',
   'status.component_cap_reached',
   'status.component_unknown',
-  'status.component_duplicate',
   'status.reading_in_future',
   'status.reading_conflict',
   'status.page_revision_stale',

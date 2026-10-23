@@ -14,7 +14,7 @@ import {
   type StatusReadingState,
 } from '@intafaced/contracts';
 import type { StatusFeed } from '../notices/status-feed.js';
-import type { StatusDefinition, StatusReading } from './book.js';
+import type { StatusDay, StatusDefinition, StatusReading } from './book.js';
 
 const DAY_MS = 86_400_000;
 const INCIDENT_STATE = { minor: 'degraded', major: 'partial_outage', critical: 'major_outage' } as const;
@@ -28,35 +28,30 @@ export function uptimeStart(at: Date, days: number): Date {
 
 function uptimeOf(
   componentId: string,
-  readings: readonly StatusReading[],
+  days: ReadonlyMap<string, readonly StatusReadingState[]>,
   at: Date,
-  days: number | null,
+  window: number | null,
 ): StatusPage['components'][number]['uptime'] {
-  if (days === null) return [];
-  const start = uptimeStart(at, days).getTime();
-  const out: { date: string; state: StatusReadingState | null }[] = [];
-  for (let i = 0; i < days; i += 1) {
-    const from = start + i * DAY_MS;
-    let state: StatusReadingState | null = null;
-    for (const r of readings) {
-      const t = r.observedAt.getTime();
-      if (r.componentId !== componentId || t < from || t >= from + DAY_MS || t > at.getTime()) continue;
-      state = state === null ? r.state : (worse(state, r.state) as StatusReadingState);
-    }
-    out.push({ date: new Date(from).toISOString().slice(0, 10), state });
-  }
-  return out;
+  if (window === null) return [];
+  const start = uptimeStart(at, window).getTime();
+  return Array.from({ length: window }, (_, i) => {
+    const date = new Date(start + i * DAY_MS).toISOString().slice(0, 10);
+    const states = days.get(`${componentId} ${date}`) ?? [];
+    const state = states.reduce<StatusReadingState | null>((acc, s) => (acc === null ? s : (worse(acc, s) as StatusReadingState)), null);
+    return { date, state };
+  });
 }
 
 export function buildStatusPage(input: {
   definition: StatusDefinition;
   latest: readonly StatusReading[];
-  window: readonly StatusReading[];
+  window: readonly StatusDay[];
   feed: Pick<StatusFeed, 'incidents' | 'maintenance'>;
   at: Date;
 }): StatusPage {
   const { definition, latest, window, feed, at } = input;
   const open = feed.incidents.filter((incident) => incident.resolvedAt === null);
+  const byDay = new Map(window.map((day) => [`${day.componentId} ${day.date}`, day.states]));
   const components = definition.components.map((component) => {
     const reading = latest.find((r) => r.componentId === component.id) ?? null;
     let state: StatusPageState = 'no_data';
@@ -89,7 +84,7 @@ export function buildStatusPage(input: {
       basis,
       reading: reading ? { state: reading.state, observedAt: reading.observedAt.toISOString(), source: reading.source } : null,
       incidentId,
-      uptime: uptimeOf(component.id, window, at, definition.uptimeDays),
+      uptime: uptimeOf(component.id, byDay, at, definition.uptimeDays),
     };
   });
   const overall =

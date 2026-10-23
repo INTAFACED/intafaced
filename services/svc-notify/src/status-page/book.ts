@@ -56,9 +56,11 @@ export interface StatusPageBook {
   record(reading: StatusReading, by: string, at: Date): Promise<StatusReading>;
   /** The newest reading of each component, whatever its age. */
   latest(): Promise<readonly StatusReading[]>;
-  /** Every reading at or after `since`, for the uptime strip. */
-  since(since: Date): Promise<readonly StatusReading[]>;
+  /** For the uptime strip: per component and UTC day from `since`, the distinct states read that day. At most one row per pair. */
+  daily(since: Date): Promise<readonly StatusDay[]>;
 }
+
+export type StatusDay = { readonly componentId: string; readonly date: string; readonly states: readonly StatusReadingState[] };
 
 const blank = (): StatusDefinition => ({
   components: [],
@@ -151,8 +153,17 @@ export class MemoryStatusPageBook implements StatusPageBook {
     return [...newest.values()];
   }
 
-  async since(since: Date): Promise<readonly StatusReading[]> {
-    return this.rows.filter((row) => row.observedAt.getTime() >= since.getTime());
+  async daily(since: Date): Promise<readonly StatusDay[]> {
+    const days = new Map<string, StatusDay & { states: StatusReadingState[] }>();
+    for (const row of this.rows) {
+      if (row.observedAt.getTime() < since.getTime()) continue;
+      const date = row.observedAt.toISOString().slice(0, 10);
+      const key = `${row.componentId} ${date}`;
+      const day = days.get(key) ?? { componentId: row.componentId, date, states: [] };
+      if (!day.states.includes(row.state)) day.states.push(row.state);
+      days.set(key, day);
+    }
+    return [...days.values()];
   }
 }
 
@@ -256,10 +267,12 @@ export class SqlStatusPageBook implements StatusPageBook {
     return rows.map(fromReading);
   }
 
-  async since(since: Date): Promise<readonly StatusReading[]> {
-    const rows = await this.sql<ReadingRow[]>`
-      SELECT component_id, state, observed_at, source FROM notify.status_readings WHERE observed_at >= ${since}
+  async daily(since: Date): Promise<readonly StatusDay[]> {
+    const rows = await this.sql<{ component_id: string; day: string; states: StatusReadingState[] }[]>`
+      SELECT component_id, to_char(observed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, array_agg(DISTINCT state) AS states
+      FROM notify.status_readings WHERE observed_at >= ${since}
+      GROUP BY 1, 2
     `;
-    return rows.map(fromReading);
+    return rows.map((row) => ({ componentId: row.component_id, date: row.day, states: row.states }));
   }
 }

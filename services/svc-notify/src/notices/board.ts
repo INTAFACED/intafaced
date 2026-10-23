@@ -506,9 +506,7 @@ export class NoticeBoard {
   }
 
   async statusFeed(input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
-    const days = clampStatusDays(input.days);
-    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
-    return buildStatusFeed(rows, at, days);
+    return this.statusFeedFor(STATUS_COMPONENTS, input, at);
   }
 
   /** The same feed over another set of components: the public status page's own. Notices naming other components are cut to these. */
