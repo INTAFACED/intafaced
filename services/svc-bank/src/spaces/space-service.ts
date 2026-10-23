@@ -168,8 +168,8 @@ export class SpaceService {
    * `spaces_one_primary_idx` makes the race safe — two concurrent calls produce
    * one row.
    */
-  async ensurePrimary(userId: string, assetId: string, name = 'Main'): Promise<SpaceRecord> {
-    const rows = await this.sql<SpaceRow[]>`
+  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Sql = this.sql): Promise<SpaceRecord> {
+    const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name)
       VALUES (${userId}, ${assetId}, 'primary', ${name})
       ON CONFLICT DO NOTHING
@@ -179,7 +179,7 @@ export class SpaceService {
     const inserted = rows[0];
     if (inserted) return toRecord(inserted);
 
-    const existing = await this.sql<SpaceRow[]>`
+    const existing = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
         FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary'
     `;
@@ -219,8 +219,8 @@ export class SpaceService {
   }
 
   /** Show a removed currency on the account again. A label: nothing moves. */
-  async restoreCurrency(userId: string, assetId: string): Promise<void> {
-    await this.sql`
+  async restoreCurrency(userId: string, assetId: string, db: Sql = this.sql): Promise<void> {
+    await db`
       UPDATE bank.spaces SET removed_at = NULL, updated_at = now()
        WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary' AND removed_at IS NOT NULL
     `;
@@ -242,10 +242,29 @@ export class SpaceService {
     lockedUntil?: Date | null;
   }): Promise<SpaceRecord> {
     const max = requireSpaceLimit(this.options.spaceLimit?.());
-    return transaction(this.sql, async (tx) => {
+    return this.underSpaceLock(input.userId, async (tx) => {
       await this.assertRoomForSpace(tx, input.userId, max);
+      // The primary must exist before a named one is useful (it is where value arrives from every other module), and a
+      // named space puts its currency back on the account if the customer had removed it.
+      await this.ensurePrimary(input.userId, input.assetId, 'Main', tx);
+      await this.restoreCurrency(input.userId, input.assetId, tx);
       return this.create(input, tx);
     });
+  }
+
+  /**
+   * One customer's space labels, changed one call at a time: creates, restores and currency removals for a customer
+   * take the same advisory lock. Read committed, so each statement after the lock sees what the call before it committed.
+   */
+  async underSpaceLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank-spaces:${userId}`}))`;
+        return fn(tx);
+      },
+      { isolation: 'read committed' },
+    );
   }
 
   /** Restore an archived space, inside the same limit as a new one. A live space is a no-op that needs no room. */
@@ -253,8 +272,9 @@ export class SpaceService {
     const space = await this.get(spaceId);
     if (space.kind === 'named' && space.archivedAt) {
       const max = requireSpaceLimit(this.options.spaceLimit?.());
-      await transaction(this.sql, async (tx) => {
+      await this.underSpaceLock(space.userId, async (tx) => {
         await this.assertRoomForSpace(tx, space.userId, max);
+        await this.restoreCurrency(space.userId, space.assetId, tx);
         await tx`
           UPDATE bank.spaces SET archived_at = NULL, updated_at = now()
            WHERE id = ${spaceId} AND archived_at IS NOT NULL
@@ -266,7 +286,6 @@ export class SpaceService {
   }
 
   private async assertRoomForSpace(tx: Sql, userId: string, max: number): Promise<void> {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank-spaces:${userId}`}))`;
     const count = await tx<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NULL
     `;

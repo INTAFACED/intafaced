@@ -967,10 +967,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ id: z.string(), name: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
-          // The primary space must exist before a named one is useful — it is
-          // where value arrives from every other module.
-          await bank.spaces.ensurePrimary(ctx.principal.userId, input.assetId);
-          // Inside the owner's limit on live named spaces; blank refuses `bank.space_limit_unset` (BK-pots-01).
+          // Inside the owner's limit on live named spaces; blank refuses `bank.space_limit_unset` (BK-pots-01) before
+          // any row, the primary included, is written.
           const space = await bank.spaces.createWithinLimit({
             userId: ctx.principal.userId,
             assetId: input.assetId,

@@ -197,6 +197,40 @@ describe('account home (BK-acct-01) and the space limit (BK-pots-01)', () => {
       expect(await api.currencies.add({ assetId: 'USDC' })).toEqual({ assetId: 'USDC', spaceId: added.spaceId, balance: '7' });
     });
 
+    it('puts a removed currency back when a space is made in it, or an archived one restored', async () => {
+      const { api } = as(ADA, { ...allowed, spaceLimit: '5' });
+      await api.currencies.add({ assetId: 'USDC' });
+      const pot = await api.spaces.create({ assetId: 'USDC', name: 'Trip' });
+      await api.spaces.archive({ spaceId: pot.id });
+      await api.currencies.remove({ assetId: 'USDC' });
+      await api.spaces.unarchive({ spaceId: pot.id });
+      expect((await api.currencies.list()).currencies.map((c) => c.assetId)).toEqual(['USDC']);
+
+      await api.spaces.archive({ spaceId: pot.id });
+      await api.currencies.remove({ assetId: 'USDC' });
+      await api.spaces.create({ assetId: 'USDC', name: 'Rent' });
+      expect((await api.currencies.list()).currencies.map((c) => c.assetId)).toEqual(['USDC']);
+    });
+
+    it('never leaves a live space under a removed currency when a remove and a create race', async () => {
+      const { api } = as(ADA, { ...allowed, spaceLimit: '20' });
+      for (let round = 0; round < 5; round += 1) {
+        await api.currencies.add({ assetId: 'USDC' });
+        await Promise.allSettled([
+          api.currencies.remove({ assetId: 'USDC' }),
+          api.spaces.create({ assetId: 'USDC', name: `Race ${round}` }),
+        ]);
+        const [row] = await sql<Array<{ removed: boolean; live: number }>>`
+          SELECT p.removed_at IS NOT NULL AS removed,
+                 (SELECT count(*)::int FROM bank.spaces n WHERE n.user_id = p.user_id AND n.asset_id = p.asset_id
+                     AND n.kind = 'named' AND n.archived_at IS NULL) AS live
+            FROM bank.spaces p WHERE p.user_id = ${ADA} AND p.asset_id = 'USDC' AND p.kind = 'primary'
+        `;
+        expect(row!.live > 0 && row!.removed).toBe(false);
+        await sql`UPDATE bank.spaces SET archived_at = now() WHERE user_id = ${ADA} AND kind = 'named'`;
+      }
+    });
+
     it('touches only the caller’s own currencies', async () => {
       await as(BOB, allowed).api.currencies.add({ assetId: 'USDC' });
       await as(ADA, allowed).api.currencies.remove({ assetId: 'USDC' });
@@ -212,7 +246,8 @@ describe('account home (BK-acct-01) and the space limit (BK-pots-01)', () => {
           .catch((e: unknown) => e);
         expect(codeOf(err)).toBe('bank.space_limit_unset');
       }
-      expect(await sql`SELECT id FROM bank.spaces WHERE kind = 'named'`).toHaveLength(0);
+      // Not even the primary label: a refused create writes no row at all.
+      expect(await sql`SELECT id FROM bank.spaces`).toHaveLength(0);
     });
 
     it('refuses bank.space_limit_reached at the limit with the number; archived spaces do not count until restored', async () => {

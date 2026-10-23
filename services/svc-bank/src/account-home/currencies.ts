@@ -14,7 +14,7 @@
  */
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
-import { formatAmount } from '@intafaced/ledger-client';
+import { accountKey, formatAmount, userAvailable } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { SpaceService } from '../spaces/space-service.js';
 
@@ -67,11 +67,16 @@ export class CurrencyService {
        WHERE user_id = ${userId} AND kind = 'primary' AND archived_at IS NULL AND removed_at IS NULL
        ORDER BY asset_id ASC
     `;
-    const currencies: AccountCurrency[] = [];
-    for (const row of rows) {
-      const space = { id: row.id, userId, assetId: row.asset_id, kind: 'primary' as const };
-      currencies.push({ assetId: row.asset_id, spaceId: row.id, balance: formatAmount(await this.spaces.balanceOf(space)) });
+    // One ledger read for every main balance: a primary space is the customer's `userAvailable` account in its asset.
+    const main = new Map<string, bigint>();
+    for (const b of await this.ledger.balances('user', userId)) {
+      if (accountKey(b.account) === accountKey(userAvailable(userId, b.account.assetId))) main.set(b.account.assetId, b.amount);
     }
+    const currencies: AccountCurrency[] = rows.map((row) => ({
+      assetId: row.asset_id,
+      spaceId: row.id,
+      balance: formatAmount(main.get(row.asset_id) ?? 0n),
+    }));
     let allowed: string[];
     try {
       allowed = this.allowed();
@@ -101,16 +106,25 @@ export class CurrencyService {
   async remove(userId: string, assetId: string): Promise<{ assetId: string; removed: true }> {
     const id = assetId.trim().toUpperCase();
     if (!ASSET.test(id)) throw new BankError(`${id} is not a currency an account can hold`, 'bank.asset_unknown');
-    const accounts = (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id && b.amount !== 0n);
-    if (accounts.length > 0) throw inUse(id);
-    for (const space of await this.spaces.allNamedSpaces(userId, id)) {
-      if (!space.archivedAt || (await this.spaces.balanceOf(space)) !== 0n) throw inUse(id);
-    }
-    await this.sql`
-      UPDATE bank.spaces SET removed_at = now(), updated_at = now()
-       WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'primary' AND removed_at IS NULL
-    `;
-    return { assetId: id, removed: true };
+    // Under the customer's space lock, so a space created in this currency at the same moment either lands first and
+    // refuses this, or lands after and puts the currency back. Money that arrives after the check is not lost: the
+    // next read of the account shows a funded currency again (`ensureHeldPrimaries`).
+    return this.spaces.underSpaceLock(userId, async (tx) => {
+      const accounts = (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id && b.amount !== 0n);
+      if (accounts.length > 0) throw inUse(id);
+      const named = await tx<Array<{ id: string; archived: boolean }>>`
+        SELECT id, archived_at IS NOT NULL AS archived FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'named'
+      `;
+      for (const space of named) {
+        if (!space.archived) throw inUse(id);
+        if ((await this.spaces.balanceOf({ id: space.id, userId, assetId: id, kind: 'named' })) !== 0n) throw inUse(id);
+      }
+      await tx`
+        UPDATE bank.spaces SET removed_at = now(), updated_at = now()
+         WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'primary' AND removed_at IS NULL
+      `;
+      return { assetId: id, removed: true as const };
+    });
   }
 }
 
