@@ -72,6 +72,9 @@ await sql`SELECT 1 FROM market.listing_takedowns LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM market.reviews LIMIT 1`.catch(() => {
   throw new Error('market.reviews is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.listing_category_events LIMIT 1`.catch(() => {
+  throw new Error('market.listing_category_events is missing — run migrations before starting svc-market');
+});
 
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every outgoing call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-market');
@@ -80,7 +83,6 @@ const vendors = new VendorService(sql, createStakeSource(env.TOKEN_URL, env.INTE
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 const commerce = new CommerceService(sql, vendors, ledger, {
   commissionBps: env.MARKET_HOUSE_COMMISSION_BPS ?? null,
-  listingCategories: env.MARKET_LISTING_CATEGORIES ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });

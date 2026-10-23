@@ -144,7 +144,7 @@ describe('market.commerce', () => {
     stakes = new FixedEntitlement(3);
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500, listingCategories: ['signals'] });
+    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
   });
 
   afterAll(async () => {
@@ -162,7 +162,6 @@ describe('market.commerce', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -182,7 +181,6 @@ describe('market.commerce', () => {
           title: 'Orphan bait',
           description: 'Must not claim a slot',
           offerType: 'one_time',
-          category: 'signals',
           assetId: 'USDT',
           price: '10',
         }),
@@ -205,7 +203,6 @@ describe('market.commerce', () => {
         title: 'Hidden while blank',
         description: 'Configured create, blank catalogue',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -234,7 +231,6 @@ describe('market.commerce', () => {
           title: 'Bot',
           description: 'desc',
           offerType: 'one_time',
-          category: 'signals',
           assetId: 'USDT',
           price: '5',
         }),
@@ -248,7 +244,6 @@ describe('market.commerce', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '25.50',
       });
@@ -266,7 +261,6 @@ describe('market.commerce', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -284,7 +278,6 @@ describe('market.commerce', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '100',
       });
@@ -388,7 +381,6 @@ describe('market.commerce', () => {
         title: 'Other',
         description: 'other bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '50',
       });
@@ -508,13 +500,12 @@ describe('market.commerce', () => {
 
     it('settles with explicit zero house commission (owner free rate)', async () => {
       await approvedVendor(VENDOR_USER);
-      const free = new CommerceService(sql, vendors, ledger, { commissionBps: 0, listingCategories: ['signals'] });
+      const free = new CommerceService(sql, vendors, ledger, { commissionBps: 0 });
       const listing = await free.createListing({
         userId: VENDOR_USER,
         title: 'Free commission pack',
         description: 'Owner set 0 bps',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '40',
       });
@@ -562,7 +553,6 @@ describe('market.commerce', () => {
         title: 'Temp',
         description: 'will archive',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -580,7 +570,6 @@ describe('market.commerce', () => {
         title: 'Only one',
         description: 'fills capacity',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -590,7 +579,6 @@ describe('market.commerce', () => {
           title: 'Overflow',
           description: 'no slot left',
           offerType: 'one_time',
-          category: 'signals',
           assetId: 'USDT',
           price: '10',
         }),
@@ -609,7 +597,6 @@ describe('market.commerce', () => {
         title: 'One-shot',
         description: 'buy once',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -637,7 +624,6 @@ describe('market.commerce', () => {
         title: 'One-shot',
         description: 'the slot that would have been stolen',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -654,7 +640,6 @@ describe('market.commerce', () => {
         title: 'A first',
         description: 'oldest',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -663,7 +648,6 @@ describe('market.commerce', () => {
         title: 'B second',
         description: 'middle',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -672,7 +656,6 @@ describe('market.commerce', () => {
         title: 'C third',
         description: 'newest',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -711,7 +694,6 @@ describe('market.commerce', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '100',
       });
@@ -752,7 +734,6 @@ describe('market.commerce', () => {
           title: 'Bot pack',
           description: 'A useful bot',
           offerType: 'one_time',
-          category: 'signals',
           assetId: 'USDT',
           price: '100',
         });
@@ -812,7 +793,6 @@ describe('market.commerce', () => {
             title: `Listing ${i}`,
             description: 'concurrent create wrap',
             offerType: 'one_time',
-            category: 'signals',
             assetId: 'USDT',
             price: '10',
           }),

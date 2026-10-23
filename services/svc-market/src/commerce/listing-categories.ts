@@ -1,88 +1,45 @@
-import { z } from 'zod';
+import { isMarketListingCategory, MARKET_LISTING_CATEGORIES, type MarketListingCategory } from '@intafaced/contracts';
 import { MarketError } from '../vendor-service.js';
 
-/** Owner has not published MARKET_LISTING_CATEGORIES. Not an empty shop list. */
-export const MARKET_CATEGORY_TAXONOMY_UNSET = 'market.category_taxonomy_unset' as const;
+/** Slug is not in the product enum. The service does not add it. */
+export const MARKET_CATEGORY_INVALID = 'market.category_invalid' as const;
 
-/** Caller omitted the category, or sent only whitespace. Not "all categories". */
+/**
+ * A door that must name one category was given nothing.
+ * Not "every listing". Omitted on create is uncategorised, not this code.
+ */
 export const MARKET_LISTING_CATEGORY_UNSET = 'market.listing_category_unset' as const;
 
-/** Slug is not in the published taxonomy. The service does not add it. */
-export const MARKET_LISTING_CATEGORY_UNKNOWN = 'market.listing_category_unknown' as const;
+/** Operator reason missing or shorter than an audit sentence. */
+export const MARKET_CATEGORY_REASON_SHORT = 'market.category_reason_short' as const;
 
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const MAX_SLUG = 32;
-const MAX_CATEGORIES = 64;
+/** Idempotency business key missing. Not a client request id from another door. */
+export const MARKET_CATEGORY_BUSINESS_KEY_REQUIRED = 'market.category_business_key_required' as const;
 
-/**
- * Owner taxonomy from MARKET_LISTING_CATEGORIES.
- * Blank / whitespace is unset. There is no built-in category list.
- * A hole, duplicate, or slug outside `[a-z0-9-]{1,32}` throws — it is not dropped.
- */
-export function readListingCategories(value: unknown): readonly string[] | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string') {
-    throw new Error('MARKET_LISTING_CATEGORIES must be a comma-separated string');
-  }
-  if (value.trim() === '') return undefined;
-  const parts = value.split(',').map((part) => part.trim());
-  if (parts.length > MAX_CATEGORIES) {
-    throw new Error('MARKET_LISTING_CATEGORIES has more than 64 slugs');
-  }
-  const seen = new Set<string>();
-  for (const part of parts) {
-    if (part.length === 0 || part.length > MAX_SLUG || !SLUG.test(part) || seen.has(part)) {
-      throw new Error('MARKET_LISTING_CATEGORIES has a blank, duplicate, or invalid slug');
-    }
-    seen.add(part);
-  }
-  return parts;
+export const MARKET_CATEGORY_NOT_WRITTEN = 'market.category_not_written' as const;
+
+/** Copy of the product enum. A caller mutation does not change the next read. */
+export function listingCategoryEnum(): readonly MarketListingCategory[] {
+  return [...MARKET_LISTING_CATEGORIES];
 }
 
-/**
- * Blank / whitespace is unset, same as house commission bps.
- * `.optional()` is what the services map reads — a missing value does not refuse boot.
- * An invalid list still throws. There is no `.default()` list.
- */
-export const marketListingCategoriesSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === 'string' && value.trim() === '') return undefined;
-    return value;
-  },
-  z
-    .any()
-    .transform((value, ctx): readonly string[] | undefined => {
-      if (value === undefined) return undefined;
-      try {
-        return readListingCategories(value);
-      } catch (err) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: err instanceof Error ? err.message : 'MARKET_LISTING_CATEGORIES is invalid',
-        });
-        return z.NEVER;
-      }
-    })
-    .optional(),
-);
-
-export function requireListingTaxonomy(taxonomy: readonly string[] | null | undefined): readonly string[] {
-  if (taxonomy == null || taxonomy.length === 0) {
-    throw new MarketError(MARKET_CATEGORY_TAXONOMY_UNSET, MARKET_CATEGORY_TAXONOMY_UNSET);
-  }
-  return [...taxonomy];
-}
-
-/** Trimmed slug that is in the published taxonomy. Blank is not "any". */
-export function assertListingCategory(taxonomy: readonly string[] | null | undefined, category: string | null | undefined): string {
+/** Present slug must be the product enum. Blank is not a slug. */
+export function requireListingCategory(category: string | null | undefined): MarketListingCategory {
   if (category == null || category.trim() === '') {
     throw new MarketError(MARKET_LISTING_CATEGORY_UNSET, MARKET_LISTING_CATEGORY_UNSET);
   }
-  const published = requireListingTaxonomy(taxonomy);
   const slug = category.trim();
-  if (!published.includes(slug)) {
-    throw new MarketError(MARKET_LISTING_CATEGORY_UNKNOWN, MARKET_LISTING_CATEGORY_UNKNOWN);
+  if (!isMarketListingCategory(slug)) {
+    throw new MarketError(MARKET_CATEGORY_INVALID, MARKET_CATEGORY_INVALID);
   }
   return slug;
+}
+
+/**
+ * Create path. Null, omitted, and whitespace are uncategorised (null).
+ * A category is checked only when one is given.
+ */
+export function optionalListingCategory(category: string | null | undefined): MarketListingCategory | null {
+  if (category == null || category.trim() === '') return null;
+  return requireListingCategory(category);
 }

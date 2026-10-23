@@ -31,13 +31,14 @@ tRPC under `/trpc` (edge mounts `/api/market`). Principal via edge HMAC
 | `profile`                  | **public**     | One listed vendor's public profile                           |
 | `listed`                   | **public**     | The directory of vendors listed right now                    |
 | `listings`                 | **public**     | Active sellable listings (one-time + perioded subscriptions) |
-| `listingCategories`        | **public**     | Owner category slugs; unset refuses, no built-in list        |
-| `listingsByCategory`       | **public**     | Active one-time listings in one published category           |
+| `listingCategories`        | **public**     | Product category enum (not an owner env list)                |
+| `listingsByCategory`       | **public**     | Short page of active one-time listings in one category       |
 | `commerceProgramme`        | **public**     | Whether house commission bps is configured                   |
 | `applyAsVendor`            | `market:write` | Create the caller's own application (`applied`)              |
 | `mine`                     | `market:read`  | The caller's own application, or `null`                      |
 | `createListing`            | `market:write` | Create a listing; claims a slot named by the listing id      |
-| `createNonStrategyListing` | `market:write` | One-time listing that must name a taxonomy slug              |
+| `createNonStrategyListing` | `market:write` | One-time listing that names a product category slug          |
+| `ops.setListingCategory`   | `market:ops`   | MFA + reason; audit row; idempotent on the business key      |
 | `archiveListing`           | `market:write` | Archive own listing; releases its slot                       |
 | `myListings`               | `market:read`  | Caller's listings                                            |
 | `purchase`                 | `market:write` | One-time or one-period subscription purchase (`purchaseId`)  |
@@ -309,11 +310,18 @@ otherwise.
 | `marketPurchase` | `market.purchase` | buyer available → vendor available + `houseFees('market')` |
 
 - **Idempotency:** `market.purchase:<purchaseId>` (client-supplied).
-- **Categories:** `MARKET_LISTING_CATEGORIES` — **no in-code list**. Blank refuses
-  `market.category_taxonomy_unset`. A non-strategy listing (`createNonStrategyListing`,
-  one-time only) must name a slug from that list; blank is
-  `market.listing_category_unset`, unknown is `market.listing_category_unknown`.
-  Strategy subscriptions stay uncategorised. The column is not seeded.
+- **Categories:** product enum in `@intafaced/contracts` — `bots`, `defi`,
+  `compliance`, `payment_extensions`, `security_custody`, `data`, `advisory`,
+  `partner_integrations`. Not an owner env value. There is no
+  `MARKET_LISTING_CATEGORIES`. An unknown slug is `market.category_invalid`.
+  `createListing` with `offerType: 'one_time'` may omit the category; null means
+  uncategorised, and a category is checked only when one is given. Existing rows
+  stay null. `createNonStrategyListing` still requires a slug (blank is
+  `market.listing_category_unset`). Strategy listings stay uncategorised for now.
+  `listingsByCategory` is a short page; a cursor for that page of category
+  results is a later slice. `ops.setListingCategory` needs `market:ops`, MFA, and
+  a reason. The slug and an audit row (actor and reason) commit in the same
+  transaction, idempotent on the business key. The column is not seeded.
 - **Commission:** `MARKET_HOUSE_COMMISSION_BPS` — **no in-code default**. Unset
   refuses `market.commission_not_configured` on **createListing** and fresh **purchase**
   before any row, slot claim, or post; **public catalogue returns []** so the

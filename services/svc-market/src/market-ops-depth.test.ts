@@ -99,7 +99,7 @@ describe('market ops depth', () => {
     stakes = new FixedEntitlement(200);
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500, listingCategories: ['signals'] });
+    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
     reviews = new ReviewsService(sql);
   });
 
@@ -385,7 +385,6 @@ describe('market ops depth', () => {
           title: i === 7 ? '100% cotton' : `Listing ${String(i).padStart(3, '0')}`,
           description: 'A catalogue row long enough to store',
           offerType: 'one_time',
-          category: 'signals',
           assetId: i % 2 === 0 ? 'USDT' : 'BTC',
           price: i === 0 ? '9.99' : i === 1 ? '10.5' : '1',
         });
@@ -498,7 +497,6 @@ describe('market ops depth', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -588,7 +586,6 @@ describe('market ops depth', () => {
         title: 'USDT pack',
         description: 'settled in tether',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -597,7 +594,6 @@ describe('market ops depth', () => {
         title: 'USDT large',
         description: 'second tether sale',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '20',
       });
@@ -606,7 +602,6 @@ describe('market ops depth', () => {
         title: 'BTC pack',
         description: 'settled in bitcoin',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'BTC',
         price: '40',
       });
@@ -615,7 +610,6 @@ describe('market ops depth', () => {
         title: 'Other',
         description: 'another vendor sale',
         offerType: 'one_time',
-        category: 'signals',
         assetId: 'USDT',
         price: '7',
       });
@@ -644,6 +638,109 @@ describe('market ops depth', () => {
       await expect(reader.myEarnings({ userId: VENDOR_USER })).rejects.toMatchObject({
         code: 'market.earnings_window_unset',
       });
+    });
+  });
+
+  describe('setListingCategory', () => {
+    const reason = 'catalogue desk filed this under bots';
+
+    it('audits actor and reason with the slug, and replays the business key', async () => {
+      await approvedVendor(VENDOR_USER, 'Acme');
+      const listing = await commerce.createListing({
+        userId: VENDOR_USER,
+        title: 'Bot pack',
+        description: 'A useful bot',
+        offerType: 'one_time',
+        assetId: 'USDT',
+        price: '10',
+      });
+      const [before] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(before?.category).toBeNull();
+
+      const filed = {
+        actorId: OPERATOR,
+        actorScope: MARKET_OPS_SCOPE,
+        listingId: listing.id,
+        category: 'bots',
+        reason,
+        businessKey: 'cat-bots-1',
+      };
+      const first = await commerce.setListingCategory(filed);
+      expect(first).toMatchObject({
+        listingId: listing.id,
+        category: 'bots',
+        actorId: OPERATOR,
+        reason,
+        businessKey: 'cat-bots-1',
+      });
+      const again = await commerce.setListingCategory(filed);
+      expect(again).toEqual(first);
+      const [count] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(count?.n).toBe('1');
+      const [after] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(after?.category).toBe('bots');
+
+      await expect(commerce.setListingCategory({ ...filed, reason: 'a different reason that is long enough' })).rejects.toMatchObject({
+        code: 'market.idempotency_conflict',
+      });
+      const [still] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(still?.n).toBe('1');
+
+      const moved = await commerce.setListingCategory({ ...filed, category: 'data', businessKey: 'cat-data-2' });
+      expect(moved.category).toBe('data');
+      expect(moved.businessKey).toBe('cat-data-2');
+      const [two] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(two?.n).toBe('2');
+      const [now] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(now?.category).toBe('data');
+      expect(again.category).toBe('bots');
+
+      await expect(
+        sql`UPDATE market.listing_category_events SET reason = 'rewritten reason text' WHERE business_key = 'cat-bots-1'`,
+      ).rejects.toThrow(/append-only/);
+    });
+
+    it('does not categorise a strategy listing or write an audit', async () => {
+      await approvedVendor(VENDOR_USER, 'Acme');
+      const listing = await commerce.createListing({
+        userId: VENDOR_USER,
+        title: 'Mean',
+        description: 'A listed strategy',
+        offerType: 'subscription',
+        assetId: 'USDT',
+        price: '12.50',
+        periodSeconds: 86_400,
+      });
+      await expect(
+        commerce.setListingCategory({
+          actorId: OPERATOR,
+          actorScope: MARKET_OPS_SCOPE,
+          listingId: listing.id,
+          category: 'bots',
+          reason,
+          businessKey: 'cat-strategy-1',
+        }),
+      ).rejects.toMatchObject({ code: 'market.category_invalid' });
+      const [row] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(row?.category).toBeNull();
+      const [count] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(count?.n).toBe('0');
     });
   });
 });
