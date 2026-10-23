@@ -37,6 +37,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
+// runIf runs this block when Postgres is up and skips only when it is absent.
 describe.runIf(available)('payment link share', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
