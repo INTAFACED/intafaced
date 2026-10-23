@@ -1,5 +1,5 @@
 -- trade.order_stop_trigger · when the stop fired, and the price that reached it (J-cex-spot-06 #6)
--- Reversal: 0099_order_stop_trigger_fired.down.sql
+-- Reversal: 0100_order_stop_trigger_fired.down.sql
 --
 -- Written once from matching.order.triggered: the first delivery wins, a redelivery changes nothing. NULL means the
 -- stop has not fired (or fired before this record existed): the order page says "not recorded", never a guess.
