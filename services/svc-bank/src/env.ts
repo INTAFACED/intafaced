@@ -328,7 +328,7 @@ const schema = serviceEnvSchema
        * `BANK_CARD_ISSUER`: choosing the stand-in has to be an act somebody performed.
        */
       BANK_GLOBAL_PARTNER: z.enum(GLOBAL_PARTNER_SETTINGS).default('none'),
-      /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields). Read only when the setting is `global-sim`. */
+      /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields, and optionally the amounts it screens). Read only when the setting is `global-sim`. */
       BANK_GLOBAL_SIM_JSON: z.string().optional(),
 
       /**

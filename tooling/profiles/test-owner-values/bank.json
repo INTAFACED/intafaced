@@ -63,8 +63,8 @@
     },
     "BANK_PAYEE_CONTROLS_JSON": {
       "service": "bank",
-      "value": "{\"blockedAccounts\": [\"TEST-BLOCKED-ACCOUNT\"]}",
-      "note": "One made-up blocked account so a journey can see the refusal; every real account passes."
+      "value": "{\"blockedAccounts\": [\"999000000001\"]}",
+      "note": "One made-up blocked account number (TEST, shaped so a recipient can be saved with it) so a journey can see the refusal; every real account passes."
     },
     "BANK_EXCHANGE_ALLOWANCE_JSON": {
       "service": "bank",
@@ -78,8 +78,8 @@
     },
     "BANK_GLOBAL_SIM_JSON": {
       "service": "bank",
-      "value": "{\"label\": \"TEST stand-in catalogue for the local stack: not a partner, not a corridor anyone offers, not a rate\", \"corridors\": [{\"country\": \"DE\", \"currency\": \"EUR\", \"deliveryMethods\": [\"sepa\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}, {\"country\": \"GB\", \"currency\": \"GBP\", \"deliveryMethods\": [\"bank_account\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}], \"rates\": [{\"asset\": \"USDT\", \"toCurrency\": \"EUR\", \"rate\": \"2\"}, {\"asset\": \"USDT\", \"toCurrency\": \"GBP\", \"rate\": \"3\"}], \"quoteValidSeconds\": 300, \"etaHours\": 24, \"banks\": [{\"bic\": \"TESTDEFF\", \"bankName\": \"TEST Bank\"}], \"travelRule\": {\"decidedBy\": \"TEST local stack\", \"requiredFields\": []}}",
-      "note": "The global-send stand-in's catalogue: two made-up corridors, rates of 2 and 3 so no one reads them as real, no fee. Loaded only with BANK_GLOBAL_PARTNER=global-sim."
+      "value": "{\"label\": \"TEST stand-in catalogue for the local stack: not a partner, not a corridor anyone offers, not a rate\", \"corridors\": [{\"country\": \"DE\", \"currency\": \"EUR\", \"deliveryMethods\": [\"sepa\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}, {\"country\": \"GB\", \"currency\": \"GBP\", \"deliveryMethods\": [\"bank_account\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}], \"rates\": [{\"asset\": \"USDT\", \"toCurrency\": \"EUR\", \"rate\": \"2\"}, {\"asset\": \"USDT\", \"toCurrency\": \"GBP\", \"rate\": \"3\"}], \"reviewFrom\": [{\"asset\": \"USDT\", \"amount\": \"500\"}], \"quoteValidSeconds\": 300, \"etaHours\": 24, \"banks\": [{\"bic\": \"TESTDEFF\", \"bankName\": \"TEST Bank\"}], \"travelRule\": {\"decidedBy\": \"TEST local stack\", \"requiredFields\": []}}",
+      "note": "The global-send stand-in's catalogue: two made-up corridors, rates of 2 and 3 so no one reads them as real, no fee, and a USDT send of 500 or more is put on hold for a compliance look. Loaded only with BANK_GLOBAL_PARTNER=global-sim."
     },
     "BANK_SEND_FIELD_RULES_JSON": {
       "service": "bank",

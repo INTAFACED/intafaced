@@ -274,6 +274,15 @@ export class GlobalSendService {
   private readonly fieldRules: SendFieldRules | null;
   private readonly payeeControls: PayeeControls | null;
   private readonly exchangeAllowance: ExchangeAllowance | null;
+  private screening: ((sendId: string) => Promise<boolean>) | null = null;
+
+  /**
+   * Who puts a send the stand-in screens on hold (`GlobalHoldService.screen`): true when the send now waits on a hold.
+   * Wired once by the bank service; with no review port it is never asked.
+   */
+  screenWith(screen: (sendId: string) => Promise<boolean>): void {
+    this.screening = screen;
+  }
 
   /** Whether the owner has published the exchange allowance, and its window; never the accounts or the limits. */
   exchangeAllowanceStatus(): { state: 'unset' | 'published'; windowDays: number | null; exchangeCount: number } {
@@ -643,6 +652,11 @@ export class GlobalSendService {
     if (!railId || railId.length > 64) throw personalPayError('bank.global_payout_unusable');
     const account = accountForSpace(space);
     let txId = row.ledger_tx_id;
+    // The TEST stand-in's screening: a send it marks is put on hold here, with nothing posted, and waits in the compliance
+    // queue. A send screened before (its hold released) carries on.
+    if (!txId && this.screening && this.ports.review?.waits({ assetId: row.asset_id, amount: row.amount })) {
+      if (await this.screening(row.id)) return sendView((await this.sendById(row.id)) ?? row);
+    }
     if (!txId) {
       // A hold placed while this send was being checked wins: nothing is posted for a held send.
       const fresh = await this.sendById(row.id);

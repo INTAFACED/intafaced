@@ -31,6 +31,11 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(parseGlobalSim(json({ corridors: [{ ...catalogue.corridors[0], maxAmount: '0' }] }))).toBeNull();
     expect(parseGlobalSim(json({ corridors: [] }))).toBeNull();
     expect(parseGlobalSim(json({ extra: true }))).toBeNull();
+    expect(parseGlobalSim(json({ reviewFrom: [{ asset: 'USDT', amount: '0' }] }))).toBeNull();
+    expect(parseGlobalSim(json({ reviewFrom: [{ asset: 'USDT' }] }))).toBeNull();
+    expect(parseGlobalSim(json({ reviewFrom: '500' }))).toBeNull();
+    // Absent is a catalogue that screens nothing, so one written before screening existed still reads.
+    expect(parseGlobalSim(json({}))).not.toBeNull();
   });
 
   it('is never chosen by default, and refuses to start outside an explicit dev or test process or over a blank catalogue', () => {
@@ -79,6 +84,15 @@ describe('the global-send stand-in (TEST only)', () => {
     expect((await third.fx.quote({ asset: 'USDT', amount: '0.5', toCurrency: 'EUR' })).receiveAmount).toBe('0.166666666666666666');
     const huge = globalSimPorts({ ...catalogue, rates: [{ asset: 'USDT', toCurrency: 'EUR', rate: '99999999999999999999' }] });
     await expect(huge.fx.quote({ asset: 'USDT', amount: '99999999999999999999', toCurrency: 'EUR' })).rejects.toThrow();
+  });
+
+  it('screens a send at or over its TEST amount for that asset; another asset, or no list, is not screened', () => {
+    expect(globalSimPorts(catalogue).review).toBeUndefined();
+    expect(globalSimPorts({ ...catalogue, reviewFrom: [] }).review).toBeUndefined();
+    const review = globalSimPorts({ ...catalogue, reviewFrom: [{ asset: 'USDT', amount: '500' }] }).review!;
+    expect(review.waits({ assetId: 'USDT', amount: '499.999999999999999999' })).toBe(false);
+    expect(review.waits({ assetId: 'USDT', amount: '500' })).toBe(true);
+    expect(review.waits({ assetId: 'BTC', amount: '500' })).toBe(false);
   });
 
   it('pays nobody: the payout is acknowledged with a TEST reference keyed by the send, on its own rail boundary', async () => {

@@ -17,6 +17,10 @@ import { parseProofLimits, type ProofLimits } from './payee-controls.js';
 
 export type HoldState = 'requested' | 'under_review' | 'released';
 
+/** Who placed a hold the stand-in's screening put on: not a person, so it never matches a signed-in operator. */
+export const SCREENING_OPERATOR = 'system:test-screening';
+const SCREENING_REASON = 'TEST screening: the stand-in marks this amount for a compliance look';
+
 type HoldRow = {
   id: string;
   send_id: string;
@@ -141,6 +145,29 @@ export class GlobalHoldService {
       `;
     });
     return holdView(rows[0]!);
+  }
+
+  /**
+   * The TEST stand-in's screening (`GlobalPorts.review`): puts a send it marks on hold before anything is posted, placed by
+   * `SCREENING_OPERATOR`, with no request to the customer until an operator writes one. A send is screened once: one that
+   * has ever been held carries on. True when the send now waits on this hold. Any operator can release it, since the
+   * screening is not a person; it exists only on the stand-in, which is refused under live posture.
+   */
+  async screen(sendId: string): Promise<boolean> {
+    return this.sql.begin(async (tx) => {
+      const moved = await tx`
+        UPDATE bank.global_sends SET status = 'held', updated_at = now()
+        WHERE id = ${sendId} AND status = 'submitted' AND ledger_tx_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM bank.global_send_holds WHERE send_id = ${sendId})
+        RETURNING id
+      `;
+      if (moved.length === 0) return false;
+      await tx`
+        INSERT INTO bank.global_send_holds (id, send_id, hold_key, reason, placed_by, state, info_request)
+        VALUES (${randomUUID()}, ${sendId}, ${`screening:${sendId}`}, ${SCREENING_REASON}, ${SCREENING_OPERATOR}, 'requested', NULL)
+      `;
+      return true;
+    });
   }
 
   /** Writes (or rewrites) what the customer is asked for. Allowed while the hold is open. */
