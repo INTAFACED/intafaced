@@ -17,7 +17,11 @@ const readerToken = z.string().regex(/^[A-Za-z0-9_-]{16,80}$/);
  * answer panel. `kbFeedback` itself stays on the main router so its input can
  * grow a comment and a request without moving the procedure the screen calls.
  */
-export function kbFeedbackProcedures(support: SupportService, mapError: (err: unknown) => never) {
+export function kbFeedbackProcedures(
+  support: SupportService,
+  mapError: (err: unknown) => never,
+  helpCentreOpen: (principal: null) => Promise<void> = async () => {},
+) {
   return {
     /** Signed-out vote. Blank rate refuses and stores nothing. The token is not returned. */
     kbFeedbackPublic: publicProcedure
@@ -31,6 +35,7 @@ export function kbFeedbackProcedures(support: SupportService, mapError: (err: un
       )
       .output(voteOutput)
       .mutation(async ({ input }) => {
+        await helpCentreOpen(null);
         try {
           return await support.kbFeedbackPublic(input);
         } catch (err) {

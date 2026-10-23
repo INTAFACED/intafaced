@@ -26,4 +26,12 @@ describe('helpCentreSwitchedOff (SP-help-centre-03, J-support-public-01 #2)', ()
       helpCentreSwitchedOff({ status: 'failed', failure: { ok: false, status: 503, reason: 'error', code: 'X', message: 'x' } as never }),
     ).toBe(false);
   });
+
+  it('treats an answer door refused support.help_centre_off as switched off, whatever the settings read said', () => {
+    const refused = { ok: false, status: 412, reason: 'error', code: 'PRECONDITION_FAILED', message: 'support.help_centre_off' } as never;
+    expect(helpCentreSwitchedOff({ status: 'ready', data: settings(null) }, refused)).toBe(true);
+    expect(helpCentreSwitchedOff({ status: 'loading' }, refused)).toBe(true);
+    const other = { ok: false, status: 503, reason: 'error', code: 'X', message: 'support.unavailable' } as never;
+    expect(helpCentreSwitchedOff({ status: 'ready', data: settings(null) }, other)).toBe(false);
+  });
 });

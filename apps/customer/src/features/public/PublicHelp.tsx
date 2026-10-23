@@ -58,11 +58,13 @@ export function PublicHelp() {
   const [category, setCategory] = useState<KbCategory>('all');
   const desk = deskCopy.useCopy();
   const helpCentre = useHelpCentre();
-  const switchedOff = helpCentreSwitchedOff(helpCentre);
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
   const visible = read?.context === context && location.href === context.url ? read : null;
+  const switchedOff = helpCentreSwitchedOff(helpCentre, visible?.status === 'failed' ? visible.failure : null);
+  // The switch is read before any answer is drawn, so a switched-off help centre never flashes its answers first.
+  const settingsLoading = helpCentre.status === 'loading';
   const same = (captured: Context) => mounted.current && contextRef.current === captured && location.href === captured.url;
   useEffect(() => {
     mounted.current = true;
@@ -212,11 +214,15 @@ export function PublicHelp() {
         )}
         {article && !switchedOff && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
       </header>
-      {switchedOff ? (
+      {settingsLoading ? (
+        <Loading label={t('loadingCatalogue')} />
+      ) : switchedOff ? (
         <>
           <section className="help__card help__measure" role="status" data-testid="help-centre-off">
-            <h2>{t('switchedOffTitle')}</h2>
-            <p className="muted">{t('switchedOffBody')}</p>
+            <h2 lang={languageFor('switchedOffTitle')}>{t('switchedOffTitle')}</h2>
+            <p className="muted" lang={languageFor('switchedOffBody')}>
+              {t('switchedOffBody')}
+            </p>
           </section>
           <div className="help__request">
             <RequestEntry />

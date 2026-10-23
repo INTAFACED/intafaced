@@ -14,8 +14,10 @@ import {
   SUPPORT_LANGUAGES_UNSET,
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
   SUPPORT_HELP_CENTRE_REVISION_STALE,
+  SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
   kbAudienceVisibleTo,
   supportHelpCentreAddressProblem,
+  supportHelpCentreSchema,
   supportHelpCentreSetKey,
   supportHelpCentreTranslationKey,
   type SupportHelpCentre,
@@ -54,6 +56,13 @@ export class HelpCentreLimitUnsetError extends Error {
   constructor() {
     super(SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET);
     this.name = 'HelpCentreLimitUnsetError';
+  }
+}
+
+export class HelpCentreConflictError extends Error {
+  constructor() {
+    super(SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT);
+    this.name = 'HelpCentreConflictError';
   }
 }
 
@@ -223,7 +232,7 @@ const spineVersions = (): VersionRef[] =>
 
 export class MemoryHelpCentreBook implements HelpCentreBook {
   private state: SupportHelpCentre = blank();
-  private readonly byKey = new Map<string, string>();
+  private readonly byKey = new Map<string, { fingerprint: string; after: SupportHelpCentre }>();
   private readonly versions: VersionRef[] = spineVersions();
   private readonly translations = new Map<string, SupportHelpCentreTranslationState>();
   private readonly receipts = new Map<string, SupportHelpCentreTranslationState>();
@@ -245,7 +254,8 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
     const key = supportHelpCentreSetKey(normalized.expectedRevision);
     const fingerprint = helpCentreFingerprint(normalized.changes, normalized.reason);
     if (normalized.expectedRevision !== this.state.revision) {
-      if (this.byKey.get(key) === fingerprint) return this.state;
+      const logged = this.byKey.get(key);
+      if (logged?.fingerprint === fingerprint) return logged.after;
       throw new HelpCentreStaleError();
     }
     const next = applyChanges(this.state, normalized.changes);
@@ -253,7 +263,7 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
     if (sameValues(this.state, next)) return this.state;
     const after: SupportHelpCentre = { ...next, revision: this.state.revision + 1, updatedAt: normalized.at };
     this.log.push({ key, before: this.state, after, by: normalized.by, reason: normalized.reason, at: normalized.at });
-    this.byKey.set(key, fingerprint);
+    this.byKey.set(key, { fingerprint, after });
     this.state = after;
     return after;
   }
@@ -275,14 +285,12 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
   }
 
   async setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation> {
+    const key = supportHelpCentreTranslationKey(change);
+    const stored = this.receipts.get(key);
+    if (stored !== undefined) return translationReplay(change, stored);
     this.requireOffered(change.language);
     if (!this.versions.some((row) => row.articleId === change.articleId && row.version === change.version)) {
       throw new HelpCentreNotFoundError();
-    }
-    const key = supportHelpCentreTranslationKey(change);
-    const stored = this.receipts.get(key);
-    if (stored !== undefined) {
-      return { articleId: change.articleId, version: change.version, language: change.language, state: stored };
     }
     this.translations.set(translationMapKey(change), change.state);
     this.receipts.set(key, change.state);
@@ -339,6 +347,12 @@ export class MemoryHelpCentreBook implements HelpCentreBook {
     const state = this.translations.get(`${articleId}:${version}:${language}`) ?? 'missing';
     return { articleId, version, state };
   }
+}
+
+/** A request id seen before answers what it first recorded; the same id asking for another state is a conflict. */
+function translationReplay(change: HelpCentreTranslationChange, stored: SupportHelpCentreTranslationState): SupportHelpCentreTranslation {
+  if (stored !== change.state) throw new HelpCentreConflictError();
+  return { articleId: change.articleId, version: change.version, language: change.language, state: stored };
 }
 
 function translationMapKey(input: { articleId: string; version: number; language: string }): string {
@@ -399,8 +413,10 @@ export class SqlHelpCentreBook implements HelpCentreBook {
         `;
         const prior = fromRow(locked);
         if (normalized.expectedRevision !== prior.revision) {
-          const [logged] = await tx<{ fingerprint: string }[]>`SELECT fingerprint FROM support.help_centre_log WHERE key = ${key}`;
-          if (logged?.fingerprint === fingerprint) return prior;
+          const [logged] = await tx<{ fingerprint: string; after: SupportHelpCentre }[]>`
+            SELECT fingerprint, after FROM support.help_centre_log WHERE key = ${key}
+          `;
+          if (logged?.fingerprint === fingerprint) return supportHelpCentreSchema.parse(logged.after);
           throw new HelpCentreStaleError();
         }
         const next = applyChanges(prior, normalized.changes);
@@ -468,6 +484,11 @@ export class SqlHelpCentreBook implements HelpCentreBook {
   async setTranslation(change: HelpCentreTranslationChange): Promise<SupportHelpCentreTranslation> {
     const key = supportHelpCentreTranslationKey(change);
     return this.sql.begin(async (tx) => {
+      // The receipt first: a committed write answers its retry even if the offered languages changed since.
+      const [receipt] = await tx<{ state: SupportHelpCentreTranslationState }[]>`
+        SELECT state FROM support.help_centre_translation_log WHERE key = ${key}
+      `;
+      if (receipt) return translationReplay(change, receipt.state);
       // Share-lock the settings row so a language list cleared in the same moment cannot be written past.
       const [settings] = await tx<{ languages: string[] | null }[]>`
         SELECT languages FROM support.help_centre WHERE singleton FOR SHARE
@@ -484,9 +505,7 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       const [existing] = await tx<{ state: SupportHelpCentreTranslationState }[]>`
         SELECT state FROM support.help_centre_translation_log WHERE key = ${key}
       `;
-      if (existing) {
-        return { articleId: change.articleId, version: change.version, language: change.language, state: existing.state };
-      }
+      if (existing) return translationReplay(change, existing.state);
       await tx`
         INSERT INTO support.help_centre_translation (article_id, version, language, state, set_by, set_at)
         VALUES (${change.articleId}, ${change.version}, ${change.language}, ${change.state}, ${change.by}, ${change.at})
@@ -506,16 +525,22 @@ export class SqlHelpCentreBook implements HelpCentreBook {
 
   async listTranslations(limit: number | undefined): Promise<SupportHelpCentreTranslationList> {
     assertLimit(limit);
-    const settings = await this.get();
-    if (settings.languages === null) return { languages: null, total: null, rows: [] };
-    const languages = settings.languages;
-    const tags = this.sql.array(languages);
-    const [count] = await this.sql<{ total: number }[]>`
+    // One snapshot, so the languages, the total and the rows are read at the same moment.
+    return this.sql.begin('isolation level repeatable read read only', async (tx) => {
+      const [settingsRow] = await tx<SettingsRow[]>`
+      SELECT name, address, default_language, languages, setup_mode, published, revision, updated_at
+      FROM support.help_centre
+    `;
+      const settings = fromRow(settingsRow);
+      if (settings.languages === null) return { languages: null, total: null, rows: [] };
+      const languages = settings.languages;
+      const tags = tx.array(languages);
+      const [count] = await tx<{ total: number }[]>`
       SELECT count(*)::int AS total
       FROM support.kb_article_versions
       CROSS JOIN unnest(${tags}::text[]) AS lang(language)
     `;
-    const rows = await this.sql<{ article_id: string; version: number; language: string; state: SupportHelpCentreTranslationState }[]>`
+      const rows = await tx<{ article_id: string; version: number; language: string; state: SupportHelpCentreTranslationState }[]>`
       SELECT v.id AS article_id, v.version, l.language, COALESCE(t.state, 'missing') AS state
       FROM support.kb_article_versions v
       CROSS JOIN unnest(${tags}::text[]) WITH ORDINALITY AS l(language, ordinality)
@@ -524,10 +549,11 @@ export class SqlHelpCentreBook implements HelpCentreBook {
       ORDER BY v.id, v.version, l.ordinality
       LIMIT ${limit}
     `;
-    return {
-      languages: [...languages],
-      total: count?.total ?? 0,
-      rows: rows.map((row) => ({ articleId: row.article_id, version: row.version, language: row.language, state: row.state })),
-    };
+      return {
+        languages: [...languages],
+        total: count?.total ?? 0,
+        rows: rows.map((row) => ({ articleId: row.article_id, version: row.version, language: row.language, state: row.state })),
+      };
+    }) as Promise<SupportHelpCentreTranslationList>;
   }
 }

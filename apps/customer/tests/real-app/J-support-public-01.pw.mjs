@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { contactChannels, helpCentre, setHelpCentre } from './help-centre.mjs';
-import { ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
 // centre. Tests titled "J-support-public-01 #<n>" prove a whole step. A step that changes an owner setting puts back what
@@ -52,6 +52,10 @@ test(`${J} #2 with the help centre switched off, /help says so, keeps the contac
   const switched = await setHelpCentre({ published: false }, `TEST ${J} #2 switch the help centre off`);
   expect(switched.published).toBe(false);
   try {
+    // The service enforces the switch, not only the page: a signed-out read of the answers refuses by name.
+    const res = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(412);
+    expect((await res.json()).error.message).toBe('support.help_centre_off');
     const page = await visitor(browser);
     for (const path of ['/help', '/helpdetail?id=kb-account-access']) {
       await page.goto(path);

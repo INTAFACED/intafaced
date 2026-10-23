@@ -126,6 +126,44 @@ describe('help centre settings', () => {
     expect((await helpCentre.get()).name).toBe('Help');
   });
 
+  it('a lost reply retried after a later change gets the change it made, not the later state', async () => {
+    const { lead } = await desk();
+    const off = await lead.setHelpCentre({ reason: 'Switch off', expectedRevision: 0, published: false });
+    await lead.setHelpCentre({ reason: 'Switch on', expectedRevision: 1, published: true });
+    expect(await lead.setHelpCentre({ reason: 'Switch off', expectedRevision: 0, published: false })).toEqual(off);
+  });
+
+  it('switched off, the public answer doors refuse support.help_centre_off to everyone but support staff', async () => {
+    const { lead, as } = await desk();
+    const visitor = await as(null);
+    const customer = await as(CUSTOMER, ['support:read', 'support:write']);
+    expect((await visitor.listKb({ limit: 100 })).length).toBeGreaterThan(0);
+    await lead.setHelpCentre({ reason: 'Switch off', expectedRevision: 0, published: false });
+    const off = { code: 'PRECONDITION_FAILED', message: 'support.help_centre_off' };
+    for (const caller of [visitor, customer]) {
+      await expect(caller.listKb({ limit: 100 })).rejects.toMatchObject(off);
+      await expect(caller.searchKb({ q: 'sign', limit: 100 })).rejects.toMatchObject(off);
+      await expect(caller.getKb({ id: 'kb-account-access' })).rejects.toMatchObject(off);
+      await expect(caller.kbRelated({ id: 'kb-account-access' })).rejects.toMatchObject(off);
+    }
+    await expect(
+      customer.kbFeedback({ id: 'kb-account-access', helpful: true, clientRequestId: 'vote-while-off-1' }),
+    ).rejects.toMatchObject(off);
+    await expect(
+      visitor.kbFeedbackPublic({
+        id: 'kb-account-access',
+        helpful: true,
+        clientRequestId: 'vote-while-off-2',
+        readerToken: 'a-reader-token-1234567890',
+      }),
+    ).rejects.toMatchObject(off);
+    // The desk still reads its own answers, and the settings stay readable signed out.
+    expect((await lead.listKb({ limit: 100 })).length).toBeGreaterThan(0);
+    expect((await visitor.helpCentre()).published).toBe(false);
+    await lead.setHelpCentre({ reason: 'Switch back on', expectedRevision: 1, published: true });
+    expect((await visitor.listKb({ limit: 100 })).length).toBeGreaterThan(0);
+  });
+
   it('asking for a language while none are offered refuses and lists no invented gaps', async () => {
     const { as, lead } = await desk();
     await expect((await as(null)).helpCentreLanguage({ language: 'en' })).rejects.toMatchObject({
@@ -177,10 +215,9 @@ describe('help centre settings', () => {
     });
   });
 
-  it('records one translation under the caller request id and a replay does not record a second', async () => {
+  it('records one translation under the caller request id; a replay answers it, the same id with another state conflicts', async () => {
     const { helpCentre, lead, as } = await desk();
     await lead.setHelpCentre({ reason, expectedRevision: 0, languages: ['en'], defaultLanguage: 'en' });
-    const agent = await as(AGENT);
     const input = {
       articleId: 'kb-account-access',
       version: 1,
@@ -189,17 +226,42 @@ describe('help centre settings', () => {
       clientRequestId: 'translate-account-en-1',
       reason: 'English body is in the catalogue',
     };
-    const first = await agent.setHelpCentreTranslation(input);
+    const first = await lead.setHelpCentreTranslation(input);
     expect(first).toEqual({ articleId: 'kb-account-access', version: 1, language: 'en', state: 'translated' });
-    expect(await agent.setHelpCentreTranslation({ ...input, state: 'missing' })).toEqual(first);
+    expect(await lead.setHelpCentreTranslation(input)).toEqual(first);
+    await expect(lead.setHelpCentreTranslation({ ...input, state: 'missing' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'support.help_centre_idempotency_conflict',
+    });
     expect(helpCentre.translationLog).toHaveLength(1);
-    const again = await agent.setHelpCentreTranslation({ ...input, clientRequestId: 'translate-account-en-2', state: 'missing' });
+    const again = await lead.setHelpCentreTranslation({ ...input, clientRequestId: 'translate-account-en-2', state: 'missing' });
     expect(again.state).toBe('missing');
     expect(helpCentre.translationLog).toHaveLength(2);
     await expect(
-      agent.setHelpCentreTranslation({ ...input, articleId: 'kb-not-a-real-article', clientRequestId: 'translate-missing-1' }),
+      lead.setHelpCentreTranslation({ ...input, articleId: 'kb-not-a-real-article', clientRequestId: 'translate-missing-1' }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND', message: 'support.not_found' });
+    // A desk agent is not a lead, and a customer is not staff: neither records a translation.
+    await expect((await as(AGENT)).setHelpCentreTranslation({ ...input, clientRequestId: 'translate-agent-1' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     await expect((await as(CUSTOMER, ['support:write'])).setHelpCentreTranslation(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(helpCentre.translationLog).toHaveLength(2);
+  });
+
+  it('a committed translation answers its retry after the language stopped being offered', async () => {
+    const { lead } = await desk();
+    await lead.setHelpCentre({ reason, expectedRevision: 0, languages: ['en', 'es'], defaultLanguage: 'en' });
+    const input = {
+      articleId: 'kb-account-access',
+      version: 1,
+      language: 'es',
+      state: 'translated' as const,
+      clientRequestId: 'translate-account-es-1',
+      reason: 'Spanish body is in the catalogue',
+    };
+    const first = await lead.setHelpCentreTranslation(input);
+    await lead.setHelpCentre({ reason: 'Spanish withdrawn', expectedRevision: 1, languages: ['en'] });
+    expect(await lead.setHelpCentreTranslation(input)).toEqual(first);
   });
 
   it('refuses a translation while languages are unset, and an unknown article stores nothing', async () => {

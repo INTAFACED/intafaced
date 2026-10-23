@@ -8,6 +8,7 @@ import { supportHelpCentreAddressProblem } from '@intafaced/contracts';
 import {
   HelpCentreInvalidError,
   HelpCentreLanguagesUnsetError,
+  HelpCentreConflictError,
   HelpCentreNotFoundError,
   HelpCentreStaleError,
   SqlHelpCentreBook,
@@ -130,6 +131,14 @@ if (!url) {
       expect(await db.sql`SELECT 1 FROM support.help_centre_log`).toHaveLength(2);
     });
 
+    it('a lost reply retried after a later change gets the change it made, read from the log', async () => {
+      const book = new SqlHelpCentreBook(db.sql);
+      const off = await book.set(change());
+      await book.set(change({ changes: { published: true }, expectedRevision: 1, reason: 'Switch it back on' }));
+      expect(await book.set(change())).toEqual(off);
+      expect((await book.get()).published).toBe(true);
+    });
+
     it('two writers from the same revision: one wins, the other is refused and nothing is lost', async () => {
       const book = new SqlHelpCentreBook(db.sql);
       const results = await Promise.allSettled([
@@ -158,7 +167,7 @@ if (!url) {
       await expect(book.listTranslations(undefined)).rejects.toMatchObject({ message: 'support.help_centre_list_limit_unset' });
     });
 
-    it('lists a real article as missing, records one translation, and a replay keeps the first state', async () => {
+    it('lists a real article as missing, records one translation, a replay answers it and another state on that id conflicts', async () => {
       await seedArticle();
       const book = new SqlHelpCentreBook(db.sql);
       await book.set(change({ changes: { languages: ['en', 'fr'], defaultLanguage: 'en', published: false } }));
@@ -176,7 +185,8 @@ if (!url) {
         at: AT,
       };
       expect(await book.setTranslation(mark)).toMatchObject({ state: 'translated' });
-      expect(await book.setTranslation({ ...mark, state: 'missing' })).toMatchObject({ state: 'translated' });
+      expect(await book.setTranslation(mark)).toMatchObject({ state: 'translated' });
+      await expect(book.setTranslation({ ...mark, state: 'missing' })).rejects.toBeInstanceOf(HelpCentreConflictError);
       expect(await db.sql`SELECT state FROM support.help_centre_translation WHERE article_id = 'kb-account-access'`).toEqual([
         { state: 'translated' },
       ]);

@@ -14,12 +14,18 @@ export const SUPPORT_HELP_CENTRE_SETTING_INVALID = 'support.help_centre_setting_
 export const SUPPORT_HELP_CENTRE_REVISION_STALE = 'support.help_centre_revision_stale';
 export const SUPPORT_LANGUAGES_UNSET = 'support.languages_unset';
 export const SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET = 'support.help_centre_list_limit_unset';
+/** The owner switched the help centre off: the public answer doors refuse a reader who is not support staff. */
+export const SUPPORT_HELP_CENTRE_OFF = 'support.help_centre_off';
+/** A translation request id came back with a different state from the one it first recorded. */
+export const SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT = 'support.help_centre_idempotency_conflict';
 
 export const SUPPORT_HELP_CENTRE_ERROR_CODES = [
   SUPPORT_HELP_CENTRE_SETTING_INVALID,
   SUPPORT_HELP_CENTRE_REVISION_STALE,
   SUPPORT_LANGUAGES_UNSET,
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
+  SUPPORT_HELP_CENTRE_OFF,
+  SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
 ] as const;
 export type SupportHelpCentreErrorCode = (typeof SUPPORT_HELP_CENTRE_ERROR_CODES)[number];
 

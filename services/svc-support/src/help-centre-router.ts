@@ -14,8 +14,12 @@ import {
   SUPPORT_HELP_CENTRE_SETTING_INVALID,
   SUPPORT_LANGUAGES_UNSET,
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
+  SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
+  SUPPORT_HELP_CENTRE_OFF,
 } from '@intafaced/contracts';
+import type { Principal } from '@intafaced/auth';
 import {
+  HelpCentreConflictError,
   HelpCentreInvalidError,
   HelpCentreLanguagesUnsetError,
   HelpCentreLimitUnsetError,
@@ -72,6 +76,7 @@ export function helpCentreProcedures(book: HelpCentreBook, support: Pick<Support
       .output(supportHelpCentreTranslationSchema)
       .mutation(async ({ ctx, input }) => {
         requireSupportOps(ctx.principal!);
+        await requireLead(support, ctx.principal!.userId);
         try {
           return await book.setTranslation({ ...input, by: ctx.principal!.userId, at: new Date().toISOString() });
         } catch (err) {
@@ -93,6 +98,17 @@ export function helpCentreProcedures(book: HelpCentreBook, support: Pick<Support
   };
 }
 
+/**
+ * The publish switch, enforced where the answers are served: once the owner has switched the help centre off, the public
+ * answer doors refuse `support.help_centre_off` to every reader but support staff. A blank switch is not "off".
+ */
+export function helpCentreGate(book: Pick<HelpCentreBook, 'get'>) {
+  return async (principal: Pick<Principal, 'scopes'> | null | undefined): Promise<void> => {
+    if (kbViewerOf(principal).staff) return;
+    if ((await book.get()).published === false) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: SUPPORT_HELP_CENTRE_OFF });
+  };
+}
+
 async function requireLead(support: Pick<SupportService, 'listStaff'>, actorId: string): Promise<void> {
   const actor = (await support.listStaff()).find((member) => member.userId === actorId);
   if (actor?.role !== 'lead') {
@@ -104,6 +120,9 @@ function mapHelpCentre(err: unknown): TRPCError {
   if (err instanceof TRPCError) return err;
   if (err instanceof HelpCentreStaleError) {
     return new TRPCError({ code: 'CONFLICT', message: SUPPORT_HELP_CENTRE_REVISION_STALE, cause: err });
+  }
+  if (err instanceof HelpCentreConflictError) {
+    return new TRPCError({ code: 'CONFLICT', message: SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT, cause: err });
   }
   if (err instanceof HelpCentreInvalidError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: SUPPORT_HELP_CENTRE_SETTING_INVALID, cause: err });

@@ -141,6 +141,9 @@ export const helpCopy = defineCopy(
         'Una solicitud de soporte pertenece a tu cuenta, así que requiere iniciar sesión. Tu búsqueda se queda en esta página.',
       requestSignIn: 'Iniciar sesión',
       requestSignInClose: 'Ahora no',
+      switchedOffTitle: 'El centro de ayuda está desactivado',
+      switchedOffBody:
+        'El propietario ha desactivado las respuestas publicadas en este sitio, así que no se muestra ninguna. Aún puedes contactar con una persona abajo.',
     },
     fr: {
       title: 'Comment pouvons-nous vous aider ?',
@@ -211,6 +214,9 @@ export const helpCopy = defineCopy(
         'Une demande d’assistance est liée à votre compte : il faut donc vous connecter. Votre recherche reste sur cette page.',
       requestSignIn: 'Se connecter',
       requestSignInClose: 'Pas maintenant',
+      switchedOffTitle: 'Le centre d’aide est désactivé',
+      switchedOffBody:
+        'Le propriétaire a désactivé les réponses publiées sur ce site, donc aucune n’est affichée. Vous pouvez toujours joindre une personne ci-dessous.',
     },
   },
 );
