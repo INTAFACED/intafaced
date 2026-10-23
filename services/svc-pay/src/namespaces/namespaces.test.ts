@@ -8,6 +8,7 @@ import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, type Context } from '@intafaced/contracts';
 import type { ControlService } from '../control/service.js';
 import { createFounderAuthority } from '../founder-authority.js';
+import { createMerchantPortalRouter } from '../merchant-portal/router.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
 const NAMESPACES = ['merchantControl', 'merchantMetrics', 'founderAdmin', 'conversion', 'payHalts'] as const;
@@ -181,6 +182,28 @@ describe('W0 namespaces are mounted', () => {
     const merged = mergeRouters(existing, build(vi.fn()));
     expect(procedures(merged)).toContain('health');
     expect(procedures(merged)).toContain('founderAdmin.merchants.list');
+  });
+
+  it('merges with a router that already owns merchant', () => {
+    const portal = createMerchantPortalRouter({
+      sql: {} as never,
+      pay: {} as never,
+      trees: null,
+      team: {} as never,
+    });
+    const namespaces = build(vi.fn());
+    expect(allProcedures(namespaces).some((path) => path.startsWith('merchant.'))).toBe(false);
+    expect(() => mergeRouters(portal, namespaces)).not.toThrow();
+    const merged = mergeRouters(portal, namespaces);
+    expect(allProcedures(merged)).toEqual(
+      expect.arrayContaining([
+        'merchant.customerEmails.get',
+        'merchant.customerEmails.set',
+        'merchant.myAccess',
+        'payments.receipt.preview',
+        'payments.receipt.send',
+      ]),
+    );
   });
 });
 

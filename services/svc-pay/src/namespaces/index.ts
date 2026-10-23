@@ -29,7 +29,7 @@ import { createMerchantControlRouter } from './merchant-control.js';
 import { createMerchantMetricsRouter } from './merchant-metrics.js';
 import { createPayHaltsRouter, type PayHaltsDeps } from './pay-halts.js';
 import { createB2bRampRouter } from '../b2b-ramp/router.js';
-import { createCustomerEmailRouter } from '../customer-emails/router.js';
+import { createCustomerEmailNamespaceRouter } from '../customer-emails/router.js';
 
 export { findUnguardedFounderProcedures, founderProcedure, isFounderGuarded } from './founder-procedure.js';
 export { notBuilt, PayNotBuiltError } from './errors.js';
@@ -129,8 +129,8 @@ export function createPayNamespaces(deps: {
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
-    // M-plat-org-10: customer email switches, and receipt send while email is not connected.
-    createCustomerEmailRouter({ sql: deps.sql }),
+    // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.
+    createCustomerEmailNamespaceRouter({ sql: deps.sql }),
   );
 }
 export type PayNamespacesRouter = ReturnType<typeof createPayNamespaces>;
