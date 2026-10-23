@@ -14,6 +14,11 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Why only isolated': 'Why only isolated',
   'Isolated rule':
     'Every futures position here is isolated: it can lose only the margin you put into it. Cross margin and portfolio margin are not offered.',
+  'Margin from': 'Margin from',
+  'Margin from cash': 'Cash',
+  'Margin from yield_bearing': 'Yield',
+  'Margin from staked': 'Staked',
+  'Margin from lending_idle': 'Lending',
   'Order type': 'Order type',
   'Type market': 'Market',
   'Order types off': 'Not offered on the futures book',

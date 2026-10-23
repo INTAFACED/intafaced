@@ -23,3 +23,18 @@ export const readNotice = async (api: ApiClient, id: string, signal?: AbortSigna
   const result = await api.query('notify', 'notify.notice', { id }, entrySchema, { signal });
   return !result.ok && result.code === NOTICE_NOT_FOUND ? { ok: true, data: null } : result;
 };
+
+const noticeStatusSchema = z.object({ incidents: z.array(entrySchema), maintenance: z.array(entrySchema) });
+export type NoticeStatus = z.infer<typeof noticeStatusSchema>;
+
+/** Open published incidents and maintenance windows. Public, so it works signed out. */
+export const readNoticeStatus = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<NoticeStatus>> =>
+  api.query('notify', 'notify.noticeStatus', undefined, noticeStatusSchema, { signal });
+
+export const ANNOUNCEMENT_UNSET = 'notify.announcement_unset';
+
+/** The current published announcement. None published is an answer, `null`, not a failed read. */
+export const readAnnouncement = async (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice | null>> => {
+  const result = await api.query('notify', 'notify.announcement', undefined, entrySchema, { signal });
+  return !result.ok && result.code === ANNOUNCEMENT_UNSET ? { ok: true, data: null } : result;
+};

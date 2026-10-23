@@ -124,6 +124,8 @@ export function readPlaceBody(
       clientOrderId,
       ...(reduceOnly ? { reduceOnly: true } : {}),
       marginMode: 'isolated',
+      // Passed as sent: the service names a class it does not take (trade.unsupported_collateral_class).
+      ...(body.collateralClass !== undefined ? { collateralClass: body.collateralClass } : {}),
     },
   };
 }

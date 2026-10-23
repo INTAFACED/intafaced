@@ -1,15 +1,22 @@
 import {
   QUANT_FEE_ROLES,
+  quantAccountRulesSchema,
   QUANT_FILL_TIMINGS,
+  QUANT_SPLIT_PRESETS,
+  QUANT_VERDICT_CRITERIA,
+  quantOutOfSampleFrom,
   quantBacktestFeeSchema,
   quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
   type QuantBacktestMetrics,
   type QuantBacktestResult,
+  type QuantCheck,
   type QuantMetric,
+  type QuantSplitPreset,
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
+import { DATAFEED_INTERVAL_MS } from '@intafaced/contracts/datafeed';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
@@ -30,7 +37,7 @@ const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStr
 
 /** The inputs a refusal can name, by the word the service puts first in its message. */
 const NAMED = { cash: 'cash', fees: 'feeRole', slippage: 'slippage', delay: 'delay', from: 'from', to: 'to' } as const;
-type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming';
+type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'oosFrom' | 'holdout' | 'leverage' | 'accountRule';
 type Refusal = { input: Named; detail: string; blank: boolean };
 
 /**
@@ -45,6 +52,19 @@ function namedRefusal(message: string): Refusal | null {
   if (window) return { input: NAMED[window[1] as 'from' | 'to'], detail: window[2]!.trim(), blank: false };
   const timing = /^quant\.fill_timing_unset — (.*)$/.exec(message);
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
+  const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
+  if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
+  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|margin call level|stop-out level) — (.*)$/.exec(message);
+  if (account) {
+    const own = account[1] === 'leverage';
+    return {
+      input: own ? 'leverage' : 'accountRule',
+      detail: own ? account[2]!.trim() : message.split(' — ').slice(1).join(' — '),
+      blank: own && blank(account[2]!),
+    };
+  }
+  const holdout = /^quant\.holdout_(?:overlap|date_unset) — holdout — (.*)$/.exec(message);
+  if (holdout) return { input: 'holdout', detail: holdout[1]!.trim(), blank: false };
   return null;
 }
 
@@ -68,6 +88,11 @@ export function BacktestRoom() {
   const [feeRole, setFeeRole] = useState('');
   const [slippage, setSlippage] = useState('');
   const [delay, setDelay] = useState('');
+  const [split, setSplit] = useState<QuantSplitPreset | ''>('');
+  const [oosFrom, setOosFrom] = useState('');
+  const [enforceHoldout, setEnforceHoldout] = useState(false);
+  const [onMargin, setOnMargin] = useState(false);
+  const [leverage, setLeverage] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -81,6 +106,11 @@ export function BacktestRoom() {
     from: t('from'),
     to: t('to'),
     fillTiming: t('fillTiming'),
+    split: t('split'),
+    oosFrom: t('oosFrom'),
+    holdout: t('holdout'),
+    leverage: t('leverage'),
+    accountRule: t('accountRule'),
   };
   // A refusal shows once, next to the input it names.
   const errorFor = (input: Named): ReactNode =>
@@ -117,6 +147,9 @@ export function BacktestRoom() {
         to: utcInput(to) ?? to,
         fillTiming,
         costs: { feeRole, slippageBps: slippage, delayBars: delay },
+        ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
+        ...(enforceHoldout ? { enforceHoldout: true } : {}),
+        ...(onMargin ? { simulatedAccount: { leverage } } : {}),
       },
       quantBacktestResultSchema,
     );
@@ -205,6 +238,66 @@ export function BacktestRoom() {
                     />
                   </div>
                   <Select
+                    label={t('split')}
+                    value={split}
+                    onChange={(value) => edited(setSplit)(value as QuantSplitPreset | '')}
+                    options={[
+                      { value: '', label: t('splitNone') },
+                      ...QUANT_SPLIT_PRESETS.map((value) => ({ value, label: t(SPLIT_WORDS[value]) })),
+                    ]}
+                  />
+                  {split === 'custom' && (
+                    <Field
+                      label={t('oosFrom')}
+                      type="datetime-local"
+                      value={oosFrom}
+                      onChange={(e) => edited(setOosFrom)(e.target.value)}
+                      error={errorFor('oosFrom')}
+                    />
+                  )}
+                  {split && strategy?.modules && (
+                    <SplitPreview from={from} to={to} preset={split} oosFrom={oosFrom} barSize={strategy.modules.barSize} />
+                  )}
+                  {selectError('split')}
+                  <label className="quant-check-line">
+                    <input
+                      type="checkbox"
+                      className="quant-run-check"
+                      checked={enforceHoldout}
+                      onChange={(e) => edited(setEnforceHoldout)(e.target.checked)}
+                    />
+                    {t('holdout')}
+                  </label>
+                  {selectError('holdout')}
+                  <fieldset className="quant-account" data-testid="quant-account">
+                    <legend>{t('accountTitle')}</legend>
+                    <label className="quant-check-line">
+                      <input
+                        type="checkbox"
+                        className="quant-run-check"
+                        checked={onMargin}
+                        onChange={(e) => edited(setOnMargin)(e.target.checked)}
+                      />
+                      {t('onMargin')}
+                    </label>
+                    {onMargin ? (
+                      <>
+                        <Field
+                          label={t('leverage')}
+                          value={leverage}
+                          onChange={(e) => edited(setLeverage)(e.target.value)}
+                          inputMode="decimal"
+                          maxLength={8}
+                          error={errorFor('leverage')}
+                        />
+                        <AccountRules />
+                        {selectError('accountRule')}
+                      </>
+                    ) : (
+                      <p className="muted">{t('cashAccount')}</p>
+                    )}
+                  </fieldset>
+                  <Select
                     label={t('fillTiming')}
                     value={fillTiming}
                     onChange={edited(setFillTiming)}
@@ -252,6 +345,63 @@ export function BacktestRoom() {
   );
 }
 
+/** An ISO instant as its UTC minute, "2026-10-23 03:40". */
+const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
+
+const SPLIT_WORDS = { '1/2': 'split_half', '1/3': 'split_third', '1/4': 'split_quarter', custom: 'split_custom' } as const;
+
+/** Both parts of the split as the service will cut them, shown before Run: the same rule, on the strategy's bar size. */
+function SplitPreview(props: { from: string; to: string; preset: QuantSplitPreset; oosFrom: string; barSize: string }) {
+  const { t } = backtestCopy.useCopy();
+  const at = (value: string) => Date.parse(utcInput(value) ?? '');
+  const span = DATAFEED_INTERVAL_MS[props.barSize as keyof typeof DATAFEED_INTERVAL_MS];
+  const fromMs = at(props.from);
+  const toMs = at(props.to);
+  const custom = props.preset === 'custom' ? at(props.oosFrom) : undefined;
+  const cut =
+    Number.isFinite(fromMs) && Number.isFinite(toMs) && span ? quantOutOfSampleFrom({ fromMs, toMs }, props.preset, span, custom) : null;
+  if (cut === null)
+    return (
+      <p className="muted" data-testid="quant-split-preview">
+        {t('splitShort')}
+      </p>
+    );
+  const minute = (ms: number) => utcText(new Date(ms).toISOString());
+  return (
+    <p data-testid="quant-split-preview" data-oos-from={new Date(cut).toISOString()}>
+      {t('splitPreview', { isFrom: minute(fromMs), isTo: minute(cut), oosFrom: minute(cut), oosTo: minute(toMs) })}
+    </p>
+  );
+}
+
+/** The owner's published margin rules, read only; a blank one reads "not set" and a margin run refuses it by name. */
+function AccountRules() {
+  const api = useApi();
+  const { t } = backtestCopy.useCopy();
+  const rules = useResource(
+    (signal) => api.query('quant', 'backtest.accountRules', undefined, quantAccountRulesSchema, { signal }),
+    'quant-account-rules',
+  );
+  return (
+    <Read resource={rules.resource} retry={rules.reload}>
+      {(data) => (
+        <div data-testid="quant-account-rules">
+          <p className="muted">{t('accountRulesIntro')}</p>
+          <dl className="quant-bar-totals">
+            {(['maxLeverage', 'marginCallPercent', 'stopOutPercent'] as const).map((name) => (
+              <div key={name} data-rule={name} data-value={data[name] ?? ''}>
+                <dt>{t(`rule_${name}`)}</dt>
+                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notSet')}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>{t('accountMode')}</p>
+        </div>
+      )}
+    </Read>
+  );
+}
+
 /** The published rates for the strategy's symbol, read before the run so the person sees what will be charged. */
 function FeeLedger({ symbol }: { symbol: string }) {
   const api = useApi();
@@ -269,7 +419,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'charts', 'trades', 'log'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -281,15 +431,24 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
     <section aria-label={t('resultTitle')} data-testid="quant-bar-result" data-run-id={result.runId}>
       <h3>{t('resultTitle')}</h3>
       <p className="muted">{t('simulated')}</p>
+      <VerdictCard result={result} />
       <Tabs
         items={RESULT_TABS}
         value={tab}
         onChange={(next) => setTab(next as ResultTab)}
         label={t('resultTabs')}
-        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics'), charts: t('tabCharts'), trades: t('tabTrades'), log: t('tabLog') }}
+        labels={{
+          summary: t('tabSummary'),
+          metrics: t('tabMetrics'),
+          checks: t('tabChecks'),
+          charts: t('tabCharts'),
+          trades: t('tabTrades'),
+          log: t('tabLog'),
+        }}
       />
       {tab === 'summary' && <ResultSummary result={result} />}
       {tab === 'metrics' && <MetricsTab metrics={result.metrics} />}
+      {tab === 'checks' && <ChecksTab checks={result.checks} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
       {tab === 'log' && <ResultLog result={result} />}
@@ -297,8 +456,157 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
   );
 }
 
+const WHY = [
+  'not_split',
+  'criteria_unset',
+  'too_few_trades',
+  'section_undefined',
+  'return_below_minimum',
+  'drawdown_above_maximum',
+  'shortfall_above_maximum',
+] as const;
+
+/**
+ * The verdict the service computed (AL-backtest-04), with its reasons in words, every criterion as it stood (a blank one
+ * named "not set"), the variant count, whether the holdout was enforced, and any field the request sent that only the
+ * service sets.
+ */
+function VerdictCard({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const { verdict, sections } = result;
+  const why = (reason: string) => ((WHY as readonly string[]).includes(reason) ? t(`why_${reason as (typeof WHY)[number]}`) : reason);
+  const percent = (metric: QuantMetric) => metric.value ?? t('notSet');
+  return (
+    <section aria-label={t('verdictTitle')} data-testid="quant-verdict" data-status={verdict.status}>
+      <h4>{t('verdictTitle')}</h4>
+      <p data-testid="quant-verdict-status">
+        <strong>{t(`v_${verdict.status}`)}</strong>
+      </p>
+      <p className="muted">{t('verdictComputed')}</p>
+      <ul data-testid="quant-verdict-reasons">
+        {verdict.reasons.map((reason) => (
+          <li key={reason} data-reason={reason}>
+            {why(reason)}
+          </li>
+        ))}
+      </ul>
+      {verdict.unset.length > 0 && (
+        <p role="note" data-testid="quant-verdict-unset" data-unset={verdict.unset.join(',')}>
+          {t('unsetNamed', { names: verdict.unset.map((name) => t(`c_${name}`)).join(', ') })}
+        </p>
+      )}
+      <h5>{t('criteriaTitle')}</h5>
+      <dl className="quant-bar-totals" data-testid="quant-verdict-criteria">
+        {QUANT_VERDICT_CRITERIA.map((name) => (
+          <div key={name} data-criterion={name} data-value={verdict.criteria[name] ?? ''}>
+            <dt>{t(`c_${name}`)}</dt>
+            <dd lang={verdict.criteria[name] === null ? undefined : 'zxx'}>{verdict.criteria[name] ?? t('notSet')}</dd>
+          </div>
+        ))}
+      </dl>
+      <p data-testid="quant-variant-count" data-count={result.variantCount ?? ''}>
+        {result.variantCount === null ? t('variantsNone') : t('variants', { count: result.variantCount })}
+      </p>
+      <p className="muted">{t('variantsHelp')}</p>
+      <p data-testid="quant-holdout" data-enforced={String(result.holdout.enforced)}>
+        {result.holdout.enforced && result.holdout.from ? t('holdoutOn', { from: utcText(result.holdout.from) }) : t('holdoutOff')}
+      </p>
+      {result.ignoredInputs.length > 0 && (
+        <p role="note" data-testid="quant-ignored-inputs" data-fields={result.ignoredInputs.join(',')}>
+          {t('ignored', { fields: result.ignoredInputs.join(', ') })}
+        </p>
+      )}
+      {sections && (
+        <DataTable headers={[t('part'), t('partWindow'), t('partReturn'), t('partDrawdown'), t('partTrips')]} label={t('sectionsTitle')}>
+          {(
+            [
+              ['inSample', sections.inSample],
+              ['outOfSample', sections.outOfSample],
+            ] as const
+          ).map(([name, part]) => (
+            <tr key={name} data-testid={`quant-section-${name}`} data-from={part.from} data-to={part.to}>
+              <td>{t(name)}</td>
+              <td lang="zxx">
+                {utcText(part.from)} – {utcText(part.to)}
+              </td>
+              <td lang="zxx">{percent(part.returnPercent)}</td>
+              <td lang="zxx">{percent(part.maxDrawdownPercent)}</td>
+              <td lang="zxx">{part.roundTrips}</td>
+            </tr>
+          ))}
+        </DataTable>
+      )}
+      {sections && <p data-testid="quant-sections-note">{t('sectionsNote')}</p>}
+    </section>
+  );
+}
+
 type MetricKey = keyof QuantBacktestMetrics['returns'] | keyof QuantBacktestMetrics['risk'] | keyof QuantBacktestMetrics['trades'];
 const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_equity_points', 'zero_base'] as const;
+
+const NOT_CHECKED = ['not_split', 'section_undefined', 'not_counted', 'too_few_bars', 'return_undefined', 'not_run'] as const;
+
+/** Every check the service made on the run, with what it measured; nothing is folded away or hidden. */
+function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
+  const { t } = backtestCopy.useCopy();
+  const figure = (check: QuantCheck, name: string) => check.evidence[name] ?? t('notSet');
+  const detail = (check: QuantCheck): string => {
+    if (check.status === 'not_applicable') {
+      const reason = check.evidence.reason ?? '';
+      return (NOT_CHECKED as readonly string[]).includes(reason)
+        ? t(`na_${reason as (typeof NOT_CHECKED)[number]}`)
+        : t('na_other', { reason });
+    }
+    switch (check.name) {
+      case 'sample_gap':
+        return t('d_sample_gap', {
+          inSample: figure(check, 'inSampleReturnPercent'),
+          outOfSample: figure(check, 'outOfSampleReturnPercent'),
+          gap: figure(check, 'gapPercent'),
+        });
+      case 'variant_count':
+        return t('d_variant_count', { variants: figure(check, 'variants') });
+      case 'bar_offset':
+        return t('d_bar_offset', {
+          base: figure(check, 'returnPercent'),
+          from: check.evidence.offsetFrom ? utcText(check.evidence.offsetFrom) : t('notSet'),
+          offset: figure(check, 'offsetReturnPercent'),
+          shift: figure(check, 'shiftPercent'),
+        });
+      case 'bar_type':
+        return check.evidence.kind === 'time'
+          ? t('d_bar_type', { barSize: figure(check, 'barSize') })
+          : t('d_bar_type_other', { barSize: figure(check, 'barSize') });
+      case 'look_ahead':
+        return t('d_look_ahead');
+      case 'repainting':
+        return t('d_repainting');
+    }
+  };
+  return (
+    <div data-testid="quant-bar-checks">
+      <p className="muted">{t('checksIntro')}</p>
+      <ul className="quant-checks">
+        {checks.map((check) => (
+          <li
+            key={check.name}
+            data-testid={`quant-check-${check.name}`}
+            data-status={check.status}
+            data-threshold={check.threshold ?? ''}
+            {...Object.fromEntries(Object.entries(check.evidence).map(([name, value]) => [`data-${name.toLowerCase()}`, value ?? '']))}
+          >
+            <h4>{t(`k_${check.name}`)}</h4>
+            <p>
+              <strong>{t(`s_${check.status}`)}</strong>
+            </p>
+            <p>{detail(check)}</p>
+            {check.threshold !== null && <p className="muted">{t('checkThreshold', { threshold: check.threshold })}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /**
  * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
@@ -362,6 +670,15 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           </li>
         ))}
       </ul>
+      <p data-testid="quant-bar-account" data-leverage={result.account?.leverage ?? ''}>
+        {result.account
+          ? t('marginAccount', {
+              leverage: result.account.leverage,
+              call: result.account.marginCallPercent ?? '',
+              stopOut: result.account.stopOutPercent ?? '',
+            })
+          : t('cashAccount')}
+      </p>
       <p lang="zxx" data-testid="quant-bar-run-id">
         {t('runId', { id: result.runId })}
       </p>
@@ -370,7 +687,7 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
         <DataTable headers={[t('gapsTitle')]} label={t('gapsTitle')}>
           {coverage.gaps.map((gap) => (
             <tr key={gap.from} data-testid="quant-bar-gap" data-from={gap.from} data-to={gap.to}>
-              <td lang="zxx">{t('gap', { from: gap.from.slice(0, 16).replace('T', ' '), to: gap.to.slice(0, 16).replace('T', ' ') })}</td>
+              <td lang="zxx">{t('gap', { from: utcText(gap.from), to: utcText(gap.to) })}</td>
             </tr>
           ))}
         </DataTable>
@@ -420,7 +737,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
         >
           {result.trades.map((trade, i) => (
             <tr key={`${trade.ts}:${i}`} data-testid="quant-bar-trade" data-ts={trade.ts} data-side={trade.side}>
-              <td lang="zxx">{trade.ts.slice(0, 16).replace('T', ' ')}</td>
+              <td lang="zxx">{utcText(trade.ts)}</td>
               <td>{t(trade.side)}</td>
               <td>{t(trade.reason)}</td>
               <td lang="zxx">{trade.qty}</td>
@@ -434,11 +751,39 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
       ) : (
         <p className="muted">{t('tradesNone')}</p>
       )}
+      {result.account && (
+        <>
+          <h4>{t('eventsTitle')}</h4>
+          {result.marginEvents.length ? (
+            <DataTable headers={[t('time'), t('eventKind'), t('price'), t('marginLevel')]} label={t('eventsTitle')}>
+              {result.marginEvents.map((event, i) => (
+                <tr
+                  key={`${event.ts}:${i}`}
+                  data-testid="quant-margin-event"
+                  data-kind={event.kind}
+                  data-ts={event.ts}
+                  data-level={event.marginLevelPercent}
+                  data-price={event.price}
+                >
+                  <td lang="zxx">{utcText(event.ts)}</td>
+                  <td>{t(event.kind)}</td>
+                  <td lang="zxx">{event.price}</td>
+                  <td lang="zxx">{event.marginLevelPercent}</td>
+                </tr>
+              ))}
+            </DataTable>
+          ) : (
+            <p className="muted" data-testid="quant-margin-events-none">
+              {t('eventsNone')}
+            </p>
+          )}
+        </>
+      )}
       {result.rejected.length > 0 && (
         <DataTable headers={[t('time'), t('side'), t('reason')]} label={t('rejectedTitle')}>
           {result.rejected.map((row, i) => (
             <tr key={`${row.ts}:${i}`} data-testid="quant-bar-rejected" data-reason={row.reason}>
-              <td lang="zxx">{row.ts.slice(0, 16).replace('T', ' ')}</td>
+              <td lang="zxx">{utcText(row.ts)}</td>
               <td>{t(row.side)}</td>
               <td>{t(row.reason)}</td>
             </tr>
@@ -488,7 +833,7 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
                   data-side={marker.side}
                   data-ts={marker.ts}
                 >
-                  <title>{t('markerTitle', { side: t(marker.side), time: marker.ts.slice(0, 16).replace('T', ' ') })}</title>
+                  <title>{t('markerTitle', { side: t(marker.side), time: utcText(marker.ts) })}</title>
                 </polygon>
               );
             })}
@@ -501,11 +846,12 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
       )}
       <details>
         <summary>{t('equityTitle')}</summary>
-        <DataTable headers={[t('time'), t('equity')]} label={t('equityTitle')}>
+        <DataTable headers={[t('time'), t('equity'), ...(result.account ? [t('marginLevel')] : [])]} label={t('equityTitle')}>
           {result.equity.map((point) => (
-            <tr key={point.ts} data-testid="quant-bar-equity" data-equity={point.equity}>
-              <td lang="zxx">{point.ts.slice(0, 16).replace('T', ' ')}</td>
+            <tr key={point.ts} data-testid="quant-bar-equity" data-equity={point.equity} data-margin-level={point.marginLevelPercent ?? ''}>
+              <td lang="zxx">{utcText(point.ts)}</td>
               <td lang="zxx">{point.equity}</td>
+              {result.account && <td lang="zxx">{point.marginLevelPercent ?? '—'}</td>}
             </tr>
           ))}
         </DataTable>
@@ -521,6 +867,8 @@ const LOG_WORDS = new Set([
   'signal',
   'stop_loss',
   'take_profit',
+  'stop_out',
+  'margin_call',
   'insufficient_cash',
   'no_size',
   'unfilled_at_window_end',
@@ -528,6 +876,9 @@ const LOG_WORDS = new Set([
   'averages_over_traded_bars',
   'stop_loss_first',
   'take_profit_without_slippage',
+  'stop_out_before_exits',
+  'margin_level_at_bar_low',
+  'loss_beyond_margin',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
 ]);
@@ -558,7 +909,7 @@ function ResultLog({ result }: { result: QuantBacktestResult }) {
           {lines.map((line, i) => (
             <li key={`${line.code}:${line.ts ?? ''}:${i}`} data-testid="quant-log-line" data-level={line.level} data-code={line.code}>
               <strong>{line.level === 'warn' ? t('levelWarn') : t('levelInfo')}</strong>{' '}
-              {line.ts && <span lang="zxx">{line.ts.slice(0, 16).replace('T', ' ')} </span>}
+              {line.ts && <span lang="zxx">{utcText(line.ts)} </span>}
               {t(`log_${line.code}` as Parameters<typeof t>[0], readable(line.values))}
             </li>
           ))}

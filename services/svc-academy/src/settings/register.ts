@@ -46,6 +46,7 @@ export interface SettingsEnv {
   readonly ACADEMY_VIDEO_S3_SECRET_KEY?: string | undefined;
   readonly ACADEMY_VIDEO_S3_REGION?: string | undefined;
   readonly ACADEMY_VIDEO_URL_TTL_SECONDS?: number | undefined;
+  readonly ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_MAX?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS?: number | undefined;
   readonly ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON?: string | undefined;
@@ -66,7 +67,6 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'upload_size_limit',
   'upload_type_list',
   'lease_length',
-  'watch_threshold',
   'dwell_seconds',
   'expiry_duration',
   'nudge_timings',
@@ -135,6 +135,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.video_url_ttl_unset',
+    },
+    {
+      key: 'watch_threshold',
+      state: state(positiveInt(env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.watch_threshold_unset',
     },
     {
       // Both halves or nothing: index.ts wires the limiter only when both are set.

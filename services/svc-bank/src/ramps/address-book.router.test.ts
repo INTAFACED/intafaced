@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -8,6 +10,7 @@ import type { BankServices } from '../bank-service.js';
 import { memoryWithdrawDestinations, type UserWithdrawDestinations } from '../withdraw-destination.js';
 import { RampService } from './ramp-service.js';
 import { memoryWithdrawNetworks, type WithdrawNetworkSource } from './withdraw-networks.js';
+import { memoryWalletProofs, type WalletProofStore } from './wallet-ownership.js';
 
 /** W-withdraw-08 through the router: who may save, rename and remove, and what a list row shows. */
 
@@ -37,6 +40,7 @@ function callerWith(
   mfa = true,
   networks: WithdrawNetworkSource | null = REGISTRY,
   destinations: UserWithdrawDestinations = shared,
+  walletProofs: WalletProofStore = sharedProofs,
 ) {
   const raw = encodePrincipal({
     sub: USER,
@@ -47,7 +51,14 @@ function callerWith(
     mfa,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
-  const ramps = new RampService({} as Sql, {} as LedgerClient, { destinations, addressBookCap: '2', withdrawNetworks: networks });
+  const ramps = new RampService({} as Sql, {} as LedgerClient, {
+    destinations,
+    addressBookCap: '2',
+    withdrawNetworks: networks,
+    walletProofs,
+    walletProofWindowMinutes: '30',
+    walletProofValidDays: '180',
+  });
   return createBankRouter({ ramps } as unknown as BankServices).createCaller(
     edgeContext({
       headers: {
@@ -61,6 +72,7 @@ function callerWith(
 }
 
 const shared = memoryWithdrawDestinations({ addressBookCap: () => '2' });
+const sharedProofs = memoryWalletProofs();
 const entry = { assetId: 'USDT', network: 'erc20', ref: ADDRESS, label: 'Cold wallet' } as const;
 
 describe('bank.ramps.destinations: the address book', () => {
@@ -221,7 +233,10 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     }
     expect(await stepped.ramps.destinations.list()).toHaveLength(1);
     const confirmed = await stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike', confirmLookalike: true });
-    expect(confirmed).toMatchObject({ label: 'Look-alike', refMasked: '0xabcd…ef01' });
+    // The confirmation is recorded on the new entry, not on the one it looks like.
+    expect(confirmed).toMatchObject({ label: 'Look-alike', refMasked: '0xabcd…ef01', lookalikeConfirmedAt: expect.any(String) });
+    const rows = await stepped.ramps.destinations.list();
+    expect(rows.find((row) => row.label === 'Cold wallet')).toMatchObject({ lookalikeConfirmedAt: null });
     expect(await stepped.ramps.destinations.list()).toHaveLength(2);
     // Saved once after confirming, the same entry again is that entry, not a new warning.
     await expect(stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike' })).resolves.toMatchObject({
@@ -233,6 +248,22 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     });
   });
 
+  it('records a look-alike confirmation only from its own check, never from what a caller passes in', async () => {
+    const destinations = book();
+    const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      destinations,
+      addressBookCap: '5',
+      withdrawNetworks: REGISTRY,
+      walletProofs: memoryWalletProofs(),
+    });
+    const plain = await ramps.saveDestination({
+      userId: USER,
+      ...entry,
+      lookalikeOf: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(plain.lookalikeConfirmedAt).toBeNull();
+  });
+
   it('does not call the same address in another case, or saved again, a look-alike', async () => {
     const destinations = book();
     const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
@@ -242,6 +273,90 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
       stepped.ramps.destinations.save({ ...entry, network: 'base', ref: ADDRESS.toLowerCase(), label: 'On Base' }),
     ).resolves.toMatchObject({
       network: 'base',
+    });
+  });
+});
+
+describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17)', () => {
+  // Well-known public development key (the first account of common local EVM chains). Holds nothing; TEST only.
+  const KEY = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+  const WALLET = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
+  const sign = (message: string) => {
+    const body = new TextEncoder().encode(message);
+    const prefix = new TextEncoder().encode(`\x19Ethereum Signed Message:\n${body.length}`);
+    const joined = new Uint8Array(prefix.length + body.length);
+    joined.set(prefix);
+    joined.set(body, prefix.length);
+    const rec = secp256k1.sign(keccak_256(joined), Buffer.from(KEY, 'hex'), { prehash: false, format: 'recovered' });
+    const out = new Uint8Array(65);
+    out.set(rec.subarray(1), 0);
+    out[64] = rec[0]! + 27;
+    return `0x${Buffer.from(out).toString('hex')}`;
+  };
+
+  it('needs bank:write, lists the entry pending then verified, and refuses an unknown proof as not found', async () => {
+    const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
+    const proofs = memoryWalletProofs();
+    const as = (scopes: string[]) => callerWith(scopes, true, REGISTRY, destinations, proofs);
+    const saved = await as(['bank:read', 'trade:withdraw']).ramps.destinations.save({ ...entry, ref: WALLET, label: 'TEST private' });
+    expect(saved.ownership).toEqual({ state: 'none', verifiedAt: null, validUntil: null, offerExpiresAt: null });
+
+    await expect(as(['bank:read']).ramps.destinations.ownership.start({ destinationId: saved.destinationId })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    const writer = as(['bank:read', 'bank:write']);
+    const started = await writer.ramps.destinations.ownership.start({ destinationId: saved.destinationId });
+    expect((await writer.ramps.destinations.list())[0]!.ownership.state).toBe('pending');
+
+    await expect(writer.ramps.destinations.ownership.verify({ proofId: started.proofId, signature: 'nope' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: { code: 'bank.wallet_proof_signature_invalid' },
+    });
+    await expect(
+      writer.ramps.destinations.ownership.verify({ proofId: '44444444-4444-4444-8444-444444444444', signature: sign(started.message) }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    const done = await writer.ramps.destinations.ownership.verify({ proofId: started.proofId, signature: sign(started.message) });
+    expect(done).toMatchObject({ destinationId: saved.destinationId, state: 'verified' });
+    const row = (await writer.ramps.destinations.list())[0]!;
+    expect(row.ownership).toMatchObject({ state: 'verified', verifiedAt: done.verifiedAt, validUntil: done.validUntil });
+    // A rename keeps the proof on the row it answers with.
+    const renamed = await writer.ramps.destinations.rename({ destinationId: saved.destinationId, label: 'TEST renamed' });
+    expect(renamed.ownership.state).toBe('verified');
+  });
+
+  it('refuses to start while the owner proof window is blank (PRECONDITION_FAILED)', async () => {
+    const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
+    const saved = await destinations.save({ userId: USER, ...entry, ref: WALLET, label: 'TEST private' });
+    const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      destinations,
+      withdrawNetworks: REGISTRY,
+      walletProofs: memoryWalletProofs(),
+      walletProofWindowMinutes: '',
+      walletProofValidDays: '180',
+    });
+    const raw = encodePrincipal({
+      sub: USER,
+      userId: USER,
+      sid: '22222222-2222-4222-8222-222222222222',
+      scopes: ['bank:write'],
+      tier: 'full',
+      mfa: true,
+      expiresAt: new Date(Date.now() + 60_000),
+    } as Principal);
+    const caller = createBankRouter({ ramps } as unknown as BankServices).createCaller(
+      edgeContext({
+        headers: {
+          'x-intafaced-principal': raw,
+          'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
+          'x-intafaced-region': 'DE',
+        },
+        id: 'req-proof',
+      }),
+    );
+    await expect(caller.ramps.destinations.ownership.start({ destinationId: saved.destinationId })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'bank.wallet_proof_window_unset' },
     });
   });
 });

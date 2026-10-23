@@ -106,8 +106,9 @@
   }
   .cw-canvas {
     position: relative;
-    height: clamp(260px, 52vh, 520px);
-    min-height: 0;
+    /* Grows with the add-ons (drawings dock, studies bar) below the chart stage; the stage keeps its own floor. */
+    height: auto;
+    min-height: clamp(260px, 52vh, 520px);
   }
   .cw-canvas > [data-slot='state-block'] {
     height: 100%;
@@ -180,8 +181,17 @@
   }
   .wc-root {
     position: relative;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
+  }
+  /* The chart stage takes the room the add-ons leave; the add-ons (studies bar) sit in flow below it. */
+  .wc-stage {
+    position: relative;
+    flex: 1 1 auto;
+    /* A floor, so the add-ons cannot crush the plot to a few pixels (the crosshair then never reaches it). */
+    min-height: 260px;
   }
   .wc-host {
     position: absolute;
@@ -389,6 +399,158 @@
     font: 400 12px/16px var(--if-font-ui);
     color: var(--if-fg-2);
   }
+  /* The data status: the chip beside the title, the TEST label, the banner and the source line. */
+  .cw-titlerow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 0;
+  }
+  .cw-titlerow .cw-title {
+    padding: 0;
+  }
+  .cw-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 999px;
+    font: 500 12px/16px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--if-fg-2);
+  }
+  .cw-status[data-status='live'] .cw-status-dot {
+    background: var(--if-up);
+  }
+  .cw-status[data-status='halted'] .cw-status-dot,
+  .cw-status[data-status='down'] .cw-status-dot,
+  .cw-status[data-status='lifecycle_unavailable'] .cw-status-dot {
+    background: var(--if-down);
+  }
+  .cw-test {
+    padding: 0 6px;
+    border: 1px dashed var(--if-fg-2);
+    border-radius: 4px;
+    font: 600 11px/16px var(--if-font-mono);
+    letter-spacing: 0.04em;
+    color: var(--if-fg);
+  }
+  .cw-banner {
+    margin: 0;
+    padding: 8px 12px;
+    border-top: 1px solid var(--if-line);
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-banner[data-kind='halted'],
+  .cw-banner[data-kind='down'],
+  .cw-banner[data-kind='lifecycle'] {
+    color: var(--if-down);
+  }
+  .cw-source {
+    margin: 0;
+    padding: 4px 12px;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cw-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--if-line);
+  }
+  .cw-lines-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .cw-lines-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-lines-list button {
+    border: 0;
+    background: none;
+    color: var(--if-fg-2);
+    cursor: pointer;
+  }
+  .cw-lines-tick,
+  .cw-lines-none {
+    margin: 0;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cw-settings {
+    max-width: 440px;
+  }
+  .cw-settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .cw-settings-tabs button {
+    padding: 6px 10px;
+    border: 1px solid var(--if-line);
+    border-radius: 6px;
+    background: transparent;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+    cursor: pointer;
+  }
+  .cw-settings-tabs button[aria-selected='true'] {
+    border-color: var(--if-fg-2);
+    color: var(--if-fg);
+  }
+  .cw-settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .cw-settings-panel p {
+    margin: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-settings-panel .cw-settings-note {
+    font-size: 12px;
+    color: var(--if-fg-2);
+  }
+  .cw-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-link-refused {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .cw-link:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .cw-link-refused [role='status'] {
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-down);
+  }
   @media (max-width: 760px) {
     .cw-page {
       padding: 16px;
@@ -399,7 +561,7 @@
       flex-direction: column;
     }
     .cw-canvas {
-      height: clamp(240px, 46vh, 420px);
+      min-height: clamp(240px, 46vh, 420px);
     }
   }
 }

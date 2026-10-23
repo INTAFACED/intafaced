@@ -4,6 +4,9 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
+  IDENTITY_CLOSE_ACTION_TYPE,
+  IDENTITY_REOPEN_ACTION_TYPE,
+  IDENTITY_TIER_MOVE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
   TRADE_OPS_OPERATOR_PERMISSION,
   TRADING_RESTRICT_ACTION_TYPE,
@@ -12,6 +15,7 @@ import {
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { sqlCasConsume, sqlGetApprovalForUpdate, type StoredApproval } from '../auth/action-approval-store.js';
 import { lockFounderControls } from './founder-control-lock.js';
+import { blankTierTerms } from './account-tiers.js';
 import { assertRestrictedListReader, listRestrictedAccounts, type RestrictedAccountPage } from './restricted-accounts.js';
 import {
   identityAccountControlInputSchema,
@@ -21,6 +25,23 @@ import {
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
   accountOperatorEntitlementSchema,
+  accountClosureInputSchema,
+  accountClosureLookupInputSchema,
+  accountClosureHistoryInputSchema,
+  accountClosureResultSchema,
+  accountTierMoveInputSchema,
+  accountTierLookupInputSchema,
+  accountTierHistoryInputSchema,
+  accountTierResultSchema,
+  type AccountTier,
+  type AccountTierList,
+  type AccountTierMoveInput,
+  type AccountTierResult,
+  type AccountTierState,
+  type AccountClosureInput,
+  type AccountClosureResult,
+  type AccountClosureState,
+  type AccountCloseReasonCode,
   type AccountOperatorEntitlement,
   type IdentityAccountControlInput,
   type AccountControlResult,
@@ -214,6 +235,39 @@ export function identityUnfreezePayloadHash(input: { readonly userId: string; re
   return identityActionPayloadHash(input.userId.toLowerCase(), { reason: input.reason.trim() });
 }
 
+/**
+ * Canonical payload hash for `identity.account_tier_move`: the account, the tier it moves onto and the reason the approver
+ * read. The version is bound on the approval row, not in the hash.
+ */
+export function identityTierPayloadHash(input: { readonly userId: string; readonly tierId: string; readonly reason: string }): string {
+  return identityActionPayloadHash(input.userId.toLowerCase(), { action: 'tier_move', tierId: input.tierId, reason: input.reason.trim() });
+}
+
+/**
+ * Canonical payload hash for `identity.account_close` and `identity.account_reopen`: the account, the action, the reason
+ * code (close only) and the reason the approver read. The version is bound on the approval row, not in the hash.
+ */
+export function identityClosurePayloadHash(input: {
+  readonly userId: string;
+  readonly action: 'close' | 'reopen';
+  readonly reasonCode?: AccountCloseReasonCode;
+  readonly reason: string;
+}): string {
+  return identityActionPayloadHash(input.userId.toLowerCase(), {
+    action: input.action,
+    ...(input.action === 'close' ? { reasonCode: input.reasonCode ?? '' } : {}),
+    reason: input.reason.trim(),
+  });
+}
+
+/** The closure checks a close runs first (svc-bank, svc-trade, svc-p2p): open products and balances block it. */
+export type StaffClosureChecks = (input: {
+  readonly userId: string;
+  readonly subAccountIds: readonly string[];
+}) => Promise<{ readonly ok: true; readonly blockers: readonly { code: string; count: number }[] } | { readonly ok: false }>;
+
+type ClosureRefusal = Extract<AccountClosureResult, { outcome: 'refused' }>['code'];
+
 type UnfreezeApproval =
   | { readonly approverId: string; readonly refusal: null }
   | { readonly approverId?: undefined; readonly refusal: 'restriction_approval_mismatch' | 'restriction_approval_consumed' };
@@ -234,6 +288,20 @@ export class FounderControls {
     // All founder commands share this order. Existing refresh locks session then
     // user, so we also lock affected sessions before sorted user rows.
     await lockFounderControls(tx);
+  }
+
+  private closureChecks: StaffClosureChecks | null = null;
+
+  /** Wired after the closure clients exist. Unset, every staff close refuses `identity.close_check_unavailable`. */
+  useClosureChecks(checks: StaffClosureChecks): void {
+    this.closureChecks = checks;
+  }
+
+  private accountTiers: readonly AccountTier[] | undefined;
+
+  /** The `IDENTITY_ACCOUNT_TIERS` owner setting, parsed. Unset, the tier list says so and every tier move refuses. */
+  useAccountTiers(tiers: readonly AccountTier[] | undefined): void {
+    this.accountTiers = tiers;
   }
 
   async bootstrap(): Promise<boolean> {
@@ -315,7 +383,7 @@ export class FounderControls {
     tx: Sql,
     requestId: string,
     actorId: string | null,
-    kind: 'identity' | 'entitlement' | 'bootstrap',
+    kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure' | 'tier',
     hash: string,
     result: unknown,
     auditId = randomUUID(),
@@ -619,27 +687,61 @@ export class FounderControls {
     actorId: string,
     now: Date,
   ): Promise<UnfreezeApproval> {
-    const approval = await sqlGetApprovalForUpdate(tx, input.approvalId!);
-    if (!approval) return { refusal: 'restriction_approval_mismatch' };
-    if (approval.status === 'CONSUMED') return { refusal: 'restriction_approval_consumed' };
-    const payloadHash = identityUnfreezePayloadHash({ userId: targetId, reason: input.reason });
+    const spent = await this.consumeIdentityApproval(tx, {
+      approvalId: input.approvalId!,
+      actionType: IDENTITY_UNFREEZE_ACTION_TYPE,
+      payloadHash: identityUnfreezePayloadHash({ userId: targetId, reason: input.reason }),
+      targetId,
+      expectedVersion: input.expectedVersion,
+      actorId,
+      requestId: input.requestId,
+      now,
+    });
+    if (spent.refusal === null) return { approverId: spent.approverId, refusal: null };
+    return { refusal: spent.refusal === 'mismatch' ? 'restriction_approval_mismatch' : 'restriction_approval_consumed' };
+  }
+
+  /**
+   * One four-eyes approval filed at svc-identity for one account, checked and spent in the caller's transaction:
+   * approved, unexpired, unconsumed, of this action type, for this account, payload hash and version; the requester is
+   * the actor, the approver someone else, and neither is the account itself. `spend: false` checks it (row locked) and
+   * leaves it unspent, so a caller can refuse for its own reasons first.
+   */
+  private async consumeIdentityApproval(
+    tx: Sql,
+    want: {
+      readonly approvalId: string;
+      readonly actionType: string;
+      readonly payloadHash: string;
+      readonly targetId: string;
+      readonly expectedVersion: string;
+      readonly actorId: string;
+      readonly requestId: string;
+      readonly now: Date;
+    },
+    spend = true,
+  ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
+    const approval = await sqlGetApprovalForUpdate(tx, want.approvalId);
+    if (!approval) return { refusal: 'mismatch' };
+    if (approval.status === 'CONSUMED') return { refusal: 'consumed' };
     const requester = approval.requesterId.toLowerCase();
     const approver = approval.approverId?.toLowerCase() ?? null;
     const bound =
-      approval.actionType === IDENTITY_UNFREEZE_ACTION_TYPE &&
+      approval.actionType === want.actionType &&
       approval.targetService === 'svc-identity' &&
-      approval.targetId.toLowerCase() === targetId &&
-      approval.payloadHash === payloadHash &&
-      approval.expectedVersion === input.expectedVersion &&
+      approval.targetId.toLowerCase() === want.targetId &&
+      approval.payloadHash === want.payloadHash &&
+      approval.expectedVersion === want.expectedVersion &&
       approval.status === 'APPROVED' &&
       approval.kind !== 'same_person' &&
       approver !== null &&
       approver !== requester &&
-      requester === actorId.toLowerCase() &&
-      requester !== targetId &&
-      approver !== targetId &&
-      approval.expiresAt.getTime() > now.getTime();
-    if (!bound) return { refusal: 'restriction_approval_mismatch' };
+      requester === want.actorId.toLowerCase() &&
+      requester !== want.targetId &&
+      approver !== want.targetId &&
+      approval.expiresAt.getTime() > want.now.getTime();
+    if (!bound) return { refusal: 'mismatch' };
+    if (!spend) return { approverId: approver, refusal: null };
     const consumed = await sqlCasConsume(tx, {
       approvalId: approval.approvalId,
       operationId: approval.operationId,
@@ -647,12 +749,12 @@ export class FounderControls {
       targetService: approval.targetService,
       targetId: approval.targetId,
       expectedVersion: approval.expectedVersion,
-      now,
-      requestId: input.requestId,
+      now: want.now,
+      requestId: want.requestId,
       consumedByService: 'svc-identity',
-      consumedByPrincipal: actorId,
+      consumedByPrincipal: want.actorId,
     });
-    return consumed ? { approverId: approver, refusal: null } : { refusal: 'restriction_approval_consumed' };
+    return consumed ? { approverId: approver, refusal: null } : { refusal: 'consumed' };
   }
 
   private tradeOpsRefusal(context: Context): 'operator.denied' | 'mfa.required' | null {
@@ -866,6 +968,454 @@ export class FounderControls {
     } catch (error) {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
+    }
+  }
+
+  /**
+   * Staff close or reopen of one account (J-ops-console-04 #7). A live founder runs it with a four-eyes approval a second
+   * person gave, spent here. A close needs a reason code, refuses founders and the actor's own account, and refuses while
+   * the closure checks report open products or balances (they run before the approval is spent). It closes the account
+   * the way the closure job does (status closed, sessions, API keys and sub-accounts revoked). A reopen is allowed only
+   * for a customer-closed account. Each attempt, refused ones included, is in the closure history; a retry of the same
+   * request id returns the stored answer.
+   */
+  async closure(context: Context, raw: AccountClosureInput): Promise<AccountClosureResult> {
+    const input = accountClosureInputSchema.parse(raw);
+    input.requestId = input.requestId.toLowerCase();
+    input.userId = input.userId.toLowerCase();
+    const targetId = input.userId;
+    const actorId = context.principal?.userId.toLowerCase() ?? null;
+    const hash = fingerprint(actorId, { kind: 'closure', ...input });
+    // The closure checks call svc-bank, svc-trade and svc-p2p, so they run before the founder-controls lock is taken
+    // (that lock also serialises trade and pay admission). Only a close carrying an approval from a principal that can be
+    // a live founder gets this far; the transaction below re-checks everything else before it uses the answer.
+    const principal = context.principal;
+    const mayCheck =
+      input.action === 'close' &&
+      !!input.approvalId &&
+      this.configured &&
+      !!principal &&
+      context.service === null &&
+      !principal.kid &&
+      !principal.sub_account &&
+      principal.mfa &&
+      !!this.pair?.includes(principal.userId.toLowerCase()) &&
+      (await this.closeApprovalLooksBound(input, actorId!));
+    const checks = mayCheck ? await this.runClosureChecks(targetId) : null;
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const auditId = randomUUID();
+          const common = {
+            auditId,
+            requestId: input.requestId,
+            userId: targetId,
+            action: input.action,
+            reasonCode: input.action === 'close' ? input.reasonCode : null,
+            reason: input.reason,
+            occurredAt: clock!.at.toISOString(),
+          };
+          const refused = (
+            code: ClosureRefusal,
+            current: AccountClosureState | null = null,
+            blockers?: readonly { code: string; count: number }[],
+          ) =>
+            accountClosureResultSchema.parse({
+              ...common,
+              outcome: 'refused',
+              changed: false,
+              actorUserId: actorId,
+              code,
+              current,
+              ...(blockers ? { blockers: blockers.slice(0, 50) } : {}),
+            });
+          const finish = async (result: AccountClosureResult, store: boolean) => {
+            await this.audit(tx, input.requestId, actorId, 'closure', hash, result, auditId, {
+              fourEyes: result.outcome === 'changed',
+              ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            });
+            if (store)
+              await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
+            return result;
+          };
+          if (actor.refusal) return finish(refused(actor.refusal), false);
+          const previous = await this.replay(tx, input.requestId, hash);
+          if (previous && !previous.conflict) return accountClosureResultSchema.parse(previous.result);
+          if (previous) return finish(refused('request.conflict'), false);
+          const user = actor.users.find((row) => row.id === targetId);
+          if (!user) return finish(refused('target.not_found'), true);
+          const before = (await this.closureStateOf(tx, targetId))!;
+          if (before.version !== input.expectedVersion)
+            return finish(
+              accountClosureResultSchema.parse({
+                ...common,
+                outcome: 'conflict',
+                changed: false,
+                actorUserId: actorId,
+                code: 'restriction.version_conflict',
+                current: before,
+              }),
+              true,
+            );
+          if (input.action === 'close') {
+            if (this.pair?.includes(targetId)) return finish(refused('identity.close_founder_forbidden', before), true);
+            if (targetId === actorId) return finish(refused('identity.close_self_forbidden', before), true);
+            if (before.status === 'closed') return finish(refused('identity.close_already_closed', before), true);
+          } else {
+            if (before.status !== 'closed') return finish(refused('identity.reopen_not_closed', before), true);
+            if (!before.reopenable) return finish(refused('identity.reopen_not_allowed', before), true);
+          }
+          if (!input.approvalId) return finish(refused('identity.close_requires_approver', before), true);
+          const want = {
+            approvalId: input.approvalId,
+            actionType: input.action === 'close' ? IDENTITY_CLOSE_ACTION_TYPE : IDENTITY_REOPEN_ACTION_TYPE,
+            payloadHash: identityClosurePayloadHash(input),
+            targetId,
+            expectedVersion: input.expectedVersion,
+            actorId: actorId!,
+            requestId: input.requestId,
+            now: clock!.at,
+          };
+          const approvalRefusal = (refusal: 'mismatch' | 'consumed') =>
+            refused(refusal === 'mismatch' ? 'identity.close_approval_mismatch' : 'identity.close_approval_consumed', before);
+          const bound = await this.consumeIdentityApproval(tx, want, false);
+          if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
+          if (input.action === 'close') {
+            if (!checks?.ok) return finish(refused('identity.close_check_unavailable', before), true);
+            if (checks.blockers.length > 0) return finish(refused('identity.close_blocked', before, checks.blockers), true);
+          }
+          const spent = await this.consumeIdentityApproval(tx, want);
+          if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
+          if (input.action === 'close') {
+            await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, closed_from_frozen = (status = 'frozen'), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+            await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
+            await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
+            await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${targetId} AND revoked = false`;
+            await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now() WHERE user_id = ${targetId} AND status = 'open'`;
+          } else {
+            // A freeze in force when it was closed comes back with it: lifting that needs its own unfreeze approval.
+            const [flags] = await tx<Array<{ closed_from_frozen: boolean }>>`SELECT closed_from_frozen FROM users WHERE id = ${targetId}`;
+            const reopened = flags?.closed_from_frozen ? 'frozen' : 'active';
+            await tx`UPDATE users SET status = ${reopened}, closed_reason = NULL, closed_from_frozen = false, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+          }
+          const after = (await this.closureStateOf(tx, targetId))!;
+          return finish(
+            accountClosureResultSchema.parse({
+              ...common,
+              outcome: 'changed',
+              changed: true,
+              actorUserId: actorId,
+              approverUserId: spent.approverId,
+              before,
+              after,
+            }),
+            true,
+          );
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async closureState(context: Context, raw: z.infer<typeof accountClosureLookupInputSchema>): Promise<AccountClosureState | null> {
+    const input = accountClosureLookupInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          return this.closureStateOf(tx, userId);
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async closureHistory(context: Context, raw: z.infer<typeof accountClosureHistoryInputSchema>): Promise<AccountClosureResult[]> {
+    const input = accountClosureHistoryInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const rows = await tx<
+            Array<{ result: unknown }>
+          >`SELECT result FROM founder_control_audit WHERE kind = 'closure' AND result->>'userId' = ${userId} ORDER BY created_at DESC, audit_id DESC LIMIT ${input.limit}`;
+          return rows.map((row) => accountClosureResultSchema.parse(row.result));
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /** The tiers on offer, for a live founder. Unset is its own answer, never an empty list. */
+  async tiers(context: Context): Promise<AccountTierList> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          return this.accountTiers
+            ? { configured: true as const, tiers: [...this.accountTiers] }
+            : { configured: false as const, code: 'identity.account_tiers_unset' as const };
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /**
+   * Move one account onto another product tier (J-ops-console-04 #11). A live founder runs it with a founder-level
+   * four-eyes approval a second live founder gave, spent here. Refused while the tiers are unset, for an unknown tier, a
+   * tier with any blank term (naming them), the tier the account is already on, the actor's own account or a closed
+   * account. Each attempt, refused ones included, is in the tier history; a retry of the same request id returns the
+   * stored answer. Nothing here moves money: the terms are the owner's record of the tier.
+   */
+  async tierMove(context: Context, raw: AccountTierMoveInput): Promise<AccountTierResult> {
+    const input = accountTierMoveInputSchema.parse(raw);
+    input.requestId = input.requestId.toLowerCase();
+    input.userId = input.userId.toLowerCase();
+    const targetId = input.userId;
+    const actorId = context.principal?.userId.toLowerCase() ?? null;
+    const hash = fingerprint(actorId, { kind: 'tier', ...input });
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
+          const auditId = randomUUID();
+          const common = {
+            auditId,
+            requestId: input.requestId,
+            userId: targetId,
+            tierId: input.tierId,
+            reason: input.reason,
+            occurredAt: clock!.at.toISOString(),
+          };
+          type TierRefusal = Extract<AccountTierResult, { outcome: 'refused' }>['code'];
+          const refused = (code: TierRefusal, current: AccountTierState | null = null, blankTerms?: readonly string[]) =>
+            accountTierResultSchema.parse({
+              ...common,
+              outcome: 'refused',
+              changed: false,
+              actorUserId: actorId,
+              code,
+              current,
+              ...(blankTerms ? { blankTerms } : {}),
+            });
+          const finish = async (result: AccountTierResult, store: boolean) => {
+            await this.audit(tx, input.requestId, actorId, 'tier', hash, result, auditId, {
+              fourEyes: result.outcome === 'changed',
+              ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+            });
+            if (store)
+              await tx`INSERT INTO founder_control_requests (request_id, actor_id, fingerprint, audit_id) VALUES (${input.requestId}, ${actorId!}, ${hash}, ${auditId})`;
+            return result;
+          };
+          if (actor.refusal) return finish(refused(actor.refusal), false);
+          const previous = await this.replay(tx, input.requestId, hash);
+          if (previous && !previous.conflict) return accountTierResultSchema.parse(previous.result);
+          if (previous) return finish(refused('request.conflict'), false);
+          const user = actor.users.find((row) => row.id === targetId);
+          if (!user) return finish(refused('target.not_found'), true);
+          const before = await this.tierStateOf(tx, targetId);
+          if (before.version !== input.expectedVersion)
+            return finish(
+              accountTierResultSchema.parse({
+                ...common,
+                outcome: 'conflict',
+                changed: false,
+                actorUserId: actorId,
+                code: 'restriction.version_conflict',
+                current: before,
+              }),
+              true,
+            );
+          if (targetId === actorId) return finish(refused('identity.tier_self_forbidden', before), true);
+          if (user.status === 'closed') return finish(refused('identity.tier_account_closed', before), true);
+          if (!this.accountTiers) return finish(refused('identity.account_tiers_unset', before), true);
+          const tier = this.accountTiers.find((row) => row.id === input.tierId);
+          if (!tier) return finish(refused('identity.tier_unknown', before), true);
+          if (before.tierId === tier.id) return finish(refused('identity.tier_unchanged', before), true);
+          const blank = blankTierTerms(tier.terms);
+          if (blank.length > 0) return finish(refused('identity.tier_terms_unset', before, blank), true);
+          if (!input.approvalId) return finish(refused('identity.tier_requires_approver', before), true);
+          const want = {
+            approvalId: input.approvalId,
+            actionType: IDENTITY_TIER_MOVE_ACTION_TYPE,
+            payloadHash: identityTierPayloadHash(input),
+            targetId,
+            expectedVersion: input.expectedVersion,
+            actorId: actorId!,
+            requestId: input.requestId,
+            now: clock!.at,
+          };
+          const approvalRefusal = (refusal: 'mismatch' | 'consumed') =>
+            refused(refusal === 'mismatch' ? 'identity.tier_approval_mismatch' : 'identity.tier_approval_consumed', before);
+          const bound = await this.consumeIdentityApproval(tx, want, false);
+          if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
+          // Founder-level: the approver must still be a live founder now, not only when they approved.
+          if (!(await this.isLiveFounder(bound.approverId, tx))) return finish(approvalRefusal('mismatch'), true);
+          const spent = await this.consumeIdentityApproval(tx, want);
+          if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
+          await tx`INSERT INTO account_tier_assignments (user_id, tier_id, version, updated_at) VALUES (${targetId}, ${tier.id}, 1, now())
+            ON CONFLICT (user_id) DO UPDATE SET tier_id = EXCLUDED.tier_id, version = account_tier_assignments.version + 1, updated_at = now()`;
+          const after = await this.tierStateOf(tx, targetId);
+          return finish(
+            accountTierResultSchema.parse({
+              ...common,
+              outcome: 'changed',
+              changed: true,
+              actorUserId: actorId,
+              approverUserId: spent.approverId,
+              before,
+              after,
+            }),
+            true,
+          );
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async tierState(context: Context, raw: z.infer<typeof accountTierLookupInputSchema>): Promise<AccountTierState | null> {
+    const input = accountTierLookupInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+          return user ? this.tierStateOf(tx, userId) : null;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  async tierHistory(context: Context, raw: z.infer<typeof accountTierHistoryInputSchema>): Promise<AccountTierResult[]> {
+    const input = accountTierHistoryInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context);
+          if (actor.refusal) throw new FounderControlError(actor.refusal, 'Live founder authority is required');
+          const rows = await tx<
+            Array<{ result: unknown }>
+          >`SELECT result FROM founder_control_audit WHERE kind = 'tier' AND result->>'userId' = ${userId} ORDER BY created_at DESC, audit_id DESC LIMIT ${input.limit}`;
+          return rows.map((row) => accountTierResultSchema.parse(row.result));
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
+    }
+  }
+
+  /** No row: never put on a tier, version 0. */
+  private async tierStateOf(tx: Sql, userId: string): Promise<AccountTierState> {
+    const [row] = await tx<
+      Array<{ tier_id: string; version: string }>
+    >`SELECT tier_id, version::text AS version FROM account_tier_assignments WHERE user_id = ${userId}`;
+    return { userId, version: row?.version ?? '0', tierId: row?.tier_id ?? null };
+  }
+
+  /**
+   * Account state as the closure desk reads it. Customer-closed: the customer finalised a closure (account_closures) and
+   * staff gave no other code, or staff closed it with `customer_request`. Only a customer-closed account can be reopened.
+   */
+  private async closureStateOf(tx: Sql, userId: string): Promise<AccountClosureState | null> {
+    const [row] = await tx<
+      Array<{
+        status: 'active' | 'frozen' | 'closed';
+        version: string;
+        closed_reason: AccountCloseReasonCode | null;
+        customer_closed: boolean;
+      }>
+    >`SELECT status, identity_control_version::text AS version, closed_reason,
+         EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed
+       FROM users WHERE id = ${userId}`;
+    if (!row) return null;
+    const closed = row.status === 'closed';
+    const customerClosed = closed && (row.closed_reason === 'customer_request' || (row.closed_reason === null && row.customer_closed));
+    return {
+      userId,
+      version: row.version,
+      status: row.status,
+      closedBy: closed ? (customerClosed ? 'customer' : 'staff') : null,
+      closeReasonCode: closed ? row.closed_reason : null,
+      reopenable: customerClosed,
+    };
+  }
+
+  /** A cheap read, outside the lock, so an approval that cannot bind does not cost three service calls. Not authority. */
+  private async closeApprovalLooksBound(input: AccountClosureInput, actorId: string): Promise<boolean> {
+    try {
+      const approval = await sqlGetApprovalForUpdate(this.sql, input.approvalId!);
+      return (
+        !!approval &&
+        approval.status === 'APPROVED' &&
+        approval.actionType === IDENTITY_CLOSE_ACTION_TYPE &&
+        approval.targetService === 'svc-identity' &&
+        approval.targetId.toLowerCase() === input.userId &&
+        approval.payloadHash === identityClosurePayloadHash(input) &&
+        approval.expectedVersion === input.expectedVersion &&
+        approval.requesterId.toLowerCase() === actorId
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async runClosureChecks(
+    userId: string,
+  ): Promise<{ ok: true; blockers: readonly { code: string; count: number }[] } | { ok: false }> {
+    if (!this.closureChecks) return { ok: false };
+    try {
+      const subs = await this.sql<Array<{ id: string }>>`SELECT id::text AS id FROM sub_accounts WHERE parent_user_id = ${userId}`;
+      return await this.closureChecks({ userId, subAccountIds: subs.map((row) => row.id) });
+    } catch {
+      return { ok: false };
     }
   }
 

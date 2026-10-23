@@ -3,13 +3,14 @@ import { HideBalancesProvider, ToastProvider, TooltipProvider, Wordmark } from '
 import { isServiceNotConnected, networkLabel } from '../features/protocol/blockers';
 import { createProtocolApi } from '../features/protocol/api';
 import { protocolCopy } from '../features/protocol/copy';
-import { lastShellRoute } from '../features/protocol/shell-state';
+import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { shortAddress } from '../features/protocol/wallet/eip1193';
 import { WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
-import { useApi } from '../features/session/session';
+import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { SessionNotice } from './SessionNotice';
+import { shellCopy } from './shell-copy';
 import '../features/protocol/web3-shell.css';
 
 /** Web3 nav (IA-SPEC 2.8): label key, route, and the path prefixes that mark it current. */
@@ -39,6 +40,8 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
 
 function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const wallet = useWallet();
+  const { session, restoring } = useSession();
+  const { t: shell } = shellCopy.useCopy();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
   const transport = useApi();
@@ -53,7 +56,6 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             const label = networkLabel(chain.data.configuredChainId);
             return label.known ? `${label.name} · ${label.note.replace(/\.$/, '')}` : t('chipUnrecognised');
           })();
-  const exchangeHref = lastShellRoute('exchange');
   return (
     <HideBalancesProvider hidden={false}>
       <TooltipProvider>
@@ -66,12 +68,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               <a className="tb-brand" href="/home" aria-label={t('shellHome')}>
                 <Wordmark />
               </a>
-              <nav className="web3-switch" aria-label={t('shellSwitch')}>
-                <a href={exchangeHref}>{t('shellExchange')}</a>
-                <a href={lastShellRoute('web3')} aria-current="page">
-                  {t('shellWeb3')}
-                </a>
-              </nav>
+              <ShellSwitch current="web3" here={path} />
               <nav className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
                   {NAV.map((item) => (
@@ -84,7 +81,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                 </ul>
               </nav>
               <div className="tb-right web3-chips">
-                <span className="web3-chip" data-chip="network" role="status">
+                <span className="web3-chip" data-chip="network" role="status" title={chip}>
                   {chip}
                 </span>
                 <span className="web3-chip web3-chip--pill" data-chip="label">
@@ -99,6 +96,17 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                         : `${t('walletWrongNetwork')} · ${shortAddress(wallet.address)}`
                       : t('walletNone')}
                 </span>
+                {session || restoring ? null : (
+                  <>
+                    {/* Signed out, every Web3 room is the public read-only view; signing in returns through Home. */}
+                    <a className="tb-login" href="/login">
+                      {shell('Log in')}
+                    </a>
+                    <a className="tb-signup" href="/register">
+                      {shell('Sign up')}
+                    </a>
+                  </>
+                )}
               </div>
             </header>
             <main id="main" tabIndex={-1}>

@@ -24,6 +24,8 @@
  * the order is finished.
  */
 import { SCALE, parseAmount, recipes, type Amount, type PostRequest } from '@intafaced/ledger-client';
+import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
+import { ratesForFill } from '../spot/fees.js';
 import { proportionalCloseFigures } from './desk-quantity.js';
 import { initialMargin } from './initial-margin.js';
 
@@ -99,6 +101,65 @@ export function marginNeed(input: MarginNeedInput): Amount {
   const initial = initialMargin({ size: input.filled, entryPrice: input.mark, leverage: input.leverage });
   const adverse = (input.adverseNum + SCALE - 1n) / SCALE;
   return initial + adverse;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADING FEES (migration 0099)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Which side of a fill an order was on. The engine names it: the order that arrived and crossed is the taker. */
+export type FeeRole = 'maker' | 'taker';
+
+/** The market's published rates as an order keeps them from the moment it is accepted. Whole basis points. */
+export interface FeeRates {
+  readonly makerBps: number;
+  readonly takerBps: number;
+}
+
+/**
+ * The perpetual rates an account pays now: the owner's published `perpetual` block of `TRADE_FEE_SCHEDULE` (the one
+ * the operator fee read shows for futures), less the account's rank discount, through the spot path's own resolver.
+ * Listing-row `maker_bps`/`taker_bps` are not a schedule and are never read here. Unpublished throws `FeeScheduleError`
+ * (`trade.fee_schedule_blank` or `trade.fee_product_unpublished`): nothing invents a rate.
+ */
+export function perpetualFeeRates(schedule: OwnerFeeSchedule, discountBps: number): FeeRates {
+  const rates = ratesForFill(schedule, discountBps, discountBps, 'perpetual');
+  return { makerBps: rates.makerFeeBps, takerBps: rates.takerFeeBps };
+}
+
+/** `qty × price × bps / 10000`, rounded up to the unit once: a fee that rounds down is a fee the house pays. */
+function feeAt(qty: Amount, price: Amount, bps: number): Amount {
+  if (bps === 0 || qty <= 0n || price <= 0n) return 0n;
+  const denominator = SCALE * 10_000n;
+  return (qty * price * BigInt(bps) + denominator - 1n) / denominator;
+}
+
+/** One fill's fee at its own price and its own side's rate. */
+export function fillFee(input: { qty: Amount; price: Amount; role: FeeRole; rates: FeeRates }): Amount {
+  return feeAt(input.qty, input.price, input.role === 'taker' ? input.rates.takerBps : input.rates.makerBps);
+}
+
+/**
+ * What an opening order's hold carries for its fees: the higher of its two rates on the most its whole quantity can
+ * cost. A buy never fills above its limit. A sell fills at its limit or better, and a better price for a sell is a
+ * higher one, so its bound is the top of the band it was accepted in (its limit is inside that band). A fill priced
+ * past even that (a bid resting since the mark fell) pays what the reserve has left; the rest is recorded as waived,
+ * never drawn from anything else.
+ */
+export function orderFeeReserve(input: { side: OrderSide; qty: Amount; limit: Amount; bandHigh: Amount; rates: FeeRates }): Amount {
+  const bps = Math.max(input.rates.makerBps, input.rates.takerBps);
+  const bound = input.side === 'buy' ? input.limit : input.bandHigh > input.limit ? input.bandHigh : input.limit;
+  return feeAt(input.qty, bound, bps);
+}
+
+/**
+ * How much of a fill's fee is paid and how much is waived, from what its source can give: an opening fill's
+ * reserve left in the hold, or a reducing fill's margin share. Never more than either, never negative.
+ */
+export function feeSplit(fee: Amount, available: Amount): { charged: Amount; waived: Amount } {
+  const room = available > 0n ? available : 0n;
+  const charged = fee <= room ? fee : room;
+  return { charged, waived: fee - charged };
 }
 
 /** The whole hold for an order of `qty` resting at `limit`. */
@@ -312,6 +373,8 @@ export function reduceFillRecipes(input: {
   userId: string;
   assetId: string;
   plan: Pick<ReduceFillPlan, 'fromMargin' | 'fromInsurance' | 'release'>;
+  /** The fill's trading fee, already taken out of `plan.release`: it leaves the pot in the release posting. */
+  fee?: Amount;
 }): { loss: PostRequest | null; release: PostRequest | null } {
   const root = reduceFillRoot(input.fillKey);
   const loss =
@@ -326,12 +389,14 @@ export function reduceFillRecipes(input: {
         })
       : null;
   let release: PostRequest | null = null;
-  if (input.plan.release > 0n) {
+  const fee = input.fee ?? 0n;
+  if (input.plan.release > 0n || fee > 0n) {
     const base = recipes.futuresMarginRelease({
       positionId: input.positionId,
       userId: input.userId,
       assetId: input.assetId,
       amount: input.plan.release,
+      ...(fee > 0n ? { fee } : {}),
     });
     release = { ...base, idempotencyKey: `futures.margin.release:${input.positionId}:${root}:release` };
   }

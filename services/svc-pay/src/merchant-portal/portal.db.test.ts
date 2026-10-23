@@ -31,6 +31,9 @@ import { SubMerchantService } from '../submerchants.js';
 import { createSubMerchantRouter } from '../submerchant-router.js';
 import { createMerchantPortalRouter } from './router.js';
 
+/** Who moves KYB in these tests; `merchant_kyb_events` records it. */
+const KYB_ACTOR = { id: 'kyb-test-actor', scope: 'pay:onboard' };
+
 /**
  * Portal procedures against Postgres: membership source, reviewed profile
  * changes, onboarding progress, per-asset analytics, customer series, and a
@@ -525,8 +528,10 @@ describe('merchant portal procedures', () => {
   });
 
   it('a merchant second approver does not apply a legal name, and a removed maker is auto-rejected', async () => {
+    expect((await as(stranger).merchant.businessProfile.get({ merchantId: merchantB })).secondApprovalEnabled).toBe(false);
     await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: true });
     const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    expect(current.secondApprovalEnabled).toBe(true);
     const submitted = await as(stranger).merchant.businessProfile.submit({
       merchantId: merchantB,
       expectedVersion: current.version,
@@ -587,6 +592,101 @@ describe('merchant portal procedures', () => {
         ${merchantId}, ${userId}, 'gateway'::pay.merchant_mode, 'active'::pay.merchant_status, ${kyb}::pay.kyb_status
       )`;
   };
+
+  it('takes pay:onboard alone from the owner before verification and from an admin of a verified business, and from nobody else', async () => {
+    const onboard = { scopes: ['pay:onboard'] as Principal['scopes'] };
+    const user = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+    // J-merchant-02 #1: a new owner fills in the address before sending verification.
+    const entered = await as(user, onboard).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: '0',
+      reason: 'our address',
+      address: ADDRESS,
+    });
+    expect(entered.outcome).toBe('applied');
+    expect(entered.profile.address).toEqual(ADDRESS);
+    await as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true });
+    await as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: false });
+
+    const helper = id();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${helper}, 'admin', 'active', ${user}, now())`;
+    const unverifiedAdmin = await refusal(() =>
+      as(helper, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: entered.version,
+        reason: 'early',
+        website: 'https://a.example',
+      }),
+    );
+    expect(unverifiedAdmin.message).toBe('pay.owner_grant_withdrawn');
+    // `admin` owns no business here but works for verified Beta; a pay:write session it holds says nothing about this one.
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${admin}, 'admin', 'active', ${user}, now())`;
+    const otherWrite = await refusal(() =>
+      as(admin).merchant.businessProfile.submit({ merchantId, expectedVersion: entered.version, reason: 'rename', legalName: 'Taken Ltd' }),
+    );
+    expect(otherWrite.message).toBe('pay.owner_grant_withdrawn');
+    const outsider = await refusal(() => as(id(), onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(outsider).toMatchObject({ code: 'NOT_FOUND', message: `Merchant ${merchantId} not found` });
+    await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${merchantId}`;
+    const shutOwner = await refusal(() => as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(shutOwner.message).toBe('pay.owner_grant_withdrawn');
+    await sql`UPDATE pay.merchants SET status = 'active' WHERE id = ${merchantId}`;
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).legalName).toBeNull();
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'approved' WHERE id = ${merchantId}`;
+    const withdrawn = await refusal(() =>
+      as(user, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: entered.version,
+        reason: 'after approval',
+        website: 'https://shop.example',
+      }),
+    );
+    expect(withdrawn).toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).website).toBeNull();
+
+    // The owner grant law never gives an admin pay:write, so an admin of a verified business writes on pay:onboard.
+    const changed = await as(helper, onboard).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: entered.version,
+      reason: 'support contact',
+      supportEmail: 'help@shop.example',
+    });
+    expect(changed.outcome).toBe('applied');
+    // Second approval binds admins, so it is the owner's alone to switch.
+    const adminRule = await refusal(() => as(helper, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: false }));
+    expect(adminRule.message).toBe('pay.team_role_forbidden');
+    await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${merchantId}`;
+    const shut = await refusal(() =>
+      as(helper, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: changed.version,
+        reason: 'while shut',
+        website: 'https://b.example',
+      }),
+    );
+    expect(shut.message).toBe('pay.owner_grant_withdrawn');
+    await sql`UPDATE pay.merchants SET status = 'active' WHERE id = ${merchantId}`;
+
+    const reader = id();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${reader}, 'viewer', 'active', ${user}, now())`;
+    const viewerWrite = await refusal(() => as(reader, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(viewerWrite.message).toBe('pay.team_role_forbidden');
+    const keyed = await refusal(() =>
+      as(user, { ...onboard, kid: 'ifc_test' }).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }),
+    );
+    // An API key never carries pay:onboard as a write.
+    expect(keyed.code).toBe('FORBIDDEN');
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).secondApprovalEnabled).toBe(false);
+  });
 
   it('applies sensitive identity before KYB is submitted, refuses it while pending, and holds it once approved', async () => {
     const user = id();
@@ -754,13 +854,17 @@ describe('merchant portal procedures', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(consumes).toBe(1);
     const sandbox = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'allow-sandbox' });
-    await expect(sandbox.submitKyb({ merchantId, kybRef: 'dossier-2' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    await expect(sandbox.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-2' })).rejects.toMatchObject({
+      code: 'pay.kyb_invalid',
+    });
     await expect(merchant.kyb.submit({ merchantId, kybRef: 'dossier-3', reason: 'try again' })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'pay.kyb_invalid' }),
     });
-    await expect(sandbox.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    await expect(sandbox.decideKybStub({ actor: KYB_ACTOR, merchantId, decision: 'rejected' })).rejects.toMatchObject({
+      code: 'pay.kyb_invalid',
+    });
     const liveOnly = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'live-only' });
-    await expect(liveOnly.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({
+    await expect(liveOnly.decideKybStub({ actor: KYB_ACTOR, merchantId, decision: 'rejected' })).rejects.toMatchObject({
       code: 'pay.kyb_operator_required',
     });
     expect(await kybOf(merchantId)).toBe('approved');
@@ -918,7 +1022,7 @@ describe('merchant portal procedures', () => {
     });
     expect(changed.outcome).toBe('applied');
     expect(changed.profile.legalName).toBe('Unreviewed Shop Ltd');
-    await pay.submitKyb({ merchantId, kybRef: 'dossier-stale' });
+    await pay.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-stale' });
     expect(await kybOf(merchantId)).toBe('pending');
 
     await expect(decide()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
@@ -929,6 +1033,7 @@ describe('merchant portal procedures', () => {
     let paySideEffects = 0;
     await expect(
       pay.decideKyb({
+        actor: KYB_ACTOR,
         merchantId,
         decision: 'approved',
         identityHash: reviewed!.identityHash,
@@ -1029,7 +1134,7 @@ describe('merchant portal procedures', () => {
     const reviewed = await loadKybDecisionBinding(sql, merchantId);
     const proposedHash = kybDecisionPayloadHash(PAY_MERCHANT_DECIDE_KYB, reviewed!.fields('approved'));
     const pay = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'live-only' });
-    await pay.submitKyb({ merchantId, kybRef: 'dossier-contact' });
+    await pay.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-contact' });
     const contact = await as(user).merchant.businessProfile.submit({
       merchantId,
       expectedVersion: entered.version,

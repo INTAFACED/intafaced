@@ -19,7 +19,7 @@
     "@intafaced/contracts": "workspace:*",
     "@intafaced/exchange-contract": "workspace:*",
     "@intafaced/i18n": "workspace:*",
-    "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/money-math": "workspace:*",
     "@intafaced/ui": "workspace:*",
     "@tanstack/react-virtual": "3.14.21",
     "lucide-react": "1.58.0",
