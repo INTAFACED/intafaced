@@ -195,6 +195,25 @@ describe('incident desk BFF', () => {
     expect(b.clientRequestId).toBe(a.clientRequestId);
   });
 
+  it('the same words written again after the desk moved on are a new draft, not the old one', async () => {
+    configure();
+    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    const draft = {
+      op: 'draft',
+      title: 'TEST payments slow',
+      body: 'TEST we are looking',
+      impact: 'minor',
+      components: ['payments'],
+      parentId: null,
+    };
+    await POST(post({ ...draft, basis: NOTICE_ID }));
+    await POST(post({ ...draft, basis: '44444444-4444-4444-8444-444444444444' }));
+    const [a, b] = calls(c).map((x) => JSON.parse(String(x.init.body)));
+    expect(b.clientRequestId).not.toBe(a.clientRequestId);
+    expect(a).not.toHaveProperty('basis');
+    expect((await POST(post({ ...draft, basis: 'not-an-id' }))).status).toBe(400);
+  });
+
   it('asks identity for the approval bound to the draft as svc-notify holds it', async () => {
     configure();
     const c = upstream({ 'notify.noticeProposal': () => ok(PROPOSAL), 'actionApproval.propose': () => ok(approval({})) });

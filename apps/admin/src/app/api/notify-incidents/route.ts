@@ -17,7 +17,7 @@ import {
  * The incident desk.
  *
  *   GET                                                   incidents (drafts too), templates, components, publish approvals
- *   POST { op: 'draft', title, body, impact, components, parentId, resolves }   a draft incident or update
+ *   POST { op: 'draft', basis, title, body, impact, components, parentId, resolves }   a draft incident or update
  *   POST { op: 'request', noticeId }                      ask identity for the approval this draft's publish spends
  *   POST { op: 'approve', noticeId, approvalId }          a second founder approves the draft as svc-notify holds it now
  *   POST { op: 'publish', noticeId, approvalId, operationId }   svc-notify spends the approval once
@@ -77,9 +77,23 @@ export async function POST(request: Request) {
         const impact = impactOf(body.impact);
         const components = componentsOf(body.components);
         const parentId = body.parentId === null || body.parentId === undefined ? null : str(body.parentId);
-        if (impact === undefined || components === null || (parentId !== null && !UUID.test(parentId)))
+        const basis = body.basis === null || body.basis === undefined ? null : str(body.basis);
+        if (
+          impact === undefined ||
+          components === null ||
+          (parentId !== null && !UUID.test(parentId)) ||
+          (basis !== null && !UUID.test(basis))
+        )
           return incomplete('The impact, components or incident are not in the shape svc-notify takes.');
-        const input = { title: str(body.title), body: str(body.body), impact, components, parentId, resolves: body.resolves === true };
+        const input = {
+          basis,
+          title: str(body.title),
+          body: str(body.body),
+          impact,
+          components,
+          parentId,
+          resolves: body.resolves === true,
+        };
         const check = checkIncidentDraft(input);
         if (!check.ok) return incomplete(check.why);
         return send(await draftIncident(session, input));

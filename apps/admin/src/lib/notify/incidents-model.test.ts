@@ -55,13 +55,22 @@ describe('incident desk model', () => {
     expect(incidentsFrom([notice({}), notice({ id: 'r', parentId: 'root', resolves: true })])[0]!.state).toBe('resolved');
   });
 
-  it('the approval that decides a draft is the newest live one, else the newest of any', () => {
+  it('the approval that decides a draft is the newest approved, then the newest pending, else the newest of any', () => {
     const rows = [
       approval({ approvalId: 'old', status: 'CONSUMED', createdAt: '2026-10-23T10:00:00.000Z' }),
       approval({ approvalId: 'live', status: 'APPROVED', createdAt: '2026-10-23T10:01:00.000Z' }),
       approval({ approvalId: 'newest', status: 'REJECTED', createdAt: '2026-10-23T10:02:00.000Z' }),
+      approval({ approvalId: 'asked-later', status: 'PENDING', createdAt: '2026-10-23T10:03:00.000Z' }),
     ].map((r) => publishApprovalOf(r)!);
+    // A newer request never hides an approval that can be spent.
     expect(approvalFor('root', rows)!.approvalId).toBe('live');
+    expect(
+      approvalFor(
+        'root',
+        rows.filter((r) => r.approvalId !== 'live'),
+      )!.approvalId,
+    ).toBe('asked-later');
+    rows.pop();
     expect(
       approvalFor(
         'root',

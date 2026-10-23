@@ -91,11 +91,20 @@ function reply<T>(result: FounderCallResult<T>, what: string): { status: number;
 const anyData = (raw: unknown) => (raw === undefined ? null : raw);
 
 /**
- * The draft's key is its content: a lost reply sent again finds the same draft instead of making a second one, and the
- * same words drafted twice are one draft.
+ * The draft's key is its content and the newest entry the founder saw when writing it (`basis`): a lost reply sent again
+ * finds the same draft instead of making a second one, while the same words written again later (a recurrence declared
+ * from the same template, or "still monitoring" posted twice) are a new draft, since the desk has moved on since.
  */
 export function draftKey(founder: string, input: IncidentDraftInput): string {
-  const fields = [input.title.trim(), input.body.trim(), input.impact, [...input.components].sort(), input.parentId, input.resolves];
+  const fields = [
+    input.basis ?? null,
+    input.title.trim(),
+    input.body.trim(),
+    input.impact,
+    [...input.components].sort(),
+    input.parentId,
+    input.resolves,
+  ];
   return `incident-draft:${createHash('sha256')
     .update(JSON.stringify([founder, fields]))
     .digest('hex')

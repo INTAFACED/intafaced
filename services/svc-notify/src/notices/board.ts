@@ -143,6 +143,9 @@ export type NoticePublishProposal = {
   readonly payloadHash: string;
 };
 
+/** A bound on the open incident entries the desk carries beyond its page: a storage bound, not an owner value. */
+const OPEN_THREADS_MAX = 500;
+
 export const NOTICE_PUBLISH_ACTION = 'notify.notice.publish';
 
 export type NoticeStatusRead = {
@@ -173,8 +176,14 @@ export interface NoticeStore {
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
   /** Drafts and published rows, newest created first: the founders' desk. */
   listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
-  /** Every entry that updates one incident, drafts included. */
-  children(parentId: string): Promise<readonly NoticeRow[]>;
+  /** Whether a published entry resolved this incident. */
+  resolved(rootId: string): Promise<boolean>;
+  /** Every published incident no published entry has resolved, with all its entries (drafts too), at most `limit` rows. */
+  openIncidentThreads(limit: number): Promise<readonly NoticeRow[]>;
+  /**
+   * Marks a draft published. For an update it holds the incident while it checks that no published entry resolved it
+   * (`notify.notice_incident_resolved`), so two publishes at once cannot both land after a resolution.
+   */
   markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void>;
   approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null>;
   recordApproval(
@@ -320,13 +329,26 @@ export class MemoryNoticeStore implements NoticeStore {
       .slice(0, limit);
   }
 
-  async children(parentId: string): Promise<readonly NoticeRow[]> {
-    return [...this.rows.values()].filter((row) => row.parentId === parentId);
+  async resolved(rootId: string): Promise<boolean> {
+    return [...this.rows.values()].some((row) => row.parentId === rootId && row.status === 'published' && row.resolves);
+  }
+
+  async openIncidentThreads(limit: number): Promise<readonly NoticeRow[]> {
+    const rows = [...this.rows.values()];
+    const open = new Set<string>();
+    for (const row of rows)
+      if (row.kind === 'incident' && row.parentId === null && row.status === 'published' && !(await this.resolved(row.id)))
+        open.add(row.id);
+    return rows
+      .filter((row) => open.has(row.id) || (row.parentId !== null && open.has(row.parentId)))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
   }
 
   async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
     const row = this.rows.get(id);
     if (!row || row.status !== 'draft') throw new NoticeError('notify.notice_published_immutable');
+    if (row.parentId !== null && (await this.resolved(row.parentId))) throw new NoticeError('notify.notice_incident_resolved');
     row.status = 'published';
     row.publishedAt = patch.publishedAt;
     row.approvalId = patch.approvalId;
@@ -489,16 +511,22 @@ export class NoticeBoard {
   }
 
   /** A resolved incident is final: a published entry closed it, and a recurrence is a new incident. */
-  private async resolvedIncident(rootId: string): Promise<boolean> {
-    return (await this.store.children(rootId)).some((row) => row.status === 'published' && row.resolves);
+  private resolvedIncident(rootId: string): Promise<boolean> {
+    return this.store.resolved(rootId);
   }
 
-  /** The founders' desk: drafts and published notices, newest written first. */
+  /**
+   * The founders' desk: drafts and published notices, newest written first. For incidents it also carries every entry of
+   * each incident still open, however old, so an open incident never drops off the desk that resolves it.
+   */
   async operatorNotices(input: { kind?: string | null; limit: number }): Promise<readonly OperatorNotice[]> {
     const limit = clampNoticeLimit(input.limit);
     const kind = input.kind == null || input.kind === '' ? null : input.kind;
     if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
-    return (await this.store.listAll(kind, limit)).map(toOperatorNotice);
+    const rows = new Map((await this.store.listAll(kind, limit)).map((row) => [row.id, row]));
+    if (kind === null || kind === 'incident')
+      for (const row of await this.store.openIncidentThreads(OPEN_THREADS_MAX)) if (!rows.has(row.id)) rows.set(row.id, row);
+    return [...rows.values()].map(toOperatorNotice);
   }
 
   /** The exact approval a draft's publish spends: the founder asks identity for one bound to this, a different founder approves it. */
@@ -506,6 +534,8 @@ export class NoticeBoard {
     const row = await this.store.findById(id);
     if (!row) throw new NoticeError('notify.notice_not_found');
     if (row.status === 'published') throw new NoticeError('notify.notice_published_immutable');
+    // No approval is asked for an update that could never be published.
+    if (row.parentId !== null && (await this.resolvedIncident(row.parentId))) throw new NoticeError('notify.notice_incident_resolved');
     return {
       actionType: NOTICE_PUBLISH_ACTION,
       targetService: 'svc-notify',
@@ -653,11 +683,16 @@ export class NoticeBoard {
     }
     const recorded = await this.store.recordApproval(input.approvalId, row.id, publisherId, 'published');
     if (recorded === 'exists') return fail('notify.notice_approval_spent');
-    await this.store.markPublished(row.id, {
-      publishedAt: this.now(),
-      approvalId: input.approvalId,
-      publishClientRequestId: input.clientRequestId,
-    });
+    try {
+      await this.store.markPublished(row.id, {
+        publishedAt: this.now(),
+        approvalId: input.approvalId,
+        publishClientRequestId: input.clientRequestId,
+      });
+    } catch (err) {
+      if (err instanceof NoticeError) return fail(err.code);
+      throw err;
+    }
     const published = await this.store.findById(row.id);
     if (!published) return fail('notify.notice_not_found');
     const wire = toNoticeWire(published);

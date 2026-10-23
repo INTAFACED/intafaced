@@ -112,4 +112,46 @@ describe('incident desk on the notice board', () => {
     const recurrence = await publish({ ...incident, clientRequestId: 'recurrence' });
     expect((await board.noticeStatus()).incidents.map((i) => i.id)).toEqual([recurrence.id]);
   });
+
+  it('no approval is asked for an update that could never be published', async () => {
+    const { board, publish } = desk();
+    const root = await publish({ ...incident, clientRequestId: 'root' });
+    const late = await board.draft(AUTHOR, {
+      kind: 'incident',
+      title: 'TEST',
+      body: 'TEST late',
+      parentId: root.id,
+      clientRequestId: 'late',
+    });
+    await publish({
+      kind: 'incident',
+      title: 'TEST',
+      body: 'TEST resolved',
+      parentId: root.id,
+      resolves: true,
+      clientRequestId: 'resolve',
+    });
+    await expect(board.publishProposal(late.id)).rejects.toMatchObject({ code: 'notify.notice_incident_resolved' });
+  });
+
+  it('an open incident stays on the desk with all its entries however many newer ones were written', async () => {
+    const { board, publish } = desk();
+    const old = await publish({ ...incident, clientRequestId: 'old' });
+    const update = await publish({ kind: 'incident', title: 'TEST', body: 'TEST looking', parentId: old.id, clientRequestId: 'old-u' });
+    const closed = await publish({ ...incident, title: 'TEST closed', clientRequestId: 'closed' });
+    await publish({
+      kind: 'incident',
+      title: 'TEST',
+      body: 'TEST fixed',
+      parentId: closed.id,
+      resolves: true,
+      clientRequestId: 'closed-r',
+    });
+    for (let i = 0; i < 3; i += 1) await board.draft(AUTHOR, { ...incident, title: `TEST newer ${i}`, clientRequestId: `newer-${i}` });
+    const ids = (await board.operatorNotices({ kind: 'incident', limit: 2 })).map((row) => row.id);
+    expect(ids).toEqual(expect.arrayContaining([old.id, update.id]));
+    // A resolved incident is not carried beyond the page.
+    expect(ids).not.toContain(closed.id);
+    expect(ids).toHaveLength(4);
+  });
 });

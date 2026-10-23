@@ -186,12 +186,18 @@ export function incidentsFrom(notices: readonly OperatorNotice[]): Incident[] {
     });
 }
 
-const LIVE = new Set(['PENDING', 'APPROVED']);
-
-/** The approval that decides a draft's publish now: the newest one still pending or approved, else the newest of any. */
+/**
+ * The approval that decides a draft's publish now: the newest approved one (it can be spent), else the newest pending,
+ * else the newest of any. An approved one is never hidden behind a newer request.
+ */
 export function approvalFor(noticeId: string, approvals: readonly PublishApproval[]): PublishApproval | null {
   const mine = approvals.filter((a) => a.targetId === noticeId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return mine.find((a) => LIVE.has(a.status)) ?? mine[0] ?? null;
+  return mine.find((a) => a.status === 'APPROVED') ?? mine.find((a) => a.status === 'PENDING') ?? mine[0] ?? null;
+}
+
+/** The id of the newest entry written, drafts included, or null on an empty desk. */
+export function newestEntry(notices: readonly OperatorNotice[]): string | null {
+  return [...notices].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))[0]?.id ?? null;
 }
 
 /** Templates by group for the picker; a template with no group is listed under "No group". */
@@ -205,6 +211,8 @@ export function templateGroups(templates: readonly IncidentTemplate[]): { group:
 }
 
 export interface IncidentDraftInput {
+  /** The newest entry the founder saw when writing it (null on an empty desk); see `draftKey`. */
+  readonly basis?: string | null;
   readonly title: string;
   readonly body: string;
   readonly impact: Impact | null;

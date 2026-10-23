@@ -11,6 +11,7 @@ import {
   approvalFor,
   checkIncidentDraft,
   incidentsFrom,
+  newestEntry,
   templateGroups,
   type Impact,
   type Incident,
@@ -138,10 +139,13 @@ function ComponentChecks({
 function DeclareForm({
   templates,
   components,
+  basis,
   busy,
   onSubmit,
 }: {
   templates: readonly IncidentTemplate[];
+  /** The newest entry on the desk when the founder wrote this: part of the draft's key (see `draftKey`). */
+  basis: string | null;
   components: readonly { id: string; name: string }[];
   busy: boolean;
   onSubmit: Submit;
@@ -166,7 +170,7 @@ function DeclareForm({
     const check = checkIncidentDraft(input);
     if (!check.ok) return setWhy(check.why);
     setWhy(null);
-    onSubmit({ op: 'draft', ...input });
+    onSubmit({ op: 'draft', ...input, basis });
   };
   return (
     <section className="dk-stack" aria-labelledby="incident-declare" data-testid="incident-declare">
@@ -240,14 +244,23 @@ function EntryActions({
   me,
   busy,
   onSubmit,
+  final,
 }: {
   entry: OperatorNotice;
   approval: PublishApproval | null;
   me: string;
   busy: boolean;
   onSubmit: Submit;
+  /** The incident is resolved: a draft left under it is never published. */
+  final: boolean;
 }) {
   if (entry.status === 'published') return null;
+  if (final)
+    return (
+      <p className="dk-muted" data-testid="incident-entry-final">
+        Not published before the incident was resolved, so it never will be.
+      </p>
+    );
   const live = approval && (approval.status === 'PENDING' || approval.status === 'APPROVED') ? approval : null;
   if (!live)
     return (
@@ -291,7 +304,6 @@ function EntryActions({
       <button
         type="button"
         className="adm-btn"
-
         onClick={() => onSubmit({ op: 'publish', noticeId: entry.id, approvalId: live.approvalId, operationId: live.operationId })}
         disabled={busy}
       >
@@ -312,7 +324,7 @@ function UpdateForm({ incident, busy, onSubmit }: { incident: Incident; busy: bo
     const check = checkIncidentDraft(input);
     if (!check.ok) return setWhy(check.why);
     setWhy(null);
-    onSubmit({ op: 'draft', ...input });
+    onSubmit({ op: 'draft', ...input, basis: incident.entries.at(-1)?.id ?? null });
   };
   return (
     <div className="dk-stack" data-testid="incident-update">
@@ -385,7 +397,14 @@ function IncidentCard({
               {entry.authorId === me ? ' · written by you' : ''}
             </p>
             <p>{entry.body}</p>
-            <EntryActions entry={entry} approval={approvalFor(entry.id, approvals)} me={me} busy={busy} onSubmit={onSubmit} />
+            <EntryActions
+              entry={entry}
+              approval={approvalFor(entry.id, approvals)}
+              me={me}
+              busy={busy}
+              onSubmit={onSubmit}
+              final={state === 'resolved'}
+            />
           </li>
         ))}
       </ol>
@@ -482,22 +501,23 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
   const [loadFailed, setLoadFailed] = useState(false);
   // Approvals this founder approved on this visit: identity lists a decided approval to its requester only.
   const [decided, setDecided] = useState<readonly PublishApproval[]>([]);
-  // Remounts the forms on every fresh read, so they start from what the services hold now.
+  // Remounts the forms, so they start empty again. Not after a refusal: what the founder wrote stays to be corrected.
   const [generation, setGeneration] = useState(0);
 
-  const reread = useCallback(async () => {
+  /** A fresh read; `clear` also empties the forms (after a change landed, or on a read the founder asked for). */
+  const reread = useCallback(async (clear: boolean) => {
     const next = await fetchIncidentDesk();
     setLoadFailed(next === null);
     if (next) {
       setView(next);
-      setGeneration((g) => g + 1);
+      if (clear) setGeneration((g) => g + 1);
     }
   }, []);
 
   const refresh = useCallback(async () => {
     setBusy(true);
     setReply(null);
-    await reread();
+    await reread(true);
     setBusy(false);
   }, [reread]);
 
@@ -511,7 +531,7 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
         setDecided((list) => [...list.filter((a) => a.approvalId !== approval.approvalId), approval]);
       }
       // Read again before any control is enabled: a refusal can still have changed state (a spent approval).
-      await reread();
+      await reread(result.ok);
       setBusy(false);
     },
     [reread],
@@ -521,7 +541,13 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
   const components = view.components.kind === 'ok' ? view.components.data : [];
   const names = new Map(components.map((c) => [c.id, c.name]));
   const listed = view.approvals.kind === 'ok' ? view.approvals.data : [];
-  const approvals = [...listed, ...decided.filter((a) => !listed.some((l) => l.approvalId === a.approvalId))];
+  // What this founder approved counts only until identity lists something newer for that draft (a new request).
+  const approvals = [
+    ...listed,
+    ...decided.filter(
+      (a) => !listed.some((l) => l.approvalId === a.approvalId || (l.targetId === a.targetId && l.createdAt > a.createdAt)),
+    ),
+  ];
   return (
     <div className="dk-stack" data-testid="incident-desk">
       <header className="adm-pagehead">
@@ -545,7 +571,13 @@ export function NotifyIncidentsDesk({ initial }: { initial: IncidentDeskView }) 
       {view.approvals.kind === 'failed' && <Failed title="Approvals could not be read" message={view.approvals.message} />}
       <div key={generation} className="dk-stack">
         {view.templates.kind === 'ok' ? (
-          <DeclareForm templates={view.templates.data} components={components} busy={busy} onSubmit={onSubmit} />
+          <DeclareForm
+            templates={view.templates.data}
+            components={components}
+            basis={view.notices.kind === 'ok' ? newestEntry(view.notices.data) : null}
+            busy={busy}
+            onSubmit={onSubmit}
+          />
         ) : (
           <Failed title="Templates could not be read" message={view.templates.message} />
         )}

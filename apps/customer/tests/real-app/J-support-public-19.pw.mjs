@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { draftNotice, publishAs, publishNotice } from './notices.mjs';
-import { configureStatusPage, statusDefinition, statusRead } from './status-page.mjs';
+import { configureStatusPage, incidentTemplates, setIncidentTemplate, statusDefinition, statusRead } from './status-page.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-support-public-19, in the running app (docs/roadmap/journeys.json): two operators publish an incident, a maintenance
@@ -59,14 +59,21 @@ async function resolveLeftovers() {
     }
 }
 
-/** The definition this journey found, put back after it so the stack keeps what other journeys set. */
+/** The definition and the templates this journey found, put back after it so the stack keeps what others set. */
 let found;
+let foundTemplates;
 test.beforeAll(async () => {
   found = await statusDefinition();
+  foundTemplates = await incidentTemplates();
   await resolveLeftovers();
 });
 test.afterAll(async () => {
   await resolveLeftovers();
+  if (foundTemplates) {
+    for (const t of await incidentTemplates())
+      if (!foundTemplates.some((f) => f.id === t.id)) await setIncidentTemplate(t, { retire: true });
+    for (const t of foundTemplates) await setIncidentTemplate(t);
+  }
   if (!found) return;
   await configureStatusPage(
     {
@@ -177,7 +184,7 @@ test(`${J} #2 declare an incident from a template: no template is supplied, the 
   browser,
 }) => {
   const a = await incidentDesk(browser, 'a');
-  // Start from no templates at all, so the picker shows that none is supplied.
+  // Start from no templates at all, so the picker shows that none is supplied (the ones found come back after the run).
   const templates = a.getByTestId('incident-templates');
   for (const row of await templates.locator('[data-testid^="incident-template-"]').all()) {
     const id = await row.getAttribute('data-testid');
