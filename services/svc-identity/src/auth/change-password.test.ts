@@ -169,13 +169,15 @@ if (!available) {
       const api = await callerOf(user);
       let change: Promise<unknown> | undefined;
       await db.sql.begin(async (holder) => {
-        const [{ pid }] = await holder<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+        const pid = (await holder<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
         await holder`SELECT id FROM users WHERE id = ${user.userId} FOR UPDATE`;
         change = refusal(api.auth.changePassword({ currentPassword: OLD, newPassword: NEW }));
         // The change has passed the unlocked check and now waits on this row.
         for (let waited = 0; ; waited += 20) {
-          const [{ blocked }] = await db.sql<Array<{ blocked: number }>>`
-            SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+          const blocked = (
+            await db.sql<Array<{ blocked: number }>>`
+            SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`
+          )[0]!.blocked;
           if (blocked > 0) break;
           if (waited > 10_000) throw new Error('the password change never reached the row lock');
           await new Promise((resolve) => setTimeout(resolve, 20));

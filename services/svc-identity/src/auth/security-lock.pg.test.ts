@@ -107,12 +107,14 @@ if (!(await postgresAvailable(TEST_URL))) {
       let asking: ReturnType<SecurityLock['requestUnlock']> | undefined;
       let released = new Date(0);
       await db.sql.begin(async (holder) => {
-        const [{ pid }] = await holder<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+        const pid = (await holder<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
         await holder`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
         asking = lock.requestUnlock(userId);
         for (let waited = 0; ; waited += 20) {
-          const [{ blocked }] = await db.sql<Array<{ blocked: number }>>`
-            SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+          const blocked = (
+            await db.sql<Array<{ blocked: number }>>`
+            SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`
+          )[0]!.blocked;
           if (blocked > 0) break;
           if (waited > 10_000) throw new Error('the unlock request never reached the row lock');
           await new Promise((resolve) => setTimeout(resolve, 20));
