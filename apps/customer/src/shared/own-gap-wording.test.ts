@@ -44,9 +44,10 @@ function hits(): string[] {
   for (const folder of FOLDERS)
     for (const file of copyFiles(join(src, folder))) {
       const text = readFileSync(file, 'utf8');
-      for (const match of text.matchAll(/^ {2}(?:'([^']+)'|([\w.]+)):\s*\n?\s*'([^']*)'/gm)) {
-        const key = match[1] ?? match[2]!;
-        if (WORDING.test(match[3]!)) found.add(`${relative(src, file)}: ${key}`);
+      // A source entry: its key, then its text in any quote, escapes included (`'isn\'t'`, "…", `…`).
+      for (const match of text.matchAll(/^ {2}(?:(['"])((?:\\.|(?!\1).)+)\1|([\w.]+)):\s*\n?\s*(['"`])((?:\\.|(?!\4)[\s\S])*?)\4/gm)) {
+        const key = match[2] ?? match[3]!;
+        if (WORDING.test(match[5]!.replace(/\\(.)/g, '$1'))) found.add(`${relative(src, file)}: ${key}`);
       }
     }
   return [...found].sort();

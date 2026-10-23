@@ -174,7 +174,7 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
               </Button>
               {refusal ? (
                 // An outside dependency (the allowlist): the shell's one service-off sentence and code.
-                <ServiceOffNotice code={refusal} action={t(`act_${action}`)} className="protocol-actions__reason" />
+                <ServiceOffNotice code={refusal} action={t(`act_${action}`)} className="protocol-actions__reason" role="note" />
               ) : (
                 // Our own gap or a plain state: its reason, never an allowlist code.
                 <p className="protocol-actions__reason" role="note">
