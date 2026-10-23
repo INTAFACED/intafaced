@@ -441,6 +441,13 @@ export const features: readonly Feature[] = [
     label: 'Academy, Agents, Quant, Launch, Market, Prediction, Mining, Token, Blueprint, Campaigns',
     paths: [
       '/academy',
+      '/academy/learning',
+      '/academy/certificates',
+      '/academy/rooms',
+      '/academy/videos',
+      '/academy/programmes',
+      '/academy/progress',
+      '/academy/learning/course/:slug',
       '/academy/:slug',
       '/agents',
       '/quant',

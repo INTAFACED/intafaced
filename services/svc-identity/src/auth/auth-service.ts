@@ -28,6 +28,7 @@ import {
   verifyPassword,
   WeakPasswordError,
 } from './passwords.js';
+import { assertNotSecurityLocked } from './security-lock.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
@@ -1461,6 +1462,9 @@ export class AuthService {
     if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
       throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
     }
+    // The owner's security lock (W-withdraw-09) stops password changes. Checked before the reservation so a locked
+    // account spends no guess; re-checked under the row lock below, which is the authority.
+    await assertNotSecurityLocked(this.sql, userId);
     // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
     await this.reserve(userId, 'password');
     if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
@@ -1489,6 +1493,7 @@ export class AuthService {
         throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
       }
       if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      await assertNotSecurityLocked(tx, userId);
       const live = await tx<
         Array<{ id: string }>
       >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
@@ -1847,7 +1852,9 @@ export class AuthService {
         if (err instanceof WebAuthnError) return refuse();
         throw err;
       }
-      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
+      // A passkey that just passed an assertion is a verified passkey (`requireVerifiedPasskey` reads this stamp).
+      const lastVerifiedAt = new Date().toISOString();
+      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter, lastVerifiedAt } : c));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
     });
   }

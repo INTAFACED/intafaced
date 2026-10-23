@@ -249,3 +249,21 @@ it('gives each searchable room the place it lives, as "Door > Room"; parked Web3
   // Rooms outside every door (a person setting, a public page) have no path.
   expect(roomPath(findRoom('/view')!, 'en')).toBeUndefined();
 });
+
+it('resolves each reserved Academy segment to its own row before the reader pattern (AC-order-01)', () => {
+  const table: [string, string][] = [
+    ['/academy', '/academy'],
+    ['/academy/learning', '/academy/learning'],
+    ['/academy/certificates', '/academy/certificates'],
+    ['/academy/rooms', '/academy/rooms'],
+    ['/academy/videos', '/academy/videos'],
+    ['/academy/programmes', '/academy/programmes'],
+    ['/academy/progress', '/academy/progress'],
+    ['/academy/some-lesson', '/academy/:slug'],
+    ['/academy/learning/course/markets', '/academy/learning/course/:slug'],
+  ];
+  for (const [path, row] of table) expect(findRoom(path)?.path, path).toBe(row);
+  const exact = rooms.findIndex((room) => room.path === '/academy/rooms');
+  expect(exact).toBeGreaterThan(-1);
+  expect(exact).toBeLessThan(rooms.findIndex((room) => room.path === '/academy/:slug'));
+});

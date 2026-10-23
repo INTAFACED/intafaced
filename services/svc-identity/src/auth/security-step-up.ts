@@ -18,7 +18,10 @@ import { userCopy } from '../user-copy.js';
 import { ActionApprovalError } from './action-approval-service.js';
 import { AuthError } from './auth-service.js';
 
-/** The 13 security scopes of ENGINE STP-3. Close account, contact changes and payments have their own guards. */
+/**
+ * The 13 security scopes of ENGINE STP-3, and the security lock's unlock request (W-withdraw-09). Close account, contact
+ * changes and payments have their own guards.
+ */
 export const SECURITY_STEP_UP_SCOPES = [
   'identity.step_up.passkey_add',
   'identity.step_up.passkey_remove',
@@ -33,6 +36,7 @@ export const SECURITY_STEP_UP_SCOPES = [
   'identity.step_up.trusted_device_remove',
   'identity.step_up.link_method',
   'identity.step_up.unlink_method',
+  'identity.step_up.security_lock_unlock',
 ] as const satisfies readonly SamePersonActionType[];
 
 export type SecurityStepUpScope = (typeof SECURITY_STEP_UP_SCOPES)[number];

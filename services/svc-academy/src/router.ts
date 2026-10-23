@@ -1,6 +1,18 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema, academyRelatedInputSchema } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  TRPCError,
+  rankPerksSchema,
+  academyRelatedInputSchema,
+  academyPublicCatalogueInputSchema,
+  academyPublicVideoSchema,
+  academyPublicCourseCardSchema,
+  academyPublicCourseSchema,
+  academyPublicHubSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -12,6 +24,7 @@ import {
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
 import { relatedItems } from './curriculum/related.js';
+import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
 import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
@@ -628,6 +641,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.room_not_found':
     case 'academy.session_not_found':
     case 'academy.curriculum_not_found':
+    case 'academy.course_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
 
     case 'academy.not_host':
@@ -762,6 +776,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.attempt_cooldown':
     case 'academy.verify_rate_limited':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+
+    case 'academy.sign_in_required':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.assessment_invalid':
     case 'academy.holder_name_invalid':
@@ -899,6 +916,56 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
       .query(({ input, ctx }) => guard(() => academy.readCurriculumItem({ userId: ctx.principal!.userId, slug: input.slug }))),
+
+    // ── Signed-out Academy (AC-catalogue-01) ─────────────────────────────────
+    //
+    // The published spine for a visitor with no account: no progress, no
+    // learner rows, no touch written. Per-address limits on these reads are
+    // svc-edge's (EDGE_RATE_LIMIT_MAX, an owner value that refuses while
+    // blank): only the edge sees the caller's address.
+
+    publicCurriculum: publicProcedure
+      .input(academyPublicCatalogueInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) =>
+        guard(async () => {
+          const limit = assertCurriculumPageLimit(input.limit);
+          return searchPublicCurriculum({
+            limit,
+            ...(input.q !== undefined ? { q: input.q } : {}),
+            ...(input.path ? { path: input.path } : {}),
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.sort ? { sort: input.sort } : {}),
+          });
+        }),
+      ),
+
+    publicCurriculumItem: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(curriculumItemOut)
+      .query(({ input }) => guard(() => academy.readPublicCurriculumItem({ slug: input.slug }))),
+
+    publicCurriculumRelated: publicProcedure
+      .input(academyRelatedInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug.trim(), assertCurriculumPageLimit(input.limit)))),
+
+    /** The video list a visitor sees: the same refusal as signed in when storage is not configured. */
+    publicVideos: publicProcedure
+      .output(z.array(academyPublicVideoSchema))
+      .query(() => guard(async () => listAcademyVideos(video).map(({ slug, title, path }) => ({ slug, title, path })))),
+
+    /** AC-catalogue-03: one card per course with published items. A course is one curriculum path until courses are rows. */
+    publicCourses: publicProcedure.output(z.array(academyPublicCourseCardSchema)).query(() => listPublicCourses()),
+
+    /** The public course page. Unknown and unpublished courses give the same `academy.course_not_found`. */
+    publicCourse: publicProcedure
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(academyPublicCourseSchema)
+      .query(({ input }) => guard(() => academy.publicCourse(input.slug))),
+
+    /** AC-articles-01: the hub's featured slot, only what staff chose; null when nobody chose one. */
+    publicHub: publicProcedure.output(academyPublicHubSchema).query(() => guard(async () => ({ featured: await academy.featuredItem() }))),
 
     /**
      * Stage-1 import pipeline inventory: content source decision + count gate.
@@ -2525,6 +2592,12 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
+      setFeatured: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ itemSlug: z.string().min(1).max(120).nullable(), reason: z.string().max(500) }).strict())
+        .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
+        .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
+
       setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
         .output(z.object({ itemSlug: z.string(), prerequisites: z.array(z.string()) }))
