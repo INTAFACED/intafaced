@@ -39,6 +39,7 @@ import { OwnerCards } from './Cards';
 import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
+import { AccountHome } from './AccountHome';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -1731,6 +1732,7 @@ function BankOverview() {
           </ResourceView>
         </Section>
       </div>
+      <AccountHome />
       <Section title={copyText('overview.services')}>
         <nav className="money-destinations" aria-label={copyText('overview.services')}>
           {bankServices.map((service) => (

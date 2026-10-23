@@ -252,6 +252,8 @@ describe('svc-bank money PG-hard', () => {
     `;
     ledger = new MemoryLedger();
     bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      // A labelled TEST space limit, so the router's create and restore doors are open in this suite.
+      spaceLimit: '50',
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState({ [NO_SUCH_USER]: 'not_found' }),
     });

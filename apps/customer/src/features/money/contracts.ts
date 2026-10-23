@@ -218,7 +218,32 @@ export const eligibilitySchema = z.object({
     .nullable(),
 });
 export type Eligibility = z.infer<typeof eligibilitySchema>;
+/** svc-bank `bank.accounts.features`: the owner's base-tier terms, figures as published decimal strings (BK-acct-01). */
+export const accountTermsSchema = z.object({
+  tier: z.string(),
+  version: z.string(),
+  currency: z.string(),
+  monthlyFee: money,
+  minimumBalance: money,
+  overdraftFee: money.nullable(),
+  included: z.array(z.string()),
+});
+export type AccountTerms = z.infer<typeof accountTermsSchema>;
+const accountCurrencySchema = z.object({ assetId: z.string(), spaceId: z.string(), balance: money });
+export type AccountCurrency = z.infer<typeof accountCurrencySchema>;
+/** svc-bank `bank.currencies.list`: the currencies on the account, and what the owner lets the customer add. */
+export const currencySetSchema = z.object({
+  currencies: z.array(accountCurrencySchema),
+  addable: z.array(z.string()).nullable(),
+  addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
+});
+export const currencyWrites = {
+  add: accountCurrencySchema,
+  remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
+};
 export const bankReads = {
+  'accounts.features': accountTermsSchema,
+  'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'spaces.list': z.array(spaceSchema),

@@ -228,6 +228,10 @@ const bank = createBankServices(sql, ledger, history, {
   payeeControls: env.BANK_PAYEE_CONTROLS_JSON,
   exchangeAllowance: env.BANK_EXCHANGE_ALLOWANCE_JSON,
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
+  /** Base-tier account terms, the currencies an account may hold and the space limit: the owner's, blank refuses. */
+  accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
+  accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
+  spaceLimit: env.BANK_SPACE_LIMIT,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
