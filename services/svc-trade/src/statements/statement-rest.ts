@@ -119,13 +119,21 @@ export function attachStatementRoutes(
     try {
       const file = await deps.exports.file(principal, req.params.id);
       // A browser client that reads JSON only takes the same bytes wrapped, and saves them itself.
-      if (as === 'json') return reply.code(200).send({ filename: file.filename, sha256: file.sha256, csv: file.csv });
-      return reply
-        .code(200)
-        .header('content-type', 'text/csv; charset=utf-8')
-        .header('content-disposition', `attachment; filename="${file.filename}"`)
-        .header('x-intafaced-sha256', file.sha256)
-        .send(file.csv);
+      if (as === 'json')
+        return reply
+          .code(200)
+          .header('cache-control', 'private, no-store')
+          .send({ filename: file.filename, sha256: file.sha256, csv: file.csv });
+      return (
+        reply
+          .code(200)
+          .header('content-type', 'text/csv; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${file.filename}"`)
+          .header('x-intafaced-sha256', file.sha256)
+          // A statement is personal: no shared cache keeps a copy.
+          .header('cache-control', 'private, no-store')
+          .send(file.csv)
+      );
     } catch (err) {
       const sent = refused(reply, err);
       if (sent) return sent;

@@ -161,6 +161,7 @@ describe('statement routes', () => {
     expect(file.headers['content-type']).toBe('text/csv; charset=utf-8');
     expect(file.headers['content-disposition']).toBe('attachment; filename="statement-2026-10-01-2026-10-02.csv"');
     expect(file.headers['x-intafaced-sha256']).toBe(job.sha256);
+    expect(file.headers['cache-control']).toBe('private, no-store');
     expect(file.body).toBe('record,id\n');
     const wrapped = await app.inject({ method: 'GET', url: `/api/v1/statements/${JOB}/file?as=json` });
     expect(wrapped.json()).toEqual({ filename: 'statement-2026-10-01-2026-10-02.csv', sha256: job.sha256, csv: 'record,id\n' });
