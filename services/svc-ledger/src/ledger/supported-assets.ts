@@ -196,10 +196,14 @@ export async function applyAssetEdit(
   }
   const { approvalId, operationId, edit } = parsed.data;
 
+  // The row is read before the operation is looked up. The row and its asset_edits record commit together, so a
+  // concurrent request for the same operation that commits between the two reads is found by the lookup. Read the
+  // other way round, this request could miss the record yet see the new revision, and ask identity for the wrong one.
+  const current = (await sql<Array<{ kind: string; revision: number }>>`SELECT kind, revision FROM assets WHERE id = ${edit.id}`)[0];
+
   const replayed = await replay(sql, parsed.data);
   if (replayed) return replayed;
 
-  const current = (await sql<Array<{ kind: string; revision: number }>>`SELECT kind, revision FROM assets WHERE id = ${edit.id}`)[0];
   // The kind is what every balance in the asset was booked as; an edit does not re-label it.
   if (current && current.kind !== edit.kind) {
     throw new LedgerError(`${edit.id} is ${current.kind}; an edit cannot change an asset's kind`, ASSET_EDIT_INVALID);
