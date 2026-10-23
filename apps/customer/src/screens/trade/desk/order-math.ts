@@ -5,7 +5,7 @@
  * No float conversion anywhere in this file. The server stays the authority: these checks only stop an order
  * the market's published rules would refuse anyway, so the person hears why before anything is sent.
  */
-import { div, mul } from '@intafaced/ledger-client/money';
+import { div, mul } from '@intafaced/money-math';
 import { baseQuantityForValue, exactValue, portionInLots } from '../../../features/trade/trade-api';
 import { formatAmount, parseAmount } from '../../../shared/money';
 import type { DeskMarket } from './market';

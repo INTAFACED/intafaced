@@ -1,10 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inject } from 'vitest';
 import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
-import { formatAmount, parseAmount, recipes } from '@intafaced/ledger-client';
 import { claimsOf, hashOf, identityCall, randomHandle, totpCode, type Claims, type Issued } from './identity';
 import { createApiClient } from '../../src/shared/api';
 import { createTradeApi } from '../../src/features/trade/trade-api';
+import { journeyDepositWire } from '../../../../tooling/scripts/journey-fund.mjs';
 
 export { stack } from './env';
 import { stack } from './env';
@@ -193,19 +193,9 @@ async function ledgerCall(path: string, body: unknown): Promise<unknown> {
   return JSON.parse(text);
 }
 
-/** Put TEST funds on a journey customer's account through the ledger deposit recipe. Business key, so a rerun adds nothing. */
+/** Put TEST funds on a journey customer's account through the ledger deposit recipe (tooling/scripts/journey-fund.mjs). */
 export async function fund(userId: string, assetId: string, amount: string): Promise<void> {
-  const request = recipes.deposit({
-    userId,
-    assetId,
-    amount: parseAmount(amount),
-    rail: 'journey-test',
-    railRef: `journey:${assetId}:${userId}`,
-  });
-  await ledgerCall('/trpc/post', {
-    ...request,
-    entries: request.entries.map((e) => ({ ...e, amount: typeof e.amount === 'bigint' ? formatAmount(e.amount) : e.amount })),
-  });
+  await ledgerCall('/trpc/post', await journeyDepositWire({ userId, assetId, amount }));
 }
 
 /** The ledger's own available balance, read directly: the proof that does not go through trade. */

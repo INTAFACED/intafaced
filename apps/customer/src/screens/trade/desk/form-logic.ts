@@ -4,7 +4,7 @@
  * fee rate the form shows. The service stays the authority; this only stops what it would refuse, in plain words,
  * before anything is sent.
  */
-import { SCALE } from '@intafaced/ledger-client/money';
+import { SCALE } from '@intafaced/money-math';
 import type { Preview } from '../../../features/trade/trade-api';
 import { formatAmount } from '../../../shared/money';
 import { exitSideOff, maxAmount, portionOf, scaled, type OrderType, type Side } from './order-math';
