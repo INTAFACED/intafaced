@@ -80,7 +80,13 @@ const script = resolve(here, 'local-test-stack.mjs');
   const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
-  for (const name of ['BANK_GLOBAL_SIM_JSON', 'BANK_SEND_FIELD_RULES_JSON', 'BANK_PAYEE_COOLING_HOURS', 'BANK_GLOBAL_HOLD_CANCEL_HOURS']) {
+  for (const name of [
+    'BANK_GLOBAL_SIM_JSON',
+    'BANK_SEND_FIELD_RULES_JSON',
+    'BANK_PAYEE_COOLING_HOURS',
+    'BANK_GLOBAL_HOLD_CANCEL_HOURS',
+    'BANK_GLOBAL_REFUND_FEE',
+  ]) {
     assert.equal(profile[name]?.service, 'bank', `${name} is not in the bank profile`);
     assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
   }

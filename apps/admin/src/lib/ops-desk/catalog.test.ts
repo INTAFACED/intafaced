@@ -176,6 +176,7 @@ describe('the desks cover what the product order asks for', () => {
         'bills.ops.failed',
         'bills.ops.summary',
         'global.ops.failed',
+        'global.ops.recalls',
         'global.ops.summary',
         'ops.transferHealth',
       ]),

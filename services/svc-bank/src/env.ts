@@ -262,6 +262,14 @@ const schema = serviceEnvSchema
       BANK_GLOBAL_HOLD_CANCEL_HOURS: z.string().optional(),
 
       /**
+       * Owner-set fee on refunding a global send the rail returned (BK-xfer-09, J-bank-04 #7), as a decimal string.
+       *
+       * No default. Blank / unset / not a decimal → no refund is made (`bank.refund_fee_unset`); a zero fee is not assumed.
+       * Only a published zero refunds: any other fee refuses `bank.refund_fee_unsupported`, as a refund has no fee entry.
+       */
+      BANK_GLOBAL_REFUND_FEE: z.string().optional(),
+
+      /**
        * Owner-set number of saved withdrawal addresses one customer may hold.
        *
        * No default. Blank / unset / zero / not a whole number → saving an address refuses

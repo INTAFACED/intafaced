@@ -822,6 +822,10 @@ const payGlobalSummary: ReadSpec = {
     int('counts.sent', 'Sent'),
     int('counts.submitted', 'Submitted, not yet sent'),
     int('counts.failed', 'Failed'),
+    int('counts.held', 'On hold'),
+    int('counts.cancelled', 'Cancelled while on hold'),
+    int('counts.returned', 'Returned by the rail, not refunded'),
+    int('counts.refunded', 'Returned and refunded'),
     text('rails.corridors', 'Corridors (unset: none connected)'),
     text('rails.fx', 'Exchange rates (unset: none connected)'),
     text('rails.payout', 'Payout (unset: none connected)'),
@@ -888,6 +892,36 @@ const payGlobalFailed: ReadSpec = {
   refusals: BILLS_REFUSALS,
 };
 
+const payGlobalRecalls: ReadSpec = {
+  id: 'pay.global-recalls',
+  title: 'Global sends their senders asked back',
+  note: 'Oldest request first, refunded sends left out. The 50 oldest. A request moves nothing: the receiving bank decides, and a return is recorded and refunded by two different people.',
+  module: 'bank',
+  plainName: 'the global send recall requests',
+  procedure: 'global.ops.recalls',
+  input: { limit: 50 },
+  shape: 'list',
+  idKey: 'id',
+  page: 50,
+  columns: [
+    time('recallRequestedAt', 'Asked back at'),
+    text('recallReason', 'What the sender wrote'),
+    amount('amount', 'Amount'),
+    text('assetId', 'Asset'),
+    text('status', 'Status'),
+    text('returnRef', 'Rail return reference', { nullable: true }),
+    time('createdAt', 'Sent', { detail: true }),
+    text('userId', 'Sender (account id)', { detail: true }),
+    text('recipientId', 'Recipient (id)', { detail: true }),
+    text('providerRef', 'Provider reference', { nullable: true, detail: true }),
+    text('ledgerTxId', 'Ledger transaction', { nullable: true, detail: true }),
+    text('id', 'Send id', { detail: true }),
+  ],
+  emptyText: 'No sender has an open request to get a global send back.',
+  forbiddenText: FORBID_PAY_READ,
+  refusals: BILLS_REFUSALS,
+};
+
 const paySections: readonly DeskSection[] = [
   {
     id: 'failures',
@@ -927,7 +961,7 @@ const paySections: readonly DeskSection[] = [
     id: 'global',
     title: 'Global sends',
     intro: 'Cross-border sends across every sender, from svc-bank’s operator reads. Totals are all-time; there is no window on these.',
-    reads: [payGlobalFailed, payGlobalSummary, payGlobalVolumes],
+    reads: [payGlobalFailed, payGlobalRecalls, payGlobalSummary, payGlobalVolumes],
     unavailable: [
       un(
         'pay.global-health',

@@ -42,6 +42,9 @@ export function createGlobalApi(api: ApiClient) {
       api.mutate('bank', 'global.hold.uploadProof', input, holdSchema, { signal }),
     /** Cancel a send while it is on hold; nothing was taken, so nothing moves. */
     cancel: (id: string, signal?: AbortSignal) => api.mutate('bank', 'global.cancel', { id }, sendSchema, { signal }),
+    /** Ask for a send that left to come back (wrong person or wrong details); nothing moves, so no confirmation code. */
+    recall: (input: { id: string; reason: string }, signal?: AbortSignal) =>
+      api.mutate('bank', 'global.recall', input, sendSchema, { signal }),
     receipt: (id: string, signal?: AbortSignal) => api.query('bank', 'global.receipt', { id }, receiptSchema, { signal }),
     stepUpRequest: sendStepUpRequest,
   };

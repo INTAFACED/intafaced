@@ -56,6 +56,11 @@
       "value": "72",
       "note": "How long a global send may stay on a compliance hold before it is cancelled automatically, nothing posted (J-bank-04 #6)."
     },
+    "BANK_GLOBAL_REFUND_FEE": {
+      "service": "bank",
+      "value": "0",
+      "note": "The fee on refunding a global send the rail returned: zero, so the whole amount comes back (J-bank-04 #7)."
+    },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "30",
