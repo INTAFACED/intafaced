@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus, type EventBus, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { OrderBook } from './book.js';
 import { MatchingEngine, type SnapshotSink } from './engine.js';
 import {
   FileJournal,
@@ -477,6 +478,60 @@ describe('events', () => {
     const triggered = bus.emitted('orderTriggered');
     expect(triggered).toHaveLength(1);
     expect(triggered[0]!.payload).toMatchObject({ orderId: stop, stopPrice: '100', referencePrice: '100' });
+  });
+
+  it.each([
+    ['a plain stop', {}],
+    ['a stop-loss', { triggerRole: 'stop_loss' as const }],
+  ])('publishes the price that reached %s when a sweep goes through it, not the stop price', async (_name, role) => {
+    const { bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'b1', side: 'buy', qty: '1', price: '99' }));
+    await engine.submit(MARKET, order({ account: 'b2', side: 'buy', qty: '1', price: '97' }));
+    await engine.submit(MARKET, order({ account: 'b3', side: 'buy', qty: '5', price: '95' }));
+    const stop = uuid();
+    await engine.submit(MARKET, { ...order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '98' }), ...role });
+    bus.reset();
+
+    // One sell sweeps 99 then 97: no trade prints at 98, and the last price passes the stop on its way to 97.
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '2', price: '97' }));
+
+    const triggered = bus.emitted('orderTriggered');
+    expect(triggered).toHaveLength(1);
+    expect(triggered[0]!.payload).toMatchObject({ orderId: stop, triggerBy: 'last', stopPrice: '98', referencePrice: '97' });
+  });
+
+  it("records a mark stop's trigger with the mark that reached it", () => {
+    const book = new OrderBook(MARKET);
+    const stop = uuid();
+    book.submit({ ...order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '90' }), triggerBy: 'mark' });
+    expect(book.applyTriggerReference('mark', parseAmount('95'))).toEqual([]);
+
+    const fired = book.applyTriggerReference('mark', parseAmount('88.5'));
+
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.orderId).toBe(stop);
+    expect(fired[0]!.trigger).toEqual({ by: 'mark', stopPrice: parseAmount('90'), reference: parseAmount('88.5') });
+  });
+
+  it("republishes an amend-fired stop's fill once on recovery, under the key it had live", async () => {
+    const { journal, bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'mm', side: 'buy', qty: '5', price: '100' }));
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '1', price: '100' }));
+    const stop = uuid();
+    await engine.submit(MARKET, order({ id: stop, account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '90' }));
+    await engine.amend(MARKET, { orderId: stop, expectedVersion: 1, stopPrice: parseAmount('100') });
+    const live = bus.emitted('orderFilled');
+    expect(live.filter((e) => (e.payload as { takerOrderId: string }).takerOrderId === stop)).toHaveLength(1);
+
+    const recoveryBus = new MemoryEventBus('svc-matching');
+    const recovered = new MatchingEngine({ journal, bus: recoveryBus, clock: fixedClock(), snapshotEvery: 0 });
+    await recovered.recover();
+
+    const again = recoveryBus.emitted('orderFilled');
+    expect(again.map((e) => e.idempotencyKey)).toEqual(live.map((e) => e.idempotencyKey));
+    expect(recoveryBus.emitted('orderTriggered').map((e) => e.idempotencyKey)).toEqual(
+      bus.emitted('orderTriggered').map((e) => e.idempotencyKey),
+    );
   });
 
   it('publishes nothing at all for a rejected order', async () => {
