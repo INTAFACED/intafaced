@@ -35,11 +35,9 @@ async function read(source: WithdrawNetworkSource | null): Promise<RegistryAsset
   }
   try {
     return await source.withdrawable();
-  } catch (err) {
-    throw new BankError(
-      `The list of supported assets and networks could not be read: ${err instanceof Error ? err.message : String(err)}`,
-      ASSET_REGISTRY_UNAVAILABLE,
-    );
+  } catch {
+    // A fixed sentence: the ledger's own error wording is not the customer's to read.
+    throw new BankError('The list of supported assets and networks could not be read. Try again shortly', ASSET_REGISTRY_UNAVAILABLE);
   }
 }
 
