@@ -21,6 +21,7 @@ const ALERT_MIGRATIONS = [
   '0020_notify_alert_stopped.sql',
   '0021_notify_alert_triggers.sql',
   '0022_notify_alert_frequency.sql',
+  '0026_notify_alert_burst.sql',
 ];
 
 const available = await postgresAvailable(URL);
@@ -356,5 +357,36 @@ describe.skipIf(!available)('PostgresAlertStore frequency and migration 0022', (
     expect(copied.map((r) => [r.seq, r.mark_price])).toEqual([[1, '101']]);
     await sql!`DELETE FROM notify.alert_triggers WHERE user_id = ${userId}`;
     await sql!`DELETE FROM notify.alert_fires WHERE user_id = ${userId}`;
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore burst auto-stop and migration 0026', () => {
+  it('runs twice, counts triggers in a window, stops past the count with the reason, and clears on resume', async () => {
+    await sql!.unsafe(migration('0026_notify_alert_burst.sql'));
+    await sql!.unsafe(migration('0026_notify_alert_burst.sql'));
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const rule = { windowMs: 10 * 60_000, max: 2 };
+    const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+    const row = await store.create({
+      userId,
+      marketId: 'BTC-USD',
+      direction: 'above',
+      targetPrice: '100',
+      condition: 'crossing',
+      frequency: 'every_crossing',
+    });
+    expect(row).toMatchObject({ stopReason: null, burstCount: 0, burstStartedAt: null });
+    expect(await store.recordRepeat(userId, row.id, 0, at(1), 'below', rule)).toMatchObject({ status: 'active', burstCount: 1 });
+    expect(await store.recordRepeat(userId, row.id, 1, at(2), 'at_or_above', rule)).toMatchObject({ status: 'active', burstCount: 2 });
+    const stopped = await store.recordRepeat(userId, row.id, 2, at(3), 'below', rule);
+    expect(stopped).toMatchObject({ status: 'stopped', stopReason: 'burst', fireCount: 3, burstCount: 3 });
+    // The same count cannot be taken twice, and a stopped alert counts nothing more.
+    expect(await store.recordRepeat(userId, row.id, 2, at(3), 'below', rule)).toBeNull();
+    const resumed = await store.setStopped(userId, row.id, false, at(4));
+    expect(resumed).toMatchObject({ status: 'active', stopReason: null, burstCount: 0, burstStartedAt: null });
+    // A window that has run out starts again; with no rule the counters are left alone.
+    expect(await store.recordRepeat(userId, row.id, 3, at(40), null, rule)).toMatchObject({ burstCount: 1, status: 'active' });
+    expect(await store.recordRepeat(userId, row.id, 4, at(41), null)).toMatchObject({ burstCount: 1, status: 'active' });
   });
 });

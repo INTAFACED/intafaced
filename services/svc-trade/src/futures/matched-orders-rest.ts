@@ -27,6 +27,16 @@ export interface MatchedOrdersRestDeps {
     input: PlaceMatchedOrderInput,
     context: { readonly region?: string | null },
   ) => Promise<FuturesOrderWire>;
+  /** An opening order above the max-order as children of at most the cap; absent answers 503 like `place`. */
+  readonly placeSplit?: (
+    principal: Principal,
+    input: PlaceMatchedOrderInput,
+    context: { readonly region?: string | null },
+  ) => Promise<{
+    readonly parts: number;
+    readonly orders: readonly FuturesOrderWire[];
+    readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
+  }>;
   readonly cancel?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire>;
   readonly list?: (
     principal: Principal,
@@ -126,6 +136,7 @@ export function readPlaceBody(
       marginMode: 'isolated',
       // Passed as sent: the service names a class it does not take (trade.unsupported_collateral_class).
       ...(body.collateralClass !== undefined ? { collateralClass: body.collateralClass } : {}),
+      ...(body.priceCorrection !== undefined ? { priceCorrection: body.priceCorrection } : {}),
     },
   };
 }
@@ -149,6 +160,24 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       if (!read.ok) return bad(reply, read.code, read.message);
       const order = await deps.place(principal, read.input, { region: gates.regionOf(req) ?? null });
       return reply.code(200).send(order);
+    } catch (err) {
+      const sent = sendFuturesFailure(reply, err, gates);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // The same body as a single order; the answer lists every child placed (`MatchedFuturesOrders.placeSplit`).
+  app.post('/api/v1/futures/orders/split', async (req, reply) => {
+    const principal = gates.requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.placeSplit) return reply.code(503).send(UNMOUNTED);
+    try {
+      requireScope(principal, 'trade:write');
+      const read = readPlaceBody(principal.userId, req.body);
+      if (!read.ok) return bad(reply, read.code, read.message);
+      return reply.code(200).send(await deps.placeSplit(principal, read.input, { region: gates.regionOf(req) ?? null }));
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;

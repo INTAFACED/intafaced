@@ -22,6 +22,8 @@ const LIMITS: AlertLimits = {
   triggerLogDays: null,
   maxActivePrice: 20,
   repeatFrequencies: [],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 
 function rig(limits: AlertLimits = LIMITS) {
@@ -58,6 +60,9 @@ const watch = (condition: AlertCondition, lastSide: PriceAlert['lastSide'] = nul
   updatedAt: NOW,
   frequency: 'once' as const,
   fireCount: 0,
+  stopReason: null,
+  burstStartedAt: null,
+  burstCount: 0,
   lastFiredAt: null,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
