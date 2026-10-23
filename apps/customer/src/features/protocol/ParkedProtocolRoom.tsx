@@ -154,11 +154,6 @@ const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
 
-function sameParams(a: Record<string, string>, b: Record<string, string>): boolean {
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
-}
-
 export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
   if (actions.length === 0) return null;
   return (
@@ -169,10 +164,8 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
           const found = blockersFor(action, snapshot);
           const first = found[0] as Blocker;
           // Two checks can wait on the same source and read the same sentence (venue and finality both need the indexer):
-          // the list says it once.
-          const listed = found.filter(
-            (entry, index) => found.findIndex((other) => other.code === entry.code && sameParams(other.params, entry.params)) === index,
-          );
+          // the list says each sentence once.
+          const listed = [...new Map(found.map((entry) => [capital(t(entry.key, entry.params)), entry.code] as const)).entries()];
           const reason = t(first.key, first.params);
           // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
           const standalone = capital(reason);
@@ -195,9 +188,9 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
                 <details>
                   <summary>{t('allBlockers')}</summary>
                   <ol>
-                    {listed.map((entry) => (
-                      <li key={`${entry.code}:${JSON.stringify(entry.params)}`} data-blocker={entry.code}>
-                        {capital(t(entry.key, entry.params))}
+                    {listed.map(([sentence, code]) => (
+                      <li key={sentence} data-blocker={code}>
+                        {sentence}
                       </li>
                     ))}
                   </ol>
@@ -528,7 +521,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {venuePanel}
-        <SupportedNetworksPanel t={t} />
+        <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
     );
   else if (slug === 'protocol' && tab === 'overview')

@@ -852,8 +852,8 @@ const EDGE_UPSTREAMS = {
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
+  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
+  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 

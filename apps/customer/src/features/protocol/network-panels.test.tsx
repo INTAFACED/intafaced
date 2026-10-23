@@ -126,22 +126,26 @@ describe('Deployed contracts and supported networks', () => {
           contracts: [],
           routers: [router('v1', '2026-01-01T00:00:00.000Z', '0x' + 'a'.repeat(40)), router('v2', null, '0x' + 'b'.repeat(40))],
         },
-        fast: 'not_offered',
       },
-      { chainId: 31337, name: 'Local test chain', deployments: 'unrecorded', fast: 'unknown' },
-      { chainId: 1337, name: 'Odd chain', deployments: 'unreadable', fast: 'unreadable' },
+      { chainId: 31337, name: 'Local test chain', deployments: 'unrecorded' },
+      { chainId: 1337, name: 'Odd chain', deployments: 'unreadable' },
     ]);
-    const html = renderToStaticMarkup(<SupportedNetworksPanel t={t} now={new Date('2026-10-20T00:00:00Z')} />);
+    answers['protocol-room:capabilities:84532'] = ready({ chainId: 84532, probed: true, preconfirmations: 'not_offered' });
+    const html = renderToStaticMarkup(<SupportedNetworksPanel t={t} chain={ready84532} now={new Date('2026-10-20T00:00:00Z')} />);
     expect(html).toContain('>Sunset<');
     expect(html).toContain('None published');
     expect(html).toContain('No router recorded');
     expect(html).toContain('Local test chain (31337)');
     expect(html).toContain('Could not read the deployment record for this chain.');
-    // Every row carries its fast-confirmation status: "not offered" only from a probe that answered.
+    // Every row carries its fast-confirmation status: "not offered" only from the configured chain's probe.
     expect(html).toContain('>Fast confirmations<');
-    expect(html.match(/data-fast="not_offered">Not offered on this network</g)).toHaveLength(2);
-    expect(html).toContain('data-fast="unknown">Not confirmed<');
-    expect(html).toContain('data-fast="unreadable">Could not be read<');
+    expect(html.match(/data-fast="not_offered" data-probed="true">Not offered on this network</g)).toHaveLength(2);
+    expect(html.match(/data-fast="unknown" data-probed="false">Not confirmed</g)).toHaveLength(2);
+    answers['protocol-room:capabilities:84532'] = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x' } };
+    expect(renderToStaticMarkup(<SupportedNetworksPanel t={t} chain={ready84532} />)).toContain(
+      'data-fast="unreadable" data-probed="true">Could not be read<',
+    );
+    expect(renderToStaticMarkup(<SupportedNetworksPanel t={t} chain={{ status: 'loading' }} />)).not.toContain('Not confirmed');
   });
   it('keeps no hand copy of a deployment record in the app', () => {
     const root = join(__dirname, '..', '..');

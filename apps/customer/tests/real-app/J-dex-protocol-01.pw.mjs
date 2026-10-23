@@ -58,13 +58,14 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   await expect(swap.locator('[data-not-connected="rail.crypto"]')).toBeVisible();
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
-  // The indexer is not started on this stack, so between the chain and the execution path the list says it once.
-  await expect(listed.first()).toHaveAttribute('data-blocker', 'chain_unreachable');
   await expect(listed.first()).toContainText('The chain is unreachable');
+  // The indexer is not started on this stack: the venue and finality checks both wait on it, and the list says so once
+  // (no reply, or still checking while the room asks again).
   const order = await listed.evaluateAll((items) => items.map((item) => item.getAttribute('data-blocker')));
-  const tail = order.filter((code) => ['no_execution_path', 'not_audited', 'network_label'].includes(code));
-  expect(tail).toEqual(['no_execution_path', 'not_audited', 'network_label']);
-  expect(order.indexOf('no_execution_path')).toBeLessThan(order.indexOf('not_audited'));
+  expect(order).toHaveLength(5);
+  expect(order[0]).toBe('chain_unreachable');
+  expect(['source_no_reply', 'source_checking']).toContain(order[1]);
+  expect(order.slice(2)).toEqual(['no_execution_path', 'not_audited', 'network_label']);
   await expect(listed.last()).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(swap).not.toContainText(/INTACHAIN mainnet/i);
 });
@@ -129,14 +130,18 @@ test(`${J} #7 faucets and supported routers are listed honestly, and fast confir
   await expect(faucets).toBeVisible();
   await expect(page.locator('main')).toContainText('Third-party faucets only. This platform holds no key to send test funds.');
   // The owner has published no faucet for this network yet, so the list says so instead of inventing one.
-  await expect(faucets.locator('xpath=following-sibling::*[2]')).toHaveText('None listed.');
+  await expect(page.locator('main [data-list="faucets"]')).toHaveText('None listed.');
 
   await page.goto('/dex/venue');
   const table = page.getByRole('region', { name: 'Supported networks' }).getByRole('table');
   const row = (chain) => table.locator('tr').filter({ hasText: chain });
   await expect(row('Base Sepolia test network (84532)')).toContainText('v1');
-  await expect(row('Base Sepolia test network (84532)').locator('[data-fast]')).toHaveText('Not confirmed');
-  // 31337 is not the configured chain, so nothing is probed for it.
-  await expect(row('Local test chain (31337)').locator('[data-fast]')).toHaveText('Not confirmed');
+  // The configured chain is probed; with no node the probe cannot tell, so it is not confirmed. 31337 is not probed at all.
+  const base = row('Base Sepolia test network (84532)').locator('[data-fast]');
+  await expect(base).toHaveText('Not confirmed');
+  await expect(base).toHaveAttribute('data-probed', 'true');
+  const local = row('Local test chain (31337)').locator('[data-fast]');
+  await expect(local).toHaveText('Not confirmed');
+  await expect(local).toHaveAttribute('data-probed', 'false');
   await expect(table).not.toContainText(/INTACHAIN/);
 });

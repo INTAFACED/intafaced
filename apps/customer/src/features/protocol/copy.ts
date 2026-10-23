@@ -193,6 +193,7 @@ const en = {
   fast_unknown: 'Not confirmed',
   fast_not_offered: 'Not offered on this network',
   fast_unreadable: 'Could not be read',
+  fast_checking: 'Checking…',
   noDeployment: 'No deployment is recorded for this chain.',
   sunsetNow: 'Sunset',
   noSunset: 'None published',
