@@ -142,7 +142,7 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       value: () => null,
       cell: (c) =>
         loaded && !appliesTo(c, kind) ? (
-          <span className="text-sm text-fg-2">Not read on {kind} markets; left as it is.</span>
+          <span className="text-sm text-fg-2">Not used on {kind} markets</span>
         ) : (
           <Input
             aria-label={`${c.name}: new value`}
