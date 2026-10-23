@@ -26,6 +26,11 @@
       "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
       "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
     },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
+    },
     "TRADE_MAX_ORDER": {
       "service": "trade",
       "value": "1000000",
