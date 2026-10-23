@@ -91,6 +91,16 @@ export function planWrites(snapshot: LayoutSnapshot, userId: string | null, work
 }
 
 /** Apply the writes in order. False when storage refused one: the change is not shown as opened. */
+/**
+ * Whether applying a template would wipe something on this workbench: studies on the main chart, or drawings on the market
+ * applied to. A person confirms before that happens.
+ */
+export function workbenchHasContent(userId: string | null, workbench: string, symbol: string): boolean {
+  const study = readStored(studiesKey(userId, workbench, 0)) as { studies?: unknown[] } | null;
+  const drawing = readStored(drawingsKey(userId, workbench, symbol)) as { drawings?: unknown[] } | null;
+  return (study?.studies?.length ?? 0) > 0 || (drawing?.drawings?.length ?? 0) > 0;
+}
+
 export function applyWrites(
   writes: readonly StorageWrite[],
   storage: Pick<Storage, 'setItem' | 'removeItem'> | null = safeStorage(),

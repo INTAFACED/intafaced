@@ -14,8 +14,10 @@ import {
   LAYOUTS_NAMESPACE,
   NO_LAYOUT_CAPS,
   layoutsForRead,
-  parseChartTemplates,
-  parseLayouts,
+  parseChartTemplateShape,
+  parseLayoutShape,
+  settleChartTemplates,
+  settleLayouts,
   type LayoutCaps,
 } from './layouts.js';
 import type { ChartTemplatesValue, LayoutsValue } from '@intafaced/contracts/layouts-preferences';
@@ -116,8 +118,9 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, (value: unknown, settings
   [HOME_TILES_NAMESPACE]: (value) => parseHomeTiles(value),
   [WATCHLISTS_NAMESPACE]: (value, settings) => parseWatchlists(value, settings.watchlists),
   [SAVED_SCREENS_NAMESPACE]: (value, settings) => parseSavedScreens(value, settings.watchlists),
-  [LAYOUTS_NAMESPACE]: (value, settings) => parseLayouts(value, settings.layouts ?? NO_LAYOUT_CAPS),
-  [CHART_TEMPLATES_NAMESPACE]: (value, settings) => parseChartTemplates(value, settings.layouts ?? NO_LAYOUT_CAPS),
+  // Shape only here: the limits are settled inside the write, against the record it replaces (see settleValue).
+  [LAYOUTS_NAMESPACE]: (value) => parseLayoutShape(value),
+  [CHART_TEMPLATES_NAMESPACE]: (value) => parseChartTemplateShape(value),
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {
@@ -153,6 +156,29 @@ function fingerprint(namespace: string, value: PreferenceValue, ifVersion: numbe
   return createHash('sha256').update(stableJson({ namespace, value, ifVersion })).digest('hex');
 }
 
+/**
+ * The record a write stores, settled against the record it replaces. Only the layout namespaces have rules that read the record;
+ * a limit error leaves here as a PreferencesError with its code, so the transaction rolls back and nothing is stored.
+ */
+function settleValue(
+  namespace: PreferenceNamespace,
+  shaped: PreferenceValue,
+  current: PreferenceValue | null,
+  settings: PreferenceSettings,
+): PreferenceValue {
+  const caps = settings.layouts ?? NO_LAYOUT_CAPS;
+  try {
+    if (namespace === LAYOUTS_NAMESPACE) return settleLayouts(shaped as LayoutsValue, current as LayoutsValue | null, caps);
+    if (namespace === CHART_TEMPLATES_NAMESPACE) {
+      return settleChartTemplates(shaped as ChartTemplatesValue, current as ChartTemplatesValue | null, caps);
+    }
+    return shaped;
+  } catch (err) {
+    const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : PREFERENCES_VALUE_INVALID;
+    throw new PreferencesError(code, code);
+  }
+}
+
 export async function setPreferences(
   sql: Sql,
   context: Context,
@@ -168,14 +194,15 @@ export async function setPreferences(
   if (!Number.isSafeInteger(input.ifVersion) || input.ifVersion < 0) {
     throw new PreferencesError(PREFERENCES_VERSION_UNSET, PREFERENCES_VERSION_UNSET);
   }
-  let value: PreferenceValue;
+  let shaped: PreferenceValue;
   try {
-    value = parseValue(namespace, input.value, settings);
+    shaped = parseValue(namespace, input.value, settings);
   } catch (err) {
     const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : PREFERENCES_VALUE_INVALID;
     throw new PreferencesError(code, code);
   }
-  const hash = fingerprint(namespace, value, input.ifVersion);
+  // The fingerprint is of the shape, never of the settled value: settling reads the clock, and a retry must still match.
+  const hash = fingerprint(namespace, shaped, input.ifVersion);
   const stored = await transaction(sql, async (tx) => {
     const [prior] = await tx<Array<{ fingerprint: string; result: StoredResult }>>`
       SELECT fingerprint, result FROM user_preference_receipts
@@ -195,6 +222,10 @@ export async function setPreferences(
     `;
     const currentVersion = current ? Number(current.version) : 0;
     const currentValue = current?.value ?? null;
+    let value: PreferenceValue = shaped;
+    if (currentVersion === input.ifVersion) {
+      value = settleValue(namespace, shaped, currentValue, settings);
+    }
     let result: StoredResult;
     if (currentVersion !== input.ifVersion) {
       result = {

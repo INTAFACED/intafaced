@@ -112,6 +112,8 @@ export const chartTemplateSchema = z
     id,
     name,
     savedAt: isoTime,
+    /** The market the template was saved on. Its drawings are drawn at that market's prices, so they apply only there. */
+    symbol: pair,
     interval,
     mode: chartStyle,
     studies: z.array(z.unknown()).max(1),

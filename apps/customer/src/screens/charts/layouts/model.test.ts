@@ -11,6 +11,7 @@ import {
   exportText,
   isDeskSetting,
   PRESET_DESK,
+  emptyRecentlyDeleted,
   recoverLayout,
   replaceNamed,
   saveNamed,
@@ -117,13 +118,30 @@ describe('deleting and recovering', () => {
     expect(deleted?.layouts).toEqual([]);
     expect(deleted?.deleted[0]).toMatchObject({ deletedAt: LATER, layout: { id: 'layout-a' } });
     const back = recoverLayout(deleted!, 'layout-a');
-    expect(back?.layouts[0]).toEqual(first.layout);
-    expect(back?.deleted).toEqual([]);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.record.layouts[0]).toEqual(first.layout);
+    expect(back.record.deleted).toEqual([]);
   });
 
-  it('returns null for a layout that is not there', () => {
+  it('refuses a recover when another layout now holds its name', () => {
+    const first = saveNamed(empty, 'Scalp', snapshot(), NOW, 'layout-a');
+    if (!first.ok) throw new Error('setup');
+    const deleted = deleteLayout(first.record, 'layout-a', LATER)!;
+    const again = saveNamed(deleted, 'scalp', snapshot('ETH/USDT'), LATER, 'layout-b');
+    if (!again.ok) throw new Error('setup');
+    expect(recoverLayout(again.record, 'layout-a')).toEqual({ ok: false, why: 'name-taken' });
+  });
+
+  it('returns not-found for a layout that is not there, and empties the recovery list without touching layouts', () => {
     expect(deleteLayout(empty, 'nope', NOW)).toBeNull();
-    expect(recoverLayout(empty, 'nope')).toBeNull();
+    expect(recoverLayout(empty, 'nope')).toEqual({ ok: false, why: 'not-found' });
+    const first = saveNamed(empty, 'Scalp', snapshot(), NOW, 'layout-a');
+    if (!first.ok) throw new Error('setup');
+    const gone = deleteLayout(first.record, 'layout-a', LATER)!;
+    expect(emptyRecentlyDeleted(gone)).toEqual({ layouts: [], deleted: [] });
+    const kept = emptyRecentlyDeleted({ ...first.record, deleted: [] });
+    expect(kept.layouts).toEqual(first.record.layouts);
   });
 });
 
@@ -147,7 +165,7 @@ describe('export', () => {
 });
 
 describe('chart templates', () => {
-  const body = { interval: '1h' as const, mode: 'line', studies: [], drawings: null };
+  const body = { symbol: 'BTC/USDT', interval: '1h' as const, mode: 'line', studies: [], drawings: null };
 
   it('saves a template, refuses a taken name unless replacing, and removes one', () => {
     const first = saveTemplate([], 'RSI desk', body, NOW, 'template-a', false);

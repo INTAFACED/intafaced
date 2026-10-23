@@ -3,6 +3,7 @@
  * applies to any market. The record is written through the account store (`useChartTemplates`).
  */
 import type { ChartTemplate, ChartTemplatesValue } from '@intafaced/contracts/layouts-preferences';
+import { parseDoc } from '../drawings/model';
 import { cleanName, sameName } from './model';
 
 export type TemplateOutcome =
@@ -24,6 +25,29 @@ export function saveTemplate(
   const template: ChartTemplate = { ...body, id: taken ? taken.id : newId, name: label, savedAt: now };
   const next = taken ? templates.map((entry) => (entry.id === taken.id ? template : entry)) : [template, ...templates];
   return { ok: true, templates: next, template };
+}
+
+export type DrawingLimitRefusal = 'drawing-unset' | 'drawing-full' | 'brush-unset' | 'brush-full';
+
+/**
+ * The owner's drawing caps against a template's drawings, checked before anything is written. A blank cap refuses a template
+ * that holds drawings of that kind; a count or a stroke over the cap refuses it. Nothing is applied when this returns a reason.
+ */
+export function drawingLimitRefusal(
+  drawings: unknown,
+  caps: { drawingCap: number | null; brushPointCap: number | null },
+): DrawingLimitRefusal | null {
+  const list = parseDoc(drawings)?.drawings ?? [];
+  if (list.length > 0) {
+    if (caps.drawingCap === null) return 'drawing-unset';
+    if (list.length > caps.drawingCap) return 'drawing-full';
+  }
+  const brushes = list.filter((drawing) => drawing.kind === 'brush');
+  if (brushes.length > 0) {
+    if (caps.brushPointCap === null) return 'brush-unset';
+    if (brushes.some((drawing) => drawing.points.length > caps.brushPointCap!)) return 'brush-full';
+  }
+  return null;
 }
 
 export function removeTemplate(templates: ChartTemplatesValue, id: string): ChartTemplatesValue {

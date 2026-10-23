@@ -238,26 +238,37 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
       /**
-       * Owner-published chart-desk limits (C-workspace-02, C-embed-feed-ops-03): saved layouts per person, the days a deleted
-       * layout can be recovered for, the deleted layouts kept, and chart templates per person. Blank / unset → unpublished; a
-       * write that needs one refuses (`identity.layout_*` / `identity.chart_template_cap_unset`). Never a default: the stack
-       * sets labelled TEST values only.
+       * Owner-published saved chart layouts per person (C-workspace-02). Blank / unset → unpublished: a new layout, or a recovery,
+       * refuses with `identity.layout_cap_unset`. Updating or deleting a layout still passes. Never a default: the stack sets a
+       * labelled TEST value only.
        */
       IDENTITY_LAYOUT_CAP: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published days a deleted chart layout can be recovered for (C-workspace-02). Blank / unset → no deleted layout is
+       * kept for recovery; deleting still passes. Never invent a value: the stack sets a labelled TEST value only.
+       */
       IDENTITY_LAYOUT_RESTORE_DAYS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(365).optional()),
+      /**
+       * Owner-published number of deleted chart layouts kept per person for recovery (C-workspace-02). Blank / unset → none are
+       * kept; deleting still passes. Never invent a value: the stack sets a labelled TEST value only.
+       */
       IDENTITY_LAYOUT_RESTORE_LIST_SIZE: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(100).optional()),
+      /**
+       * Owner-published chart templates per person (C-embed-feed-ops-03). Blank / unset → unpublished: saving a template refuses
+       * with `identity.chart_template_cap_unset`. Never a default: the stack sets a labelled TEST value only.
+       */
       IDENTITY_CHART_TEMPLATE_CAP: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

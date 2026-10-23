@@ -4,13 +4,17 @@
  * limits. A limit the owner has not set is blank, and a blank limit refuses the write that needs it: nothing here invents one.
  * A view setting only: nothing here is read by an authorisation or a money path.
  *
- * Deleted layouts stay for the owner's restore window and no longer than the owner's restore list. The window is applied when
- * the record is read (a layout past it is not returned) and when it is written (it is dropped from the stored record).
+ * Two steps, so the rules can see the record a write replaces:
+ *   1. `parse*Shape` checks the shape and the size. It runs before the write is fingerprinted, so a retry is recognised.
+ *   2. `settleLayouts` / `settleTemplates` run inside the write's transaction, against the stored record. The owner's caps apply
+ *      only to growth (a new layout, a recovered one, a new template). A delete always passes. A deleted layout's time is stamped
+ *      by the server when it is first seen as deleted, so the restore window cannot be moved by the client.
  */
 import {
   CHART_TEMPLATES_NAMESPACE,
   LAYOUTS_NAMESPACE,
   LAYOUT_MAX_BYTES,
+  NO_LAYOUTS,
   chartTemplatesValueSchema,
   layoutsValueSchema,
   type ChartTemplatesValue,
@@ -22,8 +26,6 @@ export { CHART_TEMPLATES_NAMESPACE, LAYOUTS_NAMESPACE };
 
 export const LAYOUT_CAP_UNSET = 'identity.layout_cap_unset' as const;
 export const LAYOUT_CAP_EXCEEDED = 'identity.layout_cap_exceeded' as const;
-export const LAYOUT_RESTORE_UNSET = 'identity.layout_restore_unset' as const;
-export const LAYOUT_RESTORE_LIST_FULL = 'identity.layout_restore_list_full' as const;
 export const CHART_TEMPLATE_CAP_UNSET = 'identity.chart_template_cap_unset' as const;
 export const CHART_TEMPLATE_CAP_EXCEEDED = 'identity.chart_template_cap_exceeded' as const;
 
@@ -50,43 +52,73 @@ function checkBytes(value: unknown): void {
   }
 }
 
-/** The deleted layouts still inside the window, newest first. A blank window keeps none. */
-export function keptDeleted(value: LayoutsValue, restoreDays: number | null, now: number): LayoutsValue['deleted'] {
-  if (restoreDays === null) return [];
-  const horizon = restoreDays * DAY_MS;
-  return value.deleted.filter((entry) => now - Date.parse(entry.deletedAt) <= horizon);
-}
-
-/**
- * Strict shape, the size guard, then the owner's limits. A save with layouts while the layout cap is blank is refused, and so is
- * one over the cap. Deleted layouts need a restore window and a restore list size; past the window they are dropped.
- */
-export function parseLayouts(value: unknown, caps: LayoutCaps = NO_LAYOUT_CAPS, now: number = Date.now()): LayoutsValue {
+/** Shape and size only. Limits are settled later, against the record the write replaces. */
+export function parseLayoutShape(value: unknown): LayoutsValue {
   const parsed = layoutsValueSchema.safeParse(value);
   if (!parsed.success) refuse(PREFERENCES_VALUE_INVALID);
   checkBytes(parsed.data);
-  const layouts = parsed.data.layouts;
-  if (layouts.length > 0 && caps.layoutCap === null) refuse(LAYOUT_CAP_UNSET);
-  if (caps.layoutCap !== null && layouts.length > caps.layoutCap) refuse(LAYOUT_CAP_EXCEEDED);
-  if (parsed.data.deleted.length > 0 && (caps.restoreDays === null || caps.restoreListSize === null)) refuse(LAYOUT_RESTORE_UNSET);
-  const deleted = keptDeleted(parsed.data, caps.restoreDays, now);
-  if (caps.restoreListSize !== null && deleted.length > caps.restoreListSize) refuse(LAYOUT_RESTORE_LIST_FULL);
-  return { layouts, deleted };
+  return parsed.data;
+}
+
+/**
+ * The record as it is stored after a write. `previous` is the record this write replaces (null when there is none).
+ * - A layout count that grows needs the layout cap: blank refuses, and so does a count over it. Updates and deletes pass.
+ * - A deleted layout keeps the time the server first saw it deleted; the client's own time is never stored.
+ * - Deleted layouts past the owner's window are dropped; with the window or the list size blank nothing is kept. The list is
+ *   trimmed to the owner's list size, newest first. A delete is never refused for a limit.
+ */
+export function settleLayouts(
+  value: LayoutsValue,
+  previous: LayoutsValue | null,
+  caps: LayoutCaps,
+  now: number = Date.now(),
+): LayoutsValue {
+  const before = previous ?? NO_LAYOUTS;
+  if (value.layouts.length > before.layouts.length) {
+    if (caps.layoutCap === null) refuse(LAYOUT_CAP_UNSET);
+    if (value.layouts.length > caps.layoutCap) refuse(LAYOUT_CAP_EXCEEDED);
+  }
+  const stamped = new Map(before.deleted.map((entry) => [entry.layout.id, entry.deletedAt]));
+  const nowIso = new Date(now).toISOString();
+  let deleted = value.deleted.map((entry) => ({ layout: entry.layout, deletedAt: stamped.get(entry.layout.id) ?? nowIso }));
+  if (caps.restoreDays === null || caps.restoreListSize === null) {
+    deleted = [];
+  } else {
+    const horizon = caps.restoreDays * DAY_MS;
+    deleted = deleted.filter((entry) => now - Date.parse(entry.deletedAt) <= horizon).slice(0, caps.restoreListSize);
+  }
+  return { layouts: value.layouts, deleted };
 }
 
 /** The record as a person reads it: deleted layouts past the window are not returned. */
 export function layoutsForRead(value: LayoutsValue | null, caps: LayoutCaps, now: number = Date.now()): LayoutsValue | null {
   if (value === null) return null;
-  return { layouts: value.layouts, deleted: keptDeleted(value, caps.restoreDays, now) };
+  if (caps.restoreDays === null) return { layouts: value.layouts, deleted: [] };
+  const horizon = caps.restoreDays * DAY_MS;
+  return {
+    layouts: value.layouts,
+    deleted: value.deleted.filter((entry) => now - Date.parse(entry.deletedAt) <= horizon),
+  };
 }
 
-/** Strict shape, the size guard, then the template cap. A blank cap refuses any template record. */
-export function parseChartTemplates(value: unknown, caps: LayoutCaps = NO_LAYOUT_CAPS): ChartTemplatesValue {
+/** Shape and size only, for a template record. */
+export function parseChartTemplateShape(value: unknown): ChartTemplatesValue {
   const parsed = chartTemplatesValueSchema.safeParse(value);
   if (!parsed.success) refuse(PREFERENCES_VALUE_INVALID);
   checkBytes(parsed.data);
-  const templates = parsed.data;
-  if (templates.length > 0 && caps.templateCap === null) refuse(CHART_TEMPLATE_CAP_UNSET);
-  if (caps.templateCap !== null && templates.length > caps.templateCap) refuse(CHART_TEMPLATE_CAP_EXCEEDED);
-  return templates;
+  return parsed.data;
+}
+
+/** Growth-only: a template count that grows needs the template cap. Blank refuses; over the cap refuses. Edits and removals pass. */
+export function settleChartTemplates(
+  value: ChartTemplatesValue,
+  previous: ChartTemplatesValue | null,
+  caps: LayoutCaps,
+): ChartTemplatesValue {
+  const before = previous ?? [];
+  if (value.length > before.length) {
+    if (caps.templateCap === null) refuse(CHART_TEMPLATE_CAP_UNSET);
+    if (value.length > caps.templateCap) refuse(CHART_TEMPLATE_CAP_EXCEEDED);
+  }
+  return value;
 }

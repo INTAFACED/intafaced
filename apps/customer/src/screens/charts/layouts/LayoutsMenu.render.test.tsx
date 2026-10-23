@@ -21,6 +21,8 @@ vi.mock('./store', () => ({
   refusalWords: () => 'not-saved',
 }));
 vi.mock('../../../app/location', () => ({ navigate: vi.fn() }));
+// The menu shows the market's last price; the test reads no feed, so the ticker is loading and the price line is absent.
+vi.mock('../../../data', () => ({ useTickers: () => ({ status: 'loading' }), fmtPrice: () => '' }));
 
 import { LayoutsMenu } from './LayoutsMenu';
 
@@ -74,6 +76,7 @@ function render(setDesk = vi.fn(), onRemount = vi.fn()) {
         setting={{ interval: '15m', mode: 'candles', scheme: 'standard' }}
         desk={DEFAULT_DESK}
         setDesk={setDesk}
+        limits={{ drawingCap: 50, brushPointCap: 2000 }}
         onRemount={onRemount}
       />,
     ),
@@ -130,6 +133,35 @@ describe('LayoutsMenu', () => {
     const next = commit.mock.calls[0]![0] as LayoutsValue;
     expect(next.layouts).toHaveLength(1);
     expect(next.layouts[0]).toMatchObject({ id: 'layout-scalp', name: 'scalp' });
+  });
+
+  it('asks before a template wipes the studies already on the chart; cancelling writes nothing', () => {
+    const studies = { studies: [{ id: 's1', kind: 'sma' }], remembered: {}, legendAlways: false };
+    localStorage.setItem('charts-studies:u1:main', JSON.stringify(studies));
+    state.templates = {
+      status: 'ready',
+      value: [
+        {
+          id: 'template-a',
+          name: 'Trend desk',
+          savedAt: '2026-10-22T09:00:00.000Z',
+          symbol: 'BTC/USDT',
+          interval: '1h',
+          mode: 'candles',
+          studies: [],
+          drawings: null,
+        },
+      ],
+      commit: vi.fn(async () => ({ ok: true })),
+      reload: () => undefined,
+    };
+    const { onRemount } = render();
+    click(button('Layouts'));
+    click(button('Apply'));
+    expect(host.textContent).toContain('Applying this template replaces the studies and drawings on BTC/USDT. Apply it?');
+    click(button('Cancel'));
+    expect(JSON.parse(localStorage.getItem('charts-studies:u1:main')!)).toEqual(studies);
+    expect(onRemount).not.toHaveBeenCalled();
   });
 
   it('cancelling the replace prompt writes nothing', () => {

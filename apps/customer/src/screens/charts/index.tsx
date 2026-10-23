@@ -130,6 +130,7 @@ function Page({
             setting={setting}
             desk={desk}
             setDesk={setDesk}
+            limits={{ drawingCap: limits.drawingCap, brushPointCap: limits.brushPointCap }}
             onRemount={onRemount}
           />
           <a className="cw-link" href={`/trade/spot/${pairOf(market.symbol)}`}>

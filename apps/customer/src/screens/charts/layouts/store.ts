@@ -40,16 +40,7 @@ export function useChartTemplates(): RecordStore<ChartTemplatesValue> {
 }
 
 /** The words a refusal code reads as. Unknown codes read as not saved, never as a guess at the cause. */
-export type RefusalWords =
-  | 'layout-unset'
-  | 'layout-full'
-  | 'restore-unset'
-  | 'restore-full'
-  | 'template-unset'
-  | 'template-full'
-  | 'too-large'
-  | 'version'
-  | 'not-saved';
+export type RefusalWords = 'layout-unset' | 'layout-full' | 'template-unset' | 'template-full' | 'too-large' | 'version' | 'not-saved';
 
 export function refusalWords(code: string): RefusalWords {
   switch (code) {
@@ -57,10 +48,6 @@ export function refusalWords(code: string): RefusalWords {
       return 'layout-unset';
     case 'identity.layout_cap_exceeded':
       return 'layout-full';
-    case 'identity.layout_restore_unset':
-      return 'restore-unset';
-    case 'identity.layout_restore_list_full':
-      return 'restore-full';
     case 'identity.chart_template_cap_unset':
       return 'template-unset';
     case 'identity.chart_template_cap_exceeded':

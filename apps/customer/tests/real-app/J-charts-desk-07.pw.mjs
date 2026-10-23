@@ -19,6 +19,9 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const panel = (page) => page.getByRole('region', { name: 'Layouts' });
 const split = (page) => page.locator('.cw-split');
 const grip = (page) => page.getByRole('button', { name: 'Drag widget' });
+const watchlist = (page) => page.locator('[data-widget="watchlist"]');
+const drawingsToolbar = (page) => page.getByRole('toolbar', { name: 'Drawing tools' });
+const drawings = (page) => page.locator('[data-drawing-id]');
 const savedRow = (page, name) => page.locator('.ly-item').filter({ hasText: name });
 
 function account() {
@@ -72,9 +75,13 @@ test(`${J} #1 opens the desk, picks Classic and then Advanced from Layouts; the 
   await page.locator('[data-preset="advanced"]').click();
   await expect(page.getByTestId('studies').first()).toBeVisible();
   await expect(page.locator('.dw-layer').first()).toBeVisible();
-  // The choice is kept on this device: a reload comes back in Advanced.
+  // End on Classic: the choice is kept on this device, so a reload comes back in Classic.
+  await page.locator('[data-preset="classic"]').click();
+  await expect(page.getByTestId('studies')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId('studies').first()).toBeVisible();
+  await openLayouts(page);
+  await expect(page.locator('[data-preset="classic"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('studies')).toHaveCount(0);
 });
 
 test(`${J} #2 drags the watchlist to the left, resizes its column, then resets the desk; the reset returns the preset`, async ({
@@ -85,7 +92,9 @@ test(`${J} #2 drags the watchlist to the left, resizes its column, then resets t
   // Drag the watchlist widget onto the left half of the page.
   await grip(page).dragTo(split(page), { targetPosition: { x: 8, y: 120 } });
   await expect(split(page)).toHaveAttribute('data-side', 'left');
-  // Resize the watchlist column by its Last separator, dragged to the right.
+  // Resize the watchlist column by its Last separator, dragged to the right. The widget's width must change.
+  const before = await watchlist(page).boundingBox();
+  expect(before).not.toBeNull();
   const separator = page.getByRole('separator', { name: 'Resize Last column' });
   const box = await separator.boundingBox();
   expect(box).not.toBeNull();
@@ -93,6 +102,9 @@ test(`${J} #2 drags the watchlist to the left, resizes its column, then resets t
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2);
   await page.mouse.up();
+  const after = await watchlist(page).boundingBox();
+  expect(after).not.toBeNull();
+  expect(after.width).not.toBeCloseTo(before.width, 0);
   // Reset the desk: the watchlist goes back to the right, the grid to one chart. Reset asks first.
   await openLayouts(page);
   await page.getByRole('button', { name: 'Reset desk', exact: true }).click();
@@ -164,9 +176,15 @@ test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted on
   await page.getByRole('button', { name: 'Delete Scalp copy', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Recover it from the list below.' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Recently deleted' })).toBeVisible();
-  // Recover: it comes back in the list with its charts.
+  // Recover: it comes back in the list with the charts it was saved with (the 1h interval from step 4, on BTC/USDT).
   await page.getByRole('button', { name: 'Recover Scalp copy', exact: true }).click();
   await expect(savedRow(page, 'Scalp copy')).toBeVisible();
+  await expect(savedRow(page, 'Scalp copy')).toContainText('BTC/USDT');
+  await expect(savedRow(page, 'Scalp copy')).toContainText('1h');
+  // Open it: the page opens on the market and interval the layout holds.
+  await page.getByRole('button', { name: 'Open Scalp copy', exact: true }).click();
+  await expect(page.locator('.cw-page')).toHaveAttribute('data-market', 'BTC/USDT');
+  await expect(page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1h', exact: true })).toBeVisible();
 });
 
 test(`${J} #6 saves a chart template with indicators and drawings and applies it to another market; the desk's featureset is honoured`, async ({
@@ -178,15 +196,39 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
   await page.locator('[data-preset="advanced"]').click();
   // The indicator dialog opens from the studies bar, which Advanced shows. The Layouts panel stays open.
   await addStudy(page, 'sma', 'Simple moving average');
+  // Draw a horizontal line on the chart: the template keeps its drawings for the market it was drawn on.
+  await drawingsToolbar(page).getByRole('button', { name: 'Horizontal line', exact: true }).click();
+  await page
+    .locator('[data-cell]')
+    .first()
+    .click({ position: { x: 120, y: 120 } });
+  await expect(drawings(page).first()).toBeAttached();
+  await openLayouts(page);
   await page.getByRole('textbox', { name: 'Template name' }).fill('Trend desk');
   await page.getByRole('button', { name: 'Save template', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved template Trend desk.' })).toBeVisible();
-  // Apply the template to ETH-USDT: its study set comes with it, and the page moves to that market.
   const template = page.locator('[data-template-id]').filter({ hasText: 'Trend desk' });
+
+  // Apply to ETH-USDT, another market: the study set comes with it, the drawings do not, and the page says why.
   await template.getByRole('combobox', { name: 'Apply to market' }).selectOption('ETH/USDT');
   await template.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(page).toHaveURL(/\/charts\/ETH-USDT/);
   await expect(page.getByTestId('study-legend').first()).toContainText('SMA');
+  await expect(drawings(page)).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Drawings were not applied' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'they were drawn on BTC/USDT, not on ETH/USDT' })).toBeVisible();
+
+  // Apply back to BTC-USDT, the market the drawings were drawn on: the page asks first, since BTC/USDT holds drawings,
+  // and then the drawing comes back with the template.
+  await openLayouts(page);
+  const again = page.locator('[data-template-id]').filter({ hasText: 'Trend desk' });
+  await again.getByRole('combobox', { name: 'Apply to market' }).selectOption('BTC/USDT');
+  await again.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByText('Applying this template replaces')).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page).toHaveURL(/\/charts\/BTC-USDT/);
+  await expect(drawings(page).first()).toBeAttached();
+
   // Featureset: on Classic the studies bar is not in the page, though the template keeps its studies for Advanced.
   await openLayouts(page);
   await page.locator('[data-preset="classic"]').click();
@@ -209,5 +251,19 @@ test(`${J} #7 opens the desk with a locale set: chart labels and number formats 
   await expect(page.getByRole('button', { name: 'Réinitialiser le bureau', exact: true })).toBeVisible();
   // A word French has no translation for is shown in English, and the menu says so.
   await expect(panel(page)).toContainText('Some words are shown in English');
-  expect(await publicTicker('BTC/USDT')).toBeTruthy();
+  // The price line uses the French number format: a decimal comma, and the value the public ticker serves.
+  const ticker = await publicTicker('BTC/USDT');
+  expect(typeof ticker.last).toBe('string');
+  const line = panel(page).locator('.ly-hint').filter({ hasText: 'BTC/USDT' });
+  await expect(line).toBeVisible();
+  const match = /Last (.+?) on BTC\/USDT/.exec((await line.textContent()) ?? '');
+  expect(match).not.toBeNull();
+  const shown = match[1];
+  expect(shown).toMatch(/\d,\d/);
+  const places = shown.split(',')[1].length;
+  const plain = shown.replace(/[\s  ]/g, '').replace(',', '.');
+  expect(Number(plain)).toBeCloseTo(Number(ticker.last), Math.max(0, places - 1));
+  // The same number, formatted by the French locale on the same number of places.
+  const expected = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: places, maximumFractionDigits: places }).format(Number(plain));
+  expect(expected.replace(/[\s  ]/g, '')).toBe(shown.replace(/[\s  ]/g, ''));
 });

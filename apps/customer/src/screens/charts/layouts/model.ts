@@ -90,14 +90,26 @@ export function deleteLayout(record: LayoutsValue, id: string, now: string): Lay
   };
 }
 
-/** Bring a deleted layout back with its charts and settings. */
-export function recoverLayout(record: LayoutsValue, id: string): LayoutsValue | null {
+export type RecoverOutcome = { ok: true; record: LayoutsValue; layout: SavedLayout } | { ok: false; why: 'not-found' | 'name-taken' };
+
+/** Bring a deleted layout back with its charts and settings. A name another layout now holds is refused, never shadowed. */
+export function recoverLayout(record: LayoutsValue, id: string): RecoverOutcome {
   const entry = record.deleted.find((item) => item.layout.id === id);
-  if (!entry) return null;
+  if (!entry) return { ok: false, why: 'not-found' };
+  if (record.layouts.some((layout) => sameName(layout.name, entry.layout.name))) return { ok: false, why: 'name-taken' };
   return {
-    layouts: [entry.layout, ...record.layouts],
-    deleted: record.deleted.filter((item) => item.layout.id !== id),
+    ok: true,
+    layout: entry.layout,
+    record: {
+      layouts: [entry.layout, ...record.layouts],
+      deleted: record.deleted.filter((item) => item.layout.id !== id),
+    },
   };
+}
+
+/** Empty the recovery list. Only the list goes: no layout is touched, and a shrink never needs a cap. */
+export function emptyRecentlyDeleted(record: LayoutsValue): LayoutsValue {
+  return { layouts: record.layouts, deleted: [] };
 }
 
 /** The same layout with a new snapshot: the autosave of the open layout. */
