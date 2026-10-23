@@ -10,6 +10,7 @@ import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlSurveyBook } from './survey-settings.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
+import { SqlViewBook } from './desk-views.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -154,6 +155,10 @@ const support = new SupportService(
   ratingRequests,
   attachmentSettings,
   env.SUPPORT_BULK_CAP ?? null,
+  new SqlViewBook(sql, {
+    personal: env.SUPPORT_VIEW_PERSONAL_CAP ?? null,
+    shared: env.SUPPORT_VIEW_SHARED_CAP ?? null,
+  }),
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(

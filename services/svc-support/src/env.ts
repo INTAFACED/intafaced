@@ -73,6 +73,12 @@ const schema = serviceEnvSchema
        * support.bulk_cap_unset and the desk says so. Never defaulted.
        */
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * How many personal views one person may save, and how many shared views the desk may keep.
+       * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
+       */
+      SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
