@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext, mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { registerInternalCurriculumRoute } from './curriculum/internal-curriculum.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
@@ -11,7 +11,9 @@ import { createHostRightsSource } from './host-rights.js';
 import { createStakeSource } from './stake-source.js';
 import { BusCertXpPublisher, NullCertXpPublisher, type CertXpPublisher } from './certs/xp-publish.js';
 import { streamProviderFromEnv, streamReadyAnswer, type StreamProvider } from './stream/provider.js';
-import { createAcademyRouter, type AcademyRouter } from './router.js';
+import { createCatalogueRouter } from './catalogue/router.js';
+import { catalogueOwnerFromEnv } from './catalogue/owner.js';
+import { createAcademyRouter } from './router.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { videoGateFromEnv, videoStorageFromEnv } from './video/library.js';
 import { createTradePublicPaperFlagPort } from './paper/market-flag-verify.js';
@@ -143,7 +145,7 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
-export const appRouter = createAcademyRouter(
+const academyRouter = createAcademyRouter(
   academy,
   {
     ifcPayLaw: parseAmbassadorIfcPayLawJson(env.ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON),
@@ -159,6 +161,14 @@ export const appRouter = createAcademyRouter(
     ? { max: env.ACADEMY_CERT_VERIFY_RATE_MAX, windowSeconds: env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS }
     : null,
   env,
+);
+export const appRouter = mergeRouters(
+  academyRouter,
+  createCatalogueRouter({
+    owner: catalogueOwnerFromEnv(process.env),
+    enrolledPaths: async (userId) => (await academy.myEnrollments(userId)).map((row) => row.pathSlug),
+    completedSlugs: (userId) => academy.completedItemSlugs(userId),
+  }),
 );
 export type AppRouter = typeof appRouter;
 
@@ -212,7 +222,7 @@ await app.register(fastifyTRPCPlugin, {
       const peer = (req as { ip?: unknown }).ip;
       return Object.assign(ctx, { clientAddress: typeof peer === 'string' ? peer.trim() : '' });
     },
-  } satisfies FastifyTRPCPluginOptions<AcademyRouter>['trpcOptions'],
+  } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });

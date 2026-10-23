@@ -1661,6 +1661,14 @@ export class AcademyService {
     return this.customer.myEnrollments(userId);
   }
 
+  /**
+   * Completion slugs for this account. One row per item (primary key), used to
+   * order the catalogue. Not a paged list and not returned on the wire.
+   */
+  async completedItemSlugs(userId: string): Promise<readonly string[]> {
+    return [...(await this.completedSlugs(userId))].sort();
+  }
+
   leaveCertPath(input: { userId: string; pathSlug: string; clientRequestId: string }) {
     return this.customer.leaveCertPath(input);
   }
