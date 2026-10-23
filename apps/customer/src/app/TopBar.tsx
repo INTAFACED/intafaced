@@ -270,7 +270,7 @@ export function TopBar({
           </ul>
         </nav>
         <div className="tb-right">
-          <ShellSwitch current="exchange" className="max-[1000px]:hidden" />
+          <ShellSwitch current="exchange" here={path} className="max-[1000px]:hidden" />
           <TopSearch />
           {session ? (
             <>

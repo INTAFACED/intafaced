@@ -10,6 +10,7 @@ import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { SessionNotice } from './SessionNotice';
+import { shellCopy } from './shell-copy';
 import '../features/protocol/web3-shell.css';
 
 /** Web3 nav (IA-SPEC 2.8): label key, route, and the path prefixes that mark it current. */
@@ -40,6 +41,7 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
 function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const wallet = useWallet();
   const { session, restoring } = useSession();
+  const { t: shell } = shellCopy.useCopy();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
   const transport = useApi();
@@ -66,7 +68,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
               <a className="tb-brand" href="/home" aria-label={t('shellHome')}>
                 <Wordmark />
               </a>
-              <ShellSwitch current="web3" />
+              <ShellSwitch current="web3" here={path} />
               <nav className="tb-nav" aria-label={t('shellNav')}>
                 <ul>
                   {NAV.map((item) => (
@@ -98,10 +100,10 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   <>
                     {/* Signed out, every Web3 room is the public read-only view; signing in returns through Home. */}
                     <a className="tb-login" href="/login">
-                      {t('shellLogIn')}
+                      {shell('Log in')}
                     </a>
                     <a className="tb-signup" href="/register">
-                      {t('shellSignUp')}
+                      {shell('Sign up')}
                     </a>
                   </>
                 )}

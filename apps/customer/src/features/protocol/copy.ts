@@ -247,8 +247,6 @@ const en = {
   shellNav: 'Web3 navigation',
   shellNavPhone: 'Web3 sections on phone',
   shellHome: 'Go to Home',
-  shellLogIn: 'Log in',
-  shellSignUp: 'Sign up',
   nav_swap: 'Swap',
   nav_pools: 'Pools',
   nav_positions: 'Positions',

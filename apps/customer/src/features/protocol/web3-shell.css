@@ -28,7 +28,8 @@
   .web3-chip--pill {
     color: var(--tb-fg);
   }
-  @media (max-width: 767px) {
+  /* Below a desktop's width the chips take a line of their own under the switch and the nav. */
+  @media (max-width: 1099px) {
     .web3-bar {
       height: auto;
       min-height: 48px;
