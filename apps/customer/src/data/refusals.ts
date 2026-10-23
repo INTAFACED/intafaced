@@ -234,6 +234,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'This send can’t be cancelled',
     body: 'Only a send that is on hold, with nothing sent, can be cancelled.',
   },
+  globalNotRecallable: {
+    title: 'This send can’t be asked back',
+    body: 'Only a send that has left your balance, and has not come back, can be asked back.',
+  },
   receiptNotReady: { title: 'No receipt for this send', body: 'A receipt is made once the send has left your balance.' },
   receiptOff: {
     title: 'Receipts are switched off',

@@ -101,6 +101,19 @@ const en = {
   receiptLedger: 'Ledger record: {id}',
   receiptHash: 'SHA-256: {hash}',
   receiptSigned: 'Signed: {signature}',
+  statusReturned: 'Bounced back',
+  statusRefunded: 'Refunded',
+  returnedBody: 'The receiving bank sent it back. It is refunded to your balance once the return is checked.',
+  refundedBody: 'It came back, and {amount} {asset} was refunded to your balance, once.',
+  recallOpen: 'Sent to the wrong person or with wrong details?',
+  recallTitle: 'Ask for it back',
+  recallWhat:
+    'We can ask the receiving bank to send it back. They need the recipient’s agreement, so it is not guaranteed, and it can take several weeks. If it comes back, it shows here as bounced back and is refunded to your balance once.',
+  recallReason: 'What went wrong',
+  recallSend: 'Ask for it back',
+  recallSending: 'Asking…',
+  recallAsked: 'You asked for this back: {reason}. We will show the answer here.',
+  recallAnswered: 'You asked for this back: {reason}.',
 } as const;
 
 const es = {
@@ -205,6 +218,19 @@ const es = {
   receiptLedger: 'Registro contable: {id}',
   receiptHash: 'SHA-256: {hash}',
   receiptSigned: 'Firma: {signature}',
+  statusReturned: 'Devuelto',
+  statusRefunded: 'Reembolsado',
+  returnedBody: 'El banco receptor lo devolvió. Se reembolsa a tu saldo cuando se comprueba la devolución.',
+  refundedBody: 'Volvió, y se reembolsaron {amount} {asset} a tu saldo, una sola vez.',
+  recallOpen: '¿Lo enviaste a la persona equivocada o con datos erróneos?',
+  recallTitle: 'Pedir que lo devuelvan',
+  recallWhat:
+    'Podemos pedir al banco receptor que lo devuelva. Necesitan el acuerdo del destinatario, así que no está garantizado y puede tardar varias semanas. Si vuelve, aparece aquí como devuelto y se reembolsa a tu saldo una sola vez.',
+  recallReason: 'Qué salió mal',
+  recallSend: 'Pedir que lo devuelvan',
+  recallSending: 'Enviando…',
+  recallAsked: 'Pediste que lo devuelvan: {reason}. Te mostraremos la respuesta aquí.',
+  recallAnswered: 'Pediste que lo devuelvan: {reason}.',
 } as const;
 
 const fr = {
@@ -309,6 +335,19 @@ const fr = {
   receiptLedger: 'Écriture comptable : {id}',
   receiptHash: 'SHA-256 : {hash}',
   receiptSigned: 'Signature : {signature}',
+  statusReturned: 'Renvoyé',
+  statusRefunded: 'Remboursé',
+  returnedBody: 'La banque du destinataire l’a renvoyé. Il est remboursé sur ton solde une fois le retour vérifié.',
+  refundedBody: 'Il est revenu, et {amount} {asset} ont été remboursés sur ton solde, une seule fois.',
+  recallOpen: 'Envoyé à la mauvaise personne ou avec de mauvaises coordonnées ?',
+  recallTitle: 'Demander le retour',
+  recallWhat:
+    'Nous pouvons demander à la banque du destinataire de le renvoyer. Il faut l’accord du destinataire : ce n’est pas garanti et cela peut prendre plusieurs semaines. S’il revient, il apparaît ici comme renvoyé et il est remboursé sur ton solde une seule fois.',
+  recallReason: 'Ce qui n’allait pas',
+  recallSend: 'Demander le retour',
+  recallSending: 'Envoi…',
+  recallAsked: 'Tu as demandé le retour : {reason}. La réponse s’affichera ici.',
+  recallAnswered: 'Tu as demandé le retour : {reason}.',
 } as const;
 
 export const globalCopy = defineCopy('customer.payGlobal', en, { es, fr });

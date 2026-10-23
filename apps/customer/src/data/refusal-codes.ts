@@ -89,6 +89,7 @@ export type RefusalKind =
   | 'globalNoSend'
   | 'globalCancelled'
   | 'globalNotCancellable'
+  | 'globalNotRecallable'
   | 'receiptNotReady'
   | 'receiptOff'
   | 'proofOff'
@@ -270,6 +271,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.transfer_settled': 'globalNoSend',
   'bank.global_send_cancelled': 'globalCancelled',
   'bank.global_send_not_cancellable': 'globalNotCancellable',
+  'bank.global_not_recallable': 'globalNotRecallable',
   'bank.receipt_not_ready': 'receiptNotReady',
   'bank.receipt_signing_unset': 'receiptOff',
   'bank.global_insufficient_funds': 'insufficient',

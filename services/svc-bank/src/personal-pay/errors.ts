@@ -123,6 +123,44 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
       return new PersonalPayError('A receipt is made once the send has left the account.', code, 'PRECONDITION_FAILED');
     case 'bank.receipt_signing_unset':
       return new PersonalPayError('No receipt signing key is configured, so no receipt is made.', code, 'PRECONDITION_FAILED');
+    case 'bank.global_not_returnable':
+      return new PersonalPayError('Only a send that has left can be recorded as returned by the rail.', code, 'PRECONDITION_FAILED');
+    case 'bank.global_return_conflict':
+      return new PersonalPayError(
+        'This send was already recorded as returned with a different reference, or that reference belongs to another send.',
+        code,
+        'CONFLICT',
+      );
+    case 'bank.global_not_returned':
+      return new PersonalPayError('Only a send the rail returned can be refunded.', code, 'PRECONDITION_FAILED');
+    case 'bank.refund_same_operator':
+      return new PersonalPayError('A return must be refunded by someone other than the person who recorded it.', code, 'FORBIDDEN');
+    case 'bank.refund_fee_unset':
+      return new PersonalPayError(
+        'The owner has not published the refund fee, so nothing is refunded. A zero fee is not assumed.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.refund_fee_unsupported':
+      return new PersonalPayError(
+        'A refund fee other than zero has no fee entry in this build, so nothing is refunded rather than dropping the fee.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.refund_rail_changed':
+      return new PersonalPayError(
+        'This send left on a payout rail that is not the one connected now, so it is not refunded from here. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.refund_already_reversed':
+      return new PersonalPayError(
+        'This send was already turned back to its sender before it was returned, so the refund is not posted or recorded again.',
+        code,
+        'CONFLICT',
+      );
+    case 'bank.global_not_recallable':
+      return new PersonalPayError('Only a send that has left, and has not come back, can be asked back.', code, 'PRECONDITION_FAILED');
     case 'bank.hold_not_found':
       return new PersonalPayError('No open hold on this send.', code, 'NOT_FOUND');
     case 'bank.hold_conflict':
