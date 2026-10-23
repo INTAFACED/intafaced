@@ -53,20 +53,23 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
-test(`${J} #1 opens the desk in Classic and picks Advanced from Layouts; the widget set changes and the choice stays on this device`, async ({
+test(`${J} #1 opens the desk, picks Classic and then Advanced from Layouts; the widget set changes and the choice stays on this device`, async ({
   page,
 }) => {
   const who = await signUp(page, 'desk');
   run.reset({ account: who });
   await signIn(page, who);
   await openWorkbench(page);
+  // A device with nothing stored opens on Advanced: the studies bar and the drawing tools are on the page.
+  await expect(page.getByTestId('studies').first()).toBeVisible();
   await openLayouts(page);
-  // Classic is the first desk: the chart and the watchlist, with no studies bar in the page.
+  await expect(page.locator('[data-preset="advanced"]')).toHaveAttribute('aria-pressed', 'true');
+  // Classic leaves the studies bar and the drawing tools out of the page.
+  await page.locator('[data-preset="classic"]').click();
   await expect(page.locator('[data-preset="classic"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('studies')).toHaveCount(0);
-  // Advanced adds the studies bar and the drawing tools.
+  // Advanced brings them back.
   await page.locator('[data-preset="advanced"]').click();
-  await expect(page.locator('[data-preset="advanced"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('studies').first()).toBeVisible();
   await expect(page.locator('.dw-layer').first()).toBeVisible();
   // The choice is kept on this device: a reload comes back in Advanced.

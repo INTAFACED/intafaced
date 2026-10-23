@@ -22,7 +22,8 @@ export const PRESET_DESK: Readonly<Record<DeskPreset, DeskSetting>> = {
   classic: { preset: 'classic', side: 'right', studies: false, drawings: false },
   advanced: { preset: 'advanced', side: 'right', studies: true, drawings: true },
 };
-export const DEFAULT_DESK: DeskSetting = PRESET_DESK.classic;
+/** The desk a device gets when nothing is stored: Advanced, so the studies bar and drawing tools stay where they were. */
+export const DEFAULT_DESK: DeskSetting = PRESET_DESK.advanced;
 
 /** A stored desk that does not read as one is ignored: the preset stands, with no error. */
 export const isDeskSetting = (value: unknown): value is DeskSetting => deskSettingSchema.safeParse(value).success;

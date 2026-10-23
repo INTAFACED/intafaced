@@ -150,8 +150,6 @@ beforeEach(() => {
   document.body.append(host);
   localStorage.clear();
   for (const key of ['main', 'main:1', 'main:2', 'main:3']) localStorage.setItem(`charts-studies:u1:${key}`, EMPTY);
-  // The desk opens in Classic, which leaves the studies bar out. These tests add studies, so they open on Advanced.
-  localStorage.setItem('charts-desk:u1:main', JSON.stringify({ preset: 'advanced', side: 'right', studies: true, drawings: true }));
   world.markets = { status: 'ready', data: [market('BTC/USDT'), market('ETH/USDT')] };
   world.candles = { status: 'ready', data: [bar(0, '1'), bar(60_000, '2')], asOf: Date.now() };
   world.unloaded = [];
