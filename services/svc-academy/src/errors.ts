@@ -129,6 +129,12 @@ export type AcademyErrorCode =
   | 'academy.video_not_found'
   /** Watch position is negative, not an integer, or past a set duration. */
   | 'academy.video_position_out_of_range'
+  /** Captions track was asked for and the owner has not published a URL. */
+  | 'academy.video_captions_unpublished'
+  /** Transcript was asked for and the owner has not published text. */
+  | 'academy.video_transcript_unpublished'
+  /** Seconds of stored position that count as watched. Blank is not zero. */
+  | 'academy.watch_threshold_unset'
   /** Leave found no enrolment for this caller. */
   | 'academy.enrollment_not_found'
   /** Operator completionsByItem path is not a curriculum path. */
@@ -238,6 +244,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.seconds_out_of_range',
   'academy.video_not_found',
   'academy.video_position_out_of_range',
+  'academy.video_captions_unpublished',
+  'academy.video_transcript_unpublished',
+  'academy.watch_threshold_unset',
   'academy.enrollment_not_found',
   'academy.path_not_found',
   'academy.metrics_range_invalid',

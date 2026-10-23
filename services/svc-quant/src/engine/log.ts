@@ -1,6 +1,6 @@
 import type { QuantBacktestLogLine, QuantBacktestResult } from '@intafaced/contracts';
 
-type Stored = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log'>;
+type Stored = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log' | 'sections' | 'verdict' | 'checks' | 'offsetRun'>;
 
 /** Modelling choices a reader must weigh are warnings; the ones every run makes are information. */
 const WARN_ASSUMPTIONS = new Set([
@@ -8,6 +8,8 @@ const WARN_ASSUMPTIONS = new Set([
   'take_profit_without_slippage',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
+  'stop_out_before_exits',
+  'loss_beyond_margin',
 ]);
 
 /**
@@ -22,6 +24,13 @@ export function logOf(run: Stored): QuantBacktestLogLine[] {
       code: 'gap',
       ts: gap.from,
       values: { from: gap.from, to: gap.to },
+    })),
+    // A margin call or stop-out comes before the fill it caused at the same instant.
+    ...run.marginEvents.map((event): QuantBacktestLogLine => ({
+      level: 'warn',
+      code: 'margin_event',
+      ts: event.ts,
+      values: { kind: event.kind, price: event.price, level: event.marginLevelPercent },
     })),
     ...run.trades.map((trade): QuantBacktestLogLine => ({
       level: 'info',

@@ -86,6 +86,7 @@ const migrations = [
   '0014_p2p_escrow_lock_attempts.sql',
   '0015_p2p_customer_depth.sql',
   '0016_p2p_ops_escalation.sql',
+  '0019_p2p_maker_verification_tier.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const H8A_IMAGE = 'postgres:16-alpine';
@@ -294,6 +295,7 @@ describe('D26-P2-01f refuse-closed defaults (no invent)', () => {
       amount: amt('100'),
       tradeId: TRADE,
       method: METHOD,
+      tier: 'basic',
     });
     expect(takeArgs).not.toHaveProperty('feeBps');
     await app.close();

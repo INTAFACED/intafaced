@@ -330,6 +330,23 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
       };
     },
 
+    async variantCount(input) {
+      const rows = await query<{ n: string }>(
+        sql,
+        `SELECT count(*)::text AS n
+         FROM ${runs}
+         WHERE user_id = $1::uuid
+           AND kind = 'backtest'
+           AND outcome_code = 'ok'
+           AND strategy_id = $2
+           AND starts_with(idempotency_key, $3)
+           AND result -> 'response' ->> 'symbol' = $4
+           AND result -> 'response' -> 'coverage' ->> 'barSize' = $5`,
+        [input.userId, input.strategyId, input.keyPrefix, input.symbol, input.barSize],
+      );
+      return Number(rows[0]?.n ?? 0);
+    },
+
     async setLabel(input) {
       // One statement: the label row is written only when the run is the caller's own.
       const rows = await query<{ label: string }>(

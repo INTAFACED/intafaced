@@ -20,7 +20,7 @@ import {
   useMarkets,
   useMovers,
   useHomePortfolio,
-  DerivedTotalNote,
+  DerivedTotalTag,
   useSparklines,
   useTickers,
   type Loadable,
@@ -42,6 +42,7 @@ import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
@@ -207,13 +208,17 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
         <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
       </div>
       <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" />
-      {data.change24hUsd !== null && hasCrypto ? (
+      {(data.change24hUsd !== null && hasCrypto) || data.source === 'derived' ? (
         <p className="home-change">
-          <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
-          {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
+          {data.change24hUsd !== null && hasCrypto ? (
+            <>
+              <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
+              {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
+            </>
+          ) : null}
+          <DerivedTotalTag source={data.source} className="home-change__tag" />
         </p>
       ) : null}
-      <DerivedTotalNote source={data.source} className="home-note" />
       {unpriced > 0 ? (
         <p className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
@@ -295,6 +300,7 @@ function HomeSimple() {
   return (
     <div className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
       <div className="home-grid">
         <div className="home-main">
           <div className="home-label">

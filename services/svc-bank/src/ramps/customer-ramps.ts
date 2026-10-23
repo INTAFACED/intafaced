@@ -17,6 +17,7 @@ import {
 import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 
 /**
  * Customer-callable quote and destination procedures.
@@ -38,6 +39,8 @@ export interface CustomerRampDeps {
   destinations: UserWithdrawDestinations;
   networks: WithdrawNetworkSource | null;
   coolingRaw: () => string | undefined;
+  /** Signed-message proofs that the customer controls a saved wallet (W-withdraw-17). */
+  proofs: WalletProofStore;
 }
 
 interface QuoteRow {
@@ -139,6 +142,10 @@ export interface DestinationView {
   addedAt: string;
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
+  /** When the customer confirmed this address is not the saved entry it looks like (W-withdraw-03); null otherwise. */
+  lookalikeConfirmedAt: string | null;
+  /** Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof. */
+  ownership: Ownership;
 }
 
 export async function quoteOnramp(
@@ -359,7 +366,7 @@ export function maskRef(ref: string): string {
   return compact.length <= 12 ? `${compact.slice(0, 2)}…` : `${compact.slice(0, 6)}…${compact.slice(-4)}`;
 }
 
-function viewOf(row: WithdrawDestination, hours: number | null): DestinationView {
+function viewOf(row: WithdrawDestination, hours: number | null, ownership: Ownership): DestinationView {
   return {
     destinationId: row.destinationId,
     label: row.label,
@@ -374,13 +381,22 @@ function viewOf(row: WithdrawDestination, hours: number | null): DestinationView
     addedAt: row.addedAt.toISOString(),
     coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
+    lookalikeConfirmedAt: row.lookalikeConfirmedAt ? row.lookalikeConfirmedAt.toISOString() : null,
+    ownership,
   };
+}
+
+/** One entry's view with its ownership read from the latest proof. */
+async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
+  const latest = await deps.proofs.latest(userId);
+  return viewOf(row, readOfframpCoolingHours(deps.coolingRaw()), ownershipOf(latest.get(row.destinationId), new Date(), row.ref));
 }
 
 export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
   const hours = readOfframpCoolingHours(deps.coolingRaw());
-  const rows = await deps.destinations.list(userId);
-  return rows.map((row) => viewOf(row, hours));
+  const [rows, latest] = await Promise.all([deps.destinations.list(userId), deps.proofs.latest(userId)]);
+  const now = new Date();
+  return rows.map((row) => viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref)));
 }
 
 /** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
@@ -408,7 +424,8 @@ export async function saveDestination(
 ): Promise<DestinationView> {
   // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
   // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
-  const { confirmLookalike, ...book } = input;
+  // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
+  const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
@@ -419,14 +436,15 @@ export async function saveDestination(
       'bank.address_lookalike',
     );
   }
-  return viewOf(await deps.destinations.save(book), readOfframpCoolingHours(deps.coolingRaw()));
+  // The confirmation is recorded on the new entry: which saved entry it was checked against, and when.
+  return viewWithOwnership(deps, book.userId, await deps.destinations.save(near ? { ...book, lookalikeOf: near.destinationId } : book));
 }
 
 export async function renameDestination(
   deps: CustomerRampDeps,
   input: { userId: string; destinationId: string; label: string },
 ): Promise<DestinationView> {
-  return viewOf(await deps.destinations.rename(input), readOfframpCoolingHours(deps.coolingRaw()));
+  return viewWithOwnership(deps, input.userId, await deps.destinations.rename(input));
 }
 
 export function removeDestination(

@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { DerivedTotalNote, totalNoteCopy } from './total-note';
+import { DerivedTotalNote, DerivedTotalTag, totalNoteCopy } from './total-note';
 import { fromDerived, fromServer } from './portfolio-source';
 import { valuePortfolio } from '../../data/derive';
 
@@ -33,8 +33,16 @@ describe('total built on this device says named spaces are missing', () => {
   it('shows nothing for the bank’s own total', () => {
     expect(renderToString(<DerivedTotalNote source={server.source} className="home-note" />)).toBe('');
   });
+  it('the short tag Home uses keeps the full sentence behind its tip, and is empty for the bank’s total', () => {
+    const html = renderToString(<DerivedTotalTag source={derived.source} className="home-change__tag" />);
+    expect(html).toContain('Named spaces not included');
+    expect(html).toContain('Named spaces aren’t included right now, so this total may be lower than your full balance.');
+    expect(renderToString(<DerivedTotalTag source={server.source} className="home-change__tag" />)).toBe('');
+  });
   it('has es and fr words', () => {
     expect(totalNoteCopy.forLocale('es').t('namedSpacesMissing')).toMatch(/espacios con nombre/);
     expect(totalNoteCopy.forLocale('fr').t('namedSpacesMissing')).toMatch(/espaces nommés/);
+    expect(totalNoteCopy.forLocale('es').t('namedSpacesShort')).toMatch(/Espacios con nombre/);
+    expect(totalNoteCopy.forLocale('fr').t('namedSpacesShort')).toMatch(/Espaces nommés/);
   });
 });

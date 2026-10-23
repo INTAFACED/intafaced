@@ -1,6 +1,14 @@
 import { z } from 'zod';
-import type { Principal } from '@intafaced/auth';
-import { anyScopeProcedure, router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import { AuthError, type Principal } from '@intafaced/auth';
+import {
+  anyScopeProcedure,
+  router,
+  protectedProcedure,
+  publicProcedure,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+} from '@intafaced/contracts';
 import {
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_CONTROL_NOT_FOUND,
@@ -47,7 +55,7 @@ import {
 } from './ledger/operator-owner-balances.js';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
-import { LookupUnrecordedError } from './ledger/operator-lookup.js';
+import { LookupUnrecordedError, requireLookupAuthority } from './ledger/operator-lookup.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
@@ -166,6 +174,23 @@ export interface LedgerIndexerCompose {
   readonly url?: string;
   readonly fetch?: typeof globalThis.fetch;
 }
+
+/**
+ * The object lookups' door, the same rule as the operator port's (`requireLookupAuthority`): a founder's `admin:read`
+ * with a second factor, or `admin:treasury`. A missing second factor is UNAUTHORIZED, anything else FORBIDDEN, as
+ * `scopedProcedure` reports them.
+ */
+const lookupProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  try {
+    requireLookupAuthority(ctx.principal);
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'mfa.required') {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+    }
+    throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+  }
+  return next({ ctx });
+});
 
 export function createLedgerRouter(
   ledger: LedgerService,
@@ -505,7 +530,7 @@ export function createLedgerRouter(
      * after, or an honest `found: false`. Recorded in the access log first. A read, never a post; works while the posting
      * freeze is on.
      */
-    trace: scopedProcedure('admin:treasury')
+    trace: lookupProcedure
       .input(operatorTraceInputSchema)
       .output(operatorTraceOutputSchema)
       .query(async ({ ctx, input }) => {
@@ -523,7 +548,7 @@ export function createLedgerRouter(
      * Operator transaction detail (OPS-ledger-desk-01): one booked transaction by id with its postings. Recorded in the
      * access log first. A read; works while the posting freeze is on.
      */
-    transactionGet: scopedProcedure('admin:treasury')
+    transactionGet: lookupProcedure
       .input(operatorTxGetInputSchema)
       .output(operatorTxGetOutputSchema)
       .query(async ({ ctx, input }) => {

@@ -73,7 +73,26 @@ import {
   type QueueResult,
 } from './operator-queue.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
-import { MemorySupportStore, type AttachmentMeta, type KbFeedbackVote, type SupportStore, type TicketRating } from './store.js';
+import {
+  FEEDBACK_COMMENT_MAX,
+  READER_ACTOR_PREFIX,
+  SEARCH_QUERY_CONTRACT_MAX,
+  SUPPORT_ASSISTANT_MODEL_UNSET,
+  SUPPORT_FEEDBACK_RATE_EXCEEDED,
+  SUPPORT_FEEDBACK_RATE_LIMIT_UNSET,
+  SUPPORT_FEEDBACK_REQUEST_INVALID,
+  SUPPORT_SEARCH_QUERY_TOO_LONG,
+  readerActorId,
+} from './kb-feedback.js';
+import {
+  MemorySupportStore,
+  type AttachmentMeta,
+  type KbFeedbackCount,
+  type KbFeedbackVote,
+  type KbSearchMiss,
+  type SupportStore,
+  type TicketRating,
+} from './store.js';
 import {
   DarkTicketOrderSource,
   SUPPORT_ORDER_USER_MISMATCH,
@@ -293,6 +312,22 @@ export class SupportService implements SupportContract {
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
     /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
     private readonly bulkCap: number | null = null,
+    /**
+     * SP-kb-03 owner values. A blank rate refuses a public vote. A blank model
+     * refuses the answer panel. A blank search maximum leaves the contract bound.
+     * The model string is never returned, logged or sent on.
+     */
+    private readonly kbDesk: {
+      feedbackRateLimit?: number | null;
+      feedbackRateWindowSeconds?: number | null;
+      assistantModel?: string | null;
+      searchQueryMax?: number | null;
+    } = {
+      feedbackRateLimit: null,
+      feedbackRateWindowSeconds: null,
+      assistantModel: null,
+      searchQueryMax: null,
+    },
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -852,8 +887,16 @@ export class SupportService implements SupportContract {
    */
   async searchKb(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
+    const q = query.trim();
+    const max = this.kbDesk.searchQueryMax;
+    if ((max != null && q.length > max) || q.length > SEARCH_QUERY_CONTRACT_MAX) {
+      throw new SupportError('search query is longer than the maximum', SUPPORT_SEARCH_QUERY_TOO_LONG);
+    }
     const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
     const hits = searchKb(query, this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer));
+    if (q.length > 0 && hits.length === 0) {
+      await this.store.recordSearchMiss({ query: q, at: this.now().toISOString() });
+    }
     return [...hits].slice(0, limit).map(toPublicKb);
   }
 
@@ -1780,9 +1823,108 @@ export class SupportService implements SupportContract {
     helpful: boolean;
     clientRequestId: string;
     viewer?: SupportKbViewer;
+    comment?: string;
+    openRequest?: boolean;
+  }): Promise<KbFeedbackVote> {
+    return this.recordFeedback(input);
+  }
+
+  /**
+   * A signed-out vote, keyed by the browser's reader token. The rate is an owner
+   * value: blank refuses and stores nothing. The token is not an account and is
+   * not returned.
+   */
+  async kbFeedbackPublic(input: {
+    readerToken: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+  }): Promise<{ articleId: string; version: number; helpful: boolean }> {
+    const limit = this.kbDesk.feedbackRateLimit;
+    const windowSeconds = this.kbDesk.feedbackRateWindowSeconds;
+    const vote = await this.recordFeedback({
+      userId: readerActorId(input.readerToken),
+      id: input.id,
+      helpful: input.helpful,
+      clientRequestId: input.clientRequestId,
+      viewer: ANONYMOUS_KB_VIEWER,
+      rate: limit != null && windowSeconds != null ? { limit, windowSeconds } : 'unset',
+    });
+    return { articleId: vote.articleId, version: vote.version, helpful: vote.helpful };
+  }
+
+  /** Counts per article version for the desk. No reader id. */
+  async kbFeedbackSummary(input: { limit?: number } = {}): Promise<KbFeedbackCount[]> {
+    const limit = assertListKbLimit(input.limit);
+    return this.store.listKbFeedbackSummary(limit);
+  }
+
+  /** Searches that found nothing, newest first. The rows have no reader. */
+  async kbSearchMisses(input: { limit?: number } = {}): Promise<KbSearchMiss[]> {
+    const limit = assertListKbLimit(input.limit);
+    return this.store.listSearchMisses(limit);
+  }
+
+  /**
+   * A click on a result the caller may see. A hidden article is not recorded and
+   * answers like a miss. The same request id records one click.
+   */
+  async kbSearchClick(input: {
+    articleId: string;
+    query: string;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+  }): Promise<{ recorded: boolean }> {
+    this.requireClientRequestId(input.clientRequestId);
+    const q = input.query.trim();
+    if (
+      q.length === 0 ||
+      q.length > SEARCH_QUERY_CONTRACT_MAX ||
+      (this.kbDesk.searchQueryMax != null && q.length > this.kbDesk.searchQueryMax)
+    ) {
+      throw new SupportError('search query is longer than the maximum', SUPPORT_SEARCH_QUERY_TOO_LONG);
+    }
+    if (await this.store.hasSearchClick(input.clientRequestId)) return { recorded: true };
+    const viewer = input.viewer ?? ANONYMOUS_KB_VIEWER;
+    const article = await this.store.getPublishedKb(input.articleId);
+    if (!article || !kbAudienceVisibleTo(article.audience, viewer)) return { recorded: false };
+    await this.store.recordSearchClick({
+      query: q,
+      articleId: input.articleId,
+      clientRequestId: input.clientRequestId,
+      at: this.now().toISOString(),
+    });
+    return { recorded: true };
+  }
+
+  /**
+   * The answer panel. A blank model refuses and builds nothing. When the owner
+   * has set one, the answer is the ranked articles themselves: this service
+   * calls no model and returns no provider name.
+   */
+  async kbAnswer(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<{ sources: SupportKbArticle[] }> {
+    if (!this.kbDesk.assistantModel?.trim()) {
+      throw new SupportError('the assistant model is not set', SUPPORT_ASSISTANT_MODEL_UNSET);
+    }
+    return { sources: await this.searchKb(query, options) };
+  }
+
+  private async recordFeedback(input: {
+    userId: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+    comment?: string;
+    openRequest?: boolean;
+    rate?: { limit: number; windowSeconds: number } | 'unset';
   }): Promise<KbFeedbackVote> {
     return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
       this.requireClientRequestId(input.clientRequestId);
+      const comment = input.comment?.trim() ?? '';
+      if (comment.length > FEEDBACK_COMMENT_MAX) {
+        throw new SupportError('feedback comment is too long', 'support.feedback_comment_too_long');
+      }
       // A vote on an article the reader may not see answers like a vote on a missing one.
       const article = await this.store.getPublishedKb(input.id);
       if (article && !kbAudienceVisibleTo(article.audience, input.viewer ?? ANONYMOUS_KB_VIEWER)) {
@@ -1793,8 +1935,19 @@ export class SupportService implements SupportContract {
         articleId: input.id,
         helpful: input.helpful,
         clientRequestId: input.clientRequestId,
+        comment: comment || null,
+        openRequest: input.openRequest === true,
+        ...(input.rate !== undefined ? { rate: input.rate } : {}),
+        now: this.now().toISOString(),
       });
-      if (result.status === 'refuse') throw new SupportError('article is not published', 'support.kb.not_published');
+      if (result.status === 'refuse') {
+        if (result.reason === 'rate_unset') throw new SupportError('the feedback rate limit is not set', SUPPORT_FEEDBACK_RATE_LIMIT_UNSET);
+        if (result.reason === 'rate_exceeded') throw new SupportError('the feedback rate limit is reached', SUPPORT_FEEDBACK_RATE_EXCEEDED);
+        if (result.reason === 'request_invalid') {
+          throw new SupportError('an article request needs an unhelpful vote and a comment', SUPPORT_FEEDBACK_REQUEST_INVALID);
+        }
+        throw new SupportError('article is not published', 'support.kb.not_published');
+      }
       return result.vote;
     });
   }

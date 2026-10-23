@@ -12,9 +12,10 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
- *   static server + reverse proxy on http://127.0.0.1:3210 · the founder console (apps/admin,
- *   a production Next build) on http://127.0.0.1:3100
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-ops (the outreach intake and CRM) ·
+ *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
@@ -42,6 +43,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { profileEnvFor } from './owner-settings.mjs';
 import {
   FOUNDER_VAULT_NAME,
   enrolledFounderPair,
@@ -83,6 +85,7 @@ const P = {
   natsVerified: path.join(STATE, 'nats-verified.json'),
   buildStamp: path.join(STATE, 'build-stamp.json'),
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
+  invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -112,7 +115,10 @@ const PORTS = {
   execution: 14516,
   tax: 14517,
   'mining-pool': 14518,
+  // The outreach intake behind the invitation site, and the founders' CRM.
+  ops: 14519,
   customer: 3210,
+  invitation: 3220,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -121,6 +127,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
+const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -140,7 +147,9 @@ const SCHEMAS = [
   'market',
   'blueprint',
   'quant',
+  'tax',
   'mining_pool',
+  'ops',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -529,6 +538,7 @@ const BACKEND_PKGS = [
   'svc-execution',
   'svc-tax',
   'svc-mining-pool',
+  'svc-ops',
 ];
 
 function gitHead() {
@@ -692,6 +702,20 @@ function ensureAdminBuilt(rebuild) {
   writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
 }
 
+const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
+
+/** The invitation site is rebuilt when its own source, a package or the lockfile changed since its last build, or on --rebuild. */
+function ensureInvitationBuilt(rebuild) {
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
+  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
+  say('  build: invitation site (apps/invitation)…');
+  runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
+  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
+}
+
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
@@ -797,6 +821,7 @@ const EDGE_UPSTREAMS = {
   QUANT_URL: 'quant',
   TAX_URL: 'tax',
   MINING_POOL_URL: 'mining-pool',
+  OPS_URL: 'ops',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -804,7 +829,6 @@ const EDGE_ABSENT = {
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
-  OPS_URL: 'Back-office CRM and analytics for operators; not a customer door.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -870,6 +894,9 @@ function serviceDefs(secrets) {
         IDENTITY_SIGNUP_REQUEST_MAX: '10',
         IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
         IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+        // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
+        // for, so a journey can see the lock still holding with its end time.
+        IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
@@ -886,6 +913,16 @@ function serviceDefs(secrets) {
         IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
         IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
         IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+        // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+        // J-developer-03 can show the fourth refused.
+        IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+        // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
+        // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
+        // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
+        // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
+        IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
+          .value,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
@@ -948,11 +985,15 @@ function serviceDefs(secrets) {
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
         // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
+        // The perpetual block is LOCAL TEST too: the regular-tier perpetual rates OKX is widely reported to publish,
+        // maker 2 bps and taker 5 bps (not checked against its own page). Futures orders keep these rates; without the
+        // block they refuse trade.fee_product_unpublished (svc-trade futures/matched-order-plan.ts perpetualFeeRates).
         TRADE_FEE_SCHEDULE: JSON.stringify({
           published: true,
           version: 'local-test:okx-regular-spot-reference',
           makerBps: '8',
           takerBps: '10',
+          perpetual: { makerBps: '2', takerBps: '5' },
         }),
         // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
         // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
@@ -969,6 +1010,9 @@ function serviceDefs(secrets) {
         // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
         TRADE_FUTURES_MATCHING_ENABLED: 'true',
         TRADE_FUTURES_PRICE_BAND: '0.05',
+        // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
+        // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
+        TRADE_COLLATERAL_HAIRCUT_BPS: '0',
         TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },
@@ -1032,6 +1076,9 @@ function serviceDefs(secrets) {
         BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
+        // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
+        BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
+        BANK_WALLET_PROOF_VALID_DAYS: '180',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
@@ -1102,6 +1149,17 @@ function serviceDefs(secrets) {
       }),
     },
     {
+      name: 'ops',
+      env: () => ({
+        ...c('svc-ops', PORTS.ops),
+        DATABASE_URL: dbUrl('svc_ops', secrets),
+        // svc-ops opens its CRM store only with an explicit pool size; blank leaves the intake refusing.
+        OPS_DATABASE_POOL_MAX: '4',
+        IDENTITY_URL: urlOf('identity'),
+        ...opsOutreachEnv(),
+      }),
+    },
+    {
       name: 'market',
       env: () => ({
         ...c('svc-market', PORTS.market),
@@ -1117,6 +1175,8 @@ function serviceDefs(secrets) {
       env: () => ({
         ...c('svc-notify', PORTS.notify),
         DATABASE_URL: dbUrl('svc_notify', secrets),
+        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
+        IDENTITY_URL: urlOf('identity'),
         TRADE_URL: urlOf('trade'),
         MATCHING_URL: urlOf('matching'),
         // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
@@ -1173,7 +1233,13 @@ function serviceDefs(secrets) {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
       // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
+      // The out-of-sample criteria and the holdout are the TEST profile's labelled values (tooling/profiles/test-owner-values.json).
+      env: () => ({
+        ...c('svc-quant', PORTS.quant),
+        DATABASE_URL: dbUrl('svc_quant', secrets),
+        TRADE_URL: urlOf('trade'),
+        ...profileEnvFor('quant', 'dev'),
+      }),
     },
     {
       name: 'execution',
@@ -1188,8 +1254,18 @@ function serviceDefs(secrets) {
     {
       // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
       // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
+      // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
+      // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
+      // DATABASE_URL is this stack's svc_tax role. tax is in SCHEMAS, so db:migrate runs before the process listens.
+      // DATABASE_POOL_MAX is the stack's common setting, not a size invented here.
       name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
+      env: () => ({
+        ...c('svc-tax', PORTS.tax),
+        LEDGER_URL: urlOf('ledger'),
+        TRADE_URL: urlOf('trade'),
+        TAX_DEPOSIT_BASIS: 'customer',
+        DATABASE_URL: dbUrl('svc_tax', secrets),
+      }),
     },
     {
       // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and
@@ -1208,7 +1284,7 @@ function serviceDefs(secrets) {
         const env = {
           ...c('svc-edge', PORTS.edge),
           IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
-          EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+          EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN},${INVITATION_ORIGIN}`,
           EDGE_RATE_LIMIT_ENABLED: 'true',
           // Required, no default. LOCAL TEST values (generous: the UI polls).
           EDGE_RATE_LIMIT_MAX: '1200',
@@ -1315,6 +1391,28 @@ function identityFounderEnv() {
   return founderIdentityEnv(vault);
 }
 
+/**
+ * The outreach intake's configuration for this stack: the local test founder pair (absent until it is enrolled, so the
+ * intake refuses ops.crm.configuration_unverified until then) and LOCAL TEST review settings, never owner decisions.
+ */
+function opsOutreachEnv() {
+  const pinned = identityFounderEnv();
+  const founders = [pinned.IDENTITY_FOUNDER_NITRO_USER_ID, pinned.IDENTITY_FOUNDER_PHANTOM_USER_ID];
+  if (!founders.every(Boolean)) return {};
+  return {
+    OPS_OUTREACH_CONFIG: JSON.stringify({
+      founders,
+      initialOwnerUserId: founders[0],
+      // LOCAL TEST: a one-day continuation, Monday to Friday review at 09:00 Europe/London.
+      continuationTtlSeconds: 86_400,
+      timeZone: 'Europe/London',
+      businessWeekdays: [1, 2, 3, 4, 5],
+      reviewHour: 9,
+      reviewMinute: 0,
+    }),
+  };
+}
+
 async function startNodeService(def) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
@@ -1326,6 +1424,12 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
+  if (def.name === 'ops') {
+    // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
+    const procs = readProcs();
+    procs.ops.outreachConfig = env.OPS_OUTREACH_CONFIG ?? null;
+    writeProcs(procs);
+  }
   await waitHealthy(def.name, url, pid);
 }
 
@@ -1365,6 +1469,16 @@ async function ensureLocalTestFounders() {
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
 }
 
+/** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
+async function pinOpsFounders() {
+  const procs = readProcs();
+  const wanted = opsOutreachEnv().OPS_OUTREACH_CONFIG;
+  if (!ownedAlive(procs.ops) || !wanted || procs.ops.outreachConfig === wanted) return;
+  say('  ops: restarting so the outreach intake knows the local test founder pair');
+  await stopProc('ops', procs.ops);
+  await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
+}
+
 async function startCustomer() {
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
@@ -1372,6 +1486,17 @@ async function startCustomer() {
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], baseEnv(), REPO);
   await waitHealthy('customer', url, pid, 20_000);
+}
+
+/** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
+async function startInvitation() {
+  const procs = readProcs();
+  const url = `${INVITATION_ORIGIN}/`;
+  if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
+  if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
+  if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
+  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
+  await waitHealthy('invitation', url, pid, 20_000);
 }
 
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
@@ -1453,6 +1578,13 @@ async function healthTable({ gateMarket = false } = {}) {
     procs.customer?.pid ?? '-',
     cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
   ]);
+  const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
+  rows.push([
+    'invitation',
+    PORTS.invitation,
+    procs.invitation?.pid ?? '-',
+    invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
+  ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
@@ -1470,7 +1602,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'customer', 'admin'];
+  const known = [...serviceNames(), 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1514,6 +1646,7 @@ async function cmdStart(flags) {
   const only = onlyFlag(flags);
   ensureNatsBinary();
   ensureBuilt(flags.includes('--rebuild'));
+  ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
   // Migrate only what is about to start: a service that is already running was migrated when it started.
@@ -1534,12 +1667,14 @@ async function cmdStart(flags) {
   for (const def of wanted) await startNodeService(def);
   try {
     await ensureLocalTestFounders();
+    if (!only || only.includes('ops')) await pinOpsFounders();
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
+  if (!only || only.includes('invitation')) await startInvitation();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1562,6 +1697,7 @@ async function cmdStart(flags) {
       : '  Founders: pair not pinned (identity and edge must both be up)',
   );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
+  say(`  Invitation site: ${INVITATION_ORIGIN}   (the public join and partner enquiry forms)`);
   say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
@@ -1583,7 +1719,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'customer', ...serviceNames().reverse(), 'nats'];
+  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1654,7 +1790,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'customer', 'admin'];
+  const known = [...serviceNames(), 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1707,7 +1843,13 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
-function serveCustomer(port = PORTS.customer) {
+/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+const SITES = {
+  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist() },
+  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }) },
+};
+
+function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   const edge = { host: HOST, port: PORTS.edge };
   const send = (res, status, type, body, extra = {}) => {
     res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
@@ -1720,7 +1862,7 @@ function serveCustomer(port = PORTS.customer) {
       res.writeHead(403);
       return void res.end();
     }
-    const url = new URL(req.url, CUSTOMER_ORIGIN);
+    const url = new URL(req.url, site.origin);
     const p = url.pathname;
 
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
@@ -1749,7 +1891,7 @@ function serveCustomer(port = PORTS.customer) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
 
     // The folder is resolved on every request, so "customer-dist <path>" / "--clear" take effect at once.
-    const active = activeCustomerDist();
+    const active = site.dist();
     if (active.error) {
       return send(
         res,
@@ -1797,7 +1939,7 @@ function serveCustomer(port = PORTS.customer) {
     try {
       html = indexWithBanner(dist);
     } catch {
-      return send(res, 503, 'text/plain; charset=utf-8', `No Customer build found in ${dist}. Run: pnpm local:stack --rebuild`);
+      return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
@@ -1959,6 +2101,7 @@ async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-admin') await serveAdmin();
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>

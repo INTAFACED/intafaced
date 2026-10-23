@@ -19,7 +19,7 @@ const defined = (value: Amount): QuantMetric => ({ value: formatAmount(value), r
 const undefinedBy = (reason: string): QuantMetric => ({ value: null, reason });
 
 /** `part` as a percent of `base`, four places cut toward zero, so a figure never reads better than it is. */
-function percent(part: Amount, base: Amount): QuantMetric {
+export function percent(part: Amount, base: Amount): QuantMetric {
   if (base === 0n) return undefinedBy(METRIC_ZERO_BASE);
   // One bigint division truncates toward zero, then the cut to four places does too: a loss never reads deeper.
   const exact = (part * 100n * UNIT) / base;
@@ -63,7 +63,7 @@ export function roundTripsOf(trades: QuantBacktestResult['trades']): QuantRoundT
  * Largest fall from a running peak, and the longest span in points from a peak to the next equal-or-higher point
  * (ENGINE MT-1, R-10). A peak the curve never gets back to counts to the last point.
  */
-function drawdownOf(points: readonly Amount[]): { fall: Amount; base: Amount; longest: number } {
+export function drawdownOf(points: readonly Amount[]): { fall: Amount; base: Amount; longest: number } {
   let peak = points[0]!;
   let fall = 0n;
   let base = peak;
