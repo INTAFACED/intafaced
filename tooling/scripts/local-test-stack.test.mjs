@@ -42,6 +42,36 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: p2p local-test kms env checks passed');
 }
 
+// Every service file in local-stack-services/ is started, once, under its own name.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const files = readdirSync(join(here, 'local-stack-services'))
+    .filter((f) => f.endsWith('.mjs'))
+    .map((f) => f.replace(/\.mjs$/, ''))
+    .sort();
+  assert.deepEqual(
+    localTestServiceEnvs()
+      .map((service) => service.name)
+      .sort(),
+    files,
+  );
+  console.log('local-test-stack: one service file per started service');
+}
+
+// The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
+// stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
+  const profile = loadProfile().values;
+  for (const name of ['BANK_PAYEE_CONTROLS_JSON', 'BANK_EXCHANGE_ALLOWANCE_JSON', 'BANK_PROOF_LIMITS_JSON']) {
+    assert.equal(profile[name]?.service, 'bank', `${name} is not in the bank profile`);
+    assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
+  }
+  console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
 function fundWith(home, args = ['someone@example.invalid', 'USDT', '1000']) {
   return spawnSync(process.execPath, [script, 'fund', ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
 }
@@ -87,7 +117,16 @@ try {
 
 // 6. The script never writes a sanctions value of its own: every assignment of the two
 // screening variables comes from the caller's environment or the machine-local file.
-const source = readFileSync(script, 'utf8');
+// The per-service env files are part of the script for these checks.
+const serviceDir = join(here, 'local-stack-services');
+const source = [
+  script,
+  ...readdirSync(serviceDir)
+    .filter((f) => f.endsWith('.mjs'))
+    .map((f) => join(serviceDir, f)),
+]
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n');
 for (const name of ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE']) {
   const literal = new RegExp(`${name}\\s*[:=]\\s*['"\`]`);
   assert.equal(literal.test(source), false, `${name} is given a literal value in the script`);
@@ -112,13 +151,16 @@ console.log('local-test-stack: 6 refusal checks passed');
 // journal with resting orders boots closed (matching.hold_check_unwired). Ledger already starts
 // before matching; this only pins the env the matching process is given.
 {
-  const marker = "name: 'matching'";
-  const start = source.indexOf(marker);
-  assert.ok(start >= 0, 'matching service block missing');
-  const next = source.indexOf("name: '", start + marker.length);
-  assert.ok(next > start, 'matching service block has no following service');
-  const block = source.slice(start, next);
-  assert.ok(block.includes("LEDGER_URL: urlOf('ledger')"), "matching env must contain LEDGER_URL: urlOf('ledger')");
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const ledger = envs.find((service) => service.name === 'ledger');
+  const matching = envs.find((service) => service.name === 'matching');
+  assert.ok(matching, 'matching service missing');
+  assert.equal(
+    matching.env.LEDGER_URL,
+    `http://${ledger.env.HTTP_HOST}:${ledger.env.HTTP_PORT}`,
+    "matching env must contain LEDGER_URL: urlOf('ledger')",
+  );
   console.log('local-test-stack: matching ledger hold wiring check passed');
 }
 
@@ -142,15 +184,15 @@ try {
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
   for (const schema of plan.schemas) {
-    // A service owns each schema (svc-mining-pool owns mining_pool), and has a migrate script.
+    // A service owns each schema (svc-mining-pool owns mining_pool), and has the migrate script the stack runs
+    // (`pnpm --filter <service> db:migrate`), pointing at a file that exists (svc-ops keeps it in src/db).
     const owner = plan.services.find((x) => x.schema === schema);
     assert.ok(owner, `schema ${schema} has no service`);
-    const scripts = join(repo, 'services', `svc-${owner.name}`, 'scripts');
-    assert.equal(
-      existsSync(join(scripts, 'migrate.ts')) || existsSync(join(scripts, 'migrate.mjs')),
-      true,
-      `svc-${owner.name} has no migrate script`,
-    );
+    const dir = join(repo, 'services', `svc-${owner.name}`);
+    const migrate = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts?.['db:migrate'] ?? '';
+    const file = /^(?:tsx|node) (\S+\.(?:ts|mjs))$/.exec(migrate)?.[1];
+    assert.ok(file, `svc-${owner.name} has no db:migrate script that runs one file`);
+    assert.equal(existsSync(join(dir, file)), true, `svc-${owner.name} db:migrate names a missing file ${file}`);
   }
   assert.equal(names.at(-1), 'edge', 'Edge starts last');
 
@@ -389,12 +431,12 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  // The founder console starts after the Customer app and before the market check, and stops first.
+  // The founder console starts after the Customer app and the invitation site and before the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  assert.match(source, /const order = \['admin', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);

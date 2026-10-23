@@ -1,0 +1,75 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "TRANSFER_BATCH_SIZE": {
+      "service": "bank",
+      "value": "10",
+      "note": ""
+    },
+    "LOAN_SWEEP_BATCH_SIZE": {
+      "service": "bank",
+      "value": "10",
+      "note": ""
+    },
+    "LOAN_QUOTE_ASSET_ID": {
+      "service": "bank",
+      "value": "USDT",
+      "note": ""
+    },
+    "BANK_ACCOUNT_TERMS_JSON": {
+      "service": "bank",
+      "value": "{\"tier\": \"TEST base tier\", \"version\": \"local-test-1\", \"currency\": \"USDT\", \"monthlyFee\": \"0\", \"minimumBalance\": \"0\", \"overdraftFee\": null, \"included\": [\"TEST spaces for your goals\", \"TEST moves between your spaces\"]}",
+      "note": "Made-up base-tier terms labelled TEST so the account panel has something to read; not a price."
+    },
+    "BANK_ACCOUNT_CURRENCIES": {
+      "service": "bank",
+      "value": "USDT,USDC,BTC,ETH",
+      "note": "Which currencies a TEST account can add."
+    },
+    "BANK_SPACE_LIMIT": {
+      "service": "bank",
+      "value": "5",
+      "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
+    },
+    "BANK_ACCOUNT_DETAILS_CURRENCIES": {
+      "service": "bank",
+      "value": "EUR,GBP,USD",
+      "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "BANK_ADDRESS_BOOK_CAP": {
+      "service": "bank",
+      "value": "10",
+      "note": "How many withdrawal addresses one person may save (J-wallet-04)."
+    },
+    "BANK_OFFRAMP_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes a wallet ownership proof stays open for signing (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_VALID_DAYS": {
+      "service": "bank",
+      "value": "180",
+      "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
+    "BANK_PAYEE_CONTROLS_JSON": {
+      "service": "bank",
+      "value": "{\"blockedAccounts\": [\"TEST-BLOCKED-ACCOUNT\"]}",
+      "note": "One made-up blocked account so a journey can see the refusal; every real account passes."
+    },
+    "BANK_EXCHANGE_ALLOWANCE_JSON": {
+      "service": "bank",
+      "value": "{\"exchangeAccounts\": [\"TEST-EXCHANGE-ACCOUNT\"], \"windowDays\": 30, \"limits\": [{\"asset\": \"USDT\", \"maxAmount\": \"1000\"}]}",
+      "note": "One made-up exchange account with a 1000 USDT 30-day limit, so a journey can reach the allowance refusal."
+    },
+    "BANK_PROOF_LIMITS_JSON": {
+      "service": "bank",
+      "value": "{\"allowedTypes\": [\"application/pdf\", \"image/png\"], \"maxBytes\": 1048576}",
+      "note": "PDF or PNG up to 1 MiB, so a held-send journey can upload a file."
+    }
+  }
+}

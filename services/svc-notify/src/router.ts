@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { guestNotificationsRouter } from './guests/router.js';
+import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import type { GuestNotificationService } from './guests/service.js';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, STATUS_COMPONENTS_MAX } from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
@@ -52,7 +53,14 @@ import { PreferenceError } from './preferences/account.js';
 import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
-import { INCIDENT_PHASES, NOTICE_ASSET_PATTERN, NOTICE_NETWORK_PATTERN, NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import {
+  INCIDENT_PHASES,
+  NOTICE_ASSET_PATTERN,
+  NOTICE_NETWORK_PATTERN,
+  NoticeError,
+  NOTICES_LIST_LIMIT_MAX,
+  STATUS_COMPONENT_PATTERN,
+} from './notices/board.js';
 import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
 import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
@@ -481,6 +489,8 @@ const priceAlertOutput = z.object({
   frequency: z.enum(ALERT_FREQUENCIES),
   /** Times a repeating alert has triggered; zero for a one-shot alert. */
   fireCount: z.number().int(),
+  /** Why a stopped alert was stopped by the platform: `burst` (it triggered too often). Null for a pause by the person. */
+  stopReason: z.enum(['burst']).nullable(),
   lastFiredAt: z.string().nullable(),
 });
 
@@ -539,6 +549,7 @@ function priceAlertToWire(row: PriceAlert) {
     extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
     frequency: row.frequency,
     fireCount: row.fireCount,
+    stopReason: row.stopReason,
     lastFiredAt: row.lastFiredAt ? row.lastFiredAt.toISOString() : null,
   };
 }
@@ -556,9 +567,11 @@ export function createNotifyRouter(
   loadVenueIncident?: VenueIncidentLoader,
   guests?: GuestNotificationService,
   inbox: InboxSettings = BLANK_INBOX_SETTINGS,
+  statusPage?: StatusPageDeps,
 ) {
   return router({
     guestNotifications: guestNotificationsRouter(guests),
+    statusPage: statusPageRouter(statusPage),
     health: publicProcedure
       .output(
         z.object({
@@ -1264,7 +1277,7 @@ export function createNotifyRouter(
             startsAt: z.string().datetime({ offset: true }).nullable().optional(),
             endsAt: z.string().datetime({ offset: true }).nullable().optional(),
             impact: statusImpact.nullable().optional(),
-            components: z.array(statusComponentId).max(3).nullable().optional(),
+            components: z.array(z.string().regex(STATUS_COMPONENT_PATTERN)).max(STATUS_COMPONENTS_MAX).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
             asset: noticeAsset.nullable().optional(),
@@ -1782,9 +1795,17 @@ export function createNotifyRouter(
 
       /** How many price alerts the person holds open and the cap the owner set. `max: null` is a blank setting: creates refuse. */
       alertQuota: scopedProcedure('notify:read', { module: 'notify' })
-        .output(z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() }))
+        .output(
+          z.object({
+            kind: z.literal('price'),
+            used: z.number().int().min(0),
+            max: z.number().int().min(1).nullable(),
+            /** The burst auto-stop rule, or null while the owner has not set it (the rule is off). */
+            burst: z.object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) }).nullable(),
+          }),
+        )
         .query(async ({ ctx }) => {
-          if (!alerts) return { kind: 'price' as const, used: 0, max: null };
+          if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null };
           return alerts.quota(ctx.principal.userId);
         }),
 

@@ -638,6 +638,32 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
+  // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
+  ...(
+    [
+      ['learning', 'Academy learning'],
+      ['certificates', 'Academy certificates'],
+      ['rooms', 'Academy rooms'],
+      ['videos', 'Academy videos'],
+      ['programmes', 'Academy programmes'],
+      ['progress', 'Academy progress'],
+    ] as const
+  ).map(([slug, title]) => ({
+    path: `/academy/${slug}`,
+    title,
+    description: 'Rooms, learning and certifications' as const,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
+  {
+    path: '/academy/learning/course/:slug',
+    title: 'Academy course',
+    description: 'Rooms, learning and certifications',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -754,6 +780,25 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  // Any deeper address under one of the six rooms reaches the More routes, which answer it with the "no customer route" panel
+  // and a link to /more (MC-order-01). Kept after every section and record row, so a real page always matches first.
+  ...(
+    [
+      ['predict', 'Prediction markets', 'Browse and trade predictions'],
+      ['market', 'Market', 'Browse available listings'],
+      ['launch', 'Launch', 'Issue and list an asset'],
+      ['token', 'Token', 'Access and staking'],
+      ['mining', 'Mining', 'Pool activity and payouts'],
+      ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+    ] as const
+  ).map(([slug, title, description]) => ({
+    path: `/${slug}/*`,
+    title,
+    description,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   {

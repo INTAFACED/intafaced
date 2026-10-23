@@ -268,6 +268,18 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * Burst auto-stop window, in minutes. NO DEFAULT. The rule is armed only when this and the count are both set; blank leaves it
+       * off and the alerts page says so.
+       */
+      NOTIFY_ALERT_BURST_WINDOW_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(1440).optional()),
+
+      /**
+       * Most triggers one alert may have inside the burst window. NO DEFAULT. An alert that triggers more often is stopped with the
+       * reason `burst`; blank leaves the rule off.
+       */
+      NOTIFY_ALERT_BURST_MAX_TRIGGERS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
+
+      /**
        * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */
