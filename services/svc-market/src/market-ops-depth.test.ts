@@ -640,4 +640,107 @@ describe('market ops depth', () => {
       });
     });
   });
+
+  describe('setListingCategory', () => {
+    const reason = 'catalogue desk filed this under bots';
+
+    it('audits actor and reason with the slug, and replays the business key', async () => {
+      await approvedVendor(VENDOR_USER, 'Acme');
+      const listing = await commerce.createListing({
+        userId: VENDOR_USER,
+        title: 'Bot pack',
+        description: 'A useful bot',
+        offerType: 'one_time',
+        assetId: 'USDT',
+        price: '10',
+      });
+      const [before] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(before?.category).toBeNull();
+
+      const filed = {
+        actorId: OPERATOR,
+        actorScope: MARKET_OPS_SCOPE,
+        listingId: listing.id,
+        category: 'bots',
+        reason,
+        businessKey: 'cat-bots-1',
+      };
+      const first = await commerce.setListingCategory(filed);
+      expect(first).toMatchObject({
+        listingId: listing.id,
+        category: 'bots',
+        actorId: OPERATOR,
+        reason,
+        businessKey: 'cat-bots-1',
+      });
+      const again = await commerce.setListingCategory(filed);
+      expect(again).toEqual(first);
+      const [count] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(count?.n).toBe('1');
+      const [after] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(after?.category).toBe('bots');
+
+      await expect(commerce.setListingCategory({ ...filed, reason: 'a different reason that is long enough' })).rejects.toMatchObject({
+        code: 'market.idempotency_conflict',
+      });
+      const [still] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(still?.n).toBe('1');
+
+      const moved = await commerce.setListingCategory({ ...filed, category: 'data', businessKey: 'cat-data-2' });
+      expect(moved.category).toBe('data');
+      expect(moved.businessKey).toBe('cat-data-2');
+      const [two] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(two?.n).toBe('2');
+      const [now] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(now?.category).toBe('data');
+      expect(again.category).toBe('bots');
+
+      await expect(
+        sql`UPDATE market.listing_category_events SET reason = 'rewritten reason text' WHERE business_key = 'cat-bots-1'`,
+      ).rejects.toThrow(/append-only/);
+    });
+
+    it('does not categorise a strategy listing or write an audit', async () => {
+      await approvedVendor(VENDOR_USER, 'Acme');
+      const listing = await commerce.createListing({
+        userId: VENDOR_USER,
+        title: 'Mean',
+        description: 'A listed strategy',
+        offerType: 'subscription',
+        assetId: 'USDT',
+        price: '12.50',
+        periodSeconds: 86_400,
+      });
+      await expect(
+        commerce.setListingCategory({
+          actorId: OPERATOR,
+          actorScope: MARKET_OPS_SCOPE,
+          listingId: listing.id,
+          category: 'bots',
+          reason,
+          businessKey: 'cat-strategy-1',
+        }),
+      ).rejects.toMatchObject({ code: 'market.category_invalid' });
+      const [row] = await sql<Array<{ category: string | null }>>`
+        SELECT category FROM market.listings WHERE id = ${listing.id}
+      `;
+      expect(row?.category).toBeNull();
+      const [count] = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM market.listing_category_events
+      `;
+      expect(count?.n).toBe('0');
+    });
+  });
 });

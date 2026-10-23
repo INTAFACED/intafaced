@@ -394,6 +394,8 @@ export type TradeErrorCode =
   | 'trade.seed_disabled'
   | 'trade.seed_must_make'
   | 'trade.order_not_found'
+  // An order-history page cursor that is not one of the caller's orders.
+  | 'trade.invalid_cursor'
   | 'trade.order_not_open'
   | 'trade.not_owner'
   | 'trade.perks_unavailable'

@@ -179,6 +179,8 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
+  lookalikeConfirmedAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
@@ -190,6 +192,12 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
+export const destinationCheckSchema = z.object({
+  address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
+  lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
+});
+export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),

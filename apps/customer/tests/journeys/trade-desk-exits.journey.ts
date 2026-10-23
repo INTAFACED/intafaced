@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, mul, mulBps, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, mul, mulBps, parseAmount } from '@intafaced/money-math';
 import type { Draft } from '../../src/features/trade/trade-api';
 import { draftOf } from '../../src/screens/trade/desk/draft-of';
 import { checkOrder, type OrderType, type Side } from '../../src/screens/trade/desk/order-math';

@@ -3,6 +3,7 @@ import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
 import {
   futuresOrderMarginAccount,
+  houseFees,
   positionCollateralAccount,
   subAccountAvailable,
   subAccountFuturesOrderMargin,
@@ -21,10 +22,11 @@ import {
  *   hold    available → order margin     when the order is accepted
  *   release order margin → available     on cancel, expiry or a reduced order
  *   apply   order margin → position pot  on a fill, with any unused part of the
- *                                        hold returned in the same posting
+ *                                        hold returned and the fill's trading
+ *                                        fee paid in the same posting
  *
- * The amounts come from the engine (mark, leverage, limit price). These recipes
- * never choose a price or a size.
+ * The amounts come from the engine (mark, leverage, limit price, the market's
+ * published fee). These recipes never choose a price, a size or a rate.
  */
 
 const debit = (account: AccountRef, amount: Amount): EntryInput => ({ account, direction: 'debit', amount });
@@ -136,10 +138,18 @@ export interface FuturesOrderMarginApplyInput {
    * leave it stranded between the two. Zero returns nothing.
    */
   releaseAmount?: Amount;
+  /**
+   * This fill's trading fee, paid from the order's hold into `houseFees('trade')`
+   * in the same posting (docs/adr/2026-10-20-futures-matched-traders.md: trading
+   * fees go to house fees through a fee recipe, never into the clearing pot).
+   * The hold carries it from the moment the order is accepted, so a fill never
+   * needs money the trader no longer has. Zero or absent charges nothing.
+   */
+  fee?: Amount;
   subAccountId?: string;
 }
 
-/** Move a fill's margin from the order's hold into the position's collateral pot. */
+/** Move a fill's margin from the order's hold into the position's collateral pot, and pay the fill's fee. */
 export function futuresOrderMarginApply(input: FuturesOrderMarginApplyInput): PostRequest {
   const pots = orderPots(input);
   const positionId = requireText('positionId', input.positionId);
@@ -148,6 +158,10 @@ export function futuresOrderMarginApply(input: FuturesOrderMarginApplyInput): Po
   const release = input.releaseAmount ?? 0n;
   if (typeof release !== 'bigint' || release < 0n) {
     throw new InvalidEntryError('futures order margin apply release amount must not be negative');
+  }
+  const fee = input.fee ?? 0n;
+  if (typeof fee !== 'bigint' || fee < 0n) {
+    throw new InvalidEntryError('futures order margin apply fee must not be negative');
   }
   const collateral = pots.subAccountId
     ? subAccountPositionCollateral(pots.subAccountId, input.assetId, positionId)
@@ -162,18 +176,21 @@ export function futuresOrderMarginApply(input: FuturesOrderMarginApplyInput): Po
       fillId,
       amount: input.amount.toString(),
       released: release.toString(),
+      ...(fee > 0n ? { fee: fee.toString() } : {}),
       ...subMeta(pots.subAccountId),
     },
     // The ledger funds a lock only from the same owner's available balance in
     // the same posting (INVARIANT 2), so the hold is drawn through available:
     // the whole hold gives up its share, `amount` goes on into the position
-    // pot, and `release` is what stays behind. One posting, so no crash can
-    // leave margin between the two pots.
+    // pot, and `release` is what stays behind. The fee leaves the hold straight
+    // for house fees (releasing a lock is unconstrained). One posting, so no
+    // crash can leave margin or a fee between pots.
     entries: [
-      credit(pots.orderMargin, input.amount + release),
+      credit(pots.orderMargin, input.amount + release + fee),
       debit(pots.available, input.amount + release),
       credit(pots.available, input.amount),
       debit(collateral, input.amount),
+      ...(fee > 0n ? [debit(houseFees('trade', input.assetId), fee)] : []),
     ],
   };
 }

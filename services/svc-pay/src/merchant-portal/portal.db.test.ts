@@ -31,6 +31,9 @@ import { SubMerchantService } from '../submerchants.js';
 import { createSubMerchantRouter } from '../submerchant-router.js';
 import { createMerchantPortalRouter } from './router.js';
 
+/** Who moves KYB in these tests; `merchant_kyb_events` records it. */
+const KYB_ACTOR = { id: 'kyb-test-actor', scope: 'pay:onboard' };
+
 /**
  * Portal procedures against Postgres: membership source, reviewed profile
  * changes, onboarding progress, per-asset analytics, customer series, and a
@@ -525,8 +528,10 @@ describe('merchant portal procedures', () => {
   });
 
   it('a merchant second approver does not apply a legal name, and a removed maker is auto-rejected', async () => {
+    expect((await as(stranger).merchant.businessProfile.get({ merchantId: merchantB })).secondApprovalEnabled).toBe(false);
     await as(stranger).merchant.businessProfile.setSecondApproval({ merchantId: merchantB, enabled: true });
     const current = await as(stranger).merchant.businessProfile.get({ merchantId: merchantB });
+    expect(current.secondApprovalEnabled).toBe(true);
     const submitted = await as(stranger).merchant.businessProfile.submit({
       merchantId: merchantB,
       expectedVersion: current.version,
@@ -754,13 +759,17 @@ describe('merchant portal procedures', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(consumes).toBe(1);
     const sandbox = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'allow-sandbox' });
-    await expect(sandbox.submitKyb({ merchantId, kybRef: 'dossier-2' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    await expect(sandbox.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-2' })).rejects.toMatchObject({
+      code: 'pay.kyb_invalid',
+    });
     await expect(merchant.kyb.submit({ merchantId, kybRef: 'dossier-3', reason: 'try again' })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'pay.kyb_invalid' }),
     });
-    await expect(sandbox.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({ code: 'pay.kyb_invalid' });
+    await expect(sandbox.decideKybStub({ actor: KYB_ACTOR, merchantId, decision: 'rejected' })).rejects.toMatchObject({
+      code: 'pay.kyb_invalid',
+    });
     const liveOnly = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'live-only' });
-    await expect(liveOnly.decideKybStub({ merchantId, decision: 'rejected' })).rejects.toMatchObject({
+    await expect(liveOnly.decideKybStub({ actor: KYB_ACTOR, merchantId, decision: 'rejected' })).rejects.toMatchObject({
       code: 'pay.kyb_operator_required',
     });
     expect(await kybOf(merchantId)).toBe('approved');
@@ -918,7 +927,7 @@ describe('merchant portal procedures', () => {
     });
     expect(changed.outcome).toBe('applied');
     expect(changed.profile.legalName).toBe('Unreviewed Shop Ltd');
-    await pay.submitKyb({ merchantId, kybRef: 'dossier-stale' });
+    await pay.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-stale' });
     expect(await kybOf(merchantId)).toBe('pending');
 
     await expect(decide()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
@@ -929,6 +938,7 @@ describe('merchant portal procedures', () => {
     let paySideEffects = 0;
     await expect(
       pay.decideKyb({
+        actor: KYB_ACTOR,
         merchantId,
         decision: 'approved',
         identityHash: reviewed!.identityHash,
@@ -1029,7 +1039,7 @@ describe('merchant portal procedures', () => {
     const reviewed = await loadKybDecisionBinding(sql, merchantId);
     const proposedHash = kybDecisionPayloadHash(PAY_MERCHANT_DECIDE_KYB, reviewed!.fields('approved'));
     const pay = new PayService(sql, {} as LedgerClient, new RailRegistry([]), { valueMovement: 'live-only' });
-    await pay.submitKyb({ merchantId, kybRef: 'dossier-contact' });
+    await pay.submitKyb({ actor: KYB_ACTOR, merchantId, kybRef: 'dossier-contact' });
     const contact = await as(user).merchant.businessProfile.submit({
       merchantId,
       expectedVersion: entered.version,

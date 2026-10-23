@@ -44,7 +44,7 @@ export {
 } from '../../../data';
 export type { Decimal, Loadable, MarketRow as MarketData, TickerRow } from '../../../data';
 export { add, compareDecimal, dec, ratio, signOf, str, sub } from '../../../data/decimal';
-export { SCALE } from '@intafaced/ledger-client/money';
+export { SCALE } from '@intafaced/money-math';
 
 export { isHiddenPath } from '../../../app/feature-registry';
 export { navigate } from '../../../app/location';

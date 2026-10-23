@@ -63,6 +63,7 @@ import { createAccountDetailsRouter, createEligibilityRouter } from './account-d
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
+import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -154,6 +155,7 @@ const destinationViewOutput = z.object({
   addedAt: z.string(),
   coolingOffEndsAt: z.string().nullable(),
   coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+  lookalikeConfirmedAt: z.string().nullable(),
 });
 
 const balanceAccountsOutput = z.object({
@@ -477,6 +479,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ramp_invalid_asset':
       case 'bank.ramp_invalid_destination':
       case 'bank.withdraw_network_unsupported':
+      case 'bank.address_checksum_mismatch':
+      case 'bank.address_lookalike':
       case 'bank.ramp_conflict':
       case 'bank.business_payroll_empty':
       case 'bank.earn_resume_pending_limit_unset':
@@ -3836,12 +3840,34 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         .query(async () => guard(async () => bank.ramps.withdrawNetworks())),
 
       /**
+       * Check an address before the confirmation step, with the rules `save` applies: `address` is `checksum_mismatch`
+       * when its mixed case does not match its EIP-55 checksum (a changed character), and `lookalike` names the saved
+       * entry it shows like but is not (address poisoning). Read-only (`bank:read`); `save` enforces both again.
+       */
+      check: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ ref: z.string().min(1).max(256) }).strict())
+        .output(
+          z
+            .object({
+              address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
+              lookalike: z
+                .object({ destinationId: z.string().uuid(), label: z.string().nullable(), refMasked: z.string() })
+                .strict()
+                .nullable(),
+            })
+            .strict(),
+        )
+        .query(async ({ ctx, input }) => guard(async () => bank.ramps.checkDestination({ userId: ctx.principal.userId, ref: input.ref }))),
+
+      /**
        * Save an address-book entry. `trade:withdraw` (the step-up scope), like removing one: a leaked key or a
        * stolen access token must not be able to add the address that money is then sent to. The same
        * (asset, network, address, tag) again returns the stored entry. The label is unique per customer, and the
        * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`). The
        * network must be one svc-ledger's registry lists for the asset now (`bank.withdraw_network_unsupported`),
        * checked first: once an asset or network is delisted, saving that entry again refuses even if it is stored.
+       * A mixed-case address must match its checksum (`bank.address_checksum_mismatch`), and an address that shows like
+       * a saved one but is not refuses `bank.address_lookalike` unless `confirmLookalike` is true (the customer checked).
        */
       save: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(
@@ -3852,6 +3878,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               ref: z.string().min(1).max(256),
               tag: z.string().min(1).max(64).optional(),
               label: z.string().min(1).max(64),
+              confirmLookalike: z.boolean().optional(),
             })
             .strict(),
         )
@@ -3865,6 +3892,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               ref: input.ref,
               ...(input.tag !== undefined ? { tag: input.tag } : {}),
               label: input.label,
+              ...(input.confirmLookalike !== undefined ? { confirmLookalike: input.confirmLookalike } : {}),
             }),
           ),
         ),
@@ -4899,6 +4927,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     accounts: createAccountsRouter(bank, guard),
     currencies: createCurrenciesRouter(bank, guard),
     addMoney: createAddMoneyRouter(bank, guard),
+    /** Home's work list (HM-dashboard-03): the bank's own kinds for the signed person. */
+    workItems: createWorkItemsRouter(() => bank.transferOps.sql, guard),
     eligibility: createEligibilityRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),

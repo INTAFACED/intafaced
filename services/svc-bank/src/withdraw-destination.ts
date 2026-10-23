@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { BankError } from './errors.js';
@@ -33,6 +34,12 @@ export type WithdrawDestination = {
   state: DestinationState;
   addedAt: Date;
   updatedAt: Date;
+  /**
+   * Saved after the customer confirmed it is a different address from this saved entry it looks like (W-withdraw-03):
+   * that entry's id, and when. Null for every other entry.
+   */
+  lookalikeOf: string | null;
+  lookalikeConfirmedAt: Date | null;
 };
 
 /** One saved address-book entry as the customer typed it. */
@@ -43,6 +50,8 @@ export type SaveDestinationInput = {
   ref: string;
   tag?: string;
   label: string;
+  /** The saved entry this address looks like, which the customer confirmed it is not. Recorded on the new entry. */
+  lookalikeOf?: string;
 };
 
 export type UserWithdrawDestinations = {
@@ -86,6 +95,7 @@ export function assertBookEntry(input: SaveDestinationInput): {
   ref: string;
   tag: string | null;
   label: string;
+  lookalikeOf: string | null;
 } {
   const assetId = input.assetId.trim().toUpperCase();
   if (!/^[A-Z0-9]{1,16}$/.test(assetId)) {
@@ -106,7 +116,14 @@ export function assertBookEntry(input: SaveDestinationInput): {
     }
     tag = input.tag;
   }
-  return { assetId, network, ref, tag, label: assertDestinationLabel(input.label) };
+  let lookalikeOf: string | null = null;
+  if (input.lookalikeOf !== undefined) {
+    if (!UUID_RE.test(input.lookalikeOf)) {
+      throw new BankError('The look-alike confirmation must name a saved entry by its id', 'bank.ramp_invalid_destination');
+    }
+    lookalikeOf = input.lookalikeOf.toLowerCase();
+  }
+  return { assetId, network, ref, tag, label: assertDestinationLabel(input.label), lookalikeOf };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -127,6 +144,45 @@ type PersistableWithdrawDestination = { kind: WithdrawDestinationKind; ref: stri
 /** EVM address: 0x + 40 hex digits. Checksum optional (structural only). */
 export function isEvmAddressRef(ref: string): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test(ref.trim());
+}
+
+/**
+ * EIP-55: a mixed-case EVM address carries a checksum in its letter case, so a changed character shows. All lower or
+ * all upper case carries none and passes. Only meaningful on an `isEvmAddressRef` shape.
+ */
+export function evmChecksumMatches(ref: string): boolean {
+  const hex = ref.trim().slice(2);
+  if (hex === hex.toLowerCase() || hex === hex.toUpperCase()) return true;
+  const hash = keccak_256(new TextEncoder().encode(hex.toLowerCase()));
+  for (let i = 0; i < hex.length; i++) {
+    const char = hex[i]!;
+    if (char >= '0' && char <= '9') continue;
+    // The i-th nibble of the hash: upper case when it is 8 or more.
+    const nibble = (hash[i >> 1]! >> (i % 2 === 0 ? 4 : 0)) & 0x0f;
+    if (nibble >= 8 !== (char >= 'A' && char <= 'F')) return false;
+  }
+  return true;
+}
+
+/**
+ * Address poisoning sends a customer dust from an address made to start and end like one they use, so that the copy
+ * from their history is the wrong one. Two addresses look the same here when they agree on what the address book shows
+ * (`0x` and the first four characters, then the last four, ignoring case; the customer app's `shortenAddress` and the
+ * bank's `maskRef` show the same) and differ anywhere else. Returns the first saved entry the address could be mistaken
+ * for, or null. An address already in the book is not new, so it is never a look-alike: the customer saved it already
+ * (after confirming, when it was one), and saving it again on another network or as the same entry asks nothing more.
+ */
+export function lookalikeOf<T extends { ref: string }>(ref: string, saved: readonly T[]): T | null {
+  const address = ref.trim().toLowerCase();
+  if (!isEvmAddressRef(address)) return null;
+  if (saved.some((row) => row.ref.trim().toLowerCase() === address)) return null;
+  const shown = (value: string) => `${value.slice(0, 6)}${value.slice(-4)}`;
+  return (
+    saved.find((row) => {
+      const other = row.ref.trim().toLowerCase();
+      return isEvmAddressRef(other) && other !== address && shown(other) === shown(address);
+    }) ?? null
+  );
 }
 
 /**
@@ -190,6 +246,12 @@ export function assertPersistableWithdrawDestination(destination: { kind: string
         'bank.ramp_invalid_destination',
       );
     }
+    if (!evmChecksumMatches(ref)) {
+      throw new BankError(
+        "This address's upper and lower case letters do not match its checksum, so a character may have been changed. Copy it again from where it came from",
+        'bank.address_checksum_mismatch',
+      );
+    }
     return { kind, ref };
   }
   if (!isBankDestinationRef(ref)) {
@@ -229,6 +291,8 @@ export function assertOnlyWithdrawDestinations(): UserWithdrawDestinations {
         state: 'active',
         addedAt: new Date(0),
         updatedAt: new Date(0),
+        lookalikeOf: null,
+        lookalikeConfirmedAt: null,
       };
     },
     async require(input) {
@@ -277,6 +341,8 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
         state: 'active' as const,
         addedAt: existing?.addedAt ?? clock(),
         updatedAt: clock(),
+        lookalikeOf: null,
+        lookalikeConfirmedAt: null,
       };
       rows.set(stored.destinationId, stored);
       return strip(stored);
@@ -306,6 +372,8 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
       if (same) return strip(same);
       if (saved.length >= cap) throw BOOK_FULL(cap);
       if (labelTaken(input.userId, entry.label)) throw LABEL_TAKEN();
+      // One reading of the clock for the whole row, as the Postgres store's single now().
+      const now = clock();
       const stored = {
         userId: input.userId,
         destinationId: randomUUID(),
@@ -317,8 +385,10 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
         tag: entry.tag,
         origin: 'customer' as const,
         state: 'active' as const,
-        addedAt: clock(),
-        updatedAt: clock(),
+        addedAt: now,
+        updatedAt: now,
+        lookalikeOf: entry.lookalikeOf,
+        lookalikeConfirmedAt: entry.lookalikeOf ? now : null,
       };
       rows.set(stored.destinationId, stored);
       return strip(stored);
@@ -354,7 +424,7 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
   };
 }
 
-const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at`;
+const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at, lookalike_of, lookalike_confirmed_at`;
 
 function isUniqueViolation(err: unknown, constraintSuffix: string): boolean {
   const e = err as { code?: string; constraint_name?: string } | null;
@@ -435,8 +505,10 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
         `;
         if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL(cap);
         const rows = await tx<DestinationRow[]>`
-          INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, asset_id, network, tag, origin)
-          VALUES (${input.userId}, 'crypto', ${entry.ref}, ${entry.label}, ${entry.assetId}, ${entry.network}, ${entry.tag}, 'customer')
+          INSERT INTO bank.user_withdraw_destinations
+            (user_id, kind, ref, label, asset_id, network, tag, origin, lookalike_of, lookalike_confirmed_at)
+          VALUES (${input.userId}, 'crypto', ${entry.ref}, ${entry.label}, ${entry.assetId}, ${entry.network}, ${entry.tag}, 'customer',
+                  ${entry.lookalikeOf}::uuid, CASE WHEN ${entry.lookalikeOf}::uuid IS NULL THEN NULL ELSE now() END)
           RETURNING ${tx.unsafe(COLUMNS)}
         `;
         return toDestination(rows[0]!);
@@ -524,6 +596,8 @@ interface DestinationRow {
   state: string;
   created_at: Date;
   updated_at: Date;
+  lookalike_of: string | null;
+  lookalike_confirmed_at: Date | null;
 }
 
 function toDestination(row: DestinationRow): WithdrawDestination {
@@ -539,5 +613,7 @@ function toDestination(row: DestinationRow): WithdrawDestination {
     state: (DESTINATION_STATES as readonly string[]).includes(row.state) ? (row.state as DestinationState) : 'blocked',
     addedAt: row.created_at,
     updatedAt: row.updated_at,
+    lookalikeOf: row.lookalike_of,
+    lookalikeConfirmedAt: row.lookalike_confirmed_at,
   };
 }

@@ -201,9 +201,13 @@ export interface PrivateRestDeps {
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
       type?: ClosedOrderType;
+      /** The last order of the previous page: the page holds only orders older than it (newest first, ties by id). */
+      before?: string;
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
+  /** One of the caller's orders' fills, oldest first; another person's order is not found. Unset mounts a typed 503. */
+  orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
   orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
@@ -619,6 +623,8 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
     status: toCcxtOrderStatus(order.status),
     rejectCode: order.rejectCode,
     tag: order.tag ?? null,
+    /** The rank fee discount this order trades with, as a rate ("0" when none). Its fills' fee rates already include it. */
+    feeDiscount: Number.isInteger(order.feeDiscountBps) && order.feeDiscountBps >= 0 ? bpsToFeeRate(order.feeDiscountBps) : undefined,
     /** Additive frozen-spine evidence; unresolved is never flattened to open/rejected. */
     recoveryReason: order.recoveryReason,
     reconciliationKey: order.reconciliationKey,
@@ -806,7 +812,15 @@ export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok:
   return { ok: true, sinceMs: Math.floor(n) };
 }
 
-type ClosedQuery = { symbol?: string; limit?: string; since?: string; until?: string; side?: string; status?: string };
+type ClosedQuery = {
+  symbol?: string;
+  limit?: string;
+  since?: string;
+  until?: string;
+  side?: string;
+  status?: string;
+  before?: string;
+};
 
 const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 'expired'> = {
   closed: 'filled',
@@ -1344,6 +1358,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!filters.ok) {
       return sendCcxt(reply, badRequest(filters.message, 'trade.invalid_filter'));
     }
+    const before = req.query.before;
+    if (before !== undefined && before !== '' && !ORDER_ID_SHAPE.test(before)) {
+      return sendCcxt(reply, badRequest('before must be the id of an order on the previous page', 'trade.invalid_cursor'));
+    }
 
     try {
       // since/until → SQL on orders.created_at (timestamptz); side and status filter in SQL too.
@@ -1355,6 +1373,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(filters.side ? { side: filters.side } : {}),
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.type ? { type: filters.type } : {}),
+        ...(before ? { before } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
@@ -3165,6 +3184,41 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** CCXT fetchOrderTrades: one order's fills, oldest first, each with its role, fee, fee asset and fee rate. */
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/v1/orders/:id/trades', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.orderFills) {
+      return reply.code(503).send({ error: 'order fills are not configured', code: 'trade.order_fills_unconfigured' });
+    }
+    const limit = parsePrivateRestLimit(req.query.limit, MAX_FILLS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('orders/:id/trades limit is unset — refuse to invent 100', TRADE_ACCOUNT_TRADES_LIMIT_UNSET));
+    }
+    try {
+      // A malformed id is no order of the caller's: the same answer as another person's order, before any read.
+      if (!ORDER_ID_SHAPE.test(req.params.id)) throw new TradeError('order not found', 'trade.order_not_found');
+      const fills = await deps.orderFills(principal, req.params.id, limit);
+      const serverTime = stampServerTime(reply, deps);
+      const symbolByMarket = new Map<string, string>();
+      const wire = [];
+      for (const fill of fills) {
+        let symbol = symbolByMarket.get(fill.marketId);
+        if (symbol === undefined) {
+          const market = await deps.marketById(fill.marketId);
+          symbol = market?.symbol ?? fill.marketId;
+          symbolByMarket.set(fill.marketId, symbol);
+        }
+        wire.push({ ...presentCcxtMyTrade(fill, symbol), serverTime });
+      }
+      return reply.code(200).send(wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

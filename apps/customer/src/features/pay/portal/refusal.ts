@@ -22,6 +22,7 @@ const byCode: Record<string, PlainKey> = {
   'pay.team_member_not_found': 'rMemberNotFound',
   'pay.team_owner_cannot_leave': 'rOwnerCannotLeave',
   'pay.team_invitation_not_found': 'rInvitationNotFound',
+  'pay.team_business_shut': 'rTeamBusinessShut',
   'pay.team_invite_target_invalid': 'rInviteTarget',
   'pay.team_email_invalid': 'rEmailInvalid',
   'pay.team_user_id_reserved': 'rUserIdReserved',

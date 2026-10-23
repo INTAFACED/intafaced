@@ -35,7 +35,7 @@ export const profileSchema = z.object({
   merchantId: z.string(),
   version: z.string(),
   ...profileFields,
-  /** Not sent by the service today; shown if it ever is. */
+  /** Whether a legal-detail change also needs a second teammate. Optional so an older service still parses. */
   secondApprovalEnabled: z.boolean().optional(),
 });
 export type BusinessProfile = z.infer<typeof profileSchema>;

@@ -77,6 +77,15 @@ describe('alert rule', () => {
     expect(opsAlertRuleDraftSchema.safeParse({ ...base, annotations: { runbookUrl: 'javascript:alert(1)' } }).success).toBe(false);
   });
 
+  it('keeps a panel link only when both the dashboard and the panel are named', () => {
+    const base = { ...draft, annotations: {} };
+    const pair = { dashboardUid: 'dash-1', panelId: 'panel-2' };
+    expect(opsAlertRuleDraftSchema.safeParse({ ...base, annotations: pair }).success).toBe(true);
+    const half = opsAlertRuleDraftSchema.safeParse({ ...base, annotations: { dashboardUid: 'dash-1' } });
+    expect(half.success).toBe(false);
+    if (!half.success) expect(half.error.issues.some((issue) => issue.message.includes('ops.panel_link_incomplete'))).toBe(true);
+  });
+
   it('names six refusals, all in the ops namespace', () => {
     expect(OPS_ALERT_REFUSAL_CODES).toHaveLength(6);
     expect(OPS_ALERT_REFUSAL_CODES.every((c) => c.startsWith('ops.alert_'))).toBe(true);

@@ -353,6 +353,13 @@ export type BankErrorCode =
   | 'bank.asset_registry_unavailable'
   /** The asset does not allow withdrawals, or the network is not listed for it in the registry. Nothing was saved. */
   | 'bank.withdraw_network_unsupported'
+  /** A mixed-case EVM address whose letter case does not match its EIP-55 checksum, so a character may have changed. Nothing was saved. */
+  | 'bank.address_checksum_mismatch'
+  /**
+   * The address shows like one already in the customer's book (same start and end, as the book shortens it) but is a
+   * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
+   */
+  | 'bank.address_lookalike'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.
