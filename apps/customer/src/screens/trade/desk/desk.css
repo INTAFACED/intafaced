@@ -1019,7 +1019,12 @@
     font: 400 14px/20px var(--if-font-ui);
     cursor: pointer;
   }
+  /* The app resets native inputs to appearance: none, which leaves a radio or checkbox with no size: keep the browser's own. */
   .dk-scope input {
+    appearance: auto;
+    flex: none;
+    width: 14px;
+    height: 14px;
     margin-top: 3px;
     accent-color: var(--if-lime);
   }
