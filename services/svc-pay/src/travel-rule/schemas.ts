@@ -124,7 +124,7 @@ export type AssessmentView = z.infer<typeof assessmentViewSchema>;
 
 export const openInputSchema = z
   .object({
-    withdrawalId: z.string().uuid(),
+    withdrawalId: z.string().guid(),
     userId: z.string().min(1).max(64),
     networkId,
     region: region.refine((r) => r !== '*', 'a transfer has a real region'),
@@ -137,7 +137,7 @@ export type OpenInput = z.infer<typeof openInputSchema>;
 const personText = text;
 export const messageInputSchema = z
   .object({
-    transferId: z.string().uuid(),
+    transferId: z.string().guid(),
     originator: z
       .object({
         name: personText.optional(),
@@ -164,7 +164,7 @@ export const messageInputSchema = z
 export type MessageInput = z.infer<typeof messageInputSchema>;
 
 export const messageResultSchema = z.object({
-  transferId: z.string().uuid(),
+  transferId: z.string().guid(),
   messageVersion: z.number().int(),
   missing: z.array(field),
   status: z.enum(TRANSFER_STATUSES),
@@ -182,8 +182,8 @@ export const transitionViewSchema = z.object({
 });
 
 export const transferViewSchema = z.object({
-  id: z.string().uuid(),
-  withdrawalId: z.string().uuid(),
+  id: z.string().guid(),
+  withdrawalId: z.string().guid(),
   userId: z.string(),
   assetId: z.string(),
   networkId: z.string(),
@@ -209,24 +209,24 @@ export const transferDetailSchema = transferViewSchema.extend({
 });
 export type TransferDetail = z.infer<typeof transferDetailSchema>;
 
-export const markInputSchema = z.object({ transferId: z.string().uuid(), to: z.enum(TRANSFER_STATUSES), reason }).strict();
+export const markInputSchema = z.object({ transferId: z.string().guid(), to: z.enum(TRANSFER_STATUSES), reason }).strict();
 export type MarkInput = z.infer<typeof markInputSchema>;
 
 export const listInputSchema = z
   .object({
     status: z.enum(TRANSFER_STATUSES).optional(),
-    withdrawalId: z.string().uuid().optional(),
+    withdrawalId: z.string().guid().optional(),
     limit: z.number().int().min(1).max(200),
   })
   .strict();
 export type ListInput = z.infer<typeof listInputSchema>;
 
-export const transferIdInputSchema = z.object({ transferId: z.string().uuid() }).strict();
-export const expireResultSchema = z.object({ expired: z.array(z.string().uuid()) });
+export const transferIdInputSchema = z.object({ transferId: z.string().guid() }).strict();
+export const expireResultSchema = z.object({ expired: z.array(z.string().guid()) });
 
 /** What the customer sees on their own withdrawal. No operator notes and no rule internals beyond what to supply. */
 export const customerStatusSchema = z.object({
-  withdrawalId: z.string().uuid(),
+  withdrawalId: z.string().guid(),
   status: z.enum(TRANSFER_STATUSES),
   displayStatus: z.enum(DISPLAY_STATUSES),
   /** The fields the customer still has to give, while the transfer waits for them. */

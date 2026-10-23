@@ -52,7 +52,7 @@ describe('what each tab reads', () => {
     // The cards blocker: svc-bank's card list is the owner's own, read by the signed-in principal.
     expect(bank).toContain('bank.cards.cardsOf(ctx.principal.userId');
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
-    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().uuid() }).strict())');
+    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(

@@ -9,7 +9,7 @@ export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
 
 // Browser projections of the mounted service outputs. No service/server roots are imported.
 // Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.
-export const id = z.string().uuid();
+export const id = z.string().guid();
 export const asset = z.string().min(1).max(16);
 export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
 export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
@@ -200,7 +200,7 @@ export const tradeDestinationSchema = z.object({
   country: z.string(),
   fiatCurrency: z.string(),
   label: z.string(),
-  details: z.record(z.string()),
+  details: z.record(z.string(), z.string()),
   attachedAt: z.string(),
 });
 export const moderationSchema = z.discriminatedUnion('status', [
@@ -364,7 +364,7 @@ export const resolvedLinkSchema = z.object({
   currency: z.string().nullable(),
   expiresAt: z.string().nullable(),
   remainingUses: z.number().int().nullable(),
-  checkoutConfig: z.record(z.unknown()),
+  checkoutConfig: z.record(z.string(), z.unknown()),
 });
 export const checkoutSchema = z.object({
   id,
@@ -395,7 +395,7 @@ export const paymentSchema = z.object({
 const paymentEventOwnerSchema = z.object({
   id,
   event: z.string(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   railEventId: z.string().nullable(),
   ts: z.string().datetime({ offset: true }),
 });
