@@ -7,7 +7,8 @@
  *
  * Owner values (decision for this contract, the spec left it to the builder): the margin warning level lives in
  * svc-bank's own settings (svc-bank never reads svc-ops); the item order and the cap live in svc-ops and reach the
- * customer app through the public `home.workListConfig` read below. A blank value refuses with its own code.
+ * customer app through the public `home.config` read below, with Home's other owner value, the header search's help
+ * result cap (HM-navigation-04). A blank value refuses with its own code.
  *
  * Browser safe: nothing here imports Node.
  */
@@ -15,12 +16,14 @@ import { z } from 'zod';
 
 /** The procedure every owning service mounts for its own items (`/api/<module>/trpc/workItems.list`). */
 export const WORK_ITEMS_PROCEDURE = 'workItems.list' as const;
-/** svc-ops' public read of the owner values (`/api/ops/trpc/home.workListConfig`). */
-export const WORK_LIST_CONFIG_PROCEDURE = 'home.workListConfig' as const;
+/** svc-ops' public read of Home's owner values (`/api/ops/trpc/home.config`). */
+export const HOME_CONFIG_PROCEDURE = 'home.config' as const;
 
 /** Refusals of this list. Owner reads keep their own codes. */
 export const WORK_LIST_CAP_UNSET = 'home.work_list_cap_unset' as const;
 export const WORK_LIST_ORDER_UNSET = 'home.work_list_order_unset' as const;
+/** The header search's Help group while the help result cap is blank (HM-navigation-04). */
+export const SEARCH_RESULT_CAP_UNSET = 'home.search_result_cap_unset' as const;
 /** Returned to the settings desk only: Home shows no margin item and no error while the level is blank. */
 export const BANK_MARGIN_WARNING_UNSET = 'bank.margin_warning_unset' as const;
 
@@ -120,16 +123,19 @@ export function ownsAll(source: WorkItemSource, output: WorkItemsOutput): boolea
 }
 
 /**
- * The owner values, as svc-ops' public read answers them. `null` is blank: the customer app refuses the tile with
- * `home.work_list_cap_unset`, or keeps the owners' answer order and says the order is not set.
+ * Home's owner values, as svc-ops' public read answers them. `null` is blank: the customer app refuses the work list
+ * with `home.work_list_cap_unset`, keeps the owners' answer order and says the order is not set, or shows the Help
+ * group of the header search as not set (`home.search_result_cap_unset`).
  */
-export const workListConfigOutputSchema = z.object({
-  cap: z.number().int().min(1).max(50).nullable(),
-  order: z
+export const homeConfigOutputSchema = z.object({
+  workListCap: z.number().int().min(1).max(50).nullable(),
+  workListOrder: z
     .array(workItemKindSchema)
     .min(1)
     .refine((kinds) => new Set(kinds).size === kinds.length, 'each kind once')
     .nullable(),
+  /** How many help articles the header search lists. */
+  searchResultCap: z.number().int().min(1).max(20).nullable(),
   revision: z.number().int().nonnegative(),
 });
-export type WorkListConfig = z.infer<typeof workListConfigOutputSchema>;
+export type HomeConfig = z.infer<typeof homeConfigOutputSchema>;

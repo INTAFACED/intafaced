@@ -4,7 +4,7 @@ import {
   ownsAll,
   workItemSchema,
   workItemsOutputSchema,
-  workListConfigOutputSchema,
+  homeConfigOutputSchema,
   type WorkItem,
 } from './home-work-items.js';
 
@@ -80,10 +80,15 @@ describe('Home work items (HM-dashboard-03)', () => {
   });
 
   it('keeps a blank owner value blank', () => {
-    expect(workListConfigOutputSchema.parse({ cap: null, order: null, revision: 0 })).toEqual({ cap: null, order: null, revision: 0 });
-    expect(workListConfigOutputSchema.safeParse({ cap: 0, order: null, revision: 1 }).success).toBe(false);
-    expect(workListConfigOutputSchema.safeParse({ cap: 3, order: [], revision: 1 }).success).toBe(false);
-    expect(workListConfigOutputSchema.safeParse({ cap: 3, order: ['unknown'], revision: 1 }).success).toBe(false);
-    expect(workListConfigOutputSchema.safeParse({ cap: 3, order: ['card_frozen', 'card_frozen'], revision: 1 }).success).toBe(false);
+    const blank = { workListCap: null, workListOrder: null, searchResultCap: null, revision: 0 };
+    expect(homeConfigOutputSchema.parse(blank)).toEqual(blank);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, workListCap: 0 }).success).toBe(false);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, searchResultCap: 0 }).success).toBe(false);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, workListOrder: [] }).success).toBe(false);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, workListOrder: ['unknown'] }).success).toBe(false);
+    expect(homeConfigOutputSchema.safeParse({ ...blank, workListOrder: ['card_frozen', 'card_frozen'] }).success).toBe(false);
+    expect(
+      homeConfigOutputSchema.parse({ ...blank, workListCap: 5, workListOrder: ['verification'], searchResultCap: 3 }).searchResultCap,
+    ).toBe(3);
   });
 });
