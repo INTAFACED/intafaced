@@ -57,7 +57,10 @@ describe('checks on a result (AL-backtest-04, ENGINE BT-9)', () => {
     });
     const calm = byName(
       checksOf(
-        result({ variantCount: 3, offsetRun: { ...result().offsetRun, returnPercent: { value: '3', reason: null } } }),
+        result({
+          variantCount: 3,
+          offsetRun: { from: '2026-10-20T01:00:00.000Z', trades: 2, returnPercent: { value: '3', reason: null } },
+        }),
         { inSample: part('7'), outOfSample: part('2') },
         SET,
       ),
