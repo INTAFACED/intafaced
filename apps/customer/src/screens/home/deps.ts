@@ -10,6 +10,7 @@ export {
   fmtPct,
   fmtPrice,
   fmtUsd,
+  classifyRefusal,
   refusalCopy,
   useActivity,
   useFavorites,
