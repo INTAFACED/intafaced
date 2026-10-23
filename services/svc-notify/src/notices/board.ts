@@ -63,6 +63,7 @@ export type NoticeCode =
   | 'notify.notice_phase_unset'
   | 'notify.notice_phase_invalid'
   | 'notify.notice_incident_resolved'
+  | 'notify.notice_reminders_invalid'
   | ChangelogCode;
 
 export class NoticeError extends Error {
@@ -117,6 +118,11 @@ export type NoticeRow = {
   phase: IncidentPhase | null;
   /** Changelog only. Null on a notice that carries none, including changelog entries written before this field. */
   changelog: Changelog | null;
+  /**
+   * Maintenance only: minutes before the start at which subscribers are reminded, one reminder per offset. Empty (or
+   * absent on rows written before this field) means none.
+   */
+  reminderOffsets?: readonly number[];
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
@@ -126,6 +132,7 @@ export type NoticeRow = {
 
 /** A notice as the founders' desk reads it: drafts too, with the incident fields and who wrote it. */
 export type OperatorNotice = NoticeWire & {
+  readonly reminderOffsets: readonly number[];
   readonly impact: IncidentImpact | null;
   readonly components: readonly StatusComponent[];
   readonly parentId: string | null;
@@ -188,6 +195,8 @@ export interface NoticeStore {
   listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
+  /** Published maintenance with reminder offsets that starts after `at`, soonest first: the reminder sweep's work list. */
+  listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]>;
   /** Drafts and published rows, newest created first: the founders' desk. */
   listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
   /** Whether a published entry resolved this incident. */
@@ -242,6 +251,7 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
 export function toOperatorNotice(row: NoticeRow): OperatorNotice {
   return {
     ...toNoticeWire(row),
+    reminderOffsets: row.reminderOffsets ?? [],
     impact: row.impact,
     components: row.components,
     parentId: row.parentId,
@@ -273,8 +283,30 @@ function payloadHash(row: NoticeRow): string {
     ...(status ? { status } : {}),
     ...(scope ? { scope } : {}),
     ...(row.changelog ? { changelog: row.changelog } : {}),
+    ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+/** At most this many reminders on one window, each 1 minute to 30 days before its start: storage bounds, not owner values. */
+export const MAINTENANCE_REMINDERS_MAX = 10;
+export const MAINTENANCE_REMINDER_MINUTES_MAX = 43_200;
+
+/**
+ * Reminder offsets belong to maintenance alone and need its start. None given is none: no reminder is ever invented.
+ * Stored distinct and largest first, so the same offsets in another order are the same draft.
+ */
+function reminderFields(kind: NoticeKind, input: readonly number[] | null | undefined, startsAt: Date | null): number[] {
+  const offsets = [...new Set(input ?? [])].sort((a, b) => b - a);
+  if (offsets.length === 0) return [];
+  if (
+    kind !== 'maintenance' ||
+    startsAt === null ||
+    offsets.length > MAINTENANCE_REMINDERS_MAX ||
+    offsets.some((o) => !Number.isInteger(o) || o < 1 || o > MAINTENANCE_REMINDER_MINUTES_MAX)
+  )
+    throw new NoticeError('notify.notice_reminders_invalid');
+  return offsets;
 }
 
 const CHANGELOG_ROWS_MAX = 500;
@@ -333,6 +365,20 @@ export class MemoryNoticeStore implements NoticeStore {
     return [...this.rows.values()]
       .filter((row) => row.status === 'published' && (row.kind === 'incident' || row.kind === 'maintenance'))
       .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.status === 'published' &&
+          row.kind === 'maintenance' &&
+          row.startsAt !== null &&
+          row.startsAt.getTime() > at.getTime() &&
+          (row.reminderOffsets?.length ?? 0) > 0,
+      )
+      .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime() || a.id.localeCompare(b.id))
       .slice(0, limit);
   }
 
@@ -395,7 +441,34 @@ export class NoticeBoard {
     private readonly pageComponents: () => Promise<readonly string[]> = async () => [],
     /** Told once a notice is published (status subscriptions fan it out). A failure there never undoes the publish. */
     private readonly onPublished: (row: NoticeRow) => Promise<void> = async () => undefined,
+    /** Of these maintenance windows, the ones an operator marked completed or cancelled: no longer open, whatever their planned end. */
+    private readonly closedMaintenance: (ids: readonly string[]) => Promise<ReadonlySet<string>> = async () => new Set(),
   ) {}
+
+  /** Published rows for the status reads, without maintenance an operator has closed. */
+  private async publishedForStatus(): Promise<readonly NoticeRow[]> {
+    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const windows = rows.filter((row) => row.kind === 'maintenance').map((row) => row.id);
+    if (windows.length === 0) return rows;
+    const closed = await this.closedMaintenance(windows);
+    return closed.size === 0 ? rows : rows.filter((row) => !closed.has(row.id));
+  }
+
+  /** One maintenance notice, draft or published, or null when there is none by that id. */
+  async maintenanceNotice(id: string): Promise<NoticeRow | null> {
+    const row = await this.store.findById(id);
+    return row && row.kind === 'maintenance' ? row : null;
+  }
+
+  /** Maintenance notices, drafts too, newest written first: the founders' maintenance desk. */
+  async maintenanceRows(limit: number): Promise<readonly NoticeRow[]> {
+    return this.store.listAll('maintenance', clampNoticeLimit(limit));
+  }
+
+  /** Published windows with reminder offsets that have not started at `at`, soonest first: the reminder sweep's work list. */
+  async upcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return this.store.listUpcomingMaintenance(at, limit);
+  }
 
   async draft(
     authorId: string,
@@ -413,6 +486,7 @@ export class NoticeBoard {
       network?: string | null;
       phase?: string | null;
       changelog?: ChangelogInput | null;
+      reminderOffsets?: readonly number[] | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -424,6 +498,8 @@ export class NoticeBoard {
     if (!title || !body) throw new NoticeError('notify.notice_copy_unset');
     const status = await this.statusFields({ ...input, kind: input.kind });
     const changelog = changelogFields(input.kind, input.changelog);
+    const startsAt = parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset');
+    const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -431,11 +507,12 @@ export class NoticeBoard {
       body,
       status: 'draft',
       publishedAt: null,
-      startsAt: parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset'),
+      startsAt,
       endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
       version: 1,
       ...status,
       changelog,
+      reminderOffsets,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -606,7 +683,7 @@ export class NoticeBoard {
   }
 
   async noticeStatus(at: Date = this.now()): Promise<NoticeStatusRead> {
-    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const published = await this.publishedForStatus();
     return {
       // An incident is open until an update closes it; its updates are not listed again.
       incidents: openIncidentRoots(published, at).map(toNoticeWire),
@@ -623,7 +700,7 @@ export class NoticeBoard {
   async fundingNotices(input: { asset: string; network: string }, at: Date = this.now()): Promise<FundingNotices> {
     if (!NOTICE_ASSET_PATTERN.test(input.asset) || !NOTICE_NETWORK_PATTERN.test(input.network))
       throw new NoticeError('notify.notice_scope_invalid');
-    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const published = await this.publishedForStatus();
     const onScope = (row: NoticeRow) => row.asset === input.asset && row.network === input.network;
     const incidents = openIncidentRoots(published, at)
       .filter(onScope)
@@ -648,7 +725,7 @@ export class NoticeBoard {
   /** The same feed over another set of components: the public status page's own. Notices naming other components are cut to these. */
   async statusFeedFor(components: readonly string[], input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
     const days = clampStatusDays(input.days);
-    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const rows = await this.publishedForStatus();
     return buildStatusFeed(rows, at, days, components);
   }
 

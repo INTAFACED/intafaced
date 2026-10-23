@@ -223,6 +223,32 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   `forIncidents` (up to 200 ids) is the founders' desk; `published` is signed-out and carries no author. The customer
   `/status` page does not show postmortems yet.
 
+### Scheduled maintenance (SP-status-03)
+
+- A maintenance draft (`notify.draftNotice`, kind `maintenance`) may carry `reminderOffsets`: whole minutes before its
+  start, at most 10, each 1 to 43200, stored distinct and largest first. They need a start and belong to maintenance
+  alone (`notify.notice_reminders_invalid`), and they are part of the payload hash its publish approval binds. None is
+  none: no reminder is invented.
+- Once published, the state is derived, never held by a timer: `scheduled` before the start, `in_progress` from it, then
+  only an operator moves it on with `statusPage.maintenance.move` (`admin:write`, `{ id, to, reason }`): to `verifying`
+  from in progress, to `completed` from verifying, to `cancelled` before verifying. A completed or cancelled window is
+  final (`status.maintenance_reopen_refused`); any other move that does not follow is `status.maintenance_illegal_move`;
+  the same move again is a replay. Each move is stored once in `notify.maintenance_moves` (migration 0032) with who and
+  why, decided under the window's row lock. A window past its planned end stays where the operators left it.
+- A completed or cancelled window leaves `notify.noticeStatus`, the status feed and the funding banners at once, before
+  its planned end. A window still open past its planned end leaves them at that end, as before; the desk says so and the
+  operators complete it or publish an incident.
+- Reminders: a sweep every 15 seconds reads the published windows with offsets that have not started (soonest first,
+  at most 500), makes the missing `notify.maintenance_reminders` rows of each in one insert, keyed (window, offset), and
+  sends each due one while the window is still scheduled: one email per active subscriber it concerns, keyed
+  `<window>:reminder:<offset>:<subscriber>:email`, so a reminder sent again after a crash reaches no one twice. An offset
+  whose time had already passed when the window was published is marked `published_late` and never sent. A reminder some
+  subscriber did not get (failed, or waiting with no sender) stays unsent and is tried again when its two-minute lease
+  runs out, until the window starts. A window that started, completed or was cancelled first marks its due reminder
+  skipped. The offsets of a published window are held by the published-row trigger like its other fields.
+- `statusPage.maintenance.windows` (`admin:write`) is the founders' desk: windows (drafts too) with state, moves and
+  reminders.
+
 ### Status badge (SP-status-05)
 
 `GET /status/badge.svg?component=<id>` (through Edge at `/api/notify/status/badge.svg`) draws the top level, or one

@@ -380,6 +380,30 @@ export class StatusSubscriptions {
     }
   }
 
+  /**
+   * A maintenance reminder (SP-status-03): one email per active subscriber the window concerns, keyed by the window and
+   * the offset, so a reminder sent again after a crash or a failed send reaches no one twice. Answers how many of the
+   * sends this time did not go out (failed, or waiting with no sender), so the reminder is not taken as sent.
+   */
+  async remind(
+    notice: Pick<NoticeWire, 'id' | 'title'> & { startsAt: Date | null; components: readonly string[] },
+    offsetMinutes: number,
+  ): Promise<{ undelivered: number }> {
+    const event = `${notice.id}:reminder:${offsetMinutes}`;
+    let undelivered = 0;
+    for (const subscriber of await this.deps.store.active()) {
+      const chosen = subscriber.componentIds;
+      if (chosen !== null && notice.components.length > 0 && !notice.components.some((c) => chosen.includes(c))) continue;
+      const token = encodeURIComponent(this.manageToken(subscriber));
+      const outcome = await this.deliverEmail(subscriber, event, {
+        subject: `Scheduled maintenance: ${notice.title}`,
+        text: `${notice.title}\n\nScheduled to start at ${notice.startsAt?.toISOString() ?? 'a time not set'} (UTC).\n\nChoose what you get: ${this.deps.mailer.origin}/status/manage?token=${token}\nStop these updates: ${this.deps.mailer.origin}/status/unsubscribe?token=${token}`,
+      });
+      if (outcome && (outcome.status === 'failed' || (outcome.status === 'refused' && outcome.code === 'vendor.email'))) undelivered += 1;
+    }
+    return { undelivered };
+  }
+
   private updateMail(subscriber: Subscriber, notice: Pick<NoticeWire, 'title' | 'body'>): { subject: string; text: string } {
     const token = encodeURIComponent(this.manageToken(subscriber));
     return {

@@ -408,6 +408,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
   },
+  'status.maintenance_illegal_move': {
+    title: 'That move does not follow',
+    body: 'A window goes from in progress to verifying, then to completed, and is cancelled only before it is verifying. Scheduled and in progress follow from its start. Nothing was changed.',
+    next: 'Read the desk again and make the move that follows.',
+  },
+  'status.maintenance_reopen_refused': {
+    title: 'A finished window does not reopen',
+    body: 'This window is completed or cancelled, which is final. Nothing was changed.',
+    next: 'If the work is needed again, schedule a new window.',
+  },
+  'status.maintenance_unknown': {
+    title: 'That is not a published maintenance window',
+    body: 'Moves are made on published windows only. Nothing was changed.',
+    next: 'Publish the window first, or read the desk again.',
+  },
+  'status.maintenance_reason_unset': {
+    title: 'Say why',
+    body: 'Every move on a window is recorded with its reason, 1 to 500 characters. Nothing was changed.',
+    next: 'Write the reason and try again.',
+  },
+  'notify.notice_reminders_invalid': {
+    title: 'Those reminders do not fit',
+    body: 'Reminders belong to a maintenance window with a start: whole minutes from 1 to 43200 before it, at most 10. Nothing was saved.',
+    next: 'Correct the offsets, or leave them blank for none.',
+  },
   'status.postmortem_requires_resolved': {
     title: 'The incident is not resolved yet',
     body: 'A postmortem is the account of an incident that is over, so svc-notify takes one only once a published update has resolved it. Nothing was saved.',
