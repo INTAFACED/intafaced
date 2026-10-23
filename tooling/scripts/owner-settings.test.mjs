@@ -69,7 +69,7 @@ test('every TEST value names its service, is a string and is a listed owner sett
   const { values } = loadProfile();
   for (const [name, v] of Object.entries(values)) {
     assert.equal(typeof v.value, 'string', name);
-    assert.match(v.service, /^[a-z]+$/, name);
+    assert.match(v.service, /^[a-z]+(-[a-z]+)*$/, name); // a service name, e.g. mining-pool
   }
 });
 
