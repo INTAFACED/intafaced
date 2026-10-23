@@ -131,16 +131,16 @@ export class AssessmentRepository {
     if (!(await this.definition(slug))) {
       throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
     }
-    const rows = await this.sql<AttemptSql[]>`
-      SELECT slug, score, max_score, passed, submitted_at
-        FROM academy.assessment_attempts
-       WHERE user_id = ${userId} AND slug = ${slug}
-       ORDER BY submitted_at DESC, client_attempt_id DESC
+    const rows = await this.sql<Array<AttemptSql & { hidden_until: Date | null }>>`
+      SELECT a.slug, a.score, a.max_score, a.passed, a.submitted_at, ${HIDDEN_UNTIL(this.sql, now)} AS hidden_until
+        FROM academy.assessment_attempts a
+        LEFT JOIN academy.quizzes q ON q.slug = a.slug
+       WHERE a.user_id = ${userId} AND a.slug = ${slug}
+       ORDER BY a.submitted_at DESC, a.client_attempt_id DESC
     `;
-    const hiddenUntil = await this.hiddenUntil(this.sql, slug, now);
     return rows.map((row) =>
-      hiddenUntil
-        ? { slug: row.slug, submittedAt: row.submitted_at, hiddenUntil, score: null, maxScore: null, pass: null }
+      row.hidden_until
+        ? { slug: row.slug, submittedAt: row.submitted_at, hiddenUntil: row.hidden_until, score: null, maxScore: null, pass: null }
         : { ...mapAttempt(row), hiddenUntil: null },
     );
   }
@@ -150,14 +150,20 @@ export class AssessmentRepository {
    * pending while the quiz's results are hidden.
    */
   async grades(userId: string, now: Date = new Date()): Promise<GradeRow[]> {
+    // A quiz with any attempt still hidden is pending as a whole, so a later best score cannot show through an earlier one.
+    // Best: a passing attempt first (so the chip agrees with the item's rule), then the highest share of points, then latest.
     const rows = await this.sql<Array<AttemptSql & { attempts: number; hidden_until: Date | null }>>`
-      SELECT DISTINCT ON (a.slug) a.slug, a.score, a.max_score, a.passed, a.submitted_at,
-             COUNT(*) OVER (PARTITION BY a.slug)::int AS attempts,
-             CASE WHEN q.results_hidden_until > ${now} THEN q.results_hidden_until END AS hidden_until
-        FROM academy.assessment_attempts a
-        LEFT JOIN academy.quizzes q ON q.slug = a.slug
-       WHERE a.user_id = ${userId}
-       ORDER BY a.slug, a.score * 1.0 / NULLIF(a.max_score, 0) DESC NULLS LAST, a.submitted_at DESC
+      WITH visible AS (
+        SELECT a.slug, a.score, a.max_score, a.passed, a.submitted_at, ${HIDDEN_UNTIL(this.sql, now)} AS hidden_until
+          FROM academy.assessment_attempts a
+          LEFT JOIN academy.quizzes q ON q.slug = a.slug
+         WHERE a.user_id = ${userId}
+      )
+      SELECT DISTINCT ON (slug) slug, score, max_score, passed, submitted_at,
+             COUNT(*) OVER (PARTITION BY slug)::int AS attempts,
+             MAX(hidden_until) OVER (PARTITION BY slug) AS hidden_until
+        FROM visible
+       ORDER BY slug, passed DESC, score * 1.0 / NULLIF(max_score, 0) DESC NULLS LAST, submitted_at DESC
     `;
     return rows.map((row) =>
       row.hidden_until
@@ -225,8 +231,8 @@ export class AssessmentRepository {
   async passedSlugs(userId: string, now: Date = new Date()): Promise<Set<string>> {
     const rows = await this.sql<Array<{ slug: string }>>`
       SELECT DISTINCT a.slug FROM academy.assessment_attempts a
-       WHERE a.user_id = ${userId} AND a.passed = true
-         AND NOT EXISTS (SELECT 1 FROM academy.quizzes q WHERE q.slug = a.slug AND q.results_hidden_until > ${now})
+        LEFT JOIN academy.quizzes q ON q.slug = a.slug
+       WHERE a.user_id = ${userId} AND a.passed = true AND ${HIDDEN_UNTIL(this.sql, now)} IS NULL
     `;
     return new Set(rows.map((row) => row.slug));
   }
@@ -308,19 +314,19 @@ export class AssessmentRepository {
       `;
       const row = rows[0]!;
       const finished = row.finished_at ? row : await this.finishRow(tx, row, now);
-      return attemptView(finished, now, await this.hiddenUntil(tx, row.slug, now));
+      return attemptView(finished, now, await this.attemptHiddenUntil(tx, input.userId, row.id, now));
     });
   }
 
   /** A finished attempt of the caller's own: each answer against the key, or the score only when the quiz hides answers. */
-  async review(input: { userId: string; attemptId: string }): Promise<AcademyQuizReview> {
+  async review(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {
     const rows = await this.sql<AttemptRowSql[]>`
       SELECT ${this.sql.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts WHERE id = ${input.attemptId} AND user_id = ${input.userId}
     `;
     const row = rows[0];
     if (!row) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
     if (!row.finished_at) throw new AcademyError('academy.attempt_open finish the attempt to review it', 'academy.attempt_open');
-    const hiddenUntil = await this.hiddenUntil(this.sql, row.slug, new Date());
+    const hiddenUntil = await this.attemptHiddenUntil(this.sql, input.userId, row.id, input.now ?? new Date());
     if (hiddenUntil) {
       throw new AcademyError(`academy.grades_hidden until=${hiddenUntil.toISOString()}`, 'academy.grades_hidden');
     }
@@ -362,10 +368,16 @@ export class AssessmentRepository {
     return rows[0].slug;
   }
 
-  /** When the quiz's results are hidden at `now`, the instant they show; otherwise null. */
-  private async hiddenUntil(sql: Sql, slug: string, now: Date): Promise<Date | null> {
-    const rows = await sql<Array<{ until: Date }>>`
-      SELECT results_hidden_until AS until FROM academy.quizzes WHERE slug = ${slug} AND results_hidden_until > ${now}
+  /**
+   * When a timed attempt's result is hidden at `now`, the instant it shows; otherwise null. The later of the date stored
+   * with the score at finish and the quiz's current date, so a staff re-publish or take-down never releases it early.
+   */
+  private async attemptHiddenUntil(sql: Sql, userId: string, attemptId: string, now: Date): Promise<Date | null> {
+    const rows = await sql<Array<{ until: Date | null }>>`
+      SELECT ${HIDDEN_UNTIL(sql, now)} AS until
+        FROM academy.assessment_attempts a
+        LEFT JOIN academy.quizzes q ON q.slug = a.slug
+       WHERE a.user_id = ${userId} AND a.client_attempt_id = ${`quiz-attempt:${attemptId}`}
     `;
     return rows[0]?.until ?? null;
   }
@@ -427,13 +439,22 @@ export class AssessmentRepository {
       RETURNING ${tx.unsafe(ATTEMPT_COLUMNS)}
     `;
     await tx`
-      INSERT INTO academy.assessment_attempts (user_id, slug, client_attempt_id, score, max_score, passed, submitted_at)
-      VALUES (${row.user_id}, ${row.slug}, ${`quiz-attempt:${row.id}`}, ${scored.score}, ${scored.maxScore}, ${scored.pass}, ${finishedAt})
+      INSERT INTO academy.assessment_attempts (user_id, slug, client_attempt_id, score, max_score, passed, submitted_at, hidden_until)
+      VALUES (${row.user_id}, ${row.slug}, ${`quiz-attempt:${row.id}`}, ${scored.score}, ${scored.maxScore}, ${scored.pass}, ${finishedAt},
+              (SELECT results_hidden_until FROM academy.quizzes WHERE slug = ${row.slug}))
       ON CONFLICT (user_id, client_attempt_id) DO NOTHING
     `;
     return rows[0]!;
   }
 }
+
+/**
+ * The instant a score row's result shows, when that is after `now`; else NULL. The later of the date kept with the score
+ * (`a.hidden_until`, copied from the quiz at finish) and the quiz's current date (`q`, which staff may move later).
+ * Expects `academy.assessment_attempts a LEFT JOIN academy.quizzes q`.
+ */
+const HIDDEN_UNTIL = (sql: Sql, now: Date) =>
+  sql`CASE WHEN GREATEST(a.hidden_until, q.results_hidden_until) > ${now} THEN GREATEST(a.hidden_until, q.results_hidden_until) END`;
 
 type QuizSql = {
   slug: string;

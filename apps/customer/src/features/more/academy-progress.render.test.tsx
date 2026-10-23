@@ -9,7 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import type { AcademyPlanner, AcademyProgressPage } from '@intafaced/contracts/academy-catalogue';
 import { SessionProvider } from '../session/session';
-import { PlannerView, ProgressPageView, type PlannerViewProps } from './AcademyProgressPage';
+import { PlannerView, ProgressPageView, localPercent, todoKey, type PlannerViewProps } from './AcademyProgressPage';
 import { TimedQuizView } from './AcademyAssessment';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
@@ -63,7 +63,7 @@ describe('progress page', () => {
     const out = html(<ProgressPageView page={page} />);
     expect(out).toContain('data-grade-chart="true"');
     expect(out).toContain('3 of 4 points (75.0%)');
-    expect(out).toContain('Quiz average: 75.0% across 1 quizzes');
+    expect(out).toContain('Quiz average: 75.0% from one quiz');
     expect(out).toContain('data-grades-pending="1"');
     expect(out).toContain('One result is hidden until its release date.');
     expect(out).toMatch(/data-grade-row="m-3" data-grade-state="pending"/);
@@ -187,5 +187,20 @@ describe('a quiz whose results are hidden until a date', () => {
     expect(out).toContain('Your answers are in. Your result shows on');
     expect(out).not.toContain('You scored');
     expect(out).not.toContain('Passed');
+  });
+});
+
+describe('planner keys and number format', () => {
+  it('names one add by revision and text: other text on the same revision is another add, the same text is the same', () => {
+    expect(todoKey(3, 'TEST read')).toBe(todoKey(3, ' TEST read '));
+    expect(todoKey(3, 'TEST read')).not.toBe(todoKey(3, 'TEST quiz'));
+    expect(todoKey(3, 'TEST read')).not.toBe(todoKey(4, 'TEST read'));
+    expect(todoKey(3, 'TEST read')).toMatch(/^todo:3:[0-9a-f]{8}$/);
+  });
+
+  it('writes a percentage in the reader’s number format', () => {
+    expect(localPercent('33.3', 'en')).toBe('33.3');
+    expect(localPercent('33.3', 'fr')).toBe('33,3');
+    expect(localPercent('100.0', 'es')).toBe('100,0');
   });
 });

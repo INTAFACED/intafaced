@@ -21,6 +21,23 @@ import { AcademyRefusal, GuardedButton, ProgressBar, pathLabel } from './Academy
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
+/** A decimal-string percentage with one decimal place, in the reader's number format (33,3 in French). */
+export const localPercent = (value: string, language: string) =>
+  new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(value));
+
+/**
+ * The key that names one to-do add: the planner revision it was typed against and a hash of its text. Two devices on the
+ * same revision adding different text get different keys; the same text sent again is the same add.
+ */
+export function todoKey(revision: number, text: string): string {
+  let hash = 0x811c9dc5;
+  for (const char of text.trim()) {
+    hash ^= char.codePointAt(0)!;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `todo:${revision}:${hash.toString(16).padStart(8, '0')}`;
+}
+
 /**
  * `/academy/progress` (AC-progress-02): percent complete per enrolled course with a check mark per item, and the grades
  * with a chart of each quiz's best result. Both come from one read of the learner's own rows. Nothing is drawn from
@@ -61,7 +78,13 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
             {page.courses.map((course) => (
               <li key={course.slug} className="academy-lms-card" data-course-progress={course.slug} data-percent={course.percent}>
                 <strong>{pathLabel(t, course.slug)}</strong>
-                <p>{t('progressPercent', { percent: course.percent, completed: course.completed, visible: course.visible })}</p>
+                <p>
+                  {t('progressPercent', {
+                    percent: localPercent(course.percent, language),
+                    completed: course.completed,
+                    visible: course.visible,
+                  })}
+                </p>
                 <ProgressBar percent={Number(course.percent)} label={t('progressCourseLabel', { course: pathLabel(t, course.slug) })} />
                 <ul className="academy-lms-rows">
                   {course.items.map((item) => (
@@ -97,7 +120,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
             )}
             {page.grades.averages.map((average) => (
               <p key={average.type} data-grade-average={average.type}>
-                {t('gradesAverageQuiz', { percent: average.percent, count: average.count })}
+                {average.count === 1
+                  ? t('gradesAverageQuizOne', { percent: localPercent(average.percent, language) })
+                  : t('gradesAverageQuiz', { percent: localPercent(average.percent, language), count: average.count })}
               </p>
             ))}
             <ul className="academy-lms-rows" data-grade-chart="true" aria-label={t('gradesChartLabel')}>
@@ -111,7 +136,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                   ) : (
                     <>
                       <ProgressBar percent={Number(row.percent)} label={t('gradesBarLabel', { title: row.title })} />
-                      <span>{t('gradesRowScore', { score: row.score, possible: row.possible, percent: row.percent })}</span>
+                      <span>
+                        {t('gradesRowScore', { score: row.score, possible: row.possible, percent: localPercent(row.percent, language) })}
+                      </span>
                       <span className="academy-lms-chip" data-status={row.passed ? 'passed' : 'failed'}>
                         {row.passed ? t('resultPassed') : t('resultNotPassed')}
                       </span>
@@ -292,7 +319,10 @@ export function AcademyPlanner() {
     if (planner.resource.status === 'ready') setTicked({});
   }, [planner.resource]);
 
-  const run = async (request: () => Promise<ApiResult<unknown>>, after?: () => void) => {
+  // An add whose reply was lost: sending the same text again reuses its key, so Academy returns the stored item.
+  const unsent = useRef<{ text: string; key: string } | null>(null);
+
+  const run = async (request: () => Promise<ApiResult<unknown>>, after?: () => void, refused?: () => void) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -301,7 +331,10 @@ export function AcademyPlanner() {
       const result = await request();
       if (result.ok) after?.();
       // A refusal is shown; an unknown outcome is settled by the read below, never by sending again with a new key.
-      else if (result.reason !== 'uncertain') setProblem(result);
+      else if (result.reason !== 'uncertain') {
+        setProblem(result);
+        refused?.();
+      }
       planner.reload();
     } finally {
       inFlight.current = false;
@@ -330,18 +363,21 @@ export function AcademyPlanner() {
         planner={data}
         draft={draft}
         onDraft={setDraft}
-        onAdd={() =>
+        onAdd={() => {
+          const text = draft.trim();
+          const key = unsent.current?.text === text ? unsent.current.key : todoKey(data.revision, text);
+          unsent.current = { text, key };
           void run(
-            () =>
-              api.mutate(
-                'academy',
-                'planner.addTodo',
-                { clientKey: `todo:${data.revision}`, text: draft.trim() },
-                academyPlannerTodoSchema,
-              ),
-            () => setDraft(''),
-          )
-        }
+            () => api.mutate('academy', 'planner.addTodo', { clientKey: key, text }, academyPlannerTodoSchema),
+            () => {
+              unsent.current = null;
+              setDraft('');
+            },
+            () => {
+              unsent.current = null;
+            },
+          );
+        }}
         onDone={(todoId, done) => {
           setTicked((now) => ({ ...now, [todoId]: done }));
           void run(() => api.mutate('academy', 'planner.setTodoDone', { todoId, done }, academyPlannerTodoSchema));

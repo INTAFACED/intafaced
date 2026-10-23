@@ -25,7 +25,7 @@ describe('L3 wave59 academy error catalog honesty', () => {
     expect(parseAcademyErrorCatalogStatusLine('nope')).toBeNull();
     expect(academyErrorCatalogExportText().startsWith(academyErrorCatalogExportHeader())).toBe(true);
     expect(academyErrorCatalogExportLines()).toHaveLength(ACADEMY_ERROR_CODES.length);
-    expect(academyErrorCodeCountInRange(1, ACADEMY_ERROR_CODES.length)).toBe(true);
+    expect(academyErrorCodeCountInRange(1, 200)).toBe(true);
     expect(academyErrorCodeCountInRange(ACADEMY_ERROR_CODES.length + 1, 10_000)).toBe(false);
     expect(academyErrorCodeCountInRange(100, 1)).toBe(false);
   });

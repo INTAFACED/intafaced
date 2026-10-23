@@ -388,6 +388,8 @@ export const assessmentAttempts = academy.table(
     maxScore: integer('max_score').notNull(),
     passed: boolean('passed').notNull(),
     submittedAt: tstz('submitted_at').notNull().defaultNow(),
+    /** AC-progress-02: the quiz's hide-until date at finish; the result shows after the later of this and the quiz's date. */
+    hiddenUntil: tstz('hidden_until'),
   },
   (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
 );

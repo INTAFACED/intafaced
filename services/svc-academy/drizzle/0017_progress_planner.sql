@@ -31,3 +31,7 @@ CREATE TABLE IF NOT EXISTS "academy"."learning_goals" (
   "set_at"          timestamptz NOT NULL,
   CONSTRAINT "learning_goals_items_chk" CHECK ("items_per_week" BETWEEN 1 AND 100)
 );
+
+-- The date a score row's result shows, copied from the quiz when the attempt
+-- finishes, so a later re-publish or take-down never releases it early.
+ALTER TABLE "academy"."assessment_attempts" ADD COLUMN IF NOT EXISTS "hidden_until" timestamptz;

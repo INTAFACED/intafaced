@@ -1735,7 +1735,7 @@ export class AcademyService {
         input.userId,
         releases.map(({ row }) => row.slug),
       ),
-      this.assessments.passedSlugs(input.userId),
+      this.assessments.passedSlugs(input.userId, now),
       this.assessments.publishedSlugs(),
     ]);
     const items = releases.map(({ row, view }) => {
@@ -1774,29 +1774,27 @@ export class AcademyService {
    */
   async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
     const [enrolments, grades] = await Promise.all([this.publishedEnrolments(userId), this.assessments.grades(userId, now)]);
-    const courses = await Promise.all(
-      enrolments.map(async (row) => {
-        const path = row.pathSlug as CurriculumPath;
-        const items = listCurriculum({ path });
-        const times = await this.completionTimes(
-          userId,
-          items.map((item) => item.slug),
-        );
-        const completed = items.filter((item) => times.has(item.slug)).length;
-        return {
-          slug: path,
-          visible: items.length,
-          completed,
-          percent: tenths(completed, items.length),
-          items: items.map((item) => ({
-            slug: item.slug,
-            title: item.title,
-            kind: item.kind,
-            completedAt: times.get(item.slug)?.toISOString() ?? null,
-          })),
-        };
-      }),
+    const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
+    const times = await this.completionTimes(
+      userId,
+      paths.flatMap((path) => listCurriculum({ path }).map((item) => item.slug)),
     );
+    const courses = paths.map((path) => {
+      const items = listCurriculum({ path });
+      const completed = items.filter((item) => times.has(item.slug)).length;
+      return {
+        slug: path,
+        visible: items.length,
+        completed,
+        percent: tenths(completed, items.length),
+        items: items.map((item) => ({
+          slug: item.slug,
+          title: item.title,
+          kind: item.kind,
+          completedAt: times.get(item.slug)?.toISOString() ?? null,
+        })),
+      };
+    });
     const rows = grades.map((row) => {
       const title = getCurriculumItem(row.slug)?.title ?? row.slug;
       return row.pending
@@ -2367,7 +2365,7 @@ export class AcademyService {
     return this.assessments.finish(input);
   }
 
-  reviewQuizAttempt(input: { userId: string; attemptId: string }): Promise<AcademyQuizReview> {
+  reviewQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {
     return this.assessments.review(input);
   }
 

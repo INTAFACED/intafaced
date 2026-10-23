@@ -342,7 +342,7 @@ test(`${J} #8 /academy/progress shows percent complete with check marks, the gra
 
     const chart = page.locator('[data-grade-chart]');
     await expect(chart.locator(`[data-grade-row="${items[1]}"]`).getByText('2 of 2 points (100.0%)')).toBeVisible();
-    await expect(page.locator('[data-grade-average="quiz"]')).toHaveText(/^Quiz average: 100\.0% across 1 quizzes/);
+    await expect(page.locator('[data-grade-average="quiz"]')).toHaveText(/^Quiz average: 100\.0% from one quiz/);
     await expect(page.locator('[data-grades-pending="1"]')).toHaveText(/^One result is hidden until its release date\./);
     const pending = chart.locator(`[data-grade-row="${items[2]}"]`);
     await expect(pending).toHaveAttribute('data-grade-state', 'pending');

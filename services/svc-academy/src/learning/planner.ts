@@ -28,31 +28,28 @@ export class PlannerStore {
   ) {}
 
   async read(userId: string, now: Date = new Date()): Promise<AcademyPlanner> {
-    const [todos, revision, goal, done] = await Promise.all([
+    const [todos, revision, goal] = await Promise.all([
       this.sql<TodoSql[]>`
         SELECT id, text, created_at, done_at FROM academy.planner_todos
          WHERE user_id = ${userId} AND removed_at IS NULL
          ORDER BY created_at, id
       `,
       this.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM academy.planner_todos WHERE user_id = ${userId}`,
-      this.sql<Array<{ items_per_week: number; reminder: boolean; set_at: Date }>>`
-        SELECT items_per_week, reminder, set_at FROM academy.learning_goals WHERE user_id = ${userId}
-      `,
-      this.sql<Array<{ n: number }>>`
-        SELECT COUNT(*)::int AS n FROM academy.cert_item_completions
-         WHERE user_id = ${userId} AND completed_at > ${new Date(now.getTime() - WEEK_MS)} AND completed_at <= ${now}
-      `,
+      this.goal(userId, now),
     ]);
-    const g = goal[0];
-    return {
-      todos: todos.map(todoView),
-      todoLimit: this.todoLimit,
-      revision: revision[0]?.n ?? 0,
-      goal: g
-        ? { itemsPerWeek: g.items_per_week, reminder: g.reminder, setAt: g.set_at.toISOString(), doneThisWeek: done[0]?.n ?? 0 }
-        : null,
-      reminderMail: 'vendor.email',
-    };
+    return { todos: todos.map(todoView), todoLimit: this.todoLimit, revision: revision[0]?.n ?? 0, goal, reminderMail: 'vendor.email' };
+  }
+
+  /** The caller's weekly goal with the items they completed in the seven days up to `now`, or null. */
+  private async goal(userId: string, now: Date): Promise<AcademyPlanner['goal']> {
+    const rows = await this.sql<Array<{ items_per_week: number; reminder: boolean; set_at: Date; done: number }>>`
+      SELECT g.items_per_week, g.reminder, g.set_at,
+             (SELECT COUNT(*)::int FROM academy.cert_item_completions c
+               WHERE c.user_id = g.user_id AND c.completed_at > ${new Date(now.getTime() - WEEK_MS)} AND c.completed_at <= ${now}) AS done
+        FROM academy.learning_goals g WHERE g.user_id = ${userId}
+    `;
+    const g = rows[0];
+    return g ? { itemsPerWeek: g.items_per_week, reminder: g.reminder, setAt: g.set_at.toISOString(), doneThisWeek: g.done } : null;
   }
 
   async addTodo(input: { userId: string; clientKey: string; text: string; now?: Date }): Promise<AcademyPlannerTodo> {
@@ -121,7 +118,7 @@ export class PlannerStore {
       VALUES (${input.userId}, ${input.itemsPerWeek}, ${input.reminder}, ${now})
       ON CONFLICT (user_id) DO UPDATE SET items_per_week = EXCLUDED.items_per_week, reminder = EXCLUDED.reminder, set_at = EXCLUDED.set_at
     `;
-    return (await this.read(input.userId, now)).goal;
+    return this.goal(input.userId, now);
   }
 
   /**

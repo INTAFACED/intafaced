@@ -162,6 +162,13 @@ describe('progress page (AC-progress-02)', () => {
     expect(listed.every((row) => row.score === null && row.hiddenUntil?.getTime() === until.getTime())).toBe(true);
     expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({ rule: 'score', ruleMet: false });
 
+    // A staff re-publish without the date, or a take-down, does not release a result kept hidden at finish.
+    await publish(academy, { ...TIMED, attemptLimit: null, timeLimitSeconds: null });
+    expect((await academy.progressPage(USER)).grades.rows[0]).toMatchObject({ pending: true });
+    await publish(academy, null);
+    expect((await academy.progressPage(USER)).grades.rows[0]).toMatchObject({ pending: true, hiddenUntil: until.toISOString() });
+    await expect(academy.reviewQuizAttempt({ userId: USER, attemptId })).rejects.toMatchObject({ code: 'academy.grades_hidden' });
+
     // Past the date the results show again.
     const later = new Date(until.getTime() + 1000);
     const released = await academy.progressPage(USER, later);
