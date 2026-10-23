@@ -41,7 +41,7 @@ import {
 } from './model';
 import { exportFileName, exportListCsv, importSummary, IMPORT_MAX_BYTES, readImportCsv } from './csv';
 import { MAX_WIDTH, MIN_WIDTH, readWatchlistView, writeWatchlistView, type WatchlistView } from './view';
-import { useWatchlists } from './store';
+import { useWatchlists, type RecordUpdate } from './store';
 import './watchlists.css';
 
 const COLUMN_LABEL: Record<WatchlistColumn, 'Market' | 'Last' | 'Change 24h' | 'High 24h' | 'Low 24h' | 'Volume 24h'> = {
@@ -212,20 +212,27 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
     if (persist) writeWatchlistView(userId, next);
   };
 
-  /** Commits a whole new set of lists; a refusal says why nothing changed. */
-  const save = async (next: WatchlistsValue, success?: string): Promise<boolean> => {
-    const result = await store.commit(next);
-    if (result.ok) {
-      if (success) setNotice({ tone: 'ok', text: success });
-      return true;
-    }
+  /**
+   * Commits one change. The change is computed from the record as it stands when the write is sent (`update`), so a write queued
+   * behind another never restores a stale copy. A refusal says why nothing changed.
+   */
+  const save = async (update: RecordUpdate<WatchlistsValue>): Promise<boolean> => {
+    const result = await store.commit(update);
+    if (result.ok) return true;
     setNotice({ tone: 'warn', text: t(refusalWords(result.code)) });
     return false;
   };
 
-  /** The list an add goes to: the selected one, or a new "Watchlist" when the person has none yet. */
+  /**
+   * The list an add goes to, on the record being written: the selected one, or a new "Watchlist" when there is none. The section
+   * is the one chosen, when it is still there, else the list's first.
+   */
   const listsWithTarget = (base: WatchlistsValue): { lists: WatchlistsValue; listId: string; sectionId: string } | null => {
-    if (list) return { lists: base, listId: list.id, sectionId: section?.id ?? defaultSectionOf(list).id };
+    const current = base.find((item) => item.id === selectedId) ?? base[0];
+    if (current) {
+      const chosen = current.sections.find((item) => item.id === sectionId) ?? defaultSectionOf(current);
+      return { lists: base, listId: current.id, sectionId: chosen.id };
+    }
     const created = createList(base, t('Watchlist name'));
     const made = created[created.length - 1]!;
     return { lists: created, listId: made.id, sectionId: made.sections[0]!.id };
@@ -237,19 +244,30 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'warn', text: t('Already listed', { symbol: market.symbol }) });
       return;
     }
-    const target = listsWithTarget(store.value);
-    if (!target) return;
-    const next = addSymbol(target.lists, target.listId, target.sectionId, market.symbol);
-    const name = next.find((item) => item.id === target.listId)?.name ?? '';
-    if (await save(next, t('Added to list', { symbol: market.symbol, list: name }))) {
-      setSelectedId(target.listId);
+    // Set inside the updater, which runs when the write is sent (not here): the cast keeps the type after the await.
+    let target = null as { listId: string; name: string } | null;
+    const saved = await save((latest) => {
+      const picked = listsWithTarget(latest);
+      if (!picked) return latest;
+      const next = addSymbol(picked.lists, picked.listId, picked.sectionId, market.symbol);
+      target = { listId: picked.listId, name: next.find((item) => item.id === picked.listId)?.name ?? '' };
+      return next;
+    });
+    if (saved && target) {
+      const done: { listId: string; name: string } = target;
+      setNotice({ tone: 'ok', text: t('Added to list', { symbol: market.symbol, list: done.name }) });
+      setSelectedId(done.listId);
       setQuery('');
     }
   };
 
   const removeMarket = async (symbol: string) => {
     if (!list) return;
-    if (await save(removeSymbol(store.value, list.id, symbol), t('Removed from list', { symbol }))) setDetails(null);
+    const listId = list.id;
+    if (await save((latest) => removeSymbol(latest, listId, symbol))) {
+      setNotice({ tone: 'ok', text: t('Removed from list', { symbol }) });
+      setDetails(null);
+    }
   };
 
   const createNamed = async () => {
@@ -258,10 +276,16 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'warn', text: t('Name needed') });
       return;
     }
-    const next = createList(store.value, name);
-    const made = next[next.length - 1]!;
-    if (await save(next, t('List created', { name }))) {
-      setSelectedId(made.id);
+    let madeId = '';
+    if (
+      await save((latest) => {
+        const next = createList(latest, name);
+        madeId = next[next.length - 1]!.id;
+        return next;
+      })
+    ) {
+      setNotice({ tone: 'ok', text: t('List created', { name }) });
+      setSelectedId(madeId);
       setNewName(null);
     }
   };
@@ -272,17 +296,24 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'warn', text: t('Section needs a name') });
       return;
     }
-    if (await save(addSection(store.value, list.id, title), t('Section added', { title }))) setNewTitle('');
+    const listId = list.id;
+    if (await save((latest) => addSection(latest, listId, title))) {
+      setNotice({ tone: 'ok', text: t('Section added', { title }) });
+      setNewTitle('');
+    }
   };
 
   const toggleSection = (id: string, collapsed: boolean) => {
-    if (list) void save(setSectionCollapsed(store.value, list.id, id, collapsed));
+    if (!list) return;
+    const listId = list.id;
+    void save((latest) => setSectionCollapsed(latest, listId, id, collapsed));
   };
 
   const chooseFlag = (value: string) => {
     if (!list) return;
+    const listId = list.id;
     const flag = (WATCHLIST_FLAG_IDS as readonly string[]).includes(value) ? (value as (typeof WATCHLIST_FLAG_IDS)[number]) : null;
-    void save(setFlag(store.value, list.id, flag));
+    void save((latest) => setFlag(latest, listId, flag));
   };
 
   const exportCsv = () => {
@@ -321,15 +352,20 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'warn', text: result.refused.length ? `${importSummary(result)}. ${lines.join(' ')}` : t('Import nothing') });
       return;
     }
-    const target = listsWithTarget(store.value);
-    if (!target) return;
-    let next = target.lists;
-    for (const symbol of result.accepted) next = addSymbol(next, target.listId, target.sectionId, symbol);
+    let importedInto = null as string | null;
     const refusedLines = result.refused.map((row) =>
       t('Import refused row', { line: row.line, value: row.value, reason: t(REASON_KEY[row.reason]) }),
     );
-    if (await save(next)) {
-      setSelectedId(target.listId);
+    const saved = await save((latest) => {
+      const picked = listsWithTarget(latest);
+      if (!picked) return latest;
+      importedInto = picked.listId;
+      let next = picked.lists;
+      for (const symbol of result.accepted) next = addSymbol(next, picked.listId, picked.sectionId, symbol);
+      return next;
+    });
+    if (saved && importedInto) {
+      setSelectedId(importedInto);
       setNotice({ tone: 'ok', text: [t('Import result', { summary: importSummary(result) }), ...refusedLines].join(' ') });
     }
   };

@@ -84,3 +84,68 @@ describe('saved screens (trade.screens)', () => {
     expect(codeOf(() => parseSavedScreens([{ ...screen('a'), changeTimeframe: '7m' }], caps))).not.toBeNull();
   });
 });
+
+describe('caps apply to growth only, against the stored record', () => {
+  const lowered = { listCap: 1, symbolCap: 1, savedScreenCap: 1 };
+  const blank = { listCap: null, symbolCap: null, savedScreenCap: null };
+  const stored = [list(['BTC/USDT', 'ETH/USDT', 'IFC/USDT'], 'majors'), list(['SOL/USDT'], 'alts')];
+  const screen = (id: string) => ({
+    id,
+    name: id,
+    filters: {
+      quote: null,
+      changeMin: null,
+      changeMax: null,
+      volumeMin: null,
+      lastMin: null,
+      lastMax: null,
+      universe: 'all',
+      listId: null,
+    },
+    columns: ['last'],
+    changeTimeframe: '24h',
+  });
+
+  it('lets a delete pass when the stored record is over a cap that has since been lowered', () => {
+    const afterDelete = [list(['BTC/USDT', 'ETH/USDT'], 'majors'), list(['SOL/USDT'], 'alts')];
+    expect(parseWatchlists(afterDelete, lowered, stored)).toEqual(afterDelete);
+  });
+
+  it('lets a reorder pass when the record is over a lowered cap', () => {
+    const reordered = [list(['SOL/USDT'], 'alts'), list(['BTC/USDT', 'ETH/USDT', 'IFC/USDT'], 'majors')];
+    expect(parseWatchlists(reordered, lowered, stored)).toEqual(reordered);
+  });
+
+  it('refuses a symbol added past a lowered cap', () => {
+    const grown = [list(['BTC/USDT', 'ETH/USDT', 'IFC/USDT', 'DOGE/USDT'], 'majors'), list(['SOL/USDT'], 'alts')];
+    expect(codeOf(() => parseWatchlists(grown, lowered, stored))).toBe(WATCHLIST_CAP_EXCEEDED);
+  });
+
+  it('refuses a new list past a lowered list cap, and lets the same record stay as it is', () => {
+    const more = [...stored, list(['DOGE/USDT'], 'meme')];
+    expect(codeOf(() => parseWatchlists(more, lowered, stored))).toBe(WATCHLIST_CAP_EXCEEDED);
+    expect(parseWatchlists(stored, lowered, stored)).toEqual(stored);
+  });
+
+  it('refuses growth when the cap is blank, and lets a delete through', () => {
+    const grown = [list(['BTC/USDT'], 'majors'), list(['SOL/USDT'], 'alts'), list([], 'new')];
+    expect(codeOf(() => parseWatchlists(grown, blank, stored))).toBe(WATCHLIST_LIST_CAP_UNSET);
+    const deleted = [list(['BTC/USDT'], 'majors')];
+    expect(parseWatchlists(deleted, blank, stored)).toEqual(deleted);
+  });
+
+  it('counts the symbols of a list new to the record from zero', () => {
+    const fresh = [...stored, list(['DOGE/USDT'], 'meme')];
+    expect(codeOf(() => parseWatchlists(fresh, { listCap: 10, symbolCap: null, savedScreenCap: null }, stored))).toBe(
+      WATCHLIST_SYMBOL_CAP_UNSET,
+    );
+  });
+
+  it('saved screens: a delete passes over a lowered cap, growth is refused', () => {
+    const before = [screen('a'), screen('b'), screen('c')];
+    expect(parseSavedScreens([screen('a')], lowered, before)).toHaveLength(1);
+    expect(codeOf(() => parseSavedScreens([screen('a'), screen('b')], lowered, [screen('a')]))).toBe(SAVED_SCREEN_CAP_EXCEEDED);
+    expect(codeOf(() => parseSavedScreens([screen('a'), screen('z')], blank, [screen('a')]))).toBe(SAVED_SCREEN_CAP_UNSET);
+    expect(parseSavedScreens([screen('a')], blank, before)).toHaveLength(1);
+  });
+});
