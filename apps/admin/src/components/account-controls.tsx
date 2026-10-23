@@ -33,8 +33,12 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [readAt, setReadAt] = useState<string | null>(null);
-  const [closed, setClosed] = useState(false);
-  const onClosureState = useCallback((current: AccountClosureState | null) => setClosed(current?.status === 'closed'), []);
+  // Closed, open, or not known yet (identity's closure read has not answered): the freeze desk waits until it is known.
+  const [closed, setClosed] = useState<boolean | null>(null);
+  const onClosureState = useCallback(
+    (current: AccountClosureState | null | undefined) => setClosed(current === undefined ? null : current?.status === 'closed'),
+    [],
+  );
   const pending = useRef<{ key: string; requestId: string } | null>(null);
   const target: AccountControlTarget = area === 'merchant' ? { area, merchantId: id } : { area, userId: id };
   const controlAction = state?.restricted ? 'Restore access' : 'Restrict access';
@@ -70,7 +74,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           setBusy(true);
           setError('');
           setState(null);
-          setClosed(false);
+          setClosed(null);
           setResult(null);
           setHistory([]);
           setConfirmed(false);
@@ -133,9 +137,11 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </p>
           )}
           <p className="adm-subtle">{controlExplanation(area)}</p>
-          {area === 'identity' && closed ? (
+          {area === 'identity' && state.restricted && closed !== false ? (
             <p className="adm-subtle" data-testid="account-closed-note">
-              This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.
+              {closed
+                ? 'This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.'
+                : 'Identity has not said yet whether this account is closed, so lifting the freeze waits until it does (see Close or reopen below).'}
             </p>
           ) : area === 'identity' && state.restricted ? (
             <div data-testid="account-unfreeze">

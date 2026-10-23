@@ -191,7 +191,7 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
-    // svc-identity's restore is bound to the account itself, at the control version the founder read.
+    // svc-identity's staff close and reopen are bound to the account itself, at the control version the founder read.
     case 'identity.account.close':
     case 'identity.account.reopen':
       return {
@@ -202,6 +202,7 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-identity's restore is bound to the account itself, at the control version the founder read.
     case 'identity.account.unfreeze':
       return {
         actionType: 'identity.account_unfreeze',

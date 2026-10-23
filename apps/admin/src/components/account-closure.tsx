@@ -32,7 +32,8 @@ export function AccountClosure({
   userId: string;
   founderId: string;
   onChanged: () => void;
-  onState?: (state: AccountClosureState | null) => void;
+  /** The closure state as read, null when identity has no such account, undefined while it could not be read. */
+  onState?: (state: AccountClosureState | null | undefined) => void;
 }) {
   const [state, setState] = useState<AccountClosureState | null>(null);
   const [history, setHistory] = useState<AccountClosureResult[]>([]);
@@ -48,7 +49,7 @@ export function AccountClosure({
     ]);
     if (!stateResponse.ok || !historyResponse.ok) {
       setState(null);
-      onState?.(null);
+      onState?.(undefined);
       setError('Identity (svc-identity) did not answer for this account’s closure state. Nothing can be closed or reopened until it does.');
       return;
     }
@@ -59,8 +60,11 @@ export function AccountClosure({
   }, [userId, onState]);
 
   useEffect(() => {
-    void load().catch(() => setError('Identity (svc-identity) did not answer for this account’s closure state.'));
-  }, [load]);
+    void load().catch(() => {
+      onState?.(undefined);
+      setError('Identity (svc-identity) did not answer for this account’s closure state.');
+    });
+  }, [load, onState]);
 
   const refresh = () => {
     void load().catch(() => setError('The closure state could not be read again. Inspect the account again.'));

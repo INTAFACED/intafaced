@@ -9,6 +9,7 @@ import type { AccountCloseReasonCode, AccountClosureInput, Context } from '@inta
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { FounderControls, parseFounderPair, type StaffClosureChecks } from './founder-controls.js';
 import { approvedClosure } from './closure-approval.testkit.js';
+import { AccountClosureService } from '../closure/closure-service.js';
 
 const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -240,12 +241,57 @@ if (!available) {
       expect(await user()).toEqual({ status: 'closed', version: '3', closed_reason: 'bank_reason' });
     });
 
+    it('keeps a staff freeze across a close and reopen: the reopened account comes back frozen', async () => {
+      await controls.change(first, {
+        requestId: randomUUID(),
+        target: { area: 'identity', userId: target },
+        action: 'restrict',
+        reason: 'Incident review',
+        expectedVersion: '0',
+      });
+      expect(await controls.closure(first, await approved(first, id(second), close('1')))).toMatchObject({
+        outcome: 'changed',
+        before: { status: 'frozen' },
+        after: { status: 'closed', reopenable: true },
+      });
+      expect(await controls.closure(second, await approved(second, id(first), reopen('2')))).toMatchObject({
+        outcome: 'changed',
+        after: { status: 'frozen', version: '3' },
+      });
+      expect(await user()).toEqual({ status: 'frozen', version: '3', closed_reason: null });
+      // Lifting that freeze still needs its own unfreeze approval.
+      expect(
+        await controls.change(first, {
+          requestId: randomUUID(),
+          target: { area: 'identity', userId: target },
+          action: 'restore',
+          reason: 'Incident review',
+          expectedVersion: '3',
+        }),
+      ).toMatchObject({ outcome: 'refused', code: 'restriction_no_four_eyes' });
+    });
+
     it('treats an account the customer closed through the closure flow as customer-closed', async () => {
       await db.sql`INSERT INTO account_closures (user_id, status, requested_at, effective_at, finalized_at, client_request_id) VALUES (${target}, 'closed', now(), now(), now(), ${'flow-1'})`;
       await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;
       expect(await controls.closureState(first, { userId: target })).toMatchObject({ closedBy: 'customer', reopenable: true });
+      const flow = () =>
+        new AccountClosureService({
+          sql: db.sql,
+          approvals: { consume: async () => undefined },
+          enabled: true,
+          coolingOffDays: 1,
+          founderUserIds: [],
+          bank: { check: async () => ({ ok: true, blockers: [], balances: [] }) },
+          trade: { check: async () => ({ ok: true, blockers: [], balances: [] }) },
+          p2p: { check: async () => ({ ok: true, blockers: [], balances: [] }) },
+          now: () => new Date(),
+        });
+      expect(await flow().status(target)).toMatchObject({ status: 'closed' });
       expect(await controls.closure(first, await approved(first, id(second), reopen('0')))).toMatchObject({ outcome: 'changed' });
       expect(await user()).toMatchObject({ status: 'active' });
+      // The customer's own closure page no longer reports the finished closure as the account's state.
+      expect(await flow().status(target)).toBeNull();
       // A close with no flow row and no staff code is not the customer's: it stays closed.
       target = id(await seed());
       await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;

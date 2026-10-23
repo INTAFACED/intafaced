@@ -960,6 +960,22 @@ export class FounderControls {
     const targetId = input.userId;
     const actorId = context.principal?.userId.toLowerCase() ?? null;
     const hash = fingerprint(actorId, { kind: 'closure', ...input });
+    // The closure checks call svc-bank, svc-trade and svc-p2p, so they run before the founder-controls lock is taken
+    // (that lock also serialises trade and pay admission). Only a close carrying an approval from a principal that can be
+    // a live founder gets this far; the transaction below re-checks everything else before it uses the answer.
+    const principal = context.principal;
+    const mayCheck =
+      input.action === 'close' &&
+      !!input.approvalId &&
+      this.configured &&
+      !!principal &&
+      context.service === null &&
+      !principal.kid &&
+      !principal.sub_account &&
+      principal.mfa &&
+      !!this.pair?.includes(principal.userId.toLowerCase()) &&
+      (await this.closeApprovalLooksBound(input, actorId!));
+    const checks = mayCheck ? await this.runClosureChecks(targetId) : null;
     try {
       return await transaction(
         this.sql,
@@ -1043,20 +1059,22 @@ export class FounderControls {
           const bound = await this.consumeIdentityApproval(tx, want, false);
           if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
           if (input.action === 'close') {
-            const checks = await this.runClosureChecks(tx, targetId);
-            if (!checks.ok) return finish(refused('identity.close_check_unavailable', before), true);
+            if (!checks?.ok) return finish(refused('identity.close_check_unavailable', before), true);
             if (checks.blockers.length > 0) return finish(refused('identity.close_blocked', before, checks.blockers), true);
           }
           const spent = await this.consumeIdentityApproval(tx, want);
           if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
           if (input.action === 'close') {
-            await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+            await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, closed_from_frozen = (status = 'frozen'), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
             await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now() WHERE user_id = ${targetId} AND status = 'open'`;
           } else {
-            await tx`UPDATE users SET status = 'active', closed_reason = NULL, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+            // A freeze in force when it was closed comes back with it: lifting that needs its own unfreeze approval.
+            const [flags] = await tx<Array<{ closed_from_frozen: boolean }>>`SELECT closed_from_frozen FROM users WHERE id = ${targetId}`;
+            const reopened = flags?.closed_from_frozen ? 'frozen' : 'active';
+            await tx`UPDATE users SET status = ${reopened}, closed_reason = NULL, closed_from_frozen = false, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
           }
           const after = (await this.closureStateOf(tx, targetId))!;
           return finish(
@@ -1151,13 +1169,31 @@ export class FounderControls {
     };
   }
 
+  /** A cheap read, outside the lock, so an approval that cannot bind does not cost three service calls. Not authority. */
+  private async closeApprovalLooksBound(input: AccountClosureInput, actorId: string): Promise<boolean> {
+    try {
+      const approval = await sqlGetApprovalForUpdate(this.sql, input.approvalId!);
+      return (
+        !!approval &&
+        approval.status === 'APPROVED' &&
+        approval.actionType === IDENTITY_CLOSE_ACTION_TYPE &&
+        approval.targetService === 'svc-identity' &&
+        approval.targetId.toLowerCase() === input.userId &&
+        approval.payloadHash === identityClosurePayloadHash(input) &&
+        approval.expectedVersion === input.expectedVersion &&
+        approval.requesterId.toLowerCase() === actorId
+      );
+    } catch {
+      return false;
+    }
+  }
+
   private async runClosureChecks(
-    tx: Sql,
     userId: string,
   ): Promise<{ ok: true; blockers: readonly { code: string; count: number }[] } | { ok: false }> {
     if (!this.closureChecks) return { ok: false };
-    const subs = await tx<Array<{ id: string }>>`SELECT id::text AS id FROM sub_accounts WHERE parent_user_id = ${userId}`;
     try {
+      const subs = await this.sql<Array<{ id: string }>>`SELECT id::text AS id FROM sub_accounts WHERE parent_user_id = ${userId}`;
       return await this.closureChecks({ userId, subAccountIds: subs.map((row) => row.id) });
     } catch {
       return { ok: false };

@@ -68,6 +68,8 @@ export const users = identity.table(
     identityControlVersion: bigint('identity_control_version', { mode: 'bigint' }).notNull().default(0n),
     /** Staff close reason code (0068). Null while open, and for a closure the customer finalised. */
     closedReason: text('closed_reason'),
+    /** Closed while staff-frozen (0068): a reopen returns it frozen. */
+    closedFromFrozen: boolean('closed_from_frozen').notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

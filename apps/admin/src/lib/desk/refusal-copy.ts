@@ -77,6 +77,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity applies the change only to the version that was approved. Nothing was changed.',
     next: 'Read the account again and make a new request if it is still needed.',
   },
+  'target.not_found': {
+    title: 'Identity has no such account',
+    body: 'Nothing was changed.',
+    next: 'Check the platform user ID and inspect the account again.',
+  },
+  'request.conflict': {
+    title: 'That request id was already used for a different change',
+    body: 'Identity keeps one answer per request id, and this one belongs to another change. Nothing was changed.',
+    next: 'Run it again from the desk: each run takes a new request id.',
+  },
   'identity.close_requires_approver': {
     title: 'Closing or reopening needs a second person',
     body: 'Identity closes or reopens an account only with an approval a different person signed. Nothing was changed.',
