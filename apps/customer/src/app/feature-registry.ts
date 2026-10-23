@@ -419,7 +419,7 @@ export const features: readonly Feature[] = [
   {
     id: 'p2p',
     label: 'Person-to-person',
-    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/chat', '/checkuser'],
+    paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/p2p/access', '/chat', '/checkuser'],
     status: 'blocked',
     reason: "Needs owner's instrument encryption provider",
     unlock: 'owner',

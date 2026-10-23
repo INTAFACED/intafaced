@@ -8,12 +8,15 @@ export function metTakeGate(): TakeGate {
   const acceptedAt = new Date('2026-10-23T00:00:00.000Z');
   return {
     async eligibility() {
-      return (['verification', 'contact', 'jurisdiction', 'deposit', 'risk'] as const).map((id) => ({
-        id,
-        state: 'met' as const,
-        reason: 'test.met',
-        fix: null,
-      }));
+      return {
+        checks: (['verification', 'contact', 'jurisdiction', 'deposit', 'risk'] as const).map((id) => ({
+          id,
+          state: 'met' as const,
+          reason: 'test.met',
+          fix: null,
+        })),
+        notice: { version: 'TEST', acceptedAt },
+      };
     },
     async assertCanTake() {},
     async riskNotice() {

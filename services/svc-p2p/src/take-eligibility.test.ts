@@ -214,7 +214,9 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
     // Accepting again changes nothing: the first acceptance stands.
     expect(await c.risk.accept({ version: VERSION })).toEqual(accepted);
     expect((await c.risk.notice()).acceptedAt).toBe(accepted.acceptedAt);
-    expect((await c.access.eligibility()).canTake).toBe(true);
+    const after = await c.access.eligibility();
+    expect(after.canTake).toBe(true);
+    expect(after.notice).toEqual({ version: VERSION, acceptedAt: accepted.acceptedAt });
 
     const trade = await take(c, offer.id);
     expect(trade.status).toBe('escrowed');
@@ -239,8 +241,9 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
       cause: expect.objectContaining({ code: 'p2p.risk_notice_unset' }),
     });
     await expect(c.risk.notice()).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'p2p.risk_notice_unset' }) });
-    const risk = (await c.access.eligibility()).checks.find((check) => check.id === 'risk');
-    expect(risk).toMatchObject({ state: 'unknown', reason: 'p2p.risk_notice_unset' });
+    const unset = await c.access.eligibility();
+    expect(unset.checks.find((check) => check.id === 'risk')).toMatchObject({ state: 'unknown', reason: 'p2p.risk_notice_unset' });
+    expect(unset.notice).toBeNull();
     await nothingReserved(offer.id);
   });
 

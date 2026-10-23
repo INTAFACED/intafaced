@@ -25,6 +25,11 @@ describe('P2P take requirements', () => {
     expect(eligibilityReason(t, { id: 'risk', state: 'unknown', reason: 'p2p.risk_notice_unset', fix: null }, null)).toContain(
       'has not published',
     );
+    // A refused region never shows the service's code, and an unset screening list is not blamed on the region.
+    const region = (reason: string) => eligibilityReason(t, { id: 'jurisdiction', state: 'not_met', reason, fix: null }, null);
+    expect(region('denied.region_blocked')).toBe('P2P is closed in your region.');
+    expect(region('denied.screening_unconfigured')).toContain('screening is not set up');
+    expect(region('denied.module_blocked')).toBe('The service refused this requirement.');
   });
 
   it('a refused take for contact or the notice is its own kind, and proof nothing was placed', () => {
@@ -35,8 +40,11 @@ describe('P2P take requirements', () => {
       expect(takeFailureKind({ reason: 'forbidden', code, status: 403 })).toBe(kind);
       expect(takeRefusalIsDefinite({ reason: 'forbidden', code, status: 403 })).toBe(true);
     }
-    // A precondition refusal is normally "may have happened"; these gate codes run before anything is reserved.
-    for (const code of ['p2p.contact_unverifiable', 'p2p.risk_notice_unset', 'p2p.take_gate_unwired'])
-      expect(takeRefusalIsDefinite({ reason: 'not_supported', code, status: 412 })).toBe(true);
+    // A precondition refusal is normally "may have happened"; these gate codes run before anything is reserved. The
+    // client reads a 412 as reason "error".
+    for (const code of ['p2p.contact_unverifiable', 'p2p.risk_notice_unset', 'p2p.take_gate_unwired']) {
+      expect(takeRefusalIsDefinite({ reason: 'error', code, status: 412 })).toBe(true);
+      expect(takeFailureKind({ reason: 'error', code, status: 412 })).toBe('unchecked');
+    }
   });
 });

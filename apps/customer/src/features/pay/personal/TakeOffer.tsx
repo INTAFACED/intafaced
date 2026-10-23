@@ -63,6 +63,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failContact');
     case 'risk':
       return t('failRisk');
+    case 'unchecked':
+      return t('failUnchecked');
     case 'viewChanged':
       return t('failViewChanged');
     case 'noService':
@@ -88,11 +90,6 @@ export function TakeFailureNote({ failure, context }: { failure: Extract<ApiResu
       {kind === 'verify' ? (
         <a className="text-link" href="/verification">
           {t('failVerifyLink')}
-        </a>
-      ) : null}
-      {kind === 'contact' ? (
-        <a className="text-link" href="/uc/account">
-          {t('failContactLink')}
         </a>
       ) : null}
     </div>

@@ -23,12 +23,17 @@ export function eligibilityReason(t: CopyT, check: Check, riskVersion: string | 
     if (state === 'met') return t('reason_contact_ok');
     return reason === 'p2p.contact_required' ? t('reason_contact_needed') : t('reason_contact_unknown');
   }
-  if (id === 'jurisdiction') return state === 'met' ? t('reason_region_ok') : t('reason_region_blocked', { code: reason });
+  if (id === 'jurisdiction') {
+    if (state === 'met') return t('reason_region_ok');
+    if (reason.startsWith('denied.screening')) return t('reason_screening');
+    if (reason.startsWith('denied.region')) return t('reason_region_blocked');
+    return t('reason_other');
+  }
   if (id === 'deposit') return t('reason_deposit');
   if (state === 'met') return t('reason_risk_ok', { version: riskVersion ?? '' });
   if (reason === 'p2p.risk_notice_unset') return t('reason_risk_unset');
   if (reason === 'p2p.risk_not_accepted') return t('reason_risk_needed');
-  return t('reason_other', { code: reason });
+  return t('reason_other');
 }
 
 /** The risk and fraud notice, read in full and accepted for the exact version the service published. */
@@ -91,27 +96,12 @@ export function RiskSheet({
  * Every requirement for taking an ad, as `access.eligibility` reports it: met, not met with the step that fixes it, or
  * unknown. `compact` lists only what is not met (the ad's take panel); the hub lists all of them.
  */
-export function P2PEligibilityPanel({
-  pay,
-  userId,
-  compact = false,
-  onChange,
-}: {
-  pay: PersonalPayApi;
-  userId: string | null;
-  compact?: boolean;
-  onChange?: () => void;
-}) {
+export function P2PEligibilityPanel({ pay, userId, compact = false }: { pay: PersonalPayApi; userId: string | null; compact?: boolean }) {
   const { t } = eligibilityCopy.useCopy();
   const [round, setRound] = useState(0);
   const [sheet, setSheet] = useState(false);
   const eligibility = useResource((signal) => pay.eligibility(signal), `pay:p2p-eligibility:${userId}:${round}`);
-  const notice = useResource((signal) => pay.riskNotice(signal), `pay:p2p-risk-notice:${userId}:${round}`);
-  const version = notice.resource.status === 'ready' ? notice.resource.data.version : null;
-  const refresh = () => {
-    setRound((value) => value + 1);
-    onChange?.();
-  };
+  const version = eligibility.resource.status === 'ready' ? (eligibility.resource.data.notice?.version ?? null) : null;
   if (compact && eligibility.resource.status === 'ready' && eligibility.resource.data.canTake) return null;
   return (
     <PaySection title={t('title')} description={compact ? undefined : t('intro')}>
@@ -157,7 +147,7 @@ export function P2PEligibilityPanel({
           onClose={() => setSheet(false)}
           onAccepted={() => {
             setSheet(false);
-            refresh();
+            setRound((value) => value + 1);
           }}
         />
       ) : null}

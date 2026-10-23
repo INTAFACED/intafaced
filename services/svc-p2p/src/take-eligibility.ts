@@ -139,13 +139,24 @@ export class RiskAcceptances {
   }
 }
 
-export interface TakeGate {
+export interface RiskNoticeState {
+  readonly version: string;
+  readonly acceptedAt: Date | null;
+}
+
+export interface Eligibility {
   /** Every check, in the order the panel shows them. */
-  eligibility(ctx: TakeGateContext): Promise<readonly EligibilityCheck[]>;
+  readonly checks: readonly EligibilityCheck[];
+  /** The published risk notice and the caller's acceptance of it, or null when no version is published. */
+  readonly notice: RiskNoticeState | null;
+}
+
+export interface TakeGate {
+  eligibility(ctx: TakeGateContext): Promise<Eligibility>;
   /** The first failing check's refusal, or nothing. Called before a take locks anything. */
   assertCanTake(ctx: TakeGateContext): Promise<void>;
   /** The notice version to accept, or `p2p.risk_notice_unset`. */
-  riskNotice(userId: string): Promise<{ version: string; acceptedAt: Date | null }>;
+  riskNotice(userId: string): Promise<RiskNoticeState>;
   /** Accept exactly the published version; any other refuses `p2p.risk_version_stale`. */
   acceptRisk(userId: string, version: string): Promise<RiskAcceptance>;
 }
@@ -174,11 +185,15 @@ export function createTakeGate(deps: { contact: ContactReader; acceptances: Risk
     }
   }
 
-  async function riskCheck(userId: string): Promise<EligibilityCheck> {
-    if (!deps.riskVersion) return { id: 'risk', state: 'unknown', reason: 'p2p.risk_notice_unset', fix: null };
-    return (await deps.acceptances.current(userId, deps.riskVersion))
-      ? { id: 'risk', state: 'met', reason: 'risk.accepted', fix: null }
-      : { id: 'risk', state: 'not_met', reason: 'p2p.risk_not_accepted', fix: null };
+  async function riskCheck(userId: string): Promise<{ check: EligibilityCheck; notice: RiskNoticeState | null }> {
+    if (!deps.riskVersion) return { check: { id: 'risk', state: 'unknown', reason: 'p2p.risk_notice_unset', fix: null }, notice: null };
+    const accepted = await deps.acceptances.current(userId, deps.riskVersion);
+    return {
+      check: accepted
+        ? { id: 'risk', state: 'met', reason: 'risk.accepted', fix: null }
+        : { id: 'risk', state: 'not_met', reason: 'p2p.risk_not_accepted', fix: null },
+      notice: { version: deps.riskVersion, acceptedAt: accepted?.acceptedAt ?? null },
+    };
   }
 
   function matrixChecks(ctx: TakeGateContext): [EligibilityCheck, EligibilityCheck] {
@@ -202,27 +217,35 @@ export function createTakeGate(deps: { contact: ContactReader; acceptances: Risk
     ];
   }
 
-  async function eligibility(ctx: TakeGateContext): Promise<readonly EligibilityCheck[]> {
+  async function eligibility(ctx: TakeGateContext): Promise<Eligibility> {
     const [verification, jurisdiction] = matrixChecks(ctx);
     const [contact, risk] = await Promise.all([contactCheck(ctx), riskCheck(ctx.principal.userId)]);
     // A taker posts no security deposit: only a merchant's ads can need one (P-ads-merchant lane).
     const deposit: EligibilityCheck = { id: 'deposit', state: 'met', reason: 'deposit.none_for_takers', fix: null };
-    return [verification, contact, jurisdiction, deposit, risk];
+    return { checks: [verification, contact, jurisdiction, deposit, risk.check], notice: risk.notice };
   }
 
   return {
     eligibility,
     async assertCanTake(ctx) {
-      // Verification and region are refused by the module gate before a take reaches here.
-      const contact = await contactCheck(ctx);
+      // Verification and region are refused by the module gate before a take reaches here. The same two checks the
+      // panel shows decide the refusal, in the panel's order.
+      const [contact, risk] = await Promise.all([contactCheck(ctx), riskCheck(ctx.principal.userId)]);
       if (contact.state !== 'met') {
-        const code = contact.reason === 'p2p.contact_required' ? 'p2p.contact_required' : 'p2p.contact_unverifiable';
-        throw new TakeGateError(`${code}: confirm your email address before taking an ad`, code);
-      }
-      const version = requireVersion();
-      if (!(await deps.acceptances.current(ctx.principal.userId, version))) {
+        if (contact.reason === 'p2p.contact_required') {
+          throw new TakeGateError('p2p.contact_required: confirm your email address before taking an ad', 'p2p.contact_required');
+        }
         throw new TakeGateError(
-          `p2p.risk_not_accepted: accept the P2P risk notice ${version} before taking an ad`,
+          `p2p.contact_unverifiable: identity could not say whether the email address is confirmed`,
+          'p2p.contact_unverifiable',
+        );
+      }
+      if (risk.check.reason === 'p2p.risk_notice_unset') {
+        throw new TakeGateError('p2p.risk_notice_unset: P2P_RISK_NOTICE_VERSION is unset', 'p2p.risk_notice_unset');
+      }
+      if (risk.check.state !== 'met') {
+        throw new TakeGateError(
+          `p2p.risk_not_accepted: accept the P2P risk notice ${risk.notice?.version ?? ''} before taking an ad`,
           'p2p.risk_not_accepted',
         );
       }

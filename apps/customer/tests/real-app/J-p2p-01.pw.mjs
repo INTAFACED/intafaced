@@ -110,6 +110,11 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await page.goto('/p2p');
   await expect(check(page, 'contact')).toHaveAttribute('data-state', 'met');
   await expect(check(page, 'contact')).toContainText('Your email address is confirmed.');
+  // The Trading access room lists the same requirements at its own address.
+  await rooms.getByRole('link', { name: 'Trading access', exact: true }).click();
+  await expect(page).toHaveURL(/\/p2p\/access$/);
+  await expect(check(page, 'contact')).toHaveAttribute('data-state', 'met');
+  await expect(check(page, 'risk')).toHaveAttribute('data-state', 'not_met');
 });
 
 test('J-p2p-01 #3 an ad shows the seller’s record and terms, and the risk notice must be accepted before taking', async ({ page }) => {

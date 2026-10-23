@@ -129,7 +129,7 @@ const en = {
   failVerifyLink: 'Open verification',
   failRegion: 'P2P orders aren’t available in your region. Nothing was placed.',
   failContact: 'Confirm your email address to place P2P orders. Nothing was placed.',
-  failContactLink: 'Confirm your email',
+  failUnchecked: 'Your requirements for taking an ad could not all be checked, so nothing was placed. The list above says which.',
   failRisk: 'Accept the P2P risk and fraud notice to place orders. Nothing was placed.',
   failNoRecord: 'This device can’t keep the safety record an order needs, so no order was sent. Turn on browser storage and try again.',
   failViewChanged: 'This page changed before the order was sent. Open the offer again.',
@@ -356,7 +356,8 @@ const es = {
   failVerifyLink: 'Abrir verificación',
   failRegion: 'Los pedidos P2P no están disponibles en tu región. No se hizo nada.',
   failContact: 'Confirma tu correo electrónico para hacer pedidos P2P. No se hizo nada.',
-  failContactLink: 'Confirmar tu correo',
+  failUnchecked:
+    'No se pudieron comprobar todos tus requisitos para tomar un anuncio, así que no se hizo nada. La lista de arriba dice cuál.',
   failRisk: 'Acepta el aviso de riesgos y fraude P2P para hacer pedidos. No se hizo nada.',
   failNoRecord:
     'Este dispositivo no puede guardar el registro de seguridad que necesita un pedido, así que no se envió nada. Activa el almacenamiento del navegador e inténtalo de nuevo.',
@@ -583,7 +584,8 @@ const fr = {
   failVerifyLink: 'Ouvrir la vérification',
   failRegion: 'Les commandes P2P ne sont pas disponibles dans votre région. Rien n’a été passé.',
   failContact: 'Confirmez votre adresse e-mail pour passer des commandes P2P. Rien n’a été passé.',
-  failContactLink: 'Confirmer votre e-mail',
+  failUnchecked:
+    'Vos conditions pour prendre une annonce n’ont pas toutes pu être vérifiées, donc rien n’a été passé. La liste ci-dessus indique laquelle.',
   failRisk: 'Acceptez l’avis sur les risques et la fraude P2P pour passer des commandes. Rien n’a été passé.',
   failNoRecord:
     'Cet appareil ne peut pas conserver la trace de sécurité qu’exige une commande : aucune commande n’a donc été envoyée. Activez le stockage du navigateur et réessayez.',

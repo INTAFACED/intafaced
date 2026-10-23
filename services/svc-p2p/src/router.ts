@@ -1085,12 +1085,18 @@ export function createP2pRouter(
               }),
             ),
             canTake: z.boolean(),
+            /** The published risk notice and the caller's acceptance, so the panel needs no second read. */
+            notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
           }),
         )
         .query(async ({ ctx }) =>
           guard(async () => {
-            const checks = await takeGate.eligibility(ctx);
-            return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
+            const { checks, notice } = await takeGate.eligibility(ctx);
+            return {
+              checks: [...checks],
+              canTake: checks.every((check) => check.state === 'met'),
+              notice: notice ? { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null } : null,
+            };
           }),
         ),
     }),
@@ -1109,7 +1115,8 @@ export function createP2pRouter(
             return { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null };
           }),
         ),
-      accept: scopedProcedure('p2p:write')
+      // `person`: a service holding a forwarded principal cannot accept for the person either.
+      accept: scopedProcedure('p2p:write', { person: true })
         .input(z.object({ version: z.string().min(1).max(64) }))
         .output(z.object({ version: z.string(), acceptedAt: z.string() }))
         .mutation(async ({ ctx, input }) =>

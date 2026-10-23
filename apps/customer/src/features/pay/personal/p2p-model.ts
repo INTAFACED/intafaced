@@ -357,6 +357,7 @@ export type TakeFailure =
   | 'region'
   | 'contact'
   | 'risk'
+  | 'unchecked'
   | 'viewChanged'
   | 'noService'
   | 'generic';
@@ -441,6 +442,10 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'contact';
     case 'p2p.risk_not_accepted':
       return 'risk';
+    case 'p2p.contact_unverifiable':
+    case 'p2p.risk_notice_unset':
+    case 'p2p.take_gate_unwired':
+      return 'unchecked';
     case 'p2p.release_unpostable':
       return 'tooSmall';
     case 'p2p.invalid_amount':

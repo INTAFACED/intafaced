@@ -584,12 +584,6 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
     },
-    /** `risk.notice`: the risk notice version to accept, and when this person accepted it. */
-    riskNotice(signal?: AbortSignal) {
-      const denied = signedIn();
-      if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'risk.notice', undefined, s.p2pRiskNoticeSchema, { signal });
-    },
     /** `risk.accept`: accept exactly the version shown. Accepting again returns the first acceptance. */
     acceptRisk(version: string) {
       const denied = signedIn();

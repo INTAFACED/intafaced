@@ -281,6 +281,7 @@ export const p2pEligibilitySchema = z.object({
     }),
   ),
   canTake: z.boolean(),
+  notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
 });
 export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
 /** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
