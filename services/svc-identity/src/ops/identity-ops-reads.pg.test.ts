@@ -16,6 +16,7 @@ import { createPreferencesRouter } from '../preferences/preferences-router.js';
 import { PREFERENCES_VERSION_CONFLICT } from '../preferences/trade-views.js';
 import { ACCOUNT_DISPLAY_NAMESPACE } from '../preferences/account-display.js';
 import { UI_VIEW_NAMESPACE } from '../preferences/ui-view.js';
+import { HOME_TILES_NAMESPACE } from '../preferences/home-tiles.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
 import { totp } from '../auth/totp.js';
@@ -463,6 +464,48 @@ if (!databaseUrl) {
       ).rejects.toMatchObject({ message: 'identity.preferences_value_invalid' });
       expect(await routerA.preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({ version: 1, value });
       expect(await createPreferencesRouter(db.sql).createCaller(other).preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({
+        version: 0,
+        value: null,
+      });
+    });
+  });
+  describe('Home layout (home.tiles)', () => {
+    it('follows the account to a second device, refuses a stale version and a bad record, and stays per account', async () => {
+      const a = await register();
+      const b = await register();
+      const deviceA = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const deviceB = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const other = await ctx(b.userId, b.sessionId, ['identity:read', 'identity:write'], false);
+      const routerA = createPreferencesRouter(db.sql).createCaller(deviceA);
+      const routerB = createPreferencesRouter(db.sql).createCaller(deviceB);
+
+      expect(await routerB.preferences.get({ namespace: HOME_TILES_NAMESPACE })).toMatchObject({ version: 0, value: null });
+      const value = { order: ['activity', 'markets'], hidden: ['markets'] };
+      expect(
+        await routerA.preferences.set({ namespace: HOME_TILES_NAMESPACE, value, ifVersion: 0, clientRequestId: 'home-tiles:a:0' }),
+      ).toMatchObject({ namespace: HOME_TILES_NAMESPACE, version: 1, value, outcome: 'stored' });
+      expect(await routerB.preferences.get({ namespace: HOME_TILES_NAMESPACE })).toMatchObject({ version: 1, value });
+      // The second device wrote at the version it read, which is now stale: a version conflict, and the newer layout stays.
+      await expect(
+        routerB.preferences.set({
+          namespace: HOME_TILES_NAMESPACE,
+          value: { order: [], hidden: [] },
+          ifVersion: 0,
+          clientRequestId: 'home-tiles:b:0',
+        }),
+      ).rejects.toMatchObject({ message: PREFERENCES_VERSION_CONFLICT });
+      await expect(
+        routerA.preferences.set({
+          namespace: HOME_TILES_NAMESPACE,
+          value: { order: ['markets', 'markets'], hidden: [] },
+          ifVersion: 1,
+          clientRequestId: 'home-tiles:a:1',
+        }),
+      ).rejects.toMatchObject({ message: 'identity.preferences_value_invalid' });
+      expect(await routerA.preferences.get({ namespace: HOME_TILES_NAMESPACE })).toMatchObject({ version: 1, value });
+      // The view record is a separate namespace with its own version.
+      expect(await routerA.preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({ version: 0 });
+      expect(await createPreferencesRouter(db.sql).createCaller(other).preferences.get({ namespace: HOME_TILES_NAMESPACE })).toMatchObject({
         version: 0,
         value: null,
       });

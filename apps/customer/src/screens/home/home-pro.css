@@ -87,6 +87,12 @@
   .hp-eye:hover {
     color: var(--if-fg);
   }
+  /* Customise Home, above the summary in every state of the account. */
+  .hp-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin: -8px 0 8px;
+  }
   /* The total's own door to the Assets room (Money). */
   .hp-tile-link {
     display: inline-flex;

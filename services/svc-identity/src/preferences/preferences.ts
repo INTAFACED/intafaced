@@ -8,6 +8,7 @@ import { transaction } from '@intafaced/db';
 import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
+import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
 import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
@@ -21,8 +22,9 @@ import {
   type TradeViewsValue,
 } from './trade-views.js';
 
-export type PreferenceNamespace = typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE | typeof UI_VIEW_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue;
+export type PreferenceNamespace =
+  typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE | typeof UI_VIEW_NAMESPACE | typeof HOME_TILES_NAMESPACE;
+export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = { readonly displayCurrencies: readonly string[] };
@@ -43,7 +45,8 @@ export class PreferencesError extends Error {
 export type PreferenceView =
   | { readonly namespace: typeof TRADE_VIEWS_NAMESPACE; readonly version: number; readonly value: TradeViewsValue | null }
   | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null }
-  | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null };
+  | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
+  | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -66,6 +69,7 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, (value: unknown, settings
   [TRADE_VIEWS_NAMESPACE]: (value) => parseTradeViews(value),
   [ACCOUNT_DISPLAY_NAMESPACE]: (value, settings) => parseAccountDisplay(value, settings.displayCurrencies),
   [UI_VIEW_NAMESPACE]: (value) => parseUiView(value),
+  [HOME_TILES_NAMESPACE]: (value) => parseHomeTiles(value),
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {

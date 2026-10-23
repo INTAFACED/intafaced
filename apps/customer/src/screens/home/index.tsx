@@ -40,6 +40,9 @@ import { RecentActivity } from './RecentActivity';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
+import { CustomiseHome } from './CustomiseHome';
+import { useHomeLayout } from './tiles-data';
+import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
@@ -283,7 +286,10 @@ function HomeSimple() {
           : 'normal';
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
-  const started = useStartedTile(portfolio);
+  const home = useHomeLayout();
+  const main = shownTiles(home.layout, 'simple', 'main');
+  const side = shownTiles(home.layout, 'simple', 'side');
+  const started = useStartedTile(portfolio, side.includes('started'));
 
   return (
     <div className="if-home">
@@ -307,44 +313,54 @@ function HomeSimple() {
                 <ChevronRight size={14} aria-hidden="true" />
               </a>
             )}
+            <CustomiseHome home={home} mode="simple" />
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
-          {portfolio.status === 'loading' ? <HoldingsSkeleton /> : null}
-          {portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-            <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
-          ) : null}
-
-          {showMarkets ? (
-            <section className="home-section" aria-labelledby="home-markets-title">
-              <div className="home-section__head">
-                <h2 className="home-h2" id="home-markets-title">
-                  {t('Markets')}
-                </h2>
-                {pricesAsOf !== null ? (
-                  <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
-                ) : null}
-              </div>
-              {marketsLoading ? (
-                <MarketsSkeleton count={all.length || 4} />
-              ) : marketsBroken ? (
-                <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
-              ) : (
-                <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
-              )}
-            </section>
-          ) : null}
-
-          {showMovers ? (
-            <section className="home-section home-section--movers">
-              <MoversHeading />
-              {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
-            </section>
-          ) : null}
-
-          <RecentActivity activity={activity} hidden={hideBalances} />
-          <LearnStrip />
+          {main.map((id) => {
+            switch (id) {
+              case 'holdings':
+                return portfolio.status === 'loading' ? (
+                  <HoldingsSkeleton key={id} />
+                ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
+                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                ) : null;
+              case 'markets':
+                return showMarkets ? (
+                  <section key={id} className="home-section" aria-labelledby="home-markets-title">
+                    <div className="home-section__head">
+                      <h2 className="home-h2" id="home-markets-title">
+                        {t('Markets')}
+                      </h2>
+                      {pricesAsOf !== null ? (
+                        <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
+                      ) : null}
+                    </div>
+                    {marketsLoading ? (
+                      <MarketsSkeleton count={all.length || 4} />
+                    ) : marketsBroken ? (
+                      <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
+                    ) : (
+                      <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
+                    )}
+                  </section>
+                ) : null;
+              case 'movers':
+                return showMovers ? (
+                  <section key={id} className="home-section home-section--movers">
+                    <MoversHeading />
+                    {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
+                  </section>
+                ) : null;
+              case 'activity':
+                return <RecentActivity key={id} activity={activity} hidden={hideBalances} />;
+              case 'learn':
+                return <LearnStrip key={id} />;
+              default:
+                return null;
+            }
+          })}
         </div>
 
         {started.show ? (
@@ -355,19 +371,25 @@ function HomeSimple() {
 
         {showMarkets && !marketsBroken ? (
           <aside className="home-side">
-            {portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
-            {portfolio.status === 'ready' ? <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
-            {portfolio.status === 'empty' ? <YourCrypto holdings={[]} hidden={hideBalances} /> : null}
-            {marketsLoading || !popular || watchItems.length > 0 ? (
-              <Watchlist
-                items={watchItems}
-                popular={popular}
-                tickers={tickers}
-                sparklines={sparklines}
-                loading={marketsLoading}
-                favoriting={favoriting}
-              />
-            ) : null}
+            {side.map((id) =>
+              id === 'your-crypto' ? (
+                portfolio.status === 'loading' ? (
+                  <YourCryptoSkeleton key={id} />
+                ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
+                  <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />
+                ) : null
+              ) : id === 'watchlist' && (marketsLoading || !popular || watchItems.length > 0) ? (
+                <Watchlist
+                  key={id}
+                  items={watchItems}
+                  popular={popular}
+                  tickers={tickers}
+                  sparklines={sparklines}
+                  loading={marketsLoading}
+                  favoriting={favoriting}
+                />
+              ) : null,
+            )}
           </aside>
         ) : null}
       </div>
