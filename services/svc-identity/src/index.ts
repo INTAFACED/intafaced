@@ -47,6 +47,7 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { parseAccountTiers } from './controls/account-tiers.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
@@ -68,6 +69,7 @@ import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
 import { createWorkItemsRouter } from './work-items.js';
+import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -436,6 +438,7 @@ const actionApprovals = new ActionApprovalService(
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
+const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
@@ -470,6 +473,18 @@ const tradeClosureCheck = httpClosureChecker({
   secret: closureSecret,
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
+const p2pClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_P2P_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
+});
+founderControls.useAccountTiers(parseAccountTiers(env.IDENTITY_ACCOUNT_TIERS));
+// A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
+founderControls.useClosureChecks(async (input) => {
+  const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);
+  if (results.some((result) => !result.ok)) return { ok: false };
+  return { ok: true, blockers: results.flatMap((result) => (result.ok ? result.blockers : [])) };
+});
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
 const antiPhishing = new AntiPhishingService({
@@ -486,11 +501,7 @@ const closure = new AccountClosureService({
   founderUserIds: founderPair ?? [],
   bank: bankClosureCheck,
   trade: tradeClosureCheck,
-  p2p: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_P2P_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
-  }),
+  p2p: p2pClosureCheck,
   now: () => new Date(),
 });
 account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));
@@ -579,7 +590,8 @@ export const appRouter = mergeRouters(
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
   createWorkItemsRouter(sql),
-  createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
+  createServerTimeRouter(),
+  createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -621,6 +633,7 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+selfFreezeLift.useLogger(app.log);
 account.useLog({
   warn(obj, msg) {
     app.log.warn(obj, msg);

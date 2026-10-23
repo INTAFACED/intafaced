@@ -6,6 +6,8 @@ import { readStepReply, type StepName, type StepReply } from './approval-types';
 export type ApprovalEndpoint =
   | '/api/kill-switch'
   | '/api/accounts/restore'
+  | '/api/accounts/closure'
+  | '/api/accounts/tier'
   | '/api/ledger-freeze'
   | '/api/academy-ops'
   | '/api/more-ops'

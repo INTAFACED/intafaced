@@ -11,7 +11,12 @@ export default defineConfig({
   retries: 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
-  reporter: [['list'], ['json', { outputFile: process.env.JOURNEY_REPORT ?? '/tmp/intafaced-real-app/report.json' }]],
+  // A sharded run (the Real-app journeys workflow) also writes a blob per shard, which one job merges into the JSON report.
+  reporter: [
+    ['list'],
+    ['json', { outputFile: process.env.JOURNEY_REPORT ?? '/tmp/intafaced-real-app/report.json' }],
+    ...(process.env.JOURNEY_BLOB_DIR ? [['blob', { outputDir: process.env.JOURNEY_BLOB_DIR }]] : []),
+  ],
   outputDir: '/tmp/intafaced-real-app/results',
   use: {
     baseURL: 'http://127.0.0.1:3210',

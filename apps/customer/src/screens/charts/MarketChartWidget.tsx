@@ -1,9 +1,19 @@
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { usePreferences } from '../../shared/preferences';
-import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
+import type { Candle } from '../../data/types';
+import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
+import { useDeviceSetting } from '../../features/trade/hooks';
+import { useSession } from '../../features/session/session';
+import { dataStatus as computeStatus } from './data-status';
+import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
+import { useChartOwnerValues } from './owner-values';
+import { StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
+import { ChartSettingsDialog } from './ChartSettings';
+import { chartSettingsKey, isStoredChartSettings, readChartSettings, type ChartSettings } from './chart-settings';
+import { PriceLines } from './PriceLines';
+import { isPriceLineStore, linesFor, priceLinesKey, type PriceLine, type PriceLineStore } from './price-lines';
 import { zoneName } from '../trade/desk/time';
 import type { DeskMarket } from '../trade/desk/market';
-import type { Candle } from '../../data/types';
 import type { ChartHost } from './chart-host';
 import {
   BASIS_UNPUBLISHED,
@@ -24,6 +34,12 @@ import { WorkbenchChart } from './WorkbenchChart';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 
+/** What an add-on is drawn over: the price scale or percent mode, and whether a bar replay is cut. */
+export interface AddonView {
+  percent: boolean;
+  replaying: boolean;
+}
+
 export interface WidgetProps {
   market: DeskMarket;
   interval: ChartInterval;
@@ -35,7 +51,7 @@ export interface WidgetProps {
   /** Tests hand in a socket; the page uses the browser's. */
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
-  addons?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
+  addons?: (host: ChartHost | null, bars: readonly Candle[], view: AddonView) => ReactNode;
   onHost?: (host: ChartHost | null) => void;
   /** The markets that can be compared on this chart; no compare tools without them. */
   markets?: readonly DeskMarket[];
@@ -74,9 +90,38 @@ export const MarketChartWidget = memo(function MarketChartWidget({
 }: WidgetProps) {
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
+  const { userId } = useSession();
   const polled = useChartCandles(market.symbol, interval);
   const stream = useCandleStream(market.symbol, interval, openSocket);
   const now = useNow(2_000);
+  // The data status: the market's state, its newest trade and the owner's class and boundary, judged against the candles.
+  const lifecycle = useMarketLifecycle(market.symbol);
+  const bookHalt = useBookHalt(market.symbol);
+  const serverClock = useServerClock();
+  const lastTrade = useLastTrade(market.symbol);
+  const owner = useChartOwnerValues(market.symbol);
+  const status = computeStatus({
+    now,
+    serverClock,
+    owner,
+    lifecycle,
+    bookHalt,
+    candles: polled,
+    lastTrade,
+    pollIntervalMs: CANDLE_POLL_MS,
+  });
+  // Settings and price lines are this device's own display choices.
+  const [storedSettings, setStoredSettings] = useDeviceSetting<ChartSettings>(
+    chartSettingsKey(userId),
+    readChartSettings(null),
+    isStoredChartSettings,
+  );
+  const settings = readChartSettings(storedSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [priceLineOpen, setPriceLineOpen] = useState(false);
+  const [storedLines, setStoredLines] = useDeviceSetting<PriceLineStore>(priceLinesKey(userId), {}, isPriceLineStore);
+  const lines = linesFor(storedLines, market.symbol);
+  const setLines = (next: PriceLine[]) => setStoredLines((store) => ({ ...store, [market.symbol]: next }));
   const recent = useMemo(
     () => (polled.status === 'ready' ? mergeLive(polled.data, stream.mode === 'stream' ? stream.live : null) : null),
     [polled, stream],
@@ -214,13 +259,25 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         onReachStart={() => void history.load()}
         focus={replay.replay ? null : focus}
         onHost={reportHost}
+        settings={settings}
+        priceLines={lines}
       >
-        {addons}
+        {addons ? (host, bars) => addons(host, bars, { percent, replaying: replay.replay !== null }) : undefined}
       </WorkbenchChart>
     );
 
   const moreActive = (MORE_INTERVALS as readonly string[]).includes(interval);
   const note = stream.mode === 'stream' ? t('Feed stream') : isStreamInterval(interval) ? t('Feed poll') : t('Feed poll interval');
+  const feedText =
+    status.feed === 'connected'
+      ? t('Feed connected')
+      : status.feed === 'stale'
+        ? t('Feed stale')
+        : status.feed === 'down'
+          ? t('Feed down')
+          : status.feed === 'empty'
+            ? t('Feed empty')
+            : null;
   const seconds = polled.status === 'ready' ? Math.max(0, Math.round((now - polled.asOf) / 1000)) : null;
   const depth =
     candles && history.state.status === 'loaded'
@@ -239,9 +296,13 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             : null;
   return (
     <section className="cw" aria-label={t('Chart of {pair}', { pair: market.symbol })} data-feed={stream.mode}>
-      <h2 className="cw-title" data-testid="chart-title">
-        {market.symbol} · {intervalLabel(interval)}
-      </h2>
+      <div className="cw-titlerow">
+        <h2 className="cw-title" data-testid="chart-title">
+          {settings.showName ? `${market.symbol} · ${intervalLabel(interval)}` : intervalLabel(interval)}
+        </h2>
+        <TestLabel status={status} />
+        <StatusChip status={status} />
+      </div>
       <div className="cw-bar">
         <div className="cw-chips" role="group" aria-label={t('Chart intervals')}>
           {CHART_INTERVALS.map((id) => (
@@ -303,6 +364,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
           {t('Bar replay')}
         </button>
+        <button type="button" className="cw-option" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+          {t('Chart settings')}
+        </button>
+        <button type="button" className="cw-option" aria-pressed={priceLineOpen} onClick={() => setPriceLineOpen((open) => !open)}>
+          {t('Price line')}
+        </button>
         <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
           <label className="cw-select cw-select--inline">
             <span>{t('Go to date')}</span>
@@ -333,11 +400,23 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           {dateNote}
         </p>
       )}
+      <StatusBanner status={status} format={day} />
       <div className="cw-canvas">{body}</div>
+      <SourceLine />
+      <PriceLines lines={lines} tickSize={market.tickSize} open={priceLineOpen} onChange={setLines} />
       <p className="cw-feed" data-testid="chart-feed">
+        {feedText && <>{feedText} · </>}
         {note}
         {stream.mode === 'poll' && seconds !== null && <> {t('Feed age', { seconds: String(seconds) })}</>}
       </p>
+      <ChartSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onChange={(next) => setStoredSettings(next)}
+        symbol={market.symbol}
+        tick={market.tickSize}
+      />
       {replayOpen && (
         <div className="cw-replay" role="group" aria-label={t('Bar replay')}>
           {replay.replay ? (

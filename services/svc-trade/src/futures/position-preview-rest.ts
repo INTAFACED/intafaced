@@ -1,15 +1,17 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { FeeScheduleError } from '../spot/fee-schedule.js';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
+import { checkCollateralClassForMargin, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
 import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
 export interface PositionPreviewRefusal {
   code: string;
-  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice';
+  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral';
   message: string;
 }
 
@@ -38,6 +40,12 @@ export interface PositionPreviewRestDeps {
   markForMarket(marketId: string, symbol: string): Promise<{ price: string; source: FuturesMarkProvenance } | null>;
   /** Explicit owner/listing cap. Null remains a typed refusal. */
   leverageCap: Amount | null;
+  /**
+   * The perpetual taker rate this account's opening order would keep (`perpetualFeeRates`: the owner's schedule less
+   * its rank discount). The listing row's `takerBps` is not a schedule. Null, or a schedule that is not published, is a
+   * typed refusal on the fee line: the preview never shows a fee the order would not pay.
+   */
+  takerFeeBps: ((userId: string) => Promise<number>) | null;
   /**
    * Optional execution-policy calculator. Production leaves this absent until
    * a named maintenance/depth policy exists; preview must not invent one.
@@ -81,7 +89,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode']);
+    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode', 'collateralClass']);
     const suppliedServerValues = Object.keys(body).filter((key) => !allowedFields.has(key));
     if (suppliedServerValues.length > 0) {
       return sendError(
@@ -114,6 +122,15 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const refusals: PositionPreviewRefusal[] = [];
+    // The margin is posted from cash; the order path refuses any other class on the same code.
+    const classCheck = checkCollateralClassForMargin(body.collateralClass);
+    if (!classCheck.ok) {
+      refusals.push({
+        code: classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS,
+        field: 'collateral',
+        message: classCheck.reason ?? 'that collateral class is not taken as margin',
+      });
+    }
     const cap = deps.leverageCap;
     if (cap === null) {
       refusals.push({ code: LEVERAGE_CAP_UNSET, field: 'leverage', message: 'listing leverage cap is unset' });
@@ -153,13 +170,23 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
           message: 'initial margin cannot be represented for these inputs',
         });
       }
-      if (Number.isInteger(market.takerBps) && market.takerBps >= 0) {
-        estimatedFee = mulBps(orderValue, market.takerBps, 'ceil');
+      let takerBps: number | null = null;
+      let feeMessage = 'the owner has not published a perpetual taker fee';
+      if (deps.takerFeeBps) {
+        try {
+          takerBps = await deps.takerFeeBps(principal.userId);
+        } catch (err) {
+          if (!(err instanceof FeeScheduleError)) throw err;
+          feeMessage = `${err.code}: ${err.message}`;
+        }
+      }
+      if (takerBps !== null && Number.isInteger(takerBps) && takerBps >= 0) {
+        estimatedFee = mulBps(orderValue, takerBps, 'ceil');
       } else {
         refusals.push({
           code: 'trade.position_preview_fee_unavailable',
           field: 'fee',
-          message: 'published taker fee is unavailable',
+          message: feeMessage,
         });
       }
       if (margin !== null && deps.liquidationPriceFor) {

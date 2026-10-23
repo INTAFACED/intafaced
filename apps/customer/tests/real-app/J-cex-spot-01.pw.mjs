@@ -46,8 +46,8 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
-  // Signed in, and the way to Verify is shown.
-  await expect(page.getByText('Verify your identity first')).toBeVisible();
+  // Signed in, and the way to Verify is shown (Home says it in Summary and again in Recent activity).
+  await expect(page.getByRole('region', { name: 'Summary' }).getByText('Verify your identity first')).toBeVisible();
   await expect(
     page
       .getByRole('link', { name: 'Verify now' })
@@ -210,7 +210,8 @@ test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it ag
   await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
   const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
   await row.getByRole('button', { name: 'Cancel' }).click();
-  const sure = page.getByRole('button', { name: /cancel order|yes|confirm/i });
+  // Only a confirm dialog's button: the desk's "Cancel orders…" control also reads "cancel order".
+  const sure = page.getByRole('dialog').getByRole('button', { name: /cancel order|yes|confirm/i });
   if (await sure.count()) await sure.first().click();
   await expect(row).toHaveCount(0);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);

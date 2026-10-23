@@ -82,7 +82,7 @@ export type VerifyResult = z.infer<typeof verifyResultSchema>;
 /** Save an address for a channel and ask the service to send it a six-digit code. A new request replaces the earlier code. */
 export function registerTarget(
   api: ApiClient,
-  channel: 'email' | 'sms',
+  channel: OutOfAppChannel,
   address: string,
   locale: string,
 ): Promise<ApiResult<RegisterResult>> {
@@ -115,6 +115,14 @@ export const channelStatus = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.channels', undefined, channelsSchema, { signal });
 export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.mutePrefs', undefined, prefsSchema, { signal });
+const pushKeySchema = z.union([
+  z.object({ publicKey: z.string().regex(/^[A-Za-z0-9_-]{16,256}$/), unsetCode: z.null() }),
+  z.object({ publicKey: z.null(), unsetCode: z.literal('notify.push_key_unset') }),
+]);
+export type PushKey = z.infer<typeof pushKeySchema>;
+/** The push gateway's public application key a browser needs to subscribe; null while push delivery is not configured. */
+export const pushKey = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.pushKey', undefined, pushKeySchema, { signal });
 export const targets = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.targets', undefined, targetsSchema, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {

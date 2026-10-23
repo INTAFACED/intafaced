@@ -1,4 +1,4 @@
-import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mul, type Amount } from '@intafaced/ledger-client';
 import {
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
@@ -10,12 +10,22 @@ import {
   TAX_INDEXER_UNPROBED,
   TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
+  TAX_DEPOSIT_BASIS_POLICY_UNSET,
+  TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
-import type { HistoryRange, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, type LotBook } from './lot-book.js';
+import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
+import type { PriceAt, PriceAtTime } from './prices.js';
+import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook } from './lot-book.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
+import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
+
+/** The lot book also offers AVERAGE; the year pack takes FIFO, LIFO or HIFO only. */
+function requireBookMethod(raw: string): EngineMethod {
+  if (!isEngineMethod(raw)) throw new TaxError(TAX_LOT_METHOD_REQUIRED, 'Caller must select FIFO, LIFO, HIFO or AVERAGE');
+  return raw;
+}
 
 /**
  * Q-tax leftover — an env URL is not a live lake/indexer.
@@ -76,6 +86,24 @@ export interface TaxServiceDeps {
   /** Owner-published window. Blank / omit → `tax.history_years_unset` (never invent 10). */
   readonly historyYears?: number;
   readonly now?: () => Date;
+  /**
+   * Owner policy for the cost of a coin that arrived by deposit, reward or transfer in: `market` (its value when it
+   * arrived) or `customer` (unknown until the customer enters one). Unset: unknown, named `tax.deposit_basis_policy_unset`.
+   */
+  readonly depositBasis?: DepositBasisPolicy;
+  /** Price of a coin at a past moment. Absent: arrivals are not valued, named `tax.price_at_time_unavailable`. */
+  readonly prices?: PriceAtTime;
+}
+
+export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
+export type DepositBasisPolicy = (typeof DEPOSIT_BASIS_POLICIES)[number];
+
+/** Where a coin that was not bought came from, by the ledger reason that brought it. */
+export function inflowSource(reason: string): Inflow['source'] {
+  if (reason.startsWith('deposit.')) return 'deposit';
+  if (reason === 'bank.earn.interest' || reason.includes('reward')) return 'reward';
+  if (reason.startsWith('bank.transfer') || reason === 'identity.sub_account.transfer' || reason.startsWith('pay.')) return 'transfer_in';
+  return 'other_in';
 }
 
 function moneyOrNull(value: Amount | null): string | null {
@@ -156,6 +184,8 @@ export class TaxService {
   private readonly indexer: LakeStatus;
   private readonly historyYears: number | undefined;
   private readonly now: () => Date;
+  private readonly depositBasis: DepositBasisPolicy | undefined;
+  private readonly prices: PriceAtTime | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -164,6 +194,8 @@ export class TaxService {
     this.indexer = deps.indexer;
     this.historyYears = deps.historyYears;
     this.now = deps.now ?? (() => new Date());
+    this.depositBasis = deps.depositBasis;
+    this.prices = deps.prices;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -180,7 +212,7 @@ export class TaxService {
    * tax pack. The method defaults to FIFO (a product default, changeable per call); an unknown name is refused, not guessed.
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
-    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : this.requireMethod(input.method);
+    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : requireBookMethod(input.method);
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
     const [balances, filled] = await Promise.all([this.reads.balances('user', input.userId), readFills.call(this.reads, input.userId)]);
@@ -188,7 +220,61 @@ export class TaxService {
     for (const row of balances) {
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
-    return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
+    if (filled.inflows === undefined) {
+      return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
+    }
+    const extra = new Set<string>();
+    const inflows = await this.valueInflows(filled.inflows, extra);
+    const book = buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, inflows, now: this.now() });
+    return { ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() };
+  }
+
+  /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */
+  private async valueInflows(lines: readonly InflowLine[], residuals: Set<string>): Promise<Inflow[]> {
+    const cache = new Map<string, Promise<PriceAt | null>>();
+    const priceAt = (assetId: string, at: Date): Promise<PriceAt | null> => {
+      const prices = this.prices;
+      if (!prices) return Promise.resolve(null);
+      const key = `${assetId}|${Math.floor(at.getTime() / 60_000)}`;
+      let hit = cache.get(key);
+      if (!hit) {
+        // A failed market data read is the same as no price: the value stays unknown and is named, the book still answers.
+        hit = prices.priceAt(assetId, at).catch(() => null);
+        cache.set(key, hit);
+      }
+      return hit;
+    };
+    if (this.depositBasis === undefined && lines.some((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()))) {
+      residuals.add(TAX_DEPOSIT_BASIS_POLICY_UNSET);
+    }
+    // Prices are read side by side; the cache keeps one read per coin and minute.
+    const coins = lines.filter((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()));
+    return Promise.all(
+      coins.map(async (line): Promise<Inflow> => {
+        const price = await priceAt(line.assetId, line.postedAt);
+        if (price === null) residuals.add(TAX_PRICE_AT_TIME_UNAVAILABLE);
+        const valuedAt: ValuedAt | null =
+          price === null
+            ? null
+            : {
+                usd: mul(line.amount, price.price),
+                market: price.market,
+                timeframe: price.timeframe,
+                candleAt: price.candleAt,
+                price: price.price,
+              };
+        return {
+          txId: line.txId,
+          postedAt: line.postedAt,
+          assetId: line.assetId,
+          amount: line.amount,
+          reason: line.reason,
+          source: inflowSource(line.reason),
+          costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
+          valuedAt,
+        };
+      }),
+    );
   }
 
   private requireMethod(raw: string): LotMethod {

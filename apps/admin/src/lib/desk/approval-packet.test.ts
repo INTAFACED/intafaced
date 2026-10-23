@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLOSE_REASON_CODES,
   PACKET_PREFIX,
   confirmPhrase,
   decodePacket,
@@ -12,6 +13,7 @@ import {
   type ApprovalPacket,
   type DeskRequest,
 } from './approval-packet';
+import { accountCloseReasonCodes } from '@intafaced/contracts';
 
 const kill: DeskRequest = { kind: 'edge.kill', module: 'trade', disabled: true, reason: 'market integrity incident — halt new risk' };
 const packet: ApprovalPacket = {
@@ -255,5 +257,56 @@ describe('account unfreeze requests', () => {
     expect(confirmPhrase(unfreeze)).toBe('UNFREEZE ACCOUNT 0b6f7a3e');
     expect(describeRequest(unfreeze)).toContain('stay revoked');
     expect(requestReason(unfreeze)).toBe(unfreeze.reason);
+  });
+});
+
+describe('identity staff close and reopen requests', () => {
+  const close = {
+    kind: 'identity.account.close',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    reasonCode: 'bank_reason',
+    reason: 'Bank asked to end the relationship',
+    version: '2',
+  } as const;
+  const reopen = { kind: 'identity.account.reopen', userId: close.userId, reason: 'Customer asked to come back', version: '3' } as const;
+  it('reads exactly the account, reason code, reason and version', () => {
+    expect(readDeskRequest(close)).toEqual(close);
+    expect(readDeskRequest(reopen)).toEqual(reopen);
+    expect(readDeskRequest({ ...close, reasonCode: 'boredom' })).toBeNull();
+    expect(readDeskRequest({ ...reopen, reasonCode: 'fraud' })).toBeNull();
+    expect(readDeskRequest({ ...close, reason: 'x'.repeat(256) })).toBeNull();
+    expect(readDeskRequest({ ...close, userId: close.userId.toUpperCase() })).toBeNull();
+  });
+  it('names the account in the phrase and says whether it can be reopened', () => {
+    expect(confirmPhrase(close)).toBe('CLOSE ACCOUNT 0b6f7a3e');
+    expect(confirmPhrase(reopen)).toBe('REOPEN ACCOUNT 0b6f7a3e');
+    expect(describeRequest(close)).toContain('it cannot be reopened');
+    expect(describeRequest({ ...close, reasonCode: 'customer_request' })).toContain('can be reopened later');
+    expect(requestReason(reopen)).toBe(reopen.reason);
+  });
+  it('keeps the same reason codes as identity', () => {
+    expect([...CLOSE_REASON_CODES]).toEqual([...accountCloseReasonCodes]);
+  });
+});
+
+describe('identity account tier move requests', () => {
+  const move = {
+    kind: 'identity.account.tier_move',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    tierId: 'plus',
+    reason: 'Customer qualifies for plus',
+    version: '0',
+  } as const;
+  it('reads exactly the account, tier, reason and version', () => {
+    expect(readDeskRequest(move)).toEqual(move);
+    expect(readDeskRequest({ ...move, tierId: 'Plus' })).toBeNull();
+    expect(readDeskRequest({ ...move, tierId: 'x'.repeat(33) })).toBeNull();
+    expect(readDeskRequest({ ...move, reason: 'x'.repeat(256) })).toBeNull();
+    expect(readDeskRequest({ ...move, extra: '1' })).toBeNull();
+  });
+  it('names the account in the phrase and the tier in the description', () => {
+    expect(confirmPhrase(move)).toBe('MOVE TIER 0b6f7a3e');
+    expect(describeRequest(move)).toContain('onto tier "plus"');
+    expect(requestReason(move)).toBe(move.reason);
   });
 });

@@ -13,6 +13,8 @@ import type { Candle } from '../../data/types';
 import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
 import { axisTime, tickMark } from '../trade/chart/PriceChart';
 import type { ChartApi, ChartHost, ChartLib, ChartSeries } from './chart-host';
+import { DEFAULT_CHART_SETTINGS, type ChartSettings } from './chart-settings';
+import type { PriceLine } from './price-lines';
 import {
   PERCENT_PRICE_FORMAT,
   SCHEME_TOKENS,
@@ -63,9 +65,14 @@ export interface WorkbenchChartProps {
   children?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
   /** Told the host whenever it changes (null when the chart goes), so a grid can link charts. */
   onHost?: (host: ChartHost | null) => void;
+  /** The chart settings this device keeps: scales, canvas and which legend parts show. */
+  settings?: ChartSettings;
+  /** Price-line overlays: a labelled line at each price, on the main series. */
+  priceLines?: readonly PriceLine[];
 }
 
 const PAN_BARS = 10;
+const NO_LINES: readonly PriceLine[] = [];
 
 export function WorkbenchChart({
   candles,
@@ -81,6 +88,8 @@ export function WorkbenchChart({
   focus,
   children,
   onHost,
+  settings = DEFAULT_CHART_SETTINGS,
+  priceLines = NO_LINES,
 }: WorkbenchChartProps) {
   const { language, upColor } = usePreferences();
   const element = useRef<HTMLDivElement>(null);
@@ -172,6 +181,43 @@ export function WorkbenchChart({
     setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
     // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
   }, [mounted, style, scheme, tickSize, symbol, upColor, percent]);
+
+  // Scales and canvas: applied to the chart in place, so a change never rebuilds the series or moves the view. Log scale
+  // is not drawn with percent mode, which has its own scale.
+  const { priceScale, timeScale: timeScaleOn, logScale, gridLines } = settings;
+  useEffect(() => {
+    const api = chart.current;
+    if (!mounted || !api) return;
+    api.applyOptions({
+      rightPriceScale: { visible: priceScale, mode: logScale && !percent ? 1 : 0 },
+      timeScale: { visible: timeScaleOn },
+      grid: { vertLines: { visible: gridLines }, horzLines: { visible: gridLines } },
+    });
+  }, [mounted, priceScale, timeScaleOn, logScale, gridLines, percent]);
+
+  // Price lines: one labelled line per overlay, drawn on the main series at its exact price. A new main series (a new
+  // style or scheme) drops the old lines with it, so they are drawn again on the series that is shown.
+  const lineKey = priceLines.map((line) => `${line.price}|${line.label}`).join(',');
+  const drawn = useRef<{ series: ChartSeries; lines: unknown[] } | null>(null);
+  useEffect(() => {
+    const series = main.current;
+    if (!series) return;
+    if (drawn.current && drawn.current.series === series) for (const line of drawn.current.lines) series.removePriceLine(line);
+    const colour = readColors(scheme).text;
+    const lines = priceLines.map((line) =>
+      series.createPriceLine({
+        price: Number(line.price),
+        color: colour,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: line.label,
+      }),
+    );
+    drawn.current = { series, lines };
+    // The key carries the lines' values; the series is the one the host hands out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host, lineKey]);
 
   // Feed candles: `update` for the newest ones; a full reset when the window moved, keeping the view on the same bars
   // when older history was put in front.
@@ -269,45 +315,52 @@ export function WorkbenchChart({
 
   return (
     <div className="wc-root">
-      <div
-        ref={element}
-        className="wc-host"
-        role="img"
-        tabIndex={0}
-        aria-label={labels.chart}
-        aria-description={labels.keys}
-        data-style={style}
-        data-scheme={scheme}
-        data-scale={percent ? 'percent' : 'price'}
-        data-base={rebase.base}
-        data-first-percent={rebase.first}
-        data-bars={candles.length}
-        data-first={candles[0] ? String(candles[0].t) : ''}
-        data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
-        onKeyDown={onKey}
-        onPointerDown={() => (moved.current = true)}
-        onWheel={() => (moved.current = true)}
-      />
-      {legend && focusBar ? (
-        <div className="wc-legend" data-testid="chart-legend">
-          <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>
-          <span>
-            {labels.open} <b>{legend.open}</b>
-          </span>
-          <span>
-            {labels.high} <b>{legend.high}</b>
-          </span>
-          <span>
-            {labels.low} <b>{legend.low}</b>
-          </span>
-          <span>
-            {labels.close} <b>{legend.close}</b>
-          </span>
-          <span className="wc-change" data-direction={legend.direction}>
-            {labels.change} {legend.change}
-          </span>
-        </div>
-      ) : null}
+      <div className="wc-stage">
+        <div
+          ref={element}
+          className="wc-host"
+          role="img"
+          tabIndex={0}
+          aria-label={labels.chart}
+          aria-description={labels.keys}
+          data-style={style}
+          data-scheme={scheme}
+          data-scale={percent ? 'percent' : 'price'}
+          data-base={rebase.base}
+          data-first-percent={rebase.first}
+          data-bars={candles.length}
+          data-price-lines={priceLines.map((line) => line.price).join(' ')}
+          data-log={logScale && !percent ? 'on' : 'off'}
+          data-grid={gridLines ? 'on' : 'off'}
+          data-first={candles[0] ? String(candles[0].t) : ''}
+          data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
+          onKeyDown={onKey}
+          onPointerDown={() => (moved.current = true)}
+          onWheel={() => (moved.current = true)}
+        />
+        {legend && focusBar ? (
+          <div className="wc-legend" data-testid="chart-legend">
+            {settings.showTime && <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>}
+            <span>
+              {labels.open} <b>{legend.open}</b>
+            </span>
+            <span>
+              {labels.high} <b>{legend.high}</b>
+            </span>
+            <span>
+              {labels.low} <b>{legend.low}</b>
+            </span>
+            <span>
+              {labels.close} <b>{legend.close}</b>
+            </span>
+            {settings.showChange && (
+              <span className="wc-change" data-direction={legend.direction}>
+                {labels.change} {legend.change}
+              </span>
+            )}
+          </div>
+        ) : null}
+      </div>
       {children?.(host, candles)}
     </div>
   );

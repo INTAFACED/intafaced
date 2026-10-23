@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
@@ -167,6 +168,8 @@ export interface PrivateRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  /** Ledger history and statement export (J-cex-spot-07 #5, #6). Absent: those routes answer 503 `trade.statements_unmounted`. */
+  statements?: StatementRestDeps;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
@@ -201,9 +204,13 @@ export interface PrivateRestDeps {
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
       type?: ClosedOrderType;
+      /** The last order of the previous page: the page holds only orders older than it (newest first, ties by id). */
+      before?: string;
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
+  /** One of the caller's orders' fills, oldest first; another person's order is not found. Unset mounts a typed 503. */
+  orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
   orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
@@ -216,6 +223,10 @@ export interface PrivateRestDeps {
   cancelAllOrders(principal: Principal, marketId?: string, kind?: 'spot' | 'futures' | 'options'): Promise<OrderRecord[]>;
   /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
   armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
+  /** The caller's countdown and the owner's published timeouts (null = not published). Absent = door not mounted. */
+  readCancelAllAfter?(
+    principal: Principal,
+  ): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null; published: readonly number[] | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
   massCancelOrders(principal: Principal, marketId: string): Promise<OrderRecord[]>;
   /**
@@ -549,10 +560,16 @@ function hasRawStopPx(body: unknown): boolean {
 
 /** A stop-limit rests as a limit; its stored trigger turns the wire order back into the stop-limit the caller placed. */
 async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(orders.map((o) => o.id)) : null;
+  const ids = orders.map((o) => o.id);
+  const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(ids) : null;
+  const fired = deps.stopTriggers && triggers && triggers.size > 0 ? await deps.stopTriggers.readFired(ids) : null;
   return <W extends { type: string; stopPrice: string | null }>(order: OrderRecord, wire: W): W => {
     const trigger = triggers?.get(order.id);
-    return trigger ? { ...wire, type: 'stop_limit', stopPrice: trigger } : wire;
+    if (!trigger) return wire;
+    // `triggered`: when the stop fired and the price that reached it; null while it waits (or if no record was kept).
+    const when = fired?.get(order.id);
+    const triggered = when ? { at: when.at, by: when.by, referencePrice: when.referencePrice } : null;
+    return { ...wire, type: 'stop_limit', stopPrice: trigger, triggered };
   };
 }
 
@@ -619,6 +636,8 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
     status: toCcxtOrderStatus(order.status),
     rejectCode: order.rejectCode,
     tag: order.tag ?? null,
+    /** The rank fee discount this order trades with, as a rate ("0" when none). Its fills' fee rates already include it. */
+    feeDiscount: Number.isInteger(order.feeDiscountBps) && order.feeDiscountBps >= 0 ? bpsToFeeRate(order.feeDiscountBps) : undefined,
     /** Additive frozen-spine evidence; unresolved is never flattened to open/rejected. */
     recoveryReason: order.recoveryReason,
     reconciliationKey: order.reconciliationKey,
@@ -806,7 +825,15 @@ export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok:
   return { ok: true, sinceMs: Math.floor(n) };
 }
 
-type ClosedQuery = { symbol?: string; limit?: string; since?: string; until?: string; side?: string; status?: string };
+type ClosedQuery = {
+  symbol?: string;
+  limit?: string;
+  since?: string;
+  until?: string;
+  side?: string;
+  status?: string;
+  before?: string;
+};
 
 const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 'expired'> = {
   closed: 'filled',
@@ -1186,6 +1213,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
+  attachStatementRoutes(app, deps.statements, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -1344,6 +1372,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!filters.ok) {
       return sendCcxt(reply, badRequest(filters.message, 'trade.invalid_filter'));
     }
+    const before = req.query.before;
+    if (before !== undefined && before !== '' && !ORDER_ID_SHAPE.test(before)) {
+      return sendCcxt(reply, badRequest('before must be the id of an order on the previous page', 'trade.invalid_cursor'));
+    }
 
     try {
       // since/until → SQL on orders.created_at (timestamptz); side and status filter in SQL too.
@@ -1355,6 +1387,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(filters.side ? { side: filters.side } : {}),
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.type ? { type: filters.type } : {}),
+        ...(before ? { before } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
@@ -2912,6 +2945,32 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * When the deadline passes the sweep cancels every open order of the caller. The allowed timeouts are the
    * owner's published set (blank = typed refusal); the credential must outlive the deadline.
    */
+  /**
+   * GET /api/v1/orders/cancel-all-after: the caller's countdown (armed, timeout, triggerTime) and the timeouts the owner
+   * has published (`timeouts`, null while none are). The desk reads it to offer only published values and to show
+   * the trigger time after a reload.
+   */
+  app.get('/api/v1/orders/cancel-all-after', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.readCancelAllAfter) {
+      return sendCcxt(reply, badRequest('cancel-all-after is not available on this venue', 'trade.cancel_all_after_unset'));
+    }
+    try {
+      const out = await deps.readCancelAllAfter(principal);
+      return reply.code(200).send({
+        armed: out.armed,
+        timeout: out.timeoutSec,
+        triggerTime: out.deadline ? out.deadline.toISOString() : null,
+        timeouts: out.published ? [...out.published] : null,
+      });
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
   app.post('/api/v1/orders/cancel-all-after', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
@@ -3165,6 +3224,41 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** CCXT fetchOrderTrades: one order's fills, oldest first, each with its role, fee, fee asset and fee rate. */
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/v1/orders/:id/trades', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.orderFills) {
+      return reply.code(503).send({ error: 'order fills are not configured', code: 'trade.order_fills_unconfigured' });
+    }
+    const limit = parsePrivateRestLimit(req.query.limit, MAX_FILLS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('orders/:id/trades limit is unset — refuse to invent 100', TRADE_ACCOUNT_TRADES_LIMIT_UNSET));
+    }
+    try {
+      // A malformed id is no order of the caller's: the same answer as another person's order, before any read.
+      if (!ORDER_ID_SHAPE.test(req.params.id)) throw new TradeError('order not found', 'trade.order_not_found');
+      const fills = await deps.orderFills(principal, req.params.id, limit);
+      const serverTime = stampServerTime(reply, deps);
+      const symbolByMarket = new Map<string, string>();
+      const wire = [];
+      for (const fill of fills) {
+        let symbol = symbolByMarket.get(fill.marketId);
+        if (symbol === undefined) {
+          const market = await deps.marketById(fill.marketId);
+          symbol = market?.symbol ?? fill.marketId;
+          symbolByMarket.set(fill.marketId, symbol);
+        }
+        wire.push({ ...presentCcxtMyTrade(fill, symbol), serverTime });
+      }
+      return reply.code(200).send(wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

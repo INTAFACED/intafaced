@@ -885,6 +885,16 @@
     align-items: center;
     gap: 8px;
   }
+  .dk-order-link {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--if-text-secondary);
+    text-underline-offset: 2px;
+  }
+  .dk-order-link:focus-visible {
+    outline: 2px solid var(--if-focus);
+    outline-offset: 2px;
+  }
   .dk-changes-trigger {
     border: 0;
     background: none;
@@ -977,6 +987,16 @@
     outline: 2px solid var(--if-lime);
     outline-offset: 2px;
   }
+  .dk-deadman-other {
+    width: 120px;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line, currentColor);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--if-fg);
+    font: inherit;
+  }
   .dk-select {
     width: 14px;
     height: 14px;
@@ -999,7 +1019,12 @@
     font: 400 14px/20px var(--if-font-ui);
     cursor: pointer;
   }
+  /* The app resets native inputs to appearance: none, which leaves a radio or checkbox with no size: keep the browser's own. */
   .dk-scope input {
+    appearance: auto;
+    flex: none;
+    width: 14px;
+    height: 14px;
     margin-top: 3px;
     accent-color: var(--if-lime);
   }
@@ -1385,4 +1410,34 @@
   .if-desk .dk-form [data-slot='amount-input'] span {
     font-size: 12px;
   }
+}
+
+/* Ledger history and statement export (J-cex-spot-07 #5, #6) */
+.dk-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dk-ledger-head {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dk-ledger-ref {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.dk-statement-days {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dk-statement-days label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dk-statement-days input {
+  appearance: auto;
+  min-height: 32px;
 }

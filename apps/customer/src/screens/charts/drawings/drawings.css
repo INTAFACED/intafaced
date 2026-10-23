@@ -5,18 +5,12 @@
 @layer theme, base, components, utilities;
 @layer components {
   /*
-   * The layer is a dock under the chart. The chart host is absolutely placed over its whole root, so while a layer is in
-   * the root the host stops above the dock instead of under it.
+   * The layer is a dock under the chart, in the flow of the workbench: the chart stage takes the room above it, and the
+   * studies bar (an add-on) sits below the dock.
    */
-  .wc-root:has(> .dw-layer) > .wc-host {
-    bottom: var(--dw-dock, 320px);
-  }
   .dw-layer {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 1;
+    position: relative;
+    flex: none;
     box-sizing: border-box;
     height: var(--dw-dock, 320px);
     display: flex;

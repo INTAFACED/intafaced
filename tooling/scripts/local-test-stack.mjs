@@ -42,6 +42,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { profileEnvFor } from './owner-settings.mjs';
 import {
   FOUNDER_VAULT_NAME,
   enrolledFounderPair,
@@ -881,6 +882,17 @@ function serviceDefs(secrets) {
         // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
         // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
         IDENTITY_MAX_SUB_ACCOUNTS: '10',
+        // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
+        // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
+        IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
+        IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
+        IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
+        // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
+        // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
+        // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
+        IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
+          .value,
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
@@ -943,11 +955,15 @@ function serviceDefs(secrets) {
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
         // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
+        // The perpetual block is LOCAL TEST too: the regular-tier perpetual rates OKX is widely reported to publish,
+        // maker 2 bps and taker 5 bps (not checked against its own page). Futures orders keep these rates; without the
+        // block they refuse trade.fee_product_unpublished (svc-trade futures/matched-order-plan.ts perpetualFeeRates).
         TRADE_FEE_SCHEDULE: JSON.stringify({
           published: true,
           version: 'local-test:okx-regular-spot-reference',
           makerBps: '8',
           takerBps: '10',
+          perpetual: { makerBps: '2', takerBps: '5' },
         }),
         // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
         // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
@@ -964,6 +980,9 @@ function serviceDefs(secrets) {
         // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
         TRADE_FUTURES_MATCHING_ENABLED: 'true',
         TRADE_FUTURES_PRICE_BAND: '0.05',
+        // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
+        // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
+        TRADE_COLLATERAL_HAIRCUT_BPS: '0',
         TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },
@@ -1022,6 +1041,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
         // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
         // blocked (bank.offramp_cooling_unset).
+        // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
+        // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
+        BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
@@ -1109,6 +1131,8 @@ function serviceDefs(secrets) {
       env: () => ({
         ...c('svc-notify', PORTS.notify),
         DATABASE_URL: dbUrl('svc_notify', secrets),
+        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
+        IDENTITY_URL: urlOf('identity'),
         TRADE_URL: urlOf('trade'),
         MATCHING_URL: urlOf('matching'),
         // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
@@ -1120,6 +1144,10 @@ function serviceDefs(secrets) {
         // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
         // and every create is refused (notify.alert_quota_unset) until then.
         NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
+        // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
+        // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
+        NOTIFY_INBOX_PAGE_SIZE: '20',
+        NOTIFY_INBOX_UNREAD_CAP: '99',
       }),
     },
     {
@@ -1161,7 +1189,13 @@ function serviceDefs(secrets) {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
       // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
+      // The out-of-sample criteria and the holdout are the TEST profile's labelled values (tooling/profiles/test-owner-values.json).
+      env: () => ({
+        ...c('svc-quant', PORTS.quant),
+        DATABASE_URL: dbUrl('svc_quant', secrets),
+        TRADE_URL: urlOf('trade'),
+        ...profileEnvFor('quant', 'dev'),
+      }),
     },
     {
       name: 'execution',
@@ -1176,8 +1210,10 @@ function serviceDefs(secrets) {
     {
       // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
       // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
+      // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
+      // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
       name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
+      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger'), TRADE_URL: urlOf('trade'), TAX_DEPOSIT_BASIS: 'customer' }),
     },
     {
       // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and

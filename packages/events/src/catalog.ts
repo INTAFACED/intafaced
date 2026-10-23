@@ -480,6 +480,33 @@ export const orderCancelled = defineEvent(
 );
 
 /**
+ * A stop order's trigger fired (J-cex-spot-06 #6). The price that reached the stop is `referencePrice`, read from
+ * `triggerBy` (the last trade, or the mark or index price). What the activated order then did follows as its own
+ * `orderFilled` / `orderCancelled` events at later sequences; a trigger whose order could not go on is followed by a
+ * cancel with reason `trigger_rejected`. Evidence for "why did my stop fire, and at what price": moves no money.
+ *
+ * Idempotency key: `matching.order.triggered:<marketId>:<sequence>`.
+ */
+export const orderTriggered = defineEvent(
+  'matching',
+  'order',
+  'triggered',
+  1,
+  z.object({
+    orderId: engineOrderIdSchema,
+    marketId: z.string(),
+    /** The activation's book sequence: the order's fills and cancels from this trigger come after it. */
+    sequence: z.number().int(),
+    triggerBy: z.enum(['last', 'mark', 'index']),
+    stopPrice: amountSchema,
+    /** The reference price that reached the stop when it fired. */
+    referencePrice: amountSchema,
+    ts: z.string().datetime({ offset: true }),
+  }),
+  'A stop order fired. svc-trade records when and at what price, so the order says why it went to the book.',
+);
+
+/**
  * A spread order matched (CB-otc-16). One event per spread fill, carrying every
  * leg, so svc-trade posts one hold release and one fill for the whole spread and
  * never a partial leg. A spread fill is NOT an `orderFilled`: the spread price
@@ -1347,6 +1374,7 @@ export const EVENT_CATALOG = {
   orderAccepted,
   orderFilled,
   orderCancelled,
+  orderTriggered,
   spreadFilled,
   orderUpdated,
   fillSettled,

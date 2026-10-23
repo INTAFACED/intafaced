@@ -13,6 +13,8 @@ import { trackRun } from '../runs/track.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
 import { HISTORY_BARS_BACK, tradeFeePort, tradeHistoryPort, type FeePort, type HistoryPort } from './ports.js';
+import { NO_JUDGEMENT, prepareBacktest, runOnBars, type Judgement } from './run.js';
+import { parseAmount } from '@intafaced/ledger-client/money';
 
 const SECRET = 'a-quant-bar-backtest-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
@@ -74,21 +76,25 @@ function fakeFetch(routes: Record<string, { status: number; body: unknown }>, se
 
 const FEES = { status: 200, body: { version: 'local-test:v1', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } } };
 
-function setup(options: { history?: HistoryPort; fees?: FeePort; seen?: string[] } = {}) {
+type Stores = { runs: ReturnType<typeof createMemoryRunRepository>; strategies: ReturnType<typeof createMemoryStrategyRepository> };
+
+function setup(options: { history?: HistoryPort; fees?: FeePort; seen?: string[]; judgement?: Judgement; stores?: Stores } = {}) {
   const seen = options.seen ?? [];
   const fetch = fakeFetch({ '/api/v1/ohlcv/BTC%2FUSDT': { status: 200, body: candleRows() }, '/api/v1/fees/published': FEES }, seen);
-  const runs = createMemoryRunRepository(RUN_RESULT_MAX_BYTES);
+  const runs = options.stores?.runs ?? createMemoryRunRepository(RUN_RESULT_MAX_BYTES);
+  const strategies = options.stores?.strategies ?? createMemoryStrategyRepository();
   const appRouter = createQuantRouter({
     wired: true,
     venueVaultSet: false,
     limits,
-    strategies: createMemoryStrategyRepository(),
+    strategies,
     runs,
     history: options.history ?? tradeHistoryPort({ tradeUrl: 'http://trade.test', now: () => NOW, fetch }),
     fees: options.fees ?? tradeFeePort({ tradeUrl: 'http://trade.test', fetch }),
     now: () => NOW,
+    judgement: options.judgement,
   });
-  return { a: appRouter.createCaller(signed(ACCOUNT_A)), b: appRouter.createCaller(signed(ACCOUNT_B)), runs, seen };
+  return { a: appRouter.createCaller(signed(ACCOUNT_A)), b: appRouter.createCaller(signed(ACCOUNT_B)), runs, strategies, seen };
 }
 
 async function saved(a: ReturnType<typeof setup>['a'], modules: QuantSignalRules | null = RULES) {
@@ -246,6 +252,62 @@ describe('bar backtest disclosures and races', () => {
   });
 });
 
+describe('run history, labels and the log', () => {
+  it('lists own runs newest first; a label never changes the stored result; another account cannot see or rename them', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const first = await a.backtest.start(request(strategy.id));
+    // Runs are stamped to the millisecond: wait one, so "newest first" is decided by time, not by a tie.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await a.backtest.start({ ...request(strategy.id), costs: { feeRole: 'maker', slippageBps: '2', delayBars: '0' } });
+    const page = await a.backtest.history({ limit: 10 });
+    expect(page.runs.map((row) => row.runId)).toEqual([second.runId, first.runId]);
+    expect(page.runs[0]).toMatchObject({ strategyId: strategy.id, strategyVersion: 1, outcome: 'ok', label: null });
+
+    expect(await a.backtest.rename({ runId: first.runId, label: '  hourly cross  ' })).toEqual({
+      runId: first.runId,
+      label: 'hourly cross',
+    });
+    expect((await a.backtest.history({ limit: 10 })).runs[1]!.label).toBe('hourly cross');
+    expect(await a.backtest.result({ runId: first.runId })).toEqual(first);
+
+    await expect(a.backtest.rename({ runId: first.runId, label: ' ' })).rejects.toThrow(/quant\.params_invalid — label/);
+    await expect(b.backtest.rename({ runId: first.runId, label: 'mine' })).rejects.toThrow(/quant\.run_not_found/);
+    expect((await b.backtest.history({ limit: 10 })).runs).toEqual([]);
+    // One page at a time, still newest first.
+    const one = await a.backtest.history({ limit: 1 });
+    expect(one.runs.map((row) => row.runId)).toEqual([second.runId]);
+    expect((await a.backtest.history({ limit: 1, cursor: one.nextCursor })).runs.map((row) => row.runId)).toEqual([first.runId]);
+  });
+
+  it('leaves out a fills-language backtest, which has no bar result to open, and refuses to rename it', async () => {
+    const { a, runs } = setup();
+    const strategy = await saved(a);
+    const bar = await a.backtest.start(request(strategy.id));
+    const fills = await runs.begin({
+      userId: ACCOUNT_A,
+      idempotencyKey: 'backtest.run:client-key',
+      kind: 'backtest',
+      strategyId: strategy.id,
+      strategyVersion: 1,
+    });
+    await runs.finish({ id: fills.id, userId: ACCOUNT_A, outcome: 'ok', stored: { detail: null, response: { simulated: true } } });
+    expect((await a.backtest.history({ limit: 10 })).runs.map((row) => row.runId)).toEqual([bar.runId]);
+    await expect(a.backtest.rename({ runId: fills.id, label: 'old' })).rejects.toThrow(/quant\.run_not_found/);
+  });
+
+  it('logs what was read, each fill and, as warnings, each gap and the choices that shaped the result', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    const result = await a.backtest.start(request(strategy.id));
+    expect(result.log[0]).toMatchObject({ level: 'info', code: 'bars_read', values: { bars: '8', expected: '8' } });
+    expect(result.log.filter((line) => line.code === 'fill')).toHaveLength(result.trades.length);
+    const warnings = result.log.filter((line) => line.level === 'warn');
+    expect(warnings).toEqual([{ level: 'warn', code: 'assumption', ts: null, values: { name: 'risk_limits_not_simulated' } }]);
+    expect(result.log[result.log.length - 1]).toMatchObject({ code: 'finished', values: { net: result.totals.net } });
+  });
+});
+
 describe('history read', () => {
   it('asks for closed bars from the window start and keeps only whole bars inside it', async () => {
     const seen: string[] = [];
@@ -289,5 +351,177 @@ describe('history read', () => {
     await expect(port.bars({ symbol: 'BTC/USDT', barSize: '1h', fromMs: NOW - HISTORY_BARS_BACK * HOUR, toMs: NOW })).rejects.toThrow(
       /quant\.backtest_history_range/,
     );
+  });
+});
+
+describe('honest results: split, computed verdict, variant count (AL-backtest-04)', () => {
+  const CRITERIA = { minTrades: '0', minReturnPercent: '-100', maxDrawdownPercent: '100', maxShortfallPercent: null };
+
+  it('splits off the latest third, computes the verdict, names the blank criterion, and ignores a typed verdict', async () => {
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, criteria: CRITERIA } });
+    const strategy = await saved(a);
+    const result = await a.backtest.start({ ...request(strategy.id), split: { preset: '1/3' }, outOfSampleStatus: 'passed' });
+    // Eight hours: the latest third starts 2h40m before the end, moved up to the next bar open at 06:00.
+    expect(result.split).toEqual({ preset: '1/3', outOfSampleFrom: new Date(T0 + 6 * HOUR).toISOString() });
+    expect(result.sections?.inSample).toMatchObject({ from: new Date(T0).toISOString(), to: new Date(T0 + 6 * HOUR).toISOString() });
+    expect(result.verdict).toMatchObject({ status: 'inconclusive', reasons: ['criteria_unset'], unset: ['maxShortfallPercent'] });
+    expect(result.ignoredInputs).toEqual(['outOfSampleStatus']);
+    expect(result.holdout).toEqual({ enforced: false, from: null });
+
+    const judged = setup({ judgement: { ...NO_JUDGEMENT, criteria: { ...CRITERIA, maxShortfallPercent: '100' } } });
+    const other = await saved(judged.a);
+    const computed = await judged.a.backtest.start({ ...request(other.id), split: { preset: '1/3' }, outOfSampleStatus: 'failed' });
+    expect(computed.verdict.status).toBe('passed');
+    expect(computed.ignoredInputs).toEqual(['outOfSampleStatus']);
+    // Read back later, the stored run carries the verdict the service computed, not anything a request sent.
+    expect((await judged.a.backtest.result({ runId: computed.runId })).verdict).toEqual(computed.verdict);
+  });
+
+  it('counts each distinct run of the strategy on its symbol and bar size; a replay is the same variant', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const counts: (number | null)[] = [];
+    for (const slippageBps of ['0', '1', '2', '3', '4']) {
+      counts.push(
+        (await a.backtest.start({ ...request(strategy.id), costs: { feeRole: 'taker', slippageBps, delayBars: '0' } })).variantCount,
+      );
+    }
+    expect(counts).toEqual([1, 2, 3, 4, 5]);
+    expect((await a.backtest.start({ ...request(strategy.id), strategyVariantCount: 1 })).variantCount).toBe(1);
+    const theirs = await saved(b);
+    expect((await b.backtest.start(request(theirs.id))).variantCount).toBe(1);
+  });
+
+  it('keeps the in-sample part clear of the owner holdout when asked, and refuses when the owner has not set it', async () => {
+    const blank = setup();
+    const strategy = await saved(blank.a);
+    const asked = { ...request(strategy.id), split: { preset: '1/3' }, enforceHoldout: true };
+    await expect(blank.a.backtest.start(asked)).rejects.toThrow(/quant\.holdout_date_unset/);
+    // The holdout begins 44 hours before now, at 04:00: the in-sample part runs to 06:00 and reaches into it.
+    const close = setup({ judgement: { ...NO_JUDGEMENT, holdoutStart: 'PT44H' } });
+    const near = await saved(close.a);
+    await expect(close.a.backtest.start({ ...asked, strategyId: near.id })).rejects.toThrow(/quant\.holdout_overlap/);
+    const clear = setup({ judgement: { ...NO_JUDGEMENT, holdoutStart: 'PT40H' } });
+    const far = await saved(clear.a);
+    const result = await clear.a.backtest.start({ ...asked, strategyId: far.id });
+    expect(result.holdout).toEqual({ enforced: true, from: new Date(T0 + 8 * HOUR).toISOString() });
+    // The owner moves the holdout earlier: the stored run reads back as it ran, and nothing new runs into the holdout.
+    const moved = setup({ judgement: { ...NO_JUDGEMENT, holdoutStart: 'PT44H' }, stores: clear });
+    const replay = await moved.a.backtest.start({ ...asked, strategyId: far.id });
+    expect(replay).toEqual(result);
+    await expect(moved.a.backtest.start({ ...asked, strategyId: far.id, cash: '2000' })).rejects.toThrow(/quant\.holdout_overlap/);
+    await expect(clear.a.backtest.start({ ...asked, strategyId: far.id, split: { preset: 'thirds' } })).rejects.toThrow(
+      /quant\.backtest_window_invalid — split/,
+    );
+  });
+
+  it('carries every check with its evidence, from the owner thresholds as they stood when it ran, the same on every read', async () => {
+    const thresholds = { maxSampleGapPercent: '1000', maxVariants: '1', maxOffsetShiftPercent: null };
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, checks: thresholds } });
+    const strategy = await saved(a);
+    const first = await a.backtest.start({ ...request(strategy.id), split: { preset: '1/3' } });
+    // The sensitivity run starts at the window's second bar.
+    expect(first.offsetRun).toMatchObject({ from: new Date(T0 + HOUR).toISOString() });
+    const checks = Object.fromEntries(first.checks.map((check) => [check.name, check]));
+    expect(first.checks).toHaveLength(6);
+    expect(checks.sample_gap).toMatchObject({ status: 'clear', threshold: '1000' });
+    expect(checks.variant_count).toMatchObject({ status: 'clear', evidence: { variants: '1' } });
+    expect(checks.bar_offset).toMatchObject({ status: 'not_set', threshold: null });
+    expect(checks.look_ahead!.status).toBe('by_construction');
+    const second = await a.backtest.start({
+      ...request(strategy.id),
+      split: { preset: '1/3' },
+      costs: { feeRole: 'taker', slippageBps: '9', delayBars: '0' },
+    });
+    expect(second.checks.find((check) => check.name === 'variant_count')).toMatchObject({ status: 'warning', evidence: { variants: '2' } });
+    expect((await a.backtest.result({ runId: second.runId })).checks).toEqual(second.checks);
+  });
+
+  it('starts the one-bar-later run at the second traded bar, also when the window opens in a gap', async () => {
+    const fees: FeePort = { wired: true, fee: async () => ({ version: 'TEST-1', makerBps: 5, takerBps: 10 }) };
+    const strategy = { id: 'strategy-1', version: 1, modules: RULES, risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    const prepared = await prepareBacktest(request(strategy.id), strategy, fees, NOW, NO_JUDGEMENT);
+    // No trade in the first three hours: the first bar opens at 03:00, the second at 04:00.
+    const bars = candleRows()
+      .slice(3)
+      .map(([openTimeMs, open, high, low, close]) => ({
+        openTimeMs,
+        open: parseAmount(open),
+        high: parseAmount(high),
+        low: parseAmount(low),
+        close: parseAmount(close),
+      }));
+    const ran = runOnBars(prepared, bars);
+    expect(ran.offsetRun?.from).toBe(new Date(T0 + 4 * HOUR).toISOString());
+    expect(runOnBars(prepared, bars.slice(0, 2)).offsetRun).toBeNull();
+  });
+
+  it('keeps the run key when the owner changes a criterion or a threshold, so the same inputs stay one variant', async () => {
+    const fees: FeePort = { wired: true, fee: async () => ({ version: 'TEST-1', makerBps: 5, takerBps: 10 }) };
+    const strategy = { id: 'strategy-1', version: 1, modules: RULES, risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    const input = { ...request(strategy.id), split: { preset: '1/3' } };
+    const before = await prepareBacktest(input, strategy, fees, NOW, NO_JUDGEMENT);
+    const after = await prepareBacktest(input, strategy, fees, NOW, {
+      ...NO_JUDGEMENT,
+      criteria: { minTrades: '1', minReturnPercent: '0', maxDrawdownPercent: '10', maxShortfallPercent: '5' },
+      checks: { maxSampleGapPercent: '5', maxVariants: '3', maxOffsetShiftPercent: '1' },
+    });
+    expect(after.key).toBe(before.key);
+    expect(after.checks.maxVariants).toBe('3');
+  });
+
+  it('refuses a replay whose stored result no longer reads, and runs nothing again', async () => {
+    const { a, runs, seen } = setup();
+    const strategy = await saved(a);
+    await a.backtest.start(request(strategy.id));
+    const replay = runs.replay;
+    runs.replay = async (userId, key) => {
+      const row = await replay(userId, key);
+      return row ? { ...row, response: { symbol: 'BTC/USDT' } } : row;
+    };
+    const bars = () => seen.filter((url) => url.includes('/ohlcv/')).length;
+    const reads = bars();
+    await expect(a.backtest.start(request(strategy.id))).rejects.toThrow(/quant\.run_immutable — run — its stored result cannot be read/);
+    expect(bars()).toBe(reads);
+  });
+});
+
+describe('simulated margin account (AL-backtest-02)', () => {
+  const RULES_SET = { mode: 'netting' as const, maxLeverage: '20', marginCallPercent: '80', stopOutPercent: '50' };
+
+  it('refuses a blank leverage, any blank owner rule by name, and a leverage over the maximum, storing nothing', async () => {
+    const { a, runs } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+    const strategy = await saved(a);
+    const margin = (leverage: string) => ({ ...request(strategy.id), simulatedAccount: { leverage } });
+    await expect(a.backtest.start(margin(' '))).rejects.toThrow(/quant\.account_rule_unset — leverage — fill in the leverage/);
+    await expect(a.backtest.start(margin('21'))).rejects.toThrow(/leverage — must be from 1 up to the published maximum of 20/);
+    await expect(a.backtest.start(margin('0.5'))).rejects.toThrow(/quant\.account_rule_unset — leverage/);
+    for (const [rule, name] of [
+      ['maxLeverage', 'maximum leverage'],
+      ['marginCallPercent', 'margin call level'],
+      ['stopOutPercent', 'stop-out level'],
+    ] as const) {
+      const blank = setup({ judgement: { ...NO_JUDGEMENT, account: { ...RULES_SET, [rule]: null } } });
+      const theirs = await saved(blank.a);
+      await expect(blank.a.backtest.start({ ...request(theirs.id), simulatedAccount: { leverage: '5' } })).rejects.toThrow(
+        new RegExp(`quant\\.account_rule_unset — ${name} — the owner has not published it`),
+      );
+    }
+    expect((await runs.history({ userId: ACCOUNT_A, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 10, cursor: null })).runs).toEqual([]);
+    expect(await a.backtest.accountRules()).toEqual(RULES_SET);
+  });
+
+  it('runs on margin under its own key, with the account and its events on the result; a cash run keeps its key', async () => {
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+    const strategy = await saved(a);
+    const cash = await a.backtest.start(request(strategy.id));
+    expect(cash.account).toBeNull();
+    expect(cash.marginEvents).toEqual([]);
+    const margin = await a.backtest.start({ ...request(strategy.id), simulatedAccount: { leverage: '5' } });
+    expect(margin.runKey).not.toBe(cash.runKey);
+    expect(margin.account).toEqual({ ...RULES_SET, leverage: '5' });
+    expect(Array.isArray(margin.marginEvents)).toBe(true);
+    expect(margin.equity.some((point) => point.marginLevelPercent !== undefined)).toBe(true);
+    expect(await a.backtest.result({ runId: margin.runId })).toEqual(margin);
   });
 });

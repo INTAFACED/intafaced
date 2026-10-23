@@ -395,6 +395,20 @@ export const orderSchema = z.object({
    * field.
    */
   hold: z.object({ asset: z.string(), amount: decimal }).nullable().optional(),
+  /**
+   * The rank fee discount the order trades with, as a rate ("0" when none). Its fills' fee rates already include it.
+   * Absent on wires from before this field.
+   */
+  feeDiscount: decimal.optional(),
+  /**
+   * A stop order's trigger: when it fired, which price it watched (`last` trade, `mark` or `index`) and the price that
+   * reached the stop. Null on a stop that has not fired, or fired with no record kept. Absent on other orders and on
+   * wires from before this field.
+   */
+  triggered: z
+    .object({ at: isoDatetime, by: z.enum(['last', 'mark', 'index']), referencePrice: decimal })
+    .nullable()
+    .optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 
@@ -549,6 +563,11 @@ export const positionSchema = z.object({
   closedAt: isoDatetime.nullable().optional(),
   /** Row update time. Distinct from `timestamp`, which stays the open time. */
   updatedAt: isoDatetime.nullable().optional(),
+  /**
+   * Trading fees the position's fills paid, opening and reducing, in the margin asset. Null (with a reason in
+   * fieldReasons) when the position has no fill that recorded one. Absent when the answer did not read them.
+   */
+  fees: decimal.nullable().optional(),
   /** Set on a repeated close of a position this caller already closed. */
   replayed: z.boolean().optional(),
   /** Why a field above is null. Absent when that field has a value. */

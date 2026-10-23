@@ -2,18 +2,19 @@
 
 Fill in the angle brackets; leave out what does not apply. Carry the owner's own message ids and the original brief forward; never a rewritten summary.
 
-**Lane:** `<lane name from docs/roadmap/slices.json>`, folders `<services/... or apps/customer/src/features/...>`. No other lane edits these folders.
+**Area:** `<the journeys this thread owns, for example J-wallet-*>` and the folders they touch, `<services/... and apps/...>`. One thread owns an area. When the work needs a change in another area's folders, route it to that area's thread instead of editing there.
 
-**Outcome:** the slices in this lane's queue (`node tooling/scripts/roadmap.mjs --lane "<lane>"`) built and merged, trader-journey slices first, starting with `<first slice id>`. Follow `docs/agents/build-slice.md`.
+**Outcome:** every journey in the area passes in the running app on main. Take the one closest to passing first; its steps and slices are its entry in `docs/roadmap/journeys.json`, and the last real-app run on main says which steps pass (`node tooling/scripts/roadmap.mjs --progress --results <report.json>`). Follow `docs/agents/build-slice.md`. Keep going journey after journey; say when one passes on main so the next can start.
 
 **Context:**
 
-- Decisions already made that this lane sits on: `<ADR links, seam PRs, refusal catalogue, design tokens>`.
-- Seams frozen for this lane's journey: `<contracts or events files>`. A change to them goes to `<owner thread>` first.
-- Outside services this lane refuses for: `<from the slices' outside field>`.
+- Decisions already made that this area sits on: `<ADR links, seam PRs, refusal catalogue, design tokens>`.
+- Open PRs and branches in this area to finish or close: `<numbers>`.
+- Seams other areas depend on: `<contracts or events files>`. Land a shared contract first, as its own small PR, so other areas can build on it in parallel.
+- Outside services this area refuses for: `<from the slices' outside field>`.
 
-**Out of scope:** other lanes' folders, Polish work (looks, copy, performance), refactors the slice does not need, anything needing real money, live credentials or a deploy.
+**Out of scope:** other areas' folders, Polish work (looks, copy, performance), refactors the journey does not need, anything needing real money, live credentials or a deploy.
 
-**Done for each slice:** its rows met on main, its test and journey part green, its journey step seen working in the running app, the PR merged with an independent PASS on its head. The thread keeps going across slices until its journey passes on main.
+**Done for each slice:** its rows met on main, its test and journey part green, its journey step seen working in the running app, the PR merged with an independent PASS on its head when it needs one.
 
-**Spec text** (when the shared folder is not mounted in the lane's session): `<paste the slice sections>`.
+**Spec text** (when the shared folder is not mounted in the thread's session): `<paste the slice sections>`.

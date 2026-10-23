@@ -1,5 +1,5 @@
 import type { Principal } from '@intafaced/auth';
-import { requireMfa } from '@intafaced/auth';
+import { AuthError, hasScope, requireMfa, requireScope } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
@@ -20,12 +20,14 @@ import {
   merchantProfileHistorySchema,
   merchantProfileSecondApprovalInputSchema,
   merchantProfileSecondApprovalResultSchema,
+  anyScopeProcedure,
   router,
   scopedProcedure,
   TRPCError,
 } from '@intafaced/contracts';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { merchantProfileReviewFields } from '../approval-bindings.js';
+import { createMerchantCustomerEmails } from '../customer-emails/router.js';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { isInteractivePrincipal } from '../merchant-ops/roles.js';
@@ -34,7 +36,7 @@ import { listMyAccess } from './access.js';
 import { MerchantAnalyticsService } from './analytics.js';
 import { PortalError, wrapPortal } from './errors.js';
 import { readOnboardingProgress } from './onboarding.js';
-import { MerchantProfileService } from './profile.js';
+import { MerchantProfileService, type ProfileWriter } from './profile.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
@@ -64,7 +66,31 @@ export function merchantPortalExtensions(deps: {
   const profile = new MerchantProfileService(deps.sql, deps.pay, deps.trees, deps.team);
   const analytics = new MerchantAnalyticsService(deps.sql, deps.pay, deps.trees, deps.team);
   const read = ownMerchantRead();
-  const write = scopedProcedure('pay:write', { module: 'pay' });
+  /**
+   * Profile writes take `pay:write` or `pay:onboard`, and say which one the session still holds, so the
+   * service can let the owner of a business that is not verified yet fill in its details (J-merchant-02 #1)
+   * and an admin of a verified one change them (`ProfileWriter`).
+   */
+  const profileWrite = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' }).use(async ({ ctx, next }) => {
+    let scope: ProfileWriter['scope'] = 'pay:onboard';
+    if (hasScope(ctx.principal.scopes, 'pay:write')) {
+      // A second live lookup: anyScopeProcedure does not say which scope it accepted.
+      try {
+        requireScope(ctx.principal, 'pay:write');
+        await ctx.ownerPayGrant?.assertStillGranted(ctx.principal, 'pay:write');
+        scope = 'pay:write';
+      } catch (err) {
+        // A withdrawn grant or a missing second factor: anyScopeProcedure accepted the session on `pay:onboard`,
+        // so the narrower rules apply. Anything else (the lookup failing) is not a decision about the grant.
+        if (!(err instanceof AuthError) && !(err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn')) throw err;
+      }
+    }
+    return next({ ctx: { ...ctx, profileScope: scope } });
+  });
+  const writer = (ctx: { principal: Principal | null | undefined; profileScope: ProfileWriter['scope'] }): ProfileWriter => ({
+    userId: interactive(ctx.principal),
+    scope: ctx.profileScope,
+  });
   const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
 
   const userIdOf = (principal: { userId?: string } | null | undefined): string => {
@@ -95,18 +121,18 @@ export function merchantPortalExtensions(deps: {
         .input(merchantProfileHistoryInputSchema)
         .output(merchantProfileHistorySchema)
         .query(({ ctx, input }) => wrapPortal(async () => profile.history(ctx.principal?.userId, input))),
-      submit: write
+      submit: profileWrite
         .input(merchantBusinessProfileSubmitInputSchema)
         .output(merchantBusinessProfileSubmitResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.submit(interactive(ctx.principal), input))),
-      confirm: write
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.submit(writer(ctx), input))),
+      confirm: profileWrite
         .input(merchantBusinessProfileConfirmInputSchema)
         .output(merchantBusinessProfileDecideResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(interactive(ctx.principal), input))),
-      setSecondApproval: write
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(writer(ctx), input))),
+      setSecondApproval: profileWrite
         .input(merchantProfileSecondApprovalInputSchema)
         .output(merchantProfileSecondApprovalResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(interactive(ctx.principal), input))),
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(writer(ctx), input))),
       /**
        * Compliance decide. `admin:compliance`, MFA, and an identity approval,
        * matching `merchant.decideKyb`. A merchant session cannot apply a
@@ -149,6 +175,8 @@ export function merchantPortalExtensions(deps: {
           }),
         ),
     }),
+    // Not merged as its own `merchant` key: `createPayRouter` already owns that key and spreads this object.
+    customerEmails: createMerchantCustomerEmails({ sql: deps.sql }),
   };
   return {
     merchant,

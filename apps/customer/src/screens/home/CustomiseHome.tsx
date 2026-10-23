@@ -8,6 +8,7 @@ import { HOME_TILES, canMove, isHidden, moved, orderedTiles, withHidden, type Ho
 
 const TILE_NAME = {
   started: 'Tile started',
+  work: 'Tile work',
   holdings: 'Tile holdings',
   activity: 'Tile activity',
   markets: 'Tile markets',

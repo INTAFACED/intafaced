@@ -23,8 +23,13 @@
     },
     "TRADE_FEE_SCHEDULE": {
       "service": "trade",
-      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\"}",
-      "note": "Zero fee schedule, so the order path posts no fee."
+      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
+      "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
+    },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
     },
     "TRADE_MAX_ORDER": {
       "service": "trade",
@@ -140,6 +145,86 @@
       "service": "bank",
       "value": "EUR,GBP,USD",
       "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "BANK_ADDRESS_BOOK_CAP": {
+      "service": "bank",
+      "value": "10",
+      "note": "How many withdrawal addresses one person may save (J-wallet-04)."
+    },
+    "BANK_OFFRAMP_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
+    },
+    "NOTIFY_INBOX_PAGE_SIZE": {
+      "service": "notify",
+      "value": "20",
+      "note": "Inbox page size, so the notification centre lists (J-home-ia-05)."
+    },
+    "NOTIFY_INBOX_UNREAD_CAP": {
+      "service": "notify",
+      "value": "99",
+      "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "IDENTITY_ACCOUNT_TIERS": {
+      "service": "identity",
+      "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
+      "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
+    },
+    "QUANT_OOS_MIN_TRADES": {
+      "service": "quant",
+      "value": "1",
+      "note": "Out-of-sample round trips a TEST backtest needs before it is judged; one, so a short TEST tape can be judged."
+    },
+    "QUANT_OOS_MIN_RETURN_PERCENT": {
+      "service": "quant",
+      "value": "0",
+      "note": "TEST: the out-of-sample part must not lose money after costs."
+    },
+    "QUANT_OOS_MAX_DRAWDOWN_PERCENT": {
+      "service": "quant",
+      "value": "10",
+      "note": "TEST largest out-of-sample fall from a peak, in percent. QUANT_OOS_MAX_SHORTFALL_PERCENT is left blank on purpose so the screen shows a verdict that names a missing criterion."
+    },
+    "QUANT_HOLDOUT_START": {
+      "service": "quant",
+      "value": "PT15M",
+      "note": "TEST holdout: the latest 15 minutes of the TEST tape, so a journey can run clear of it and be refused inside it."
+    },
+    "QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT": {
+      "service": "quant",
+      "value": "5",
+      "note": "TEST overfitting threshold: warn when the out-of-sample return falls over 5 percentage points below in sample."
+    },
+    "QUANT_CHECK_MAX_VARIANTS": {
+      "service": "quant",
+      "value": "3",
+      "note": "TEST overfitting threshold: warn from the fourth variant, so a journey that tries five sees the warning."
+    },
+    "QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT": {
+      "service": "quant",
+      "value": "1",
+      "note": "TEST sensitivity threshold: warn when starting one bar later moves the return by over 1 percentage point."
+    },
+    "QUANT_ACCOUNT_MAX_LEVERAGE": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST simulated-account maximum leverage for margin backtests."
+    },
+    "QUANT_ACCOUNT_MARGIN_CALL_PERCENT": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST margin call when equity falls to the margin used."
+    },
+    "QUANT_ACCOUNT_STOP_OUT_PERCENT": {
+      "service": "quant",
+      "value": "90",
+      "note": "TEST stop-out close under the margin call, so a short TEST tape shows both events in order."
+    },
+    "TAX_DEPOSIT_BASIS": {
+      "service": "tax",
+      "value": "customer",
+      "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
     }
   }
 }

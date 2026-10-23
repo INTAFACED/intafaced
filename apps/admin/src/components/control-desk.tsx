@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { ApprovalWorkbench, StepReplyView } from '@/components/approval-workbench';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import { confirmPhrase, type DeskRequest } from '@/lib/desk/approval-packet';
@@ -40,6 +40,8 @@ export interface RequestFormViewProps {
 
 export function RequestFormView(props: RequestFormViewProps) {
   const { action, gate } = props;
+  // A page can hold more than one desk (an account's unfreeze, close and tier desks), so each form's ids are its own.
+  const uid = useId();
   return (
     <form
       className="dk-stack"
@@ -53,9 +55,9 @@ export function RequestFormView(props: RequestFormViewProps) {
       <p className="dk-muted">{props.consequence}</p>
       {action.needsReason && (
         <div className="adm-field">
-          <label htmlFor="dk-reason">{action.reasonLabel}</label>
+          <label htmlFor={`${uid}dk-reason`}>{action.reasonLabel}</label>
           <textarea
-            id="dk-reason"
+            id={`${uid}dk-reason`}
             className="adm-textarea"
             rows={3}
             value={props.reason}
@@ -66,11 +68,11 @@ export function RequestFormView(props: RequestFormViewProps) {
         </div>
       )}
       <div className="adm-field">
-        <label htmlFor="dk-request-confirm">
+        <label htmlFor={`${uid}dk-request-confirm`}>
           Type <code>{props.phrase}</code> to confirm
         </label>
         <input
-          id="dk-request-confirm"
+          id={`${uid}dk-request-confirm`}
           className="adm-input"
           value={props.confirm}
           autoComplete="off"
@@ -124,6 +126,7 @@ export function ControlDesk({
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<StepReply | null>(null);
   const lock = useRef(false);
+  const uid = useId();
 
   const request = action ? action.build(reason.trim()) : null;
   const phrase = request ? confirmPhrase(request) : '';
@@ -164,8 +167,8 @@ export function ControlDesk({
       {blockedReason && (
         <div className="adm-callout" data-tone="danger" role="status" data-testid="control-blocked">
           <strong>This control is switched off</strong>
-          <p id="dk-blocked-why">{blockedReason}</p>
-          <button type="button" className="adm-btn" disabled aria-describedby="dk-blocked-why">
+          <p id={`${uid}dk-blocked-why`}>{blockedReason}</p>
+          <button type="button" className="adm-btn" disabled aria-describedby={`${uid}dk-blocked-why`}>
             {blockedButtonLabel}
           </button>
         </div>

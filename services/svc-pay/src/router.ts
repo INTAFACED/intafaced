@@ -678,7 +678,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.submitKyb');
-            const merchant = await pay.submitKyb(input);
+            const merchant = await pay.submitKyb({ ...input, actor: { id: ctx.principal.userId, scope: 'pay:onboard' } });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef };
           }),
         ),
@@ -729,6 +729,7 @@ export function createPayRouter(
             const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
+              actor: { id: ctx.principal.userId, scope: 'admin:compliance' },
               identityHash: binding.identityHash,
               beforeWrite: async () => {
                 confirmOperatorId = await consumePayApproval(
@@ -763,7 +764,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.decideKybStub');
-            const merchant = await pay.decideKybStub(input);
+            const merchant = await pay.decideKybStub({ ...input, actor: { id: ctx.principal.userId, scope: 'pay:write' } });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef };
           }),
         ),

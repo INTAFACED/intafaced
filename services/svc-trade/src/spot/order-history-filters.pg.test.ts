@@ -124,10 +124,39 @@ describe('orderHistory filters (PG-hard)', () => {
     expect(await history({ untilMs: T2 })).toEqual([ids.b, ids.a]);
     expect(await history({ sinceMs: T2, untilMs: T2 })).toEqual([ids.b]);
     expect(await history({ untilMs: T1 - 1 })).toEqual([]);
+    // until names a whole millisecond: an order half a millisecond into it is inside, the next millisecond is not.
+    await db.sql`UPDATE trade.orders SET created_at = '2026-10-02T00:00:00.000500Z' WHERE id = ${ids.b}`;
+    expect(await history({ untilMs: T2 })).toEqual([ids.b, ids.a]);
+    await db.sql`UPDATE trade.orders SET created_at = '2026-10-02T00:00:00.001Z' WHERE id = ${ids.b}`;
+    expect(await history({ untilMs: T2 })).toEqual([ids.a]);
   });
 
   it('filters combine, and a symbol filter still applies', async () => {
     expect(await history({ side: 'buy', status: 'cancelled', untilMs: T2, marketId: market.id })).toEqual([ids.a]);
+  });
+
+  it('pages by the previous page’s last order: no order twice, none skipped, even when orders share a creation instant', async () => {
+    // a and b share one instant to the microsecond: a cursor that compared milliseconds or the time alone would repeat or skip one.
+    await db.sql`UPDATE trade.orders SET created_at = '2026-10-02T00:00:00.123456Z' WHERE id IN (${ids.a}, ${ids.b})`;
+    const all = await history();
+    expect(all).toHaveLength(3);
+    const seen: string[] = [];
+    let before: string | undefined;
+    for (;;) {
+      const page = (await trade.orderHistory(alice, { limit: 1, ...(before ? { before } : {}) })).map((o) => o.id);
+      if (page.length === 0) break;
+      seen.push(...page);
+      before = page[page.length - 1];
+    }
+    expect(seen).toEqual(all);
+    expect(await history({ before: all[0], side: 'buy' })).toEqual(all.slice(1).filter((id) => id !== ids.c));
+  });
+
+  it('refuses a cursor that is not one of the caller’s orders', async () => {
+    await expect(trade.orderHistory(alice, { limit: 5, before: ids.other })).rejects.toMatchObject({ code: 'trade.invalid_cursor' });
+    await expect(trade.orderHistory(alice, { limit: 5, before: '33333333-3333-4333-8333-333333333333' })).rejects.toMatchObject({
+      code: 'trade.invalid_cursor',
+    });
   });
 
   it('orderAmendments lists amends and replace links oldest first, owner only', async () => {

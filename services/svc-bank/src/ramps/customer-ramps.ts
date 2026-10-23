@@ -139,6 +139,8 @@ export interface DestinationView {
   addedAt: string;
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
+  /** When the customer confirmed this address is not the saved entry it looks like (W-withdraw-03); null otherwise. */
+  lookalikeConfirmedAt: string | null;
 }
 
 export async function quoteOnramp(
@@ -374,6 +376,7 @@ function viewOf(row: WithdrawDestination, hours: number | null): DestinationView
     addedAt: row.addedAt.toISOString(),
     coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
+    lookalikeConfirmedAt: row.lookalikeConfirmedAt ? row.lookalikeConfirmedAt.toISOString() : null,
   };
 }
 
@@ -408,7 +411,8 @@ export async function saveDestination(
 ): Promise<DestinationView> {
   // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
   // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
-  const { confirmLookalike, ...book } = input;
+  // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
+  const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
@@ -419,7 +423,11 @@ export async function saveDestination(
       'bank.address_lookalike',
     );
   }
-  return viewOf(await deps.destinations.save(book), readOfframpCoolingHours(deps.coolingRaw()));
+  // The confirmation is recorded on the new entry: which saved entry it was checked against, and when.
+  return viewOf(
+    await deps.destinations.save(near ? { ...book, lookalikeOf: near.destinationId } : book),
+    readOfframpCoolingHours(deps.coolingRaw()),
+  );
 }
 
 export async function renameDestination(

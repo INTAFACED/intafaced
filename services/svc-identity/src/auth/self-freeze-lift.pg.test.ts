@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
@@ -86,6 +86,20 @@ if (!(await postgresAvailable(TEST_URL))) {
         code: 'identity.self_freeze_lift_wait_unset',
       });
       expect(await auth.selfFreezeStatus(userId)).toMatchObject({ frozen: true });
+    });
+
+    it('logs auth.self_freeze_lifted once on a real lift, and not on a retry or a refusal', async () => {
+      const userId = await frozenPerson();
+      const warn = vi.fn();
+      const soon = new SelfFreezeLift(db.sql, 3600);
+      soon.useLogger({ warn });
+      await expect(soon.lift(userId)).rejects.toMatchObject({ code: 'identity.self_freeze_lift_too_soon' });
+      const lift = new SelfFreezeLift(db.sql, 0);
+      lift.useLogger({ warn });
+      const done = await lift.lift(userId);
+      await lift.lift(userId);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith({ userId, liftedAt: done.liftedAt!.toISOString() }, 'auth.self_freeze_lifted');
     });
 
     it('assertDue refuses too soon without writing, and passes once due or with nothing open', async () => {

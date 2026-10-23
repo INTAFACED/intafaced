@@ -1,6 +1,7 @@
 /**
  * Private REST: GET /api/v1/orders/closed takes side, status (CCXT words) and until beside symbol, since and limit.
- * A bad filter is refused with a typed 400 before orderHistory runs; nothing is guessed.
+ * A bad filter is refused with a typed 400 before orderHistory runs; nothing is guessed. `before` (the previous page's
+ * last order id) pages the list.
  */
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
@@ -111,6 +112,19 @@ describe('GET /api/v1/orders/closed filters', () => {
       expect(res.statusCode, q).toBe(400);
       expect(res.json().code, q).toBe('BadRequest');
       expect(seen, q).toEqual([]);
+    }
+  });
+
+  it('passes a page cursor through and refuses one that is not an order id', async () => {
+    const id = '33333333-3333-4333-8333-333333333333';
+    const { res, seen } = await get(`?limit=10&before=${id}`);
+    expect(res.statusCode).toBe(200);
+    expect(seen[0]?.before).toBe(id);
+    for (const before of ['abc', `${id}x`, '1']) {
+      const refused = await get(`?limit=10&before=${before}`);
+      expect(refused.res.statusCode, before).toBe(400);
+      expect(refused.res.json().intafacedCode, before).toBe('trade.invalid_cursor');
+      expect(refused.seen, before).toEqual([]);
     }
   });
 });

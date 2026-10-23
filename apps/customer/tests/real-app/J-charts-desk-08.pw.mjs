@@ -161,3 +161,20 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
   await page.keyboard.press('Alt+T');
   await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT/);
 });
+
+test(`${J} #4 applies RSI to every chart of a 2x2 sync group at once: each cell draws its RSI pane`, async ({ page }) => {
+  // 1m: RSI 14 needs 15 bars at the chart's interval, and the stack's 1m history is the longest of the TEST intervals.
+  await openGrid(page);
+  for (let i = 0; i < 4; i += 1)
+    await cell(page, i).getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true }).click();
+  await cell(page, 0).getByRole('button', { name: 'Indicators' }).click();
+  await page.getByRole('searchbox', { name: 'Search indicators' }).fill('rsi');
+  // All four charts start in the blue group, so the group has four charts.
+  await page.getByRole('checkbox', { name: /Add to every chart in this sync group \(4\)/ }).check();
+  await page.getByRole('button', { name: 'Add Relative Strength Index', exact: true }).click();
+  for (let i = 0; i < 4; i += 1) {
+    await expect(cell(page, i).locator('[data-study="rsi-1"]')).toHaveAttribute('data-pane', 'sub');
+    // Volume is the default sub-pane, so RSI makes two indicator panes.
+    await expect(canvasOf(page, i)).toHaveAttribute('data-study-panes', '2');
+  }
+});

@@ -66,6 +66,14 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-identity `identityClosurePayloadHash`: { targetId, action, reasonCode (close only), reason }, in this order.
+    case 'identity.account.close':
+      return shaIdentity(request.userId, { action: 'close', reasonCode: request.reasonCode, reason: request.reason });
+    case 'identity.account.reopen':
+      return shaIdentity(request.userId, { action: 'reopen', reason: request.reason });
+    // svc-identity `identityTierPayloadHash`: { targetId, action: 'tier_move', tierId, reason }, in this order.
+    case 'identity.account.tier_move':
+      return shaIdentity(request.userId, { action: 'tier_move', tierId: request.tierId, reason: request.reason });
     case 'academy.ambassador.appoint':
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
@@ -183,6 +191,27 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         targetService: 'svc-market',
         targetId: request.listingId,
         expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity's staff close and reopen are bound to the account itself, at the control version the founder read.
+    case 'identity.account.close':
+    case 'identity.account.reopen':
+      return {
+        actionType: request.kind === 'identity.account.close' ? 'identity.account_close' : 'identity.account_reopen',
+        targetService: 'svc-identity',
+        targetId: request.userId,
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity's tier move is bound to the account, at the tier version the founder read. Founder-only at identity.
+    case 'identity.account.tier_move':
+      return {
+        actionType: 'identity.account_tier_move',
+        targetService: 'svc-identity',
+        targetId: request.userId,
+        expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',
       };

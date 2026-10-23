@@ -155,6 +155,7 @@ const en = {
     'It starts and ends like your saved address {address} but is a different address. Scammers send small amounts from addresses made to look like yours, so that the one you copy is theirs. Check every character against where you got it.',
   aLookalikeConfirm: 'I checked every character. This is a different address and I want to save it.',
   aLookalikeUnticked: 'Tick the box once you have checked the address, or change it.',
+  aLookalikeChecked: 'You confirmed the look-alike warning · {time}',
   aLookalikeRefused:
     'This address looks like one you saved, so it was not saved. Close this, check every character, and tick the box to save it.',
 } as const;
@@ -314,6 +315,7 @@ const es = {
     'Empieza y termina como tu dirección guardada {address}, pero es otra dirección. Los estafadores envían pequeñas cantidades desde direcciones hechas para parecerse a las tuyas, para que la que copies sea la suya. Comprueba cada carácter con el origen.',
   aLookalikeConfirm: 'He comprobado cada carácter. Es otra dirección y quiero guardarla.',
   aLookalikeUnticked: 'Marca la casilla cuando hayas comprobado la dirección, o cámbiala.',
+  aLookalikeChecked: 'Confirmaste el aviso de dirección parecida · {time}',
   aLookalikeRefused:
     'Esta dirección se parece a una que guardaste, así que no se guardó. Cierra esto, comprueba cada carácter y marca la casilla para guardarla.',
 } as const;
@@ -475,6 +477,7 @@ const fr = {
     'Elle commence et finit comme ton adresse enregistrée {address}, mais c’est une autre adresse. Des escrocs envoient de petits montants depuis des adresses faites pour ressembler aux tiennes, afin que celle que tu copies soit la leur. Vérifie chaque caractère avec sa source.',
   aLookalikeConfirm: 'J’ai vérifié chaque caractère. C’est une autre adresse et je veux l’enregistrer.',
   aLookalikeUnticked: 'Coche la case une fois l’adresse vérifiée, ou modifie-la.',
+  aLookalikeChecked: 'Tu as confirmé l’avertissement de ressemblance · {time}',
   aLookalikeRefused:
     'Cette adresse ressemble à une adresse enregistrée, elle n’a donc pas été enregistrée. Ferme ceci, vérifie chaque caractère et coche la case pour l’enregistrer.',
 } as const;

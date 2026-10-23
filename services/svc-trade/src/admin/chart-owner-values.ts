@@ -29,7 +29,14 @@ import {
   type ApprovalBook,
 } from './common.js';
 
-export const CHART_SCALAR_KEYS = ['compareCap', 'chartCountLimit', 'drawingCap', 'brushPointCap', 'delayedBoundarySeconds'] as const;
+export const CHART_SCALAR_KEYS = [
+  'compareCap',
+  'chartCountLimit',
+  'drawingCap',
+  'brushPointCap',
+  'delayedBoundarySeconds',
+  'renderBudgetMs',
+] as const;
 export type ChartScalarKey = (typeof CHART_SCALAR_KEYS)[number];
 
 /** Schema bounds for a set count. A count outside 1..bound refuses by schema; the bound is not a default. */
@@ -39,6 +46,7 @@ export const CHART_SCALAR_BOUNDS: Readonly<Record<ChartScalarKey, number>> = {
   drawingCap: 10_000,
   brushPointCap: 100_000,
   delayedBoundarySeconds: 86_400,
+  renderBudgetMs: 60_000,
 };
 
 export const CHART_DATA_CLASSES = ['real_time', 'delayed', 'end_of_day'] as const;
@@ -50,6 +58,7 @@ const COLUMN: Readonly<Record<ChartScalarKey, string>> = {
   drawingCap: 'drawing_cap',
   brushPointCap: 'brush_point_cap',
   delayedBoundarySeconds: 'delayed_boundary_seconds',
+  renderBudgetMs: 'render_budget_ms',
 };
 
 /** A page of markets is never unbounded. The market list is small; this is a ceiling, not a default. */
@@ -122,6 +131,7 @@ const EMPTY_VALUES: ChartValues = {
   drawingCap: null,
   brushPointCap: null,
   delayedBoundarySeconds: null,
+  renderBudgetMs: null,
 };
 
 interface ScalarRow {
@@ -131,6 +141,7 @@ interface ScalarRow {
   drawing_cap: number | null;
   brush_point_cap: number | null;
   delayed_boundary_seconds: number | null;
+  render_budget_ms: number | null;
   operator_id: string;
   reason: string;
   created_at: Date;
@@ -140,7 +151,7 @@ interface ScalarRow {
 export async function readChartScalars(sql: Sql): Promise<ChartScalarsView> {
   const [row] = await sql<ScalarRow[]>`
     SELECT version::text AS version, compare_cap, chart_count_limit, drawing_cap, brush_point_cap,
-           delayed_boundary_seconds, operator_id, reason, created_at
+           delayed_boundary_seconds, render_budget_ms, operator_id, reason, created_at
       FROM trade.chart_owner_values ORDER BY chart_owner_values.version DESC LIMIT 1`;
   if (!row) return { version: null, values: EMPTY_VALUES, operatorId: null, reason: null, updatedAt: null };
   return {
@@ -151,6 +162,7 @@ export async function readChartScalars(sql: Sql): Promise<ChartScalarsView> {
       drawingCap: row.drawing_cap,
       brushPointCap: row.brush_point_cap,
       delayedBoundarySeconds: row.delayed_boundary_seconds,
+      renderBudgetMs: row.render_budget_ms,
     },
     operatorId: row.operator_id,
     reason: row.reason,
@@ -317,10 +329,10 @@ export class ChartOwnerValuesAdmin {
       await sql.begin(async (tx) => {
         await tx`INSERT INTO trade.chart_owner_values (
           version, compare_cap, chart_count_limit, drawing_cap, brush_point_cap, delayed_boundary_seconds,
-          operator_id, reason, created_at
+          render_budget_ms, operator_id, reason, created_at
         ) VALUES (
           ${next}::bigint, ${values.compareCap}, ${values.chartCountLimit}, ${values.drawingCap}, ${values.brushPointCap},
-          ${values.delayedBoundarySeconds}, ${principal.userId}, ${reason}, ${at.toISOString()}
+          ${values.delayedBoundarySeconds}, ${values.renderBudgetMs}, ${principal.userId}, ${reason}, ${at.toISOString()}
         )`;
         await writeOperatorAudit(
           tx as unknown as Sql,
