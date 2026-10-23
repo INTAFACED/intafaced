@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
@@ -9,6 +9,7 @@ import { createGlobalApi } from './global-api';
 import {
   amountProblem,
   askedField,
+  canRecall,
   destinationsFrom,
   hasLeft,
   progressOf,
@@ -218,6 +219,84 @@ function ReceiptPanel({ sendId, global }: { sendId: string; global: ReturnType<t
           {sayFor(receipt.code, receipt.message).title} {sayFor(receipt.code, receipt.message).body}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** The word for each state a send can be in: the compiler checks every state has one. */
+const STATUS_WORD = {
+  submitted: 'statusSubmitted',
+  held: 'statusHeld',
+  sent: 'statusSent',
+  on_the_way: 'statusOnTheWay',
+  arrived: 'statusArrived',
+  failed: 'statusFailed',
+  cancelled: 'statusCancelled',
+  returned: 'statusReturned',
+  refunded: 'statusRefunded',
+} as const satisfies Record<GlobalSend['status'], string>;
+
+/**
+ * Sent to the wrong person or with wrong details: says what can be asked (the receiving bank must agree, it is not
+ * guaranteed, and it takes time) and keeps the customer's request on the send. Nothing moves from here.
+ */
+function RecallPanel({ send, global, onAsked }: { send: GlobalSend; global: ReturnType<typeof createGlobalApi>; onAsked: () => void }) {
+  const { t: g } = globalCopy.useCopy();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<Say | null>(null);
+  if (send.recallReason) {
+    return (
+      <p className="pay-hint" data-testid="global-recall-status">
+        {canRecall(send.status) ? g('recallAsked', { reason: send.recallReason }) : g('recallAnswered', { reason: send.recallReason })}
+      </p>
+    );
+  }
+  if (!canRecall(send.status)) return null;
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setProblem(null);
+    const result = await global.recall({ id: send.id, reason: reason.trim() });
+    setBusy(false);
+    if (result.ok) onAsked();
+    else setProblem(sayFor(result.code, result.message));
+  }
+  return (
+    <div data-testid="global-recall">
+      {open ? (
+        <form className="pay-block" noValidate onSubmit={(event) => void ask(event)}>
+          <h4 className="pay-section-title">{g('recallTitle')}</h4>
+          <p className="pay-hint" data-testid="global-recall-what">
+            {g('recallWhat')}
+          </p>
+          <label className="pay-field__label" htmlFor={id}>
+            {g('recallReason')}
+          </label>
+          <textarea
+            id={id}
+            className="pay-text"
+            maxLength={500}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            data-testid="global-recall-reason"
+          />
+          <Button type="submit" variant="secondary" disabled={busy || !reason.trim()} data-testid="global-recall-send">
+            {busy ? g('recallSending') : g('recallSend')}
+          </Button>
+          {problem ? (
+            <p className="pay-problem" role="alert">
+              {problem.title} {problem.body}
+            </p>
+          ) : null}
+        </form>
+      ) : (
+        <Button variant="secondary" onClick={() => setOpen(true)} data-testid="global-recall-open">
+          {g('recallOpen')}
+        </Button>
+      )}
     </div>
   );
 }
@@ -470,22 +549,7 @@ export function GlobalCard() {
     sourceOfFunds: g('askedSource'),
     reference: g('askedReference'),
   };
-  const statusWord = (status: GlobalSend['status']) =>
-    g(
-      status === 'submitted'
-        ? 'statusSubmitted'
-        : status === 'held'
-          ? 'statusHeld'
-          : status === 'sent'
-            ? 'statusSent'
-            : status === 'on_the_way'
-              ? 'statusOnTheWay'
-              : status === 'arrived'
-                ? 'statusArrived'
-                : status === 'cancelled'
-                  ? 'statusCancelled'
-                  : 'statusFailed',
-    );
+  const statusWord = (status: GlobalSend['status']) => g(STATUS_WORD[status]);
   const unavailable = corridors.state === 'failed' ? sayFor(corridors.code, corridors.message) : null;
   const trackSteps = [g('statusSent'), g('statusOnTheWay'), g('statusArrived')];
   const limits = destination?.corridor;
@@ -849,11 +913,16 @@ export function GlobalCard() {
                   ? ` — ${g('failedWhy')}`
                   : row.status === 'cancelled'
                     ? ` — ${g(row.cancelledBy === 'auto' ? 'cancelledAuto' : 'cancelledByYou')}`
-                    : row.status === 'held'
-                      ? null
-                      : ` (${progressOf(row.status)}/3)`}
+                    : row.status === 'returned'
+                      ? ` — ${g('returnedBody')}`
+                      : row.status === 'refunded'
+                        ? ` — ${g('refundedBody', { amount: row.amount, asset: row.assetId })}`
+                        : row.status === 'held'
+                          ? null
+                          : ` (${progressOf(row.status)}/3)`}
                 {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} onCancelled={() => void loadHistory()} /> : null}
                 {hasLeft(row.status) ? <ReceiptPanel sendId={row.id} global={global} /> : null}
+                {hasLeft(row.status) ? <RecallPanel send={row} global={global} onAsked={() => void loadHistory()} /> : null}
               </li>
             ))}
           </ul>

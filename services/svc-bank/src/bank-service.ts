@@ -111,6 +111,8 @@ export interface BankServiceOptions {
   holdCancelHours?: string;
   /** The service secret a global-send receipt's signing key is derived from. Blank, no receipt is made. */
   receiptSecret?: string;
+  /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
+  refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
   nativeAssetId?: string;
   /**
@@ -292,6 +294,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.payeeControls,
     options.exchangeAllowance,
     options.receiptSecret,
+    options.refundFee,
   );
   const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits, () =>
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],

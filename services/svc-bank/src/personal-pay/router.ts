@@ -60,7 +60,7 @@ const sendView = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -72,6 +72,11 @@ const sendView = z.object({
   quoteEta: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
   cancelledBy: z.enum(['customer', 'auto']).nullable(),
+  returnRef: z.string().nullable(),
+  returnedAt: z.string().nullable(),
+  refundedAt: z.string().nullable(),
+  recallReason: z.string().nullable(),
+  recallRequestedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -460,6 +465,11 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
       .input(z.object({ id: z.string().uuid() }).strict())
       .output(sendView)
       .mutation(({ ctx, input }) => guard(() => bank.globalHolds.cancel(ctx.principal.userId, input.id))),
+    /** Ask for a send that left to come back (wrong person or wrong details). Nothing moves, so no step-up. */
+    recall: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ id: z.string().uuid(), reason: z.string().min(1).max(500) }).strict())
+      .output(sendView)
+      .mutation(({ ctx, input }) => guard(() => bank.globalSend.recall({ userId: ctx.principal.userId, ...input }))),
     /** The signed receipt of a send that left: its text, SHA-256, signature and ledger transaction id. */
     receipt: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ id: z.string().uuid() }).strict())
@@ -571,6 +581,8 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               arrived: z.number(),
               failed: z.number(),
               cancelled: z.number(),
+              returned: z.number(),
+              refunded: z.number(),
             }),
             volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
             rails: z.object({
@@ -593,6 +605,22 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .input(z.object({ id: z.string().uuid() }).strict())
         .output(sendView.extend({ userId: z.string() }))
         .query(({ input }) => guard(() => bank.globalSend.opsGet(input.id))),
+      recalls: scopedProcedure('admin:read', { module: 'bank' })
+        .input(z.object({ limit: limitField }).strict())
+        .output(z.array(sendView.extend({ userId: z.string() })))
+        .query(({ input }) => guard(() => bank.globalSend.opsRecalls(input))),
+      /** The rail sent a send back: record it with the rail's reference. Nothing posts. */
+      recordReturn: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid(), returnRef: z.string().min(1).max(128) }).strict())
+        .output(sendView.extend({ userId: z.string() }))
+        .mutation(({ ctx, input }) => guard(() => bank.globalSend.recordReturn({ ...input, operatorId: ctx.principal.userId }))),
+      /** Refund a returned send to its sender, once, by a different operator from the one who recorded the return. */
+      refundReturn: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .output(sendView.extend({ userId: z.string() }))
+        .mutation(({ ctx, input }) =>
+          guard(() => bank.globalSend.refundReturn({ sendId: input.sendId, operatorId: ctx.principal.userId })),
+        ),
     }),
   });
 }

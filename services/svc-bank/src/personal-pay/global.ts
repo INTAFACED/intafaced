@@ -1,12 +1,12 @@
 import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { InsufficientFundsError, formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { InsufficientFundsError, formatAmount, parseAmount, railBoundary, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { classifyAccount, classifyBic, type AccountKind } from './account-format.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
-import { forwardKey, postToRail, reverseFromRail } from './post.js';
+import { forwardKey, postToRail, reverseFromRail, reverseKey } from './post.js';
 import {
   normalizeAccount,
   parseExchangeAllowance,
@@ -27,7 +27,7 @@ import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './sen
  * the bank exists.
  */
 
-const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled'] as const;
+const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded'] as const;
 export type GlobalSendStatus = (typeof SEND_STATUSES)[number];
 
 export interface RecipientView {
@@ -63,6 +63,13 @@ export interface SendView {
   readonly ledgerTxId: string | null;
   /** Who cancelled a `cancelled` send: its customer, or the owner's auto-cancel window. */
   readonly cancelledBy: 'customer' | 'auto' | null;
+  /** The rail's reference for a send that came back (`returned`, then `refunded`), and when it was recorded and refunded. */
+  readonly returnRef: string | null;
+  readonly returnedAt: string | null;
+  readonly refundedAt: string | null;
+  /** The customer's request to get a send back from the wrong person: what they wrote, and when. */
+  readonly recallReason: string | null;
+  readonly recallRequestedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -114,9 +121,24 @@ type SendRow = {
   quote_eta: string | null;
   ledger_tx_id: string | null;
   cancelled_by: 'customer' | 'auto' | null;
+  return_ref: string | null;
+  returned_by: string | null;
+  returned_at: Date | null;
+  refund_operator_id: string | null;
+  refunded_at: Date | null;
+  recall_reason: string | null;
+  recall_requested_at: Date | null;
   created_at: Date;
   updated_at: Date;
 };
+
+/** Every column of `bank.global_sends` a `SendRow` reads, in one place. */
+const SEND_COLUMNS = [
+  'id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id, country, delivery_method',
+  'compliance, status, failure_code, failure_blocker, provider_ref, quote_rate, quote_fee, quote_fee_asset, quote_receive',
+  'quote_valid_until, quote_eta, ledger_tx_id, cancelled_by, return_ref, returned_by, returned_at, refund_operator_id, refunded_at',
+  'recall_reason, recall_requested_at, created_at, updated_at',
+].join(', ');
 
 const DEFINITE = new Set([
   'bank.global_corridors_unset',
@@ -266,6 +288,11 @@ function sendView(row: SendRow): SendView {
     quoteEta: row.quote_eta,
     ledgerTxId: row.ledger_tx_id,
     cancelledBy: row.cancelled_by,
+    returnRef: row.return_ref,
+    returnedAt: row.returned_at ? row.returned_at.toISOString() : null,
+    refundedAt: row.refunded_at ? row.refunded_at.toISOString() : null,
+    recallReason: row.recall_reason,
+    recallRequestedAt: row.recall_requested_at ? row.recall_requested_at.toISOString() : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -285,6 +312,8 @@ export class GlobalSendService {
     exchangeAllowanceJson?: string,
     /** The service secret a receipt's signing key is derived from. Blank, no receipt is made. */
     private readonly receiptSecret?: string,
+    /** Owner-published fee on refunding a send that came back (`BANK_GLOBAL_REFUND_FEE`). Blank refuses every refund. */
+    private readonly refundFee?: string,
   ) {
     this.fieldRules = parseSendFieldRules(fieldRulesJson);
     this.payeeControls = parsePayeeControls(payeeControlsJson);
@@ -500,20 +529,14 @@ export class GlobalSendService {
     const cursor = input.cursor ? decodeCursor(input.cursor) : null;
     const rows = cursor
       ? await this.sql<SendRow[]>`
-          SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-                 country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-                 quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, cancelled_by, created_at, updated_at
+          SELECT ${this.sql.unsafe(SEND_COLUMNS)}
           FROM bank.global_sends
           WHERE user_id = ${input.userId} AND (created_at, id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)
           ORDER BY created_at DESC, id DESC
           LIMIT ${input.limit + 1}
         `
       : await this.sql<SendRow[]>`
-          SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-                 country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-                 quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, cancelled_by, created_at, updated_at
+          SELECT ${this.sql.unsafe(SEND_COLUMNS)}
           FROM bank.global_sends
           WHERE user_id = ${input.userId}
           ORDER BY created_at DESC, id DESC
@@ -566,7 +589,8 @@ export class GlobalSendService {
   async receipt(userId: string, id: string): Promise<SendReceipt> {
     const row = await this.sendById(id, userId);
     if (!row) throw personalPayError('bank.global_not_found');
-    if (!['sent', 'on_the_way', 'arrived'].includes(row.status) || !row.ledger_tx_id) throw personalPayError('bank.receipt_not_ready');
+    if (!['sent', 'on_the_way', 'arrived', 'returned', 'refunded'].includes(row.status) || !row.ledger_tx_id)
+      throw personalPayError('bank.receipt_not_ready');
     const secret = this.receiptSecret?.trim();
     if (!secret) throw personalPayError('bank.receipt_signing_unset');
     const to = await this.recipientById(row.recipient_id);
@@ -643,13 +667,131 @@ export class GlobalSendService {
   async opsFailed(input: { limit?: number }): Promise<(SendView & { userId: string })[]> {
     if (input.limit === undefined) throw personalPayError('bank.global_list_limit_unset');
     const rows = await this.sql<SendRow[]>`
-      SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-             country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-             quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-             ledger_tx_id, cancelled_by, created_at, updated_at
+      SELECT ${this.sql.unsafe(SEND_COLUMNS)}
       FROM bank.global_sends
       WHERE status = 'failed'
       ORDER BY created_at DESC, id DESC
+      LIMIT ${input.limit}
+    `;
+    return rows.map((row) => ({ ...sendView(row), userId: row.user_id }));
+  }
+
+  /**
+   * The rail sent a send back (BK-xfer-09), recorded by an operator with the rail's own reference: the send that left
+   * shows as bounced back. Nothing posts here; the value sits at the rail boundary until another operator refunds it.
+   * The same reference on the same send is the same answer; a reference is used by one send only.
+   */
+  async recordReturn(input: { sendId: string; returnRef: string; operatorId: string }): Promise<SendView & { userId: string }> {
+    const returnRef = requireText(input.returnRef, 128);
+    const operatorId = requireText(input.operatorId, 128);
+    const row = await this.mustSend(input.sendId);
+    if (row.status === 'returned' || row.status === 'refunded') {
+      if (row.return_ref !== returnRef) throw personalPayError('bank.global_return_conflict');
+      return { ...sendView(row), userId: row.user_id };
+    }
+    if (!['sent', 'on_the_way', 'arrived'].includes(row.status) || !row.ledger_tx_id) throw personalPayError('bank.global_not_returnable');
+    let moved: { id: string }[];
+    try {
+      moved = await this.sql<{ id: string }[]>`
+        UPDATE bank.global_sends
+        SET status = 'returned', return_ref = ${returnRef}, returned_by = ${operatorId}, returned_at = now(), updated_at = now()
+        WHERE id = ${row.id} AND status IN ('sent', 'on_the_way', 'arrived') AND ledger_tx_id IS NOT NULL
+        RETURNING id
+      `;
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === '23505') {
+        throw personalPayError('bank.global_return_conflict');
+      }
+      throw err;
+    }
+    if (moved.length === 0) {
+      // Recorded by someone else in the same instant: their reference stands, and a different one is a conflict.
+      const now = await this.mustSend(row.id);
+      if ((now.status === 'returned' || now.status === 'refunded') && now.return_ref === returnRef) {
+        return { ...sendView(now), userId: now.user_id };
+      }
+      throw personalPayError('bank.global_return_conflict');
+    }
+    const after = await this.mustSend(row.id);
+    return { ...sendView(after), userId: after.user_id };
+  }
+
+  /**
+   * Refunds a send that came back to its sender's own space, once: the occurrence-1 entry of the send moves the whole
+   * amount from the rail boundary back, keyed by the send, so a retry or a second operator credits nothing more. Needs a
+   * different operator from the one who recorded the return, and the owner's refund fee: blank refuses, and only a
+   * published zero refunds (this build has no fee leg on a refund, so any other fee refuses rather than being dropped).
+   */
+  async refundReturn(input: { sendId: string; operatorId: string }): Promise<SendView & { userId: string }> {
+    const operatorId = requireText(input.operatorId, 128);
+    const row = await this.mustSend(input.sendId);
+    if (row.status === 'refunded') return { ...sendView(row), userId: row.user_id };
+    if (row.status !== 'returned' || !row.ledger_tx_id) throw personalPayError('bank.global_not_returned');
+    if (row.returned_by === operatorId) throw personalPayError('bank.refund_same_operator');
+    const fee = this.refundFee?.trim() ?? '';
+    if (!fee || !/^\d+(\.\d{1,18})?$/.test(fee)) throw personalPayError('bank.refund_fee_unset');
+    if (parseAmount(fee) !== 0n) throw personalPayError('bank.refund_fee_unsupported');
+    const railId = this.ports.payout.railId().trim();
+    if (!railId || railId.length > 64) throw personalPayError('bank.global_payout_unusable');
+    let account;
+    try {
+      account = accountForSpace(await this.spaces.get(row.from_space_id));
+    } catch (err) {
+      if (err instanceof BankError && err.code === 'bank.space_not_found') throw personalPayError('bank.global_space_not_found');
+      throw err;
+    }
+    // The refund comes off the rail boundary the send was posted to: if the connected rail is another one now, nothing is
+    // refunded from here, rather than taking it from a boundary that never received it.
+    const forward = await this.ledger.getTxByKey(forwardKey(row.id));
+    const boundary = (await this.ledger.balance(railBoundary(railId, row.asset_id))).accountId;
+    if (!forward || !boundary || !forward.entries.some((entry) => entry.accountId === boundary)) {
+      throw personalPayError('bank.refund_rail_changed');
+    }
+    // The occurrence-1 key is shared with the reversal of a refused payout: one posted before this send came back means its
+    // value was already returned, so the refund is not recorded as having credited anything.
+    const prior = await this.ledger.getTxByKey(reverseKey(row.id));
+    if (prior && row.returned_at && prior.postedAt.getTime() < row.returned_at.getTime()) {
+      throw personalPayError('bank.refund_already_reversed');
+    }
+    try {
+      await reverseFromRail(this.ledger, row.id, account, railId, canonical(row.amount).amount);
+    } catch {
+      throw personalPayError('bank.global_outcome_unknown');
+    }
+    await this.sql`
+      UPDATE bank.global_sends SET status = 'refunded', refund_operator_id = ${operatorId}, refunded_at = now(), updated_at = now()
+      WHERE id = ${row.id} AND status = 'returned'
+    `;
+    const after = await this.mustSend(row.id);
+    return { ...sendView(after), userId: after.user_id };
+  }
+
+  /**
+   * The customer asks for a send that left to come back, because it went to the wrong person or with wrong details. It is
+   * kept as a request on the send and shown to operators; nothing moves. Only the receiving side can send it back, so
+   * the answer arrives as a rail return. Asking again is the same request.
+   */
+  async recall(input: { userId: string; id: string; reason: string }): Promise<SendView> {
+    const reason = requireText(input.reason.replace(/[\p{Cc}\u2028\u2029]+/gu, ' '), 500);
+    const row = await this.sendById(input.id, input.userId);
+    if (!row) throw personalPayError('bank.global_not_found');
+    if (row.recall_requested_at) return sendView(row);
+    if (!['sent', 'on_the_way', 'arrived'].includes(row.status) || !row.ledger_tx_id) throw personalPayError('bank.global_not_recallable');
+    await this.sql`
+      UPDATE bank.global_sends SET recall_reason = ${reason}, recall_requested_at = now(), updated_at = now()
+      WHERE id = ${row.id} AND recall_requested_at IS NULL
+    `;
+    return sendView(await this.mustSend(row.id));
+  }
+
+  /** Open recall requests, oldest first: sends whose customer asked for them back and that are not refunded. */
+  async opsRecalls(input: { limit?: number }): Promise<(SendView & { userId: string })[]> {
+    if (input.limit === undefined) throw personalPayError('bank.global_list_limit_unset');
+    const rows = await this.sql<SendRow[]>`
+      SELECT ${this.sql.unsafe(SEND_COLUMNS)}
+      FROM bank.global_sends
+      WHERE recall_requested_at IS NOT NULL AND status <> 'refunded'
+      ORDER BY recall_requested_at, id
       LIMIT ${input.limit}
     `;
     return rows.map((row) => ({ ...sendView(row), userId: row.user_id }));
@@ -937,10 +1079,7 @@ export class GlobalSendService {
 
   private async sendByKey(userId: string, idempotencyKey: string): Promise<SendRow | null> {
     const rows = await this.sql<SendRow[]>`
-      SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-             country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-             quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-             ledger_tx_id, cancelled_by, created_at, updated_at
+      SELECT ${this.sql.unsafe(SEND_COLUMNS)}
       FROM bank.global_sends WHERE user_id = ${userId} AND idempotency_key = ${idempotencyKey}
     `;
     return rows[0] ?? null;
@@ -949,17 +1088,11 @@ export class GlobalSendService {
   private async sendById(id: string, userId?: string): Promise<SendRow | null> {
     const rows = userId
       ? await this.sql<SendRow[]>`
-          SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-                 country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-                 quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, cancelled_by, created_at, updated_at
+          SELECT ${this.sql.unsafe(SEND_COLUMNS)}
           FROM bank.global_sends WHERE id = ${id} AND user_id = ${userId}
         `
       : await this.sql<SendRow[]>`
-          SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-                 country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
-                 quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, cancelled_by, created_at, updated_at
+          SELECT ${this.sql.unsafe(SEND_COLUMNS)}
           FROM bank.global_sends WHERE id = ${id}
         `;
     return rows[0] ?? null;

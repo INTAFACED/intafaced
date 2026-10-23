@@ -45,7 +45,7 @@ export const sendSchema = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -57,6 +57,11 @@ export const sendSchema = z.object({
   quoteEta: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
   cancelledBy: z.enum(['customer', 'auto']).nullable(),
+  returnRef: z.string().nullable(),
+  returnedAt: z.string().nullable(),
+  refundedAt: z.string().nullable(),
+  recallReason: z.string().nullable(),
+  recallRequestedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -183,11 +188,14 @@ export const recipientKey = (userId: string, country: string, account: string): 
   `global-recipient:${userId}:${country.toUpperCase()}:${account.replace(/\s+/g, '').toUpperCase()}`;
 
 const STATUS_ORDER = ['submitted', 'sent', 'on_the_way', 'arrived'] as const;
-/** How far a send has got along Sent, On its way, Arrived (0 to 3 steps done); a failed or cancelled send has none. */
+/** How far a send has got along Sent, On its way, Arrived (0 to 3 steps done); a send that never left has none. */
 export const progressOf = (status: GlobalSend['status']): number =>
-  status === 'failed' || status === 'held' || status === 'cancelled' ? 0 : STATUS_ORDER.indexOf(status);
-/** A send that left the account: the only kind with a receipt. */
-export const hasLeft = (status: GlobalSend['status']): boolean => status === 'sent' || status === 'on_the_way' || status === 'arrived';
+  Math.max(0, STATUS_ORDER.indexOf(status as (typeof STATUS_ORDER)[number]));
+/** A send that left the account: the only kind with a receipt, including one the rail later sent back. */
+export const hasLeft = (status: GlobalSend['status']): boolean =>
+  status === 'sent' || status === 'on_the_way' || status === 'arrived' || status === 'returned' || status === 'refunded';
+/** A send that left and has not come back: the only kind its customer can ask back. */
+export const canRecall = (status: GlobalSend['status']): boolean => status === 'sent' || status === 'on_the_way' || status === 'arrived';
 
 const scaled = (text: string): bigint => {
   const [whole = '0', fraction = ''] = text.split('.');

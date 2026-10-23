@@ -63,6 +63,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
     // LOCAL TEST value from the bank profile (BK-xfer-08): how long a global send may stay on hold before it is cancelled.
     BANK_GLOBAL_HOLD_CANCEL_HOURS: testValue('BANK_GLOBAL_HOLD_CANCEL_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-xfer-09): the fee on refunding a send the rail returned.
+    BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',

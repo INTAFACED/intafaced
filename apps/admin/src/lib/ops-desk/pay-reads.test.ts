@@ -278,16 +278,30 @@ describe('bill payments and global sends', () => {
     };
     expect(readData(read('pay.global-failed'), [SEND])).toMatchObject({ shape: 'list', rows: [{ id: EXEC }] });
     expect(readData(read('pay.global-failed'), { items: [SEND] })).toBeNull();
+    // A send its sender asked back, returned by the rail and waiting for a second person to refund it.
+    const ASKED = {
+      ...SEND,
+      status: 'returned',
+      failureCode: null,
+      failureBlocker: null,
+      providerRef: 'TEST-payout',
+      ledgerTxId: 'tx-1',
+      returnRef: 'TEST-RETURN-1',
+      recallReason: 'Wrong person',
+      recallRequestedAt: AT,
+    };
+    expect(readData(read('pay.global-recalls'), [ASKED])).toMatchObject({ shape: 'list', rows: [{ id: EXEC }] });
   });
   it('global summary: reads the counts and the travel-rule decision', () => {
     const data = readData(read('pay.global-summary'), {
       asOf: AT,
-      counts: { submitted: 0, sent: 1, on_the_way: 2, arrived: 3, failed: 4 },
+      counts: { submitted: 0, sent: 1, on_the_way: 2, arrived: 3, failed: 4, held: 0, cancelled: 0, returned: 5, refunded: 6 },
       volumes: [],
       rails: { corridors: 'unset', fx: 'unset', payout: 'unset', bic: 'unset', travelRule: 'undecided', blocker: 'socket.psp-partners' },
     });
     if (data?.shape !== 'record') throw new Error('record expected');
     expect(data.cells.find((c) => c.key === 'counts.on_the_way')!.value).toBe(2);
     expect(data.cells.find((c) => c.key === 'rails.travelRule')!.value).toBe('undecided');
+    expect(data.cells.find((c) => c.key === 'counts.refunded')!.value).toBe(6);
   });
 });

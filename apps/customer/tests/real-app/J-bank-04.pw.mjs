@@ -504,3 +504,58 @@ test(`${J} #6 watches the tracker, downloads a signed receipt with the ledger id
   // Staff can no longer release it: it is out of the queue and nothing posts.
   await expect(staff('release', { sendId: waiting.id }, 'b')).rejects.toThrow(/bank.hold_not_found/);
 });
+
+test(`${J} #7 sends to the wrong person and asks for it back: what can be asked, then the rail return shows bounced back and is refunded once`, async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  const { sender } = await people(page);
+  expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
+  await signInSender(page);
+  const before = await senderUsdt();
+
+  // 40 USDT leaves for the wrong person.
+  let card = await globalSend(page, { name: 'Eve TEST', account: 'DE02 1203 0000 0000 2020 51', value: '40', receive: '80' });
+  await expect(card.getByTestId('global-sent')).toBeVisible({ timeout: 30_000 });
+  let row = card.getByTestId('global-history').locator('li').first();
+  await expect(row).toContainText('40 USDT to EUR · Sent (1/3)', { timeout: 30_000 });
+  const sent = (await globalSends()).find((one) => one.amount === '40' && one.status === 'sent' && one.recallReason === null);
+  expect(sent?.ledgerTxId).toBeTruthy();
+
+  // The wrong-recipient path says what can be asked before anything is asked, and keeps the request on the send.
+  await row.getByTestId('global-recall-open').click();
+  await expect(row.getByTestId('global-recall-what')).toHaveText(
+    'We can ask the receiving bank to send it back. They need the recipient’s agreement, so it is not guaranteed, and it can take several weeks. If it comes back, it shows here as bounced back and is refunded to your balance once.',
+  );
+  const reason = 'Wrong person: I picked Eve TEST instead of Cara TEST.';
+  await row.getByTestId('global-recall-reason').fill(reason);
+  await row.getByTestId('global-recall-send').click();
+  await expect(card.getByTestId('global-history').locator('li').first().getByTestId('global-recall-status')).toHaveText(
+    `You asked for this back: ${reason}. We will show the answer here.`,
+    { timeout: 30_000 },
+  );
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('40'));
+
+  // The rail sends it back: staff record the return with its reference, and the send shows bounced back; nothing posts yet.
+  expect(await staff('recordReturn', { sendId: sent.id, returnRef: `TEST-RETURN-${sent.id}` }, 'a')).toMatchObject({
+    id: sent.id,
+    status: 'returned',
+  });
+  await page.reload();
+  card = page.getByTestId('global-card');
+  row = card.getByTestId('global-history').locator(`li[data-status="returned"]`).first();
+  await expect(row).toContainText('40 USDT to EUR · Bounced back — The receiving bank sent it back.', { timeout: 30_000 });
+  await expect(row.getByTestId('global-recall-status')).toContainText(reason);
+
+  // Four-eyes: whoever recorded the return cannot refund it. Another person refunds it, and a second refund credits nothing.
+  await expect(staff('refundReturn', { sendId: sent.id }, 'a')).rejects.toThrow(/bank.refund_same_operator/);
+  expect(await staff('refundReturn', { sendId: sent.id }, 'b')).toMatchObject({ id: sent.id, status: 'refunded' });
+  expect(await staff('refundReturn', { sendId: sent.id }, 'b')).toMatchObject({ id: sent.id, status: 'refunded' });
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before));
+  await page.reload();
+  row = page.getByTestId('global-card').getByTestId('global-history').locator(`li[data-status="refunded"]`).first();
+  await expect(row).toContainText('40 USDT to EUR · Refunded — It came back, and 40 USDT was refunded to your balance, once.', {
+    timeout: 30_000,
+  });
+  await expect(row.getByTestId('global-recall-open')).toHaveCount(0);
+});
