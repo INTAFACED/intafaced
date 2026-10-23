@@ -37,6 +37,17 @@ export interface TradeFills {
   readonly truncated: boolean;
   /** Assets that reached the available balance other than by a fill or an own-coin return (a deposit, a transfer in, interest). */
   readonly outsideInflows: ReadonlySet<string>;
+  /** Each of those arrivals, one per ledger line, so each can be a lot of its own. */
+  readonly inflows?: readonly InflowLine[];
+}
+
+/** One arrival on the available balance that was not a fill and not the customer's own coins coming back. */
+export interface InflowLine {
+  readonly txId: string;
+  readonly postedAt: Date;
+  readonly assetId: string;
+  readonly amount: Amount;
+  readonly reason: string;
 }
 
 export interface TaxBalance {
@@ -133,11 +144,17 @@ export function createTaxLedgerReads(
       try {
         const availableEntries = await walk({ ownerType: 'user', ownerId: userId, kind: 'available' });
         const received = availableEntries.filter((e) => FILL_REASONS.has(e.reason) && e.direction === 'debit');
-        const outsideInflows = new Set(
-          availableEntries
-            .filter((e) => e.direction === 'debit' && !FILL_REASONS.has(e.reason) && !OWN_COIN_RETURNS.has(e.reason))
-            .map((e) => e.assetId),
+        const arrivals = availableEntries.filter(
+          (e) => e.direction === 'debit' && !FILL_REASONS.has(e.reason) && !OWN_COIN_RETURNS.has(e.reason),
         );
+        const outsideInflows = new Set(arrivals.map((e) => e.assetId));
+        const inflows: InflowLine[] = arrivals.map((e) => ({
+          txId: e.txId,
+          postedAt: new Date(e.postedAt),
+          assetId: e.assetId,
+          amount: parseAmount(e.amount),
+          reason: e.reason,
+        }));
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
         const paidByLeg = new Map<string, { assetId: string; amount: Amount }>();
@@ -159,7 +176,7 @@ export function createTaxLedgerReads(
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
           paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
         }));
-        return { fills, truncated, outsideInflows };
+        return { fills, truncated, outsideInflows, inflows };
       } catch (err) {
         if (err instanceof TaxError) throw err;
         throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
@@ -198,6 +215,8 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   'withdraw.reversed',
   'futures.margin.release',
   'token.unstake',
+  // An earn position's principal leaves the customer's own stake account and comes back here: their coins, not new ones.
+  'bank.earn.withdrawn',
 ]);
 /** Order hold reads run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
