@@ -45,6 +45,7 @@ import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { LearnHub } from './curriculum/learn-hub.js';
+import { CoursePreview } from './curriculum/course-preview.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
@@ -311,6 +312,7 @@ export class AcademyService {
   private readonly lessonRecords: LessonRecords;
   private readonly courseMedia: CourseMedia;
   private readonly learnHub: LearnHub;
+  private readonly coursePreview: CoursePreview;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -337,6 +339,7 @@ export class AcademyService {
     });
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
+    this.coursePreview = new CoursePreview(sql);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -2271,6 +2274,28 @@ export class AcademyService {
 
   setCourseTopics(input: AcademySetCourseTopicsInput & { operatorId: string; now?: Date }) {
     return this.courseRecords.setTopics({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-catalogue-03: the course as a new learner sees it; staff only, and nothing is written. */
+  previewCourse(courseId: string) {
+    return this.coursePreview.preview(courseId);
+  }
+
+  /** AC-catalogue-03: the unlisted course page through a private link. */
+  courseByLink(input: { slug: string; key: string }) {
+    return this.coursePreview.byLink(input);
+  }
+
+  privateLinks(courseId: string) {
+    return this.coursePreview.links(courseId);
+  }
+
+  createPrivateLink(input: { courseId: string; reason: string; operatorId: string; now?: Date }) {
+    return this.coursePreview.createLink({ ...input, now: input.now ?? new Date() });
+  }
+
+  revokePrivateLink(input: { linkId: string; reason: string; operatorId: string; now?: Date }) {
+    return this.coursePreview.revokeLink({ ...input, now: input.now ?? new Date() });
   }
 
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */

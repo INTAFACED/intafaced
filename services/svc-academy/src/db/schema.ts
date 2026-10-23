@@ -758,6 +758,25 @@ export const courseItemCaptions = academy.table(
   (t) => [primaryKey({ columns: [t.mediaId, t.language] })],
 );
 
+/** AC-catalogue-03: a link to a course's unlisted page. Only the key's SHA-256 is stored; a revoked link opens nothing. */
+export const coursePrivateLinks = academy.table(
+  'course_private_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    keySha256: text('key_sha256').notNull().unique(),
+    reason: text('reason').notNull(),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    revokedBy: uuid('revoked_by'),
+    revokedAt: tstz('revoked_at'),
+    revokeReason: text('revoke_reason'),
+  },
+  (t) => [index('course_private_links_course_idx').on(t.courseId, t.createdAt.desc())],
+);
+
 export const schema = {
   courses,
   courseEvents,
@@ -770,6 +789,7 @@ export const schema = {
   topics,
   courseTopics,
   featuredEvents,
+  coursePrivateLinks,
   plannerTodos,
   learningGoals,
   itemVideos,

@@ -361,6 +361,8 @@ export type AcademyRoute =
   | { kind: 'course'; slug: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
+/** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
+export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;
 const decoded = (segment: string) => {
   try {
     return decodeURIComponent(segment);

@@ -496,3 +496,84 @@ export const academySetCourseTopicsInputSchema = z
   .strict()
   .refine((t) => new Set(t.topicIds).size === t.topicIds.length, { message: 'a topic is named once' });
 export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsInputSchema>;
+
+/**
+ * AC-catalogue-03: a course as a learner who has not enrolled sees it. Staff open it with Preview as new learner, and a
+ * visitor opens it through a private link before the course is listed. It is built from the stored course and outline
+ * only, never sample data, and reading it writes nothing. Each item carries its lock: `not_released` while no lesson
+ * revision is published to learners; otherwise `enrol` until the reader enrols, or `enrolment_closed` while the course
+ * is not published (nobody can enrol yet, or any more). A subheader is a label and has none.
+ */
+export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released'] as const;
+export type AcademyLearnerItemLock = (typeof ACADEMY_LEARNER_ITEM_LOCKS)[number];
+export const academyCourseLearnerViewSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  pricing: z.enum(ACADEMY_COURSE_PRICING),
+  price: z.string().nullable(),
+  priceAsset: z.string().nullable(),
+  state: z.enum(ACADEMY_COURSE_STATES),
+  sections: z.array(
+    z.object({
+      title: z.string().min(1),
+      items: z.array(
+        z.object({
+          kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
+          title: z.string().min(1),
+          indent: z.number().int().min(0).max(2),
+          lock: z.enum(ACADEMY_LEARNER_ITEM_LOCKS).nullable(),
+        }),
+      ),
+    }),
+  ),
+});
+export type AcademyCourseLearnerView = z.infer<typeof academyCourseLearnerViewSchema>;
+
+/** The private link's secret: 32 random bytes, base64url. Only its SHA-256 is stored. */
+export const academyPrivateLinkKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** A private link as staff see it. The key itself is shown once, when the link is made, and never again. */
+export const academyPrivateLinkSchema = z.object({
+  id: z.string().guid(),
+  reason: z.string().min(1),
+  createdBy: z.string().guid(),
+  createdAt: isoInstant,
+  revokedBy: z.string().guid().nullable(),
+  revokedAt: isoInstant.nullable(),
+  revokeReason: z.string().nullable(),
+});
+export type AcademyPrivateLink = z.infer<typeof academyPrivateLinkSchema>;
+/** `admin.privateLinks`: a course's links, newest first. */
+export const academyPrivateLinkListSchema = z.array(academyPrivateLinkSchema);
+
+export const academyCourseIdInputSchema = z.object({ courseId: z.string().guid() }).strict();
+
+/** `admin.createPrivateLink`: a new link to the course's unlisted page, with the reason. */
+export const academyCreatePrivateLinkInputSchema = z
+  .object({ courseId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyCreatePrivateLinkInput = z.infer<typeof academyCreatePrivateLinkInputSchema>;
+/** The new link, with its key and the customer app path that opens it (shown once). */
+export const academyCreatedPrivateLinkSchema = z.object({
+  link: academyPrivateLinkSchema,
+  key: academyPrivateLinkKeySchema,
+  /** The customer app path, with the key after `#`. */
+  path: z.string().startsWith('/academy/learning/course/'),
+});
+export type AcademyCreatedPrivateLink = z.infer<typeof academyCreatedPrivateLinkSchema>;
+
+/** `admin.revokePrivateLink`: the link stops opening the page; a repeat answers with the revoked link. */
+export const academyRevokePrivateLinkInputSchema = z
+  .object({ linkId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyRevokePrivateLinkInput = z.infer<typeof academyRevokePrivateLinkInputSchema>;
+
+/**
+ * `publicCourseByLink`: the unlisted page. It is a POST so the key never sits in a URL a server logs (the link carries it
+ * after `#`, which browsers never send). Any slug or key that is not a live link to that course, malformed ones
+ * included, gives `academy.course_not_found`, so a guess learns nothing from the refusal.
+ */
+export const academyCourseByLinkInputSchema = z.object({ slug: z.string().min(1).max(120), key: z.string().min(1).max(200) }).strict();
+export type AcademyCourseByLinkInput = z.infer<typeof academyCourseByLinkInputSchema>;
