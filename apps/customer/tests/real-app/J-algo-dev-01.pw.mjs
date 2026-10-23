@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { EDGE, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -404,6 +405,7 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
     .evaluateAll((rows) => rows.map((row) => [Date.parse(row.dataset.from), Date.parse(row.dataset.to)]));
 
   // Sided trades: the long-only rules alternate, buy first; none fills inside a gap.
+  await result.getByRole('button', { name: 'Orders and trades' }).click();
   const trades = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.side, row.dataset.ts]));
   expect(trades.length).toBeGreaterThan(0);
   trades.forEach(([side], i) => expect(side).toBe(i % 2 === 0 ? 'buy' : 'sell'));
@@ -413,12 +415,14 @@ test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees
   }
 
   // Fees are taken off the result before costs, with slippage: net = gross - fees - slippage, exactly.
+  await result.getByRole('button', { name: 'Summary' }).click();
   const total = async (key) => (await result.getByTestId(`quant-bar-total-${key}`).getAttribute('data-value')) ?? '';
   const [gross, fees, slip, net] = await Promise.all(['gross', 'fees', 'slippageTotal', 'net'].map(total));
   expect(toUnits(fees)).toBeGreaterThan(0n);
   expect(toUnits(net)).toBe(toUnits(gross) - toUnits(fees) - toUnits(slip));
 
   // Equity moves with the position: it changes from bar to bar while the strategy holds BTC.
+  await result.getByRole('button', { name: 'Charts' }).click();
   const equity = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.equity));
   expect(new Set(equity).size).toBeGreaterThan(1);
 
@@ -484,9 +488,44 @@ test(`${J} #7 opens the Metrics tab: net, drawdown, run-up, profit factor and tr
   const to = new Date(first[0] + 2 * 60_000).toISOString().slice(0, 16);
   const empty = await runBacktest(page, { from, to });
   await expect(empty).not.toHaveAttribute('data-run-id', backtest.runId);
+  await empty.getByRole('button', { name: 'Orders and trades' }).click();
+  await expect(empty.getByTestId('quant-bar-trades')).toContainText('The rules made no trade in this window.');
   await expect(empty.getByTestId('quant-bar-trade')).toHaveCount(0);
   await empty.getByRole('button', { name: 'Metrics' }).click();
   const winRate = empty.getByTestId('quant-metric-winRate');
   await expect(winRate).toHaveAttribute('data-reason', 'no_trades');
   await expect(winRate.locator('dd').first()).toHaveText('No trades');
+});
+
+test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the equity curve with a marker on each fill, the trades with their side, and a CSV of one row per trade with formula cells neutralised`, async ({
+  page,
+}) => {
+  const { window, backtest } = run.read();
+  if (!window || !backtest) throw new Error(`${J} #6 stored no run, so this step has nothing to chart`);
+  await signIn(page, developer());
+  const result = await runBacktest(page, window);
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+
+  // Orders and trades: every fill with its side.
+  await result.getByRole('button', { name: 'Orders and trades' }).click();
+  const shown = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.ts, row.dataset.side]));
+  expect(shown).toHaveLength(backtest.trades);
+
+  // Download CSV: one row per trade, in order, with its side. (The neutralising of formula cells is proved on crafted
+  // cells in backtest-chart.test.ts; the TEST run's cells are times, sides and decimals, none of which contains a comma.)
+  const [download] = await Promise.all([page.waitForEvent('download'), result.getByTestId('quant-bar-csv').click()]);
+  expect(download.suggestedFilename()).toBe(`backtest-${backtest.runId}-trades.csv`);
+  const csv = readFileSync(await download.path(), 'utf8')
+    .trimEnd()
+    .split('\r\n');
+  expect(csv[0]).toBe('time_utc,side,reason,quantity,bar_price,fill_price,fee,slippage');
+  const rows = csv.slice(1).map((line) => line.split(','));
+  expect(rows.map(([ts, side]) => [ts, side])).toEqual(shown);
+
+  // Charts: the equity curve, with a marker on the bar of each fill and the same side.
+  await result.getByRole('button', { name: 'Charts' }).click();
+  await expect(result.getByTestId('quant-bar-equity-chart').locator('polyline')).toHaveCount(1);
+  const markers = await result.getByTestId('quant-bar-marker').evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side]));
+  expect(markers).toEqual(shown);
+  await expect(result.getByText(/^Equity by bar\. A triangle pointing up marks a buy/)).toBeVisible();
 });
