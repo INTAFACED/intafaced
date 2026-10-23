@@ -83,7 +83,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A named price alert and its own message (C-alerts-scan-01) add two pass-through keys.
     // The rating request inbox notice (SP-csat-01) adds a title and a body key.
     // Money received and payment sent notices (PP-send-request-18) add four title/body keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(254);
+    // User spend caps (AG-spend-01) add seven refusal keys.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(261);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

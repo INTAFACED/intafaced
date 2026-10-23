@@ -15,7 +15,8 @@ import { usageCost, windowCost } from './metering/pricing.js';
 import { MockModelProvider, mockUsage } from './providers/mock.js';
 import type { CompletionRequest } from './providers/provider.js';
 import { ProviderError, AgentError } from './errors.js';
-import { AgentRuntime, RefusedError } from './runtime.js';
+import { AgentRuntime, RefusedError, estimateInputTokens } from './runtime.js';
+import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
@@ -173,7 +174,7 @@ if (!available) {
 
   beforeEach(async () => {
     await sql`
-      TRUNCATE agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
+      TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
       RESTART IDENTITY CASCADE
     `;
 
@@ -1063,6 +1064,63 @@ if (!available) {
       expect(stored!.guardrail.limits.maxSpendPerSession).toBeNull();
       const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
       expect(rows).toHaveLength(2);
+    });
+
+    it('refuses a run when the user has set no spend limit, before the provider is called', async () => {
+      const session = await open();
+      const gated = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+      });
+      const before = provider.callCount;
+      await expect(
+        gated.think({ sessionId: session.id, requestId: 'no-user-cap', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({
+        refusal: { code: 'agents.spend_limit', userMessageKey: 'agents.refused.spend_limit_unset' },
+      });
+      expect(provider.callCount).toBe(before);
+      expect(ledger.totalsByAsset().IFC).toBe('0');
+    });
+
+    it('holds the route worst case, commits the real cost once, and refuses a second call that would pass the cap', async () => {
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'quick')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price);
+      const cap = formatAmount(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: cap,
+        perSession: cap,
+        perPeriod: cap,
+        period: 'day',
+        idempotencyKey: 'cap-once',
+      });
+      const session = await open();
+      const gated = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const result = await gated.think({
+        sessionId: session.id,
+        requestId: 'cap-a',
+        task: 'quick',
+        messages: MESSAGES,
+        maxOutputTokens: 1,
+      });
+      expect(typeof result.cost).toBe('bigint');
+      expect(result.cost).toBeLessThanOrEqual(worst);
+      const held = await sql<Array<{ status: string; n: string }>>`
+        SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
+      `;
+      expect(held).toEqual([{ status: 'committed', n: '1' }]);
+      await expect(
+        gated.think({ sessionId: session.id, requestId: 'cap-b', task: 'quick', messages: MESSAGES, maxOutputTokens: 1 }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+      expect(provider.callCount).toBe(before + 1);
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {

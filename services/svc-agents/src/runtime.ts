@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -20,6 +20,7 @@ import { type SettlementResult, type UsageMeter } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
+import type { SpendGate } from './spend/gate.js';
 import { withEngineSpan } from './tracing.js';
 
 /**
@@ -69,6 +70,11 @@ export interface AgentRuntimeOptions {
    * Omitted / undefined is fail-closed (must NOT bill). Never `?? true`.
    */
   readonly meteringEnabled?: boolean;
+  /**
+   * User spend caps. Absent only in tests that exercise the guardrail ceiling
+   * alone. When set, a run with no user limit refuses before the provider.
+   */
+  readonly spend?: SpendGate;
 }
 
 export interface SessionRecord {
@@ -173,6 +179,7 @@ export class AgentRuntime {
   readonly audit: AuditLog;
   private readonly feeAssetId: string;
   private readonly meteringEnabled: boolean;
+  private readonly spend: SpendGate | null;
 
   constructor(
     private readonly sql: Sql,
@@ -184,6 +191,7 @@ export class AgentRuntime {
     this.audit = new AuditLog(sql);
     this.feeAssetId = options.feeAssetId;
     this.meteringEnabled = options.meteringEnabled ?? false;
+    this.spend = options.spend ?? null;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -393,6 +401,10 @@ export class AgentRuntime {
 
     const maxOutputTokens =
       input.maxOutputTokens === undefined ? route.maxOutputTokens : Math.min(input.maxOutputTokens, route.maxOutputTokens);
+    const worstCaseCost = usageCost(
+      { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
+      route.price,
+    );
 
     // 2 · Guardrail, before anything is called.
     const state = await this.stateOf(session);
@@ -402,10 +414,7 @@ export class AgentRuntime {
       {
         task: input.task,
         maxOutputTokens,
-        worstCaseCost: usageCost(
-          { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
-          route.price,
-        ),
+        worstCaseCost,
       },
       this.feeAssetId,
     );
@@ -450,6 +459,49 @@ export class AgentRuntime {
       }
     }
 
+    // 2c · User cap. The worst case is the price the route already declared.
+    // A blank user limit refuses. This hold is not a ledger post.
+    let reserved: Amount | null = null;
+    if (this.spend) {
+      try {
+        const held = await this.spend.reserve({
+          userId: session.userId,
+          sessionId: session.id,
+          reservationKey: input.requestId,
+          assetId: this.feeAssetId,
+          amount: formatAmount(worstCaseCost),
+        });
+        if (held.status === 'committed') {
+          if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+          throw new AgentError(
+            `Request id "${input.requestId}" already reserved on session ${session.id}`,
+            'agents.request_id_replay',
+            'agents.error.request_id_replay',
+            { requestId: input.requestId },
+          );
+        }
+        reserved = parseAmount(held.amount);
+      } catch (err) {
+        if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset' || err.code === 'agents.spend_limit_invalid')
+        ) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: 'agents.spend_limit',
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        throw err;
+      }
+    }
+
     // 3 · Execute.
     let completion: Awaited<ReturnType<ModelGateway['complete']>>;
     try {
@@ -464,6 +516,7 @@ export class AgentRuntime {
       // reported counts, and there are none. A failed call cannot be billed,
       // and cannot be double-billed. Release the claim so the same request id
       // can be retried once the engine answers.
+      if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
       if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       await this.appendFailure(session, {
         kind: 'completion',
@@ -485,6 +538,18 @@ export class AgentRuntime {
     // which is the only acceptable direction for that error. The attempt is
     // still logged, because §8.2 admits no gaps.
     const ceiling = session.guardrail.limits.maxSpendPerSession;
+    if (reserved !== null && cost > reserved) {
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.spend_limit',
+          userMessageKey: 'agents.refused.spend_cap',
+          userMessageParams: { limit: formatAmount(reserved), asset: this.feeAssetId, scope: 'call' },
+        },
+        { kind: 'completion', task: input.task },
+      );
+    }
     const committed = await transaction(
       this.sql,
       async (tx) => {
@@ -534,11 +599,23 @@ export class AgentRuntime {
           outputDigest: digestOfText(completion.result.text),
         });
 
+        if (this.spend && reserved !== null) {
+          await this.spend.commitIn(tx, {
+            userId: session.userId,
+            reservationKey: input.requestId,
+            amount: formatAmount(recorded ? cost : 0n),
+          });
+        }
+
         return { action: row, metered: recorded, windowId: window };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     ).catch(async (err: unknown) => {
+      if (reserved !== null && this.spend && !(err instanceof SessionSpendCeilingError)) {
+        await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
+      }
       if (err instanceof SessionSpendCeilingError) {
+        if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
         throw await this.appendRefusal(
           session,
           {
