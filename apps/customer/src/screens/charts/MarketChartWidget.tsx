@@ -24,6 +24,12 @@ import { WorkbenchChart } from './WorkbenchChart';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 
+/** What an add-on is drawn over: the price scale or percent mode, and whether a bar replay is cut. */
+export interface AddonView {
+  percent: boolean;
+  replaying: boolean;
+}
+
 export interface WidgetProps {
   market: DeskMarket;
   interval: ChartInterval;
@@ -35,7 +41,7 @@ export interface WidgetProps {
   /** Tests hand in a socket; the page uses the browser's. */
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
-  addons?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
+  addons?: (host: ChartHost | null, bars: readonly Candle[], view: AddonView) => ReactNode;
   onHost?: (host: ChartHost | null) => void;
   /** The markets that can be compared on this chart; no compare tools without them. */
   markets?: readonly DeskMarket[];
@@ -215,7 +221,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         focus={replay.replay ? null : focus}
         onHost={reportHost}
       >
-        {addons}
+        {addons ? (host, bars) => addons(host, bars, { percent, replaying: replay.replay !== null }) : undefined}
       </WorkbenchChart>
     );
 

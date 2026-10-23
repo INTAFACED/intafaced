@@ -408,10 +408,16 @@ export interface Print {
  * from the first whole bucket after its first print: a bar the tape only partly covers is null, as is a bar with no prints.
  * Absent, never zero.
  */
-export function volumeDelta(bars: readonly Candle[], prints: readonly Print[], stepMs: number) {
+/** The first bar time the tape covers: the first whole bucket after its first print. Null with no prints. */
+export function tapeCoveredFrom(prints: readonly Print[], stepMs: number): number | null {
+  if (prints.length === 0) return null;
   const first = prints.reduce((min, p) => Math.min(min, p.t), Number.POSITIVE_INFINITY);
   const bucketStart = Math.floor(first / stepMs) * stepMs;
-  const coveredFrom = first === bucketStart ? bucketStart : bucketStart + stepMs;
+  return first === bucketStart ? bucketStart : bucketStart + stepMs;
+}
+
+export function volumeDelta(bars: readonly Candle[], prints: readonly Print[], stepMs: number) {
+  const coveredFrom = tapeCoveredFrom(prints, stepMs);
   const index = new Map<number, number>();
   bars.forEach((bar, i) => index.set(bar.t, i));
   const buy: number[] = bars.map(() => 0);
@@ -425,7 +431,7 @@ export function volumeDelta(bars: readonly Candle[], prints: readonly Print[], s
     else sell[i] = sell[i]! + Number(print.amount);
   }
   return bars.map((bar, i) => {
-    if (!seen[i] || bar.t < coveredFrom) return null;
+    if (!seen[i] || coveredFrom === null || bar.t < coveredFrom) return null;
     return { buy: buy[i]!, sell: sell[i]!, delta: buy[i]! - sell[i]! };
   });
 }

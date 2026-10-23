@@ -35,6 +35,7 @@ import {
   sma,
   sourceSeries,
   stochastic,
+  tapeCoveredFrom,
   volumeDelta,
   volumeOf,
   volumeProfile,
@@ -66,7 +67,9 @@ export type Reason =
   | 'noPriorDay'
   | 'htfNotCoarser'
   | 'noHigherBars'
-  | 'noTickSize';
+  | 'noTickSize'
+  | 'percentOverlay'
+  | 'weightsZero';
 
 export interface Refusal {
   reason: Reason;
@@ -129,6 +132,10 @@ export interface StudyContext {
   higher: Record<string, Loadable<Candle[]> | undefined>;
   /** The public trades, when a study reads them. Undefined until requested. */
   tape: Loadable<Print[]> | undefined;
+  /** Percent mode: the chart's price scale is a percent change, so a study on the price scale cannot be drawn with it. */
+  percent?: boolean;
+  /** Bar replay: the epoch ms where the last drawn bar closes. Trades at or after it have not happened yet and are not read. */
+  replayEnd?: number;
 }
 
 /** The oscillators (RSI, Stochastic, the rating's score) are percentage points: two decimals, whatever the tick. */
@@ -209,8 +216,10 @@ function track(bars: readonly Candle[], values: readonly Maybe[], o: TrackOption
   const points: SeriesPoint[] = [];
   bars.forEach((bar, i) => {
     if (i + shift < 0) return;
+    // A value that is not a finite number is a gap, never drawn as NaN.
     const raw = values[i] ?? null;
-    const text = raw === null ? null : formatAt(raw, o.digits);
+    const finite = raw !== null && Number.isFinite(raw) ? raw : null;
+    const text = finite === null ? null : formatAt(finite, o.digits);
     const value = text === null ? null : Number(text);
     let tone: SeriesPoint['tone'] = null;
     if (value !== null && o.tone === 'sign') tone = value >= 0 ? 'up' : 'down';
@@ -228,11 +237,22 @@ function track(bars: readonly Candle[], values: readonly Maybe[], o: TrackOption
 const signalWord = (value: RatingSignal['value']): string =>
   value === null ? 'No value' : value === 1 ? 'Buy' : value === -1 ? 'Sell' : 'Neutral';
 
+/** The prints a replay can see: those before the end of the last drawn bar. Every print when the chart is not replaying. */
+const visiblePrints = (prints: readonly Print[], replayEnd: number | undefined): readonly Print[] =>
+  replayEnd === undefined ? prints : prints.filter((p) => p.t < replayEnd);
+
 /**
  * The result of one study on the loaded bars. Order of checks: no bars, then the study's own inputs, then the feeds it
- * reads, then the bars' sufficiency for each value.
+ * reads, then the bars' sufficiency for each value. In percent mode a study with a line on the price scale is refused:
+ * its prices would be drawn raw on a percent scale. Studies in their own panes keep drawing.
  */
 export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResult {
+  const result = computeOn(study, ctx);
+  if (ctx.percent && result.status === 'ready' && result.series.some((s) => s.pane === 'overlay')) return refuse('percentOverlay');
+  return result;
+}
+
+function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
   const { bars, interval } = ctx;
   const i = study.inputs;
   if (study.kind === 'open-interest' || study.kind === 'funding' || study.kind === 'on-chain') {
@@ -314,11 +334,13 @@ export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResu
     case 'volume-delta': {
       const feed = feedOf(ctx.tape, 'noTape');
       if (!feed.ok) return feed.result;
-      const prints = feed.data;
+      const prints = visiblePrints(feed.data, ctx.replayEnd);
       const delta = volumeDelta(bars, prints, stepMs);
       const values = delta.map((d) => (d === null ? null : d.delta));
       if (values.every((v) => v === null)) return refuse('tapeWindow', { count: String(prints.length) });
-      const covered = values.filter((v) => v !== null).length;
+      // The bars the trades cover: every bar from the tape's first whole bucket on, with or without a print in it.
+      const coveredFrom = tapeCoveredFrom(prints, stepMs);
+      const covered = coveredFrom === null ? 0 : bars.filter((b) => b.t >= coveredFrom).length;
       return ready(
         [
           track(bars, values, {
@@ -352,7 +374,9 @@ export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResu
       if (count === null) return refuse('enterPeriod');
       const feed = feedOf(ctx.tape, 'noTape');
       if (!feed.ok) return feed.result;
-      const profile = volumeProfile(feed.data, count);
+      const prints = visiblePrints(feed.data, ctx.replayEnd);
+      if (prints.length === 0) return refuse(ctx.replayEnd === undefined ? 'noTape' : 'tapeWindow', { count: String(feed.data.length) });
+      const profile = volumeProfile(prints, count);
       if (profile === null) return refuse('noTape');
       const top = Math.max(...profile.bins.map((b) => b.buy + b.sell));
       const table: TableRow[] = profile.bins.map((bin, n) => ({
@@ -367,9 +391,9 @@ export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResu
         [],
         [
           { name: 'Point of control', text: poc ? poc.label : '—' },
-          { name: 'Public trades read', text: String(feed.data.length) },
+          { name: 'Public trades read', text: String(prints.length) },
         ],
-        [{ label: 'Profile', reason: 'tapeDepth', params: { count: String(feed.data.length) } }],
+        [{ label: 'Profile', reason: 'tapeDepth', params: { count: String(prints.length) } }],
         table,
       );
     }
@@ -515,8 +539,11 @@ export function computeStudy(study: StudyInstance, ctx: StudyContext): StudyResu
         { name: 'No value', text: String(counts.missing) },
       );
       const notes: Array<{ label: string } & Refusal> = [];
-      if (score === null) notes.push({ label: 'Rating', reason: 'weightsBlank', params: {} });
-      else facts.push({ name: 'Score', text: formatAt(score, PERCENT_DIGITS) });
+      // A blank weight is asked for; weights that are all zero are a different fact, and say so.
+      const weightList = RATING_SIGNALS.map((s) => weights[s.id] ?? null);
+      if (weightList.some((w) => w === null)) notes.push({ label: 'Rating', reason: 'weightsBlank', params: {} });
+      else if (score === null && weightList.every((w) => w === 0)) notes.push({ label: 'Rating', reason: 'weightsZero', params: {} });
+      if (score !== null) facts.push({ name: 'Score', text: formatAt(score, PERCENT_DIGITS) });
       return ready([], facts, notes);
     }
 

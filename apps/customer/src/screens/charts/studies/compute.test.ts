@@ -209,6 +209,72 @@ describe('higher-timeframe and levels', () => {
   });
 });
 
+describe('the chart as drawn: percent mode, replay, the covered bars and the weights', () => {
+  const flat = (n: number) => Array.from({ length: n }, (_, i) => bar(i * MIN, '5', '4', '4.5'));
+
+  it('in percent mode a study with a line on the price scale is refused by name, and a pane study still draws', () => {
+    const bars = flat(30);
+    expect(run(study('sma'), context(bars, { percent: true }))).toEqual({ status: 'refused', reason: 'percentOverlay', params: {} });
+    expect(run(study('bollinger'), context(bars, { percent: true }))).toMatchObject({ reason: 'percentOverlay' });
+    expect(run(study('rsi'), context(flat(30), { percent: true })).status).toBe('ready');
+    expect(run(study('sma'), context(bars)).status).toBe('ready');
+  });
+
+  it('in a replay the profile reads only the trades before the last drawn bar closes', () => {
+    const bars = [bar(0, '2', '1', '1.5'), bar(MIN, '2', '1', '1.5')];
+    const prints: Print[] = [
+      { t: 10_000, side: 'buy', amount: '2', price: '1.5' },
+      { t: 2 * MIN, side: 'sell', amount: '9', price: '1.6' },
+    ];
+    const cut = run(study('volume-profile', { bins: '2' }), context(bars, { tape: ready(prints), replayEnd: 2 * MIN }));
+    if (cut.status !== 'ready') throw new Error('expected a profile');
+    expect(cut.facts.find((f) => f.name === 'Public trades read')?.text).toBe('1');
+    expect(cut.table?.reduce((n, r) => n + Number(r.sell), 0)).toBe(0);
+    const whole = run(study('volume-profile', { bins: '2' }), context(bars, { tape: ready(prints) }));
+    if (whole.status !== 'ready') throw new Error('expected a profile');
+    expect(whole.facts.find((f) => f.name === 'Public trades read')?.text).toBe('2');
+  });
+
+  it('in a replay with no trades before the cut the profile says the trades do not reach the bars', () => {
+    const bars = [bar(0, '2', '1', '1.5'), bar(MIN, '2', '1', '1.5')];
+    const later: Print[] = [{ t: 5 * MIN, side: 'buy', amount: '1', price: '1.5' }];
+    expect(run(study('volume-profile', { bins: '2' }), context(bars, { tape: ready(later), replayEnd: 2 * MIN }))).toMatchObject({
+      reason: 'tapeWindow',
+    });
+  });
+
+  it('bars covered by the trades count every bar from the first whole bucket on, with or without a print', () => {
+    const bars = Array.from({ length: 5 }, (_, i) => bar(i * MIN, '2', '1', '1.5'));
+    // The first print is half way through bar 0, so the tape covers bars 1 to 4 from their open.
+    const prints: Print[] = [
+      { t: 30_000, side: 'buy', amount: '1', price: '1.5' },
+      { t: 2 * MIN + 1, side: 'sell', amount: '1', price: '1.5' },
+    ];
+    const result = run(study('volume-delta'), context(bars, { tape: ready(prints) }));
+    if (result.status !== 'ready') throw new Error('expected delta');
+    expect(result.facts.find((f) => f.name === 'Bars covered by the trades')?.text).toBe('4');
+  });
+
+  it('rating weights that are all zero say so, which is not the same as blank weights', () => {
+    const bars = Array.from({ length: 210 }, (_, i) => bar(i * MIN, '5', '5', '5'));
+    const ids = ['sma20', 'sma50', 'sma200', 'ema20', 'ema50', 'ema200', 'rsi14', 'stoch14', 'macd'];
+    const zero = run(study('rating', Object.fromEntries(ids.map((id) => [`w.${id}`, '0']))), context(bars));
+    if (zero.status !== 'ready') throw new Error('expected a rating');
+    expect(zero.notes).toEqual([{ label: 'Rating', reason: 'weightsZero', params: {} }]);
+    const blank = run(study('rating', Object.fromEntries(ids.map((id) => [`w.${id}`, '']))), context(bars));
+    if (blank.status !== 'ready') throw new Error('expected a rating');
+    expect(blank.notes).toEqual([{ label: 'Rating', reason: 'weightsBlank', params: {} }]);
+  });
+
+  it('a value that is not a finite number is a gap, never drawn as NaN', () => {
+    const bars = [bar(0, '2', '1', '1'), bar(MIN, '2', '1', 'x'), bar(2 * MIN, '2', '1', '1'), bar(3 * MIN, '2', '1', '1')];
+    const result = seriesNamed(run(study('sma', { period: '2' }), context(bars)), 'SMA 2');
+    expect(result.points.every((p) => p.value === null || Number.isFinite(p.value))).toBe(true);
+    expect(result.points[1]?.value).toBeNull();
+    expect(result.points[2]?.value).toBeNull();
+  });
+});
+
 describe('the catalogue and the registry agree', () => {
   it('every study kind computes without throwing on empty bars, and says no bars', () => {
     for (const def of STUDIES) {

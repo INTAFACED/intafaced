@@ -6,7 +6,7 @@
  * It needs the chart's host (`ChartHost`, from the workbench chart) and the bars the chart draws. It draws nothing until
  * the host is ready, and every value it shows comes from `computeStudy`.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import type { Candle, Loadable } from '../../../data/types';
 import { useSession } from '../../../features/session/session';
@@ -15,6 +15,7 @@ import type { DeskMarket } from '../../trade/desk/market';
 import { useChartCandles, type ChartInterval } from '../../trade/chart/candles';
 import { Button } from '../deps';
 import type { ChartHost } from '../chart-host';
+import { pendingCommand, type GroupCommand } from '../group-commands';
 import { ALL_INTERVALS, intervalLabel } from '../workbench';
 import { studyDef, type StudyKind } from './catalogue';
 import { computeStudy, type Refusal, type SeriesOut, type StudyContext, type StudyResult } from './compute';
@@ -45,18 +46,33 @@ export interface StudiesBarProps {
   bars: readonly Candle[] | null;
   /** The workbench the studies belong to (`?w=`). Default `main`. */
   workbench?: string;
-  /**
-   * The chart's sync group, when it has one. `command` is the study the group was asked to add, with a nonce so each
-   * request is applied once; `onApplyToGroup` asks the grid to add a study to every chart of the group.
-   */
+  /** Percent mode: a study with a line on the price scale is refused, since its prices would not match the scale. */
+  percent?: boolean;
+  /** A bar replay is cut: trades after the last drawn bar have not happened yet and are not read. */
+  replaying?: boolean;
+  /** The chart's sync group, when it has one. */
   group?: StudyGroupLink;
 }
 
 export interface StudyGroupLink {
   size: number;
-  command: { nonce: number; kind: StudyKind } | null;
+  /** The group's latest study command; its nonce is new for each request. */
+  command: GroupCommand | null;
+  /** The nonce this chart has applied, or counts as applied. Read when this chart's effect runs. */
+  appliedNonce: () => number;
+  /** Records the nonce this chart has applied, so the command is applied once. */
+  onApplied: (nonce: number) => void;
+  /** Asks the grid to add a study to every chart of the group. */
   onApplyToGroup: (kind: StudyKind) => void;
 }
+
+interface FeedState {
+  /** The market and interval these feeds were read for. A feed for another key is not shown: it is loading. */
+  key: string;
+  higher: Record<string, Loadable<Candle[]>>;
+  tape?: Loadable<Print[]>;
+}
+const NO_HIGHER: Record<string, Loadable<Candle[]>> = {};
 
 type Words = StudiesWords;
 
@@ -103,6 +119,10 @@ function reasonText(r: Refusal, t: Words['t'], word: Words['word']): string {
       return t('No higher-timeframe bars for this market.');
     case 'noTickSize':
       return t('The market has no tick or lot size, so no value is shown.');
+    case 'percentOverlay':
+      return t('Studies on price are off in percent mode. Switch the scale back to price.');
+    case 'weightsZero':
+      return t('The rating weights are all zero, so there is no score to show.');
   }
 }
 
@@ -128,28 +148,38 @@ function valueAt(series: SeriesOut, time: number): string | null {
 /** Feeds the higher-timeframe bars of one study up to the bar: the desk's own candles at that interval. */
 function HigherFeed({
   id,
+  feedKey,
   symbol,
   interval,
   onData,
 }: {
   id: string;
+  feedKey: string;
   symbol: string;
   interval: ChartInterval;
-  onData: (id: string, data: Loadable<Candle[]>) => void;
+  onData: (key: string, id: string, data: Loadable<Candle[]>) => void;
 }) {
   const data = useChartCandles(symbol, interval);
   useEffect(() => {
-    onData(id, data);
-  }, [id, data, onData]);
+    onData(feedKey, id, data);
+  }, [feedKey, id, data, onData]);
   return null;
 }
 
 /** Feeds the public tape while a study reads it. */
-function TapeFeed({ symbol, onData }: { symbol: string; onData: (data: Loadable<Print[]>) => void }) {
+function TapeFeed({
+  feedKey,
+  symbol,
+  onData,
+}: {
+  feedKey: string;
+  symbol: string;
+  onData: (key: string, data: Loadable<Print[]>) => void;
+}) {
   const data = useTape(symbol);
   useEffect(() => {
-    onData(data);
-  }, [data, onData]);
+    onData(feedKey, data);
+  }, [feedKey, data, onData]);
   return null;
 }
 
@@ -207,8 +237,8 @@ function StudyRow({
               </tr>
             </thead>
             <tbody>
-              {result.table.map((row) => (
-                <tr key={row.label} data-poc={row.poc || undefined}>
+              {result.table.map((row, n) => (
+                <tr key={n} data-poc={row.poc || undefined}>
                   <td>{row.label}</td>
                   <td>{row.buy}</td>
                   <td>{row.sell}</td>
@@ -233,25 +263,37 @@ function StudyRow({
   );
 }
 
-export function StudiesBar({ host, market, interval, bars, workbench = 'main', group }: StudiesBarProps) {
+export function StudiesBar({
+  host,
+  market,
+  interval,
+  bars,
+  workbench = 'main',
+  percent = false,
+  replaying = false,
+  group,
+}: StudiesBarProps) {
   const words = useWords();
   const { t, word } = words;
   const { userId } = useSession();
   const [store, setStore] = useDeviceSetting<StudyStore>(storeKey(userId, workbench), FRESH_STORE, isStudyStore);
   const [adding, setAdding] = useState(false);
-  // A group command is applied once: the nonce it arrived with is remembered, so a remount does not add it again.
-  const appliedNonce = useRef(group?.command?.nonce ?? 0);
-  const groupCommand = group?.command ?? null;
+  // A group command is applied once per chart. The grid keeps the nonce each chart has applied, so a chart whose studies
+  // bar mounts after the command fired still applies it, and a remount does not add it again.
   useEffect(() => {
-    if (!groupCommand || groupCommand.nonce === appliedNonce.current) return;
-    appliedNonce.current = groupCommand.nonce;
-    setStore((now) => addStudy(now, groupCommand.kind));
-  }, [groupCommand, setStore]);
+    if (!group) return;
+    const pending = pendingCommand(group.command, group.appliedNonce());
+    if (!pending) return;
+    group.onApplied(pending.nonce);
+    setStore((now) => addStudy(now, pending.kind));
+  }, [group, setStore]);
   const [editing, setEditing] = useState<string | null>(null);
   const [showWindow, setShowWindow] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
-  const [feeds, setFeeds] = useState<Record<string, Loadable<Candle[]>>>({});
-  const [tape, setTape] = useState<Loadable<Print[]> | undefined>(undefined);
+  // The feeds are read for one market and interval: after a switch they are loading until they match it.
+  const feedKey = `${market.symbol}|${interval}`;
+  const [feedState, setFeedState] = useState<FeedState>({ key: feedKey, higher: NO_HIGHER });
+  const feeds: FeedState | null = feedState.key === feedKey ? feedState : null;
 
   const shown = useMemo(() => store.studies.filter((s) => shownOn(s, interval)), [store.studies, interval]);
   const hiddenHere = useMemo(() => store.studies.filter((s) => !shownOn(s, interval)), [store.studies, interval]);
@@ -266,11 +308,18 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main', g
     [shown, interval],
   );
 
-  const onFeed = useCallback(
-    (id: string, data: Loadable<Candle[]>) => setFeeds((prev) => (prev[id] === data ? prev : { ...prev, [id]: data })),
-    [],
-  );
-  const onTape = useCallback((data: Loadable<Print[]>) => setTape((prev) => (prev === data ? prev : data)), []);
+  const onFeed = useCallback((key: string, id: string, data: Loadable<Candle[]>) => {
+    setFeedState((prev) => {
+      const base: FeedState = prev.key === key ? prev : { key, higher: NO_HIGHER };
+      return base.higher[id] === data && base === prev ? prev : { ...base, higher: { ...base.higher, [id]: data } };
+    });
+  }, []);
+  const onTape = useCallback((key: string, data: Loadable<Print[]>) => {
+    setFeedState((prev) => {
+      const base: FeedState = prev.key === key ? prev : { key, higher: NO_HIGHER };
+      return base.tape === data && base === prev ? prev : { ...base, tape: data };
+    });
+  }, []);
 
   const results = useMemo<Array<{ study: StudyInstance; result: StudyResult }> | null>(() => {
     if (bars === null) return null;
@@ -280,11 +329,14 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main', g
       bars,
       tickSize: market.tickSize,
       lotSize: market.lotSize,
-      higher: feeds,
-      tape: needsTape ? tape : undefined,
+      higher: feeds?.higher ?? NO_HIGHER,
+      tape: needsTape ? feeds?.tape : undefined,
+      percent,
+      // In a replay the last drawn bar is the newest bar there is: the trades after its close have not happened.
+      replayEnd: replaying && bars.length > 0 ? bars[bars.length - 1]!.t + TIMEFRAME_MS[interval] : undefined,
     };
     return shown.map((study) => ({ study, result: computeStudy(study, ctx) }));
-  }, [bars, market.symbol, market.tickSize, market.lotSize, interval, feeds, needsTape, tape, shown]);
+  }, [bars, market.symbol, market.tickSize, market.lotSize, interval, feeds, needsTape, shown, percent, replaying]);
 
   const drawn = useMemo<SeriesOut[]>(() => (results ?? []).flatMap((r) => (r.result.status === 'ready' ? r.result.series : [])), [results]);
   useStudyDraw(host, drawn, market.tickSize);
@@ -325,7 +377,7 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main', g
               type="button"
               className="st-chip"
               data-hidden-here={shownOn(s, interval) ? undefined : true}
-              aria-label={t('Settings for {name}', { name: word(studyDef(s.kind).name) })}
+              aria-label={t('{label} settings', { label: chipText(s, word) })}
               onClick={() => setEditing(s.id)}
             >
               {chipText(s, word)}
@@ -407,9 +459,16 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main', g
         />
       )}
       {htfTargets.map((target) => (
-        <HigherFeed key={target.id} id={target.id} symbol={market.symbol} interval={target.interval} onData={onFeed} />
+        <HigherFeed
+          key={`${feedKey}|${target.id}`}
+          id={target.id}
+          feedKey={feedKey}
+          symbol={market.symbol}
+          interval={target.interval}
+          onData={onFeed}
+        />
       ))}
-      {needsTape && <TapeFeed symbol={market.symbol} onData={onTape} />}
+      {needsTape && <TapeFeed key={feedKey} feedKey={feedKey} symbol={market.symbol} onData={onTape} />}
     </section>
   );
 }
