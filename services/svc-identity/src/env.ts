@@ -7,6 +7,7 @@ import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
+import { parseSecurityLockUnlockWait } from './auth/security-lock.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -225,6 +226,17 @@ const schema = serviceEnvSchema
        * refuses. A tier with a null term cannot be assigned (`identity.tier_terms_unset`).
        */
       IDENTITY_ACCOUNT_TIERS: z.string().optional(),
+      /**
+       * Owner setting: how long after sign-up a person may still attach a referrer through a link, in whole seconds
+       * (CM-referral-01, J-campaigns-05 #4-#5). NO DEFAULT. Blank refuses every link attach (`referral.attach_window_unset`);
+       * past it, `referral.attach_window_closed`. Parsed at start by `parseAttachWindowSeconds`; malformed stops the service.
+       */
+      IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: how many characters a short referral code has, 4 to 16 (CM-referral-01, J-campaigns-05 #1).
+       * NO DEFAULT. Blank refuses making a code (`referral.code_length_unset`); the share link still works.
+       */
+      IDENTITY_REFERRAL_CODE_LENGTH: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
@@ -292,6 +304,22 @@ const schema = serviceEnvSchema
         .transform((v, ctx) => {
           try {
             return parseSelfFreezeLiftWait(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      /**
+       * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
+       * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
+       * works. Zero is a published "no wait". A change applies to later requests, never to one already made.
+       */
+      IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseSecurityLockUnlockWait(v);
           } catch (error) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
             return z.NEVER;
