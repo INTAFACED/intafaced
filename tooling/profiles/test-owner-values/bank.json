@@ -55,6 +55,21 @@
       "service": "bank",
       "value": "180",
       "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
+    "BANK_PAYEE_CONTROLS_JSON": {
+      "service": "bank",
+      "value": "{\"blockedAccounts\": [\"TEST-BLOCKED-ACCOUNT\"]}",
+      "note": "One made-up blocked account so a journey can see the refusal; every real account passes."
+    },
+    "BANK_EXCHANGE_ALLOWANCE_JSON": {
+      "service": "bank",
+      "value": "{\"exchangeAccounts\": [\"TEST-EXCHANGE-ACCOUNT\"], \"windowDays\": 30, \"limits\": [{\"asset\": \"USDT\", \"maxAmount\": \"1000\"}]}",
+      "note": "One made-up exchange account with a 1000 USDT 30-day limit, so a journey can reach the allowance refusal."
+    },
+    "BANK_PROOF_LIMITS_JSON": {
+      "service": "bank",
+      "value": "{\"allowedTypes\": [\"application/pdf\", \"image/png\"], \"maxBytes\": 1048576}",
+      "note": "PDF or PNG up to 1 MiB, so a held-send journey can upload a file."
     }
   }
 }
