@@ -47,12 +47,29 @@ export function annotationLine(a) {
 }
 
 /**
+ * One check run per name, the newest. A workflow that ran twice on a head (a re-run, or a re-triggered event) leaves
+ * both runs in the list, and the older red one no longer counts.
+ */
+export function latestPerName(checks) {
+  const newest = new Map();
+  const key = (c) => [c.started_at ?? '', c.id];
+  for (const c of checks) {
+    const seen = newest.get(c.name);
+    const [ct, ci] = key(c);
+    const [st, si] = seen ? key(seen) : ['', -1];
+    if (!seen || ct > st || (ct === st && ci > si)) newest.set(c.name, c);
+  }
+  return [...newest.values()];
+}
+
+/**
  * The verdict and its lines.
  * @param {{ sha: string, checks: Array<{id:number,name:string,status:string,conclusion:string|null}>,
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses }) {
+  const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
   // The seal last: its line reads after the jobs it follows.
@@ -142,7 +159,7 @@ export function collect(gh, repo, ref) {
   const statuses = ghJson(gh, ['api', `repos/${repo}/commits/${sha}/status?per_page=100`]).statuses ?? [];
   const annotations = {};
   const failedSteps = {};
-  for (const c of checks.filter((c) => c.status === 'completed' && !GREEN.has(c.conclusion))) {
+  for (const c of latestPerName(checks).filter((c) => c.status === 'completed' && !GREEN.has(c.conclusion))) {
     annotations[c.id] = ghJson(gh, ['api', `repos/${repo}/check-runs/${c.id}/annotations?per_page=50`]);
     if (!annotations[c.id].some((a) => annotationLine(a))) {
       // Only an Actions job has steps; another app's check run answers 404 here and keeps an empty list.
@@ -248,6 +265,25 @@ function selfTest() {
     sealFirst.findIndex((l) => l.includes(SEAL)) > sealFirst.findIndex((l) => l.includes('Tests (changed)')),
     'the seal prints after the jobs it follows',
   );
+
+  const rerun = summarize({
+    ...base,
+    checks: [
+      { ...red(7, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
+      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
+      ok(2, SEAL),
+    ],
+  });
+  assert(last(rerun).startsWith('GREEN'), 'a check that failed and then passed on a later run is green');
+  const rerunRed = summarize({
+    ...base,
+    checks: [
+      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
+      { ...red(9, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
+      ok(2, SEAL),
+    ],
+  });
+  assert(last(rerunRed).startsWith('RED'), 'a check that passed and then failed on a later run is red');
 
   const bare = summarize({
     ...base,
