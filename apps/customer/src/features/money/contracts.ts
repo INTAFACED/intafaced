@@ -179,6 +179,8 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // `customer`: an address-book entry; `legacy`: the one-per-kind slot an older withdrawal wrote.
+  origin: z.enum(['legacy', 'customer']).optional(),
   // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
   lookalikeConfirmedAt: z.string().nullable().optional(),
   // Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof.

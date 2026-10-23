@@ -98,22 +98,34 @@ describe('ownershipOf', () => {
     signature: null,
   };
 
+  const pending = { ...base, status: 'pending' as const };
+  const verified = {
+    ...base,
+    status: 'verified' as const,
+    verifiedAt: base.createdAt,
+    validUntil: new Date('2026-11-01T00:00:00Z'),
+    signature: '0x',
+  };
+
   it('reads none, pending, verified and expired', () => {
     expect(ownershipOf(undefined, new Date()).state).toBe('none');
-    expect(ownershipOf({ ...base, status: 'pending' }, new Date('2026-10-23T10:10:00Z')).state).toBe('pending');
-    expect(ownershipOf({ ...base, status: 'pending' }, new Date('2026-10-23T10:30:00Z')).state).toBe('expired');
-    const verified = {
-      ...base,
-      status: 'verified' as const,
-      verifiedAt: base.createdAt,
-      validUntil: new Date('2026-11-01T00:00:00Z'),
-      signature: '0x',
-    };
-    expect(ownershipOf(verified, new Date('2026-10-30T00:00:00Z'))).toMatchObject({
+    expect(ownershipOf({ pending, verified: null }, new Date('2026-10-23T10:10:00Z')).state).toBe('pending');
+    expect(ownershipOf({ pending, verified: null }, new Date('2026-10-23T10:30:00Z')).state).toBe('expired');
+    expect(ownershipOf({ pending: null, verified }, new Date('2026-10-30T00:00:00Z'))).toMatchObject({
       state: 'verified',
       validUntil: '2026-11-01T00:00:00.000Z',
     });
-    expect(ownershipOf(verified, new Date('2026-11-01T00:00:00Z')).state).toBe('expired');
+    expect(ownershipOf({ pending: null, verified }, new Date('2026-11-01T00:00:00Z')).state).toBe('expired');
+  });
+
+  it('keeps a proof that still holds over a newer offer, and shows the offer once the proof lapses', () => {
+    const newer = { ...pending, expiresAt: new Date('2026-11-01T00:30:00Z') };
+    expect(ownershipOf({ pending: newer, verified }, new Date('2026-10-30T00:00:00Z')).state).toBe('verified');
+    expect(ownershipOf({ pending: newer, verified }, new Date('2026-11-01T00:10:00Z'))).toMatchObject({
+      state: 'pending',
+      validUntil: '2026-11-01T00:00:00.000Z',
+    });
+    expect(ownershipOf({ pending: newer, verified }, new Date('2026-11-01T00:30:00Z')).state).toBe('expired');
   });
 });
 
@@ -127,7 +139,7 @@ describe('startWalletProof and verifyWalletProof', () => {
     expect(started.message).toContain(started.proofId);
     expect(started.message).toMatch(/moves no funds/);
     expect(started.expiresAt).toBe('2026-10-23T10:30:00.000Z');
-    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.status).toBe('pending');
+    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.pending?.status).toBe('pending');
 
     r.advance(60_000);
     const done = await verifyWalletProof(r.deps, {
@@ -149,7 +161,7 @@ describe('startWalletProof and verifyWalletProof', () => {
     await expect(
       verifyWalletProof(r.deps, { userId: USER, proofId: started.proofId, signature: personalSign(started.message, STRANGER_KEY) }),
     ).rejects.toMatchObject({ code: 'bank.wallet_proof_wrong_signer', message: expect.stringMatching(/0x7099…79c8.*0xf39f…2266/) });
-    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.status).toBe('pending');
+    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.pending?.status).toBe('pending');
     await expect(
       verifyWalletProof(r.deps, { userId: USER, proofId: started.proofId, signature: personalSign(started.message, KEY) }),
     ).resolves.toMatchObject({ state: 'verified' });
@@ -176,8 +188,38 @@ describe('startWalletProof and verifyWalletProof', () => {
       verifyWalletProof(r.deps, { userId: USER, proofId: started.proofId, signature: personalSign(started.message, KEY) }),
     ).rejects.toMatchObject({ code: 'bank.wallet_proof_expired' });
     const latest = (await r.deps.proofs.latest(USER)).get(entry.destinationId);
-    expect(latest?.status).toBe('pending');
+    expect(latest?.verified).toBeNull();
     expect(ownershipOf(latest, new Date('2026-10-23T10:30:00Z')).state).toBe('expired');
+    // A new start makes a new offer once the old one lapsed.
+    const again = await startWalletProof(r.deps, { userId: USER, destinationId: entry.destinationId });
+    expect(again.proofId).not.toBe(started.proofId);
+  });
+
+  it('answers an open offer again instead of making another, and keeps a held proof while a new offer is open', async () => {
+    const r = rig();
+    const entry = await r.save();
+    const first = await startWalletProof(r.deps, { userId: USER, destinationId: entry.destinationId });
+    r.advance(60_000);
+    expect(await startWalletProof(r.deps, { userId: USER, destinationId: entry.destinationId })).toEqual(first);
+    await verifyWalletProof(r.deps, { userId: USER, proofId: first.proofId, signature: personalSign(first.message, KEY) });
+    const reprove = await startWalletProof(r.deps, { userId: USER, destinationId: entry.destinationId });
+    expect(reprove.proofId).not.toBe(first.proofId);
+    expect(ownershipOf((await r.deps.proofs.latest(USER)).get(entry.destinationId), new Date('2026-10-23T10:02:00Z')).state).toBe(
+      'verified',
+    );
+  });
+
+  it('refuses a signature that arrives after the offer lapsed, even when the offer was open when the check began', async () => {
+    let calls = 0;
+    const r = rig();
+    const entry = await r.save();
+    const started = await startWalletProof(r.deps, { userId: USER, destinationId: entry.destinationId });
+    // The first clock read is inside the window; the read just before the proof is recorded is past it.
+    r.deps.now = () => new Date(++calls === 1 ? '2026-10-23T10:29:59.990Z' : '2026-10-23T10:30:00.400Z');
+    await expect(
+      verifyWalletProof(r.deps, { userId: USER, proofId: started.proofId, signature: personalSign(started.message, KEY) }),
+    ).rejects.toMatchObject({ code: 'bank.wallet_proof_expired' });
+    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.verified).toBeNull();
   });
 
   it("does not find another customer's entry or proof", async () => {
@@ -236,7 +278,7 @@ describe('startWalletProof and verifyWalletProof', () => {
     await expect(
       verifyWalletProof(r.deps, { userId: USER, proofId: started.proofId, signature: personalSign(started.message, KEY) }),
     ).rejects.toMatchObject({ code: 'bank.wallet_proof_validity_unset' });
-    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.status).toBe('pending');
+    expect((await r.deps.proofs.latest(USER)).get(entry.destinationId)?.pending?.status).toBe('pending');
   });
 
   it('refuses a proof whose entry was removed', async () => {

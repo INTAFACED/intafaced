@@ -10,6 +10,8 @@
 
 CREATE TABLE IF NOT EXISTS "bank"."wallet_ownership_proofs" (
   "id" uuid PRIMARY KEY,
+  -- The order offers were made in: newest first, with no tie between two made in the same instant.
+  "seq" bigint GENERATED ALWAYS AS IDENTITY,
   "user_id" text NOT NULL,
   "destination_id" uuid NOT NULL,
   "address" text NOT NULL,
@@ -28,4 +30,4 @@ CREATE TABLE IF NOT EXISTS "bank"."wallet_ownership_proofs" (
 );
 
 CREATE INDEX IF NOT EXISTS "wallet_ownership_proofs_entry_idx"
-  ON "bank"."wallet_ownership_proofs" ("user_id", "destination_id", "created_at" DESC);
+  ON "bank"."wallet_ownership_proofs" ("user_id", "destination_id", "status", "seq" DESC);

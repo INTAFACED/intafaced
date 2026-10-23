@@ -22,8 +22,8 @@ import './bank-depth.css';
 
 const OWNERSHIP_KEYS = { pending: 'aOwnPending', expired: 'aOwnExpired' } as const;
 
-/** Whether a row can be proved by signing: a saved wallet entry that is still in the book. */
-const provable = (row: Destination) => row.kind === 'crypto' && row.state !== undefined && row.state !== 'archived';
+/** Whether a row can be proved by signing: a wallet address the customer saved, still in the book. */
+const provable = (row: Destination) => row.kind === 'crypto' && row.origin === 'customer' && row.state !== 'archived';
 
 const STATE_KEYS = {
   pending: 'aStatePending',
@@ -208,6 +208,8 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
         return t('aProveBadSignature');
       case 'bank.wallet_proof_expired':
         return t('aProveLapsed');
+      case 'bank.wallet_proof_not_found':
+        return t('aProveNotFound');
       case 'bank.wallet_proof_window_unset':
       case 'bank.wallet_proof_validity_unset':
         return t('aProveUnset');
@@ -215,13 +217,22 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
         return moneyRefusalWords(code) ?? t('aProveFailed');
     }
   };
-  useEffect(() => {
-    if (asked.current) return;
-    asked.current = true;
+  const [lapsed, setLapsed] = useState(false);
+  // While an offer is open the bank answers the same one again, so asking twice is harmless.
+  const start = () => {
+    setProblem(null);
+    setLapsed(false);
+    setOffer(null);
+    setSignature('');
     void api
       .mutate('bank', 'ramps.destinations.ownership.start', { destinationId: row.destinationId }, walletProofStartedSchema)
       .then((answer) => (answer.ok ? setOffer(answer.data) : setProblem(words(answer.code))))
       .catch(() => setProblem(t('aProveFailed')));
+  };
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    start();
     // Asked once for the row this panel opened on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -239,6 +250,8 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
       );
       if (!answer.ok) {
         setProblem(words(answer.code));
+        // A lapsed offer can never be signed now: the form goes, and Start again asks for a new message.
+        if (answer.code === 'bank.wallet_proof_expired') setLapsed(true);
         return;
       }
       setProvedUntil(answer.data.validUntil);
@@ -254,7 +267,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
       <strong>{t('aProveTitle', { label: row.label ?? address })}</strong>
       <p>{t('aProveLead', { address })}</p>
       {!offer && !problem && <p role="status">{t('aProveStarting')}</p>}
-      {offer && !provedUntil && (
+      {offer && !provedUntil && !lapsed && (
         <form className="bd-stack" onSubmit={verify} noValidate>
           <label className="field">
             <span>{t('aProveMessage')}</span>
@@ -300,6 +313,11 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
       {provedUntil && <p role="status">{t('aProveDone', { time: date(provedUntil) })}</p>}
       {problem && <p role="alert">{problem}</p>}
       <p>
+        {lapsed && (
+          <Button variant="secondary" onClick={start}>
+            {t('aProveAgain')}
+          </Button>
+        )}
         <Button variant="ghost" onClick={onClose}>
           {t('aProveClose')}
         </Button>

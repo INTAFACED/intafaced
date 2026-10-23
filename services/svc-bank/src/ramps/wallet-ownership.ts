@@ -13,7 +13,7 @@ import { isEvmAddressRef, type UserWithdrawDestinations } from '../withdraw-dest
  *   `BANK_WALLET_PROOF_WINDOW_MINUTES`). Each start is a new offer; an older one is simply superseded.
  * - `verify` recovers the signer from the signature. Another address is refused and the offer stays open; the saved
  *   address marks the proof verified for the owner's validity (`BANK_WALLET_PROOF_VALID_DAYS`).
- * - States, read from the latest proof of an entry: `none`, `pending` (offer open), `verified` (still valid) and
+ * - States, read from an entry's newest open offer and newest verified proof (a verified proof that still holds wins): `none`, `pending` (offer open), `verified` (still valid) and
  *   `expired` (the offer or the proof lapsed). Sending to the address is the withdraw path's to refuse (W-withdraw-17's
  *   send rule lives with J-wallet-05); this file only records and answers.
  *
@@ -51,14 +51,23 @@ export interface Ownership {
 export interface WalletProofStore {
   insert(row: WalletProofRow): Promise<WalletProofRow>;
   get(userId: string, proofId: string): Promise<WalletProofRow | null>;
-  /** Marks a pending proof verified. Null when it was not pending any more (a race with another verify). */
+  /**
+   * Marks a pending proof verified while its offer is still open at `verifiedAt`. Null when it was not pending any more
+   * (a race with another verify) or the offer had lapsed by then.
+   */
   markVerified(
     userId: string,
     proofId: string,
     patch: { signature: string; verifiedAt: Date; validUntil: Date },
   ): Promise<WalletProofRow | null>;
-  /** The latest proof of each of the customer's entries. */
-  latest(userId: string): Promise<Map<string, WalletProofRow>>;
+  /** Per entry of the customer's, the newest open-or-lapsed offer and the newest verified proof. */
+  latest(userId: string): Promise<Map<string, EntryProofs>>;
+}
+
+/** An entry's newest offer still `pending` and newest `verified` proof, either missing. */
+export interface EntryProofs {
+  pending: WalletProofRow | null;
+  verified: WalletProofRow | null;
 }
 
 /** Positive whole number of minutes or days, or the `_unset` refusal. */
@@ -74,20 +83,23 @@ function requirePositive(
   return Number.parseInt(trimmed, 10);
 }
 
-/** What a proof row says about its entry now. */
-export function ownershipOf(row: WalletProofRow | undefined, now: Date): Ownership {
-  if (!row) return { state: 'none', verifiedAt: null, validUntil: null, offerExpiresAt: null };
-  if (row.status === 'verified') {
-    return {
-      state: row.validUntil && row.validUntil > now ? 'verified' : 'expired',
-      verifiedAt: row.verifiedAt?.toISOString() ?? null,
-      validUntil: row.validUntil?.toISOString() ?? null,
-      offerExpiresAt: null,
-    };
-  }
-  return row.expiresAt > now
-    ? { state: 'pending', verifiedAt: null, validUntil: null, offerExpiresAt: row.expiresAt.toISOString() }
-    : { state: 'expired', verifiedAt: null, validUntil: null, offerExpiresAt: row.expiresAt.toISOString() };
+/**
+ * What an entry's proofs say about it now. A still-valid verified proof wins over any newer offer, so opening the panel
+ * again never hides a proof that holds; then an open offer; then whatever lapsed.
+ */
+export function ownershipOf(proofs: EntryProofs | undefined, now: Date): Ownership {
+  const verified = proofs?.verified ?? null;
+  const pending = proofs?.pending ?? null;
+  const proved = verified
+    ? {
+        verifiedAt: verified.verifiedAt?.toISOString() ?? null,
+        validUntil: verified.validUntil?.toISOString() ?? null,
+      }
+    : { verifiedAt: null, validUntil: null };
+  if (verified?.validUntil && verified.validUntil > now) return { state: 'verified', ...proved, offerExpiresAt: null };
+  if (pending && pending.expiresAt > now) return { state: 'pending', ...proved, offerExpiresAt: pending.expiresAt.toISOString() };
+  if (verified || pending) return { state: 'expired', ...proved, offerExpiresAt: pending?.expiresAt.toISOString() ?? null };
+  return { state: 'none', verifiedAt: null, validUntil: null, offerExpiresAt: null };
 }
 
 const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
@@ -157,7 +169,10 @@ export interface StartedProof {
   expiresAt: string;
 }
 
-/** Offer a message to sign for one of the customer's own saved crypto addresses. */
+/**
+ * Offer a message to sign for one of the customer's own saved crypto addresses. While an offer for the entry is still
+ * open, that same offer is answered again, so opening the panel twice (or a retry) never piles up rows.
+ */
 export async function startWalletProof(deps: WalletProofDeps, input: { userId: string; destinationId: string }): Promise<StartedProof> {
   const minutes = requirePositive(deps.windowRaw(), BANK_WALLET_PROOF_WINDOW_ENV, 'bank.wallet_proof_window_unset');
   // Checked here too, so a blank validity refuses before an offer that could never be honoured is made.
@@ -167,9 +182,13 @@ export async function startWalletProof(deps: WalletProofDeps, input: { userId: s
     throw new BankError('Only a wallet address saved in your address book can be proved', 'bank.wallet_proof_not_found');
   }
   const now = (deps.now ?? (() => new Date()))();
+  const address = entry.ref.trim().toLowerCase();
+  const open = (await deps.proofs.latest(input.userId)).get(entry.destinationId)?.pending;
+  if (open && open.expiresAt > now && open.address === address) {
+    return { proofId: open.id, destinationId: open.destinationId, message: open.message, expiresAt: open.expiresAt.toISOString() };
+  }
   const id = randomUUID();
   const expiresAt = new Date(now.getTime() + minutes * 60_000);
-  const address = entry.ref.trim().toLowerCase();
   const row = await deps.proofs.insert({
     id,
     userId: input.userId,
@@ -191,18 +210,17 @@ export async function verifyWalletProof(
   deps: WalletProofDeps,
   input: { userId: string; proofId: string; signature: string },
 ): Promise<{ proofId: string; destinationId: string } & Ownership> {
-  const now = (deps.now ?? (() => new Date()))();
+  const clock = deps.now ?? (() => new Date());
+  const lapsed = () => new BankError('This proof expired before it was signed. Start a new one', 'bank.wallet_proof_expired');
   const row = await deps.proofs.get(input.userId, input.proofId);
   if (!row) throw NOT_FOUND();
   // The same signature again is the same answer.
   if (row.status === 'verified') {
     if (row.signature === input.signature.trim().toLowerCase())
-      return { proofId: row.id, destinationId: row.destinationId, ...ownershipOf(row, now) };
+      return { proofId: row.id, destinationId: row.destinationId, ...ownershipOf({ pending: null, verified: row }, clock()) };
     throw new BankError('This proof is already complete. Start a new one to prove the address again', 'bank.wallet_proof_conflict');
   }
-  if (row.expiresAt <= now) {
-    throw new BankError('This proof expired before it was signed. Start a new one', 'bank.wallet_proof_expired');
-  }
+  if (row.expiresAt <= clock()) throw lapsed();
   const entry = (await deps.destinations.list(input.userId)).find((e) => e.destinationId === row.destinationId);
   if (!entry || entry.ref.trim().toLowerCase() !== row.address) throw NOT_FOUND();
   const signer = recoverPersonalSignAddress(row.message, input.signature);
@@ -219,17 +237,24 @@ export async function verifyWalletProof(
     );
   }
   const days = requirePositive(deps.validityRaw(), BANK_WALLET_PROOF_VALIDITY_ENV, 'bank.wallet_proof_validity_unset');
+  // The clock is read after the lookups, and the store marks the proof only while the offer is still open at that time,
+  // so a signature never lands after the "Sign before" the message promised.
+  const now = clock();
   const done = await deps.proofs.markVerified(input.userId, row.id, {
     signature: input.signature.trim().toLowerCase(),
     verifiedAt: now,
     validUntil: new Date(now.getTime() + days * 86_400_000),
   });
-  if (!done) throw new BankError('This proof changed while it was checked. Refresh and try again', 'bank.wallet_proof_conflict');
-  return { proofId: done.id, destinationId: done.destinationId, ...ownershipOf(done, now) };
+  if (!done) {
+    if (row.expiresAt <= now) throw lapsed();
+    throw new BankError('This proof changed while it was checked. Refresh and try again', 'bank.wallet_proof_conflict');
+  }
+  return { proofId: done.id, destinationId: done.destinationId, ...ownershipOf({ pending: null, verified: done }, now) };
 }
 
 /** In-memory store for tests. Same rules as the Postgres store. */
 export function memoryWalletProofs(): WalletProofStore {
+  // Insertion order is the order offers were made, like the table's `seq`.
   const rows = new Map<string, WalletProofRow>();
   return {
     async insert(row) {
@@ -242,17 +267,18 @@ export function memoryWalletProofs(): WalletProofStore {
     },
     async markVerified(userId, proofId, patch) {
       const row = rows.get(proofId);
-      if (!row || row.userId !== userId || row.status !== 'pending') return null;
+      if (!row || row.userId !== userId || row.status !== 'pending' || row.expiresAt <= patch.verifiedAt) return null;
       const done = { ...row, status: 'verified' as const, ...patch };
       rows.set(proofId, done);
       return { ...done };
     },
     async latest(userId) {
-      const out = new Map<string, WalletProofRow>();
-      for (const row of [...rows.values()]
-        .filter((r) => r.userId === userId)
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
-        out.set(row.destinationId, { ...row });
+      const out = new Map<string, EntryProofs>();
+      for (const row of rows.values()) {
+        if (row.userId !== userId) continue;
+        const entry = out.get(row.destinationId) ?? { pending: null, verified: null };
+        entry[row.status] = { ...row };
+        out.set(row.destinationId, entry);
       }
       return out;
     },
@@ -312,19 +338,25 @@ export function sqlWalletProofs(sql: Sql): WalletProofStore {
       const rows = await sql<ProofDbRow[]>`
         UPDATE bank.wallet_ownership_proofs
            SET status = 'verified', signature = ${patch.signature}, verified_at = ${patch.verifiedAt}, valid_until = ${patch.validUntil}
-         WHERE id = ${proofId}::uuid AND user_id = ${userId} AND status = 'pending'
+         WHERE id = ${proofId}::uuid AND user_id = ${userId} AND status = 'pending' AND expires_at > ${patch.verifiedAt}
         RETURNING *
       `;
       return rows[0] ? fromDb(rows[0]) : null;
     },
     async latest(userId) {
       const rows = await sql<ProofDbRow[]>`
-        SELECT DISTINCT ON (destination_id) *
+        SELECT DISTINCT ON (destination_id, status) *
           FROM bank.wallet_ownership_proofs
          WHERE user_id = ${userId}
-         ORDER BY destination_id, created_at DESC, id DESC
+         ORDER BY destination_id, status, seq DESC
       `;
-      return new Map(rows.map((row) => [row.destination_id, fromDb(row)]));
+      const out = new Map<string, EntryProofs>();
+      for (const row of rows) {
+        const entry = out.get(row.destination_id) ?? { pending: null, verified: null };
+        entry[row.status] = fromDb(row);
+        out.set(row.destination_id, entry);
+      }
+      return out;
     },
   };
 }

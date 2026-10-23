@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1050,6 +1050,7 @@ export const walletOwnershipProofs = bank.table(
   'wallet_ownership_proofs',
   {
     id: uuid('id').primaryKey(),
+    seq: bigint('seq', { mode: 'bigint' }).generatedAlwaysAsIdentity(),
     userId: text('user_id').notNull(),
     destinationId: uuid('destination_id').notNull(),
     address: text('address').notNull(),
@@ -1061,7 +1062,7 @@ export const walletOwnershipProofs = bank.table(
     validUntil: tstz('valid_until'),
     signature: text('signature'),
   },
-  (t) => [index('wallet_ownership_proofs_entry_idx').on(t.userId, t.destinationId, t.createdAt)],
+  (t) => [index('wallet_ownership_proofs_entry_idx').on(t.userId, t.destinationId, t.status, t.seq.desc())],
 );
 
 /**

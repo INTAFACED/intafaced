@@ -113,6 +113,7 @@ const ROW: Destination = {
   network: 'ethereum',
   tag: null,
   state: 'active',
+  origin: 'customer',
   ownership: { state: 'none', verifiedAt: null, validUntil: null, offerExpiresAt: null },
 };
 const OFFER = {
@@ -168,6 +169,7 @@ describe('proving a saved wallet', () => {
     ]);
     expect(options).toBeUndefined();
     expect(document.body.textContent).toContain('Ownership proved. It holds until');
+    expect(document.body.textContent).toContain('Withdrawals do not check this proof yet.');
     expect(reloads.book).toBe(1);
     expect(mint).not.toHaveBeenCalled();
   });
@@ -200,8 +202,26 @@ describe('proving a saved wallet', () => {
     expect(document.body.textContent).toContain('Ownership proved.');
   });
 
+  it('on a lapsed message, drops the form and asks for a new message with Start again', async () => {
+    rows = [ROW];
+    const fresh = { ...OFFER, proofId: '88888888-8888-4888-8888-888888888888', message: 'new message' };
+    mutate
+      .mockResolvedValueOnce({ ok: true, data: OFFER })
+      .mockResolvedValueOnce({ ok: false, code: 'bank.wallet_proof_expired', message: 'x' })
+      .mockResolvedValueOnce({ ok: true, data: fresh });
+    await mount();
+    await click('Prove ownership');
+    await paste(SIGNATURE);
+    await submit(proofForm());
+    expect(document.body.textContent).toContain('This message expired before it was signed. Start again for a new one.');
+    expect(proofForm()).toBeNull();
+    await click('Start again');
+    expect(mutate.mock.calls[2]!.slice(0, 3)).toEqual(['bank', 'ramps.destinations.ownership.start', { destinationId: ROW.destinationId }]);
+    expect((document.querySelector('[data-testid="wallet-proof-message"]') as HTMLTextAreaElement).value).toBe('new message');
+    expect(document.querySelector('[data-testid="wallet-proof"] [role="alert"]')).toBeNull();
+  });
+
   it.each([
-    ['bank.wallet_proof_expired', 'This message expired before it was signed.'],
     ['bank.wallet_proof_signature_invalid', 'That is not a signature of this message.'],
   ])('refuses %s in plain words', async (code, words) => {
     rows = [ROW];
@@ -241,6 +261,7 @@ describe('proving a saved wallet', () => {
         ownership: { state: 'pending', verifiedAt: null, validUntil: null, offerExpiresAt: OFFER.expiresAt },
       },
       { ...ROW, destinationId: '66666666-6666-4666-8666-666666666666', label: 'TEST bank', kind: 'bank', ref: 'DE89370400440532013000' },
+      { ...ROW, destinationId: '99999999-9999-4999-8999-999999999999', label: 'TEST legacy', origin: 'legacy' },
     ];
     await mount();
     const notes = [...document.querySelectorAll('[data-testid="address-ownership"]')].map((n) => n.textContent);

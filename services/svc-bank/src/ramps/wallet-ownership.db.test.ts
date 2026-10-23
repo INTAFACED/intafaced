@@ -83,21 +83,53 @@ describe.each(stores)('wallet ownership proofs: %s', (_name, make) => {
       label: 'TEST',
     });
     const first = await startWalletProof(r.deps, { userId: user, destinationId: entry.destinationId });
-    const second = await startWalletProof(r.deps, { userId: user, destinationId: entry.destinationId });
-    expect(second.message).toContain(`Address: ${ADDRESS}`);
-    expect((await r.proofs.latest(user)).get(entry.destinationId)?.id).toBe(second.proofId);
+    expect(first.message).toContain(`Address: ${ADDRESS}`);
+    // While the offer is open, starting again answers the same offer.
+    expect(await startWalletProof(r.deps, { userId: user, destinationId: entry.destinationId })).toEqual(first);
+    expect((await r.proofs.latest(user)).get(entry.destinationId)?.pending?.id).toBe(first.proofId);
 
-    const done = await verifyWalletProof(r.deps, { userId: user, proofId: second.proofId, signature: sign(second.message) });
+    const done = await verifyWalletProof(r.deps, { userId: user, proofId: first.proofId, signature: sign(first.message) });
     expect(done.state).toBe('verified');
     const stored = (await r.proofs.latest(user)).get(entry.destinationId)!;
-    expect(stored).toMatchObject({ id: second.proofId, status: 'verified', address: ADDRESS });
-    expect(stored.validUntil!.getTime() - stored.verifiedAt!.getTime()).toBe(180 * 86_400_000);
+    expect(stored.pending).toBeNull();
+    expect(stored.verified).toMatchObject({ id: first.proofId, status: 'verified', address: ADDRESS });
+    expect(stored.verified!.validUntil!.getTime() - stored.verified!.verifiedAt!.getTime()).toBe(180 * 86_400_000);
     // A second mark of the same proof finds nothing pending.
     expect(
-      await r.proofs.markVerified(user, second.proofId, { signature: '0x', verifiedAt: new Date(), validUntil: new Date() }),
+      await r.proofs.markVerified(user, first.proofId, { signature: '0x', verifiedAt: new Date(), validUntil: new Date() }),
     ).toBeNull();
-    // The superseded offer is still there, untouched.
-    expect((await r.proofs.get(user, first.proofId))?.status).toBe('pending');
+    // Proving again opens a new offer beside the held proof.
+    const again = await startWalletProof(r.deps, { userId: user, destinationId: entry.destinationId });
+    const both = (await r.proofs.latest(user)).get(entry.destinationId)!;
+    expect([both.pending?.id, both.verified?.id]).toEqual([again.proofId, first.proofId]);
+  });
+
+  it('orders two offers made in the same instant by when they were made, and marks none once lapsed', async () => {
+    const r = rig();
+    const user = fresh();
+    const destinationId = '77777777-7777-4777-8777-777777777777';
+    const at = new Date();
+    const offer = (id: string) => ({
+      id,
+      userId: user,
+      destinationId,
+      address: ADDRESS,
+      message: 'm',
+      status: 'pending' as const,
+      createdAt: at,
+      expiresAt: new Date(at.getTime() + 60_000),
+      verifiedAt: null,
+      validUntil: null,
+      signature: null,
+    });
+    // The later offer has the lower id, so only the order made can pick it.
+    await r.proofs.insert(offer('ffffffff-ffff-4fff-8fff-ffffffffffff'));
+    await r.proofs.insert(offer('00000000-0000-4000-8000-00000000000a'));
+    expect((await r.proofs.latest(user)).get(destinationId)?.pending?.id).toBe('00000000-0000-4000-8000-00000000000a');
+    const late = new Date(at.getTime() + 60_000);
+    expect(
+      await r.proofs.markVerified(user, '00000000-0000-4000-8000-00000000000a', { signature: '0x', verifiedAt: late, validUntil: late }),
+    ).toBeNull();
   });
 
   it("never answers another customer's proof, or an id that is not one", async () => {
