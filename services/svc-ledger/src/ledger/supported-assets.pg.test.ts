@@ -236,16 +236,17 @@ describe('supported asset and network registry (Postgres)', () => {
   });
 
   it('asks identity for the revision it read before the same operation landed, never the one that operation wrote', async () => {
-    // The interleaving that made the concurrent test flaky (#5978), forced: request B looks up its operation and finds
-    // nothing, then request A applies the same operation in full, then B goes on. B must not read A's revision 1 and ask
+    // The interleaving that made the concurrent test flaky (#5978), forced: request B's first read that looks for its
+    // operation finds nothing, then request A applies the same operation in full, then B goes on. B must not read A's revision 1 and ask
     // identity to consume against it; it asks for revision 0, as approved, and is refused unattested like any retry.
     identity.approve('ap-1', usdt(), 0);
     let first = true;
     const raceSql = new Proxy(db!.sql, {
       async apply(target, self, args: unknown[]) {
         const rows = await Reflect.apply(target, self, args);
-        const text = (args[0] as readonly string[]).join('?');
-        if (first && text.includes('FROM asset_edits WHERE operation_id')) {
+        const strings = args[0];
+        const isQuery = Array.isArray(strings) && 'raw' in strings;
+        if (first && isQuery && /\basset_edits\b/.test(strings.join('?'))) {
           first = false;
           await apply('ap-1', 'asset-edit:USDT:1', usdt());
         }
