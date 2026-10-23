@@ -26,7 +26,7 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
 
   // Trace the business key: the transaction it booked, with each posting and the balance after it.
   await lookup.getByLabel('Look up by').selectOption('businessKey');
-  await lookup.getByLabel('Business key').fill(businessKey);
+  await lookup.getByLabel('Business key', { exact: true }).fill(businessKey);
   await lookup.getByRole('button', { name: 'Look up' }).click();
   const found = lookup.getByTestId('ledger-lookup-transaction');
   await expect(found).toBeVisible({ timeout: 30_000 });
@@ -41,23 +41,23 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
 
   // Follow the transaction id: the lookup by id answers the same transaction.
   await lookup.getByTestId('ledger-lookup-tx-id').click();
-  await expect(lookup.getByLabel('Transaction id')).toHaveValue(funded.tx);
+  await expect(lookup.getByLabel('Transaction id', { exact: true })).toHaveValue(funded.tx);
   await expect(lookup.getByTestId('ledger-lookup-business-key')).toHaveText(businessKey, { timeout: 30_000 });
 
   // A key that never booked is said in words, never an empty transaction.
   await lookup.getByLabel('Look up by').selectOption('businessKey');
-  await lookup.getByLabel('Business key').fill(`deposit:local-test:never-${ref}`);
+  await lookup.getByLabel('Business key', { exact: true }).fill(`deposit:local-test:never-${ref}`);
   await lookup.getByRole('button', { name: 'Look up' }).click();
   await expect(lookup.getByTestId('ledger-lookup-not-found')).toContainText(`never-${ref}`, { timeout: 30_000 });
 
   // An id with no transaction is refused by the ledger with its own code.
   await lookup.getByLabel('Look up by').selectOption('txId');
-  await lookup.getByLabel('Transaction id').fill('99999999-9999-4999-8999-999999999999');
+  await lookup.getByLabel('Transaction id', { exact: true }).fill('99999999-9999-4999-8999-999999999999');
   await lookup.getByRole('button', { name: 'Look up' }).click();
   await expect(lookup.getByTestId('ledger-lookup-refused')).toContainText('No transaction has that id.', { timeout: 30_000 });
   await expect(lookup.getByTestId('ledger-lookup-refused')).toContainText('ledger.tx_not_found');
 
   // A typed id that is not a UUID is never sent.
-  await lookup.getByLabel('Transaction id').fill('not-an-id');
+  await lookup.getByLabel('Transaction id', { exact: true }).fill('not-an-id');
   await expect(lookup.getByRole('button', { name: 'Look up' })).toBeDisabled();
 });
