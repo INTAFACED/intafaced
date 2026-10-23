@@ -45,6 +45,9 @@ test(`${J} #1 adds BTC-USDT by search to a list; it appears at the end and survi
 }) => {
   const who = await signUp(page, 'wl');
   run.reset({ account: who });
+  // Sign-up leaves this browser signed in, and /login resets its form once the session refresh answers, which can wipe
+  // the typed email. Start the sign-in signed out, as the other steps do.
+  await page.context().clearCookies();
   await signIn(page, who);
   await openWorkbench(page);
   await addMarket(page, 'eth', 'ETH/USDT');
