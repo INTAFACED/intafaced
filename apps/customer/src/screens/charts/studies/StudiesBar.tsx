@@ -127,14 +127,19 @@ function reasonText(r: Refusal, t: Words['t'], word: Words['word']): string {
 }
 
 /** The short label of a study on its chip: its name in notation and its period inputs (`RSI 14`). */
-function chipText(study: StudyInstance, word: Words['word']): string {
+/** The numeric inputs of a study, as shown after its name (20, 14 26 9, ...). */
+function studyValues(study: StudyInstance): string {
   const def = studyDef(study.kind);
-  const values = def.inputs
+  return def.inputs
     .filter((input) => input.kind === 'period' || input.kind === 'number')
     .map((input) => study.inputs[input.key] ?? '')
     .filter((v) => v !== '')
     .join(' ');
-  return [word(def.short), values].filter((v) => v !== '').join(' ');
+}
+
+function chipText(study: StudyInstance, word: Words['word']): string {
+  const def = studyDef(study.kind);
+  return [word(def.short), studyValues(study)].filter((v) => v !== '').join(' ');
 }
 
 const timeText = (seconds: number): string => `${new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
@@ -258,6 +263,12 @@ function StudyRow({
       data-pane={result?.status === 'ready' ? (result.series.some((x) => x.pane === 'sub') ? 'sub' : 'overlay') : undefined}
     >
       <span className="st-row-name">{word(def.name)}</span>
+      {result?.status === 'ready' && result.series[0] && (
+        <>
+          {' '}
+          <span className="st-row-formula">{word(result.series[0].name)}</span>
+        </>
+      )}
       {body}
     </div>
   );
@@ -377,7 +388,9 @@ export function StudiesBar({
               type="button"
               className="st-chip"
               data-hidden-here={shownOn(s, interval) ? undefined : true}
-              aria-label={t('{label} settings', { label: chipText(s, word) })}
+              aria-label={t('Settings for {name}', {
+                name: [word(studyDef(s.kind).name), studyValues(s)].filter((v) => v !== '').join(' '),
+              })}
               onClick={() => setEditing(s.id)}
             >
               {chipText(s, word)}

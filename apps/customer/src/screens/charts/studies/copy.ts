@@ -10,7 +10,7 @@ const messages = {
   'No indicator matches {query}.': 'No indicator matches {query}.',
   Add: 'Add',
   'Add {name}': 'Add {name}',
-  '{label} settings': '{label} settings',
+  'Settings for {name}': 'Settings for {name}',
   'Indicator settings': 'Indicator settings',
   'Remove study': 'Remove study',
   Apply: 'Apply',

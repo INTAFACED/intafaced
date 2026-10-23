@@ -177,7 +177,7 @@ describe('a fresh workbench', () => {
     await render();
     expect(chips()).toEqual(['Volume']);
     expect(fake.made.filter((s) => !s.removed && s.pane === 1)).toHaveLength(1);
-    await click(buttonNamed('Volume settings'));
+    await click(buttonNamed('Settings for Volume'));
     await click(buttonNamed('Remove study'));
     expect(chips()).toEqual([]);
     expect(store().studies).toEqual([]);
@@ -212,7 +212,7 @@ describe('settings', () => {
   it('a moving average with period 50 on highs draws those values in the colour chosen', async () => {
     await render();
     await addStudy('sma', 'Simple moving average');
-    await click(buttonNamed('SMA 20 settings'));
+    await click(buttonNamed('Settings for Simple moving average 20'));
     await choose(field('Source'), 'high');
     await typeInto(field('Period'), '50');
     await choose(field('Colour'), 'ma-2');
@@ -230,7 +230,7 @@ describe('settings', () => {
   it('a blank period keeps Apply disabled and says so, and fills nothing in', async () => {
     await render();
     await addStudy('sma', 'Simple moving average');
-    await click(buttonNamed('SMA 20 settings'));
+    await click(buttonNamed('Settings for Simple moving average 20'));
     await typeInto(field('Period'), '');
     expect(document.body.textContent).toContain('Enter a period');
     expect((buttonNamed('Apply') as HTMLButtonElement).disabled).toBe(true);
@@ -241,10 +241,10 @@ describe('settings', () => {
   it('a removed study comes back with the settings it was removed with', async () => {
     await render();
     await addStudy('sma', 'Simple moving average');
-    await click(buttonNamed('SMA 20 settings'));
+    await click(buttonNamed('Settings for Simple moving average 20'));
     await typeInto(field('Period'), '50');
     await click(buttonNamed('Apply'));
-    await click(buttonNamed('SMA 50 settings'));
+    await click(buttonNamed('Settings for Simple moving average 50'));
     await click(buttonNamed('Remove study'));
     expect(chips()).toEqual([]);
     await addStudy('sma', 'Simple moving average');
@@ -256,7 +256,7 @@ describe('visibility per interval', () => {
   it('a study hidden on 1h shows on the other intervals, the setting is remembered, and the 1h legend says so', async () => {
     await render();
     await addStudy('sma', 'Simple moving average');
-    await click(buttonNamed('SMA 20 settings'));
+    await click(buttonNamed('Settings for Simple moving average 20'));
     await click(document.querySelector('input[aria-label="Shown on 1h"]'));
     await click(buttonNamed('Apply'));
     expect(store().studies[0].hiddenOn).toEqual(['1h']);
@@ -343,14 +343,14 @@ describe('refusals say what is missing', () => {
   it('a higher-timeframe study on the chart’s own interval refuses; a coarser one reads the bars', async () => {
     await render();
     await addStudy('higher', 'Higher-timeframe moving average');
-    await click(buttonNamed('HTF SMA 20 settings'));
+    await click(buttonNamed('Settings for Higher-timeframe moving average 20'));
     await choose(field('Interval'), '15m');
     await click(buttonNamed('Apply'));
     expect(legend()).toContain('Choose an interval coarser than this chart.');
 
     const htfBars = bars(60).map((b, i) => ({ ...b, t: i * 3_600_000 }));
     world.higher = ready(htfBars);
-    await click(buttonNamed('HTF SMA 20 settings'));
+    await click(buttonNamed('Settings for Higher-timeframe moving average 20'));
     await choose(field('Interval'), '1h');
     await click(buttonNamed('Apply'));
     expect(legend()).toContain('Higher bars read: 60');

@@ -76,7 +76,11 @@ test('J-charts-desk-03 #2 adds a moving average with period 50 on High and sets 
   await expect(row(page, 'sma-1')).toContainText('SMA 50 high');
   // The saved study carries the inputs and the colour token the chart draws with.
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('charts-studies:guest:main') ?? 'null'));
-  expect(saved.studies[0]).toMatchObject({ kind: 'sma', inputs: { period: '50', source: 'high' }, color: 'ma-2' });
+  expect(saved.studies.find((s) => s.kind === 'sma')).toMatchObject({
+    kind: 'sma',
+    inputs: { period: '50', source: 'high' },
+    color: 'ma-2',
+  });
 });
 
 test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and VWAP; the values equal the formula to the tick', async ({
@@ -112,12 +116,12 @@ test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on t
   await page.getByRole('checkbox', { name: 'Shown on 1h' }).uncheck();
   await page.getByRole('button', { name: 'Apply' }).click();
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1h' }).click();
-  await expect(row(page, 'sma-1')).toContainText('hidden on this interval');
+  await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '15m' }).click();
-  await expect(row(page, 'sma-1')).not.toContainText('hidden on this interval');
+  await expect(row(page, 'sma-1')).not.toContainText('Hidden on this interval');
   await page.reload();
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1h' }).click();
-  await expect(row(page, 'sma-1')).toContainText('hidden on this interval');
+  await expect(row(page, 'sma-1')).toContainText('Hidden on this interval');
 });
 
 test('J-charts-desk-03 #5 sets the legend to always show: the values of the last bar show without hovering', async ({ page }) => {
@@ -139,7 +143,8 @@ test('J-charts-desk-03 #6 with the data window open, moving the crosshair over a
   await addStudy(page, 'ema', 'Exponential moving average');
   await page.getByRole('button', { name: 'Data window' }).click();
   await expect(page.getByTestId('data-window')).toContainText('Move the pointer over the chart');
-  const canvas = page.locator('.cw-canvas');
+  // The plot is the chart host; .cw-canvas also holds the drawings dock below it.
+  const canvas = page.locator('.cw .wc-host');
   const box = await canvas.boundingBox();
   await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.5);
   const windowText = page.getByTestId('data-window');

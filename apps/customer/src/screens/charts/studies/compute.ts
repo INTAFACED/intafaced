@@ -560,9 +560,12 @@ function computeOn(study: StudyInstance, ctx: StudyContext): StudyResult {
       if (!feed.ok) return feed.result;
       if (feed.data.length < p) return refuse('needsBars', { count: String(p), interval: htf });
       const values = higherTimeframeSma(bars, feed.data, p, src, stepMs, htfStep);
+      // Only the higher bars closed by the end of the last bar are read (no look-ahead), so the count is those.
+      const closedBy = bars.length > 0 ? bars[bars.length - 1]!.t + stepMs : 0;
+      const read = feed.data.filter((h) => h.t + htfStep <= closedBy).length;
       return ready(
         [track(bars, values, { ...base, key: study.id, name: `${htf} SMA ${p}`, pane: 'overlay', digits })],
-        [{ name: 'Higher bars read', text: String(feed.data.length) }],
+        [{ name: 'Higher bars read', text: String(read) }],
       );
     }
   }

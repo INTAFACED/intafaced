@@ -76,6 +76,9 @@
     color: var(--if-fg);
     font-weight: 600;
   }
+  .st-row-formula {
+    color: var(--if-fg-2);
+  }
   .st-row-values,
   .st-value {
     display: inline-flex;
