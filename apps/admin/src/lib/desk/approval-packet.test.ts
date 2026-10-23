@@ -288,3 +288,25 @@ describe('identity staff close and reopen requests', () => {
     expect([...CLOSE_REASON_CODES]).toEqual([...accountCloseReasonCodes]);
   });
 });
+
+describe('identity account tier move requests', () => {
+  const move = {
+    kind: 'identity.account.tier_move',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    tierId: 'plus',
+    reason: 'Customer qualifies for plus',
+    version: '0',
+  } as const;
+  it('reads exactly the account, tier, reason and version', () => {
+    expect(readDeskRequest(move)).toEqual(move);
+    expect(readDeskRequest({ ...move, tierId: 'Plus' })).toBeNull();
+    expect(readDeskRequest({ ...move, tierId: 'x'.repeat(33) })).toBeNull();
+    expect(readDeskRequest({ ...move, reason: 'x'.repeat(256) })).toBeNull();
+    expect(readDeskRequest({ ...move, extra: '1' })).toBeNull();
+  });
+  it('names the account in the phrase and the tier in the description', () => {
+    expect(confirmPhrase(move)).toBe('MOVE TIER 0b6f7a3e');
+    expect(describeRequest(move)).toContain('onto tier "plus"');
+    expect(requestReason(move)).toBe(move.reason);
+  });
+});

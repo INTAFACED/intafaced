@@ -1,6 +1,6 @@
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
-import { DepthPanel, DisabledAction } from './DepthParts';
+import { DepthPanel } from './DepthParts';
 import {
   buildOfframpInput,
   cashOutBlock,
@@ -137,7 +137,13 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
             </p>
           )}
           <h4 className="bd-subhead">{t('fiatOutTitle')}</h4>
-          <DisabledAction label={t('fiatOutButton')} reason={t('fiatOutReason')} />
+          {/* The room takes the ask and says why it cannot be paid out; nothing leaves the balance. */}
+          <div className="actions">
+            <a className="button" href="/bank/ramps/cash-out">
+              {t('fiatOutButton')}
+            </a>
+          </div>
+          <p className="money-caption">{t('fiatOutReason')}</p>
         </DepthPanel>
       </div>
     </div>

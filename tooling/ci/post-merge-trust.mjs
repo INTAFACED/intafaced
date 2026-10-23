@@ -7,7 +7,9 @@
  *   red after a green, first attempt   re-run the failed jobs once
  *   red after a green, re-run attempt  the break is real: open (or comment on) one "Broken on main: <check>" issue
  *                                      naming the commits between the last green run and this one
- *   red after a red                    nothing new: the issue from the first break still stands
+ *   red after a red                    nothing new while that check's issue is open; with no open issue (a check
+ *                                      already red before this job existed, or an issue closed by hand), open one
+ *                                      naming the last green run and the commits since, if one is within 100 runs
  *   green                              close that check's issue when this commit includes every red it names
  *
  * Real-app journeys (per journey step; most journeys do not pass yet, so the job is red either way):
@@ -299,6 +301,14 @@ async function wholeRunCheck(ctx) {
     console.log(await upsertIssue(repo, checkIssueTitle(name), body));
     return;
   }
+  if (action === 'still-red') {
+    if (!prev) return;
+    const open = await findOpenIssue(repo, checkIssueTitle(name));
+    if (open) return console.log(`#${open.number} already tracks it`);
+    const lastGreen = (await earlierRuns(repo, ctx.workflowId, runId, ctx.createdAt, 100)).find((r) => r.conclusion === 'success');
+    const range = lastGreen ? await between(repo, lastGreen.head_sha, sha) : null;
+    console.log(await upsertIssue(repo, checkIssueTitle(name), untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range })));
+  }
   if (action === 'green') {
     const issue = await findOpenIssue(repo, checkIssueTitle(name));
     if (!issue) return console.log(`no open "${checkIssueTitle(name)}" issue`);
@@ -314,6 +324,22 @@ async function wholeRunCheck(ctx) {
     );
     console.log(`closed #${issue.number}`);
   }
+}
+
+/** The issue body for a check red on two runs in a row that no open issue tracks. */
+export function untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range }) {
+  return [
+    `\`${name}\` failed twice on \`${sha.slice(0, 10)}\`: [run ${runId}](${runUrl}), and the run before it on \`${prev.head_sha.slice(0, 10)}\` ([run ${prev.id}](${prev.html_url})). No open issue tracked it.`,
+    '',
+    ...(lastGreen
+      ? [
+          `It last passed on \`${lastGreen.head_sha.slice(0, 10)}\` ([run ${lastGreen.id}](${lastGreen.html_url})). The breaking commit is one of these ${range.commits.length} ([compare](${range.url})):`,
+          ...commitLines(range.commits),
+        ]
+      : ['No green run in the last 100 finished runs on main, so no commit range can be named.']),
+    '',
+    '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; it closes itself when the check passes again._',
+  ].join('\n');
 }
 
 /** Opens (or comments on) the time-limit issue when jobs hit their limit; closes it on a run where none did. */
@@ -456,6 +482,25 @@ function selfTest() {
   eq(decideCheck({ conclusion: 'failure', attempt: 1, previous: undefined }), 'still-red', 'no earlier run: nothing to blame');
   eq(decideCheck({ conclusion: 'success', attempt: 1, previous: 'failure' }), 'green', 'green');
   eq(decideCheck({ conclusion: 'cancelled', attempt: 1, previous: 'success' }), 'ignore', 'cancelled ignored');
+  const run = (id, sha) => ({ id, head_sha: sha, html_url: `https://x/runs/${id}` });
+  const untracked = untrackedRedBody({
+    name: 'Order-path CX-8',
+    sha: 'c'.repeat(40),
+    runId: 3,
+    runUrl: 'https://x/runs/3',
+    prev: run(2, 'b'.repeat(40)),
+    lastGreen: run(1, 'a'.repeat(40)),
+    range: { commits: [{ sha: 'b'.repeat(40), commit: { message: 'feat: x (#9)' }, author: null }], url: 'https://x/compare' },
+  });
+  eq(checkRedShas([untracked]), ['cccccccccc'], 'an untracked red names its sha, so a later green closes it');
+  eq(untracked.includes('`bbbbbbbbbb` feat: x (#9)'), true, 'an untracked red lists the commits since the last green');
+  eq(
+    untrackedRedBody({ name: 'x', sha: 'c'.repeat(40), runId: 3, runUrl: 'u', prev: run(2, 'b'.repeat(40)), lastGreen: null }).includes(
+      'No green run',
+    ),
+    true,
+    'no green in reach: says so',
+  );
   const limitJobs = [
     { name: 'Journeys (shard 3 of 8)', annotations: [{ message: 'The job has exceeded the maximum execution time of 1h0m0s' }] },
     { name: 'Journeys (shard 4 of 8)', annotations: [{ message: 'The operation was canceled.' }] },
@@ -495,7 +540,7 @@ function selfTest() {
     '- … 1 older commits (see the compare link)',
     'long ranges are cut',
   );
-  console.log('✓ post-merge-trust --self-test OK (21 fixtures)');
+  console.log('✓ post-merge-trust --self-test OK (24 fixtures)');
 }
 
 async function main() {
@@ -519,7 +564,7 @@ async function main() {
   if (!COUNTED.has(conclusion)) return console.log(`${name} run ${runId}: ${conclusion}, nothing to compare`);
   const journeys = name === JOURNEYS_WORKFLOW;
   const earlier = await earlierRuns(repo, workflowId, runId, run.created_at, journeys ? 2 : 1);
-  const ctx = { repo, name, runId, attempt, conclusion, sha, runUrl, earlier, timedOut };
+  const ctx = { repo, name, runId, attempt, conclusion, sha, runUrl, earlier, timedOut, workflowId, createdAt: run.created_at };
   return journeys ? journeysCheck(ctx) : wholeRunCheck(ctx);
 }
 

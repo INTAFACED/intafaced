@@ -564,6 +564,16 @@ export const organizationMembers = identity.table(
   (t) => [uniqueIndex('organization_members_pk').on(t.orgId, t.userId), index('organization_members_user_idx').on(t.userId)],
 );
 
+/** Which product tier an account is on (J-ops-console-04 #11); the tiers themselves are the IDENTITY_ACCOUNT_TIERS owner setting. */
+export const accountTierAssignments = identity.table('account_tier_assignments', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id),
+  tierId: text('tier_id').notNull(),
+  version: bigint('version', { mode: 'bigint' }).notNull(),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
 /**
  * A closure request. The SQL migration owns the one-open partial unique index.
  * Closing does not remove this row, the user, or any ledger history.

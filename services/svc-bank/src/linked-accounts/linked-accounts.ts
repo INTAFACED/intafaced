@@ -193,6 +193,19 @@ export class LinkedAccountService {
     return { account: viewOf(result.row, this.coolingHours(), this.now()), created: result.created };
   }
 
+  /** One active account of this customer, as the list shows it. Someone else's, a removed one, or none is not found. */
+  async get(userId: string, accountId: string): Promise<LinkedAccountView> {
+    const id = accountId.trim();
+    if (!UUID_RE.test(id)) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
+    const rows = await this.sql<Row[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)}
+        FROM bank.linked_bank_accounts
+       WHERE id = ${id}::uuid AND user_id = ${userId} AND removed_at IS NULL
+    `;
+    if (!rows[0]) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
+    return viewOf(rows[0], this.coolingHours(), this.now());
+  }
+
   /** Unlink. Removing one already removed answers the same; someone else's account, or none, is not found. */
   async remove(userId: string, accountId: string): Promise<{ accountId: string; removed: true }> {
     const id = accountId.trim();

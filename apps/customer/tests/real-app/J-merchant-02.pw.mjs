@@ -49,3 +49,34 @@ test(`${J} part of #1 the owner reads the second-approval rule and turns it on a
   await expect(rule.getByRole('status')).toHaveText('Second approval is off.');
   expect(refused).toEqual([]);
 });
+
+test(`${J} part of #1 a new owner adds the business address before verification, and setup counts the details as done`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mad', '/pay/onboarding');
+  await openBusiness(page, owner, 'TEST Address Ltd');
+  const refused = refusedPayCalls(page);
+  await page.goto('/pay/onboarding');
+  await expect(page.getByText('Your business details are missing: address.')).toBeVisible();
+
+  await page.goto('/pay/settings');
+  await page.getByLabel('Address line 1').fill('1 Test Street');
+  await page.getByLabel('City').fill('Testville');
+  await page.getByLabel('Postal code').fill('T3ST 1NG');
+  await page.getByLabel('Country code').fill('GB');
+  await page.getByLabel('Reason *').fill('Add our address');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review).toContainText('1 Test Street, Testville, T3ST 1NG, GB');
+  await review.getByRole('button', { name: 'Save changes' }).click();
+  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Change history', level: 2 }) });
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  await expect(history).toContainText('Add our address');
+
+  await page.goto('/pay/onboarding');
+  await expect(page.getByText('What is left')).toBeVisible();
+  await expect(page.getByText(/Your business details are missing/)).toHaveCount(0);
+  await expect(page.getByText('Send your verification reference for review (step 2).')).toBeVisible();
+  expect(refused).toEqual([]);
+});
