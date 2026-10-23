@@ -122,10 +122,19 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       const head = next[0]!;
       if (head.interval !== setting.interval) setInterval(head.interval);
       if (head.mode !== setting.mode) setMode(head.mode);
-      setGrid((now) => ({ ...now, cells: next.slice(1) }));
-      if (head.symbol !== market.symbol) navigate(chartsHref(pairOf(head.symbol), { workbench }));
+      const nextGrid = { ...grid, cells: next.slice(1) };
+      setGrid(nextGrid);
+      if (head.symbol !== market.symbol) {
+        // The page is remounted for the new market before the stored grid would be written, so write it now.
+        try {
+          localStorage.setItem(gridKey(userId, workbench), JSON.stringify(nextGrid));
+        } catch {
+          /* The grid stays usable without browser storage. */
+        }
+        navigate(chartsHref(pairOf(head.symbol), { workbench }));
+      }
     },
-    [cells, grid.sync, setting.interval, setting.mode, setInterval, setMode, setGrid, market.symbol, workbench],
+    [cells, grid, setting.interval, setting.mode, setInterval, setMode, setGrid, market.symbol, workbench, userId],
   );
   const setGroup = (index: number, group: Group | null) => {
     if (index === 0) setFirstTag(group ?? 'none');
@@ -254,7 +263,12 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
       <div className="cg-bar" role="toolbar" aria-label={t('Grid options')}>
         <label className="cw-select cw-select--inline">
           <span>{t('Layout')}</span>
-          <select value={layout} onChange={(event) => chooseLayout(event.target.value as LayoutId)}>
+          {/* The layouts wait for the owner's chart limit; a choice made before it arrives would only be refused. */}
+          <select
+            value={layout}
+            disabled={!limit.ok && limit.why === 'loading'}
+            onChange={(event) => chooseLayout(event.target.value as LayoutId)}
+          >
             {LAYOUT_IDS.map((id) => (
               <option key={id} value={id}>
                 {t(LAYOUT_LABEL[id])}

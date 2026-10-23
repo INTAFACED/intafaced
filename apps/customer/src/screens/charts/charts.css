@@ -232,6 +232,13 @@
     font: 400 14px/20px var(--if-font-ui);
     color: var(--if-fg);
   }
+  .cw-check input[type='checkbox'] {
+    appearance: auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--if-lime);
+  }
   .cw-option {
     min-height: 32px;
     padding: 0 12px;
