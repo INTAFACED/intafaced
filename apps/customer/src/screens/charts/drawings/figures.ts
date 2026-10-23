@@ -17,9 +17,12 @@ import type { Drawing } from './model';
 
 export type FigureLabel = (key: string, vars?: Record<string, string>) => string;
 
-export function figureLines(d: Drawing, tick: string, indexOf: (time: number) => number, t: FigureLabel): string[] {
+/** `indexOf` maps a stored time to its loaded bar, or null when the time lies outside the loaded bars on this interval. */
+export function figureLines(d: Drawing, tick: string, indexOf: (time: number) => number | null, t: FigureLabel): string[] {
   const [a, b, c] = d.points;
   if (!a) return [];
+  // A point outside the loaded bars has no figures here: the tree says so, instead of counting clamped bars.
+  if (d.points.some((p) => indexOf(p.time) === null)) return [t('Outside the loaded bars')];
   switch (d.kind) {
     case 'fib':
     case 'fibExtension': {

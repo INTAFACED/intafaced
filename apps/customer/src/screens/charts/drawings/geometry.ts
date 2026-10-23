@@ -28,7 +28,7 @@ export const FIB_LEVELS: readonly Decimal[] = ['0', '0.236', '0.382', '0.5', '0.
 export const EXTENSION_LEVELS: readonly Decimal[] = ['0', '0.618', '1', '1.618', '2.618'];
 export const GANN_FAN_RATIOS: readonly Decimal[] = ['0.125', '0.25', '0.5', '1', '2', '4', '8'];
 
-export type Refusal = 'degenerate' | 'collinear' | 'wrong-side' | 'no-risk' | 'bad-levels' | 'bad-price' | 'bad-tick';
+export type Refusal = 'degenerate' | 'collinear' | 'wrong-side' | 'no-risk' | 'bad-levels' | 'bad-price' | 'bad-tick' | 'outside-bars';
 
 export interface LevelPrice {
   level: Decimal;
@@ -137,14 +137,21 @@ export interface MeasureFigures {
   span: string;
 }
 
-/** Measure figures between two points. `indexOf` maps a bar time to its index in the loaded bars. */
-export function measureFigures(a: Pt, b: Pt, tick: Decimal, indexOf: (time: number) => number): MeasureFigures | Refusal {
+/**
+ * Measure figures between two points. `indexOf` maps a bar time to its index in the loaded bars, or null when the time has no
+ * bar on this interval; such a measure refuses as outside the bars instead of counting clamped bars. The price change keeps
+ * its sign: from 100 to 90 is -10 (-10.00%).
+ */
+export function measureFigures(a: Pt, b: Pt, tick: Decimal, indexOf: (time: number) => number | null): MeasureFigures | Refusal {
   const diff = diffAtTick(a.price, b.price, tick);
   if (diff === null) return 'bad-price';
+  const ia = indexOf(a.time);
+  const ib = indexOf(b.time);
+  if (ia === null || ib === null) return 'outside-bars';
   return {
-    bars: Math.abs(indexOf(b.time) - indexOf(a.time)),
-    priceDiff: diff.replace(/^-/, ''),
-    pct: percentChange(a.price, b.price)?.replace(/^-/, '') ?? null,
+    bars: Math.abs(ib - ia),
+    priceDiff: diff,
+    pct: percentChange(a.price, b.price),
     span: formatSpan(Math.abs(b.time - a.time)),
   };
 }
@@ -190,9 +197,12 @@ export function gannSlopes(
   a: Pt,
   b: Pt,
   tick: Decimal,
-  indexOf: (time: number) => number,
+  indexOf: (time: number) => number | null,
 ): Array<{ ratio: Decimal; slope: Decimal }> | Refusal {
-  const dx = indexOf(b.time) - indexOf(a.time);
+  const ia = indexOf(a.time);
+  const ib = indexOf(b.time);
+  if (ia === null || ib === null) return 'outside-bars';
+  const dx = ib - ia;
   const pa = dec(a.price);
   const pb = dec(b.price);
   if (pa === null || pb === null) return 'bad-price';

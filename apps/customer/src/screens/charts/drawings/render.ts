@@ -22,12 +22,15 @@ import { type Decimal } from './decimal';
 export interface View {
   width: number;
   height: number;
-  /** Chart x of a bar time, or null when the time has no bar on the chart. */
+  /**
+   * Chart x of a stored time: the nearest loaded bar on the current interval, or null when the time lies outside the loaded
+   * bars (so it is not drawn, and says so).
+   */
   x(time: number): number | null;
   /** Chart y of a decimal price, or null when the chart cannot place it. */
   y(price: Decimal): number | null;
-  /** Index of a bar time among the loaded bars (for bar counts). */
-  indexOf(time: number): number;
+  /** Index of a stored time among the loaded bars (for bar counts), or null outside the loaded bars. */
+  indexOf(time: number): number | null;
   tick: Decimal;
   /** The copy catalogue for the labels drawn on the canvas. */
   t(key: string, vars?: Record<string, string>): string;
@@ -299,10 +302,17 @@ function rectOf(a: Xy, b: Xy): { x: number; y: number; w: number; h: number } {
 /** Two-point drawings get a handle on their midpoint, so the whole drawing moves from one handle. */
 const MIDDLE_HANDLE: ReadonlySet<DrawingKind> = new Set(['trend', 'info', 'ray', 'measure', 'rectangle', 'ellipse', 'gannBox']);
 
-/** The plan of one drawing. A drawing whose points are not on the chart is not drawn (no plan ops). */
+/**
+ * The plan of one drawing. A drawing with a point outside the loaded bars is not drawn, and its plan says so; nothing is
+ * drawn for it in silence.
+ */
 export function planDrawing(d: Drawing, view: View, options: { selected?: boolean } = {}): Plan {
   const xy = coords(d.points, view);
-  if (!xy || xy.length < pointsNeeded(d.kind, d.variant)) return { id: d.id, ops: [], handles: [], note: null };
+  if (!xy) {
+    const outside = d.points.some((p) => view.x(p.time) === null);
+    return { id: d.id, ops: [], handles: [], note: outside ? view.t('Outside the loaded bars') : null };
+  }
+  if (xy.length < pointsNeeded(d.kind, d.variant)) return { id: d.id, ops: [], handles: [], note: null };
   const { ops, note } = bodyOps(d, view, xy);
   const handles: Handle[] = [];
   if (options.selected) {
