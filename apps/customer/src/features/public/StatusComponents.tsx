@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
-import { statusPageFetcher, type StatusPage } from './status';
+import { statusPageFetcher, statusPostmortemsFetcher, type PublishedPostmortem, type StatusPage } from './status';
 import { statusCopy } from './status-copy';
 import { StatusBadgeShare } from './StatusBadgeShare';
 import { StatusSubscribe } from './StatusSubscribe';
@@ -23,7 +23,19 @@ export function StatusComponents() {
     () => env.poller.source<StatusPage>('public-status-page', statusPageFetcher(env.api), { intervalMs: 30_000 }),
     [env],
   );
+  const postmortemSource = useMemo(
+    () =>
+      env.poller.source<PublishedPostmortem[]>('public-status-postmortems', statusPostmortemsFetcher(env.api), {
+        intervalMs: 60_000,
+      }),
+    [env],
+  );
   const load = useSource(source);
+  const postmortems = useSource(postmortemSource);
+  const postmortemOf = useMemo(
+    () => new Map(postmortems.status === 'ready' ? postmortems.data.map((p) => [p.incidentId, p] as const) : []),
+    [postmortems],
+  );
   if (load.status === 'loading') return <p role="status">{copy.t('componentsLoading')}</p>;
   if (load.status === 'refused') return <p role="alert">{refusalCopy(load.code).title || copy.t('componentsFailed')}</p>;
   if (load.status !== 'ready')
@@ -87,8 +99,15 @@ export function StatusComponents() {
       <section className="pub-card" aria-labelledby="status-incidents" data-testid="status-incidents">
         <h2 id="status-incidents">{copy.t('incidentsTitle')}</h2>
         {page.incidents.length === 0 ? <p>{copy.t('incidentsNone')}</p> : null}
+        {page.incidents.some((i) => i.resolvedAt !== null) && (postmortems.status === 'error' || postmortems.status === 'refused') ? (
+          <p className="muted" role="status" data-testid="status-postmortems-failed">
+            {postmortems.status === 'refused'
+              ? refusalCopy(postmortems.code).title || copy.t('postmortemsFailed')
+              : copy.t('postmortemsFailed')}
+          </p>
+        ) : null}
         {page.incidents.map((incident) => (
-          <IncidentCard key={incident.id} incident={incident} names={page.components} />
+          <IncidentCard key={incident.id} incident={incident} names={page.components} postmortem={postmortemOf.get(incident.id) ?? null} />
         ))}
       </section>
       <StatusBadgeShare components={page.components} />
@@ -142,7 +161,15 @@ function ComponentRow({ row, uptimeDays }: { row: Component; uptimeDays: number 
   );
 }
 
-function IncidentCard({ incident, names }: { incident: Incident; names: readonly Component[] }) {
+function IncidentCard({
+  incident,
+  names,
+  postmortem,
+}: {
+  incident: Incident;
+  names: readonly Component[];
+  postmortem: PublishedPostmortem | null;
+}) {
   const copy = statusCopy.useCopy();
   const affected = incident.components.map((id) => names.find((c) => c.id === id)?.name ?? id);
   return (
@@ -160,6 +187,15 @@ function IncidentCard({ incident, names }: { incident: Incident; names: readonly
           </li>
         ))}
       </ol>
+      {postmortem ? (
+        <section className="status-postmortem" data-testid={`status-postmortem-${incident.id}`}>
+          <h4>{copy.t('postmortemTitle')}</h4>
+          <p className="muted">
+            {copy.t('postmortemPublished')} {whenUtc(postmortem.publishedAt)}
+          </p>
+          <p className="status-postmortem__body">{postmortem.body}</p>
+        </section>
+      ) : null}
     </article>
   );
 }

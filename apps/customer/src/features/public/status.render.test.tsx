@@ -1,7 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { Loadable } from '../../data/types';
-import type { MaintenanceWindow, MarketMode, StatusPage as StatusPageRead } from './status';
+import type { MaintenanceWindow, MarketMode, PublishedPostmortem, StatusPage as StatusPageRead } from './status';
 
 // Server rendering has no browser store to subscribe to, so the preferences hook answers with the stored defaults.
 vi.mock('../../shared/preferences', async (original) => {
@@ -12,10 +12,17 @@ vi.mock('../../shared/preferences', async (original) => {
 let load: Loadable<MarketMode[]> = { status: 'loading' };
 let maintenanceLoad: Loadable<MaintenanceWindow[]> = { status: 'loading' };
 let pageLoad: Loadable<StatusPageRead> = { status: 'loading' };
+let postmortemLoad: Loadable<PublishedPostmortem[]> = { status: 'loading' };
 vi.mock('../../data/hooks', () => ({
   useDataEnv: () => ({ poller: { source: (key: string) => ({ key }) }, api: {}, userId: null }),
   useSource: (source: { key: string }) =>
-    source.key === 'public-status-maintenance' ? maintenanceLoad : source.key === 'public-status-page' ? pageLoad : load,
+    source.key === 'public-status-maintenance'
+      ? maintenanceLoad
+      : source.key === 'public-status-page'
+        ? pageLoad
+        : source.key === 'public-status-postmortems'
+          ? postmortemLoad
+          : load,
 }));
 
 import { StatusPage } from './StatusPage';
@@ -172,6 +179,48 @@ describe('/status components', () => {
     expect(html).toContain('From a published incident');
     expect(html.replace(/<!-- -->/g, '')).toContain('Affects: Trading');
     expect(html.indexOf('Fix deployed')).toBeLessThan(html.indexOf('Investigating'));
+  });
+  it('shows a published postmortem under its resolved incident, and says so when postmortems cannot be read', () => {
+    const resolved = {
+      id: 'i2',
+      title: 'Deposits delayed',
+      impact: 'minor' as const,
+      components: ['trading'],
+      openedAt: '2026-10-23T09:00:00.000Z',
+      resolvedAt: '2026-10-23T10:00:00.000Z',
+      updates: [{ id: 'u3', body: 'Resolved', impact: null, publishedAt: '2026-10-23T10:00:00.000Z', resolves: true }],
+    };
+    pageLoad = {
+      status: 'ready',
+      asOf: 1,
+      data: page({ overall: 'operational', components: [row({ state: 'operational' })], incidents: [resolved] }),
+    };
+    postmortemLoad = {
+      status: 'ready',
+      asOf: 1,
+      data: [
+        { incidentId: 'i2', body: 'TEST a queue backed up; we added an alert.', version: 1, publishedAt: '2026-10-23T11:00:00.000Z' },
+        { incidentId: 'other', body: 'TEST not this one', version: 1, publishedAt: '2026-10-23T11:00:00.000Z' },
+      ],
+    };
+    let html = renderToString(<StatusPage />).replace(/<!-- -->/g, '');
+    expect(html).toContain('data-testid="status-postmortem-i2"');
+    expect(html).toContain('TEST a queue backed up; we added an alert.');
+    expect(html).toContain('Published 2026-10-23 11:00 UTC');
+    expect(html).not.toContain('TEST not this one');
+    postmortemLoad = { status: 'error', retry: () => undefined };
+    html = renderToString(<StatusPage />);
+    expect(html).toContain('Couldn’t load postmortems');
+    expect(html).not.toContain('status-postmortem-i2');
+    expect(html).toContain('Deposits delayed');
+    // With only open incidents nothing could be missing, so a failed read says nothing.
+    pageLoad = {
+      status: 'ready',
+      asOf: 1,
+      data: page({ overall: 'operational', components: [row({ state: 'operational' })], incidents: [{ ...resolved, resolvedAt: null }] }),
+    };
+    expect(renderToString(<StatusPage />)).not.toContain('Couldn’t load postmortems');
+    postmortemLoad = { status: 'loading' };
   });
   it('a failed read says so and never reads as all working', () => {
     pageLoad = { status: 'error', retry: () => undefined };
