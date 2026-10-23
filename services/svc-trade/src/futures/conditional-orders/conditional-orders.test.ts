@@ -14,7 +14,7 @@ import { FuturesError } from '../position-service.js';
 import { conditionalTriggerScheduled, startConditionalOrderJobs } from './job.js';
 import { CONDITIONAL_ORDERS_PATH, ENTRY_PROTECTION_PATH, RESTING_ORDERS_PATH, registerConditionalOrdersRest } from './rest.js';
 import { FUTURES_RESTING_UNSUPPORTED, refuseFuturesRestingLimit } from './resting.js';
-import { nextTrail, triggerCrossed, validateConditional } from './validate.js';
+import { conditionalHash, nextTrail, requestHash, triggerCrossed, validateConditional } from './validate.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..', '..', '..', '..', '..');
@@ -75,6 +75,32 @@ describe('conditional order fields', () => {
     expect(() => validateConditional({ ...base, kind: 'bracket', triggerPrice: '1' })).toThrow(
       expect.objectContaining({ code: 'trade.conditional_kind_unsupported' }),
     );
+  });
+
+  it('judges on the mark unless the last trade is asked for; the unpublished index is refused by name', () => {
+    expect(validateConditional({ ...base, kind: 'stop_market', triggerPrice: '49000' }).triggerSource).toBe('mark');
+    expect(validateConditional({ ...base, kind: 'stop_market', triggerPrice: '49000', triggerSource: 'last' }).triggerSource).toBe('last');
+    expect(() => validateConditional({ ...base, kind: 'trailing_stop', trailingDistance: '100', triggerSource: 'index' })).toThrow(
+      expect.objectContaining({ code: 'trade.trigger_source_unset', status: 400 }),
+    );
+    expect(() => validateConditional({ ...base, kind: 'stop_market', triggerPrice: '49000', triggerSource: 'mid' })).toThrow(
+      expect.objectContaining({ code: 'trade.trigger_source_unsupported', status: 400 }),
+    );
+    // A mark-judged order hashes as before, so an older retry still replays; a last-trade one is a different request.
+    const onMark = validateConditional({ ...base, kind: 'stop_market', triggerPrice: '49000' });
+    expect(conditionalHash(onMark)).toBe(
+      requestHash({
+        market: 'BTC/USDT:USDT',
+        kind: 'stop_market',
+        side: 'sell',
+        quantity: '1',
+        triggerPrice: '49000',
+        limitPrice: '',
+        trailingDistance: '',
+        reduceOnly: 'true',
+      }),
+    );
+    expect(conditionalHash({ ...onMark, triggerSource: 'last' })).not.toBe(conditionalHash(onMark));
   });
 
   it('refuses reduceOnly false — an exit cannot open or enlarge', () => {

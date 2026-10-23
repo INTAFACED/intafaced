@@ -14,10 +14,11 @@ import {
   MenuContent,
   MenuItem,
   MenuTrigger,
+  SegmentedControl,
 } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
-import type { ConditionalOrder } from './api';
+import type { ConditionalOrder, StopInput } from './api';
 import { useConditionalOrders, useFuturesRefresh } from './data';
 import { positionsCopy } from './positions-copy';
 import { newNonce, usePendingNote, useFuturesWriter, type Writer } from './hooks';
@@ -736,6 +737,204 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
   );
 }
 
+const STOP_KINDS: readonly StopInput['kind'][] = ['stop_market', 'stop_limit', 'trailing_stop'];
+const STOP_SOURCES: readonly StopInput['triggerSource'][] = ['mark', 'last', 'index'];
+
+/**
+ * A stop on a position (J-derivatives-03 step 5): a stop market, a stop limit or a trailing stop, judged on the mark or
+ * the last trade. It is always the closing side and reduce-only; the service refuses one that would open or enlarge,
+ * a field its kind does not take, and the index, which is not published here. The stops armed on the position are
+ * listed under the form.
+ */
+export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
+  const { t } = positionsCopy.useCopy();
+  const words = triggersCopy.useCopy().t;
+  const writer = useFuturesWriter();
+  const read = useConditionalOrders(true);
+  const refresh = useFuturesRefresh();
+  const [kind, setKind] = useState<StopInput['kind']>('stop_market');
+  const [source, setSource] = useState<StopInput['triggerSource']>('mark');
+  const [size, setSize] = useState(position.contracts);
+  const [trigger, setTrigger] = useState('');
+  const [limit, setLimit] = useState('');
+  const [distance, setDistance] = useState('');
+  const [armed, setArmed] = useState(false);
+  const nonce = useRef<{ key: string; nonce: string } | null>(null);
+  const asset = settleOf(position.symbol) ?? '';
+  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
+  useEffect(() => {
+    if (refusal !== undefined) onRefusal?.(refusal);
+  }, [refusal, onRefusal]);
+  const edit = (set: (v: string) => void) => (value: string) => {
+    setArmed(false);
+    set(value);
+  };
+  const takes = { trigger: kind !== 'trailing_stop', limit: kind === 'stop_limit', distance: kind === 'trailing_stop' };
+  const sizeProblem = closeSizeProblem(size, position.contracts);
+  const required = (value: string) => (value.trim() === '' ? 'empty' : priceProblem(value));
+  const problems = {
+    trigger: takes.trigger ? required(trigger) : null,
+    limit: takes.limit ? required(limit) : null,
+    distance: takes.distance ? required(distance) : null,
+  };
+  const anyProblem = sizeProblem !== null || Object.values(problems).some((p) => p !== null);
+  const blocked = writer.note.state !== 'none' || position.id === null;
+  const stops =
+    read.status === 'ready'
+      ? read.data.filter((o) => o.positionId === position.id && o.attachment === null && (o.status === 'armed' || o.status === 'triggered'))
+      : [];
+
+  const place = async () => {
+    if (blocked || anyProblem) return;
+    const input: Omit<StopInput, 'clientOrderId'> = {
+      symbol: position.symbol,
+      kind,
+      side: position.side === 'long' ? 'sell' : 'buy',
+      quantity: size.trim(),
+      ...(takes.trigger ? { triggerPrice: trigger.trim() } : {}),
+      ...(takes.limit ? { limitPrice: limit.trim() } : {}),
+      ...(takes.distance ? { trailingDistance: distance.trim() } : {}),
+      triggerSource: source,
+    };
+    // The same stop re-sends the same client id (a replay); anything changed, or a send after an armed one, is new.
+    nonce.current = pickNonce(nonce.current, `stop:${position.id}:${JSON.stringify(input)}`, newNonce);
+    const result = await writer.run({ op: 'place-trigger', input: { ...input, clientOrderId: `stop:${nonce.current.nonce}` } });
+    if (result.kind === 'done') {
+      nonce.current = null;
+      setArmed(true);
+      refresh();
+    }
+  };
+  const check = async () => {
+    if (writer.note.state !== 'pending') return;
+    const result = await writer.check(writer.note.pending);
+    if (result.kind === 'done') {
+      nonce.current = null;
+      setArmed(true);
+      refresh();
+    }
+  };
+  const price = (label: string, hint: string, value: string, set: (v: string) => void, problem: string | null) => (
+    <Field label={label} hint={hint} error={problem === 'invalid' ? t('Stop problem invalid') : undefined}>
+      <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} />
+    </Field>
+  );
+
+  return (
+    <Frame
+      title={t('Stop title')}
+      onClose={onClose}
+      description={
+        position.markPrice === null
+          ? t('Stop line', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+            })
+          : t('Stop line mark', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+              mark: fmtPrice(position.markPrice, null),
+            })
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t('Dialog close')}
+          </Button>
+          <Button loading={writer.busy} disabled={blocked || anyProblem} onClick={() => void place()}>
+            {t('Stop place')}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-1">
+        <span className="text-fg-2">{t('Stop kind')}</span>
+        <SegmentedControl
+          aria-label={t('Stop kind')}
+          size={32}
+          value={kind}
+          onValueChange={(v) => {
+            setArmed(false);
+            setKind(v as StopInput['kind']);
+          }}
+          items={STOP_KINDS.map((k) => ({ value: k, label: t(`Stop kind ${k}`) }))}
+        />
+        <p className="text-2xs text-fg-2">{t(`Stop kind how ${kind}`)}</p>
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-fg-2">{t('Stop source')}</span>
+        <SegmentedControl
+          aria-label={t('Stop source')}
+          size={32}
+          value={source}
+          onValueChange={(v) => {
+            setArmed(false);
+            setSource(v as StopInput['triggerSource']);
+          }}
+          items={STOP_SOURCES.map((k) => ({ value: k, label: t(`Stop source ${k}`) }))}
+        />
+        <p className="text-2xs text-fg-2">{t(`Stop source how ${source}`)}</p>
+      </div>
+      <Field
+        label={t('Stop size')}
+        hint={t('Stop size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
+        error={sizeProblem && size.trim() !== '' ? t(`Close problem ${sizeProblem}`) : undefined}
+      >
+        <Input kind="decimal" value={size} onValueChange={edit(setSize)} precision={8} />
+      </Field>
+      {takes.trigger
+        ? price(
+            t('Stop trigger', { quote: asset }),
+            t(position.side === 'long' ? 'Stop trigger hint below' : 'Stop trigger hint above'),
+            trigger,
+            setTrigger,
+            problems.trigger,
+          )
+        : null}
+      {takes.limit ? price(t('Stop limit', { quote: asset }), t('Stop limit hint'), limit, setLimit, problems.limit) : null}
+      {takes.distance
+        ? price(t('Stop distance', { quote: asset }), t('Stop distance hint'), distance, setDistance, problems.distance)
+        : null}
+      {armed ? (
+        <p role="status" className="text-fg-2">
+          {t('Stop done')}
+        </p>
+      ) : null}
+      {writer.outcome?.kind === 'done' ? null : <WriteNotice writer={writer} onCheck={() => void check()} />}
+      <section aria-label={t('Stop armed')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
+        <h3 className="text-sm font-medium">{t('Stop armed')}</h3>
+        {read.status === 'loading' ? <p className="text-fg-2">{t('Protect loading')}</p> : null}
+        {read.status === 'error' || read.status === 'refused' ? <p className="text-warn">{t('Stop unreadable')}</p> : null}
+        {read.status === 'ready' || read.status === 'empty' ? (
+          stops.length === 0 ? (
+            <p className="text-fg-2">{t('Stop armed none')}</p>
+          ) : (
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {stops.map((o) => {
+                const line = triggerLine(o, words);
+                return (
+                  <li key={o.id} data-stop={o.kind} data-status={o.status} className="flex flex-col gap-0.5">
+                    <span className="font-medium">
+                      {t('Stop armed line', {
+                        kind: words(`Kind ${o.kind}`),
+                        size: fmtAmount(o.quantity, { places: 8 }),
+                        status: words(`Status ${o.status}`),
+                      })}
+                    </span>
+                    {line ? <span className="text-fg-2">{line}</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : null}
+      </section>
+    </Frame>
+  );
+}
+
 /** The row buttons and their dialogs. Every disabled button says why, in words next to it. */
 export function PositionRowActions({
   position,
@@ -745,7 +944,7 @@ export function PositionRowActions({
   locked = false,
   stale = false,
   onChanged,
-  only = ['add', 'reduce', 'leverage', 'protect', 'close'],
+  only = ['add', 'reduce', 'leverage', 'protect', 'stop', 'close'],
   compact = false,
 }: {
   position: Position;
@@ -774,6 +973,7 @@ export function PositionRowActions({
     reduce: t('Action reduce'),
     leverage: t('Action leverage'),
     protect: t('Action protect'),
+    stop: t('Action stop'),
     close: closing ? t('Action retry close') : t('Action close'),
   };
   const done = () => {
@@ -820,6 +1020,7 @@ export function PositionRowActions({
       {open === 'add' || open === 'reduce' ? <MarginDialog {...common} mode={open} free={free} /> : null}
       {open === 'leverage' ? <LeverageDialog {...common} cap={leverageCap} /> : null}
       {open === 'protect' ? <ProtectionDialog {...common} /> : null}
+      {open === 'stop' ? <StopDialog {...common} /> : null}
       {open === 'close' ? <CloseDialog {...common} /> : null}
     </div>
   );

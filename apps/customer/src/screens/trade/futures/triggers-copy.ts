@@ -27,7 +27,7 @@ const messages = {
   'Triggers heading': 'Take profit, stop loss and stops',
   'Triggers table': 'Take-profit, stop-loss and stop orders',
   'Triggers empty': 'No take profit, stop loss or stop',
-  'Triggers empty reason': 'Set them on a position from Positions, Manage, Take profit / stop loss.',
+  'Triggers empty reason': 'Set them on a position from Positions, Manage: Take profit / stop loss, or Stop order.',
   'Triggers thing': 'take-profit and stop orders',
   'Col time': 'Time',
   'Col contract': 'Contract',

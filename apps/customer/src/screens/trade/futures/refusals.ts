@@ -192,6 +192,65 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'Take profit and stop loss on an order are not available here',
     body: 'This deployment does not attach a take profit or stop loss to an order. Nothing was placed. Clear them to open, then set them on the position.',
   },
+  'trade.trigger_source_unset': {
+    title: 'The index price is not published here',
+    body: 'A stop judged on the index would never fire, so it was not armed. Choose the mark price or the last trade. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.trigger_source_unsupported': {
+    title: 'That price source is not offered',
+    body: 'A stop is judged on the mark price or the last trade. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.last_price_missing': {
+    title: 'This contract has not traded yet',
+    body: 'There is no last trade to judge the stop on. Choose the mark price, or try again once the book has traded. Nothing was saved.',
+  },
+  'trade.conditional_already_crossed': {
+    title: 'That trigger is already reached',
+    body: 'The price the stop is judged on is already past the trigger, so it would close at once. Set the trigger where the price has not reached yet: below it for a long, above it for a short. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_would_increase': {
+    title: 'A stop only closes',
+    body: 'That stop would open or add to a position instead of closing one: a stop on a long sells, on a short it buys. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_reduce_only_required': {
+    title: 'A stop only closes',
+    body: 'A stop is always reduce-only: it can close a position, never open or enlarge one. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_field_required': {
+    title: 'A price is missing for this stop',
+    body: 'A stop market needs a trigger price, a stop limit a trigger and a limit price, and a trailing stop a distance. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_field_unsupported': {
+    title: 'That stop does not take that price',
+    body: 'Each stop takes only its own prices: a trailing stop takes a distance and no trigger, and only a stop limit takes a limit price. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_kind_unsupported': {
+    title: 'That stop type is not offered',
+    body: 'Choose a stop market, a stop limit or a trailing stop. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_trail_unusable': {
+    title: 'That distance is too large',
+    body: 'The trailing distance would put the trigger at or below zero. Enter a smaller distance. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.close_quantity_exceeds_size': {
+    title: 'That is more than the position holds',
+    body: 'Enter a size up to the position’s size. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.close_quantity_lot_step': {
+    title: 'That size is not on the contract’s step',
+    body: 'Enter a size in whole steps of the contract’s lot. Nothing was saved.',
+    retryable: false,
+  },
   'trade.conditional_trigger_off': {
     title: 'Price triggers are switched off',
     body: 'The platform is not watching prices for take-profit, stop-loss or stop orders right now, so none can be armed. Nothing was saved. Your position is unchanged.',

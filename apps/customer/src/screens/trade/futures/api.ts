@@ -197,6 +197,10 @@ export const conditionalOrderSchema = z.object({
   quantity: decimalSchema,
   triggerPrice: decimalSchema.nullable(),
   limitPrice: decimalSchema.nullable(),
+  /** A trailing stop's distance behind the best price its source reached (`trailExtreme`). */
+  trailingDistance: decimalSchema.nullable().optional(),
+  trailExtreme: decimalSchema.nullable().optional(),
+  clientOrderId: z.string().optional(),
   positionId: z.string().nullable(),
   attachment: z.enum(['take_profit', 'stop_loss']).nullable(),
   /** A take profit or stop loss that closes the position as it is when it fires. Older answers carry none: whole. */
@@ -212,6 +216,20 @@ export const conditionalOrderSchema = z.object({
   createdAt: z.string(),
 });
 export type ConditionalOrder = z.infer<typeof conditionalOrderSchema>;
+
+/** A stop that closes some or all of a position: its kind, the price it is judged on, and only the fields that kind takes. */
+export interface StopInput {
+  symbol: string;
+  kind: 'stop_market' | 'stop_limit' | 'trailing_stop';
+  /** The closing side: sell for a long, buy for a short. The service refuses one that would open or enlarge. */
+  side: 'buy' | 'sell';
+  quantity: string;
+  triggerPrice?: string;
+  limitPrice?: string;
+  trailingDistance?: string;
+  triggerSource: 'mark' | 'last' | 'index';
+  clientOrderId: string;
+}
 
 export const protectionSchema = z.object({
   positionId: z.string(),
@@ -422,6 +440,23 @@ export function createFuturesApi(api: ApiClient) {
     },
     conditionalOrder: (id: string, signal?: AbortSignal) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { signal }),
+    /** Arm one stop. The same client id replays the order already armed under it. */
+    createConditional: (input: StopInput) =>
+      api.rest('/futures/conditional-orders', conditionalOrderSchema, {
+        method: 'POST',
+        body: {
+          market: input.symbol,
+          kind: input.kind,
+          side: input.side,
+          quantity: input.quantity,
+          ...(input.triggerPrice !== undefined ? { triggerPrice: input.triggerPrice } : {}),
+          ...(input.limitPrice !== undefined ? { limitPrice: input.limitPrice } : {}),
+          ...(input.trailingDistance !== undefined ? { trailingDistance: input.trailingDistance } : {}),
+          reduceOnly: true,
+          triggerSource: input.triggerSource,
+          clientOrderId: input.clientOrderId,
+        },
+      }),
     /** Cancel one armed order. One that already fired or ended answers with the service's refusal. */
     cancelConditional: (id: string) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { method: 'DELETE' }),
