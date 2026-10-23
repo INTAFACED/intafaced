@@ -235,6 +235,11 @@
       "service": "tax",
       "value": "customer",
       "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
+    },
+    "LEDGER_ASSET_PRECISION_USDT": {
+      "service": "ledger",
+      "value": "6",
+      "note": "TEST published decimal places for USDT. A receipt preview of 1234.5 shows every place. Not an owner decision. svc-pay reads the ledger registry; the local stack publishes this value."
     }
   }
 }
