@@ -223,9 +223,12 @@ const bank = createBankServices(sql, ledger, history, {
         }
       : {}),
   },
+  /** Who answers a global send: unset ports unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  global: globalPortsFor(env.BANK_GLOBAL_PARTNER, env.BANK_GLOBAL_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
   /** Purpose, source-of-funds and reference rules of a global send: the owner's table, blank refuses. */
-  /** Who answers a global send: unset ports unless the TEST stand-in was chosen, and never under live posture. */
-  global: globalPortsFor(env.BANK_GLOBAL_PARTNER, env.BANK_GLOBAL_SIM_JSON, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
   sendFieldRules: env.BANK_SEND_FIELD_RULES_JSON,
   /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
   payeeControls: env.BANK_PAYEE_CONTROLS_JSON,

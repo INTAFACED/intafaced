@@ -158,6 +158,12 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         'PRECONDITION_FAILED',
         PSP_BLOCKER,
       );
+    case 'bank.global_amount_outside_corridor':
+      return new PersonalPayError(
+        detail ?? 'That amount is outside the smallest and largest send for this destination.',
+        code,
+        'PRECONDITION_FAILED',
+      );
     case 'bank.global_fx_unset':
       return new PersonalPayError(
         'No exchange rate is available. The rate source is socket.psp-partners, a rate counterparty. This service does not invent a rate, a fee or a receive amount.',

@@ -1160,14 +1160,15 @@ describe('personal bill pay and global send', () => {
       expect(sent.providerRef).toBe(`TEST-${sent.id}`);
       expect(transfers(ledger)).toHaveLength(1);
       expect(await balance()).toBe(parseAmount('60'));
-      expect(await rail()).not.toBe(0n);
+      // Exactly the amount reached the stand-in's rail boundary: one leg in, nothing else.
+      expect(await rail()).toBe(parseAmount('40'));
       // The same request again is the same send: nothing more leaves the account.
       expect(await me.global.send(body)).toMatchObject({ id: sent.id, status: 'sent' });
       expect(transfers(ledger)).toHaveLength(1);
       expect(await balance()).toBe(parseAmount('60'));
     });
 
-    it('refuses a delivery method or corridor the catalogue does not hold, and an amount above its TEST bound, posting nothing', async () => {
+    it('refuses a delivery method or corridor the catalogue does not hold, and an amount outside its TEST bounds, posting nothing', async () => {
       const { ledger, me, body, balance } = await ready();
       await expect(me.global.send({ ...body, deliveryMethod: 'bank_account' })).rejects.toMatchObject({
         cause: { code: 'bank.global_corridor_unknown', blocker: 'socket.psp-partners' },
@@ -1175,8 +1176,26 @@ describe('personal bill pay and global send', () => {
       await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, toCurrency: 'GBP' })).rejects.toMatchObject({
         cause: { code: 'bank.global_corridor_unknown' },
       });
+      // The catalogue's TEST bounds are the corridor's bounds: 1 to 1000.
+      await expect(
+        me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '1000.000000000000000001' }),
+      ).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+        message: expect.stringContaining('1000') as unknown as string,
+      });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '0.5' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+      });
       expect(transfers(ledger)).toHaveLength(0);
       expect(await balance()).toBe(parseAmount('100'));
+    });
+
+    it('names itself: the customer read and the ops summary carry its TEST label, and no other ports do', async () => {
+      const { me } = await ready();
+      expect(await me.global.partner()).toEqual({ standIn: expect.stringMatching(/^TEST\b/) });
+      const ops = caller(mount({ global: globalSimPorts(parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'))!) }).bank, OP_A, compliance);
+      expect((await ops.global.ops.summary()).rails).toMatchObject({ corridors: 'live', standIn: expect.stringMatching(/^TEST\b/) });
+      expect(await caller(mount().bank, USER, read).global.partner()).toEqual({ standIn: null });
     });
   });
 });

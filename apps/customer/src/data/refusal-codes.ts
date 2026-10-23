@@ -84,6 +84,7 @@ export type RefusalKind =
   | 'globalRecipientInvalid'
   | 'globalPayoutRefused'
   | 'globalCorridorUnknown'
+  | 'globalAmountOutside'
   | 'globalDetailsMissing'
   | 'globalNoSend'
   | 'proofOff'
@@ -249,6 +250,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_bic_format_invalid': 'globalRecipientInvalid',
   'bank.global_payout_refused': 'globalPayoutRefused',
   'bank.global_corridor_unknown': 'globalCorridorUnknown',
+  'bank.global_amount_outside_corridor': 'globalAmountOutside',
   'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
   'bank.payee_blocked': 'globalNoSend',
   'bank.exchange_allowance_exceeded': 'globalNoSend',

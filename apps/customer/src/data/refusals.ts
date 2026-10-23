@@ -214,6 +214,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'We do not send there',
     body: 'That country, currency and delivery method are not on the list. Choose one from the list.',
   },
+  globalAmountOutside: {
+    title: 'That amount does not fit this destination',
+    body: 'It is below the smallest or above the largest send for this destination. Nothing was sent. Change the amount.',
+  },
   globalDetailsMissing: {
     title: 'More details are needed',
     body: 'This send needs details about you or the recipient that were not included. Nothing was sent.',

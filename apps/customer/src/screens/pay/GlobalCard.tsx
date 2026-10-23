@@ -175,6 +175,15 @@ export function GlobalCard() {
       }),
     [global],
   );
+  // A TEST stand-in's label goes beside every number it gives; a failed read shows no label rather than a guess.
+  const [standIn, setStandIn] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void global.partner(controller.signal).then((result) => {
+      if (!controller.signal.aborted && result.ok) setStandIn(result.data.standIn);
+    });
+    return () => controller.abort();
+  }, [global]);
   useEffect(() => {
     const controller = new AbortController();
     void global.corridors(controller.signal).then((result) => {
@@ -408,6 +417,11 @@ export function GlobalCard() {
   return (
     <div className="pay-body" data-testid="global-card">
       {unavailable ? <Reason title={unavailable.title}>{unavailable.body}</Reason> : null}
+      {standIn ? (
+        <p className="pay-hint" role="note" data-testid="global-stand-in">
+          {g('standIn', { label: standIn })}
+        </p>
+      ) : null}
       <Steps
         items={[
           t('globalStepDestination'),

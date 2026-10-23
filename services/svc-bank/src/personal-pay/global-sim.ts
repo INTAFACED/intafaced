@@ -1,6 +1,6 @@
-import { SCALE, formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, mul, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
-import { cardSimIsLivePosture, type CardIssuerPosture } from '../cards/issuer.js';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { emptyGlobalPorts, type GlobalPorts } from './ports.js';
 
 /**
@@ -11,8 +11,10 @@ import { emptyGlobalPorts, type GlobalPorts } from './ports.js';
  * stack and the journey tests: it answers from a catalogue someone typed (`BANK_GLOBAL_SIM_JSON`, labelled TEST in the
  * bank's test profile), calls no network, holds no credentials and pays nobody. What it lets run end to end is the bank's
  * own half: the corridor check, the quote check, the one forward posting to the stand-in's rail boundary in the real book,
- * and the tracker. Under live posture (`NODE_ENV=production`, `APP_ENV` staging or prod) `global-sim` is refused and the
- * ports stay unset, the same posture as `card-sim`. Choosing the stand-in has to be an act somebody performed.
+ * and the tracker. It is a local-test stand-in like the trade tape: chosen in a process whose raw `APP_ENV` is not exactly
+ * `dev` or `test` (an unset one included, see `@intafaced/config` app-env), or with `NODE_ENV=production`, the service
+ * refuses to start, and so it does over a blank or unreadable catalogue, so a misconfigured stand-in is never silent.
+ * Its ports carry the catalogue's TEST label (`standIn`), which every screen and the ops summary show beside its numbers.
  *
  * Numbers: corridors, bounds, rates, quote validity and delivery time come only from the typed catalogue. The fee is
  * zero because a global send posts the amount alone: a fee shown here would never be charged.
@@ -85,9 +87,16 @@ export function parseGlobalSim(json: string | undefined): GlobalSimCatalogue | n
 
 const live = () => 'live' as const;
 
+function receive(amount: string, rate: string): string {
+  const out = formatAmount(mul(parseAmount(amount), parseAmount(rate), 'floor'));
+  parseAmount(out);
+  return out;
+}
+
 /** The stand-in's ports over one typed catalogue. `now` is injectable so a quote's validity can be tested. */
 export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = () => new Date()): GlobalPorts {
   return {
+    standIn: { label: catalogue.label },
     corridors: {
       status: live,
       list: async () => catalogue.corridors.map((corridor) => ({ ...corridor, deliveryMethods: [...corridor.deliveryMethods] })),
@@ -110,7 +119,8 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
           rate: row.rate,
           fee: '0',
           feeAsset: asset,
-          receiveAmount: formatAmount((parseAmount(amount) * parseAmount(row.rate)) / SCALE),
+          // Floor, as a provider pays no more than it quotes; past what the ledger can hold, the quote is unusable.
+          receiveAmount: receive(amount, row.rate),
           validUntil: new Date(at + catalogue.quoteValidSeconds * 1000).toISOString(),
           eta: new Date(at + catalogue.etaHours * 3_600_000).toISOString(),
         };
@@ -128,16 +138,40 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
   };
 }
 
+/** Why the service will not start with the stand-in chosen. */
+export class GlobalSimRefusedError extends Error {
+  constructor(
+    readonly code: 'bank.global_sim_outside_dev_test' | 'bank.global_sim_catalogue_unreadable',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'GlobalSimRefusedError';
+  }
+}
+
 /**
- * Total over the closed setting. `none`, live posture, or a blank or unreadable catalogue all give the unset ports, so
- * every send refuses by its own name and nothing posts.
+ * Total over the closed setting. `none` gives the unset ports, so every send refuses by its own name and nothing posts.
+ * `global-sim` gives the stand-in only in an explicit dev or test process with a readable TEST catalogue, and throws at
+ * boot otherwise: `env` is the RAW process env, never the schema's defaulted `APP_ENV`.
  */
 export function globalPortsFor(
   setting: GlobalPartnerSetting,
   catalogueJson: string | undefined,
-  posture: CardIssuerPosture = {},
+  env: { readonly APP_ENV?: string; readonly NODE_ENV?: string },
 ): GlobalPorts {
-  if (setting !== 'global-sim' || cardSimIsLivePosture(posture)) return emptyGlobalPorts();
+  if (setting !== 'global-sim') return emptyGlobalPorts();
+  if (!isExplicitDevOrTest(env.APP_ENV) || env.NODE_ENV === 'production') {
+    throw new GlobalSimRefusedError(
+      'bank.global_sim_outside_dev_test',
+      'BANK_GLOBAL_PARTNER=global-sim is a local-test stand-in that pays nobody; it runs only with APP_ENV exactly dev or test.',
+    );
+  }
   const catalogue = parseGlobalSim(catalogueJson);
-  return catalogue ? globalSimPorts(catalogue) : emptyGlobalPorts();
+  if (!catalogue) {
+    throw new GlobalSimRefusedError(
+      'bank.global_sim_catalogue_unreadable',
+      'BANK_GLOBAL_PARTNER=global-sim needs BANK_GLOBAL_SIM_JSON: a catalogue labelled TEST, in shape (see global-sim.ts).',
+    );
+  }
+  return globalSimPorts(catalogue);
 }

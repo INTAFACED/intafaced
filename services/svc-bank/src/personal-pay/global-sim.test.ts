@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { GLOBAL_SIM_RAIL, globalPortsFor, globalSimPorts, parseGlobalSim, type GlobalSimCatalogue } from './global-sim.js';
+import {
+  GLOBAL_SIM_RAIL,
+  GlobalSimRefusedError,
+  globalPortsFor,
+  globalSimPorts,
+  parseGlobalSim,
+  type GlobalSimCatalogue,
+} from './global-sim.js';
 
 const catalogue: GlobalSimCatalogue = {
   label: 'TEST stand-in',
@@ -26,13 +33,28 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(parseGlobalSim(json({ extra: true }))).toBeNull();
   });
 
-  it('is never chosen by default, under live posture, or over a blank catalogue', () => {
-    expect(globalPortsFor('none', json(), { live: false }).corridors.status()).toBe('unset');
-    expect(globalPortsFor('global-sim', json(), { live: true }).corridors.status()).toBe('unset');
-    expect(globalPortsFor('global-sim', json(), { NODE_ENV: 'production' }).payout.status()).toBe('unset');
-    expect(globalPortsFor('global-sim', json(), { NODE_ENV: 'test', APP_ENV: 'prod' }).fx.status()).toBe('unset');
-    expect(globalPortsFor('global-sim', undefined, { live: false }).fx.status()).toBe('unset');
-    expect(globalPortsFor('global-sim', json(), { live: false }).corridors.status()).toBe('live');
+  it('is never chosen by default, and refuses to start outside an explicit dev or test process or over a blank catalogue', () => {
+    const dev = { APP_ENV: 'dev' };
+    expect(globalPortsFor('none', json(), dev).corridors.status()).toBe('unset');
+    expect(globalPortsFor('none', json(), {}).standIn).toBeUndefined();
+    const refused = (env: { APP_ENV?: string; NODE_ENV?: string }, catalogueJson: string | undefined = json()) => {
+      try {
+        globalPortsFor('global-sim', catalogueJson, env);
+      } catch (err) {
+        return err instanceof GlobalSimRefusedError ? err.code : 'other';
+      }
+      return 'started';
+    };
+    // The raw APP_ENV: unset (which the schema would default to dev), a typo, staging or prod all refuse.
+    expect(refused({})).toBe('bank.global_sim_outside_dev_test');
+    expect(refused({ APP_ENV: 'DEV' })).toBe('bank.global_sim_outside_dev_test');
+    expect(refused({ APP_ENV: 'staging' })).toBe('bank.global_sim_outside_dev_test');
+    expect(refused({ APP_ENV: 'prod' })).toBe('bank.global_sim_outside_dev_test');
+    expect(refused({ APP_ENV: 'dev', NODE_ENV: 'production' })).toBe('bank.global_sim_outside_dev_test');
+    expect(refused(dev, '')).toBe('bank.global_sim_catalogue_unreadable');
+    expect(refused(dev, json({ label: 'Partner catalogue' }))).toBe('bank.global_sim_catalogue_unreadable');
+    expect(refused({ APP_ENV: 'test' })).toBe('started');
+    expect(globalPortsFor('global-sim', json(), dev).standIn).toEqual({ label: 'TEST stand-in' });
   });
 
   it('answers only from the catalogue: corridors, banks, the travel-rule fields and the rate', async () => {
@@ -52,6 +74,11 @@ describe('the global-send stand-in (TEST only)', () => {
       eta: '2026-10-24T12:00:00.000Z',
     });
     await expect(ports.fx.quote({ asset: 'USDT', amount: '1', toCurrency: 'GBP' })).rejects.toThrow('no TEST rate');
+    // Rounded down to the ledger's 18 places, never up; a receive amount the ledger cannot hold is an unusable answer.
+    const third = globalSimPorts({ ...catalogue, rates: [{ asset: 'USDT', toCurrency: 'EUR', rate: '0.333333333333333333' }] });
+    expect((await third.fx.quote({ asset: 'USDT', amount: '0.5', toCurrency: 'EUR' })).receiveAmount).toBe('0.166666666666666666');
+    const huge = globalSimPorts({ ...catalogue, rates: [{ asset: 'USDT', toCurrency: 'EUR', rate: '99999999999999999999' }] });
+    await expect(huge.fx.quote({ asset: 'USDT', amount: '99999999999999999999', toCurrency: 'EUR' })).rejects.toThrow();
   });
 
   it('pays nobody: the payout is acknowledged with a TEST reference keyed by the send, on its own rail boundary', async () => {

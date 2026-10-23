@@ -69,6 +69,7 @@ const en = {
   passkeyUnavailable: 'Passkeys need a secure browser connection here. Enter a code instead.',
   confirmFailed: 'We couldn’t confirm it’s you. Try again.',
   uncertain: 'We didn’t get a clear answer. Your send may have gone through. Confirm again to check: the same send is never made twice.',
+  standIn: 'TEST: {label}. Nobody receives the money and every figure here is a test figure.',
   sentTitle: 'Send recorded',
   sentBody: 'Follow it below. We show the status the service reports and nothing else.',
   sendAnother: 'Send another',
@@ -161,6 +162,7 @@ const es = {
   confirmFailed: 'No pudimos confirmar que eres tú. Inténtalo de nuevo.',
   uncertain:
     'No recibimos una respuesta clara. Puede que tu envío se haya hecho. Confirma de nuevo para comprobarlo: el mismo envío nunca se hace dos veces.',
+  standIn: 'Prueba: {label}. Nadie recibe el dinero y cada cifra aquí es de prueba.',
   sentTitle: 'Envío registrado',
   sentBody: 'Síguelo abajo. Mostramos el estado que informa el servicio y nada más.',
   sendAnother: 'Enviar otro',
@@ -253,6 +255,7 @@ const fr = {
   confirmFailed: 'Nous n’avons pas pu confirmer que c’est toi. Réessaie.',
   uncertain:
     'Nous n’avons pas eu de réponse claire. Ton envoi est peut-être parti. Confirme à nouveau pour vérifier : le même envoi n’est jamais fait deux fois.',
+  standIn: 'Test : {label}. Personne ne reçoit l’argent et chaque chiffre ici est un test.',
   sentTitle: 'Envoi enregistré',
   sentBody: 'Suis-le ci-dessous. Nous montrons le statut indiqué par le service et rien d’autre.',
   sendAnother: 'Envoyer un autre',

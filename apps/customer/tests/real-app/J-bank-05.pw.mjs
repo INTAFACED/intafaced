@@ -83,8 +83,13 @@ test(`${J} #1 opens global send and picks the corridor: its limits show, and a c
   page,
 }) => {
   test.setTimeout(240_000);
+  // Step 1 starts the journey again: a new sender with no recipients and no sends.
+  run.reset({});
   await signIn(page);
   const card = await toGermany(page);
+  // Every figure on this card comes from the stand-in, and the card says so.
+  await expect(card.getByTestId('global-stand-in')).toContainText('TEST');
+  await expect(card.getByTestId('global-stand-in')).toContainText('Nobody receives the money');
   const where = card.getByLabel('Where it goes');
   // Exactly the stand-in's two TEST corridors: nothing typed in the app, nothing more.
   await expect(where.locator('option')).toHaveText(['Choose a country and currency', 'DE · EUR · sepa', 'GB · GBP · bank_account']);
@@ -106,11 +111,17 @@ test(`${J} #2 reads the quote: rate, fee, receive amount and valid-until from th
   await card.getByLabel('You send').fill('40');
   await card.getByRole('button', { name: 'Get a quote' }).click();
   const quote = card.getByTestId('global-quote');
-  // The stand-in's TEST rate of 2 and no fee: 40 USDT in, 80 EUR out, as the service's own strings.
-  await expect(quote).toContainText('2', { timeout: 30_000 });
-  await expect(quote).toContainText('0 USDT');
-  await expect(quote).toContainText('80');
-  await expect(card).toContainText('Valid until');
+  const cell = (term) =>
+    quote
+      .locator('div')
+      .filter({ has: page.getByText(term, { exact: true }) })
+      .locator('dd');
+  // The stand-in's TEST rate of 2 and no fee: 40 USDT in, 80 EUR out, each figure exactly as the service gave it.
+  await expect(cell('Exchange rate')).toHaveText('2', { timeout: 30_000 });
+  await expect(cell('Fee')).toHaveText('0 USDT');
+  await expect(cell('They receive')).toHaveText('80 EUR');
+  await expect(card.getByText(/^Valid until \d{4}-\d{2}-\d{2}T/)).toBeVisible();
+  await expect(card.getByTestId('global-stand-in')).toContainText('TEST');
 });
 
 test(`${J} the TEST stand-in: a confirmed send leaves the account once and shows in the history`, async ({ page }) => {

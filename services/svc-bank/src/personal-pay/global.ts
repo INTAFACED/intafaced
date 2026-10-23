@@ -109,6 +109,7 @@ type SendRow = {
 const DEFINITE = new Set([
   'bank.global_corridors_unset',
   'bank.global_corridor_unknown',
+  'bank.global_amount_outside_corridor',
   'bank.global_fx_unset',
   'bank.global_payout_unset',
   'bank.global_payout_refused',
@@ -284,6 +285,11 @@ export class GlobalSendService {
   /** Whether the owner has published the payee controls, and how many accounts they name (never which). */
   payeeControlsStatus(): { state: 'unset' | 'published'; blockedCount: number } {
     return this.payeeControls ? { state: 'published', blockedCount: this.payeeControls.blocked.size } : { state: 'unset', blockedCount: 0 };
+  }
+
+  /** Who answers a global send: null for a real or absent partner, or the TEST stand-in's label, shown beside its numbers. */
+  partner(): { standIn: string | null } {
+    return { standIn: this.ports.standIn?.label ?? null };
   }
 
   async corridors(): Promise<Corridor[]> {
@@ -506,6 +512,7 @@ export class GlobalSendService {
       bic: 'unset' | 'live';
       travelRule: 'undecided' | 'recorded';
       blocker: typeof PSP_BLOCKER;
+      standIn: string | null;
     };
   }> {
     const grouped = await this.sql<{ status: GlobalSendStatus; asset_id: string; n: string; total: string }[]>`
@@ -533,6 +540,7 @@ export class GlobalSendService {
         bic: this.ports.bic.status(),
         travelRule: this.ports.travelRule.decision() ? 'recorded' : 'undecided',
         blocker: PSP_BLOCKER,
+        standIn: this.ports.standIn?.label ?? null,
       },
     };
   }
@@ -573,6 +581,13 @@ export class GlobalSendService {
       (item) => item.country === row.country && item.currency === row.to_currency && item.deliveryMethods.includes(row.delivery_method),
     );
     if (!match) return this.definite(row, 'bank.global_corridor_unknown');
+    // The corridor's own bounds, as the catalogue gives them: outside them nothing is quoted or posted.
+    if (match.minAmount !== null && amount < parseAmount(match.minAmount)) {
+      return this.definite(row, 'bank.global_amount_outside_corridor', `The smallest send for this destination is ${match.minAmount}.`);
+    }
+    if (match.maxAmount !== null && amount > parseAmount(match.maxAmount)) {
+      return this.definite(row, 'bank.global_amount_outside_corridor', `The largest send for this destination is ${match.maxAmount}.`);
+    }
     if (this.ports.fx.status() !== 'live') return this.definite(row, 'bank.global_fx_unset');
     if (this.ports.payout.status() !== 'live') return this.definite(row, 'bank.global_payout_unset');
     const decision = this.ports.travelRule.decision();
