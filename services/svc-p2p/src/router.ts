@@ -204,6 +204,8 @@ const tradeOutput = z.object({
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
 });
+/** One order as its page reads it: plus the ad's terms as they were when it was placed (null before terms were copied). */
+const tradeDetailOutput = tradeOutput.extend({ terms: z.string().nullable() });
 
 const blockQuoteOutput = z.object({
   quoteId: z.string().uuid(),
@@ -1328,7 +1330,7 @@ export function createP2pRouter(
 
       get: merchantApiProcedure('p2p:read')
         .input(z.object({ tradeId: z.string().uuid() }))
-        .output(tradeOutput)
+        .output(tradeDetailOutput)
         .query(async ({ ctx, input }) =>
           guard(async () => {
             const trade = await p2p.getTrade(input.tradeId);
@@ -1336,7 +1338,7 @@ export function createP2pRouter(
             if (trade.buyerId !== ctx.principal.userId && trade.sellerId !== ctx.principal.userId) {
               throw unknownTrade(input.tradeId);
             }
-            return toTradeOut(trade);
+            return { ...toTradeOut(trade), terms: trade.termsSnapshot };
           }),
         ),
 
