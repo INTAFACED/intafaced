@@ -384,6 +384,20 @@ describe('academy customer learning reads and writes', () => {
     expect((await academy.courseOutline({ userId: OTHER, itemSlug: items[0]!.slug })).items[0]!.state).toBe('completed');
   });
 
+  it('Undo matches a completion stored with microseconds, as rows recorded before Undo existed were', async () => {
+    const academy = service();
+    const slug = listCurriculum({ path: 'markets' })[0]!.slug;
+    await sql`
+      INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
+      VALUES (${USER}, ${slug}, '2026-10-01T10:00:00.123456Z')
+    `;
+    const seen = (await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]!.completedAt!;
+    expect(seen).toBe('2026-10-01T10:00:00.123Z');
+    const undone = await academy.undoCurriculumComplete({ userId: USER, itemSlug: slug, completedAt: seen, clientRequestId: 'old-row' });
+    expect(undone.undoneAt).not.toBeNull();
+    expect((await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]!.state).not.toBe('completed');
+  });
+
   it('an item with a published quiz completes only after a passing attempt, and the outline says which rule is unmet', async () => {
     const slug = listCurriculum({ path: 'foundations' })[0]!.slug;
     const quiz: AssessmentDefinition = {

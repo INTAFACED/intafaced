@@ -1986,6 +1986,7 @@ export class AcademyService {
     const completedAt = new Date(input.completedAt);
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
+      // completed_at may carry microseconds (rows from before this change used now()); the caller saw it in milliseconds.
       // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
@@ -2001,7 +2002,8 @@ export class AcademyService {
       }
       const removed = await tx<Array<{ item_slug: string }>>`
         DELETE FROM academy.cert_item_completions
-         WHERE user_id = ${input.userId} AND item_slug = ${slug} AND completed_at = ${completedAt}
+         WHERE user_id = ${input.userId} AND item_slug = ${slug}
+           AND date_trunc('milliseconds', completed_at) = ${completedAt}
         RETURNING item_slug
       `;
       if (!removed[0]) return { userId: input.userId, itemSlug: slug, undoneAt: null };
