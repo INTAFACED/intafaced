@@ -144,6 +144,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     : '✖ test-diff-guard FAILED';
   console.error(`\n${head} — ${problems.length} finding(s)\n`);
   for (const p of problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
+  // One annotation per finding, so `tooling/ci/why-red.mjs` can name it without anyone reading the job log.
+  const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  if (process.env.GITHUB_ACTIONS && !declared) {
+    for (const p of problems)
+      console.log(`::error file=${esc(p.path).replace(/:/g, '%3A').replace(/,/g, '%2C')},title=Test-diff guard::${esc(p.why)}`);
+  }
   if (!declared) {
     console.error('  If a change is intended, say why in the PR description on a line starting "Test-change:".');
     process.exit(1);

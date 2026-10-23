@@ -334,6 +334,8 @@ export const NOT_GATES = {
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'review-signoff.mjs':
     'runs from review-signoff.yml on a review comment or a push to a pull request: posts the `Independent review` status for a listed reviewer, carries it across a clean rebase. Needs a GitHub token and an event payload, so a laptop verify has no input. `node tooling/ci/review-signoff.mjs --self-test` runs the policy on fixtures and is wired in the `changes` job of ci.yml.',
+  'why-red.mjs':
+    'not a check: a read-only helper that prints why a PR head is not green (failing checks, their error annotations, and whether the seal only waits for the independent review), so agents do not read whole job logs. It needs a GitHub token and a PR, so a laptop verify cannot run it; `node tooling/ci/why-red.mjs --self-test` runs in the `changes` job.',
   'review-marker.mjs':
     "merge-seal step: for a money, security or gate-file change, needs the success status `Independent review` on the PR head, which review-signoff.yml posts for a listed reviewer's `Independent review: PASS <head sha>` comment, or that comment itself (read here so the seal does not wait for the sign-off runner). Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the status reader, the comment matcher and which changes need the review.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
@@ -485,10 +487,28 @@ function main() {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
       console.error(output.trimEnd() + '\n');
+      // One annotation per red gate, so `tooling/ci/why-red.mjs` can name it without anyone reading the job log.
+      if (process.env.GITHUB_ACTIONS) console.log(annotation(`Doctrine gate ${gate.id}`, keyLines(output)));
     }
     console.error('  A red gate is not a discussion (AGENT_PROTOCOL §3).\n');
     process.exit(1);
   }
 
   console.log(`\n✓ all ${GATES.length} doctrine gates passed — ${totalMs}ms total\n`);
+}
+
+/** The lines of a gate's output that say what is wrong (the marked ones, else the last few), as one line. */
+function keyLines(output) {
+  const lines = output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const marked = lines.filter((l) => /✖|→|\bFAIL|\berror\b/i.test(l));
+  return (marked.length ? marked : lines.slice(-3)).slice(0, 4).join(' | ').slice(0, 400) || '(no output)';
+}
+
+/** A GitHub Actions error annotation; the escapes keep untrusted text from ending the command early. */
+function annotation(title, message) {
+  const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  return `::error title=${esc(title).replace(/:/g, '%3A').replace(/,/g, '%2C')}::${esc(message)}`;
 }

@@ -167,6 +167,7 @@ jobs:
       - run: node tooling/ci/test-diff-guard.mjs --self-test
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - run: node tooling/ci/boundary-scan.mjs --self-test
+      - run: node tooling/ci/why-red.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
@@ -184,7 +185,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: format:check
-        run: pnpm format:check
+        run: |
+          set -o pipefail
+          pnpm format:check 2>&1 | tee "$RUNNER_TEMP/format.log"
+      # One annotation per unformatted file, so tooling/ci/why-red.mjs names them without the job log. Output only.
+      - name: Name the unformatted files
+        if: failure()
+        run: |
+          { grep -E '^\[warn\] ' "$RUNNER_TEMP/format.log" || true; } | grep -v 'Code style issues' | sed -E 's/^\[warn\] //' | head -n 20 |
+            while IFS= read -r f; do echo "::error file=$f,title=Not formatted::run pnpm exec prettier --write $f"; done
 
   build:
     name: Typecheck & build
@@ -211,23 +220,38 @@ jobs:
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
+          set -o pipefail
+          {
           if [ "$FULL" = true ]; then pnpm build
           elif [ "$AFFECTED" = true ]; then
             filters=()
             while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
             pnpm turbo run build "${filters[@]}"
           else echo "docs only: nothing to build"; fi
+          } 2>&1 | tee "$RUNNER_TEMP/build.log"
       - name: Typecheck
         env:
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
+          set -o pipefail
+          {
           if [ "$FULL" = true ]; then pnpm typecheck
           elif [ "$AFFECTED" = true ]; then
             filters=()
             while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
             pnpm turbo run typecheck "${filters[@]}"
           else echo "docs only: nothing to typecheck"; fi
+          } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+      # turbo prefixes every line with its task, so setup-node's tsc matcher never fires and a red job said only
+      # "pnpm run typecheck exited (1)". This turns the first type errors into annotations, so tooling/ci/why-red.mjs
+      # names them without the job log. Output only: it changes no result.
+      - name: Name the type errors
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/build.log" ] || exit 0
+          sed -E 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/build.log" | { grep -E 'error TS[0-9]+' || true; } | sed -E 's/^@intafaced\///' |
+            sort -u | head -n 15 | cut -c1-300 | sed 's/^/::error title=Type error::/'
 
   test-full:
     # A run-everything change (full, and every push to main) splits the suite eight ways, one job each, by the package
