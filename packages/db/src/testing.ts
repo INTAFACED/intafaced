@@ -421,7 +421,7 @@ export async function createTestDatabase(options: TestDatabaseOptions): Promise<
   } catch (err) {
     // The caller does not get drop(). End every pool this attempt opened, and
     // remove a database CREATE already committed, then rethrow the original error.
-    await client?.end({ timeout: 5 }).catch(() => undefined);
+    await client?.end({ timeout: DRAIN_WAIT_S }).catch(() => undefined);
     if (databaseCreated) {
       await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`).catch(() => undefined);
     }

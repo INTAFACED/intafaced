@@ -129,17 +129,19 @@ describe('createTestDatabase', () => {
       const record = (reason: unknown) => void unhandled.push(reason);
       process.on('unhandledRejection', record);
       try {
-        for (let i = 0; i < 12; i++) {
+        // Dropped at once and a few ms in, so the lookup is caught before and while it runs. One pass fails on main.
+        for (const wait of [0, 3]) {
           const db = await createTestDatabase({ service: 'trade', url: ADMIN });
           // The pool's one open connection is busy, so the next statement opens a second one.
           const busy = db.sql`SELECT pg_sleep(0.05)`.catch(() => undefined);
           const late = db.sql`SELECT 1 AS one`.catch((e: unknown) => e);
-          await new Promise((r) => setTimeout(r, i % 6));
+          await new Promise((r) => setTimeout(r, wait));
           await db.drop();
           await busy;
           expect(await late).toEqual([{ one: 1 }]);
         }
-        await new Promise((r) => setTimeout(r, 100));
+        // Past the drain bound, so a rejection from a connection terminated late is still seen here.
+        await new Promise((r) => setTimeout(r, 2_500));
       } finally {
         process.off('unhandledRejection', record);
       }
