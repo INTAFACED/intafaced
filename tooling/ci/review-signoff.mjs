@@ -139,7 +139,7 @@ async function postStatus(repo, sha, description) {
 
 const SEAL = 'CI merge seal';
 const SEAL_POLL_MS = 20_000;
-const SEAL_POLLS = 12; // 4 minutes, inside the job's timeout
+const SEAL_POLLS = 12; // 4 minutes; review-signoff.yml's timeout leaves room to post the red status after it
 const RERUN_CONTEXT = 'Seal re-run';
 
 /**
@@ -188,10 +188,15 @@ export async function rerunSeal(repo, sha, { api = gh, sleep = (ms) => new Promi
   }
 }
 
-/** The sign-off status is already green when this runs, so a seal it could not re-run gets its own red status on the PR. */
+/**
+ * The sign-off status is already green when this runs, so a seal it could not re-run gets its own red status on the
+ * PR. A later sign-off that finds the seal green or re-runs it clears that red status, and only then: a PR that never
+ * had one gets no extra status.
+ */
 async function rerunSealOrFlag(repo, sha) {
+  let outcome;
   try {
-    console.log(await rerunSeal(repo, sha));
+    outcome = await rerunSeal(repo, sha);
   } catch (e) {
     await gh('POST', `/repos/${repo}/statuses/${sha}`, {
       state: 'failure',
@@ -199,6 +204,11 @@ async function rerunSealOrFlag(repo, sha) {
       description: `Review signed off, seal not re-run: ${e.message}. Re-run the seal's failed jobs.`.slice(0, 140),
     }).catch(() => {});
     throw e;
+  }
+  console.log(outcome);
+  const { json } = await gh('GET', `/repos/${repo}/commits/${sha}/statuses?per_page=100`);
+  if ((json ?? []).find((s) => s.context === RERUN_CONTEXT)?.state === 'failure') {
+    await gh('POST', `/repos/${repo}/statuses/${sha}`, { state: 'success', context: RERUN_CONTEXT, description: outcome.slice(0, 140) });
   }
 }
 
