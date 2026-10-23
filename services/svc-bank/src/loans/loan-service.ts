@@ -1204,13 +1204,7 @@ export class LoanService {
     return { ledgerTxId, sequence: postSequence };
   }
 
-  private async releaseCollateral(
-    loan: LoanRecord,
-    amount: Amount,
-    sequence?: number,
-    eventId?: string,
-    now?: Date,
-  ): Promise<string> {
+  private async releaseCollateral(loan: LoanRecord, amount: Amount, sequence?: number, eventId?: string, now?: Date): Promise<string> {
     if (eventId) return this.releaseNamedCollateral(loan, amount, eventId, now ?? new Date());
     const seq = sequence ?? (await this.nextCollateralSequence(loan.id));
     return this.drivenPost({

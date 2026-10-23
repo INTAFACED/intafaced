@@ -1016,7 +1016,16 @@ describe('svc-bank loans PG-hard', () => {
     db = await createTestDatabase({
       service: 'bank',
       url: admin.url,
-      migrations: [BANK_INIT, POSITION_PENDING, LOANS_MIGRATION, OPENING_COLLATERAL, RESERVE_FUNDINGS, SETTLED_HAS_TX, OPS_READS, TERMS_SNAPSHOT],
+      migrations: [
+        BANK_INIT,
+        POSITION_PENDING,
+        LOANS_MIGRATION,
+        OPENING_COLLATERAL,
+        RESERVE_FUNDINGS,
+        SETTLED_HAS_TX,
+        OPS_READS,
+        TERMS_SNAPSHOT,
+      ],
     });
     sql = db.sql;
   }, 120_000);
