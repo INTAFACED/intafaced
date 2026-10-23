@@ -180,6 +180,26 @@
       "service": "quant",
       "value": "PT15M",
       "note": "TEST holdout: the latest 15 minutes of the TEST tape, so a journey can run clear of it and be refused inside it."
+    },
+    "TRADE_COPY_FEE_SHARE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000\", \"decayRoundTrips\": 0, \"decayShareBps\": 1000}",
+      "note": "Leader's share of the trading fee on copied orders: 10% (1000 bps), capped at 1000 USDT per follower."
+    },
+    "TRADE_COPY_JURISDICTION_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"allowedRegions\": [\"DE\", \"FR\", \"GB\", \"ID\", \"NL\", \"SG\"]}",
+      "note": "Countries copy trading is offered in on the test stack. US is left off so a refusal can be seen."
+    },
+    "TRADE_COPY_DISCLOSURE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"text\": \"TEST disclosure, not owner text. Copy trading can lose money. A leader's past results are not a promise of future results. Every copied order is your own order, placed in your name, with your own trading fee. Only copy what you can afford to lose.\"}",
+      "note": "Copy risk disclosure text and version a follower accepts."
+    },
+    "TRADE_COPY_METRIC_DEFINITIONS": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"definitions\": {\"publishedReturn\": \"TEST definition: the leader's published return over the window shown, in percent.\", \"maximumDrawdown\": \"TEST definition: the largest fall from a peak over the same window, in percent.\"}}",
+      "note": "What a lead page's return and drawdown mean. Win rate and Sharpe ratio stay undefined, so they read Not set."
     }
   }
 }

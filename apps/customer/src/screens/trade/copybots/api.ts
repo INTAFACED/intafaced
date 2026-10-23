@@ -3,7 +3,7 @@
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
 import { z } from 'zod';
-import { decimalSchema } from '../../../shared/money';
+import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import type { ApiClient } from '../../../shared/api';
 import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
 
@@ -36,8 +36,67 @@ export const studioStrategySchema = z.object({
 });
 export type StudioStrategy = z.infer<typeof studioStrategySchema>;
 
+const held = <T extends z.ZodTypeAny>(value: T) => z.object({ value: value.nullable(), reason: z.string().nullable() });
+
+export const LEADER_MODES = ['spot', 'futures', 'bot', 'signal'] as const;
+export type LeaderMode = (typeof LEADER_MODES)[number];
+
+/** One listed leader, as the operator published it. No user id is ever in it. */
+export const leaderRowSchema = z.object({
+  leaderRef: z.string(),
+  displayName: z.string(),
+  marketMode: z.enum(LEADER_MODES),
+  recordKind: z.string(),
+  tenureStart: z.string().nullable(),
+  assets: z.array(z.string()),
+  publishedReturn: held(signedDecimalSchema),
+  maximumDrawdown: held(signedDecimalSchema),
+  copiersCount: z.number(),
+  capacity: held(z.number()),
+  leaderShareBps: held(z.string()),
+});
+export type LeaderRow = z.infer<typeof leaderRowSchema>;
+const leaderPageSchema = z.object({ leaders: z.array(leaderRowSchema), nextCursor: z.string().nullable() });
+
+export const leaderProfileSchema = z.object({
+  leader: leaderRowSchema,
+  status: z.string(),
+  definitionsVersion: z.string().nullable(),
+  metrics: z.array(
+    z.object({
+      key: z.enum(['publishedReturn', 'maximumDrawdown', 'winRate', 'sharpeRatio']),
+      value: z.string().nullable(),
+      reason: z.string().nullable(),
+      definition: z.string().nullable(),
+    }),
+  ),
+});
+export type LeaderProfile = z.infer<typeof leaderProfileSchema>;
+
+export const leaderTradeSchema = z.object({
+  symbol: z.string(),
+  state: z.enum(['open', 'closed']),
+  openedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  entryPrice: decimalSchema.nullable(),
+  qty: decimalSchema,
+  margin: decimalSchema.nullable(),
+  takeProfit: decimalSchema.nullable(),
+  stopLoss: decimalSchema.nullable(),
+  closePrice: decimalSchema.nullable(),
+  closedQty: decimalSchema,
+  roiPercent: signedDecimalSchema.nullable(),
+});
+export type LeaderTrade = z.infer<typeof leaderTradeSchema>;
+const leaderTradesSchema = z.object({ trades: z.array(leaderTradeSchema), nextCursor: z.string().nullable() });
+
+/** Leaders per directory page and trades per lead page. The service refuses a read without one. */
+export const LEADER_PAGE = 50;
+export const LEADER_TRADES_PAGE = 20;
+
 export type FollowRequest = {
-  leaderId: string;
+  leaderId?: string;
+  leaderRef?: string;
   region: string;
   permittedMarkets: string[];
   maxNotionalPerOrder: string;
@@ -61,6 +120,28 @@ export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
   return {
     copyDesk: (signal?: AbortSignal) => api.query('trade', 'copy.deskStatus', undefined, copyDeskSchema, { signal }),
+    leaders: (query: { marketMode?: LeaderMode; q?: string; cursor?: string }, signal?: AbortSignal) =>
+      api.query(
+        'trade',
+        'copy.listLeaders',
+        {
+          limit: LEADER_PAGE,
+          ...(query.marketMode ? { marketMode: query.marketMode } : {}),
+          ...(query.q?.trim() ? { q: query.q.trim() } : {}),
+          ...(query.cursor ? { cursor: query.cursor } : {}),
+        },
+        leaderPageSchema,
+        { signal },
+      ),
+    /** A ranked category or the trending row. The service refuses every one; the room shows that refusal as it comes. */
+    rankedLeaders: (ranking: { category: string } | { trending: true }) =>
+      api.query('trade', 'copy.listLeaders', { limit: LEADER_PAGE, ...ranking }, leaderPageSchema),
+    leaderProfile: (leaderRef: string, signal?: AbortSignal) =>
+      api.query('trade', 'copy.leaderProfile', { leaderRef }, leaderProfileSchema, { signal }),
+    leaderTrades: (leaderRef: string, cursor: string | null, signal?: AbortSignal) =>
+      api.query('trade', 'copy.leaderTrades', { leaderRef, limit: LEADER_TRADES_PAGE, ...(cursor ? { cursor } : {}) }, leaderTradesSchema, {
+        signal,
+      }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
     followAction: tools.copyAction,

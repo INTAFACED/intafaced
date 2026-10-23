@@ -68,6 +68,18 @@ import {
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
+
+/** Named values from the labelled TEST profile (tooling/profiles/test-owner-values.json). A missing name fails the start. */
+function testProfileValues(names) {
+  const profile = JSON.parse(fs.readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json'), 'utf8'));
+  return Object.fromEntries(
+    names.map((name) => {
+      const entry = profile.values[name];
+      if (!entry || typeof entry.value !== 'string') throw new Error(`the TEST profile has no value for ${name}`);
+      return [name, entry.value];
+    }),
+  );
+}
 const STATE = localStackState();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
@@ -875,10 +887,11 @@ function serviceDefs(secrets) {
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
         // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
-        // operator lists (admin:compliance) and svc-market's vendor desk (market:ops). Identity adds them only to a
-        // founder's own signed-in session with a second factor, never to an API key or a sub-account. admin:write,
-        // support:ops and every money-moving scope stay off.
-        IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:compliance,market:ops',
+        // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), plus the operator desk's write
+        // scope (admin:write) for svc-trade's copy leader listing, which the copy journeys need to list a TEST leader.
+        // Identity adds them only to a founder's own signed-in session with a second factor, never to an API key or a
+        // sub-account. support:ops and every money-moving scope (admin:treasury, trade:withdraw, pay:*) stay off.
+        IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops',
         // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
         // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
         IDENTITY_MAX_SUB_ACCOUNTS: '10',
@@ -975,6 +988,15 @@ function serviceDefs(secrets) {
         TRADE_FUTURES_MATCHING_ENABLED: 'true',
         TRADE_FUTURES_PRICE_BAND: '0.05',
         TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
+        // LOCAL TEST, not owner decisions: copy trading's leader fee share, country list, risk disclosure and lead-page
+        // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
+        // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
+        ...testProfileValues([
+          'TRADE_COPY_FEE_SHARE_LAW',
+          'TRADE_COPY_JURISDICTION_LAW',
+          'TRADE_COPY_DISCLOSURE_LAW',
+          'TRADE_COPY_METRIC_DEFINITIONS',
+        ]),
       }),
     },
     {

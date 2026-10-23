@@ -110,6 +110,18 @@ import {
   type SetLeaderStateInput,
 } from './leader-directory.js';
 import type { LeaderDirectoryPage } from './leader-listing.js';
+import {
+  decodeLeaderTradesCursor,
+  leaderTradesLimit,
+  pageLeaderTrades,
+  pairLeaderTrades,
+  parseCopyMetricDefinitionsJson,
+  presentLeaderProfile,
+  readLeaderOrderFills,
+  type CopyMetricDefinitions,
+  type LeaderProfile,
+  type LeaderTradesPage,
+} from './leader-profile.js';
 import type { LeaderEventsPage } from './leader-events.js';
 import type { UpsertLeaderListingInput } from './leader-listing.js';
 
@@ -192,6 +204,8 @@ export interface CopyServiceOptions {
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
+  /** Owner wording for each lead-page metric. Omitted → unpublished, every metric reads "not set". */
+  metricDefinitions?: CopyMetricDefinitions;
   /**
    * Result figure for the drawdown stop. Production reads `followResultFigure`.
    * A null figure refuses; this port must not invent one.
@@ -282,6 +296,7 @@ export class CopyService {
   private readonly sql: Sql | null;
   private readonly lookupMark: ((marketId: string) => Promise<AlgoQuotedMark | null>) | null;
   private readonly directory: LeaderDirectory;
+  private readonly metricDefinitions: CopyMetricDefinitions;
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
 
   constructor(
@@ -304,6 +319,8 @@ export class CopyService {
     this.sql = options.sql ?? null;
     this.lookupMark = options.lookupMark ?? null;
     this.readResultFigure = options.readResultFigure ?? null;
+    // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
+    this.metricDefinitions = options.metricDefinitions ?? parseCopyMetricDefinitionsJson(process.env.TRADE_COPY_METRIC_DEFINITIONS);
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -652,6 +669,26 @@ export class CopyService {
       limit: input.limit,
       cursor: input.cursor,
     });
+  }
+
+  /** A listed leader's public page: listing facts and the metrics the owner defined. Not listed → not found. */
+  async leaderProfile(principal: Principal, input: { leaderRef: string }): Promise<LeaderProfile> {
+    void principal;
+    const { row } = await this.directory.listedLeader(input.leaderRef);
+    return presentLeaderProfile(row, 'listed', this.metricDefinitions);
+  }
+
+  /** A listed leader's own spot trades, newest first. The limit is required; without the spot tables this refuses. */
+  async leaderTrades(
+    principal: Principal,
+    input: { leaderRef: string; limit?: number; cursor?: string | null },
+  ): Promise<LeaderTradesPage> {
+    void principal;
+    const limit = leaderTradesLimit(input.limit);
+    const offset = decodeLeaderTradesCursor(input.cursor);
+    const { leaderUserId } = await this.directory.listedLeader(input.leaderRef);
+    if (!this.sql) throw new CopyError('Leader trades need the spot tables', 'trade.copy_unavailable');
+    return pageLeaderTrades(pairLeaderTrades(await readLeaderOrderFills(this.sql, leaderUserId)), offset, limit);
   }
 
   upsertListing(principal: Principal, input: UpsertLeaderListingInput): Promise<OperatorListingResult> {

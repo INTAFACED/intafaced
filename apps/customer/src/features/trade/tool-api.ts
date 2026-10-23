@@ -73,7 +73,9 @@ export const algoProgressSchema = z.object({
 });
 export const copyFollowSchema = z.object({
   followId: z.string(),
-  leaderId: z.string(),
+  // A listed leader is named by its public ref only; the service sends no user id for it.
+  leaderId: z.string().nullable(),
+  leaderRef: z.string().nullable().optional(),
   permittedMarkets: z.array(z.string()),
   maxNotionalPerOrder: decimalSchema,
   maxAggregateExposure: decimalSchema,

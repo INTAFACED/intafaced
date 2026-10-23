@@ -3,13 +3,11 @@ import {
   Badge,
   Button,
   EmptyState,
-  Input,
   KeyValue,
   Page,
   PageHeader,
   PageSection,
   StatusChip,
-  Switch,
   Table,
   Tabs,
   TabsList,
@@ -21,35 +19,45 @@ import { navigate } from '../../../app/location';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
 import { displayAmount } from '../../../shared/money';
-import { createRoomApi } from './api';
+import { createRoomApi, type LeaderMode, type LeaderRow } from './api';
 import { roomCopy } from './copy';
 import { bpsText, deskState } from './desk';
 import { FollowWizard } from './FollowWizard';
 import { FollowDetail, STATE_TONE, quoteAsset, stateWord, type Follow } from './FollowDetail';
 import { useWriteGuard } from './guard';
+import { LeaderDirectory } from './LeaderDirectory';
+import { LeaderPage } from './LeaderPage';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 
-type TabId = 'leaders' | 'follows' | 'rules';
-const TABS: readonly TabId[] = ['leaders', 'follows', 'rules'];
+type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'follows' | 'rules';
+const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'follows', 'rules'];
+/** The directory tabs and the market each one lists. Leaders lists every market. */
+const TAB_MODE: Partial<Record<TabId, LeaderMode | null>> = {
+  leaders: null,
+  futures: 'futures',
+  spot: 'spot',
+  bots: 'bot',
+  signal: 'signal',
+};
 
-/** A row of the leader directory. The service has no directory (see TRCOPY-BACKEND-NEEDS), so this stays empty and says why. */
-interface LeaderRow {
-  id: string;
-  name: string;
-  record: 'live' | 'paper' | 'backtest';
-  tenureDays: string;
-  return30d: string | null;
-  maxDrawdown: string | null;
-  assets: string | null;
-  copiers: string;
-  leaderShare: string | null;
-  capacityLeft: string | null;
+/** `/trade/copy/<leaderRef>` is a leader's own page. */
+export function leaderRefOf(pathname: string): string | null {
+  const match = /^\/trade\/copy\/([^/]+)\/?$/.exec(pathname);
+  if (!match || match[1] === 'following') return null;
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return null;
+  }
 }
-const NO_LEADERS: readonly LeaderRow[] = [];
+
+/** Who the follow wizard starts with: a typed leader ID, or a listed leader picked from the directory or their page. */
+type WizardStart = { open: boolean; leader: string; listed: LeaderRow | null };
 
 export function CopyRoom({ path }: { path: string }) {
   const { t } = roomCopy.useCopy();
+  const leaderRef = leaderRefOf(new URL(path, 'http://x').pathname);
   const transport = useApi();
   const { session } = useSession();
   const api = useMemo(() => createRoomApi(transport), [transport]);
@@ -65,10 +73,9 @@ export function CopyRoom({ path }: { path: string }) {
   const guard = useWriteGuard();
   const state = deskState(desk.data);
 
-  const [wizard, setWizard] = useState<{ open: boolean; leader: string }>({ open: false, leader: '' });
+  const [wizard, setWizard] = useState<WizardStart>({ open: false, leader: '', listed: null });
+  const followListed = (listed: LeaderRow) => setWizard({ open: true, leader: '', listed });
   const [openFollowId, setOpenFollowId] = useState<string | null>(null);
-  const [verifiedOnly, setVerifiedOnly] = useState(true);
-  const [search, setSearch] = useState('');
   const [checking, setChecking] = useState(false);
   const [verdict, setVerdict] = useState<string | null>(null);
 
@@ -95,7 +102,9 @@ export function CopyRoom({ path }: { path: string }) {
     follows.reload();
     if (pending.id.startsWith('follow:')) {
       const leader = pending.id.slice('follow:'.length, pending.id.lastIndexOf(':'));
-      const found = fresh.data.some((f) => f.leaderId === leader && ['ACTIVE', 'PAUSED'].includes(f.relationshipState.toUpperCase()));
+      const found = fresh.data.some(
+        (f) => (f.leaderRef ?? f.leaderId) === leader && ['ACTIVE', 'PAUSED'].includes(f.relationshipState.toUpperCase()),
+      );
       setVerdict(
         found
           ? t('The follow was created. It is in My follows.')
@@ -112,38 +121,8 @@ export function CopyRoom({ path }: { path: string }) {
     guard.settle(pending);
   };
 
-  const leaderColumns: TableColumn<LeaderRow>[] = [
-    { id: 'name', header: t('Leader'), value: (r) => r.name, sortable: true, pin: 'start', width: 180 },
-    {
-      id: 'record',
-      header: t('Record'),
-      cell: (r) => (
-        <Badge tone={r.record === 'live' ? 'lime' : 'warn'}>
-          {r.record === 'live' ? t('Verified live') : r.record === 'paper' ? t('Paper') : t('Backtest')}
-        </Badge>
-      ),
-    },
-    { id: 'tenure', header: t('Days trading'), value: (r) => r.tenureDays, numeric: true, sortable: true },
-    { id: 'ret', header: t('Return 30 days'), value: (r) => r.return30d, numeric: true, sortable: true },
-    { id: 'dd', header: t('Largest drop'), value: (r) => r.maxDrawdown, numeric: true, sortable: true },
-    { id: 'aum', header: t('Assets copied'), value: (r) => r.assets, numeric: true, sortable: true },
-    { id: 'cop', header: t('Copiers'), value: (r) => r.copiers, numeric: true, sortable: true },
-    { id: 'share', header: t('Fee share'), value: (r) => r.leaderShare, numeric: true },
-    { id: 'cap', header: t('Room left'), value: (r) => r.capacityLeft, numeric: true },
-    {
-      id: 'go',
-      header: t('Follow'),
-      headerLabel: t('Follow'),
-      cell: (r) => (
-        <Button size={28} onClick={() => setWizard({ open: true, leader: r.id })}>
-          {t('Follow')}
-        </Button>
-      ),
-    },
-  ];
-
   const followColumns: TableColumn<Follow>[] = [
-    { id: 'leader', header: t('Leader'), value: (r) => r.leaderId, sortable: true, pin: 'start', width: 180 },
+    { id: 'leader', header: t('Leader'), value: (r) => r.leaderRef ?? r.leaderId, sortable: true, pin: 'start', width: 180 },
     { id: 'markets', header: t('Markets'), value: (r) => r.permittedMarkets.join(', ') },
     {
       id: 'state',
@@ -188,12 +167,30 @@ export function CopyRoom({ path }: { path: string }) {
     },
   ];
 
-  const leaderFilter = search.trim().toLowerCase();
-  const leaders = NO_LEADERS.filter(
-    (r) =>
-      (!verifiedOnly || r.record === 'live') &&
-      (!leaderFilter || r.name.toLowerCase().includes(leaderFilter) || r.id.toLowerCase().includes(leaderFilter)),
+  const wizardNode = (
+    <FollowWizard
+      open={wizard.open}
+      onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+      api={api}
+      guard={guard}
+      desk={desk.data}
+      markets={spot}
+      initialLeader={wizard.leader}
+      listed={wizard.listed}
+      onFollowed={() => {
+        follows.reload();
+        navigate('/trade/copy?tab=follows', true);
+      }}
+    />
   );
+  if (leaderRef !== null) {
+    return (
+      <>
+        <LeaderPage key={leaderRef} leaderRef={leaderRef} onFollow={followListed} />
+        {wizardNode}
+      </>
+    );
+  }
 
   return (
     <Page width="full" className="cb-page">
@@ -221,7 +218,7 @@ export function CopyRoom({ path }: { path: string }) {
           </span>
         }
         actions={
-          <Button onClick={() => setWizard({ open: true, leader: '' })} disabled={!session}>
+          <Button onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
             {t('Follow by leader ID')}
           </Button>
         }
@@ -249,44 +246,37 @@ export function CopyRoom({ path }: { path: string }) {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList divider aria-label={t('Copy trading sections')}>
           <TabsTab value="leaders">{t('Leaders')}</TabsTab>
+          <TabsTab value="futures">{t('Futures')}</TabsTab>
+          <TabsTab value="spot">{t('Spot')}</TabsTab>
+          <TabsTab value="bots">{t('Bots')}</TabsTab>
+          <TabsTab value="signal">{t('Signal')}</TabsTab>
           <TabsTab value="follows">{t('My follows')}</TabsTab>
-          <TabsTab value="rules">{t('Rules and fees')}</TabsTab>
+          <TabsTab value="rules">{t('Rules')}</TabsTab>
         </TabsList>
 
         <TabsPanel value="leaders">
           <PageSection title={t('Leader directory')} headingLevel={2}>
-            <div className="cb-toolbar">
-              <Input
-                kind="text"
-                value={search}
-                onValueChange={setSearch}
-                aria-label={t('Search leaders')}
-                placeholder={t('Search by name or ID')}
-              />
-              <label className="cb-switch">
-                <Switch checked={verifiedOnly} onCheckedChange={setVerifiedOnly} aria-label={t('Verified live record only')} />
-                <span>{t('Verified live record only')}</span>
-              </label>
-            </div>
-            <Table
-              label={t('Leaders')}
-              columns={leaderColumns}
-              rows={leaders}
-              getRowId={(r) => r.id}
-              minWidth={980}
-              emptyState={
-                <EmptyState
-                  size="inline"
-                  variant="unavailable"
-                  title={t('No leaders are listed')}
-                  reason={t(
-                    'There is no published leader directory, so nobody is listed or ranked. If a leader gave you their ID, you can follow them directly.',
-                  )}
-                  action={{ label: t('Follow by leader ID'), onClick: () => setWizard({ open: true, leader: '' }), variant: 'secondary' }}
-                />
-              }
-            />
-            <InfoNote>{t('Leaders are never ranked by profit. A leader’s return is shown as a fact, not a score.')}</InfoNote>
+            {tab === 'leaders' ? <LeaderDirectory api={api} mode={TAB_MODE.leaders ?? null} onFollow={followListed} /> : null}
+          </PageSection>
+        </TabsPanel>
+        <TabsPanel value="futures">
+          <PageSection title={t('Futures leaders')} headingLevel={2}>
+            {tab === 'futures' ? <LeaderDirectory api={api} mode={TAB_MODE.futures ?? null} onFollow={followListed} /> : null}
+          </PageSection>
+        </TabsPanel>
+        <TabsPanel value="spot">
+          <PageSection title={t('Spot leaders')} headingLevel={2}>
+            {tab === 'spot' ? <LeaderDirectory api={api} mode={TAB_MODE.spot ?? null} onFollow={followListed} /> : null}
+          </PageSection>
+        </TabsPanel>
+        <TabsPanel value="bots">
+          <PageSection title={t('Bot leaders')} headingLevel={2}>
+            {tab === 'bots' ? <LeaderDirectory api={api} mode={TAB_MODE.bots ?? null} onFollow={followListed} /> : null}
+          </PageSection>
+        </TabsPanel>
+        <TabsPanel value="signal">
+          <PageSection title={t('Signal leaders')} headingLevel={2}>
+            {tab === 'signal' ? <LeaderDirectory api={api} mode={TAB_MODE.signal ?? null} onFollow={followListed} /> : null}
           </PageSection>
         </TabsPanel>
 
@@ -373,19 +363,7 @@ export function CopyRoom({ path }: { path: string }) {
         </TabsPanel>
       </Tabs>
 
-      <FollowWizard
-        open={wizard.open}
-        onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
-        api={api}
-        guard={guard}
-        desk={desk.data}
-        markets={spot}
-        initialLeader={wizard.leader}
-        onFollowed={() => {
-          follows.reload();
-          setTab('follows');
-        }}
-      />
+      {wizardNode}
       <FollowDetail follow={openFollow} onClose={() => setOpenFollowId(null)} api={api} guard={guard} onChanged={follows.reload} />
     </Page>
   );
