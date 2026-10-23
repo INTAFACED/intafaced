@@ -29,6 +29,8 @@ export interface FillQuoteInput {
   readonly tokenIn: string;
   readonly tokenOut: string;
   readonly amountIn: bigint;
+  /** Size already reserved by in-flight fills on this pair. The quote must not spend it twice. */
+  readonly reserved: bigint;
 }
 
 export type FillQuote =
@@ -45,11 +47,16 @@ export interface FillSendInput {
   readonly tokenOut: string;
   readonly take: bigint;
   readonly minOut: bigint;
+  /**
+   * Persist the tx hash before this promise settles. A throw after `noteTx`
+   * still leaves the hash on the intent.
+   */
+  readonly noteTx: (txHash: string) => void;
 }
 
 export type FillSend =
   | { readonly status: 'unwired' }
-  | { readonly status: 'unknown' }
+  | { readonly status: 'unknown'; readonly txHash?: string }
   | { readonly status: 'rejected'; readonly reason: 'insufficient_liquidity' | 'reverted' }
   | { readonly status: 'sent'; readonly txHash: string };
 
@@ -60,7 +67,9 @@ export interface FillPort {
   /**
    * At most one broadcast per `key` (`dex.order.fill:<orderHash>:<round>`).
    * Record the key before any broadcast. A repeat returns the same hash and does not broadcast again.
+   * Call `noteTx` with the hash before resolving, rejecting, or returning `unknown`.
    * `unknown` means the broadcast may have happened; the caller keeps the order `executing` and reads by hash.
+   * A later `rejected` or `unwired` must not be treated as proof that nothing was broadcast.
    */
   send(input: FillSendInput): Promise<FillSend>;
   read(txHash: string): Promise<FillReceipt>;

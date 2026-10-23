@@ -12,6 +12,8 @@ export const triggerOrderCodes = {
   expiryInvalid: 'dex.order.expiry_invalid',
   restrictedListUnset: 'dex.order.restricted_list_unset',
   restrictedToken: 'dex.order.restricted_token',
+  warnListUnset: 'dex.order.warn_list_unset',
+  domainUnset: 'dex.order.domain_unset',
   slippageUnset: 'dex.order.slippage_unset',
   slippageInvalid: 'dex.order.slippage_invalid',
   minOutUnset: 'dex.order.min_out_unset',

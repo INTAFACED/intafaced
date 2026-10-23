@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -59,13 +62,17 @@ const ammVenueWired = env.DEX_EXTERNAL_VENUES.some((v) => v.kind === 'amm');
 const externalVenueWired = env.DEX_EXTERNAL_VENUES.length > 0;
 
 // One book for the router and the keeper. Ports stay unwired: no key, no node, no service call.
-const triggerBook = new OrderBook();
+// The directory holds orders and attempts, not a balance. Blank uses a stable temp path so a restart resumes.
+const triggerStoreDir = env.DEX_ORDER_STORE_DIR ?? join(tmpdir(), 'intafaced-svc-dex-orders');
+mkdirSync(triggerStoreDir, { recursive: true });
+const triggerBook = new OrderBook(triggerStoreDir);
 const triggerSettings = {
   minSize: env.DEX_ORDER_MIN_SIZE,
   restrictedTokens: env.DEX_ORDER_RESTRICTED_TOKENS,
   warnTokens: env.DEX_ORDER_WARN_TOKENS,
   slippageBps: env.DEX_ORDER_SLIPPAGE_BPS,
   oracleMaxAgeMs: env.DEX_ORDER_ORACLE_MAX_AGE_MS,
+  orderDomain: env.DEX_ORDER_DOMAIN,
 };
 
 export const appRouter = createDexRouter({

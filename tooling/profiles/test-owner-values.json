@@ -210,6 +210,41 @@
       "service": "quant",
       "value": "90",
       "note": "TEST stop-out close under the margin call, so a short TEST tape shows both events in order."
+    },
+    "DEX_ORDER_MIN_SIZE": {
+      "service": "dex",
+      "value": "1",
+      "note": "TEST minimum amountIn so a journey can open a price-trigger order. Not a product minimum."
+    },
+    "DEX_ORDER_RESTRICTED_TOKENS": {
+      "service": "dex",
+      "value": "[]",
+      "note": "TEST explicit empty restricted list. An unset list still refuses. Not a decision that nothing is restricted."
+    },
+    "DEX_ORDER_WARN_TOKENS": {
+      "service": "dex",
+      "value": "[]",
+      "note": "TEST explicit empty warn list. An unset list still refuses. Nothing is warned."
+    },
+    "DEX_ORDER_SLIPPAGE_BPS": {
+      "service": "dex",
+      "value": "50",
+      "note": "TEST slippage default in basis points. Not a product default."
+    },
+    "DEX_ORDER_ORACLE_MAX_AGE_MS": {
+      "service": "dex",
+      "value": "5000",
+      "note": "TEST maximum age of a trigger price, in milliseconds. Not a product freshness bound."
+    },
+    "DEX_ORDER_KEEPER_INTERVAL_MS": {
+      "service": "dex",
+      "value": "2000",
+      "note": "TEST keeper period so a local journey can tick. Blank does not start the keeper."
+    },
+    "DEX_ORDER_DOMAIN": {
+      "service": "dex",
+      "value": "{\"name\":\"INTAFACED TEST Order\",\"version\":\"1\",\"chainId\":84532,\"verifyingContract\":\"0x0000000000000000000000000000000000000001\"}",
+      "note": "TEST EIP-712 domain so a signed trigger order can be recovered. Not a deployed vault."
     }
   }
 }

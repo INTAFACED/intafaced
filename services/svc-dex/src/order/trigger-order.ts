@@ -2,14 +2,16 @@
  * Price-trigger orders (D-limit-dca-02).
  *
  * Edge forwards the wallet session. This process does not issue one, does not
- * call another service, and does not hold a key. The signature is stored for the
- * fill the vault will check; it is not recovered here. Blank owner bounds refuse.
+ * call another service, and does not hold a key. The signature is stored only
+ * after it recovers to the maker for the published order domain. Blank owner
+ * bounds refuse, including a blank warn list and a blank domain.
  */
 
 import { z } from 'zod';
 import { TRPCError, publicJurisdictionProcedure, router } from '@intafaced/contracts';
 import { MoneyError, formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import { OrderBook, RESTING_ORDER_COPY, RATE_COPY, priceOrderHash, type OrderView } from './order-book.js';
+import { OrderBook, RESTING_ORDER_COPY, RATE_COPY, poolKey, priceOrderHash, type OrderView } from './order-book.js';
+import { recoverOrderMaker } from './order-signature.js';
 import { TriggerOrderRefused, refuseTrigger, triggerOrderCodes, type TriggerOrderCode } from './trigger-error.js';
 import { TRIGGER_VARIANTS, minOutForFill, percentString, triggerReached, type TriggerVariant } from './trigger-math.js';
 import {
@@ -248,11 +250,24 @@ async function assess(
   if (settings.restrictedTokens.includes(tokenIn) || settings.restrictedTokens.includes(tokenOut)) {
     refuseTrigger(triggerOrderCodes.restrictedToken, 'this token is on the owner restricted list');
   }
+  if (settings.warnTokens === undefined) {
+    refuseTrigger(triggerOrderCodes.warnListUnset, 'the warn-token list is blank; it is not treated as empty');
+  }
+  if (settings.orderDomain === undefined) {
+    refuseTrigger(triggerOrderCodes.domainUnset, 'the order domain is blank; an unchecked signature is not stored');
+  }
+  const recovered = await recoverOrderMaker(
+    settings.orderDomain,
+    { variant, maker, tokenIn, tokenOut, amountIn, triggerPrice, minOut, expiry, slippageBps },
+    signature,
+  );
+  if (recovered !== maker) {
+    refuseTrigger(triggerOrderCodes.signatureInvalid, 'the signature does not recover to the maker for the published order domain');
+  }
 
   const warnings: TriggerWarning[] = [];
-  const warned = settings.warnTokens ?? [];
-  if (warned.includes(tokenIn)) warnings.push({ code: 'dex.order.token_warned', token: 'in' });
-  if (warned.includes(tokenOut)) warnings.push({ code: 'dex.order.token_warned', token: 'out' });
+  if (settings.warnTokens.includes(tokenIn)) warnings.push({ code: 'dex.order.token_warned', token: 'in' });
+  if (settings.warnTokens.includes(tokenOut)) warnings.push({ code: 'dex.order.token_warned', token: 'out' });
   const orderHash = priceOrderHash({ variant, maker, tokenIn, tokenOut, amountIn, triggerPrice, minOut, expiry, slippageBps });
 
   const notConnected: TriggerNotConnected[] = [];
@@ -279,7 +294,14 @@ async function assess(
     }
   }
 
-  const quote = await deps.fill.quote({ orderHash, maker, tokenIn, tokenOut, amountIn });
+  const quote = await deps.fill.quote({
+    orderHash,
+    maker,
+    tokenIn,
+    tokenOut,
+    amountIn,
+    reserved: deps.book.reserved(poolKey(tokenIn, tokenOut)),
+  });
   if (quote.status === 'unwired') {
     notConnected.push({ code: 'rail.crypto', message: RAIL_UNWIRED_MESSAGE });
   } else if (quote.status === 'ok' && quote.take > 0n && quote.take <= amountIn) {
@@ -300,8 +322,7 @@ async function assess(
 }
 
 function owned(book: OrderBook, orderHash: string, principal: string): OrderView {
-  const owner = book.principalOf(orderHash);
-  if (!owner || owner !== principal) refuseTrigger(triggerOrderCodes.notFound, 'no such order for this session');
+  if (!book.allows(orderHash, principal)) refuseTrigger(triggerOrderCodes.notFound, 'no such order for this session');
   const view = book.view(orderHash);
   if (!view) refuseTrigger(triggerOrderCodes.notFound, 'no such order for this session');
   return view;
@@ -359,9 +380,8 @@ export function triggerOrderRouter(deps: TriggerDeps) {
           const assessed = await assess(input, deps, now());
           return await deps.book.exclusive(assessed.draft.orderHash, async () => {
             if (deps.book.has(assessed.draft.orderHash)) {
-              if (deps.book.principalOf(assessed.draft.orderHash) !== principal) {
-                refuseTrigger(triggerOrderCodes.conflict, 'this order is already registered to another session');
-              }
+              // Same recovered maker signature: a second session replays. It does not conflict.
+              deps.book.grant(assessed.draft.orderHash, principal);
               return {
                 ...owned(deps.book, assessed.draft.orderHash, principal),
                 warnings: assessed.warnings,

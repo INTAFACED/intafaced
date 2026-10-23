@@ -5,6 +5,7 @@
 
 import { MoneyError, parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
+import { parseOrderDomain, type OrderDomain } from './order-signature.js';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/i;
 const TIMER_MAX = 2_147_483_647;
@@ -14,12 +15,14 @@ export interface TriggerSettings {
   readonly minSize?: bigint;
   /** Lowercased addresses. Unset refuses. An explicit empty list restricts nothing. */
   readonly restrictedTokens?: readonly string[];
-  /** Warn tier. Unset means the tier is unpublished, not that every token is warned. */
+  /** Warn tier. Unset refuses `dex.order.warn_list_unset`. An explicit empty list warns on nothing. */
   readonly warnTokens?: readonly string[];
   /** Owner default, basis points 0..10000. Unset refuses `dex.order.slippage_unset`. */
   readonly slippageBps?: number;
   /** Maximum age of a trigger price. Unset blocks the fill; it does not mean "fresh forever". */
   readonly oracleMaxAgeMs?: number;
+  /** EIP-712 domain the maker signed. Unset refuses `dex.order.domain_unset`. */
+  readonly orderDomain?: OrderDomain;
 }
 
 export function blankEnv(value: unknown): boolean {
@@ -108,3 +111,4 @@ export const dexOrderOracleMaxAgeField = envTransform('DEX_ORDER_ORACLE_MAX_AGE_
 export const dexOrderKeeperIntervalField = envTransform('DEX_ORDER_KEEPER_INTERVAL_MS', (raw) =>
   parsePositiveIntEnv(raw, 'DEX_ORDER_KEEPER_INTERVAL_MS'),
 );
+export const dexOrderDomainField = envTransform('DEX_ORDER_DOMAIN', parseOrderDomain);
