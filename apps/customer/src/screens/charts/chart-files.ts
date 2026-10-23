@@ -7,9 +7,13 @@ import { pairOf } from '../trade/desk/market';
 import type { ChartInterval } from '../trade/chart/candles';
 import type { ChartStyle } from './chart-style';
 
-/** A text cell that starts with a formula character is prefixed so a spreadsheet reads it as text. */
+/**
+ * A text cell that starts with a formula character is prefixed so a spreadsheet reads it as text. A minus sign followed by
+ * a digit is a negative price, not a formula, and is left as it is.
+ */
+const FORMULA_START = /^(?:[=+@\t\r]|-(?!\d))/;
 function cell(value: string): string {
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  const safe = FORMULA_START.test(value) ? `'${value}` : value;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
@@ -20,11 +24,14 @@ export function barsCsv(bars: readonly Candle[], symbol: string, interval: Chart
   return [head, 'time_utc,open,high,low,close,volume,filled', ...rows].join('\n');
 }
 
-/** The bars between two logical indexes (the visible range), clamped to the bars there are. */
+/**
+ * The bars in the visible logical range, clamped to the bars there are. A bar counts when its centre is in view: an edge
+ * bar half off screen is left out, as the chart draws it.
+ */
 export function visibleBars(bars: readonly Candle[], range: { from: number; to: number } | null): readonly Candle[] {
   if (!range) return bars;
-  const from = Math.max(0, Math.floor(range.from));
-  const to = Math.min(bars.length - 1, Math.ceil(range.to));
+  const from = Math.max(0, Math.round(range.from));
+  const to = Math.min(bars.length - 1, Math.round(range.to));
   return to < from ? [] : bars.slice(from, to + 1);
 }
 
