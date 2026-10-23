@@ -3,6 +3,8 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'reac
 import { flushSync } from 'react-dom';
 import { createMoreActionJournal, morePendingKey, type MoreKnown } from './more-action-journal';
 import { moreActionCopy } from './more-action-copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { usePaperMode } from './paper-mode';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
@@ -139,6 +141,15 @@ export function presentActionFailure<T extends Extract<ApiResult<unknown>, { ok:
   return result;
 }
 
+function paperRefusal() {
+  return presentActionFailure(
+    { ok: false as const, reason: 'forbidden' as const, code: 'more.paper_view', message: moreRoomRoutesCopy.t('paperRefused') },
+    (locale) => {
+      const current = moreRoomRoutesCopy.forLocale(locale);
+      return { message: current.t('paperRefused'), language: current.languageFor('paperRefused') };
+    },
+  );
+}
 type Stage = {
   title: Presented<string>;
   content: Presented<ReactNode>;
@@ -153,6 +164,7 @@ export type ActionControls = Pick<ReturnType<typeof useAction>, 'stage' | 'disab
 export function useAction(room: string, recovery?: { recover: (reference: string) => Promise<ApiResult<unknown>>; done?: () => void }) {
   const { userId, api, session } = useSession();
   const { language } = usePreferences();
+  const paper = usePaperMode();
   const key = morePendingKey(userId ?? 'anonymous', room);
   const owner = useRef({ userId, api, session, key, href: location.href, epoch: 0 });
   if (
@@ -241,6 +253,11 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     return () => window.removeEventListener('storage', changed);
   }, [context]);
   function stage(input: Stage) {
+    // A simulated view (MC-order-01) never sends: the control answers with the refusal instead of the review dialog.
+    if (paper) {
+      update(paperRefusal());
+      return;
+    }
     const current = journal.inspect(live);
     if (!live() || operation.current || current.saved.status !== 'empty' || current.known) return;
     admitted.current = { ...input, epoch: ++interaction.current, journalTitle: present(input.title) };
@@ -253,7 +270,7 @@ export function useAction(room: string, recovery?: { recover: (reference: string
     redraw();
   }
   async function send(request: Review) {
-    if (!live() || admitted.current !== request || request.epoch !== interaction.current || operation.current) return;
+    if (paper || !live() || admitted.current !== request || request.epoch !== interaction.current || operation.current) return;
     const action = {};
     operation.current = action;
     redraw();

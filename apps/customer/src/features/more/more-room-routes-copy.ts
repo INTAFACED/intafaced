@@ -25,5 +25,10 @@ const en = {
   badIdBody: 'The id in the address is not an id this room uses, so nothing was looked up.',
   back: 'Back to the room',
   open: 'Open this room',
+  paperLabel: 'simulated',
+  paperTitle: 'Simulated view',
+  paperBody: 'This page was opened with simulated=true. Any figure here is for practice, and no action on it reaches a service.',
+  paperExit: 'Open the live room',
+  paperRefused: 'This is a simulated view, so the action was not sent. Open the live room to act.',
 } as const;
 export const moreRoomRoutesCopy = defineCopy('more.room.routes', en);
