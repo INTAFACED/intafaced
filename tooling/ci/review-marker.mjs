@@ -30,7 +30,7 @@ import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
-const REVIEW_POLL_MS = 30_000;
+const REVIEW_POLL_MS = 60_000; // two reads a minute per waiting seal, far under the token's hourly limit
 
 /** The comment line the sign-off workflow accepts, on its own line. */
 export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;

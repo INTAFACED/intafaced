@@ -55,7 +55,10 @@ export function annotationLine(a) {
 export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
-  const red = checks.filter((c) => c.status === 'completed' && !GREEN.has(c.conclusion));
+  // The seal last: its line reads after the jobs it follows.
+  const red = checks
+    .filter((c) => c.status === 'completed' && !GREEN.has(c.conclusion))
+    .sort((a, b) => (a.name === SEAL) - (b.name === SEAL));
   const green = checks.length - running.length - red.length;
   out.push(`${sha.slice(0, 12)}: ${checks.length} checks, ${green} green, ${running.length} running, ${red.length} red`);
 
@@ -76,6 +79,8 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
     (annotations[seal.id] ?? []).some((a) => a.title === REVIEW_MISSING) &&
     lines.get(seal.id).every((l) => l.includes(REVIEW_MISSING));
   const rerunFailed = statuses.some((s) => s.context === RERUN_STATUS && s.state === 'failure');
+  const reviewIn = statuses.some((s) => s.context === REVIEW_STATUS && s.state === 'success');
+  const redStatuses = statuses.filter((s) => (s.state === 'failure' || s.state === 'error') && s.context !== RERUN_STATUS);
 
   for (const c of running) out.push(`RUNNING  ${c.name}`);
   for (const c of red) {
@@ -97,14 +102,13 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
       );
     }
   }
-  for (const s of statuses.filter((s) => (s.state === 'failure' || s.state === 'error') && s.context !== RERUN_STATUS))
-    out.push(`RED      status ${s.context}`);
+  for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
   const sealSeen = checks.some((c) => c.name === SEAL);
   const othersRunning = running.filter((c) => c.name !== SEAL);
-  if (red.length === 0 && running.length === 0)
+  if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
+  else if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
-  else if (others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (othersRunning.length > 0 || !seal)
     out.push(
       running.length === 1 && running[0].name === SEAL
@@ -114,6 +118,10 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
   else if (rerunFailed)
     out.push(
       `RESEAL: the review is in, but the sign-off workflow could not re-run the seal ("${RERUN_STATUS}" is red); re-run the "${SEAL}" job once. Nothing to fix in the code.`,
+    );
+  else if (reviewIn)
+    out.push(
+      `REVIEW: the review is in and the sign-off workflow re-runs the seal; wait for it. Re-run the "${SEAL}" job once only if "${RERUN_STATUS}" turns red. Nothing to fix in the code.`,
     );
   else
     out.push(
@@ -125,7 +133,12 @@ export function summarize({ sha, checks, annotations, failedSteps, statuses }) {
 /** Everything summarize() needs, read with `gh api` (REST only). */
 export function collect(gh, repo, ref) {
   const sha = /^[0-9a-f]{40}$/.test(ref) ? ref : ghJson(gh, ['api', `repos/${repo}/pulls/${ref}`]).head.sha;
-  const checks = ghJson(gh, ['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100`]).check_runs;
+  const checks = [];
+  for (let page = 1; ; page++) {
+    const r = ghJson(gh, ['api', `repos/${repo}/commits/${sha}/check-runs?per_page=100&page=${page}`]);
+    checks.push(...r.check_runs);
+    if (r.check_runs.length === 0 || checks.length >= r.total_count) break;
+  }
   const statuses = ghJson(gh, ['api', `repos/${repo}/commits/${sha}/status?per_page=100`]).statuses ?? [];
   const annotations = {};
   const failedSteps = {};
@@ -188,6 +201,10 @@ function selfTest() {
     'a review status alone leaves the re-run to the sign-off workflow',
   );
   assert(
+    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).includes('the review is in'),
+    'and does not send the author back to the reviewer',
+  );
+  assert(
     last(summarize({ ...onlyReview, statuses: [{ context: RERUN_STATUS, state: 'failure' }] })).startsWith('RESEAL'),
     'a failed sign-off re-run asks for one re-run by hand',
   );
@@ -222,6 +239,15 @@ function selfTest() {
     summarize(statusRed).some((l) => l.includes('status Gitleaks')),
     'a red commit status is listed',
   );
+  assert(
+    last(summarize({ ...statusRed, checks: [ok(1, 'Format'), ok(2, SEAL)] })).startsWith('RED'),
+    'a red commit status makes the verdict RED, never GREEN',
+  );
+  const sealFirst = summarize({ ...testsRed, checks: [red(2, SEAL), ok(1, 'Format'), red(3, 'Tests (changed)')] });
+  assert(
+    sealFirst.findIndex((l) => l.includes(SEAL)) > sealFirst.findIndex((l) => l.includes('Tests (changed)')),
+    'the seal prints after the jobs it follows',
+  );
 
   const bare = summarize({
     ...base,
@@ -241,9 +267,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     selfTest();
   } else {
     const ri = args.indexOf('--repo');
-    const repo = ri >= 0 ? args[ri + 1] : 'INTAFACED/intafaced';
+    const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
     const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
-    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref)) {
+    if (!ref || !/^(\d+|[0-9a-f]{40})$/.test(ref) || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
       console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --self-test');
       process.exit(2);
     }

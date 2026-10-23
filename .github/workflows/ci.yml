@@ -236,14 +236,14 @@ jobs:
           else echo "docs only: nothing to typecheck"; fi
           } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
       # turbo prefixes every line with its task, so setup-node's tsc matcher never fires and a red job said only
-      # "pnpm run typecheck exited (1)". This turns the first type errors into annotations, so tooling/ci/why-red.mjs
+      # "pnpm run typecheck exited (1)". This turns the first ten type errors (GitHub keeps ten per step) into annotations, so tooling/ci/why-red.mjs
       # names them without the job log. Output only: it changes no result.
       - name: Name the type errors
         if: failure()
         run: |
           [ -f "$RUNNER_TEMP/build.log" ] || exit 0
           sed -E 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/build.log" | { grep -E 'error TS[0-9]+' || true; } | sed -E 's/^@intafaced\///' |
-            sort -u | head -n 15 | cut -c1-300 | sed 's/^/::error title=Type error::/'
+            sort -u | head -n 10 | cut -c1-300 | sed 's/^/::error title=Type error::/'
 
   test-full:
     # A run-everything change (full, and every push to main) splits the suite eight ways, one job each, by the package
