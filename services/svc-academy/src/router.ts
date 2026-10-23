@@ -39,6 +39,13 @@ import {
   academyUndoCompletionInputSchema,
   academyUndoCompletionSchema,
   academyPublicHubSchema,
+  academyCourseSchema,
+  academyCourseDetailSchema,
+  academyCourseListSchema,
+  academyCourseListInputSchema,
+  academyCreateCourseInputSchema,
+  academyUpdateCourseInputSchema,
+  academySetCourseStateInputSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -831,6 +838,17 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.slug_reserved':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.course_slug_taken':
+    case 'academy.course_revision_stale':
+    case 'academy.course_not_editable':
+    case 'academy.item_transition_illegal':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.price_unset':
+    case 'academy.course_outline_empty':
+    case 'academy.courses_list_limit_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
@@ -2762,6 +2780,36 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
+      courses: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseListInputSchema)
+        .output(academyCourseListSchema)
+        .query(({ input }) => guard(() => academy.courses(input))),
+
+      /** AC-course-structure-01: one course with its history (who did what, and why), newest first. */
+      course: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ courseId: z.string().uuid() }).strict())
+        .output(academyCourseDetailSchema)
+        .query(({ input }) => guard(() => academy.course(input.courseId))),
+
+      /** AC-course-structure-01: create a course as a draft. Keyed by its slug; a repeat answers with the stored course. */
+      createCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCreateCourseInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.createCourse({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-01: edit a draft's details over the revision the editor read. The slug never changes. */
+      updateCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyUpdateCourseInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.updateCourse({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-01: one lifecycle move with a reason. Publishing refuses a paid course with no price, and an empty outline. */
+      setCourseState: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseStateInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
+
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120).nullable(), reason: z.string().max(500) }).strict())

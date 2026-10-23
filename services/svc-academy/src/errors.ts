@@ -194,7 +194,20 @@ export type AcademyErrorCode =
   /** The goal is out of bounds, or there is no goal with its reminder on to send. */
   | 'academy.goal_invalid'
   /** A caption file is not WebVTT, or two tracks of one video share a language. */
-  | 'academy.captions_invalid';
+  | 'academy.captions_invalid'
+  /** AC-course-structure-01: the slug is already a course's, a shipped course's or a lesson's address. */
+  | 'academy.course_slug_taken'
+  /** The course moved on since the editor read it. */
+  | 'academy.course_revision_stale'
+  /** Only a draft's details are edited on the desk. */
+  | 'academy.course_not_editable'
+  /** The lifecycle has no such move from the course's state. */
+  | 'academy.item_transition_illegal'
+  /** A paid course has no price, so it is not published. */
+  | 'academy.price_unset'
+  /** The course's outline is empty, so it is not published. */
+  | 'academy.course_outline_empty'
+  | 'academy.courses_list_limit_unset';
 
 export class AcademyError extends Error {
   constructor(
@@ -310,6 +323,13 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.todo_not_found',
   'academy.goal_invalid',
   'academy.captions_invalid',
+  'academy.course_slug_taken',
+  'academy.course_revision_stale',
+  'academy.course_not_editable',
+  'academy.item_transition_illegal',
+  'academy.price_unset',
+  'academy.course_outline_empty',
+  'academy.courses_list_limit_unset',
 ] as const;
 
 /** L3 — catalog size. */

@@ -41,6 +41,7 @@ import { PlannerStore } from './learning/planner.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
+import { CourseRecords } from './curriculum/courses.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
@@ -57,6 +58,10 @@ import type {
   AcademyQuizReview,
   AcademySetQuizInput,
   AcademyUndoCompletion,
+  AcademyCourseListInput,
+  AcademyCreateCourseInput,
+  AcademySetCourseStateInput,
+  AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
@@ -272,6 +277,7 @@ export class AcademyService {
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
+  private readonly courseRecords: CourseRecords;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -292,6 +298,7 @@ export class AcademyService {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
+    this.courseRecords = new CourseRecords(sql);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2127,6 +2134,27 @@ export class AcademyService {
   async featuredItem(now?: Date) {
     const item = await this.featured.featured();
     return item && (await this.opensSignedOut(item.slug, now)) ? item : null;
+  }
+
+  /** AC-course-structure-01: course records staff create on the desk (see curriculum/courses.ts). */
+  courses(input: AcademyCourseListInput) {
+    return this.courseRecords.list(input);
+  }
+
+  course(courseId: string) {
+    return this.courseRecords.get(courseId);
+  }
+
+  createCourse(input: AcademyCreateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.create({ ...input, now: input.now ?? new Date() });
+  }
+
+  updateCourse(input: AcademyUpdateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.update({ ...input, now: input.now ?? new Date() });
+  }
+
+  setCourseState(input: AcademySetCourseStateInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.setState({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
