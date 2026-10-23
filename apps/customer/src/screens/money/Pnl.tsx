@@ -2,7 +2,19 @@ import { useMemo } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
 import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
-import { LOT_METHODS, methodFromQuery, pnlView, type AssetPnl, type LotBook, type LotMethod, type UnknownReason } from './pnl-model';
+import {
+  LOT_METHODS,
+  lotAssetFromQuery,
+  lotAssets,
+  lotsOf,
+  methodFromQuery,
+  pnlView,
+  type AssetPnl,
+  type LotBook,
+  type LotBookLot,
+  type LotMethod,
+  type UnknownReason,
+} from './pnl-model';
 import { useLotBook } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
@@ -16,20 +28,41 @@ const REASON_COPY: Record<UnknownReason, 'Cost unknown' | 'No price now' | 'Cost
   not_reconciled: 'Cost not reconciled',
 };
 
-const METHOD_COPY: Record<LotMethod, 'Method FIFO' | 'Method LIFO' | 'Method HIFO'> = {
+const METHOD_COPY: Record<LotMethod, 'Method FIFO' | 'Method LIFO' | 'Method HIFO' | 'Method AVERAGE'> = {
   FIFO: 'Method FIFO',
   LIFO: 'Method LIFO',
   HIFO: 'Method HIFO',
+  AVERAGE: 'Method AVERAGE',
+};
+
+const SOURCE_COPY: Record<
+  LotBookLot['source'],
+  'Source trade' | 'Source deposit' | 'Source reward' | 'Source transfer_in' | 'Source other_in'
+> = {
+  trade: 'Source trade',
+  deposit: 'Source deposit',
+  reward: 'Source reward',
+  transfer_in: 'Source transfer_in',
+  other_in: 'Source other_in',
 };
 
 /** One plain sentence for each reason the book can name. Codes never reach the screen. */
-const RESIDUAL_COPY: Record<string, 'Residual underflow' | 'Residual cost unavailable' | 'Residual unreconciled' | 'Residual incomplete'> =
-  {
-    'tax.lot_underflow': 'Residual underflow',
-    'tax.cost_basis_unavailable': 'Residual cost unavailable',
-    'tax.lot_book_unreconciled': 'Residual unreconciled',
-    'tax.lot_book_incomplete': 'Residual incomplete',
-  };
+const RESIDUAL_COPY: Record<
+  string,
+  | 'Residual underflow'
+  | 'Residual cost unavailable'
+  | 'Residual unreconciled'
+  | 'Residual incomplete'
+  | 'Residual deposit policy'
+  | 'Residual price at time'
+> = {
+  'tax.lot_underflow': 'Residual underflow',
+  'tax.cost_basis_unavailable': 'Residual cost unavailable',
+  'tax.lot_book_unreconciled': 'Residual unreconciled',
+  'tax.lot_book_incomplete': 'Residual incomplete',
+  'tax.deposit_basis_policy_unset': 'Residual deposit policy',
+  'tax.price_at_time_unavailable': 'Residual price at time',
+};
 
 function usd(value: string | null, copy: Copy, signed = false): string {
   return value === null ? copy.t('Not known') : fmtUsd(value, { showPlus: signed });
@@ -175,6 +208,113 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
   );
 }
 
+/** Where the value on arrival came from, in words: the market, the candle size and when that candle started. */
+function priceSource(lot: LotBookLot, copy: Copy, timeZone: Parameters<typeof stamp>[1]): string {
+  const v = lot.valuedAt;
+  if (v === null) return '';
+  const frame = v.timeframe === '1m' ? copy.t('Candle minute') : v.timeframe === '1h' ? copy.t('Candle hour') : copy.t('Candle day');
+  return copy.t('Price source', { market: v.market, frame, time: v.candleAt === null ? '' : stamp(v.candleAt, timeZone) });
+}
+
+function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string; hidden: boolean; copy: Copy }) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const assets = lotAssets(book);
+  const asset = lotAssetFromQuery(search, assets);
+  if (asset === null) return null;
+  const lots = lotsOf(book, asset);
+  const choose = (next: string) => {
+    const params = new URLSearchParams(search);
+    params.set('asset', next);
+    navigate(`/money/pnl?${params.toString()}`, true);
+  };
+  return (
+    <section className="money-card" aria-label={t('Lots')}>
+      <header className="money-card__head">
+        <h2>{t('Lots')}</h2>
+        <label className="money-note">
+          {t('Lots for')}{' '}
+          <select value={asset} onChange={(event) => choose(event.target.value)} aria-label={t('Coin for lots')}>
+            {assets.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </label>
+      </header>
+      <p className="money-note">{t('Lots rule')}</p>
+      <table className="money-table">
+        <thead>
+          <tr>
+            <th scope="col">{t('Acquired')}</th>
+            <th scope="col">{t('Source')}</th>
+            <th scope="col" className="money-num">
+              {t('Quantity')}
+            </th>
+            <th scope="col" className="money-num">
+              {t('Left')}
+            </th>
+            <th scope="col" className="money-num">
+              {t('Cost')}
+            </th>
+            <th scope="col" className="money-num">
+              {t('Cost of what is left')}
+            </th>
+            <th scope="col" className="money-num">
+              {t('Value on arrival')}
+            </th>
+            <th scope="col" className="money-num">
+              {t('Days held')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {lots.map((lot) => (
+            <tr key={lot.id} data-lot={lot.id} data-source={lot.source}>
+              <th scope="row">{stamp(lot.acquiredAt, timeZone)}</th>
+              <td data-col="source">{t(SOURCE_COPY[lot.source])}</td>
+              <td className="money-num" data-col="qty">
+                <Amount value={fmtAmount(lot.qty)} hidden={hidden} />
+              </td>
+              <td className="money-num" data-col="left">
+                <Amount value={fmtAmount(lot.remaining)} hidden={hidden} />
+              </td>
+              <td className="money-num" data-col="cost">
+                {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
+              </td>
+              <td className="money-num" data-col="cost-left">
+                {lot.remainingCostUsd === null ? (
+                  <span>{t('Cost unknown')}</span>
+                ) : (
+                  <Amount value={usd(lot.remainingCostUsd, copy)} hidden={hidden} />
+                )}
+              </td>
+              <td className="money-num" data-col="arrival">
+                {lot.valuedAt === null ? (
+                  <span>{lot.source === 'trade' ? t('Bought, cost is what was paid') : t('No price at that time')}</span>
+                ) : (
+                  <>
+                    <Amount value={usd(lot.valuedAt.usd, copy)} hidden={hidden} />
+                    <span className="money-note" data-col="price-source">
+                      {' '}
+                      {priceSource(lot, copy, timeZone)}
+                    </span>
+                  </>
+                )}
+              </td>
+              <td className="money-num" data-col="days">
+                {lot.daysHeld === null ? t('Sold') : String(lot.daysHeld)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="money-note">{t('Term rule unset')}</p>
+    </section>
+  );
+}
+
 export default function Pnl({ search = '' }: { search?: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
@@ -258,6 +398,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
         ) : null}
         <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
         <SaleRows book={book.data} hidden={hideBalances} copy={copy} />
+        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} />
       </>
     );
   }

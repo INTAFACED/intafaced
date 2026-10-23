@@ -5,6 +5,7 @@ import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { createTaxLedgerReads } from './ledger-reads.js';
+import { createTradePrices } from './prices.js';
 import { createTaxRouter, type TaxRouter } from './router.js';
 import { taxReadyHonesty } from './ready-honesty.js';
 import { indexerStatusFromUrl, lakeStatusFromUrl, TaxService } from './tax-service.js';
@@ -36,6 +37,8 @@ const tax = new TaxService({
   lake: lakeStatusFromUrl(env.CONNECT_DATA_LAKE_TSDB_URL),
   indexer: indexerStatusFromUrl(env.INDEXER_URL),
   historyYears: env.TAX_HISTORY_YEARS,
+  ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
+  ...(env.TRADE_URL === undefined ? {} : { prices: createTradePrices(env.TRADE_URL) }),
 });
 
 const appRouter = createTaxRouter(tax);
