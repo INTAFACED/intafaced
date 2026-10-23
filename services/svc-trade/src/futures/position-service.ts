@@ -534,6 +534,14 @@ export class PositionService {
     } catch {
       haircutBps = null;
     }
+    // One read of every account the user has, so the figures are one consistent ledger state: two reads could see the
+    // same cash twice, in free before a hold posts and in the hold after. The rows are read after it, so a move between
+    // the two reads can only leave cash out of `posted` or count a margin twice in `committed`, never the other way.
+    const snapshot = await this.ledger.balances('user', userId);
+    const amountOf = (kind: string, purpose: string): Amount => {
+      const row = snapshot.find((b) => b.account.assetId === asset && b.account.kind === kind && (b.account.purpose ?? '') === purpose);
+      return row && row.amount > 0n ? row.amount : 0n;
+    };
     const positions = await this.sql<{ id: string; margin_initial: string }[]>`
       SELECT id, margin_initial FROM trade.positions
        WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
@@ -542,25 +550,24 @@ export class PositionService {
       SELECT * FROM trade.futures_orders
        WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
     `;
-    const balanceOf = async (account: Parameters<LedgerClient['balance']>[0]): Promise<Amount> =>
-      (await this.ledger.balance(account)).amount;
-    const [free, potRows, heldRows] = await Promise.all([
-      balanceOf(userAvailable(userId, asset)),
-      Promise.all(positions.map((row) => balanceOf(positionCollateralAccount(userId, asset, row.id)))),
-      Promise.all(orders.map((row) => balanceOf(futuresOrderMarginAccount(userId, asset, row.id)))),
-    ]);
+    const accountOf = (ref: { kind: string; purpose?: string }) => amountOf(ref.kind, ref.purpose ?? '');
+    const free = accountOf(userAvailable(userId, asset));
+    const potRows = positions.map((row) => accountOf(positionCollateralAccount(userId, asset, row.id)));
+    const heldRows = orders.map((row) => accountOf(futuresOrderMarginAccount(userId, asset, row.id)));
     let initial = 0n;
     for (const row of positions) initial += parseAmount(String(row.margin_initial));
     let pots = 0n;
-    for (const pot of potRows) if (pot > 0n) pots += pot;
+    for (const pot of potRows) pots += pot;
     let held = 0n;
     let promised = 0n;
     orders.forEach((row, n) => {
-      const inLedger = heldRows[n]! > 0n ? heldRows[n]! : 0n;
+      const inLedger = heldRows[n]!;
       held += inLedger;
-      // A pending order has its row but not yet its hold: it commits the whole hold it is about to post (its cash is
-      // still in free), so a second open checked meanwhile sees it. Once posted the ledger's figure is the truth.
-      promised += row.status === 'pending' && inLedger < holdOf(row) ? holdOf(row) : inLedger;
+      // What the order commits comes from its row: the hold its terms lock less what its fills applied, paid and
+      // released. A pending order counts the whole hold it is about to post (its cash is still in free), and an order
+      // whose hold posted after the ledger read still counts, so a second open checked meanwhile sees it.
+      const fromRow = holdOf(row) - parseAmount(row.applied_amount) - parseAmount(row.fee_charged) - parseAmount(row.released_amount);
+      promised += fromRow > inLedger ? fromRow : inLedger;
     });
     const posted = (free + pots + held) as Amount;
     const committed = (initial + promised) as Amount;

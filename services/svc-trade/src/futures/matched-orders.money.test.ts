@@ -1431,11 +1431,61 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await assertBooksAgree();
     });
 
+    /** The ledger with some of its methods replaced; everything else is the real one. */
+    function withLedger(overrides: Partial<Record<keyof LedgerClient, unknown>>): LedgerClient {
+      return new Proxy(ledger, {
+        get(target, key) {
+          if (key in overrides) return overrides[key as keyof LedgerClient];
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+    }
+
+    it('a hold that posts while the figures are read is counted once, never in free and in the hold both', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      // Order B's hold post waits on a gate: B is a pending row whose 500 is still in free.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let posting!: () => void;
+      const reachedPost = new Promise<void>((resolve) => (posting = resolve));
+      const slowPost = withLedger({
+        post: async (req: Parameters<LedgerClient['post']>[0]) => {
+          posting();
+          await gate;
+          return ledger.post(req);
+        },
+      });
+      const placingB = positions(slowPost).placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('50'), clientOrderId: 'race-b' }),
+      );
+      await reachedPost;
+      // The figures read the ledger, then B's hold posts and B is held, then the figures read the rows.
+      const racing = withLedger({
+        balances: async (...args: Parameters<LedgerClient['balances']>) => {
+          const read = await ledger.balances(...args);
+          release();
+          await placingB;
+          return read;
+        },
+      });
+      const figures = await positions(racing).collateralFigures(ALICE, USDT);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('500'));
+      // 1000 of cash in all: 1000 free when it was read, B's 500 not yet in its hold. B's 500 is committed once.
+      expect(figures).toMatchObject({ posted: A('1000'), committed: A('500'), credit: A('900'), buyingPower: A('400') });
+      // So a second 500 does not fit, with B's posted.
+      await expect(
+        positions().placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('50'), clientOrderId: 'race-a' })),
+      ).rejects.toMatchObject({ code: 'trade.haircut_credit_short' });
+      await assertBooksAgree();
+    });
+
     it('a ledger that cannot be read refuses with trade.collateral_unreadable (503), holds nothing, and leaves the order to retry', async () => {
       process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '0';
       const down = new Proxy(ledger, {
         get(target, key) {
-          if (key === 'balance') return async () => Promise.reject(new Error('ledger read timed out'));
+          if (key === 'balance' || key === 'balances') return async () => Promise.reject(new Error('ledger read timed out'));
           const value = Reflect.get(target, key) as unknown;
           return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
         },
