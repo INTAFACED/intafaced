@@ -534,6 +534,13 @@ export class GlobalSendService {
     const now = input.now ?? new Date();
     const quoted = await this.checkedQuote({ asset, amount: money.text, toCurrency }, now);
     const id = randomUUID();
+    // A lock no send was confirmed on is of no use once it has run out: this customer's, an hour past its end, go, so
+    // the table holds roughly what was quoted in the last hour. The hour keeps a send confirmed at the last instant safe.
+    await this.sql`
+      DELETE FROM bank.global_quotes q
+      WHERE q.user_id = ${input.userId} AND q.valid_until < now() - interval '1 hour'
+        AND NOT EXISTS (SELECT 1 FROM bank.global_sends s WHERE s.quote_id = q.id)
+    `;
     await this.sql`
       INSERT INTO bank.global_quotes (
         id, user_id, asset_id, amount, to_currency, rate, fee, fee_asset, receive_amount, valid_until, eta
@@ -557,7 +564,10 @@ export class GlobalSendService {
     country: string;
     deliveryMethod: string;
     compliance?: Readonly<Record<string, string>>;
-    /** The rate lock the customer confirmed (`quote`). A send with none is refused before anything posts. */
+    /**
+     * The rate lock the customer confirmed (`quote`). A send with none is refused before anything posts; like every
+     * definite refusal, its intent row is kept, failed with `bank.global_quote_required`.
+     */
     quoteId?: string;
     now?: Date;
   }): Promise<SendView> {
@@ -1119,11 +1129,13 @@ export class GlobalSendService {
         ON CONFLICT (user_id, idempotency_key) DO NOTHING
       `;
     } catch (err) {
-      // One lock pays one send: a second send (another key) on the same quote is refused, and nothing is recorded for it.
+      // One lock pays one send: a second send (another key) on a quote that a live or paid send holds is refused, and
+      // nothing is recorded for it. The same request twice at once can meet here too, and is the same send.
       if (err && typeof err === 'object' && 'constraint_name' in err && err.constraint_name === 'global_sends_quote_uq') {
-        throw personalPayError('bank.global_quote_used');
+        if (!(await this.sendByKey(input.userId, input.idempotencyKey))) throw personalPayError('bank.global_quote_used');
+      } else {
+        throw err;
       }
-      throw err;
     }
     const row = await this.sendByKey(input.userId, input.idempotencyKey);
     if (!row) throw personalPayError('bank.global_outcome_unknown');

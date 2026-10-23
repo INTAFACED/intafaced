@@ -33,6 +33,15 @@ const settle = <T,>(result: ApiResult<T>): Load<T> =>
   result.ok ? { state: 'ready', data: result.data } : { state: 'failed', code: result.code, message: result.message };
 
 type Say = { title: string; body: string };
+
+/** Refusals that mean the shown lock can no longer pay this send. */
+const QUOTE_REFUSALS = new Set([
+  'bank.global_quote_expired',
+  'bank.global_quote_required',
+  'bank.global_quote_not_found',
+  'bank.global_quote_mismatch',
+  'bank.global_quote_used',
+]);
 const sayFor = (code: string | undefined, message: string): Say => {
   if (!code) return { title: message, body: '' };
   const words = refusalCopy(code);
@@ -383,11 +392,16 @@ export function GlobalCard() {
   // The lock counts down each second while a quote is shown; once it runs out, only a new quote can be sent on.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!liveQuote) return;
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    if (!liveQuote || !(deadline > Date.now())) return;
+    // It stops on the tick that reaches the end: nothing re-renders for a lock that has run out.
+    const timer = window.setInterval(() => {
+      const tick = Date.now();
+      setNow(tick);
+      if (tick >= deadline) window.clearInterval(timer);
+    }, 1000);
     return () => window.clearInterval(timer);
-  }, [liveQuote]);
+  }, [liveQuote, deadline]);
   const lockText = liveQuote ? lockLeft(deadline, now) : null;
 
   const [asked, setAsked] = useState<readonly ComplianceField[]>([]);
@@ -563,6 +577,8 @@ export function GlobalCard() {
     }
     setFailure(sayFor(result.code, result.message));
     if (!field) setReview(null);
+    // A lock the service will not pay on (ran out, used, or not for this send) is dropped: only a new quote goes on.
+    if (result.code && QUOTE_REFUSALS.has(result.code)) setQuote(null);
   }
 
   const askedLabel: Record<ComplianceField, string> = {

@@ -1,6 +1,7 @@
 -- J-bank-05 #3 (BK-xfer-03): a global-send quote is a rate lock. Taking a quote keeps the provider's figures for one
 -- customer, asset, amount and currency until the provider's valid-until; a send names the lock it was confirmed on and is
--- paid at exactly those figures. One lock pays one send.
+-- paid at exactly those figures. One lock pays one send: a send refused (failed) or cancelled with nothing kept gives
+-- its lock back, so the customer can confirm again on it while it lasts.
 CREATE TABLE IF NOT EXISTS "bank"."global_quotes" (
   "id" uuid PRIMARY KEY,
   "user_id" text NOT NULL,
@@ -21,4 +22,5 @@ CREATE TABLE IF NOT EXISTS "bank"."global_quotes" (
 );
 CREATE INDEX IF NOT EXISTS "global_quotes_user_idx" ON "bank"."global_quotes" ("user_id", "created_at");
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "quote_id" uuid REFERENCES "bank"."global_quotes" ("id");
-CREATE UNIQUE INDEX IF NOT EXISTS "global_sends_quote_uq" ON "bank"."global_sends" ("quote_id") WHERE "quote_id" IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "global_sends_quote_uq" ON "bank"."global_sends" ("quote_id")
+  WHERE "quote_id" IS NOT NULL AND "status" NOT IN ('failed', 'cancelled');

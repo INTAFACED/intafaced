@@ -1216,6 +1216,48 @@ describe('personal bill pay and global send', () => {
       return { ledger, me, body, balance, row };
     }
 
+    it('a refused send gives its lock back for the corrected send; the same send twice at once is one send; old unused locks go', async () => {
+      const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal() });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: '123456789',
+        country: 'DE',
+      });
+      const lock = await me.global.quote({ asset: 'USDT', amount: '60', toCurrency: 'EUR' });
+      const base = {
+        fromSpaceId: space.id,
+        amount: '60',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'bank',
+        quoteId: lock.quoteId,
+      };
+      // Over the TEST source-of-funds threshold with none given: refused, nothing posted, the lock not spent.
+      await expect(
+        me.global.send({ ...base, compliance: { originatorName: 'Ada' }, idempotencyKey: `send-${randomUUID()}` }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.source_of_funds_required' } });
+      const corrected = { ...base, compliance: { originatorName: 'Ada', sourceOfFunds: 'salary' }, idempotencyKey: `send-${randomUUID()}` };
+      // The corrected send, sent twice at once (a double press): one send, paid once, at the lock.
+      const [a, b] = await Promise.all([me.global.send(corrected), me.global.send(corrected)]);
+      expect(a.id).toBe(b.id);
+      expect(a).toMatchObject({ status: 'sent', quoteId: lock.quoteId, quoteRate: '7.25' });
+      expect(transfers(ledger)).toHaveLength(1);
+      // Now the lock is spent.
+      await expect(me.global.send({ ...corrected, idempotencyKey: `send-${randomUUID()}` })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_used' },
+      });
+      // A lock no send used, an hour past its end, is gone at the customer's next quote; a used one stays.
+      const unused = await me.global.quote({ asset: 'USDT', amount: '5', toCurrency: 'EUR' });
+      await sql`UPDATE bank.global_quotes SET valid_until = now() - interval '2 hours' WHERE id IN (${unused.quoteId}, ${lock.quoteId})`;
+      await me.global.quote({ asset: 'USDT', amount: '5', toCurrency: 'EUR' });
+      const left = await sql<{ id: string }[]>`SELECT id FROM bank.global_quotes WHERE id IN (${unused.quoteId}, ${lock.quoteId})`;
+      expect(left.map((row) => row.id)).toEqual([lock.quoteId]);
+    });
+
     it('pays at the locked figures when the provider rate has moved since, and hands the payout rail exactly that lock', async () => {
       const seen: Parameters<GlobalPorts['payout']['submit']>[0][] = [];
       let rate = '7.25';
