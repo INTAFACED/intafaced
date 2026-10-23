@@ -17,6 +17,7 @@ import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter, type ProtocolRouter } from './router.js';
+import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
@@ -101,6 +102,7 @@ let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
 export const appRouter = createProtocolRouter({
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
+  gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
   chain,
   registry,
   relay,
