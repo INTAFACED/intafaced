@@ -34,6 +34,29 @@ async function closedBarsSince(minute) {
   return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
 }
 
+/**
+ * The last `minutes` of the TEST tape as a from/to window, fixed only once it holds at least 8 closed bars: the window
+ * is taken again on every poll, because a window fixed early (a shard that starts minutes after the market maker) can
+ * never gain a bar.
+ */
+async function tapeWindow(minutes) {
+  let window;
+  await expect
+    .poll(
+      async () => {
+        window = { from: utcMinute(minutes), to: utcMinute(0) };
+        return (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length;
+      },
+      {
+        timeout: 12 * 60_000,
+        intervals: [15_000],
+        message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
+      },
+    )
+    .toBeGreaterThanOrEqual(8);
+  return window;
+}
+
 /** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
 async function saveSignalStrategy(page, name, sizing = { kind: 'quantity', value: '0.01' }) {
   await page.goto('/quant/studio');
@@ -86,14 +109,7 @@ test(`${J} #1 sets the one-third preset: the out-of-sample part is the latest th
   run.reset({ account: who });
   await signIn(page, developer());
   await saveSignalStrategy(page, STRATEGY);
-  const window = { from: utcMinute(WINDOW_MINUTES), to: utcMinute(0) };
-  await expect
-    .poll(async () => (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length, {
-      timeout: 12 * 60_000,
-      intervals: [15_000],
-      message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
-    })
-    .toBeGreaterThanOrEqual(8);
+  const window = await tapeWindow(WINDOW_MINUTES);
   let room = await backtestForm(page, STRATEGY, window);
   await room.getByTestId('quant-backtest-run').click();
   await expect(room.getByTestId('quant-bar-result')).toBeVisible();
@@ -245,10 +261,12 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
     await expect(gap).toHaveAttribute('data-status', Number(measured) > 5 ? 'warning' : 'clear');
   }
 
-  // Sensitivity: the same run from one bar later, made by the service, with how far the return moved.
+  // Sensitivity: the same run from one bar later, made by the service, with how far the return moved. "One bar later" is
+  // the window's second traded bar, so a window that opens in a gap of the tape still starts one bar later.
   const offset = check('bar_offset');
   await expect(offset).toHaveAttribute('data-threshold', '1');
-  await expect(offset).toHaveAttribute('data-offsetfrom', new Date(Date.parse(`${window.from}:00Z`) + 60_000).toISOString());
+  const [, second] = (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`));
+  await expect(offset).toHaveAttribute('data-offsetfrom', new Date(second[0]).toISOString());
   const shift = Number(await offset.getAttribute('data-shiftpercent'));
   await expect(offset).toHaveAttribute('data-status', shift > 1 ? 'warning' : 'clear');
 
