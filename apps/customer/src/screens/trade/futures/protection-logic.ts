@@ -29,14 +29,14 @@ export function isLive(order: ConditionalOrder | null): boolean {
 }
 
 /**
- * The result if the whole position closed at `price`, before fees: (price − entry) × size, negated for a short. A
- * position's size is in the base asset, as its notional and unrealised PnL are worked out. Null when any input is
- * unknown or malformed: never a guessed figure.
+ * The result if the position (or `quantity` of it) closed at `price`, before fees: (price − entry) × size, negated for
+ * a short. A position's size is in the base asset, as its notional and unrealised PnL are worked out. Null when any
+ * input is unknown or malformed: never a guessed figure.
  */
-export function estimatedResult(position: Position, price: string): string | null {
+export function estimatedResult(position: Position, price: string, quantity?: string | null): string | null {
   const at = dec(price);
   const entry = dec(position.entryPrice);
-  const size = dec(position.contracts);
+  const size = quantity ? dec(quantity) : dec(position.contracts);
   if (at === null || at <= 0n || entry === null || size === null) return null;
   const move = position.side === 'long' ? sub(at, entry) : sub(entry, at);
   return str(times(move, size));
@@ -47,6 +47,27 @@ export function sideOfMark(position: Position, leg: Leg): 'above' | 'below' | nu
   if (position.side !== 'long' && position.side !== 'short') return null;
   const up = (position.side === 'long') === (leg === 'take_profit');
   return up ? 'above' : 'below';
+}
+
+/** A part leg's size: empty is the whole position; otherwise above zero and at most the position. */
+export function partProblem(value: string, contracts: string): 'invalid' | 'overPosition' | null {
+  if (value.trim() === '') return null;
+  const parsed = dec(value.trim());
+  if (parsed === null || parsed <= 0n) return 'invalid';
+  const held = dec(contracts);
+  return held !== null && parsed > held ? 'overPosition' : null;
+}
+
+/** What a leg covers: the whole position, or its own size and what is left beside it. Null when not readable. */
+export function coverage(
+  order: ConditionalOrder,
+  contracts: string,
+): { whole: true } | { whole: false; part: string; rest: string } | null {
+  if (order.wholePosition !== false) return { whole: true };
+  const part = dec(order.quantity);
+  const held = dec(contracts);
+  if (part === null || held === null) return null;
+  return { whole: false, part: order.quantity, rest: str(held > part ? sub(held, part) : 0n) };
 }
 
 /** A price field's problem before anything is sent. Empty is allowed: it clears that leg. */

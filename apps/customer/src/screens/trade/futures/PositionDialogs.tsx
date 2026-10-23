@@ -41,7 +41,7 @@ import {
   type CloseAllState,
   type CloseResult,
 } from './positions-logic';
-import { estimatedResult, legsOf, priceProblem, sideOfMark, type Leg } from './protection-logic';
+import { coverage, estimatedResult, legsOf, partProblem, priceProblem, sideOfMark, type Leg } from './protection-logic';
 import { TriggerFacts, triggerLine } from './TriggerFacts';
 import { triggersCopy } from './triggers-copy';
 import type { Intent } from './write';
@@ -71,7 +71,9 @@ function Frame({
   const { t } = positionsCopy.useCopy();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent closeLabel={t('Dialog close')}>
+      {/* A tall dialog (take profit and stop loss with their sizes) scrolls inside itself on a short screen, so its title
+          and close stay reachable. */}
+      <DialogContent closeLabel={t('Dialog close')} className="max-h-[calc(100dvh-32px)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -380,15 +382,27 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
 }
 
 /** One leg as it stands: its status in words, its trigger and the price it is judged on, and what a fired one did. */
-function LegLine({ leg, order, t }: { leg: Leg; order: ConditionalOrder | null; t: T }) {
+function LegLine({ leg, order, contracts, t }: { leg: Leg; order: ConditionalOrder | null; contracts: string; t: T }) {
   const words = triggersCopy.useCopy().t;
   const name = leg === 'take_profit' ? t('Protect take profit') : t('Protect stop loss');
   if (order === null) return <li data-leg={leg}>{t('Protect leg', { leg: name, status: t('Protect none') })}</li>;
   const trigger = triggerLine(order, words);
+  const covers = coverage(order, contracts);
   return (
     <li data-leg={leg} data-status={order.status} className="flex flex-col gap-0.5">
       <span className="font-medium">{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
       {trigger ? <span className="text-fg-2">{trigger}</span> : null}
+      {covers === null ? null : covers.whole ? (
+        <span className="text-fg-2">{t('Protect covers whole')}</span>
+      ) : (
+        <span className="text-fg-2">
+          {t('Protect covers part', {
+            part: fmtAmount(covers.part, { places: 8 }),
+            size: fmtAmount(contracts, { places: 8 }),
+            rest: fmtAmount(covers.rest, { places: 8 }),
+          })}
+        </span>
+      )}
       <TriggerFacts order={order} />
     </li>
   );
@@ -409,6 +423,8 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
   const legs = legsOf(orders ?? [], position.id);
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLoss, setStopLoss] = useState('');
+  const [takeProfitPart, setTakeProfitPart] = useState('');
+  const [stopLossPart, setStopLossPart] = useState('');
   const [saved, setSaved] = useState<'set' | 'removed' | 'checked' | null>(null);
   const prefilled = useRef(false);
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
@@ -421,24 +437,37 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
   useEffect(() => {
     if (orders === null || prefilled.current) return;
     prefilled.current = true;
-    if (legs.take_profit?.status === 'armed') setTakeProfit(legs.take_profit.triggerPrice ?? '');
-    if (legs.stop_loss?.status === 'armed') setStopLoss(legs.stop_loss.triggerPrice ?? '');
+    const tp = legs.take_profit;
+    const sl = legs.stop_loss;
+    if (tp?.status === 'armed') {
+      setTakeProfit(tp.triggerPrice ?? '');
+      if (tp.wholePosition === false) setTakeProfitPart(tp.quantity);
+    }
+    if (sl?.status === 'armed') {
+      setStopLoss(sl.triggerPrice ?? '');
+      if (sl.wholePosition === false) setStopLossPart(sl.quantity);
+    }
   }, [orders, legs.take_profit, legs.stop_loss]);
   const edit = (set: (v: string) => void) => (value: string) => {
     setSaved(null);
     set(value);
   };
   const problems = { take_profit: priceProblem(takeProfit), stop_loss: priceProblem(stopLoss) };
+  // A size counts only beside its leg's price: a leg with no price is not sent, so its size is never a problem.
+  const partOf = (price: string, part: string) => (price.trim() === '' ? null : partProblem(part, position.contracts));
+  const parts = { take_profit: partOf(takeProfit, takeProfitPart), stop_loss: partOf(stopLoss, stopLossPart) };
+  const anyProblem = Object.values(problems).some((p) => p !== null) || Object.values(parts).some((p) => p !== null);
   const anyArmed = legs.take_profit?.status === 'armed' || legs.stop_loss?.status === 'armed';
   // A fired leg is closing the position through the book; a replace would not stop it and would arm a second one.
   const closingNow = legs.take_profit?.status === 'triggered' || legs.stop_loss?.status === 'triggered';
   const ready = orders !== null && !unreadable && !closingNow;
   const blocked = !ready || writer.note.state !== 'none' || position.id === null;
 
-  const save = async (tp: string | null, sl: string | null) => {
+  const save = async (tp: string | null, sl: string | null, tpPart: string | null = null, slPart: string | null = null) => {
     if (blocked || position.id === null) return;
-    // The same prices re-send the same request id (a replay); anything new, or a send after a finished one, is a new id.
-    nonce.current = pickNonce(nonce.current, `protect:${position.id}:${tp ?? ''}:${sl ?? ''}`, newNonce);
+    // The same request re-sends the same request id (a replay); anything new, or a send after a finished one, is a new id.
+    const key = `protect:${position.id}:${tp ?? ''}/${tpPart ?? ''}:${sl ?? ''}/${slPart ?? ''}`;
+    nonce.current = pickNonce(nonce.current, key, newNonce);
     const result = await writer.run({
       op: 'protection',
       input: {
@@ -446,14 +475,22 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         positionId: position.id,
         takeProfit: tp,
         stopLoss: sl,
+        takeProfitQuantity: tp === null ? null : tpPart,
+        stopLossQuantity: sl === null ? null : slPart,
         clientRequestId: `tpsl:${nonce.current.nonce}`,
       },
     });
     if (result.kind === 'done') {
       nonce.current = null;
       setSaved(tp === null && sl === null ? 'removed' : 'set');
-      if (tp === null) setTakeProfit('');
-      if (sl === null) setStopLoss('');
+      if (tp === null) {
+        setTakeProfit('');
+        setTakeProfitPart('');
+      }
+      if (sl === null) {
+        setStopLoss('');
+        setStopLossPart('');
+      }
       refresh();
     }
   };
@@ -469,22 +506,36 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
   };
   const trimmed = (v: string) => (v.trim() === '' ? null : v.trim());
 
-  const field = (leg: Leg, value: string, set: (v: string) => void) => {
+  const field = (leg: Leg, value: string, set: (v: string) => void, part: string, setPart: (v: string) => void) => {
     const side = sideOfMark(position, leg);
-    const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim()), 8);
+    const size = part.trim() === '' || parts[leg] ? null : part.trim();
+    const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
     return (
-      <Field
-        label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
-        hint={side === null ? undefined : t(`Protect side ${side}`)}
-        error={problems[leg] ? t('Protect problem invalid') : undefined}
-      >
-        <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} disabled={orders === null} />
-        {value.trim() !== '' && !problems[leg] ? (
-          <span className="text-2xs text-fg-2">
-            {estimate === null ? t('Protect estimate unknown') : t('Protect estimate', { result: estimate, asset })}
-          </span>
-        ) : null}
-      </Field>
+      <div className="flex flex-col gap-2">
+        <Field
+          label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
+          hint={side === null ? undefined : t(`Protect side ${side}`)}
+          error={problems[leg] ? t('Protect problem invalid') : undefined}
+        >
+          <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} disabled={orders === null} />
+          {value.trim() !== '' && !problems[leg] ? (
+            <span className="text-2xs text-fg-2">
+              {estimate === null
+                ? t('Protect estimate unknown')
+                : size === null
+                  ? t('Protect estimate', { result: estimate, asset })
+                  : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
+            </span>
+          ) : null}
+        </Field>
+        <Field
+          label={t(leg === 'take_profit' ? 'Protect part take profit' : 'Protect part stop loss')}
+          hint={t('Protect part hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
+          error={parts[leg] ? t(`Protect part problem ${parts[leg]}`) : undefined}
+        >
+          <Input kind="decimal" value={part} onValueChange={edit(setPart)} precision={8} disabled={orders === null} />
+        </Field>
+      </div>
     );
   };
 
@@ -518,10 +569,8 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
           ) : null}
           <Button
             loading={writer.busy}
-            disabled={
-              blocked || problems.take_profit !== null || problems.stop_loss !== null || (!trimmed(takeProfit) && !trimmed(stopLoss))
-            }
-            onClick={() => void save(trimmed(takeProfit), trimmed(stopLoss))}
+            disabled={blocked || anyProblem || (!trimmed(takeProfit) && !trimmed(stopLoss))}
+            onClick={() => void save(trimmed(takeProfit), trimmed(stopLoss), trimmed(takeProfitPart), trimmed(stopLossPart))}
           >
             {t('Protect save')}
           </Button>
@@ -534,15 +583,15 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            <LegLine leg="take_profit" order={legs.take_profit} t={t} />
-            <LegLine leg="stop_loss" order={legs.stop_loss} t={t} />
+            <LegLine leg="take_profit" order={legs.take_profit} contracts={position.contracts} t={t} />
+            <LegLine leg="stop_loss" order={legs.stop_loss} contracts={position.contracts} t={t} />
           </ul>
         ) : null}
         {closingNow ? <p className="text-warn">{t('Protect closing now')}</p> : null}
       </section>
       <p className="text-fg-2">{t('Protect how')}</p>
-      {field('take_profit', takeProfit, setTakeProfit)}
-      {field('stop_loss', stopLoss, setStopLoss)}
+      {field('take_profit', takeProfit, setTakeProfit, takeProfitPart, setTakeProfitPart)}
+      {field('stop_loss', stopLoss, setStopLoss, stopLossPart, setStopLossPart)}
       <p className="text-fg-2">{t('Protect replace note')}</p>
       {saved ? (
         <p role="status" className="text-fg-2">

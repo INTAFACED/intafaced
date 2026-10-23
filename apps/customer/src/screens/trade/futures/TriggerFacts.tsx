@@ -6,7 +6,7 @@ import { triggersCopy } from './triggers-copy';
 
 type T = ReturnType<typeof triggersCopy.useCopy>['t'];
 
-const CANCEL_REASONS = ['replaced', 'position_closed', 'position_gone', 'cancelled'] as const;
+const CANCEL_REASONS = ['replaced', 'position_closed', 'position_gone', 'cancelled', 'linked'] as const;
 type CancelReason = (typeof CANCEL_REASONS)[number];
 const isCancelReason = (reason: string): reason is CancelReason => (CANCEL_REASONS as readonly string[]).includes(reason);
 

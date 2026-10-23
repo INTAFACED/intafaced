@@ -12,7 +12,16 @@ import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
 import { dec, isPositive } from '../../../data/decimal';
 import { clearPending, readPending, runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
-import type { ConditionalOrder, FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput, Protection } from './api';
+import type {
+  ConditionalOrder,
+  FuturesApi,
+  FuturesOrder,
+  FuturesSplit,
+  OpenInput,
+  PlaceOrderInput,
+  Protection,
+  ProtectionInput,
+} from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
@@ -23,7 +32,7 @@ export type Intent =
   | { op: 'margin-reduce'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
   | {
       op: 'protection';
-      input: { symbol: string; positionId: string; takeProfit: string | null; stopLoss: string | null; clientRequestId: string };
+      input: ProtectionInput & { symbol: string };
     }
   /** Cancel one armed take profit, stop loss or stop. The order's own id names it, so a second send changes nothing. */
   | { op: 'cancel-trigger'; input: { symbol: string; id: string } };
