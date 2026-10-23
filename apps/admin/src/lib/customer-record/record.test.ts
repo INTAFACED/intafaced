@@ -11,7 +11,7 @@ const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../.
 describe('customer record address', () => {
   it('takes an account id from the path, lower-cased, and nothing else', () => {
     expect(customerId(USER.toUpperCase())).toBe(USER);
-    expect(customerId(encodeURIComponent(USER))).toBe(USER);
+    expect(customerId(encodeURIComponent(`%${USER}`))).toBeNull();
     expect(customerId('not-an-id')).toBeNull();
     expect(customerId('%E0%A4%A')).toBeNull();
     expect(customerId(`${USER}x`)).toBeNull();
@@ -37,9 +37,16 @@ describe('what each tab reads', () => {
     }
     expect(tabPlan('cards', USER).reads).toEqual([]);
     expect(tabPlan('tickets', USER).reads).toEqual([]);
+    expect(tabPlan('cards', USER).unwired[0]!.reason).toContain('no operator read of one customer’s cards');
+    expect(tabPlan('tickets', USER).unwired[0]!.reason).toContain('refuses on purpose to answer about an arbitrary account');
   });
   it('names procedures the owning services serve today', () => {
-    expect(service('svc-bank/src/router.ts')).toContain('customerBalances:');
+    const bank = service('svc-bank/src/router.ts');
+    expect(bank).toContain('customerBalances:');
+    // The cards blocker: svc-bank's card list is the owner's own, read by the signed-in principal.
+    expect(bank).toContain('bank.cards.cardsOf(ctx.principal.userId');
+    // The tickets blocker: svc-support's account read goes by ticket, strictly.
+    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().uuid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);

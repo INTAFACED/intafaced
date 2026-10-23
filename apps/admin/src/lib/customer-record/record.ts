@@ -1,5 +1,8 @@
 import { BANK_CUSTOMER_BALANCES } from '@/lib/ops-desk/catalog';
 import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
+import type { CustomerTab } from './tabs';
+
+export { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, TAB_LABELS, customerId, customerTab, type CustomerTab } from './tabs';
 
 /**
  * One customer's record across money, trade, pay, cards and tickets (OPS-founder-01, ops-console-founder-002), at
@@ -11,39 +14,6 @@ import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
  *
  * What no service can answer for one account is listed per tab with the reason, never left out or shown as empty.
  */
-
-export const CUSTOMER_TABS = ['money', 'trade', 'pay', 'cards', 'tickets'] as const;
-export type CustomerTab = (typeof CUSTOMER_TABS)[number];
-
-export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
-  money: 'Money',
-  trade: 'Trade',
-  pay: 'Pay',
-  cards: 'Cards',
-  tickets: 'Tickets',
-};
-
-/** The code a block with no source carries, so a refusal can be told apart from a read that was never possible. */
-export const RECORD_SOURCE_UNWIRED = 'ops.customer_record_source_unwired';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The account id from the path, lower-cased, or null when it is not an account id (nothing is read for it). */
-export function customerId(raw: string): string | null {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    return null;
-  }
-  return UUID.test(decoded) ? decoded.toLowerCase() : null;
-}
-
-/** The tab from `?tab=`, money when none is given; null for a tab that does not exist. */
-export function customerTab(raw: string | string[] | undefined): CustomerTab | null {
-  if (raw === undefined) return 'money';
-  return typeof raw === 'string' && (CUSTOMER_TABS as readonly string[]).includes(raw) ? (raw as CustomerTab) : null;
-}
 
 const col = (key: string, label: string, kind: Column['kind'], extra: Partial<Column> = {}): Column => ({ key, label, kind, ...extra });
 
@@ -130,7 +100,7 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             'pay.allowlist-mode',
             'Withdrawal allowlist',
             'founderAdmin.allowlist.mode',
-            'Whether this account may withdraw crypto only to addresses on its allowlist. Off until the owner turns it on.',
+            'Whether this account may withdraw crypto only to addresses on its allowlist, as svc-pay holds it now.',
             [col('enabled', 'Allowlist-only withdrawals', 'bool'), col('setAt', 'Set', 'time', { nullable: true })],
             userId,
           ),
@@ -163,7 +133,7 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
           un(
             'cards.list',
             'Cards issued to this account',
-            'No service holds customer cards: svc-bank has the card programme and authorisation rails but no card record per customer to read.',
+            'svc-bank keeps each customer’s cards, but its card list answers only the signed-in owner; it has no operator read of one customer’s cards.',
           ),
         ],
       };

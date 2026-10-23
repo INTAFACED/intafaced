@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { customerId } from '@/lib/customer-record/record';
+import { customerId } from '@/lib/customer-record/tabs';
 
 /** Opens one customer's record by account id. An id that is not an account id is refused here, before anything is read. */
 export function CustomerRecordFinder() {

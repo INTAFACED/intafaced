@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ReadBlock } from '@/components/ops-desk';
-import { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/record';
+import { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/tabs';
 import type { ReadOutcome, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import './desk.css';
 
