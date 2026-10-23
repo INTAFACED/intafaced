@@ -248,6 +248,12 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   skipped. The offsets of a published window are held by the published-row trigger like its other fields.
 - `statusPage.maintenance.windows` (`admin:write`) is the founders' desk: windows (drafts too) with state, moves and
   reminders.
+- Notice categories: `statusPage.configure` takes `noticeCategories`, the whole list of `{ id, name }` (at most 20; `null`
+  clears it), an owner value on the status page row (migration 0033). Blank means the kinds alone. A draft
+  (`notify.draftNotice`) may name one `category` id from the list; any other, or any at all with no list set, is
+  `status.category_unknown`. It is stored with its name as listed then, bound by the publish approval's payload hash,
+  held by the published-row trigger, and carried on every notice read as `category` (`null` for none), so renaming a
+  category later leaves published notices as they were filed. The founders file announcements at `/notify/notices`.
 
 ### Status badge (SP-status-05)
 

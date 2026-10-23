@@ -5,7 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, NoticeCategory } from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
 import {
   ChangelogError,
@@ -64,6 +64,7 @@ export type NoticeCode =
   | 'notify.notice_phase_invalid'
   | 'notify.notice_incident_resolved'
   | 'notify.notice_reminders_invalid'
+  | 'status.category_unknown'
   | ChangelogCode;
 
 export class NoticeError extends Error {
@@ -91,6 +92,8 @@ export type NoticeWire = {
   readonly phase: IncidentPhase | null;
   /** Changelog entries only: area, breaking flag, dates, examples and retirements. Null on every other kind. */
   readonly changelog: Changelog | null;
+  /** The category it was filed under, as the founders' list named it then; null for none. */
+  readonly category: NoticeCategory | null;
 };
 
 export type NoticeRow = {
@@ -118,6 +121,8 @@ export type NoticeRow = {
   phase: IncidentPhase | null;
   /** Changelog only. Null on a notice that carries none, including changelog entries written before this field. */
   changelog: Changelog | null;
+  /** The category from the founders' list, stored as written. Null, or absent on rows written before this field, for none. */
+  category?: NoticeCategory | null;
   /**
    * Maintenance only: minutes before the start at which subscribers are reminded, one reminder per offset. Empty (or
    * absent on rows written before this field) means none.
@@ -245,6 +250,7 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     network: row.network,
     phase: row.phase,
     changelog: row.changelog,
+    category: row.category ?? null,
   };
 }
 
@@ -284,6 +290,7 @@ function payloadHash(row: NoticeRow): string {
     ...(scope ? { scope } : {}),
     ...(row.changelog ? { changelog: row.changelog } : {}),
     ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
+    ...(row.category ? { category: row.category } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -443,6 +450,8 @@ export class NoticeBoard {
     private readonly onPublished: (row: NoticeRow) => Promise<void> = async () => undefined,
     /** Of these maintenance windows, the ones an operator marked completed or cancelled: no longer open, whatever their planned end. */
     private readonly closedMaintenance: (ids: readonly string[]) => Promise<ReadonlySet<string>> = async () => new Set(),
+    /** The founders' notice categories; null when none is set, so a notice names none. */
+    private readonly noticeCategories: () => Promise<readonly NoticeCategory[] | null> = async () => null,
   ) {}
 
   /** Published rows for the status reads, without maintenance an operator has closed. */
@@ -487,6 +496,7 @@ export class NoticeBoard {
       phase?: string | null;
       changelog?: ChangelogInput | null;
       reminderOffsets?: readonly number[] | null;
+      category?: string | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -500,6 +510,7 @@ export class NoticeBoard {
     const changelog = changelogFields(input.kind, input.changelog);
     const startsAt = parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset');
     const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
+    const category = await this.categoryField(input.kind, input.category);
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -513,6 +524,7 @@ export class NoticeBoard {
       ...status,
       changelog,
       reminderOffsets,
+      category,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -521,6 +533,18 @@ export class NoticeBoard {
     };
     await this.store.insert(row);
     return toNoticeWire(row);
+  }
+
+  /**
+   * Categories file announcements: one must be on the founders' list as it stands, and with no list set none is. Stored
+   * with its name as listed. Incidents, maintenance and changelog entries carry their kind alone.
+   */
+  private async categoryField(kind: NoticeKind, id: string | null | undefined): Promise<NoticeCategory | null> {
+    if (id === null || id === undefined || id === '') return null;
+    if (kind !== 'announcement') throw new NoticeError('status.category_unknown');
+    const listed = (await this.noticeCategories())?.find((c) => c.id === id);
+    if (!listed) throw new NoticeError('status.category_unknown');
+    return { id: listed.id, name: listed.name };
   }
 
   /**

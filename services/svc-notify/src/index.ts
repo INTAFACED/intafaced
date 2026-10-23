@@ -217,6 +217,7 @@ const notices = new NoticeBoard(
   async () => (await statusBook.definition()).components.map((component) => component.id),
   (row) => statusSubscriptions.fanOut(row),
   (ids) => maintenanceStore.closedAmong(ids),
+  async () => (await statusBook.definition()).noticeCategories,
 );
 const maintenance = new MaintenanceLifecycle({
   store: maintenanceStore,

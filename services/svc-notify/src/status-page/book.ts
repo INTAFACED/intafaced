@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
   statusPageConfigureKey,
+  type NoticeCategory,
   type StatusComponentDefinition,
   type StatusPageConfigureInput,
   type StatusPageErrorCode,
@@ -33,6 +34,8 @@ export type StatusDefinition = {
   readonly uptimeDays: number | null;
   readonly challengeBits: number | null;
   readonly subscribeRatePerHour: number | null;
+  /** Notice categories a founder files an announcement under; null when none is set (the kinds alone). */
+  readonly noticeCategories: readonly NoticeCategory[] | null;
   readonly revision: number;
   readonly updatedAt: string | null;
 };
@@ -71,6 +74,7 @@ const blank = (): StatusDefinition => ({
   uptimeDays: null,
   challengeBits: null,
   subscribeRatePerHour: null,
+  noticeCategories: null,
   revision: 0,
   updatedAt: null,
 });
@@ -86,15 +90,23 @@ export function applyStatusChange(prior: StatusDefinition, input: StatusPageConf
     uptimeDays: input.uptimeDays === undefined ? prior.uptimeDays : input.uptimeDays,
     challengeBits: input.challengeBits === undefined ? prior.challengeBits : input.challengeBits,
     subscribeRatePerHour: input.subscribeRatePerHour === undefined ? prior.subscribeRatePerHour : input.subscribeRatePerHour,
+    noticeCategories: input.noticeCategories === undefined ? prior.noticeCategories : input.noticeCategories,
   };
   if (next.components.length > 0 && next.componentCap === null) throw new StatusPageError('status.component_cap_unset');
   if (next.componentCap !== null && next.components.length > next.componentCap) throw new StatusPageError('status.component_cap_reached');
   return next;
 }
 
-const sameValues = (a: Values, b: Values): boolean =>
-  JSON.stringify([a.components, a.componentCap, a.stalenessSeconds, a.uptimeDays, a.challengeBits, a.subscribeRatePerHour]) ===
-  JSON.stringify([b.components, b.componentCap, b.stalenessSeconds, b.uptimeDays, b.challengeBits, b.subscribeRatePerHour]);
+const valuesOf = (v: Values) => [
+  v.components,
+  v.componentCap,
+  v.stalenessSeconds,
+  v.uptimeDays,
+  v.challengeBits,
+  v.subscribeRatePerHour,
+  v.noticeCategories,
+];
+const sameValues = (a: Values, b: Values): boolean => JSON.stringify(valuesOf(a)) === JSON.stringify(valuesOf(b));
 
 /** What identifies one change: its fields and reason. The actor and the time are not part of it. */
 export function statusFingerprint(input: StatusPageConfigureInput): string {
@@ -108,9 +120,10 @@ export function statusFingerprint(input: StatusPageConfigureInput): string {
     'subscribeRatePerHour',
     'reason',
   ] as const;
-  return createHash('sha256')
-    .update(JSON.stringify(fields.map((field) => (rest[field] === undefined ? null : [field, rest[field]]))))
-    .digest('hex');
+  const named: unknown[] = fields.map((field) => (rest[field] === undefined ? null : [field, rest[field]]));
+  // Added after the first changes were logged: only a change that names it carries it, so older fingerprints still match.
+  if (rest.noticeCategories !== undefined) named.push(['noticeCategories', rest.noticeCategories]);
+  return createHash('sha256').update(JSON.stringify(named)).digest('hex');
 }
 
 function checkReading(definition: StatusDefinition, reading: StatusReading, at: Date): void {
@@ -188,6 +201,7 @@ type PageRow = {
   uptime_days: number | null;
   challenge_bits: number | null;
   subscribe_rate_per_hour: number | null;
+  notice_categories: NoticeCategory[] | null;
   revision: number;
   updated_at: Date | string | null;
 };
@@ -203,6 +217,7 @@ const fromPage = (row: PageRow | undefined): StatusDefinition =>
         uptimeDays: row.uptime_days,
         challengeBits: row.challenge_bits,
         subscribeRatePerHour: row.subscribe_rate_per_hour,
+        noticeCategories: row.notice_categories ?? null,
         revision: row.revision,
         updatedAt: row.updated_at === null ? null : new Date(row.updated_at).toISOString(),
       }
@@ -220,7 +235,8 @@ export class SqlStatusPageBook implements StatusPageBook {
 
   async definition(): Promise<StatusDefinition> {
     const rows = await this.sql<PageRow[]>`
-      SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, revision, updated_at FROM notify.status_page
+      SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, notice_categories,
+             revision, updated_at FROM notify.status_page
     `;
     return fromPage(rows[0]);
   }
@@ -232,7 +248,8 @@ export class SqlStatusPageBook implements StatusPageBook {
       // The single row is the lock: every writer serialises on it.
       await tx`INSERT INTO notify.status_page (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
       const [locked] = await tx<PageRow[]>`
-        SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, revision, updated_at
+        SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, notice_categories,
+               revision, updated_at
         FROM notify.status_page WHERE singleton FOR UPDATE
       `;
       const prior = fromPage(locked);
@@ -248,7 +265,8 @@ export class SqlStatusPageBook implements StatusPageBook {
         UPDATE notify.status_page
         SET components = ${tx.json(after.components as never)}, component_cap = ${after.componentCap},
             staleness_seconds = ${after.stalenessSeconds}, uptime_days = ${after.uptimeDays},
-            challenge_bits = ${after.challengeBits}, subscribe_rate_per_hour = ${after.subscribeRatePerHour}, revision = ${after.revision},
+            challenge_bits = ${after.challengeBits}, subscribe_rate_per_hour = ${after.subscribeRatePerHour},
+            notice_categories = ${after.noticeCategories === null ? null : tx.json(after.noticeCategories as never)}, revision = ${after.revision},
             updated_by = ${change.by}, updated_at = ${change.at}
         WHERE singleton
       `;
