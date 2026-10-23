@@ -64,6 +64,7 @@ import { createAccountsRouter, createCurrenciesRouter } from './account-home/acc
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
 import { createCashOutRouter } from './cash-out/cash-out.router.js';
+import { createRailSendsRouter } from './rail-sends/rail-sends.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
@@ -496,6 +497,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.wallet_proof_signature_invalid':
       case 'bank.wallet_proof_wrong_signer':
       case 'bank.ramp_conflict':
+      case 'bank.rail_send_invalid':
+      case 'bank.rail_send_conflict':
       case 'bank.business_payroll_empty':
       case 'bank.earn_resume_pending_limit_unset':
       case 'bank.loan_resume_pending_limit_unset':
@@ -595,6 +598,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.wallet_proof_validity_unset':
       case 'bank.linked_accounts_full':
       case 'bank.cash_out_over_available':
+      case 'bank.rail_send_over_available':
       case 'bank.linked_account_unverified':
       case 'rail.bank':
       case 'bank.account_details_currencies_unset':
@@ -4991,6 +4995,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     eligibility: createEligibilityRouter(bank, guard),
     linkedAccounts: createLinkedAccountsRouter(bank, guard),
     cashOut: createCashOutRouter(bank, guard),
+    /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
+    railSends: createRailSendsRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

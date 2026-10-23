@@ -8,7 +8,7 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // One test per step, titled "J-bank-04 #<n>", run in order on TEST accounts: A sends (with an authenticator app), B
 // receives, and C is frozen by staff. The stack's gates publish TEST send terms for USDT and USDC with a zero fee
 // (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack, and balances
-// are read through each person's own API. Not here yet: #1, #2 and #5 to #7 (each lands with its own slice).
+// are read through each person's own API. Not here yet: #2 and #5 to #7 (each lands with its own slice).
 const J = 'J-bank-04';
 const AMOUNT = '40';
 const NOTE = 'Lunch, TEST';
@@ -105,6 +105,75 @@ async function reviewSend(page, { to, asset = 'USDT', value = AMOUNT, note = '',
   await dialog.getByRole('button', { name: 'Review' }).click();
   return dialog;
 }
+
+test(`${J} #1 opens Send and picks the rail: each rail has its own form, and with no partner the notice names rail.bank and the send is kept`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // Step 1 starts the journey again: new people, no sends.
+  run.reset({});
+  await people(page);
+  await signInSender(page);
+  const before = await senderUsdt();
+  await page.goto('/bank/transfers');
+  const panel = page.getByTestId('rail-send');
+  const how = panel.getByLabel('How to send');
+  await expect(how.locator('option')).toHaveText(
+    ['', 'ACH (US bank account)', 'Domestic wire (US)', 'Real-time payment (US)', 'SEPA (euro bank account)', 'Phone number or email'],
+    {
+      timeout: 30_000,
+    },
+  );
+  // Each rail's own form, as the bank publishes it, and the notice before anything is asked.
+  const forms = {
+    'ACH (US bank account)': ['Account holder’s full name', 'Routing number (9 digits)', 'Account number', 'Account type'],
+    'Domestic wire (US)': ['Account holder’s full name', 'Routing number (9 digits)', 'Account number', 'Bank name'],
+    'Real-time payment (US)': ['Account holder’s full name', 'Routing number (9 digits)', 'Account number'],
+    'SEPA (euro bank account)': ['Account holder’s full name', 'IBAN', 'BIC (optional)', 'Transfer type'],
+    'Phone number or email': ['They are found by', 'Their phone number or email'],
+  };
+  const form = panel.getByTestId('rail-send-form');
+  for (const [label, fields] of Object.entries(forms)) {
+    await how.selectOption({ label });
+    await expect(form.locator('label > span:first-child')).toHaveText(fields);
+    await expect(panel.getByTestId('rail-send-notice')).toHaveText(
+      `Send over ${label} needs bank rails. It is switched off in this build. Reference: rail.bank`,
+    );
+  }
+  // A send over ACH to a TEST account: a fresh code, then kept refused with rail.bank, and nothing leaves the balance.
+  await how.selectOption({ label: 'ACH (US bank account)' });
+  await form.getByLabel('Account holder’s full name').fill('Ada TEST');
+  await form.getByLabel('Routing number (9 digits)').fill('021000022');
+  await form.getByLabel('Account number').fill('000123456789');
+  await form.getByLabel('Account type').selectOption({ label: 'Savings' });
+  const source = panel.getByLabel('Send from');
+  await source.selectOption({ label: (await source.locator('option', { hasText: 'USDT' }).first().innerText()).trim() });
+  await panel.getByLabel('Amount to send').fill('25');
+  await expect(panel.getByTestId('rail-send-list')).toContainText('You have not sent to a bank account.');
+  // A routing number whose check digit is wrong is answered on the form by the bank, before any code is asked for.
+  await panel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(panel.getByTestId('rail-send-problem')).toContainText('routing number', { timeout: 30_000 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await form.getByLabel('Routing number (9 digits)').fill('021000021');
+  await panel.getByRole('button', { name: 'Send', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm it’s you' });
+  await dialog.getByLabel('Authenticator code or recovery code').fill(await code());
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  const kept = panel.getByTestId('rail-send-kept');
+  await expect(kept).toContainText('This send was not made', { timeout: 30_000 });
+  await expect(kept).toContainText(
+    'Send over ACH (US bank account) needs bank rails. It is switched off in this build. Reference: rail.bank',
+  );
+  const rows = panel.getByTestId('rail-send-row');
+  await expect(rows).toHaveCount(1, { timeout: 30_000 });
+  await expect(rows.first()).toContainText('Not sent');
+  await expect(rows.first()).toContainText('25');
+  await expect(rows.first()).toContainText('Ada TEST · …6789');
+  await expect(rows.first()).toContainText('Reference: rail.bank');
+  // The full account number is never shown back.
+  await expect(panel.getByTestId('rail-send-list')).not.toContainText('000123456789');
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before));
+});
 
 test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with the missing fee named`, async ({ page }) => {
   test.setTimeout(240_000);
