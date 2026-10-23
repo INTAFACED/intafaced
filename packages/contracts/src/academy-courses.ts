@@ -84,7 +84,7 @@ export const academyCourseSchema = z.object({
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson'] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),
@@ -106,6 +106,8 @@ export type AcademyOutlineItemKind = (typeof ACADEMY_OUTLINE_ITEM_KINDS)[number]
 
 const outlineItemInput = z
   .object({
+    /** A stored item keeps its id (and with it its lesson revisions); a new one has none. */
+    id: z.string().uuid().optional(),
     kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
     title: z.string().trim().min(1).max(120),
     indent: z.number().int().min(0).max(2),
@@ -123,7 +125,15 @@ export const academySaveOutlineInputSchema = z
     courseId: z.string().uuid(),
     revision: z.number().int().positive(),
     sections: z
-      .array(z.object({ title: z.string().trim().min(1).max(120), items: z.array(outlineItemInput).max(1000) }).strict())
+      .array(
+        z
+          .object({
+            id: z.string().uuid().optional(),
+            title: z.string().trim().min(1).max(120),
+            items: z.array(outlineItemInput).max(1000),
+          })
+          .strict(),
+      )
       .max(1000),
   })
   .strict();
@@ -135,6 +145,10 @@ export const academyOutlineItemSchema = z.object({
   title: z.string().min(1),
   indent: z.number().int().min(0).max(2),
   url: z.string().nullable(),
+  /** The item's newest lesson revision, or null when nothing is written yet. */
+  lessonRevision: z.number().int().positive().nullable(),
+  /** The lesson revision learners see, or null when none is published. */
+  liveRevision: z.number().int().positive().nullable(),
 });
 export const academyOutlineSectionSchema = z.object({
   id: z.string().uuid(),
@@ -174,3 +188,80 @@ export const academyCourseListSchema = z.object({
   ),
 });
 export type AcademyCourseList = z.infer<typeof academyCourseListSchema>;
+
+/**
+ * AC-course-structure-03: a lesson is an outline item's content, written as ordered blocks. Every save is a new lesson
+ * revision (keyed `lesson:<item>:<revision>`); revert copies an old revision into a new one. Learners see the revision
+ * staff published for the item and keep it until a newer one is published. Blocks are data only: no script, embed or
+ * markup is accepted, and every address is https.
+ */
+export const ACADEMY_LESSON_BLOCK_TYPES = ['text', 'image', 'audio', 'pdf', 'code'] as const;
+export type AcademyLessonBlockType = (typeof ACADEMY_LESSON_BLOCK_TYPES)[number];
+/** Outline kinds that hold no lesson: a subheader is a label and a link opens an address. */
+export const ACADEMY_ITEMS_WITHOUT_LESSON = ['subheader', 'link'] as const;
+
+const httpsUrl = z.string().max(2048).url().startsWith('https://');
+const caption = z.string().trim().min(1).max(200);
+export const academyLessonBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), markdown: z.string().trim().min(1).max(20_000) }).strict(),
+  z.object({ type: z.literal('image'), url: httpsUrl, alt: caption }).strict(),
+  z.object({ type: z.literal('audio'), url: httpsUrl, title: caption }).strict(),
+  z.object({ type: z.literal('pdf'), url: httpsUrl, title: caption }).strict(),
+  z.object({ type: z.literal('code'), language: z.string().regex(/^[a-z0-9+#-]{1,20}$/), source: z.string().min(1).max(20_000) }).strict(),
+]);
+export type AcademyLessonBlock = z.infer<typeof academyLessonBlockSchema>;
+export const academyLessonBlocksSchema = z.array(academyLessonBlockSchema).min(1).max(200);
+
+/** `admin.saveLesson`: the blocks as a whole over the lesson revision the editor read (0 when nothing is written yet). */
+export const academySaveLessonInputSchema = z
+  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), blocks: academyLessonBlocksSchema })
+  .strict();
+export type AcademySaveLessonInput = z.infer<typeof academySaveLessonInputSchema>;
+
+/** `admin.revertLesson`: a new revision with an older one's blocks, over the newest revision the editor read. */
+export const academyRevertLessonInputSchema = z
+  .object({ itemId: z.string().uuid(), revision: z.number().int().positive(), toRevision: z.number().int().positive() })
+  .strict();
+export type AcademyRevertLessonInput = z.infer<typeof academyRevertLessonInputSchema>;
+
+/** `admin.publishLesson`: learners see this lesson revision from now on, with the reason staff give. */
+export const academyPublishLessonInputSchema = z
+  .object({
+    itemId: z.string().uuid(),
+    lessonRevision: z.number().int().positive(),
+    courseRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademyPublishLessonInput = z.infer<typeof academyPublishLessonInputSchema>;
+
+/** `admin.duplicateItem`: a copy of a draft course's item right after it, with its newest lesson as revision 1. */
+export const academyDuplicateItemInputSchema = z
+  .object({ itemId: z.string().uuid(), courseRevision: z.number().int().positive() })
+  .strict();
+export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
+
+export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated'] as const;
+export const academyLessonRevisionSchema = z.object({
+  revision: z.number().int().positive(),
+  source: z.enum(ACADEMY_LESSON_SOURCES),
+  /** The revision a revert copied, or null. */
+  fromRevision: z.number().int().positive().nullable(),
+  /** The item a duplicate was copied from, or null. */
+  fromItemId: z.string().uuid().nullable(),
+  blocks: academyLessonBlocksSchema,
+  actor: z.string().uuid(),
+  at: isoInstant,
+});
+export type AcademyLessonRevision = z.infer<typeof academyLessonRevisionSchema>;
+
+/** `admin.lesson`: one item with every lesson revision, newest first, and which one learners see. */
+export const academyLessonSchema = z.object({
+  courseId: z.string().uuid(),
+  courseTitle: z.string().min(1),
+  courseState: z.enum(ACADEMY_COURSE_STATES),
+  courseRevision: z.number().int().positive(),
+  item: academyOutlineItemSchema,
+  revisions: z.array(academyLessonRevisionSchema),
+});
+export type AcademyLesson = z.infer<typeof academyLessonSchema>;

@@ -99,6 +99,11 @@ tRPC, mounted at `/trpc`, reached through svc-edge at `/api/academy` (port 4016)
 | `admin.updateCourse`             | `admin:write`   | A draft's details, over the revision read                                                                                                                                                           |
 | `admin.setCourseState`           | `admin:write`   | Publish with a reason; refuses `price_unset`, `course_outline_empty`                                                                                                                                |
 | `admin.saveOutline`              | `admin:write`   | Ordered sections of typed items, over the revision read; refuses `outline_limits_unset` while `ACADEMY_OUTLINE_MAX_SECTIONS` or `ACADEMY_OUTLINE_MAX_ITEMS` is blank, `outline_too_large` past them |
+| `admin.lesson`                   | `admin:read`    | One item's lesson revisions (newest first) and the revision learners see                                                                                                                            |
+| `admin.saveLesson`               | `admin:write`   | A new revision of ordered blocks (text, image, audio, PDF, code; https only), over the revision read; refuses `revision_stale`, `item_has_no_lesson`                                                |
+| `admin.revertLesson`             | `admin:write`   | A new revision with an older revision's blocks; refuses `lesson_revision_unknown`                                                                                                                   |
+| `admin.publishLesson`            | `admin:write`   | Learners see this revision until the next publish; a `lesson` course event with the reason                                                                                                          |
+| `admin.duplicateItem`            | `admin:write`   | A draft course's item and its newest lesson copied right after it, not live; no learner record is copied                                                                                            |
 
 ### Curriculum
 

@@ -34,7 +34,12 @@ const STATE: Record<AcademyCourse['state'], { label: string; tone: ChipTone }> =
   deleted: { label: 'Deleted', tone: 'danger' },
 };
 
-function Outcome({ reply }: { reply: CourseDeskReply | null }) {
+/** The answer to the last change, as the desk and the lesson editor show it. */
+export function Outcome({
+  reply,
+}: {
+  reply: Pick<CourseDeskReply & { ok: true }, 'ok' | 'what'> | (CourseDeskReply & { ok: false }) | null;
+}) {
   if (!reply) return null;
   if (reply.ok)
     return (
@@ -58,7 +63,7 @@ function Outcome({ reply }: { reply: CourseDeskReply | null }) {
   );
 }
 
-function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
+export function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
   return (
     <div className="adm-callout" data-tone="danger" role="status" data-code={code ?? ''}>
       <strong>{title}</strong>
@@ -68,7 +73,7 @@ function Failed({ title, message, code }: { title: string; message: string; code
   );
 }
 
-function AcademyNav() {
+export function AcademyNav() {
   return (
     <nav aria-label="Sections" className="dk-row">
       {ACADEMY_PAGES.map((p) => (
@@ -390,7 +395,9 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
                       ? 'details saved'
                       : e.kind === 'outline'
                         ? 'outline saved'
-                        : `moved to ${e.toState}`}{' '}
+                        : e.kind === 'lesson'
+                          ? 'a lesson published to learners'
+                          : `moved to ${e.toState}`}{' '}
                   (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>

@@ -42,6 +42,7 @@ import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
+import { LessonRecords } from './curriculum/lessons.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
@@ -62,6 +63,10 @@ import type {
   AcademyCreateCourseInput,
   AcademySetCourseStateInput,
   AcademySaveOutlineInput,
+  AcademySaveLessonInput,
+  AcademyRevertLessonInput,
+  AcademyPublishLessonInput,
+  AcademyDuplicateItemInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -282,6 +287,7 @@ export class AcademyService {
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
   private readonly courseRecords: CourseRecords;
+  private readonly lessonRecords: LessonRecords;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -306,6 +312,7 @@ export class AcademyService {
       maxSections: this.options.outlineMaxSections ?? null,
       maxItems: this.options.outlineMaxItems ?? null,
     });
+    this.lessonRecords = new LessonRecords(sql, this.courseRecords);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2166,6 +2173,27 @@ export class AcademyService {
 
   saveOutline(input: AcademySaveOutlineInput & { operatorId: string; now?: Date }) {
     return this.courseRecords.saveOutline({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-course-structure-03: one outline item's lesson with its revisions, newest first, and which one learners see. */
+  lesson(itemId: string) {
+    return this.lessonRecords.get(itemId);
+  }
+
+  saveLesson(input: AcademySaveLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.save({ ...input, now: input.now ?? new Date() });
+  }
+
+  revertLesson(input: AcademyRevertLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.revert({ ...input, now: input.now ?? new Date() });
+  }
+
+  publishLesson(input: AcademyPublishLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.publish({ ...input, now: input.now ?? new Date() });
+  }
+
+  duplicateItem(input: AcademyDuplicateItemInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.duplicate({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

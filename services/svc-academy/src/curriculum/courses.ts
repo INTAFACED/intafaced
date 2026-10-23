@@ -10,6 +10,7 @@
  *
  * No money moves: `price` is a catalogue figure for the purchase slice, a decimal string on the wire and never a number.
  */
+import { randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type {
   AcademyCourse,
@@ -48,7 +49,7 @@ type CourseRow = {
 };
 
 type EventRow = {
-  kind: 'created' | 'updated' | 'state' | 'outline';
+  kind: 'created' | 'updated' | 'state' | 'outline' | 'lesson';
   revision: number;
   from_state: AcademyCourseState | null;
   to_state: AcademyCourseState;
@@ -229,27 +230,7 @@ export class CourseRecords {
       if (row.revision !== input.revision)
         throw new AcademyError(`course is at revision ${row.revision}, not ${input.revision}`, 'academy.course_revision_stale');
       if (row.state !== 'draft') throw new AcademyError(`a ${row.state} course is not edited here`, 'academy.course_not_editable');
-      await tx`DELETE FROM academy.course_items WHERE course_id = ${row.id}`;
-      await tx`DELETE FROM academy.course_sections WHERE course_id = ${row.id}`;
-      if (input.sections.length > 0) {
-        const sections = await tx<Array<{ id: string; position: number }>>`
-          INSERT INTO academy.course_sections ${tx(input.sections.map((s, position) => ({ course_id: row.id, position, title: s.title })))}
-          RETURNING id, position
-        `;
-        const sectionId = new Map(sections.map((s) => [s.position, s.id]));
-        const items = input.sections.flatMap((s, sp) =>
-          s.items.map((i, position) => ({
-            course_id: row.id,
-            section_id: sectionId.get(sp)!,
-            position,
-            kind: i.kind,
-            title: i.title,
-            indent: i.indent,
-            url: i.url,
-          })),
-        );
-        if (items.length > 0) await tx`INSERT INTO academy.course_items ${tx(items)}`;
-      }
+      await this.writeOutline(tx, row.id, input.sections);
       const [next] = await tx<Array<{ revision: number }>>`
         UPDATE academy.courses SET revision = revision + 1, updated_at = ${input.now} WHERE id = ${row.id} RETURNING revision
       `;
@@ -260,6 +241,61 @@ export class CourseRecords {
       // Read inside the transaction, so the reply is the outline this save wrote.
       return this.get(input.courseId, tx);
     });
+  }
+
+  /**
+   * Stored sections and items keep their ids, so an item's lesson revisions survive reordering and renaming; one the
+   * outline no longer names is deleted with its lesson. Positions are moved out of the way first, so the per-section
+   * order constraints hold at every row.
+   */
+  private async writeOutline(tx: TransactionSql, courseId: string, sections: AcademySaveOutlineInput['sections']): Promise<void> {
+    const [have] = await tx<Array<{ sections: string[]; items: string[] }>>`
+      SELECT
+        ARRAY(SELECT id::text FROM academy.course_sections WHERE course_id = ${courseId}) AS sections,
+        ARRAY(SELECT id::text FROM academy.course_items WHERE course_id = ${courseId}) AS items
+    `;
+    const ownSections = new Set(have!.sections);
+    const ownItems = new Set(have!.items);
+    const named = sections.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]).filter((id): id is string => id !== undefined);
+    if (new Set(named).size !== named.length)
+      throw new AcademyError('the outline names one section or item twice', 'academy.outline_item_unknown');
+    for (const s of sections) {
+      if (s.id !== undefined && !ownSections.has(s.id))
+        throw new AcademyError('the outline names a section this course does not hold', 'academy.outline_item_unknown');
+      for (const i of s.items)
+        if (i.id !== undefined && !ownItems.has(i.id))
+          throw new AcademyError('the outline names an item this course does not hold', 'academy.outline_item_unknown');
+    }
+    await tx`UPDATE academy.course_items SET position = -1 - position WHERE course_id = ${courseId}`;
+    await tx`UPDATE academy.course_sections SET position = -1 - position WHERE course_id = ${courseId}`;
+    const sectionRows = sections.map((s, position) => ({ id: s.id ?? randomUUID(), course_id: courseId, position, title: s.title }));
+    if (sectionRows.length > 0)
+      await tx`
+        INSERT INTO academy.course_sections ${tx(sectionRows)}
+        ON CONFLICT (id) DO UPDATE SET position = EXCLUDED.position, title = EXCLUDED.title
+      `;
+    const itemRows = sections.flatMap((s, sp) =>
+      s.items.map((i, position) => ({
+        id: i.id ?? randomUUID(),
+        course_id: courseId,
+        section_id: sectionRows[sp]!.id,
+        position,
+        kind: i.kind,
+        title: i.title,
+        indent: i.indent,
+        url: i.url,
+      })),
+    );
+    if (itemRows.length > 0)
+      await tx`
+        INSERT INTO academy.course_items ${tx(itemRows)}
+        ON CONFLICT (id) DO UPDATE SET section_id = EXCLUDED.section_id, position = EXCLUDED.position, kind = EXCLUDED.kind,
+          title = EXCLUDED.title, indent = EXCLUDED.indent, url = EXCLUDED.url
+      `;
+    const keptItems = itemRows.map((i) => i.id);
+    const keptSections = sectionRows.map((s) => s.id);
+    await tx`DELETE FROM academy.course_items WHERE course_id = ${courseId} AND NOT (id = ANY(${keptItems}::uuid[]))`;
+    await tx`DELETE FROM academy.course_sections WHERE course_id = ${courseId} AND NOT (id = ANY(${keptSections}::uuid[]))`;
   }
 
   private async outline(sql: Sql | TransactionSql, courseId: string): Promise<AcademyOutlineSection[]> {
@@ -275,15 +311,29 @@ export class CourseRecords {
           title: string;
           indent: number;
           url: string | null;
+          live_revision: number | null;
+          lesson_revision: number | null;
         }>
       >`
-        SELECT id, section_id, kind, title, indent, url FROM academy.course_items WHERE course_id = ${courseId} ORDER BY position
+        SELECT i.id, i.section_id, i.kind, i.title, i.indent, i.url, i.live_revision,
+          (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision
+        FROM academy.course_items i WHERE i.course_id = ${courseId} ORDER BY i.position
       `,
     ]);
     return sections.map((s) => ({
       id: s.id,
       title: s.title,
-      items: items.filter((i) => i.section_id === s.id).map(({ id, kind, title, indent, url }) => ({ id, kind, title, indent, url })),
+      items: items
+        .filter((i) => i.section_id === s.id)
+        .map((i) => ({
+          id: i.id,
+          kind: i.kind,
+          title: i.title,
+          indent: i.indent,
+          url: i.url,
+          lessonRevision: i.lesson_revision,
+          liveRevision: i.live_revision,
+        })),
     }));
   }
 
@@ -330,6 +380,18 @@ export class CourseRecords {
     const counts = Object.fromEntries(ACADEMY_COURSE_STATES.map((s) => [s, 0])) as AcademyCourseList['counts'];
     for (const t of tally) counts[t.state] = t.n;
     return { courses: rows.map(courseOf), counts };
+  }
+
+  /** One more item of `kind` must fit inside the owner's limits, as a whole-outline save would check. */
+  async assertRoomForOneMore(tx: TransactionSql, courseId: string, kind: string): Promise<void> {
+    const { maxSections, maxItems } = this.limits;
+    if (maxSections === null || maxItems === null)
+      throw new AcademyError('the owner has not set the outline section and item limits', 'academy.outline_limits_unset');
+    if (kind === 'subheader') return;
+    const [n] = await tx<Array<{ items: number }>>`
+      SELECT count(*)::int AS items FROM academy.course_items WHERE course_id = ${courseId} AND kind <> 'subheader'
+    `;
+    if (n!.items + 1 > maxItems) throw new AcademyError(`${n!.items + 1} items; the limit is ${maxItems}`, 'academy.outline_too_large');
   }
 
   private async lock(tx: TransactionSql, courseId: string): Promise<CourseRow> {

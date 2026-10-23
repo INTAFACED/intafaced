@@ -196,3 +196,76 @@ test(`${J} #3 the outline holds ordered sections of typed items; with the sectio
   }
   await page.context().close();
 });
+
+test(`${J} #4 a lesson's edits stay off learners until republished; revert makes a new revision; duplicate copies no learner record`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to write in`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const lessonUrl = new URL(page.url()).pathname;
+  await expect(page.getByRole('heading', { level: 1, name: 'TEST Position size', exact: true })).toBeVisible();
+  const live = page.getByTestId('lesson-live');
+  const liveRevision = page.getByTestId('lesson-live-revision');
+  const outcome = page.getByTestId('course-desk-outcome');
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+
+  // Revision 1: a text block and a code block, published to learners with a reason.
+  await page.getByRole('button', { name: 'Add block' }).click();
+  await page.getByLabel('Block 1 text', { exact: true }).fill('TEST Risk one percent of the account per trade.');
+  await page.getByRole('combobox', { name: 'New block type', exact: true }).selectOption('code');
+  await page.getByRole('button', { name: 'Add block' }).click();
+  await page.getByLabel('Block 2 code', { exact: true }).fill('size = account * 0.01 / stop_distance');
+  await page.getByLabel('Block 2 language', { exact: true }).fill('python');
+  await page.getByRole('button', { name: 'Save lesson' }).click();
+  await expect(outcome).toContainText('Done: lesson saved');
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: saved');
+  await page.getByLabel('Reason', { exact: true }).fill('TEST first cut');
+  await page.getByRole('button', { name: 'Publish revision 1 to learners' }).click();
+  await expect(outcome).toContainText('Done: published to learners');
+  await expect(liveRevision).toHaveText('Revision 1');
+  await expect(live).toContainText('one percent');
+
+  // Revision 2 is saved while learners keep revision 1, until it is published.
+  await page.getByLabel('Block 1 text', { exact: true }).fill('TEST Risk half a percent while you learn.');
+  await page.getByRole('button', { name: 'Save lesson' }).click();
+  await expect(page.getByTestId('lesson-revision-2')).toContainText('Revision 2: saved');
+  await expect(liveRevision).toHaveText('Revision 1');
+  await expect(live).toContainText('one percent');
+  await expect(live).not.toContainText('half a percent');
+  await page.getByRole('button', { name: 'Publish revision 2 to learners' }).click();
+  await expect(liveRevision).toHaveText('Revision 2');
+  await expect(live).toContainText('half a percent');
+
+  // Revert to revision 1 makes revision 3 with its words; learners keep revision 2 until the next publish.
+  await page.getByRole('button', { name: 'Revert to revision 1' }).click();
+  await expect(outcome).toContainText('Done: reverted');
+  await expect(page.getByTestId('lesson-revision-3')).toContainText('Revision 3: reverted from revision 1');
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue('TEST Risk one percent of the account per trade.');
+  await expect(page.getByTestId('lesson-revision-2')).toBeVisible();
+  await expect(liveRevision).toHaveText('Revision 2');
+  await page.reload();
+  await expect(liveRevision).toHaveText('Revision 2');
+
+  // Duplicate: the copy holds the newest words as its own revision 1, and nothing is live for learners on it.
+  await page.getByRole('button', { name: 'Duplicate this item' }).click();
+  await page.waitForURL((url) => /\/items\/[0-9a-f-]{36}$/.test(url.pathname) && url.pathname !== lessonUrl);
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: duplicated from another item');
+  await expect(page.getByTestId('lesson-revisions').locator('li')).toHaveCount(1);
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue('TEST Risk one percent of the account per trade.');
+
+  // On the course: the copy sits right after its source, and the history names the lesson publish.
+  await page.goto(courseUrl);
+  const titles = await page
+    .getByTestId('outline-section-0')
+    .locator('[data-testid^="outline-item-"] input[aria-label$="title"]')
+    .evaluateAll((els) => els.map((e) => e.value));
+  expect(titles).toEqual(['TEST Part 1', 'TEST Position size', 'TEST Position size', 'TEST Stops']);
+  await expect(page.getByTestId('outline-item-0-1')).toContainText('revision 3, learners see 2');
+  await expect(page.getByTestId('outline-item-0-2')).toContainText('revision 1, not published');
+  await expect(page.getByTestId('course-history')).toContainText('a lesson published to learners');
+  await page.context().close();
+});

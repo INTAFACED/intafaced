@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  academyLessonBlocksSchema,
+  academySaveLessonInputSchema,
   academySaveOutlineInputSchema,
   academyCourseListSchema,
   academyCreateCourseInputSchema,
@@ -68,5 +70,33 @@ describe('course outline (AC-course-structure-02)', () => {
     expect(ok([{ ...item, url: 'https://example.com' }])).toBe(false);
     expect(ok([{ ...item, indent: 3 }])).toBe(false);
     expect(ok([{ ...item, kind: 'tool' }])).toBe(false);
+  });
+});
+
+describe('lesson blocks (AC-course-structure-03)', () => {
+  it('text, image, audio, PDF and code blocks; https addresses only; no unknown type or extra field', () => {
+    const ok = (blocks: unknown[]) => academyLessonBlocksSchema.safeParse(blocks).success;
+    expect(
+      ok([
+        { type: 'text', markdown: 'Size the position first.' },
+        { type: 'image', url: 'https://example.com/a.png', alt: 'A chart' },
+        { type: 'audio', url: 'https://example.com/a.ogg', title: 'Walkthrough' },
+        { type: 'pdf', url: 'https://example.com/a.pdf', title: 'Handout' },
+        { type: 'code', language: 'python', source: 'size = risk / stop' },
+      ]),
+    ).toBe(true);
+    expect(ok([])).toBe(false);
+    expect(ok([{ type: 'image', url: 'javascript:alert(1)', alt: 'x' }])).toBe(false);
+    expect(ok([{ type: 'pdf', url: 'http://example.com/a.pdf', title: 'x' }])).toBe(false);
+    expect(ok([{ type: 'embed', html: '<script></script>' }])).toBe(false);
+    expect(ok([{ type: 'text', markdown: 'x', html: '<b>x</b>' }])).toBe(false);
+    expect(ok([{ type: 'code', language: 'Py Thon', source: 'x' }])).toBe(false);
+  });
+
+  it('a save names the lesson revision it was read at; 0 is nothing written yet', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const blocks = [{ type: 'text', markdown: 'x' }];
+    expect(academySaveLessonInputSchema.safeParse({ itemId: id, revision: 0, blocks }).success).toBe(true);
+    expect(academySaveLessonInputSchema.safeParse({ itemId: id, revision: -1, blocks }).success).toBe(false);
   });
 });

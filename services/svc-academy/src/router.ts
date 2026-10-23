@@ -47,6 +47,11 @@ import {
   academyUpdateCourseInputSchema,
   academySetCourseStateInputSchema,
   academySaveOutlineInputSchema,
+  academyLessonSchema,
+  academySaveLessonInputSchema,
+  academyRevertLessonInputSchema,
+  academyPublishLessonInputSchema,
+  academyDuplicateItemInputSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -844,6 +849,8 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.course_revision_stale':
     case 'academy.course_not_editable':
     case 'academy.item_transition_illegal':
+    case 'academy.outline_item_unknown':
+    case 'academy.revision_stale':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.price_unset':
@@ -853,7 +860,11 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
+    case 'academy.item_has_no_lesson':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.lesson_revision_unknown':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
@@ -2820,6 +2831,36 @@ export function createAcademyRouter(
         .input(academySaveOutlineInputSchema)
         .output(academyCourseDetailSchema)
         .mutation(({ input, ctx }) => guard(() => academy.saveOutline({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: one item's lesson revisions, newest first, and the revision learners see. */
+      lesson: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ itemId: z.string().uuid() }).strict())
+        .output(academyLessonSchema)
+        .query(({ input }) => guard(() => academy.lesson(input.itemId))),
+
+      /** AC-course-structure-03: a new lesson revision of ordered blocks, over the revision read. Learners keep the live one. */
+      saveLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: a new revision with an older revision's blocks. History is never rewritten. */
+      revertLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevertLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.revertLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: learners see this lesson revision from now on; a course event names who and why. */
+      publishLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyPublishLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.publishLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: copy a draft course's item and its newest lesson after it. No learner record is copied. */
+      duplicateItem: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyDuplicateItemInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.duplicateItem({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })
