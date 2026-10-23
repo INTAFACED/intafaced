@@ -97,7 +97,13 @@ const FORBIDDEN = [
   // lookahead — `(?!CLAUDE\b)…/i` looks correct and is not: under `i` the
   // lookahead matches every casing too, so it excludes everything and the rule
   // silently stops firing. That version was written, tested, and caught here.
-  { pattern: /\b(?:Claude|claude)\b/, reason: 'model provider' },
+  //
+  // `.claude/` is the same kind of name: the config directory the agent tool
+  // requires (already allowlisted below as a path). The gate lists in tooling/ci
+  // and tooling/scripts must name it to gate it, so a dot right before the
+  // lowercase word marks the directory, not the model. Prose `Claude`, and
+  // `claude` anywhere else, stay forbidden.
+  { pattern: /\bClaude\b|(?<!\.)\bclaude\b/, reason: 'model provider' },
   { pattern: /\bOpenAI\b/i, reason: 'model provider' },
   { pattern: /\bGPT-\d/i, reason: 'model provider' },
 
@@ -298,6 +304,17 @@ function selfTest() {
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
   assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
+
+  // The model name stays forbidden; the required file and directory names do not trip it.
+  {
+    const provider = FORBIDDEN.find((f) => f.reason === 'model provider' && f.pattern.test('Claude'));
+    const hits = (text) => provider.pattern.test(text);
+    assert(
+      hits('Ask Claude anything') && hits('powered by claude') && hits('Claude.') && hits('the claude.ai site'),
+      'model name still forbidden',
+    );
+    assert(!hits('see CLAUDE.md') && !hits("'.claude/'") && !hits('.claude/settings.json'), 'CLAUDE.md and .claude/ are names, not copy');
+  }
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
   // The old Vue customer site was deleted 2026-10-19; the modules apps/invitation bundles live in
