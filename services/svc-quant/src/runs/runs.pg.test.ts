@@ -366,4 +366,29 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     ).not.toContain(older.id);
     await expect(sql.unsafe(`INSERT INTO "${SCHEMA}"."run_labels" VALUES ($1, $2, '', now())`, [newer.id, ACCOUNT_A])).rejects.toThrow();
   });
+
+  it('counts finished bar backtests of one strategy on one symbol and bar size as variants', async () => {
+    const repo = createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES);
+    const done = async (key: string, response: unknown, outcome = 'ok') => {
+      const row = await repo.begin({
+        userId: ACCOUNT_A,
+        idempotencyKey: key,
+        kind: 'backtest',
+        strategyId: 'strategy-v',
+        strategyVersion: 1,
+      });
+      await repo.finish({ id: row.id, userId: ACCOUNT_A, outcome, stored: { detail: null, response } });
+    };
+    const bar = (symbol: string, barSize: string) => ({ symbol, coverage: { barSize } });
+    await done('algo:bt:variant:1', bar('BTC/USDT', '1h'));
+    await done('algo:bt:variant:2', bar('BTC/USDT', '1h'));
+    await done('algo:bt:variant:3', bar('BTC/USDT', '5m'));
+    await done('algo:bt:variant:4', bar('ETH/USDT', '1h'));
+    await done('algo:bt:variant:5', bar('BTC/USDT', '1h'), 'quant.backtest_fills_missing');
+    await done('backtest.run:variant', bar('BTC/USDT', '1h'));
+    const count = (userId: string) =>
+      repo.variantCount({ userId, strategyId: 'strategy-v', symbol: 'BTC/USDT', barSize: '1h', keyPrefix: 'algo:bt:' });
+    expect(await count(ACCOUNT_A)).toBe(2);
+    expect(await count(ACCOUNT_B)).toBe(0);
+  });
 });

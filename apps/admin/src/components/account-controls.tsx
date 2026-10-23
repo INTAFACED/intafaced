@@ -6,6 +6,7 @@ import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
 import { formatAsOf } from '@/lib/as-of';
 import { ControlDesk } from '@/components/control-desk';
 import { AccountClosure } from '@/components/account-closure';
+import { AccountTierPanel } from '@/components/account-tier';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -242,6 +243,16 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           userId={id}
           founderId={founderId}
           onState={onClosureState}
+          onChanged={() => {
+            void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
+          }}
+        />
+      )}
+      {state && area === 'identity' && (
+        <AccountTierPanel
+          key={`tier:${id.toLowerCase()}`}
+          userId={id}
+          founderId={founderId}
           onChanged={() => {
             void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
           }}

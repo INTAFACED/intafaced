@@ -209,6 +209,8 @@ export const TEST_PRICES = {
   'ETH/USDT': { start: '2600', notional: '2000' },
   'ETH/USDC': { start: '2600', notional: '2000' },
   'IFC/USDT': { start: '1', notional: '500' },
+  // The labelled TEST spot market with no dollar side (`local-test-gates.mjs apply` lists it). Notional is in BTC.
+  'ETH/BTC': { start: '0.04', notional: '0.05' },
   // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
   // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so its quotes walk the same series and stay inside the band around that mark.
   // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
@@ -219,7 +221,7 @@ export const TEST_PRICES = {
   'BRENT/USD': { start: '76', notional: '1500' },
   'NATGAS/USD': { start: '2.8', notional: '1500' },
 };
-const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'BTC/USDT:USDT'];
+const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
   USDT: '1000000',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { formatWhen } from '@/lib/as-of';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import {
@@ -102,6 +102,8 @@ const STEP_LABEL: Record<Exclude<StepName, 'propose'>, string> = {
 };
 
 export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
+  // A page can hold more than one desk, so each workbench's ids are its own.
+  const uid = useId();
   const { reading, userId, confirm, busy, reply, blockedReason, now } = props;
   const packet: ApprovalPacket | null = reading.ok ? reading.packet : null;
   const phrase = packet ? confirmPhrase(packet.request) : null;
@@ -116,9 +118,9 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
   return (
     <div className="dk-stack" data-testid="approval-workbench">
       <div className="adm-field">
-        <label htmlFor="dk-packet">Request packet</label>
+        <label htmlFor={`${uid}dk-packet`}>Request packet</label>
         <textarea
-          id="dk-packet"
+          id={`${uid}dk-packet`}
           className="adm-textarea dk-packet"
           rows={3}
           value={props.packetText}
@@ -162,11 +164,11 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
             </p>
           </div>
           <div className="adm-field">
-            <label htmlFor="dk-confirm">
+            <label htmlFor={`${uid}dk-confirm`}>
               Type <code>{phrase}</code> to approve or run it
             </label>
             <input
-              id="dk-confirm"
+              id={`${uid}dk-confirm`}
               className="adm-input"
               value={confirm}
               autoComplete="off"
@@ -182,7 +184,7 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
                 className="adm-btn"
                 data-tone={step === 'execute' ? 'danger' : step === 'approve' ? 'primary' : undefined}
                 disabled={!gate.ok}
-                aria-describedby={gate.ok ? undefined : `dk-why-${step}`}
+                aria-describedby={gate.ok ? undefined : `${uid}dk-why-${step}`}
                 title={gate.ok ? undefined : gate.why}
                 onClick={() => props.onStep(step)}
               >
@@ -194,7 +196,7 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
             .filter((g) => !g.gate.ok && (g.step === 'execute' || g.step === 'approve'))
             .slice(0, 1)
             .map((g) => (
-              <p key={g.step} id={`dk-why-${g.step}`} className="dk-why">
+              <p key={g.step} id={`${uid}dk-why-${g.step}`} className="dk-why">
                 {g.gate.ok ? null : g.gate.why}
               </p>
             ))}

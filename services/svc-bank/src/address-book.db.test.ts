@@ -106,6 +106,23 @@ describe.each(stores)('address book: %s', (_name, make) => {
     cap = '3';
   });
 
+  it('records a look-alike confirmation on the new entry only, and refuses one that names no entry id', async () => {
+    const store = make();
+    const userId = fresh();
+    const first = await save(store, userId);
+    expect(first).toMatchObject({ lookalikeOf: null, lookalikeConfirmedAt: null });
+    const confirmed = await save(store, userId, { ref: ADDR_B, label: 'Checked', lookalikeOf: first.destinationId });
+    expect(confirmed.lookalikeOf).toBe(first.destinationId);
+    expect(confirmed.lookalikeConfirmedAt).toBeInstanceOf(Date);
+    const listed = await store.list(userId);
+    expect(listed.find((row) => row.destinationId === confirmed.destinationId)).toMatchObject({ lookalikeOf: first.destinationId });
+    expect(listed.find((row) => row.destinationId === first.destinationId)).toMatchObject({ lookalikeConfirmedAt: null });
+    await expect(save(store, userId, { ref: ADDR_C, label: 'Bad', lookalikeOf: 'not-an-id' })).rejects.toMatchObject({
+      code: 'bank.ramp_invalid_destination',
+    });
+    expect(await store.list(userId)).toHaveLength(2);
+  });
+
   it('refuses a malformed address, network, asset, tag or label, and saves nothing', async () => {
     const store = make();
     const u = fresh();

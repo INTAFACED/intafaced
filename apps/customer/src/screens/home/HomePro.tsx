@@ -28,7 +28,7 @@ import {
   useFavorites,
   useMarkets,
   useHomePortfolio,
-  DerivedTotalNote,
+  DerivedTotalTag,
   useSparklines,
   useTickers,
   type HomeHolding,
@@ -53,6 +53,7 @@ import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 
@@ -319,8 +320,8 @@ function Summary({
               <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
             </span>
           ) : null}
+          <DerivedTotalTag source={data.source} className="hp-total__note" />
         </div>
-        <DerivedTotalNote source={data.source} className="hp-total__note" />
       </div>
       <div className="hp-stats">
         <Stat label={t('Cash')}>
@@ -610,6 +611,7 @@ export function HomePro() {
   return (
     <div className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
       {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
       <div className="hp-toolbar">
         <CustomiseHome home={home} mode="pro" />

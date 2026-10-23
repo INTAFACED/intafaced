@@ -11,6 +11,9 @@
  * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md
  */
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { RISK_SET_ACTION, TEST_RISK_LIMITS, riskSetPayloadHash } from '../../../tooling/scripts/local-test-gates.mjs';
+import { readLatestEmailConfirmToken } from '../../../tooling/scripts/local-test-state.mjs';
 
 const TRADE = process.env.TRADE_HTTP_URL ?? 'http://127.0.0.1:4004';
 const MATCHING = process.env.MATCHING_HTTP_URL ?? 'http://127.0.0.1:4005';
@@ -236,9 +239,11 @@ function totpCode(secretBase32, atMs) {
   return String(binary % 1_000_000).padStart(6, '0');
 }
 
-/** One identity tRPC mutation. `principal` is what the edge would forward for a verified session; null for public doors. */
-async function identityCall(contracts, procedure, input, principal) {
-  const raw = JSON.stringify(input ?? {});
+/**
+ * One tRPC call to a service as the edge would forward it. `principal` is what the edge would forward for a verified
+ * session; null for public doors.
+ */
+async function serviceCall(contracts, base, service, kind, procedure, input, principal) {
   const headers = { 'content-type': 'application/json', accept: 'application/json' };
   if (principal) {
     const encoded = contracts.encodePrincipal(principal);
@@ -246,10 +251,39 @@ async function identityCall(contracts, procedure, input, principal) {
     headers['x-intafaced-principal-sig'] = contracts.signPrincipalHeader(encoded, EDGE, REGION);
     headers['x-intafaced-region'] = REGION;
   }
-  const res = await fetch(`${IDENTITY.replace(/\/$/, '')}/trpc/${procedure}`, { method: 'POST', headers, body: raw });
+  const url = `${base.replace(/\/$/, '')}/trpc/${procedure}`;
+  const raw = JSON.stringify(input ?? {});
+  const res =
+    kind === 'query'
+      ? await fetch(`${url}?input=${encodeURIComponent(raw)}`, { headers })
+      : await fetch(url, { method: 'POST', headers, body: raw });
   const text = await res.text();
-  if (!res.ok) throw new Error(`identity ${procedure} failed ${res.status}: ${text.slice(0, 400)}`);
+  if (!res.ok) throw new Error(`${service} ${procedure} failed ${res.status}: ${text.slice(0, 400)}`);
   return JSON.parse(text).result.data;
+}
+
+/** One identity tRPC mutation. */
+const identityCall = (contracts, procedure, input, principal) =>
+  serviceCall(contracts, IDENTITY, 'identity', 'mutation', procedure, input, principal);
+
+/** One svc-trade tRPC call. */
+const tradeCall = (contracts, kind, procedure, input, principal) =>
+  serviceCall(contracts, TRADE, 'trade', kind, procedure, input, principal);
+
+/** Requester proposes and a different founder approves at identity; returns the approval the target service consumes. */
+async function twoPersonApproval(contracts, action, payloadHash, requesterMfa, approverMfa) {
+  const proposed = await identityCall(
+    contracts,
+    'actionApproval.propose',
+    { ...action, payloadHash, policyVersion: 'local-test:cx8-smoke-policy-v1' },
+    requesterMfa,
+  );
+  return identityCall(
+    contracts,
+    'actionApproval.approve',
+    { approvalId: proposed.approvalId, expectedPayloadHash: payloadHash },
+    approverMfa,
+  );
 }
 
 /** Read the principal out of a real access token, verifying it as the edge does. */
@@ -341,18 +375,7 @@ async function openMarketInMatching(contracts, marketId) {
   const payloadHash = `sha256:${createHash('sha256')
     .update(JSON.stringify({ actionType: action.actionType, marketId }))
     .digest('hex')}`;
-  const proposed = await identityCall(
-    contracts,
-    'actionApproval.propose',
-    { ...action, payloadHash, policyVersion: 'local-test:cx8-smoke-policy-v1' },
-    requesterMfa,
-  );
-  const approved = await identityCall(
-    contracts,
-    'actionApproval.approve',
-    { approvalId: proposed.approvalId, expectedPayloadHash: payloadHash },
-    approverMfa,
-  );
+  const approved = await twoPersonApproval(contracts, action, payloadHash, requesterMfa, approverMfa);
 
   const body = JSON.stringify({
     operatorId: requester.userId,
@@ -376,13 +399,75 @@ async function openMarketInMatching(contracts, marketId) {
   if (!res.ok || json?.accepted !== true)
     throw new Error(`matching open for ${marketId} not accepted ${res.status}: ${text.slice(0, 400)}`);
   log(`SEED matching open (local-test founders ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
+  return { requesterMfa, approverMfa };
 }
 
-/** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run. */
+/**
+ * SMOKE RIG ONLY, not owner values: a priced order needs the pair's price band and a resting order its open-order cap
+ * (J-cex-spot-04; blank refuses trade.price_band_unset / trade.open_orders_cap_unset). The two smoke founders publish
+ * them through svc-trade's own door (admin.risk.set), one proposing and the other approving at identity, with the
+ * payload hash `tooling/scripts/local-test-gates.mjs` uses for the local stack. The band is wider than the stack's 10%
+ * (half the middle price either side): the trade journeys that run after the smoke on its own database price orders
+ * far from the smoke's fills, and a 10% band refuses them trade.price_band.
+ */
+const SMOKE_PAIR_LIMITS = { ...TEST_RISK_LIMITS, collar: '0.5' };
+
+async function publishSmokePairLimits(contracts, marketId, { requesterMfa, approverMfa }) {
+  // The smoke stands in for the edge: as local-test-gates mints its operator token, it grants the founders' session
+  // svc-trade's operator scopes, which the operator desk checks itself.
+  const operator = { ...requesterMfa, scopes: [...new Set([...(requesterMfa.scopes ?? []), 'admin:read', 'admin:write'])] };
+  const current = await tradeCall(contracts, 'query', 'admin.risk.get', { market: marketId }, operator);
+  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const limits = Object.fromEntries(fields.map((f) => [f, SMOKE_PAIR_LIMITS[f] ?? current[f] ?? null]));
+  if (fields.every((f) => limits[f] === (current[f] ?? null))) return log(`SEED pair limits ${SYMBOL} already published`);
+  const body = { market: marketId, limits, expectedVersion: current.version, reason: 'local-test: CX-8 smoke pair limits' };
+  const approved = await twoPersonApproval(
+    contracts,
+    { actionType: RISK_SET_ACTION, targetService: 'svc-trade', targetId: marketId, expectedVersion: current.version },
+    riskSetPayloadHash(body),
+    requesterMfa,
+    approverMfa,
+  );
+  const row = await tradeCall(
+    contracts,
+    'mutation',
+    'admin.risk.set',
+    { ...body, approvalId: approved.approvalId, operationId: approved.operationId },
+    operator,
+  );
+  log(`SEED pair limits ${SYMBOL} (local-test: band ${row.collar}, cap ${row.throttle}, version ${row.version})`);
+}
+
+/**
+ * New custodial orders need a proved email (RC-identity-01). Proves it the way a person does: ask identity for a
+ * confirmation, read the LOCAL-TEST link the rig's identity wrote to CX8_MAIL_OUTBOX, and open it. Nothing writes
+ * `email_verified_at` itself.
+ */
+async function proveEmail(contracts, trader, waitMs = 15_000) {
+  const outbox = process.env.CX8_MAIL_OUTBOX?.trim();
+  if (!outbox) throw new Error('CX8_MAIL_OUTBOX is not set: run through order-path-cx8-boot.mjs, which starts identity with it');
+  await identityCall(contracts, 'auth.requestEmailConfirmation', {}, await principalOf(trader.accessToken));
+  const until = Date.now() + waitMs;
+  let token = null;
+  while (!token) {
+    try {
+      token = readLatestEmailConfirmToken(readFileSync(outbox, 'utf8'), trader.email);
+    } catch {
+      token = null;
+    }
+    if (token) break;
+    if (Date.now() >= until) throw new Error(`no LOCAL-TEST confirm link reached ${trader.email} in ${outbox}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  await identityCall(contracts, 'auth.confirmEmail', { token }, null);
+}
+
+/** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run, emails proved. */
 async function registerLocalTestTraders(contracts) {
   if (process.env.TRADE_SMOKE_USER_ID || process.env.TRADE_SMOKE_MAKER_ID) return;
   const buyer = await registerLocalTestOperator(contracts, 'buy');
   const seller = await registerLocalTestOperator(contracts, 'sel');
+  for (const trader of [buyer, seller]) await proveEmail(contracts, trader);
   for (const trader of [buyer, seller]) SESSION_IDS.set(trader.userId, (await principalOf(trader.accessToken)).sid);
   USER = buyer.userId;
   MAKER = seller.userId;
@@ -413,7 +498,8 @@ async function seedMarketAndFunds(contracts) {
     `;
     log(`SEED market ${SYMBOL}`);
     await publishSmokeLifecycleAuthority(contracts, market.id);
-    await openMarketInMatching(contracts, market.id);
+    const founders = await openMarketInMatching(contracts, market.id);
+    await publishSmokePairLimits(contracts, market.id, founders);
     await registerLocalTestTraders(contracts);
   } finally {
     await sql.end({ timeout: 2 });

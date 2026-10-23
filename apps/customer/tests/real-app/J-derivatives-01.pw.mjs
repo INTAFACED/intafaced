@@ -53,6 +53,15 @@ async function until(read, ok, what, waitMs = 20_000) {
   throw new Error(`${what}: still ${JSON.stringify(last).slice(0, 400)}`);
 }
 
+/**
+ * The stack's TEST perpetual taker fee on a fill: 5 bps (local-test-stack.mjs TRADE_FEE_SCHEDULE `perpetual`; a new TEST
+ * account has no rank discount) of size × price, rounded up to the unit once (svc-trade `fillFee`).
+ */
+function takerFee(size, price) {
+  const denominator = 10n ** 18n * 10_000n;
+  return (toUnits(size) * toUnits(price) * 5n + denominator - 1n) / denominator;
+}
+
 /** Every write the page sends from now on (the steps that must send nothing read it back). */
 function writes(page) {
   const sent = [];
@@ -229,8 +238,12 @@ test(`${J} #8 confirms "Open long": one position opens and its margin is locked`
   );
   expect(positions[0]).toMatchObject({ symbol: SYMBOL, side: 'long', marginMode: 'isolated', status: 'open' });
   const after = (await (await api(who)).balances()).USDT;
-  // The margin left the free balance (and the fee with it, when one is charged).
-  expect(toUnits(before.free) - toUnits(after.free)).toBeGreaterThanOrEqual(toUnits(positions[0].initialMargin));
+  // The opening fill took from the book, so it paid the TEST schedule's perpetual taker fee (5 bps of its notional, rounded up
+  // once), and paid it once: the free balance fell by the margin and that one fee, and the rest of the hold came back.
+  const fee = takerFee(SIZE, positions[0].entryPrice);
+  expect(fee).toBeGreaterThan(0n);
+  expect(toUnits(positions[0].fees)).toBe(fee);
+  expect(toUnits(before.free) - toUnits(after.free)).toBe(toUnits(positions[0].initialMargin) + fee);
   const { body: orders } = await (await api(who)).get('/api/v1/futures/orders?scope=all&limit=100');
   expect(orders.filter((o) => !o.reduceOnly && o.status !== 'refused')).toHaveLength(1);
 });
@@ -303,4 +316,9 @@ test(`${J} #11 opens History and sees the closed position with its realised resu
   await expect(row).toContainText(SIZE);
   const pnl = Number(closed[0].realizedPnl);
   await expect(row).toContainText(Math.abs(pnl).toFixed(4).replace(/0+$/, '').replace(/\.$/, ''));
+  // Its fees: the opening fill's and both closing fills', every one through the book at the taker rate.
+  const fees = toUnits(closed[0].fees);
+  expect(fees).toBeGreaterThan(takerFee(SIZE, closed[0].entryPrice));
+  await expect(table.getByRole('columnheader', { name: 'Fees paid' })).toBeVisible();
+  await expect(row).toContainText(Number(closed[0].fees).toFixed(8).replace(/0+$/, '').replace(/\.$/, ''));
 });

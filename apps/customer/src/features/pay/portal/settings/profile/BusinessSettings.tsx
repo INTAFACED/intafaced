@@ -59,6 +59,7 @@ export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; me
       me={userId}
       names={names}
       mayEdit={mayEdit}
+      mayChangeRule={ready?.role === 'owner'}
       interactive={ready?.sessionInteractive ?? null}
       loadMoreHistory={history.loadMore}
       reload={() => {
@@ -77,6 +78,8 @@ export function BusinessSettingsView(props: {
   me: string | null;
   names: ReadonlyMap<string, string>;
   mayEdit: boolean;
+  /** Second approval binds admins, so only the owner switches it (svc-pay refuses anyone else). */
+  mayChangeRule: boolean;
   interactive: boolean | null;
   loadMoreHistory: () => void;
   reload: () => void;
@@ -124,7 +127,8 @@ export function BusinessSettingsView(props: {
       <SecondApproval
         portal={props.portal}
         merchantId={who.merchantId}
-        mayEdit={props.mayEdit}
+        mayEdit={props.mayChangeRule}
+        loading={profile.status === 'loading'}
         fromService={read?.secondApprovalEnabled}
         reload={props.reload}
       />
@@ -413,26 +417,34 @@ function ChangeRow({
 }
 
 /**
- * Second approval: whether a legal-detail change also needs a teammate. The service takes the setting but does not
- * report it everywhere yet, so this shows only what the service says. Security state never comes from the browser: when
- * the service sends no value the page says it can't read the setting. Never both buttons: one control that moves the setting to the other state.
+ * Second approval: whether a legal-detail change also needs a teammate, as the business profile reports it. Security
+ * state never comes from the browser: while the profile loads the section says nothing, and when the read fails the page
+ * says it can't read the setting. Never both buttons: one control that moves the setting to the other state.
  */
 function SecondApproval({
   portal,
   merchantId,
   mayEdit,
+  loading,
   fromService,
   reload,
 }: {
   portal: PortalApi;
   merchantId: string;
   mayEdit: boolean;
+  loading: boolean;
   fromService: boolean | undefined;
   reload: () => void;
 }) {
   const { t } = accountCopy.useCopy();
   const current = fromService ?? null;
   const turnOn = current !== true;
+  if (loading)
+    return (
+      <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
+        <p role="status" aria-busy="true" />
+      </PaySection>
+    );
   return (
     <PaySection title={t('secondApprovalTitle')} description={t('secondApprovalBody')}>
       <p role="status">
@@ -449,7 +461,7 @@ function SecondApproval({
             perform={() => portal.profileSecondApproval(merchantId, turnOn)}
             onConfirmed={reload}
             disabled={!mayEdit}
-            disabledReason={t('whoMayEditNot')}
+            disabledReason={t('secondApprovalOwnerOnly')}
           />
         </div>
       )}

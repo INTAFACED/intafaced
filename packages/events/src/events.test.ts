@@ -1081,6 +1081,15 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       ts: ts(),
     },
     orderCancelled: { orderId: uid(), marketId: 'btc-usdt', remainingQty: '0.1', sequence: 1 },
+    orderTriggered: {
+      orderId: uid(),
+      marketId: 'btc-usdt',
+      sequence: 2,
+      triggerBy: 'last',
+      stopPrice: '60000',
+      referencePrice: '59990',
+      ts: ts(),
+    },
     spreadFilled: {
       spreadId: 'btc-cal-dec-mar',
       makerOrderId: uid(),
