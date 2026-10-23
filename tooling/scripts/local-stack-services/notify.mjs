@@ -16,6 +16,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
     // and every create is refused (notify.alert_quota_unset) until then.
     NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
+    // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/notify.json: alert expiry, text length,
+    // conditions, trigger log, repeat frequencies and the burst rule. Production stays blank and refuses.
+    NOTIFY_ALERT_MAX_EXPIRY_DAYS: '30',
+    NOTIFY_ALERT_TEXT_MAX_LENGTH: '200',
+    NOTIFY_ALERT_MAX_CONDITIONS: '3',
+    NOTIFY_ALERT_TRIGGER_LOG_DAYS: '7',
+    NOTIFY_ALERT_FREQUENCIES: 'every_crossing',
+    NOTIFY_ALERT_BURST_WINDOW_MINUTES: '10',
+    NOTIFY_ALERT_BURST_MAX_TRIGGERS: '5',
     // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
     // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
     NOTIFY_INBOX_PAGE_SIZE: '20',
