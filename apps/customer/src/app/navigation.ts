@@ -638,6 +638,24 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
+  // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
+  ...(
+    [
+      ['learning', 'Academy learning'],
+      ['certificates', 'Academy certificates'],
+      ['rooms', 'Academy rooms'],
+      ['videos', 'Academy videos'],
+      ['programmes', 'Academy programmes'],
+      ['progress', 'Academy progress'],
+    ] as const
+  ).map(([slug, title]) => ({
+    path: `/academy/${slug}`,
+    title,
+    description: 'Rooms, learning and certifications' as const,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',

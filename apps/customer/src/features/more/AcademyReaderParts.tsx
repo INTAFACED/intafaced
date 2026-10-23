@@ -103,7 +103,7 @@ export function LessonVideoLink({ slug }: { slug: string }) {
   if (videos.resource.status !== 'ready' || !videos.resource.data.some((v) => v.slug === slug)) return null;
   return (
     <div>
-      <a className="academy-learning-link" href={`/academy?${new URLSearchParams({ section: 'videos', video: slug })}`}>
+      <a className="academy-learning-link" href={`/academy/videos?${new URLSearchParams({ video: slug })}`}>
         <Copy k="watchVideo" />
       </a>
     </div>
