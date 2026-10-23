@@ -104,7 +104,9 @@ jobs:
       # after the founders enrolled. The market maker refuses to start on closed markets and creates its accounts when it
       # starts, so `verify` runs after it. It stops again before `verify`, so no market trades before `history`: that
       # writes the TEST tape history the chart journeys read (real TEST trades whose times svc-trade moves into the past,
-      # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet.
+      # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
+      # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
+      # fail later for a reason the log no longer shows.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching

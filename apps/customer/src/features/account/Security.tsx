@@ -10,6 +10,7 @@ import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
+import { AntiPhishing } from './AntiPhishing';
 import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
@@ -810,6 +811,7 @@ export function Security() {
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
+          <AntiPhishing />
           <Authenticator onChanged={methodsChanged} />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <FreezeAccount />

@@ -48,6 +48,7 @@ import {
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
+import { TEST_ELIGIBILITY_ANSWERS } from './local-test-futures-terms.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -208,13 +209,17 @@ export const TEST_PRICES = {
   'ETH/USDT': { start: '2600', notional: '2000' },
   'ETH/USDC': { start: '2600', notional: '2000' },
   'IFC/USDT': { start: '1', notional: '500' },
+  // The labelled TEST perpetual (`local-test-gates.mjs futures` lists it). Its mark comes from the BTC/USDT book
+  // (TRADE_FUTURES_INDEX_SPOT_MARKETS), so its quotes walk the same series and stay inside the band around that mark.
+  // Quotes go through the futures book; no crossings by test_taker, whose account carries no futures terms.
+  'BTC/USDT:USDT': { start: '65000', notional: '3000', follows: 'BTC/USDT', cross: false },
   'XAU/USD': { start: '2650', notional: '3000' },
   'XAG/USD': { start: '31', notional: '1500' },
   'WTI/USD': { start: '72', notional: '1500' },
   'BRENT/USD': { start: '76', notional: '1500' },
   'NATGAS/USD': { start: '2.8', notional: '1500' },
 };
-const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT'];
+const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'BTC/USDT:USDT'];
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
   USDT: '1000000',
@@ -528,7 +533,9 @@ function parseArgs(argv) {
   if (![1, 2, 3, 4, 5, 6].includes(opts.perBar)) die('--trades-per-bar must be 1..6', 2);
   // svc-trade's own limits on one retime (services/svc-trade/src/spot/local-test-tape.ts).
   if (opts.bars * opts.perBar > 5000) die('--bars times --trades-per-bar must be at most 5000', 2);
-  if (opts.bars * opts.stepMinutes > 31 * 24 * 60) die('--bars times --step-minutes must reach at most 31 days back', 2);
+  // One bar of slack: the window ends at the start of the current bucket, not at now, so a full 31 days would start
+  // just past svc-trade's 31-day limit.
+  if ((opts.bars + 1) * opts.stepMinutes > 31 * 24 * 60) die('--bars plus one, times --step-minutes, must stay within 31 days', 2);
   return opts;
 }
 
@@ -536,10 +543,19 @@ async function discoverMarkets(edge, wanted) {
   const res = await edge.http('GET', '/api/v1/markets?limit=500', null, { auth: false });
   if (!Array.isArray(res.json)) throw new Error(`could not list markets (${res.status})`);
   return res.json
-    .filter((m) => m.active && m.orderable && m.spot && !m.paper && TEST_PRICES[m.symbol] && wanted.includes(m.symbol))
+    .filter(
+      (m) =>
+        m.active &&
+        m.orderable &&
+        (m.spot || (m.swap && m.test === true)) &&
+        !m.paper &&
+        TEST_PRICES[m.symbol] &&
+        wanted.includes(m.symbol),
+    )
     .map((m) => ({
       id: m.id,
       symbol: m.symbol,
+      swap: m.swap === true,
       base: m.base,
       quote: m.quote,
       tick: toScaled(m.precision.price),
@@ -578,6 +594,7 @@ async function runLoop(opts, home) {
   const assets = [...new Set(markets.flatMap((m) => [m.base, m.quote]))];
   await ensureFunds(maker, 'maker', assets, 1);
   await ensureFunds(taker, 'taker', assets, 10);
+  if (markets.some((m) => m.swap)) await prepareFuturesMaker(maker);
 
   let saved = {};
   try {
@@ -588,8 +605,14 @@ async function runLoop(opts, home) {
   const walks = new Map();
   for (const m of markets) {
     const cfg = TEST_PRICES[m.symbol];
-    const walk = createPriceWalk({ seed: opts.seed, symbol: m.symbol, startScaled: toScaled(cfg.start), tickScaled: m.tick });
-    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]); // resume the same series
+    const walk = createPriceWalk({
+      seed: opts.seed,
+      symbol: cfg.follows ?? m.symbol,
+      startScaled: toScaled(cfg.start),
+      tickScaled: m.tick,
+    });
+    // Steps are saved per market symbol (below), so each market resumes its own count; a follower walks its series.
+    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]);
     walks.set(m.symbol, walk);
     log(`${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`);
   }
@@ -601,15 +624,17 @@ async function runLoop(opts, home) {
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
-    client.http('POST', '/api/v1/orders', {
-      symbol: m.symbol,
-      type: 'limit',
-      side,
-      amount,
-      price,
-      ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
-      clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
-    });
+    m.swap
+      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`)
+      : client.http('POST', '/api/v1/orders', {
+          symbol: m.symbol,
+          type: 'limit',
+          side,
+          amount,
+          price,
+          ...(tif === 'IOC' ? { timeInForce: 'IOC' } : { timeInForce: 'GTC', postOnly: true }),
+          clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
+        });
 
   while (!STOP.requested) {
     cycle += 1;
@@ -633,7 +658,9 @@ async function runLoop(opts, home) {
       // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
       // them first, as before.
       let previous = quoted.get(m.symbol);
-      if (!previous) {
+      if (!previous && m.swap) {
+        previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
+      } else if (!previous) {
         const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
         const rows = Array.isArray(open.json) ? open.json : null;
         if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
@@ -646,13 +673,16 @@ async function runLoop(opts, home) {
         // that level is quoted again next cycle.
         const r = await place(maker, m, q.side, q.price, q.amount, 'GTC');
         if (r.status === 201 && r.json?.id) ids.push(r.json.id);
+        else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
       // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
       // 409 means it is already gone: filled or cancelled).
       const stale = [];
       for (const id of previous ?? []) {
-        const r = await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+        const r = m.swap
+          ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
+          : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
         if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
       }
       quoted.set(m.symbol, [...ids, ...stale]);
@@ -660,7 +690,7 @@ async function runLoop(opts, home) {
       log(
         `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
       );
-      if (cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
+      if (cfg.cross !== false && cycle % 3 === 0 && rested > 0 && (cycle / 3 + m.symbol.length) % 2 === 0) {
         // Alternate per market (failure it prevents: every symbol here has the same name length, so a
         // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
         // every crossing then failed with 400 ledger.insufficient_funds).
@@ -683,7 +713,15 @@ async function runLoop(opts, home) {
   }
   EXIT.reason ??= 'stop requested';
   log('stopping: cancelling the test market-maker orders');
-  for (const m of markets) await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
+  for (const m of markets) {
+    if (!m.swap) {
+      await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`).catch(() => null);
+      continue;
+    }
+    for (const id of (await openFuturesQuoteIds(maker, m).catch(() => null)) ?? []) {
+      await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`).catch(() => null);
+    }
+  }
   return 0;
 }
 
@@ -756,7 +794,8 @@ async function runHistory(opts, home) {
   log(`maker email ${await maker.proveEmail(outbox)}; taker email ${await taker.proveEmail(outbox)}`);
 
   const wanted = opts.symbols ?? DEFAULT_SYMBOLS;
-  const markets = await discoverMarkets(maker, wanted);
+  // Spot books only: the tape route and the candles it feeds are spot (svc-trade spot/local-test-tape.ts).
+  const markets = (await discoverMarkets(maker, wanted)).filter((m) => !m.swap);
   if (markets.length === 0) die(`none of ${wanted.join(', ')} is an active, orderable spot market on this stack`);
   const blockers = await preflight(
     maker,
@@ -877,6 +916,59 @@ async function runHistory(opts, home) {
   fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(p.walkFile, JSON.stringify({ seed: opts.seed, steps }), { mode: 0o600 });
   return results.every(Boolean) ? 0 : 1;
+}
+
+// ── The TEST perpetual ──────────────────────────────────────────────────────
+
+/** Leverage the maker quotes the TEST perpetual at: inside the TEST listing's own cap (fixture leverageCap 5). */
+export const FUTURES_QUOTE_LEVERAGE = '5';
+const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_unknown']);
+
+/**
+ * A futures order goes through the futures book (POST /api/v1/futures/orders) and answers to the doors a person's
+ * does: a proved email, the published TEST agreements accepted, the TEST quiz passed, the ADL notice acknowledged.
+ * Hedge mode, so the maker's bids and asks can rest at once. Each step logs what it got; a refusal stays visible, and
+ * the quotes then refuse with the same code.
+ */
+async function prepareFuturesMaker(maker) {
+  const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
+  const mode = await maker.http('PUT', '/api/v1/futures/position-mode', { mode: 'hedge', clientModeId: 'LTEST-maker-position-mode-hedge' });
+  say('position mode hedge', mode, mode.status === 200);
+  const agreements = await maker.http('GET', '/api/v1/account/agreements');
+  for (const a of agreements.json?.agreements ?? []) {
+    if (!a.available) {
+      log(`maker agreement ${a.kind}: not published (${a.reason ?? 'no reason given'})`);
+      continue;
+    }
+    if (a.accepted) continue;
+    const r = await maker.http('POST', '/api/v1/account/agreements/accept', { kind: a.kind, version: a.version });
+    say(`accepts TEST ${a.kind} v${a.version}`, r, r.status === 200);
+  }
+  const quiz = await maker.http('POST', '/api/v1/account/derivatives-eligibility/assess', {
+    clientSubmissionId: 'LTEST-maker-quiz-1',
+    answers: TEST_ELIGIBILITY_ANSWERS,
+  });
+  say('TEST quiz', quiz, quiz.status === 200);
+  const adl = await maker.http('POST', '/api/v1/futures/adl-disclosure/ack', {});
+  say('ADL notice acknowledged', adl, adl.status === 200);
+}
+
+function placeFutures(client, m, side, price, amount, clientOrderId) {
+  return client.http('POST', '/api/v1/futures/orders', {
+    symbol: m.symbol,
+    side,
+    type: 'limit',
+    amount,
+    price,
+    leverage: FUTURES_QUOTE_LEVERAGE,
+    clientOrderId,
+  });
+}
+
+/** The maker's live opening quotes on one futures market, or null when they cannot be read. */
+async function openFuturesQuoteIds(maker, m) {
+  const r = await maker.http('GET', `/api/v1/futures/orders?scope=open&limit=100&symbol=${encodeURIComponent(m.symbol)}`);
+  return r.status === 200 && Array.isArray(r.json) ? r.json.filter((o) => !o.reduceOnly).map((o) => o.orderId) : null;
 }
 
 // ── Process control ─────────────────────────────────────────────────────────

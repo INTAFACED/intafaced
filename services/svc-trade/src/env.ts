@@ -514,6 +514,14 @@ const schema = serviceEnvSchema
       TRADE_MM_SEED_STATE_PATH: z.string().default('.data/mm-seed-last-run.json'),
 
       /**
+       * Futures mark from our own spot book: `<futures symbol>=<spot symbol>`, comma-separated
+       * (`futures/mark-from-spot-index.ts`). The owner's pairing. Empty (default) = off, and a futures market is
+       * marked by its own book's mid as before. A malformed pair fails boot; a pair whose spot market does not share
+       * the futures market's base and quote marks nothing (never a nearby price).
+       */
+      TRADE_FUTURES_INDEX_SPOT_MARKETS: z.string().default(''),
+
+      /**
        * Venue fabric mark source (A-TRADE-VENUE-1 / venue.aggregation).
        * Empty (default) = off — marks fall back to matching depth mid only.
        * Known ids: `binance-spot`, `bybit-spot`, `okx-spot` — PUBLIC MarketDataAdapters,

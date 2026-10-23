@@ -77,6 +77,7 @@ try {
     ['--trades-per-bar', '7'],
     ['--bars', '1000', '--trades-per-bar', '6'],
     ['--bars', '1000', '--step-minutes', '60'],
+    ['--bars', '744', '--step-minutes', '60'], // exactly 31 days: one bar of slack is needed
   ]) {
     r = run(home, ['history', ...bad]);
     assert.equal(r.status, 2, `${bad.join(' ')}: ${r.stderr}`);

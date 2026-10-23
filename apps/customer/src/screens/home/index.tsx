@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -39,8 +39,7 @@ import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
-import { progress, readDismissed, writeDismissed } from './started';
-import { useGetStarted } from './started-data';
+import { useStartedTile } from './started-data';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
@@ -284,18 +283,7 @@ function HomeSimple() {
           : 'normal';
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
-  // Get started: only for an account that holds nothing (the real balance read says so), until the person hides it
-  // (remembered per person on this device). The checklist's own reads start only while it can be shown, and it goes
-  // away once every step is done.
-  const [dismissed, setDismissed] = useState(() => readDismissed(userId));
-  useEffect(() => setDismissed(readDismissed(userId)), [userId]);
-  const hide = useCallback(() => {
-    writeDismissed(userId);
-    setDismissed(true);
-  }, [userId]);
-  const startedOn = accountEmpty && userId !== null && !dismissed;
-  const steps = useGetStarted({ portfolio, activity }, startedOn);
-  const showStarted = startedOn && !progress(steps).complete;
+  const started = useStartedTile(portfolio);
 
   return (
     <div className="if-home">
@@ -359,9 +347,9 @@ function HomeSimple() {
           <LearnStrip />
         </div>
 
-        {showStarted ? (
+        {started.show ? (
           <div className="home-started-slot">
-            <GetStarted steps={steps} onHide={hide} />
+            <GetStarted steps={started.steps} onHide={started.hide} />
           </div>
         ) : null}
 

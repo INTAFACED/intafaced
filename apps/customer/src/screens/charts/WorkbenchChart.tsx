@@ -14,12 +14,16 @@ import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data
 import { axisTime, tickMark } from '../trade/chart/PriceChart';
 import type { ChartApi, ChartHost, ChartLib, ChartSeries } from './chart-host';
 import {
+  PERCENT_PRICE_FORMAT,
   SCHEME_TOKENS,
   SERIES_KIND,
+  percentBase,
+  rebasePoints,
   seriesOptions,
   seriesPoints,
   type ChartStyle,
   type ColourScheme,
+  type DrawnPoint,
   type SchemeColors,
 } from './chart-style';
 
@@ -51,6 +55,8 @@ export interface WorkbenchChartProps {
   labels: { open: string; high: string; low: string; close: string; change: string; chart: string; keys: string };
   /** Called when the person scrolls to the oldest loaded bar. */
   onReachStart?: () => void;
+  /** Percent mode: every price is drawn as percent change from the first loaded bar (the base the chart reports). */
+  percent?: boolean;
   /** Move the view so this bar index is in the middle; `nonce` makes the same index move it again. */
   focus?: { index: number; nonce: number } | null;
   /** Add-ons drawn on top of the chart (studies, drawings), given the host once the chart exists. */
@@ -71,6 +77,7 @@ export function WorkbenchChart({
   timeZone,
   labels,
   onReachStart,
+  percent = false,
   focus,
   children,
   onHost,
@@ -91,6 +98,8 @@ export function WorkbenchChart({
   const [host, setHost] = useState<ChartHost | null>(null);
   const [mounted, setMounted] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
+  /** What percent mode reports: the base the prices are rebased to, and the first drawn value (0.00 when rebased). */
+  const [rebase, setRebase] = useState({ base: '', first: '' });
   const zone = useRef({ language, timeZone });
   zone.current = { language, timeZone };
 
@@ -149,7 +158,7 @@ export function WorkbenchChart({
     };
   }, []);
 
-  // The main series follows the style and scheme; recreated only when one of them changes.
+  // The main series follows the style, scheme and percent mode; recreated only when one of them changes.
   useEffect(() => {
     const lib = engine.current;
     const api = chart.current;
@@ -157,11 +166,12 @@ export function WorkbenchChart({
     const colors = readColors(scheme).series;
     if (main.current) api.removeSeries(main.current);
     shown.current = null;
-    const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: priceFormat(tickSize) }, 0);
+    const format = percent ? PERCENT_PRICE_FORMAT : priceFormat(tickSize);
+    const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: format }, 0);
     main.current = series;
     setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
     // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
-  }, [mounted, style, scheme, tickSize, symbol, upColor]);
+  }, [mounted, style, scheme, tickSize, symbol, upColor, percent]);
 
   // Feed candles: `update` for the newest ones; a full reset when the window moved, keeping the view on the same bars
   // when older history was put in front.
@@ -171,8 +181,11 @@ export function WorkbenchChart({
     if (!series || !api || candles.length === 0) return;
     const colors = readColors(scheme).series;
     const before = shown.current;
-    const plan = style === 'heikin-ashi' ? ({ kind: 'reset' } as const) : planUpdate(before, candles);
-    const points = seriesPoints(style, candles, colors);
+    // Heikin Ashi and percent mode redraw every point: a percent base can move with the first bar it is taken from.
+    const plan = style === 'heikin-ashi' || percent ? ({ kind: 'reset' } as const) : planUpdate(before, candles);
+    const drawn = seriesPoints(style, candles, colors) as DrawnPoint[];
+    const base = percentBase(drawn);
+    const points = percent ? (base === null ? [] : rebasePoints(drawn, base)) : drawn;
     if (plan.kind === 'reset') {
       const range = api.timeScale().getVisibleLogicalRange();
       const prepended = before && before.length > 0 ? candles.findIndex((c) => c.t === before[0]!.t) : -1;
@@ -188,7 +201,14 @@ export function WorkbenchChart({
       for (const point of points.slice(plan.from)) series.update(point);
     }
     shown.current = candles;
-  }, [candles, style, scheme, host, resetKey]);
+    // What the library holds for the first bar, read back from the series itself.
+    const at = series.dataByIndex(0) as Partial<Record<'close' | 'value', number>> | null;
+    const first = at ? (at.close ?? at.value) : undefined;
+    setRebase({
+      base: percent && base !== null ? String(base) : '',
+      first: percent && typeof first === 'number' ? first.toFixed(2) : '',
+    });
+  }, [candles, style, scheme, host, resetKey, percent]);
 
   const report = useRef(onHost);
   report.current = onHost;
@@ -258,6 +278,9 @@ export function WorkbenchChart({
         aria-description={labels.keys}
         data-style={style}
         data-scheme={scheme}
+        data-scale={percent ? 'percent' : 'price'}
+        data-base={rebase.base}
+        data-first-percent={rebase.first}
         data-bars={candles.length}
         data-first={candles[0] ? String(candles[0].t) : ''}
         data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}

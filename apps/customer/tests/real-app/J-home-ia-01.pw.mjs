@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { api, fund } from './stack.mjs';
-import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
+import { api, bestPrices, fund, toUnits } from './stack.mjs';
+import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-home-ia-01, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand. Tests titled
 // "J-home-ia-01 #<n>" prove a whole step. One TEST person walks the steps in order: TEST USDT and BTC through the real
@@ -227,4 +228,89 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   fail = false;
   await list.getByRole('button', { name: 'Try again' }).click();
   await expect(list.locator('.home-activity__row')).toHaveCount(3);
+});
+
+/** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */
+async function startedSteps(page) {
+  const rows = page.locator('section[aria-labelledby="home-started-title"] [data-step]');
+  await expect(rows).toHaveCount(6);
+  // A step still being read never counts: wait until every one has its answer.
+  await expect(rows.and(page.locator('[data-status="checking"]'))).toHaveCount(0, { timeout: 20_000 });
+  const steps = {};
+  for (const row of await rows.all()) {
+    steps[await row.getAttribute('data-step')] = { status: await row.getAttribute('data-status'), href: await row.getAttribute('href') };
+  }
+  return steps;
+}
+const statuses = (steps) => Object.fromEntries(Object.entries(steps).map(([id, step]) => [id, step.status]));
+
+test(`${J} #6 Get started reads each step from the account's records, survives a cleared browser, and leaves when all six are done`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // Passkeys belong to the stack's relying party, localhost, so this person uses the app there.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN, viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const fresh = await signUp(page, 'hmg');
+  await page.goto('/');
+  const open = await startedSteps(page);
+  expect(statuses(open)).toEqual({ register: 'done', verify: 'todo', secure: 'todo', deposit: 'todo', trade: 'todo', alert: 'todo' });
+  expect(open.verify.href).toBe('/verification');
+  expect(open.secure.href).toBe('/uc/safe');
+  expect(open.deposit.href).toBe('/uc/recharge');
+  expect(open.trade.href).toBe('/trade/buy');
+  expect(open.alert.href).toBe('/notifications?view=alerts');
+  await expect(page.locator('.home-started__count')).toHaveText('1 of 6 done');
+
+  // Nothing is kept in the browser: with its storage cleared, the same steps come back from the account.
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+  await page.reload();
+  expect(statuses(await startedSteps(page))).toEqual(statuses(open));
+
+  // Verified, then money in through the real ledger: both steps are done on the next load.
+  await verify(page, fresh);
+  await signIn(page, fresh);
+  expect(fund(fresh.email, 'USDT', '100').tx).toBeTruthy();
+  await page.goto('/');
+  expect(statuses(await startedSteps(page))).toEqual({
+    register: 'done',
+    verify: 'done',
+    secure: 'todo',
+    deposit: 'done',
+    trade: 'todo',
+    alert: 'todo',
+  });
+
+  // A passkey from Security, a price alert, and a first trade on the real book.
+  await virtualAuthenticator(page);
+  await addPasskey(page);
+  const client = await api(fresh);
+  const alert = await client.post('/api/notify/trpc/notify.createAlert', {
+    marketId: 'BTC-USDT',
+    direction: 'above',
+    targetPrice: '10000000',
+  });
+  expect(alert.status, JSON.stringify(alert.body).slice(0, 300)).toBe(200);
+  const { ask } = await bestPrices();
+  const buy = await client.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    amount: '0.0001',
+    price: ask,
+    timeInForce: 'IOC',
+    clientOrderId: `${J}-6-${fresh.handle}`,
+  });
+  expect(buy.status, JSON.stringify(buy.body).slice(0, 300)).toBeLessThan(300);
+  await expect.poll(async () => (await openOrders(fresh)).length, { timeout: 20_000 }).toBe(0);
+  await expect.poll(async () => toUnits((await client.balances()).BTC?.total ?? '0') > 0n, { timeout: 20_000 }).toBe(true);
+
+  // Every step done: the tile has nothing left to say and is gone; the rest of Home is unchanged.
+  await page.goto('/');
+  await expect(totalOn(page, HOME_TOTAL).locator('[role=img]')).toBeVisible();
+  await expect(page.locator('section[aria-labelledby="home-started-title"]')).toHaveCount(0);
+  await context.close();
 });
