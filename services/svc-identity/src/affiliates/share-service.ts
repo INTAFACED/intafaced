@@ -74,6 +74,11 @@ export class MemoryShareStore {
     return rec;
   }
 
+  referrerOf(token: string): string | null {
+    const rec = this.byToken.get(requireId(token, 'token'));
+    return rec && rec.revokedAt === null ? rec.referrerId : null;
+  }
+
   revokeShare(referrerId: string, now?: Date): ShareRecord {
     const id = requireId(referrerId, 'referrerId');
     for (const rec of this.byToken.values()) {
@@ -165,6 +170,14 @@ export class ShareService {
       }
       throw err;
     }
+  }
+
+  /** Who a live link belongs to, without counting a visit; null for an unknown or revoked link. */
+  async referrerOf(token: string): Promise<string | null> {
+    const rows = await this.sql<Array<{ referrer_id: string }>>`
+      SELECT referrer_id FROM affiliate_share_tokens WHERE token = ${requireId(token, 'token')} AND revoked_at IS NULL LIMIT 1
+    `;
+    return rows[0]?.referrer_id ?? null;
   }
 
   async revokeShare(referrerId: string): Promise<ShareRecord> {
