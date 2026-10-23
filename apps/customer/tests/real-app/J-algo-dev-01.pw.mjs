@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { EDGE, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-algo-dev-01, in the running app (docs/roadmap/journeys.json): build a first strategy, save it and backtest it on
@@ -286,4 +286,145 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   await expect(home.getByRole('row')).toHaveCount(2);
   await expect(home).toContainText('Version 2');
   run.write({ strategy: 'TEST first strategy' });
+});
+
+/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
+function utcMinute(minutesAgo) {
+  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
+  return new Date(at).toISOString().slice(0, 16);
+}
+
+/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
+async function closedBarsSince(minute) {
+  const since = Date.parse(`${minute}:00Z`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
+}
+
+// The window both backtest steps run on: the last hour of the TEST tape, fixed once so #6 repeats #5's inputs exactly.
+const WINDOW_MINUTES = 60;
+
+test(`${J} #5 sets cash, a window, the fee, slippage and delay, and runs with slippage blank: a refusal names slippage and nothing runs; the published fee rates show`, async ({
+  page,
+}) => {
+  await signIn(page, developer());
+  // The strategy now trades by signal rules: TEST inputs on 1 minute bars of the local TEST market, saved as version 3.
+  await page.goto('/quant/studio');
+  // This browser holds no draft: the saved version 2 is opened from the library.
+  await page.getByRole('button', { name: 'Open TEST first strategy' }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 2.');
+  await page.getByLabel('How the strategy trades').selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Symbol').fill('BTC/USDT');
+  await builder.getByLabel('Bar size').selectOption('1m');
+  await builder.getByLabel('Fast average (bars)').fill('1');
+  await builder.getByLabel('Slow average (bars)').fill('2');
+  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 3.');
+
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 3: BTC/USDT, 1m bars.');
+  // The published schedule is read before anything runs: the rates the run will charge, with the schedule version.
+  await expect(room.getByTestId('quant-fee-ledger')).toContainText(
+    /Published fee schedule .+ for BTC\/USDT: taker \d+ basis points, maker \d+ basis points\./,
+  );
+  // The saved starting cash is offered; the developer keeps it.
+  await expect(room.getByLabel('Starting cash')).toHaveValue('1000');
+  const from = utcMinute(WINDOW_MINUTES);
+  const to = utcMinute(0);
+  run.write({ window: { from, to } });
+  await room.getByLabel('From (UTC)').fill(from);
+  await room.getByLabel('To (UTC)').fill(to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+
+  const started = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
+  });
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-backtest-refusal')).toHaveText('Fill in Slippage (basis points) first. Nothing ran.');
+  await expect(room.getByLabel('Slippage (basis points)')).toHaveAttribute('aria-invalid', 'true');
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  expect(started).toEqual([400]);
+  // Nothing ran: the quick start's backtest step is still open.
+  await page.goto('/quant');
+  await expect(page.getByTestId('quant-quick-start-count')).toHaveText('1 of 3 steps done');
+});
+
+test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees subtracted from gross, no fill inside a gap; the same inputs again read back the same stored run`, async ({
+  page,
+}) => {
+  test.setTimeout(15 * 60_000);
+  const { window } = run.read();
+  if (!window) throw new Error(`${J} #5 fixed no window, so this step has nothing to repeat`);
+  // The TEST market maker trades about once a minute. Wait until the window holds enough closed bars for the averages.
+  await expect
+    .poll(async () => (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length, {
+      timeout: 12 * 60_000,
+      intervals: [15_000],
+      message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
+    })
+    .toBeGreaterThanOrEqual(8);
+
+  await signIn(page, developer());
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('5');
+
+  // The first reply is lost after the service stored the run; Run again with the same inputs reads it back.
+  await loseNextReply(page, 'backtest.start');
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.locator('.failure')).toBeVisible();
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  const runId = await result.getAttribute('data-run-id');
+  expect(runId).toMatch(/^run_/);
+  // The run lists how it was modelled, so nobody reads a choice the engine made as a fact about the market.
+  await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="long_only"]')).toHaveCount(1);
+  await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="averages_over_traded_bars"]')).toHaveCount(1);
+
+  // Coverage: how many bar intervals traded, and each gap with no trade on the market.
+  await expect(result.getByTestId('quant-bar-coverage')).toHaveText(/^\d+ of \d+ bars traded in the window\.$/);
+  const gaps = await result
+    .getByTestId('quant-bar-gap')
+    .evaluateAll((rows) => rows.map((row) => [Date.parse(row.dataset.from), Date.parse(row.dataset.to)]));
+
+  // Sided trades: the long-only rules alternate, buy first; none fills inside a gap.
+  const trades = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.side, row.dataset.ts]));
+  expect(trades.length).toBeGreaterThan(0);
+  trades.forEach(([side], i) => expect(side).toBe(i % 2 === 0 ? 'buy' : 'sell'));
+  for (const [, ts] of trades) {
+    const at = Date.parse(ts);
+    expect(gaps.some(([a, b]) => at >= a && at < b)).toBe(false);
+  }
+
+  // Fees are taken off the result before costs, with slippage: net = gross - fees - slippage, exactly.
+  const total = async (key) => (await result.getByTestId(`quant-bar-total-${key}`).getAttribute('data-value')) ?? '';
+  const [gross, fees, slip, net] = await Promise.all(['gross', 'fees', 'slippageTotal', 'net'].map(total));
+  expect(toUnits(fees)).toBeGreaterThan(0n);
+  expect(toUnits(net)).toBe(toUnits(gross) - toUnits(fees) - toUnits(slip));
+
+  // Equity moves with the position: it changes from bar to bar while the strategy holds BTC.
+  const equity = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.equity));
+  expect(new Set(equity).size).toBeGreaterThan(1);
+
+  // The same inputs again: the same stored run, not a second one.
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(result).toHaveAttribute('data-run-id', runId);
+  await page.goto('/quant');
+  await expect(page.getByTestId('quant-quick-start-count')).toHaveText('2 of 3 steps done');
 });

@@ -42,6 +42,12 @@ export const QUANT_SIGNAL_RULES_SANDBOX = 'quant.signal_rules_sandbox' as const;
 export const QUANT_TEMPLATE_NOT_FOUND = 'quant.template_not_found' as const;
 export const QUANT_TEMPLATE_LIST_LIMIT_UNSET = 'quant.template_list_limit_unset' as const;
 export const QUANT_TEMPLATE_NUMBER_SET = 'quant.template_number_set' as const;
+export const QUANT_COST_UNSET = 'quant.cost_unset' as const;
+export const QUANT_FILL_TIMING_UNSET = 'quant.fill_timing_unset' as const;
+export const QUANT_BACKTEST_WINDOW_INVALID = 'quant.backtest_window_invalid' as const;
+export const QUANT_BACKTEST_WINDOW_OPEN = 'quant.backtest_window_open' as const;
+export const QUANT_BACKTEST_HISTORY_RANGE = 'quant.backtest_history_range' as const;
+export const QUANT_BACKTEST_RULES_REQUIRED = 'quant.backtest_rules_required' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -88,6 +94,12 @@ export type QuantCode =
   | typeof QUANT_TEMPLATE_NOT_FOUND
   | typeof QUANT_TEMPLATE_LIST_LIMIT_UNSET
   | typeof QUANT_TEMPLATE_NUMBER_SET
+  | typeof QUANT_COST_UNSET
+  | typeof QUANT_FILL_TIMING_UNSET
+  | typeof QUANT_BACKTEST_WINDOW_INVALID
+  | typeof QUANT_BACKTEST_WINDOW_OPEN
+  | typeof QUANT_BACKTEST_HISTORY_RANGE
+  | typeof QUANT_BACKTEST_RULES_REQUIRED
   | 'quant.params_invalid';
 
 export class QuantError extends Error {
