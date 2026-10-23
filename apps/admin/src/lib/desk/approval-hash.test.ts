@@ -6,6 +6,7 @@ import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/acti
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
+import { IDENTITY_UNFREEZE_ACTION_TYPE } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
 /**
@@ -207,5 +208,28 @@ describe('identity signing-key changes', () => {
     expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).not.toBe(
       payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k3' }),
     );
+  });
+});
+
+describe('identity account unfreeze', () => {
+  const request = {
+    kind: 'identity.account.unfreeze' as const,
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    reason: 'Customer verified by phone',
+    version: '3',
+  };
+  it('hash equals identity’s own function over the account and the reason', () => {
+    expect(payloadHashFor(request)).toBe(identityActionPayloadHash(request.userId, { reason: request.reason }));
+    expect(payloadHashFor({ ...request, reason: 'Another reason entirely' })).not.toBe(payloadHashFor(request));
+  });
+  it('is proposed against the account at the version the founder read', () => {
+    expect(proposeInputFor(request)).toEqual({
+      actionType: IDENTITY_UNFREEZE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: request.userId,
+      expectedVersion: '3',
+      payloadHash: payloadHashFor(request),
+      policyVersion: 'v1',
+    });
   });
 });
