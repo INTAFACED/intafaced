@@ -872,6 +872,9 @@ function serviceDefs(secrets) {
         IDENTITY_SIGNUP_REQUEST_MAX: '10',
         IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
         IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+        // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
+        // for, so a journey can see the lock still holding with its end time.
+        IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
         // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
         IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
         // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
@@ -888,6 +891,10 @@ function serviceDefs(secrets) {
         IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
         IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
         IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+        // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+        // J-developer-03 can show the fourth refused.
+        IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
         // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
         // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
         // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

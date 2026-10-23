@@ -1,3 +1,4 @@
+import { SecurityLockError } from './auth/security-lock.js';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -109,6 +110,15 @@ function toTrpcError(err: unknown): TRPCError {
   // shared package's AuthError, which is a different class from this service's.
   if (err instanceof GuardError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
+  }
+
+  // The owner's security lock refused a password change or reset (W-withdraw-09). 412, never 401: it is not a sign-out.
+  if (err instanceof SecurityLockError) {
+    return new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: userCopy(err.code),
+      cause: err.unlocksAt ? { code: err.code, unlocksAt: err.unlocksAt.toISOString() } : { code: err.code },
+    });
   }
 
   if (err instanceof PrivilegedDualControlError || err instanceof ActionApprovalError) {
