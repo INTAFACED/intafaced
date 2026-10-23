@@ -2111,7 +2111,6 @@ export class MatchedFuturesOrders {
 
   // ── cancel, release ───────────────────────────────────────────────────────
 
-  /** Cancel a resting order we own, then release the part of its hold that no fill used. */
   /**
    * The caller's own matched orders, newest first. `open` is every order that can still fill or still holds margin
    * for a fill on its way (`LIVE_OR_UNKNOWN` plus `pending`); `all` is every state. The page size is the caller's.
@@ -2133,6 +2132,7 @@ export class MatchedFuturesOrders {
     return rows.map((row) => ({ ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() }));
   }
 
+  /** Cancel a resting order we own, then release the part of its hold that no fill used. */
   async cancel(principal: Principal, orderId: string): Promise<MatchedOrderView> {
     const row = await this.loadOrder(orderId).catch(() => null);
     if (!row || row.user_id !== principal.userId) refuse('trade.futures_order_not_found', `futures order ${orderId} not found`, 404);

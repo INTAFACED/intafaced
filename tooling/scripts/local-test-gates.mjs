@@ -836,7 +836,6 @@ export const TEST_FUTURES_FIXTURE = 'services/svc-trade/fixtures/btc-usdt-swap.T
 /** Region the stack's Edge stamps on every request (svc-edge DEFAULT_REGION, unset on this stack). */
 export const TEST_AGREEMENT_REGION = 'XX';
 export const AGREEMENT_PUBLISH_ACTION = 'trade.agreement_publish';
-export { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES };
 export const ELIGIBILITY_RULES_ACTION = 'trade.derivatives_eligibility_rules_set';
 
 export function agreementPublishHash({ kind, expectedVersion, texts, reason }) {
@@ -918,7 +917,7 @@ export async function publishFuturesTerms(ctx) {
   } else {
     const expectedVersion = '0';
     const reason = `${MARKERS.label}: TEST derivatives quiz`;
-    const content = { ...TEST_ELIGIBILITY_RULES, questions: TEST_ELIGIBILITY_RULES.questions };
+    const content = TEST_ELIGIBILITY_RULES;
     const ids = await twoPerson(ctx, pair, {
       actionType: ELIGIBILITY_RULES_ACTION,
       targetService: 'svc-trade',

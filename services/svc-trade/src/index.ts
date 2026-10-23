@@ -121,7 +121,7 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
-import { markSourceFromSpotIndex, parseIndexSpotMarkets, sqlIndexMarketLookup } from './futures/mark-from-spot-index.js';
+import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -483,11 +483,9 @@ const futuresJobs = startFuturesJobs({
   matching,
   bus,
   venueMarkSource: venueMarkConfigured?.source ?? null,
-  indexMarkSource: markSourceFromSpotIndex({
-    pairs: parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS),
-    markets: sqlIndexMarketLookup(sql),
-    // Read time is the observation time, as for every depth mark here: the engine answers from its live book.
-    readDepth: async (marketId) => ({ ...(await matching.depth(marketId, 1)), observedAt: new Date() }),
+  markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+    byId: (marketId) => trade.marketById(marketId),
+    bySymbol: (symbol) => trade.marketBySymbol(symbol),
   }),
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,

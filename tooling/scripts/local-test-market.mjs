@@ -582,8 +582,8 @@ async function runLoop(opts, home) {
       startScaled: toScaled(cfg.start),
       tickScaled: m.tick,
     });
-    const series = cfg.follows ?? m.symbol;
-    if (saved.seed === opts.seed && saved.steps?.[series]) walk.advance(saved.steps[series]); // resume the same series
+    // Steps are saved per market symbol (below), so each market resumes its own count; a follower walks its series.
+    if (saved.seed === opts.seed && saved.steps?.[m.symbol]) walk.advance(saved.steps[m.symbol]);
     walks.set(m.symbol, walk);
     log(`${m.symbol}: TEST PRICE reference ${cfg.start} ${m.quote}, walking from step ${walk.steps} at ${fromScaled(walk.current())}`);
   }

@@ -160,6 +160,44 @@ describe('startFuturesJobs', () => {
     handle.stop();
   });
 
+  it('a depth read with no timestamp is stamped at read time, so a live futures book gives a mark', async () => {
+    const handle = startFuturesJobs({
+      sql: {} as never,
+      ledger: { post: vi.fn(), balance: vi.fn() },
+      matching: { depth: async () => ({ bids: [['99', '100']], asks: [['101', '100']], sequence: 1 }) } as never,
+      bus: null,
+      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+    });
+    expect(await handle.markPrice('m1')).toBe('100');
+    handle.stop();
+  });
+
+  it('a paired spot book marks the futures market and rates its depth; an unfit pair reads no book at all', async () => {
+    const books: Record<string, { bids: [string, string][]; asks: [string, string][] }> = {
+      spot: { bids: [['64990', '5']], asks: [['65010', '5']] },
+      perp: { bids: [], asks: [['70000', '5']] },
+    };
+    const depth = vi.fn(async (id: string) => ({ ...(books[id] ?? { bids: [], asks: [] }), sequence: 1 }));
+    const handle = startFuturesJobs({
+      sql: {} as never,
+      ledger: { post: vi.fn(), balance: vi.fn() },
+      matching: { depth } as never,
+      bus: null,
+      markBookFor: async (id) => (id === 'perp' ? 'spot' : id === 'broken' ? null : id),
+      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+    });
+    expect(await handle.markPrice('perp')).toBe('65000');
+    expect(depth.mock.calls.map((c) => c[0])).toEqual(['spot']);
+    // The ladder reads the same book: the perp's own empty bid side does not make the long side unknown.
+    expect(await handle.ladderGate.depth.depthNotional({ marketId: 'perp', side: 'long' })).not.toBeNull();
+    expect(depth.mock.calls.at(-1)![0]).toBe('spot');
+    depth.mockClear();
+    expect(await handle.markPrice('broken')).toBeNull();
+    expect(await handle.ladderGate.depth.depthNotional({ marketId: 'broken', side: 'long' })).toBeNull();
+    expect(depth).not.toHaveBeenCalled();
+    handle.stop();
+  });
+
   it('markPrice null when no venue and empty depth (never invent)', async () => {
     const handle = startFuturesJobs({
       sql: {} as never,

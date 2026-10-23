@@ -25,6 +25,7 @@ import {
   type MatchedLiquidationPort,
 } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
+import type { MarkBookResolver } from './mark-from-spot-index.js';
 import { markSourcePrefer } from './mark-from-venue.js';
 import { memoryFundingRateBook, preferFundingRateSource, type FundingRateEntry } from './funding-rate-source.js';
 import {
@@ -115,10 +116,11 @@ export interface FuturesJobsDeps {
    */
   venueMarkSource?: MarkSource | null;
   /**
-   * Optional mark from our own spot book (`mark-from-spot-index.ts`, TRADE_FUTURES_INDEX_SPOT_MARKETS). Preferred over
-   * the futures market's own depth mid, after a venue source. Null keeps today's sources.
+   * Which book marks a futures market (`mark-from-spot-index.ts`, TRADE_FUTURES_INDEX_SPOT_MARKETS): a paired spot
+   * book, or none when the pair does not fit. The ladder's depth reads the same book as the mark. Null: every market
+   * reads its own book, as before.
    */
-  indexMarkSource?: MarkSource | null;
+  markBookFor?: MarkBookResolver | null;
   /**
    * Optional external rate publisher hook for tests.
    * Production ops publishes into memoryFundingRateBook via a real oracle later.
@@ -330,19 +332,24 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   // Mark path always assembled — public REST + liq share one non-inventing port.
   // Matching's depth read carries no timestamp. The engine answers from its live book, so the read time is the
   // observation time (as for the trailing mark in index.ts); without it no futures book could ever give a mark.
-  const depthMarks = markSourceFromDepth(async (marketId) => ({
-    ...(await deps.matching.depth(marketId, 1)),
-    observedAt: deps.now ? deps.now() : new Date(),
-  }));
-  const bookMarks: MarkSource = deps.indexMarkSource ? markSourcePrefer(deps.indexMarkSource, depthMarks) : depthMarks;
-  const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, bookMarks) : bookMarks;
+  const markBook = async (marketId: string): Promise<string | null> => (deps.markBookFor ? deps.markBookFor(marketId) : marketId);
+  const depthMarks = markSourceFromDepth(async (marketId) => {
+    const book = await markBook(marketId);
+    if (book === null) return null;
+    return { ...(await deps.matching.depth(book, 1)), observedAt: deps.now ? deps.now() : new Date() };
+  });
+  const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
   // Blank selection returns `baseMarks` itself: today's behaviour, untouched.
   const marks: MarkSource = deps.markConstruction
     ? markSourceWithConstruction(baseMarks, deps.markConstruction.selection, deps.markConstruction.inputs)
     : baseMarks;
 
   const ladderGate = {
-    depth: depthNotionalSourceFromDepth((marketId) => deps.matching.depth(marketId, 1)),
+    // The same book the mark comes from: a position is rated against the market that prices it.
+    depth: depthNotionalSourceFromDepth(async (marketId) => {
+      const book = await markBook(marketId);
+      return book === null ? null : deps.matching.depth(book, 1);
+    }),
     policy: deps.ladderPolicy,
   };
 

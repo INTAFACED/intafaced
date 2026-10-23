@@ -1,26 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { DepthSnapshot } from './mark-from-depth.js';
-import {
-  indexSpotMarketId,
-  markSourceFromSpotIndex,
-  parseIndexSpotMarkets,
-  type IndexMarketLookup,
-  type IndexMarketRow,
-} from './mark-from-spot-index.js';
+import { markBookResolver, parseIndexSpotMarkets, type IndexMarket, type IndexMarketLookup } from './mark-from-spot-index.js';
 
-const PERP: IndexMarketRow = { id: 'f1', symbol: 'BTC/USDT:USDT', kind: 'futures', base_asset: 'BTC', quote_asset: 'USDT' };
-const SPOT: IndexMarketRow = { id: 's1', symbol: 'BTC/USDT', kind: 'spot', base_asset: 'BTC', quote_asset: 'USDT' };
-const ETH_SPOT: IndexMarketRow = { id: 's2', symbol: 'ETH/USDT', kind: 'spot', base_asset: 'ETH', quote_asset: 'USDT' };
+const PERP: IndexMarket = { id: 'f1', symbol: 'BTC/USDT:USDT', kind: 'futures', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'active' };
+const SPOT: IndexMarket = { id: 's1', symbol: 'BTC/USDT', kind: 'spot', baseAsset: 'BTC', quoteAsset: 'USDT', status: 'active' };
+const ETH_SPOT: IndexMarket = { id: 's2', symbol: 'ETH/USDT', kind: 'spot', baseAsset: 'ETH', quoteAsset: 'USDT', status: 'active' };
 
-function lookup(rows: IndexMarketRow[]): IndexMarketLookup {
+function lookup(rows: IndexMarket[]): IndexMarketLookup {
   return {
     byId: async (id) => rows.find((r) => r.id === id) ?? null,
     bySymbol: async (symbol) => rows.find((r) => r.symbol === symbol) ?? null,
   };
 }
-
-const observedAt = new Date('2026-10-22T12:00:00.000Z');
-const book = (bid: string, ask: string): DepthSnapshot => ({ bids: [[bid, '5']], asks: [[ask, '5']], sequence: 1, observedAt });
 
 describe('parseIndexSpotMarkets', () => {
   it('reads <futures>=<spot> pairs; blank is off', () => {
@@ -42,49 +32,31 @@ describe('parseIndexSpotMarkets', () => {
   });
 });
 
-describe('indexSpotMarketId', () => {
+describe('markBookResolver', () => {
   const pairs = parseIndexSpotMarkets('BTC/USDT:USDT=BTC/USDT');
 
-  it('names the paired spot market when it shares base and quote', async () => {
-    expect(await indexSpotMarketId(pairs, lookup([PERP, SPOT]), 'f1')).toBe('s1');
+  it('off when no pair is configured', () => {
+    expect(markBookResolver(new Map(), lookup([PERP, SPOT]))).toBeNull();
   });
 
-  it('null when the pair is missing, the spot row is absent, not spot, or another asset — never a nearby price', async () => {
-    expect(await indexSpotMarketId(new Map(), lookup([PERP, SPOT]), 'f1')).toBeNull();
-    expect(await indexSpotMarketId(pairs, lookup([PERP]), 'f1')).toBeNull();
-    expect(await indexSpotMarketId(pairs, lookup([PERP, { ...SPOT, kind: 'futures' }]), 'f1')).toBeNull();
-    expect(await indexSpotMarketId(parseIndexSpotMarkets('BTC/USDT:USDT=ETH/USDT'), lookup([PERP, ETH_SPOT]), 'f1')).toBeNull();
-    // The id asked about must itself be a futures market.
-    expect(await indexSpotMarketId(pairs, lookup([PERP, SPOT]), 's1')).toBeNull();
-  });
-});
-
-describe('markSourceFromSpotIndex', () => {
-  it('off when no pair is configured, so the book mark stays as it was', () => {
-    expect(markSourceFromSpotIndex({ pairs: new Map(), markets: lookup([PERP, SPOT]), readDepth: async () => null })).toBeNull();
+  it('names the paired spot book when it is an active spot market of the same base and quote', async () => {
+    expect(await markBookResolver(pairs, lookup([PERP, SPOT]))!('f1')).toBe('s1');
   });
 
-  it('marks the futures market from the spot book’s depth, never from its own', async () => {
-    const reads: string[] = [];
-    const src = markSourceFromSpotIndex({
-      pairs: parseIndexSpotMarkets('BTC/USDT:USDT=BTC/USDT'),
-      markets: lookup([PERP, SPOT]),
-      readDepth: async (id) => {
-        reads.push(id);
-        return id === 's1' ? book('64990', '65010') : book('1', '2');
-      },
-    });
-    expect(await src!.markPrice({ marketId: 'f1', at: observedAt })).toBe('65000');
-    expect(reads).toEqual(['s1']);
+  it('a market no pair names reads its own book, as before', async () => {
+    const other = { ...PERP, id: 'f2', symbol: 'ETH/USDT:USDT', baseAsset: 'ETH' };
+    const resolve = markBookResolver(pairs, lookup([PERP, SPOT, other, ETH_SPOT]))!;
+    expect(await resolve('f2')).toBe('f2');
+    expect(await resolve('s2')).toBe('s2');
+    expect(await resolve('unknown')).toBe('unknown');
   });
 
-  it('an empty spot book or an unpaired futures market reads null', async () => {
-    const src = markSourceFromSpotIndex({
-      pairs: parseIndexSpotMarkets('BTC/USDT:USDT=BTC/USDT'),
-      markets: lookup([PERP, SPOT, { ...PERP, id: 'f2', symbol: 'ETH/USDT:USDT', base_asset: 'ETH' }]),
-      readDepth: async () => ({ bids: [], asks: [], sequence: 0, observedAt }),
-    });
-    expect(await src!.markPrice({ marketId: 'f1', at: observedAt })).toBeNull();
-    expect(await src!.markPrice({ marketId: 'f2', at: observedAt })).toBeNull();
+  it('a pair that does not fit reads no book — never a nearby price, never the futures book instead', async () => {
+    expect(await markBookResolver(pairs, lookup([PERP]))!('f1')).toBeNull();
+    expect(await markBookResolver(pairs, lookup([PERP, { ...SPOT, kind: 'futures' }]))!('f1')).toBeNull();
+    for (const status of ['halted', 'delisted', 'pending'] as const) {
+      expect(await markBookResolver(pairs, lookup([PERP, { ...SPOT, status }]))!('f1'), status).toBeNull();
+    }
+    expect(await markBookResolver(parseIndexSpotMarkets('BTC/USDT:USDT=ETH/USDT'), lookup([PERP, ETH_SPOT]))!('f1')).toBeNull();
   });
 });
