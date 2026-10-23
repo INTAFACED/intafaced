@@ -462,26 +462,28 @@ describe('MC-token-01 governance home', () => {
         `;
         if (updated.length !== 1) throw new Error('stake row was not active');
         let settled: string | null = null;
-        pending = token
-          .createProposal({
-            kind: 'listing',
-            createdBy: USER_A,
-            opensAt: OPENS,
-            closesAt: CLOSES,
-            now: NOW,
-            handle: 'race-1',
-            title: 'Race',
-          })
-          .then(
-            (row) => {
-              settled = `ok:${row.id}`;
-              return row;
-            },
-            (err: { code?: string; message?: string }) => {
-              settled = `err:${err.code ?? err.message ?? 'unknown'}`;
-              throw err;
-            },
-          );
+        const created = token.createProposal({
+          kind: 'listing',
+          createdBy: USER_A,
+          opensAt: OPENS,
+          closesAt: CLOSES,
+          now: NOW,
+          handle: 'race-1',
+          title: 'Race',
+        });
+        // Catch immediately. The refusal lands when the stake transaction
+        // commits, which is before the assertion, and a late catch is an
+        // unhandled rejection.
+        pending = created.then(
+          (row) => {
+            settled = `ok:${row.id}`;
+            return { ok: true as const, row };
+          },
+          (err: { code?: string; message?: string }) => {
+            settled = `err:${err.code ?? err.message ?? 'unknown'}`;
+            return { ok: false as const, err };
+          },
+        );
         let saw = false;
         for (let i = 0; i < 80 && !saw && settled === null; i += 1) {
           for (let step = 0; step < 5; step += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -494,7 +496,8 @@ describe('MC-token-01 governance home', () => {
         }
         if (!saw) throw new Error(`proposal create did not wait on the open stake transaction (${settled ?? 'still running'})`);
       });
-      await expect(pending).rejects.toMatchObject({ code: 'token.proposal_not_allowed' });
+      const outcome = await pending;
+      expect(outcome).toMatchObject({ ok: false, err: { code: 'token.proposal_not_allowed' } });
       expect(await sql`SELECT id FROM token.proposals`).toHaveLength(0);
       const status = await sql<Array<{ status: string }>>`SELECT status FROM token.stakes WHERE id = ${stakeId}`;
       expect(status[0]?.status).toBe('unstaking');
