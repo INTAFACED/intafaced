@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
@@ -40,7 +40,7 @@ export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade
     <PaySection title={t('receiptTitle')} description={completed ? t('receiptBody') : undefined}>
       {!completed ? (
         <p className="muted">{t('receiptOnlyCompleted')}</p>
-      ) : (
+      ) : result?.ok ? null : (
         <Button variant="secondary" onClick={get} disabled={busy}>
           {busy ? t('receiptLoading') : t('receiptAction')}
         </Button>
@@ -61,43 +61,36 @@ export function OrderReceipt({ pay, trade }: { pay: PersonalPayApi; trade: Trade
 function ReceiptView({ data }: { data: Receipt }) {
   const { t } = orderHistoryCopy.useCopy();
   const r = data.receipt;
-  const rows: [string, string][] = [
-    [t('receiptOrder'), r.tradeId],
-    [t('receiptOffer'), r.offerId],
-    [t('receiptRole'), r.role === 'buyer' ? t('receiptBuyer') : t('receiptSeller')],
-    [t('receiptAmount'), `${r.amount} ${r.asset}`],
-    [t('receiptPaid'), `${r.fiatAmount} ${r.fiatCurrency}`],
-    [t('receiptPrice'), `${r.price} ${r.fiatCurrency}/${r.asset}`],
-    [t('receiptFee'), t('receiptFeeBps', { percent: bpsPercent(r.feeBps) })],
-    [t('receiptMethod'), r.method],
-    [t('receiptOpened'), r.createdAt],
-    [t('receiptEscrowed'), r.escrowedAt ?? ''],
-    [t('receiptPaidAt'), r.fiatSentAt ?? ''],
-    [t('receiptCompleted'), r.resolvedAt ?? ''],
-  ];
   const at = (value: string | null) => (value ? <PayTime value={value} /> : '—');
+  // One list for the screen and the file: [label, what the file holds, what the screen shows].
+  const fields: [string, string, ReactNode][] = [
+    [t('receiptOrder'), r.tradeId, <span lang="zxx">{r.tradeId}</span>],
+    [t('receiptOffer'), r.offerId, <span lang="zxx">{r.offerId}</span>],
+    [
+      t('receiptRole'),
+      r.role === 'buyer' ? t('receiptBuyer') : t('receiptSeller'),
+      r.role === 'buyer' ? t('receiptBuyer') : t('receiptSeller'),
+    ],
+    [t('receiptAmount'), `${r.amount} ${r.asset}`, <PayAmount value={r.amount} unit={r.asset} label={t('receiptAmount')} />],
+    [
+      t('receiptPaid'),
+      `${r.fiatAmount} ${r.fiatCurrency}`,
+      <PayAmount value={r.fiatAmount} unit={r.fiatCurrency} label={t('receiptPaid')} />,
+    ],
+    [t('receiptPrice'), `${r.price} ${r.fiatCurrency}/${r.asset}`, `${displayAmount(r.price)} ${r.fiatCurrency} / ${r.asset}`],
+    [t('receiptFee'), t('receiptFeeBps', { percent: bpsPercent(r.feeBps) }), t('receiptFeeBps', { percent: bpsPercent(r.feeBps) })],
+    [t('receiptMethod'), r.method, <span lang="zxx">{r.method}</span>],
+    [t('receiptOpened'), r.createdAt, at(r.createdAt)],
+    [t('receiptEscrowed'), r.escrowedAt ?? '', at(r.escrowedAt)],
+    [t('receiptPaidAt'), r.fiatSentAt ?? '', at(r.fiatSentAt)],
+    [t('receiptCompleted'), r.resolvedAt ?? '', at(r.resolvedAt)],
+  ];
+  const file = fields.map(([label, raw]) => [label, raw].map(csvCell).join(',')).join('\r\n') + '\r\n';
   return (
     <div className="stack" role="status" data-testid="order-receipt">
-      <PayDetails
-        values={[
-          [t('receiptOrder'), <span lang="zxx">{r.tradeId}</span>],
-          [t('receiptRole'), r.role === 'buyer' ? t('receiptBuyer') : t('receiptSeller')],
-          [t('receiptAmount'), <PayAmount value={r.amount} unit={r.asset} label={t('receiptAmount')} />],
-          [t('receiptPaid'), <PayAmount value={r.fiatAmount} unit={r.fiatCurrency} label={t('receiptPaid')} />],
-          [t('receiptPrice'), `${displayAmount(r.price)} ${r.fiatCurrency} / ${r.asset}`],
-          [t('receiptFee'), t('receiptFeeBps', { percent: bpsPercent(r.feeBps) })],
-          [t('receiptMethod'), <span lang="zxx">{r.method}</span>],
-          [t('receiptOpened'), at(r.createdAt)],
-          [t('receiptEscrowed'), at(r.escrowedAt)],
-          [t('receiptPaidAt'), at(r.fiatSentAt)],
-          [t('receiptCompleted'), at(r.resolvedAt)],
-        ]}
-      />
+      <PayDetails values={fields.map(([label, , shown]) => [label, shown])} />
       <p className="muted">{t('receiptRemaining', { daily: String(data.dailyRemaining), trade: String(data.tradeRemaining) })}</p>
-      <Button
-        variant="secondary"
-        onClick={() => downloadText(`p2p-receipt-${r.tradeId}.csv`, rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n')}
-      >
+      <Button variant="secondary" onClick={() => downloadText(`p2p-receipt-${r.tradeId}.csv`, file)}>
         {t('receiptDownload')}
       </Button>
     </div>

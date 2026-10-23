@@ -179,12 +179,12 @@ test('J-p2p-18 #2 an export over the range cap is refused, and a valid range sav
   await signIn(page, state.buyer);
   await page.goto('/uc/order');
   const day = (offset) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
-  await page.getByLabel('From', { exact: true }).fill(day(-MAX_RANGE_DAYS - 5));
-  await page.getByLabel('To', { exact: true }).fill(day(0));
+  await page.getByLabel('From (UTC day)').fill(day(-MAX_RANGE_DAYS - 5));
+  await page.getByLabel('To (UTC day)').fill(day(0));
   await page.getByRole('button', { name: 'Export CSV' }).click();
   await expect(page.getByRole('alert')).toContainText(`Choose at most ${MAX_RANGE_DAYS} days per file.`);
 
-  await page.getByLabel('From', { exact: true }).fill(day(-1));
+  await page.getByLabel('From (UTC day)').fill(day(-1));
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export CSV' }).click()]);
   const lines = readFileSync(await download.path(), 'utf8')
     .trim()

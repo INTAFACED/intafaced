@@ -467,12 +467,14 @@ export function createPersonalPayApi(
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.list', input, z.array(s.offerSchema), { signal }),
     offer: currentOffer,
-    trades: (limit: number, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.list', { limit }, z.array(s.tradeSchema), { signal }),
     trade: currentTrade,
     /** One page of the order list: `tab` narrows it, `cursor` continues from the previous page's `nextCursor`. */
-    orderPage: (input: { limit: number; tab?: s.OrderTab; cursor?: string }, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.page', input, s.orderPageSchema, { signal }),
+    orderPage: ({ tab, cursor, limit }: { limit: number; tab?: s.OrderTab; cursor?: string | null }, signal?: AbortSignal) =>
+      signedIn()
+        ? Promise.resolve(signedIn()!)
+        : api.query('p2p', 'trades.page', { limit, ...(tab ? { tab } : {}), ...(cursor ? { cursor } : {}) }, s.orderPageSchema, {
+            signal,
+          }),
     /** The caller's orders created in [from, to] as the service's CSV; a range or row count over the owner cap refuses. */
     exportOrders: (range: { from: string; to: string }, signal?: AbortSignal) =>
       signedIn()

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Button, DataTable } from '@intafaced/ui';
+import { useEffect, useState } from 'react';
+import { Button, DataTable, StatusTag } from '@intafaced/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { displayAmount } from '../../../shared/money';
@@ -11,6 +11,8 @@ import type { OrderExport, OrderPage, OrderTab } from '../schemas';
 import { downloadText } from '../portal/csv';
 import { OrderFilterTabs } from './P2PDepth';
 import { UnreadBadge, useUnreadCounts } from './Unread';
+import type { UnreadCount } from './p2p-chat-model';
+import { p2pDepth } from './p2p-depth-copy';
 import { orderHistoryCopy } from './order-history-copy';
 import type { OrderFilter } from './p2p-model';
 
@@ -27,10 +29,7 @@ type Row = OrderPage['trades'][number];
 export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
   const [filter, setFilter] = useState<OrderFilter>('all');
   const tab = filter === 'all' ? undefined : TAB[filter];
-  const first = useResource(
-    (signal) => pay.orderPage({ limit: PAGE, ...(tab ? { tab } : {}) }, signal),
-    `pay:order-page:${userId}:${filter}`,
-  );
+  const first = useResource((signal) => pay.orderPage({ limit: PAGE, tab }, signal), `pay:order-page:${userId}:${filter}`);
   return (
     <div className="stack">
       <PaySection
@@ -42,17 +41,9 @@ export function OrderHistory({ pay, userId }: { pay: PersonalPayApi; userId: str
           </Button>
         }
       >
+        {/* A reload or another tab shows loading first, so each answer mounts its own pages afresh. */}
         <PayState resource={first.resource} retry={first.reload}>
-          {(page) => (
-            <OrderPages
-              key={`${filter}:${page.trades[0]?.id ?? ''}:${Object.values(page.counts).join(',')}`}
-              pay={pay}
-              userId={userId}
-              first={page}
-              filter={filter}
-              onFilter={setFilter}
-            />
-          )}
+          {(page) => <OrderPages pay={pay} userId={userId} first={page} filter={filter} tab={tab} onFilter={setFilter} />}
         </PayState>
       </PaySection>
       <ExportOrders pay={pay} />
@@ -65,19 +56,23 @@ function OrderPages({
   userId,
   first,
   filter,
+  tab,
   onFilter,
 }: {
   pay: PersonalPayApi;
   userId: string | null;
   first: OrderPage;
   filter: OrderFilter;
+  tab: OrderTab | undefined;
   onFilter: (filter: OrderFilter) => void;
 }) {
   const { t } = orderHistoryCopy.useCopy();
-  const [rows, setRows] = useState<Row[]>(first.trades);
+  const [pages, setPages] = useState<Row[][]>([first.trades]);
   const [cursor, setCursor] = useState(first.nextCursor);
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  const [unread, setUnread] = useState<Record<string, UnreadCount>>({});
+  const rows = pages.flat();
   const c = first.counts;
   const counts: Record<OrderFilter, number> = {
     all: c.in_progress + c.in_dispute + c.completed + c.cancelled,
@@ -90,16 +85,22 @@ function OrderPages({
     if (!cursor) return;
     setLoading(true);
     setFailure(null);
-    const result = await pay.orderPage({ limit: PAGE, cursor, ...(filter === 'all' ? {} : { tab: TAB[filter] }) });
+    const result = await pay.orderPage({ limit: PAGE, cursor, tab });
     setLoading(false);
     if (!result.ok) return setFailure(result);
-    setRows((current) => [...current, ...result.data.trades.filter((row) => !current.some((seen) => seen.id === row.id))]);
+    const seen = new Set(rows.map((row) => row.id));
+    setPages((current) => [...current, result.data.trades.filter((row) => !seen.has(row.id))]);
     setCursor(result.data.nextCursor);
   };
+  if (counts.all === 0) return <p className="muted">{payCopy.t('noP2pOrdersReturned')}</p>;
   return (
     <>
       <OrderFilterTabs value={filter} counts={counts} onChange={onFilter} note={t('countsNote')} />
-      <OrderRows pay={pay} userId={userId} rows={rows} />
+      {/* Unread counts per page, so loading an older page reads only the orders it added. */}
+      {pages.map((page, index) => (
+        <PageUnread key={index} pay={pay} rows={page} onCounts={setUnread} />
+      ))}
+      {rows.length === 0 ? <p className="muted">{p2pDepth.t('ordersNone')}</p> : <OrderRows userId={userId} rows={rows} unread={unread} />}
       <p className="muted" role="status">
         {t('shownOfTotal', { shown: String(rows.length), total: String(counts[filter]) })}
       </p>
@@ -115,9 +116,27 @@ function OrderPages({
   );
 }
 
-function OrderRows({ pay, userId, rows }: { pay: PersonalPayApi; userId: string | null; rows: Row[] }) {
+function PageUnread({
+  pay,
+  rows,
+  onCounts,
+}: {
+  pay: PersonalPayApi;
+  rows: Row[];
+  onCounts: (merge: (current: Record<string, UnreadCount>) => Record<string, UnreadCount>) => void;
+}) {
+  const counts = useUnreadCounts(pay, rows);
+  useEffect(() => onCounts((current) => ({ ...current, ...counts })), [counts, onCounts]);
+  return null;
+}
+
+const TONE = { in_progress: 'working', in_dispute: 'pending', completed: 'filled', cancelled: 'failed' } as const satisfies Record<
+  OrderTab,
+  string
+>;
+
+function OrderRows({ userId, rows, unread }: { userId: string | null; rows: Row[]; unread: Record<string, UnreadCount> }) {
   const { t } = orderHistoryCopy.useCopy();
-  const unread = useUnreadCounts(pay, rows);
   return (
     <DataTable
       headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), t('statusColumn'), '']}
@@ -139,7 +158,7 @@ function OrderRows({ pay, userId, rows }: { pay: PersonalPayApi; userId: string 
             {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
           </td>
           <td>
-            {t(trade.displayStatus)}
+            <StatusTag status={TONE[trade.tab]} label={t(trade.displayStatus)} />
             <small className="pay-cell-note">
               {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
             </small>
