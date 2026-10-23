@@ -81,10 +81,16 @@ describe('notifications', () => {
       kind,
       inApp: kind !== 'team_change',
       threshold: kind === 'limit_threshold' ? '500.5' : null,
-      updatedAt: null,
+      updatedBy: kind === 'team_change' ? 'user-finance' : null,
+      updatedAt: kind === 'team_change' ? '2026-10-15T07:00:00.000Z' : null,
     })),
   );
-  const render = (view: 'feed' | 'preferences', feed: ListState<p.Notification>) =>
+  const changes = list<p.PreferenceChange>([
+    { seq: '3', kind: 'limit_threshold', inApp: true, threshold: '500.5', actorId: 'me-1', createdAt: '2026-10-15T07:30:00.000Z' },
+    { seq: '2', kind: 'team_change', inApp: false, threshold: null, actorId: 'user-finance', createdAt: '2026-10-15T07:00:00.000Z' },
+    { seq: '1', kind: 'export_ready', inApp: true, threshold: null, actorId: 'user-gone', createdAt: '2026-10-15T06:00:00.000Z' },
+  ]);
+  const render = (view: 'feed' | 'preferences', feed: ListState<p.Notification>, history: ListState<p.PreferenceChange> = changes) =>
     html(
       <NotificationsView
         portal={portal}
@@ -99,6 +105,11 @@ describe('notifications', () => {
         loadMore={noop}
         reload={noop}
         reloadPrefs={noop}
+        history={history}
+        loadMoreHistory={noop}
+        reloadHistory={noop}
+        names={new Map([['user-finance', 'Accounts']])}
+        myUserId="me-1"
       />,
     );
   it('shows a feed with unread marked in words and a link to the subject', () => {
@@ -142,5 +153,30 @@ describe('notifications', () => {
     expect(out).toContain('value="500.5"');
     expect(out).toContain('There is no default');
     expect((out.match(/type="checkbox"/g) ?? []).length).toBe(p.notificationKinds.length);
+  });
+  it('shows every preference change with who made it, names not ids, and who saved each kind last', () => {
+    const out = render('preferences', list<p.Notification>([]));
+    expect(out).toContain('Change history');
+    expect(out).toContain('Limit nearly reached turned on, alert at 500.5');
+    expect(out).toContain('Team change turned off');
+    expect(out).toContain('Export ready turned on');
+    expect(out).toContain('By You');
+    expect(out).toContain('By Accounts');
+    expect(out).toContain('Last saved by Accounts');
+    expect(out).not.toContain('user-finance');
+    expect(out).not.toContain('user-gone');
+    expect(out).not.toContain('History is not connected');
+    expect(out).not.toContain('is not recorded');
+  });
+  it('has empty, loading and failed states for the change history, and no history on the feed', () => {
+    expect(render('preferences', list<p.Notification>([]), list<p.PreferenceChange>([]))).toContain('No changes yet');
+    expect(render('preferences', list<p.Notification>([]), { status: 'loading' })).toContain('aria-busy="true"');
+    expect(
+      render('preferences', list<p.Notification>([]), {
+        status: 'failed',
+        failure: refusal('pay.merchant_ops_unavailable', 503, 'unreachable'),
+      }),
+    ).toContain('Try again');
+    expect(render('feed', list<p.Notification>([]))).not.toContain('Change history');
   });
 });

@@ -66,6 +66,10 @@ export const TOKEN_REFUSAL_COPY = {
   'token.history_cursor_invalid': 'That history page marker is not valid.',
   'token.emission_schedule_count_unset': 'The emission schedule length is not set.',
   'token.ledger_tx_unread': 'That payout is not on the ledger.',
+  'token.delegation_delegatee_unset': 'The person to delegate to is not set.',
+  'token.delegation_delegatee_invalid': 'That delegation target is not a member.',
+  'token.delegation_unavailable': 'There is no chain service and no on-chain delegate registry.',
+  'token.treasury_figure_unreadable': 'A treasury figure recorded by this service could not be read.',
 } as const satisfies Record<TokenError['code'], string>;
 
 /** Refusal codes that are not TokenError: job HMAC, emissions switch, ready honesty. */

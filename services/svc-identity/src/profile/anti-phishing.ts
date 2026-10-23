@@ -1,6 +1,6 @@
 /**
  * Anti-phishing code (I-signin-sessions-25). A word the account owner picks so a real security message can be told
- * from a fake one: identity's mails and notices carry it, a phishing mail cannot.
+ * from a fake one: identity's mails to the account's own address carry it (anti-phishing-mail.ts), a phishing mail cannot.
  *
  * - 4 to 20 letters and digits. Refused when it equals the handle, the email or the password (case-insensitive for
  *   the first two): a code anyone who knows the account could guess is no proof.
@@ -74,6 +74,16 @@ export function openCode(key: Buffer, ciphertext: Buffer, nonce: Buffer): string
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(ciphertext.subarray(ciphertext.length - TAG_LEN));
   return Buffer.concat([decipher.update(ciphertext.subarray(0, ciphertext.length - TAG_LEN)), decipher.final()]).toString('utf8');
+}
+
+/** The stored code, or null when there is no key or this key cannot open it (it was sealed under another key). */
+export function openStoredCode(key: Buffer | null, row: { ciphertext: Buffer; nonce: Buffer }): string | null {
+  if (!key) return null;
+  try {
+    return openCode(key, row.ciphertext, row.nonce);
+  } catch {
+    return null;
+  }
 }
 
 export type AntiPhishingDeps = {
@@ -160,14 +170,8 @@ export class AntiPhishingService {
     });
   }
 
-  /** The stored code, or null when this key cannot open it (it was sealed under another key). */
   private open(row: { ciphertext: Buffer; nonce: Buffer }): string | null {
-    if (!this.deps.key) return null;
-    try {
-      return openCode(this.deps.key, row.ciphertext, row.nonce);
-    } catch {
-      return null;
-    }
+    return openStoredCode(this.deps.key, row);
   }
 
   /**

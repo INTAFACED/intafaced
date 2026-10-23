@@ -246,6 +246,46 @@ describe('bar backtest disclosures and races', () => {
   });
 });
 
+describe('run history, labels and the log', () => {
+  it('lists own runs newest first; a label never changes the stored result; another account cannot see or rename them', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const first = await a.backtest.start(request(strategy.id));
+    // Runs are stamped to the millisecond: wait one, so "newest first" is decided by time, not by a tie.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await a.backtest.start({ ...request(strategy.id), costs: { feeRole: 'maker', slippageBps: '2', delayBars: '0' } });
+    const page = await a.backtest.history({ limit: 10 });
+    expect(page.runs.map((row) => row.runId)).toEqual([second.runId, first.runId]);
+    expect(page.runs[0]).toMatchObject({ strategyId: strategy.id, strategyVersion: 1, outcome: 'ok', label: null });
+
+    expect(await a.backtest.rename({ runId: first.runId, label: '  hourly cross  ' })).toEqual({
+      runId: first.runId,
+      label: 'hourly cross',
+    });
+    expect((await a.backtest.history({ limit: 10 })).runs[1]!.label).toBe('hourly cross');
+    expect(await a.backtest.result({ runId: first.runId })).toEqual(first);
+
+    await expect(a.backtest.rename({ runId: first.runId, label: ' ' })).rejects.toThrow(/quant\.params_invalid — label/);
+    await expect(b.backtest.rename({ runId: first.runId, label: 'mine' })).rejects.toThrow(/quant\.run_not_found/);
+    expect((await b.backtest.history({ limit: 10 })).runs).toEqual([]);
+    // One page at a time, still newest first.
+    const one = await a.backtest.history({ limit: 1 });
+    expect(one.runs.map((row) => row.runId)).toEqual([second.runId]);
+    expect((await a.backtest.history({ limit: 1, cursor: one.nextCursor })).runs.map((row) => row.runId)).toEqual([first.runId]);
+  });
+
+  it('logs what was read, each fill and, as warnings, each gap and the choices that shaped the result', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    const result = await a.backtest.start(request(strategy.id));
+    expect(result.log[0]).toMatchObject({ level: 'info', code: 'bars_read', values: { bars: '8', expected: '8' } });
+    expect(result.log.filter((line) => line.code === 'fill')).toHaveLength(result.trades.length);
+    const warnings = result.log.filter((line) => line.level === 'warn');
+    expect(warnings).toEqual([{ level: 'warn', code: 'assumption', ts: null, values: { name: 'risk_limits_not_simulated' } }]);
+    expect(result.log[result.log.length - 1]).toMatchObject({ code: 'finished', values: { net: result.totals.net } });
+  });
+});
+
 describe('history read', () => {
   it('asks for closed bars from the window start and keeps only whole bars inside it', async () => {
     const seen: string[] = [];

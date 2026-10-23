@@ -51,6 +51,10 @@ export interface PasswordResetMail {
     readonly purpose?: MailPurpose;
     /** The username, for the recovery mail only. */
     readonly handle?: string;
+    /** The account the mail is about, when the sender knows it and the address may no longer name it. */
+    readonly userId?: string;
+    /** The account's anti-phishing code, on mails to its own address when its owner set one. */
+    readonly antiPhishingCode?: string;
   }): Promise<void>;
 }
 

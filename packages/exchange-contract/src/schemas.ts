@@ -395,6 +395,11 @@ export const orderSchema = z.object({
    * field.
    */
   hold: z.object({ asset: z.string(), amount: decimal }).nullable().optional(),
+  /**
+   * The rank fee discount the order trades with, as a rate ("0" when none). Its fills' fee rates already include it.
+   * Absent on wires from before this field.
+   */
+  feeDiscount: decimal.optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 

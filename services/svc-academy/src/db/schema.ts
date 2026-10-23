@@ -378,6 +378,41 @@ export const assessmentAttempts = academy.table(
   (t) => [uniqueIndex('assessment_attempts_client_uq').on(t.userId, t.clientAttemptId)],
 );
 
+export const itemPrerequisites = academy.table(
+  'item_prerequisites',
+  {
+    itemSlug: text('item_slug').notNull(),
+    prerequisiteSlug: text('prerequisite_slug').notNull(),
+  },
+  (t) => [uniqueIndex('item_prerequisites_pk').on(t.itemSlug, t.prerequisiteSlug)],
+);
+
+export const itemWindows = academy.table('item_windows', {
+  itemSlug: text('item_slug').primaryKey(),
+  availableFrom: tstz('available_from').notNull(),
+  availableUntil: tstz('available_until').notNull(),
+  dueAt: tstz('due_at'),
+});
+
+export const itemExtensions = academy.table(
+  'item_extensions',
+  {
+    userId: uuid('user_id').notNull(),
+    itemSlug: text('item_slug').notNull(),
+    revision: integer('revision').notNull(),
+    reason: text('reason').notNull(),
+    extendedUntil: tstz('extended_until').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    grantedBy: uuid('granted_by').notNull(),
+    grantedAt: tstz('granted_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('item_extensions_pk').on(t.userId, t.itemSlug, t.revision),
+    uniqueIndex('item_extensions_request_uq').on(t.userId, t.itemSlug, t.clientRequestId),
+    uniqueIndex('item_extensions_request_once_uq').on(t.userId, t.clientRequestId),
+  ],
+);
+
 export const certHolderNameRequests = academy.table(
   'cert_holder_name_requests',
   {
@@ -405,6 +440,9 @@ export const schema = {
   certGrants,
   assessmentAttempts,
   certHolderNameRequests,
+  itemPrerequisites,
+  itemWindows,
+  itemExtensions,
   learningState,
   learningActiveDays,
   learningTouches,

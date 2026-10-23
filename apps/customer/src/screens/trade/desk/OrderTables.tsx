@@ -177,8 +177,8 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
   );
 }
 
-const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
-const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
+export const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
+export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 
 /** Open orders (with Cancel) or past orders (with a status tag). `onChanged` runs after a cancel so the lists refresh. */
 export function OrdersTable({
@@ -205,6 +205,7 @@ export function OrdersTable({
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
+  const detailsTitle = t('Order details open');
   return (
     <>
       <table className="dk-table">
@@ -253,7 +254,11 @@ export function OrdersTable({
                   )}
                 </td>
               ) : null}
-              <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
+              <td className="if-num">
+                <a className="dk-order-link" href={`/trade/orders/${encodeURIComponent(order.id)}`} title={detailsTitle}>
+                  {dayTime(order.timestamp, timeZone)}
+                </a>
+              </td>
               <td>{order.symbol}</td>
               <td>
                 {order.exit
