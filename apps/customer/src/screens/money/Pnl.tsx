@@ -4,6 +4,7 @@ import { moneyCopy } from './copy';
 import { Amount, Button, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
 import {
   LOT_METHODS,
+  assetCustomerEntered,
   coinMethod,
   lotAssetFromQuery,
   lotAssets,
@@ -11,6 +12,7 @@ import {
   methodFromQuery,
   pickableLots,
   pnlView,
+  unknownShareOf,
   type AssetPnl,
   type LotBook,
   type LotBookLot,
@@ -19,7 +21,7 @@ import {
   type LotMethodSource,
   type UnknownReason,
 } from './pnl-model';
-import { useLotBook, useSaveLotChoice, type LotChoice } from './pnl-source';
+import { useLotBasis, useLotBook, useSaveLotChoice, type LotChoice } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -116,7 +118,7 @@ function MethodSwitch({ method, onChange, copy }: { method: LotMethod | null; on
   );
 }
 
-function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidden: boolean; copy: Copy }) {
+function AssetRows({ book, assets, hidden, copy }: { book: LotBook; assets: readonly AssetPnl[]; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   return (
     <section className="money-card" aria-label={t('Open positions')}>
@@ -161,6 +163,7 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
               </td>
               <td className="money-num" data-col="cost">
                 <Amount value={usd(a.costUsd, copy)} hidden={hidden} />
+                {a.costUsd !== null && assetCustomerEntered(book, a.asset) ? <CustomerEntered copy={copy} /> : null}
               </td>
               <td className="money-num">
                 <Amount value={usd(a.valueUsd, copy)} hidden={hidden} />
@@ -234,6 +237,8 @@ function SaleRows({ book, hidden, copy, save, busy }: { book: LotBook; hidden: b
                   ) : (
                     <Amount value={usd(sale.realizedUsd, copy, true)} hidden={hidden} />
                   )}
+                  {sale.customerEntered ? <CustomerEntered copy={copy} /> : null}
+                  <UnknownShare book={book} sale={sale} hidden={hidden} copy={copy} />
                 </td>
                 <td data-col="method">
                   <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
@@ -246,6 +251,218 @@ function SaleRows({ book, hidden, copy, save, busy }: { book: LotBook; hidden: b
           </tbody>
         </table>
       )}
+    </section>
+  );
+}
+
+/** Every figure that uses a price the customer entered says so. */
+function CustomerEntered({ copy }: { copy: Copy }) {
+  return (
+    <span className="money-note" data-customer-entered="true">
+      {' '}
+      {copy.t('Customer-entered')}
+    </span>
+  );
+}
+
+/** The part of a sale with no cost: how much and what it brought in. Its result is not worked out from a made-up cost. */
+function UnknownShare({ book, sale, hidden, copy }: { book: LotBook; sale: LotBookSale; hidden: boolean; copy: Copy }) {
+  const share = unknownShareOf(book, sale);
+  if (share === null) return null;
+  const qty = `${fmtAmount(share.unknownQty)} ${sale.assetId}`;
+  return (
+    <span className="money-note" data-col="unknown-share">
+      {' '}
+      {share.unknownProceedsUsd === null ? (
+        copy.t('Unknown share no usd', { qty })
+      ) : (
+        <>
+          {copy.t('Unknown share', { qty })} <Amount value={usd(share.unknownProceedsUsd, copy)} hidden={hidden} />
+        </>
+      )}
+    </span>
+  );
+}
+
+/** The lots with no cost, named at the top, each with a way to enter one. */
+function MissingBasisCard({ book, copy, onFix }: { book: LotBook; copy: Copy; onFix: ((lotId: string) => void) | null }) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const { lots, sales } = book.missingBasis;
+  if (lots.length === 0 && sales.length === 0) return null;
+  return (
+    <section className="money-card" role="status" aria-label={t('Missing cost')}>
+      <header className="money-card__head">
+        <h2>{t('Missing cost')}</h2>
+      </header>
+      <p>{lots.length > 0 ? t('Missing cost lead', { count: String(lots.length) }) : t('Missing cost no lot')}</p>
+      {lots.length > 0 ? (
+        <ul className="money-list">
+          {lots.map((lot) => {
+            const full = book.lots.find((l) => l.id === lot.lotId);
+            return (
+              <li key={lot.lotId} data-missing-lot={lot.lotId}>
+                {t('Missing lot line', {
+                  source: t(SOURCE_COPY[lot.source]),
+                  qty: `${fmtAmount(lot.qty)} ${lot.assetId}`,
+                  time: full ? stamp(full.acquiredAt, timeZone) : '',
+                })}
+                {lot.sales.length > 0 ? (
+                  <span className="money-note"> {t('Missing lot sales', { count: String(lot.sales.length) })}</span>
+                ) : null}{' '}
+                {onFix !== null ? (
+                  <Button type="button" variant="secondary" size={32} onClick={() => onFix(lot.lotId)}>
+                    {t('Enter a cost')}
+                  </Button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <p className="money-note">{t('Missing cost rule')}</p>
+    </section>
+  );
+}
+
+const PRICE_SHAPE = /^\d+(\.\d{1,18})?$/;
+
+/**
+ * The guided form, opened at one lot: our record (no cost), the customer's price and where it comes from, the effect on the
+ * result worked out by the service before anything is saved, then save or remove. Nothing here moves a balance.
+ */
+function BasisSheet({
+  book,
+  lotId,
+  hidden,
+  copy,
+  onClose,
+}: {
+  book: LotBook;
+  lotId: string;
+  hidden: boolean;
+  copy: Copy;
+  onClose: () => void;
+}) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const basis = useLotBasis();
+  const lot = book.lots.find((l) => l.id === lotId) ?? null;
+  const [price, setPrice] = useState(lot?.entered?.pricePerUnitUsd ?? '');
+  const [note, setNote] = useState(lot?.entered?.note ?? '');
+  const [effect, setEffect] = useState<{ price: string; book: LotBook } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  if (lot === null || lot.basis === 'ours') return null;
+  const clean = price.trim();
+  const valid = PRICE_SHAPE.test(clean) && /[1-9]/.test(clean);
+  const refused = (code: string) =>
+    code === 'tax.basis_override_not_allowed'
+      ? t('Basis ours')
+      : code === 'tax.basis_lot_unknown'
+        ? t('Basis lot gone')
+        : refusalCopy(code).title;
+  const tryIt = async () => {
+    if (!valid) {
+      setMessage(t('Price invalid'));
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    const result = await basis.trial(lot.id, clean);
+    setBusy(false);
+    if (result.ok) setEffect({ price: clean, book: result.data });
+    else setMessage(refused(result.code));
+  };
+  const store = async (next: string | null) => {
+    setBusy(true);
+    setMessage('');
+    const result = await basis.save(lot.id, next, next === null ? '' : note.trim());
+    setBusy(false);
+    if (!result.ok) {
+      setMessage(refused(result.code));
+      return;
+    }
+    setMessage(next === null ? t('Price removed') : t('Price saved'));
+    onClose();
+  };
+  const after = effect !== null && effect.price === clean ? effect.book : null;
+  const afterLot = after?.lots.find((l) => l.id === lot.id) ?? null;
+  return (
+    <section className="money-card" aria-label={t('Enter a cost')} data-basis-form={lot.id}>
+      <header className="money-card__head">
+        <h2>{t('Enter a cost')}</h2>
+      </header>
+      <p>
+        {t('Missing lot line', {
+          source: t(SOURCE_COPY[lot.source]),
+          qty: `${fmtAmount(lot.qty)} ${lot.assetId}`,
+          time: stamp(lot.acquiredAt, timeZone),
+        })}
+      </p>
+      <p className="money-note" data-col="our-record">
+        {t('Basis our record')}
+      </p>
+      {lot.valuedAt !== null ? (
+        <p className="money-note">
+          {t('Basis arrival hint')} <Amount value={usd(lot.valuedAt.usd, copy)} hidden={hidden} /> {priceSource(lot, copy, timeZone)}
+        </p>
+      ) : null}
+      <form
+        className="money-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void tryIt();
+        }}
+      >
+        <label>
+          {t('Price per coin', { asset: lot.assetId })}{' '}
+          <input
+            inputMode="decimal"
+            autoComplete="off"
+            value={price}
+            onChange={(event) => setPrice(event.target.value)}
+            aria-label={t('Price per coin', { asset: lot.assetId })}
+          />
+        </label>
+        <label>
+          {t('Price note')}{' '}
+          <input value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} aria-label={t('Price note')} />
+        </label>
+        <Button type="submit" variant="secondary" size={40} disabled={busy}>
+          {t('See the effect')}
+        </Button>
+      </form>
+      {after !== null ? (
+        <dl className="money-note" data-basis-effect="true">
+          <dt>{t('Effect lot cost')}</dt>
+          <dd data-col="effect-cost">
+            <Amount value={usd(afterLot?.costUsd ?? null, copy)} hidden={hidden} /> <CustomerEntered copy={copy} />
+          </dd>
+          <dt>{t('Effect realised')}</dt>
+          <dd data-col="effect-realised">
+            <Amount value={usd(book.realizedUsd, copy, true)} hidden={hidden} /> {t('Effect then')}{' '}
+            <Amount value={usd(after.realizedUsd, copy, true)} hidden={hidden} />
+            {after.realizedCustomerEntered ? <CustomerEntered copy={copy} /> : null}
+          </dd>
+        </dl>
+      ) : null}
+      <p>
+        <Button type="button" variant="primary" size={40} disabled={busy || after === null} onClick={() => void store(clean)}>
+          {t('Save price')}
+        </Button>{' '}
+        {lot.entered !== null ? (
+          <Button type="button" variant="secondary" size={40} disabled={busy} onClick={() => void store(null)}>
+            {t('Remove my price')}
+          </Button>
+        ) : null}{' '}
+        <Button type="button" variant="secondary" size={40} disabled={busy} onClick={onClose}>
+          {t('Export cancel')}
+        </Button>
+      </p>
+      <p className="money-note" role="status">
+        {message}
+      </p>
     </section>
   );
 }
@@ -404,6 +621,7 @@ function LotRows({
   copy,
   save,
   busy,
+  onFix,
 }: {
   book: LotBook;
   search: string;
@@ -411,6 +629,7 @@ function LotRows({
   copy: Copy;
   save: Save | null;
   busy: boolean;
+  onFix: ((lotId: string) => void) | null;
 }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
@@ -500,6 +719,15 @@ function LotRows({
               </td>
               <td className="money-num" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
+                {lot.basis === 'customer' ? <CustomerEntered copy={copy} /> : null}
+                {lot.basis !== 'ours' && onFix !== null ? (
+                  <>
+                    {' '}
+                    <Button type="button" variant="secondary" size={32} onClick={() => onFix(lot.id)}>
+                      {lot.basis === 'customer' ? t('Change price') : t('Enter a cost')}
+                    </Button>
+                  </>
+                ) : null}
               </td>
               <td className="money-num" data-col="cost-left">
                 {lot.remainingCostUsd === null ? (
@@ -543,6 +771,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
   const book = useLotBook(ask);
   const saver = useChoiceSaver(copy);
+  const [basisLot, setBasisLot] = useState<string | null>(null);
   // The switch shows the method on screen: the previewed one, else the account's saved (or default) method.
   const method = ask !== 'saved' ? ask : book.status === 'ready' ? book.data.method : null;
   const portfolio = useMoneyPortfolio();
@@ -592,6 +821,18 @@ export default function Pnl({ search = '' }: { search?: string }) {
     // Choices are made on the saved book, never on a preview, and only where they can be saved.
     const canChoose = !data.preview && data.choices.status === 'saved';
     const save = canChoose ? saver.save : null;
+    // A price can be entered on the saved book only, where it can be stored.
+    const onFix = canChoose
+      ? (lotId: string) => {
+          setBasisLot(lotId);
+          const lot = data.lots.find((l) => l.id === lotId);
+          if (lot) {
+            const params = new URLSearchParams(search);
+            params.set('asset', lot.assetId);
+            navigate(`/money/pnl?${params.toString()}`, true);
+          }
+        }
+      : null;
     body = (
       <>
         {data.preview ? (
@@ -632,6 +873,11 @@ export default function Pnl({ search = '' }: { search?: string }) {
             <p className="money-total" data-figure="realised">
               <Amount value={usd(view.realisedUsd, copy, true)} hidden={hideBalances} />
             </p>
+            {data.realizedCustomerEntered ? (
+              <p className="money-note" data-customer-entered="true">
+                {t('Uses your price')}
+              </p>
+            ) : null}
           </div>
           <div className="money-head__main">
             <div className="money-label">
@@ -650,9 +896,13 @@ export default function Pnl({ search = '' }: { search?: string }) {
             ))}
           </ul>
         ) : null}
-        <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
+        <MissingBasisCard book={data} copy={copy} onFix={onFix} />
+        <AssetRows book={data} assets={view.assets} hidden={hideBalances} copy={copy} />
         <SaleRows book={data} hidden={hideBalances} copy={copy} save={save} busy={saver.busy} />
-        <LotRows book={data} search={search} hidden={hideBalances} copy={copy} save={save} busy={saver.busy} />
+        {basisLot !== null && canChoose ? (
+          <BasisSheet key={basisLot} book={data} lotId={basisLot} hidden={hideBalances} copy={copy} onClose={() => setBasisLot(null)} />
+        ) : null}
+        <LotRows book={data} search={search} hidden={hideBalances} copy={copy} save={save} busy={saver.busy} onFix={onFix} />
         {data.preview ? null : <ChoicesCard book={data} save={saver.save} busy={saver.busy} message={saver.message} copy={copy} />}
       </>
     );

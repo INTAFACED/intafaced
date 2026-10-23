@@ -16,8 +16,15 @@ import type { MoneyRow } from './portfolio-source';
  */
 
 export { lotBookSchema } from '@intafaced/contracts/tax-lot-book';
-export type { LotBookAnswer as LotBook, LotBookChoices, LotBookLot, LotBookSale, LotMethodSource } from '@intafaced/contracts/tax-lot-book';
-export { lotChoiceSavedSchema } from '@intafaced/contracts/tax-lot-book';
+export type {
+  LotBookAnswer as LotBook,
+  LotBookChoices,
+  LotBookLot,
+  LotBookMissingBasis,
+  LotBookSale,
+  LotMethodSource,
+} from '@intafaced/contracts/tax-lot-book';
+export { lotBasisSavedSchema, lotChoiceSavedSchema } from '@intafaced/contracts/tax-lot-book';
 
 /** The methods the screen offers, in the order of the switch. AVERAGE is one running cost per coin for each asset. */
 export const LOT_METHODS = LOT_BOOK_METHODS;
@@ -134,4 +141,14 @@ export function pickableLots(book: LotBookAnswer, sale: LotBookSale): LotBookLot
 /** The coin's own saved method, or null when it follows the account. */
 export function coinMethod(book: LotBookAnswer, asset: string): LotMethod | null {
   return book.choices.status === 'saved' ? (book.choices.assetMethods.find((m) => m.assetId === asset)?.method ?? null) : null;
+}
+
+/** The share of one sale that has no cost (its quantity and proceeds), or null when every part of it has one. */
+export function unknownShareOf(book: LotBookAnswer, sale: LotBookSale): LotBookAnswer['missingBasis']['sales'][number] | null {
+  return book.missingBasis.sales.find((s) => s.txId === sale.txId && s.assetId === sale.assetId) ?? null;
+}
+
+/** Whether the open cost of a coin uses a price the customer entered. */
+export function assetCustomerEntered(book: LotBookAnswer, asset: string): boolean {
+  return book.assets.some((a) => a.assetId === asset && a.customerEntered);
 }

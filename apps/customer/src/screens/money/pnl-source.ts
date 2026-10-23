@@ -2,7 +2,7 @@
 import { useCallback, useMemo } from 'react';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { constantSource } from '../../data/source';
-import { lotBookSchema, lotChoiceSavedSchema, type LotBook, type LotMethod } from './pnl-model';
+import { lotBasisSavedSchema, lotBookSchema, lotChoiceSavedSchema, type LotBook, type LotMethod } from './pnl-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -46,6 +46,34 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<{ ok: true } 
       if (env.userId) env.poller.refresh(keyOf(env.userId, 'saved'));
       return { ok: true };
     },
+    [env],
+  );
+}
+
+type Outcome<T> = { ok: true; data: T } | { ok: false; code: string };
+
+/**
+ * A price the customer enters for one of their lots with no cost. `trial` works the saved book out with that price in place
+ * and saves nothing (the effect shown before saving); `save` stores it as a new version, or removes it with `null`.
+ */
+export function useLotBasis(): {
+  trial: (lotId: string, pricePerUnitUsd: string) => Promise<Outcome<LotBook>>;
+  save: (lotId: string, pricePerUnitUsd: string | null, note: string) => Promise<Outcome<{ version: number }>>;
+} {
+  const env = useDataEnv();
+  return useMemo(
+    () => ({
+      trial: async (lotId, pricePerUnitUsd) => {
+        const result = await env.api.query('tax', 'lotBook', { trial: { lotId, pricePerUnitUsd } }, lotBookSchema);
+        return result.ok ? { ok: true, data: result.data } : { ok: false, code: result.code ?? result.reason };
+      },
+      save: async (lotId, pricePerUnitUsd, note) => {
+        const result = await env.api.mutate('tax', 'setLotBasis', { lotId, pricePerUnitUsd, note }, lotBasisSavedSchema);
+        if (!result.ok) return { ok: false, code: result.code ?? result.reason };
+        if (env.userId) env.poller.refresh(keyOf(env.userId, 'saved'));
+        return { ok: true, data: { version: result.data.version } };
+      },
+    }),
     [env],
   );
 }

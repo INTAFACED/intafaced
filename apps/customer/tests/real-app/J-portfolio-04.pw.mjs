@@ -94,7 +94,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   await expect(row).toHaveCount(1);
   await expect(row.locator('[data-col="qty"]')).toHaveText('0.04');
   // The TEST owner policy is "customer": a deposit's cost is unknown until the customer gives one, never zero.
-  await expect(row.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+  await expect(row.locator('[data-col="cost"]')).toContainText('Cost unknown');
   await expect(row.locator('[data-col="price-source"]')).toContainText('at the ETH/USDT price, one-minute candle from');
 
   // Hand count from the public one-minute candles: 0.004 times the close of the last candle that started at or before the
@@ -118,14 +118,14 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).not.toHaveText('Not known');
 });
 
-/** Sells `amount` BTC over the best bid; returns the USDT that arrived. */
-async function sellNow(page, who, amount) {
+/** Sells `amount` of the market's coin over the best bid; returns the USDT that arrived. */
+async function sellNow(page, who, amount, market = 'BTC/USDT') {
   const before = await (await api(who)).balances();
-  await page.goto(deskPath('BTC/USDT'));
-  const { bid } = await bestPrices('BTC/USDT');
-  await reviewLimit(page, 'sell', priceAt(bid, 99), amount);
+  await page.goto(deskPath(market));
+  const { bid } = await bestPrices(market);
+  await reviewLimit(page, 'sell', priceAt(bid, 99), amount, market.split('/')[0]);
   await confirm(page, 'sell');
-  await expect.poll(async () => held(await (await api(who)).balances(), 'BTC'), { timeout: 20_000 }).toBe(0n);
+  await expect.poll(async () => held(await (await api(who)).balances(), market.split('/')[0]), { timeout: 20_000 }).toBe(0n);
   const after = await (await api(who)).balances();
   return total(after, 'USDT') - total(before, 'USDT');
 }
@@ -222,4 +222,86 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
   // The newest sale keeps its picked lot whatever the day's method: the older lot, unless HIFO's first sale drew on it.
   const left0 = hifoCost === share(buys[0].cost, buys[0].qty, take) ? { cost: buys[0].cost - hifoCost, qty: buys[0].qty - take } : buys[0];
   await expect(newest.locator('td').nth(2)).toHaveText(usd(share(left0.cost, left0.qty, take)));
+});
+
+/** The ETH sale row (row text is matched by its coin cell: "Method" in other cells contains "eth"). */
+const ethSale = (page) => page.locator('tr[data-sale]').filter({ has: page.locator('th', { hasText: /^ETH/ }) });
+
+test(`${J} #6 sells coins from a lot with no cost: the warning names the lot, and the sale shows its unknown share`, async ({ page }) => {
+  const who = account();
+  await signIn(page, who);
+  // TEST: sell 0.01 of the 0.04 ETH that arrived by deposit in step 3 (no cost under the TEST owner policy).
+  const proceeds = await sellNow(page, who, '0.01', 'ETH/USDT');
+  run.write({ ethSale: fromUnits(proceeds) });
+  await page.goto('/money/pnl?asset=ETH');
+  const warning = page.getByRole('status', { name: 'Missing cost' });
+  await expect(warning).toBeVisible();
+  const lot = warning.locator('[data-missing-lot$=":ETH"]');
+  await expect(lot).toHaveCount(1);
+  await expect(lot).toContainText('Deposit · 0.04 ETH');
+  await expect(lot).toContainText('(used by 1 sale(s))');
+  // The sale's effect row: the share with no cost, what it brought in, and no result made up for it.
+  const sale = ethSale(page);
+  await expect(sale).toHaveCount(1);
+  await expect(sale.locator('[data-col="unknown-share"]')).toHaveText(`Unknown share: 0.01 ETH with no cost, received ${usd(proceeds)}`);
+  await expect(sale.locator('[data-col="result"]')).toContainText('Cost unknown');
+  await expect(page.locator('[data-figure="realised"]')).toHaveText('Not known');
+});
+
+test(`${J} #7 enters the price paid for that lot: the effect is shown first, every figure says customer-entered, and it can be removed`, async ({
+  page,
+}) => {
+  const who = account();
+  const proceeds = toUnits(run.read().ethSale);
+  await signIn(page, who);
+  await page.goto('/money/pnl?asset=ETH');
+  await page.getByRole('status', { name: 'Missing cost' }).getByRole('button', { name: 'Enter a cost' }).click();
+  const form = page.getByRole('region', { name: 'Enter a cost' });
+  await expect(form).toContainText('Deposit · 0.04 ETH');
+  await expect(form.locator('[data-col="our-record"]')).toContainText('Our record: cost unknown');
+  // An illustrative TEST price of 2000 USD per ETH: the lot costs 0.04 x 2000 = 80, the sale of 0.01 costs 20.
+  await form.getByLabel('Price per ETH in USD').fill('2000');
+  await form.getByLabel('Where this price comes from (optional)').fill('TEST receipt');
+  await expect(form.getByRole('button', { name: 'Save price' })).toBeDisabled();
+  await form.getByRole('button', { name: 'See the effect' }).click();
+  await expect(form.locator('[data-col="effect-cost"]')).toHaveText('$80.00 Customer-entered');
+  const effect = form.locator('[data-col="effect-realised"]');
+  await expect(effect).toContainText('Not known now, then');
+  const then = (await effect.innerText()).replace('Not known now, then', '').replace('Customer-entered', '').trim();
+  await form.getByRole('button', { name: 'Save price' }).click();
+
+  const sale = ethSale(page);
+  await expect(sale.locator('[data-col="result"]')).toHaveText(`${usd(proceeds - toUnits('20'), true)} Customer-entered`);
+  await expect(sale.locator('[data-col="unknown-share"]')).toHaveCount(0);
+  const lotRow = page.getByRole('region', { name: 'Lots' }).locator('tbody tr[data-source="deposit"]');
+  await expect(lotRow.locator('[data-col="cost"]')).toContainText('$80.00 Customer-entered');
+  await expect(page.locator('tr[data-asset="ETH"] [data-col="cost"]')).toContainText('Customer-entered');
+  // What was shown before saving is what the page now says, and the total says it uses the customer's price.
+  await expect(page.locator('[data-figure="realised"]')).toHaveText(then);
+  await expect(page.getByText('Uses a price you entered (customer-entered).')).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Missing cost' })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('[data-figure="realised"]')).toHaveText(then);
+
+  // A lot with a cost from our own records refuses a customer price, by name.
+  await page.goto('/money/pnl?asset=BTC');
+  const btcLot = await page.getByRole('region', { name: 'Lots' }).locator('tbody tr[data-source="trade"]').first().getAttribute('data-lot');
+  expect(btcLot).toBeTruthy();
+  const refused = await (await api(who)).post('/api/tax/trpc/setLotBasis', { lotId: btcLot, pricePerUnitUsd: '1', note: '' });
+  expect(refused.status).toBe(412);
+  expect(JSON.stringify(refused.body)).toContain('tax.basis_override_not_allowed');
+
+  // Removing it: the lot's cost is unknown again, and so is that share of the sale.
+  await page.goto('/money/pnl?asset=ETH');
+  await page
+    .getByRole('region', { name: 'Lots' })
+    .locator('tbody tr[data-source="deposit"]')
+    .getByRole('button', { name: 'Change price' })
+    .click();
+  await page.getByRole('region', { name: 'Enter a cost' }).getByRole('button', { name: 'Remove my price' }).click();
+  await expect(page.getByRole('region', { name: 'Lots' }).locator('tbody tr[data-source="deposit"] [data-col="cost"]')).toContainText(
+    'Cost unknown',
+  );
+  await expect(ethSale(page).locator('[data-col="unknown-share"]')).toBeVisible();
+  await expect(page.locator('[data-figure="realised"]')).toHaveText('Not known');
 });
