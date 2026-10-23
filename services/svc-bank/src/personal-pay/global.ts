@@ -519,7 +519,9 @@ export class GlobalSendService {
           ORDER BY created_at DESC, id DESC
           LIMIT ${input.limit + 1}
         `;
-    const items = rows.slice(0, input.limit).map(sendView);
+    const page = rows.slice(0, input.limit);
+    await Promise.all(page.map((row) => this.settleCancelled(row)));
+    const items = page.map(sendView);
     const last = rows[input.limit - 1];
     return { items, nextCursor: rows.length > input.limit && last ? encodeCursor(last.created_at, last.id) : null };
   }
@@ -527,7 +529,33 @@ export class GlobalSendService {
   async get(userId: string, id: string): Promise<SendView> {
     const row = await this.sendById(id, userId);
     if (!row) throw personalPayError('bank.global_not_found');
+    await this.settleCancelled(row);
     return sendView(row);
+  }
+
+  /**
+   * A cancelled send keeps nothing. Its forward entry can exist only when a post was already under way as it was held and
+   * cancelled, and the send that posted it turns it back at once; if that reversal failed (or the process stopped first),
+   * any later read or replay finds the entry by its key and turns it back here, through the same occurrence-1 key, so it
+   * credits once however many times it runs. A read never fails on it: a failed reversal is tried again on the next.
+   */
+  private async settleCancelled(row: SendRow): Promise<void> {
+    if (row.status !== 'cancelled') return;
+    await this.reverseCancelled(row).catch(() => undefined);
+  }
+
+  /** Turns back a cancelled send's forward entry when one exists (occurrence 1, keyed by the send). */
+  private async reverseCancelled(row: SendRow): Promise<void> {
+    const forward = await this.ledger.getTxByKey(forwardKey(row.id));
+    if (!forward) return;
+    const railId = this.ports.payout.railId().trim();
+    if (!railId || railId.length > 64) throw personalPayError('bank.global_outcome_unknown');
+    const account = accountForSpace(await this.spaces.get(row.from_space_id));
+    try {
+      await reverseFromRail(this.ledger, row.id, account, railId, canonical(row.amount).amount);
+    } catch {
+      throw personalPayError('bank.global_outcome_unknown');
+    }
   }
 
   /**
@@ -630,6 +658,7 @@ export class GlobalSendService {
   async opsGet(id: string): Promise<SendView & { userId: string }> {
     const row = await this.sendById(id);
     if (!row) throw personalPayError('bank.global_not_found');
+    await this.settleCancelled(row);
     return { ...sendView(row), userId: row.user_id };
   }
 
@@ -640,6 +669,10 @@ export class GlobalSendService {
     now: Date,
   ): Promise<SendView> {
     if (row.status === 'failed') throw personalPayError(row.failure_code ?? 'bank.global_payout_unset');
+    if (row.status === 'cancelled') {
+      await this.reverseCancelled(row);
+      return sendView(row);
+    }
     if (row.status !== 'submitted') return sendView(row);
 
     if (this.ports.corridors.status() !== 'live') return this.definite(row, 'bank.global_corridors_unset');
@@ -733,12 +766,9 @@ export class GlobalSendService {
         // payout is made until someone else releases it. Release then carries on from here without posting again.
         const after = await this.sendById(row.id);
         if (after?.status === 'cancelled') {
-          // Held and cancelled in the instant of posting: the cancelled send keeps nothing, so the entry is turned back.
-          try {
-            await reverseFromRail(this.ledger, row.id, account, railId, amount);
-          } catch {
-            throw personalPayError('bank.global_outcome_unknown');
-          }
+          // Held and cancelled in the instant of posting: the cancelled send keeps nothing, so the entry is turned back. If
+          // this fails, the next read or replay of the send turns it back (settleCancelled).
+          await this.reverseCancelled(after);
           return sendView(after);
         }
         if (after && after.status !== 'submitted') return sendView(after);

@@ -936,6 +936,42 @@ describe('personal bill pay and global send', () => {
     expect(transfers(ledger)).toHaveLength(1);
   });
 
+  it('a send held and cancelled while its forward entry posts is turned back once, by a later read when the first reversal fails', async () => {
+    const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal() });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const ops = caller(bank, OP_A, compliance);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-race-02', name: 'Ada', account: '123456789', country: 'DE' });
+    const post = ledger.post.bind(ledger);
+    let calls = 0;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      calls += 1;
+      // Both reversals tried at once (by the cancel's own read, then by the send) fail, as if the ledger were briefly away.
+      if (calls === 2 || calls === 3) throw new Error('ledger away');
+      const result = await post(...args);
+      if (calls === 1) {
+        const rows = await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`;
+        await ops.global.ops.hold({ sendId: rows[0]!.id, holdKey: 'hold-race-02', reason: 'late screening' });
+        expect(await me.global.cancel({ id: rows[0]!.id })).toMatchObject({ status: 'cancelled', ledgerTxId: null });
+      }
+      return result;
+    }) as typeof ledger.post;
+    const body = { ...sendBody, idempotencyKey: 'send-race-02', amount: '10', fromSpaceId: space.id, recipientId: saved.id };
+    await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_outcome_unknown' } });
+    expect(transfers(ledger)).toHaveLength(1);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('90'));
+    // The next read finds the forward entry by its key and turns it back; later reads and a replay credit nothing more.
+    const id = (await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`)[0]!.id;
+    expect(await me.global.get({ id })).toMatchObject({ status: 'cancelled', cancelledBy: 'customer', ledgerTxId: null });
+    expect(transfers(ledger)).toHaveLength(2);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+    expect((await me.global.list({ limit: 10 })).items[0]).toMatchObject({ id, status: 'cancelled' });
+    expect(await me.global.send(body)).toMatchObject({ id, status: 'cancelled' });
+    expect(await me.global.cancel({ id })).toMatchObject({ id, status: 'cancelled' });
+    expect(transfers(ledger)).toHaveLength(2);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+  });
+
   it('holds sends to an exchange to the owner allowance in a rolling window, and refuses while it is unset', async () => {
     const unset = mount({ sendFieldRules: RULES, global: liveGlobal(), exchangeAllowance: null });
     const space0 = await funded(unset.bank, unset.ledger);
