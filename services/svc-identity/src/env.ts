@@ -213,6 +213,12 @@ const schema = serviceEnvSchema
        */
       IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
       /**
+       * Owner-published API key cap per verification level (`basic=3,full=5`, levels none, basic, full, institutional).
+       * Blank, or a level left out, refuses every key create in the developer room (`identity.key_cap_unset`).
+       * Never git-default. Parsed at start by `parseApiKeyCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
