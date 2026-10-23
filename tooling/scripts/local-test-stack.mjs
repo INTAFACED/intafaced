@@ -1114,6 +1114,8 @@ function serviceDefs(secrets) {
       env: () => ({
         ...c('svc-notify', PORTS.notify),
         DATABASE_URL: dbUrl('svc_notify', secrets),
+        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
+        IDENTITY_URL: urlOf('identity'),
         TRADE_URL: urlOf('trade'),
         MATCHING_URL: urlOf('matching'),
         // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.

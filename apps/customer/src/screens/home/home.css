@@ -668,6 +668,50 @@
   }
 
   /* Needs you (work list) */
+  /* The notice board (HM-widgets-03): open incidents and maintenance as banners, the current announcement as a strip. */
+  .home-notices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .home-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    min-height: 48px;
+    padding: 8px 16px;
+    border-radius: 12px;
+    background: var(--if-panel);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  .home-notice--banner {
+    border: 1px solid var(--if-line);
+  }
+  .home-notice__title {
+    flex: 1 1 200px;
+    min-width: 0;
+    margin: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .home-notice__until {
+    margin: 0;
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .home-notice__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--if-fg-2);
+    text-decoration: none;
+    transition: color var(--if-t-fast) var(--if-ease);
+  }
+  .home-notice__link:hover {
+    color: var(--if-fg);
+  }
   .home-work__rows {
     margin: 0;
     padding: 4px 0;
