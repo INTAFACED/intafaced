@@ -99,6 +99,24 @@ svc-trade has that route only with `TRADE_LOCAL_TEST_TAPE_RETIME=on`, which the 
 
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
 
+## Try it (a temporary link, TEST money)
+
+The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub's runner the same way Real-app journeys does. It then gives a password-protected link to the Customer app for up to about 5 h 45 min (owner decision 48; the ADR amendment is in `docs/adr/2026-08-08-staging-deploy-path.md`). The link is in the run summary. The password is the repository secret `TRY_PASSWORD`; without it, the run refuses before it boots.
+
+- **The gate.** `tooling/scripts/try-it.mjs gate` sits between the tunnel and the Customer server. It shows a password page and sets a SameSite=Strict, HttpOnly, Secure cookie; with ten wrong tries in a minute it stops taking passwords for that minute. Every other request needs the cookie. The gate refuses any Host other than the link's own and any Origin other than the link's. Before forwarding, it rewrites Host and Origin to `http://127.0.0.1:3210`, so the Customer server's Host guard and Edge's `EDGE_ALLOWED_ORIGINS` stay unchanged.
+- **The start page** (`/__try/`, behind the password):
+  - the demo account: `try-demo@local-test.invalid`, with the same password, verified and funded with TEST USDT by `try-it.mjs demo`;
+  - a TEST inbox showing the codes and links the stack "mails" to its outbox file;
+  - a button for the two TEST operators to approve waiting verification requests;
+  - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
+- **Not on the link:**
+  - live streams (no svc-ws, as in the journeys run);
+  - the founder console;
+  - passkeys (their relying party is localhost);
+  - anything that needs a partner.
+- **One rate limit.** Everyone on the link counts as one caller against Edge's 1200 requests a minute.
+- **Checks.** `node tooling/scripts/try-it.test.mjs` checks the gate in front of a fake app. `try-it.mjs check <link>` checks a running link; the workflow runs it before posting the link.
+
 ## Founder console
 
 `pnpm local:stack` also builds the founder console (`apps/admin`, a production Next build, rebuilt only when `apps/admin`, `packages` or the lockfile change) and serves it on http://127.0.0.1:3100 against the stack's Edge, with `APP_ENV=dev` (a local http origin is accepted only in dev or test) and a session key generated once into `secrets.json` (`adminSession`). The local test founders sign in with their entries in `founders.json`; operator journeys use `apps/customer/tests/real-app/admin.mjs`, which reads `JOURNEY_ADMIN_URL` (default http://127.0.0.1:3100). `--only admin`, `restart admin` and `stop admin` work like the services. Log: `logs/admin.log`.

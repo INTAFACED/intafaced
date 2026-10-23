@@ -31,7 +31,15 @@ export type AgentErrorCode =
   | 'agents.ops_sessions_limit_unset'
   | 'agents.session_mine_limit_unset'
   | 'agents.cursor_invalid'
-  | 'agents.fee_asset_unset';
+  | 'agents.fee_asset_unset'
+  | 'agents.spend_limit_unset'
+  | 'agents.spend_limit_invalid'
+  | 'agents.spend_limit'
+  | 'agents.spend_idempotency_conflict'
+  | 'agents.spend_reservation_conflict'
+  | 'agents.spend_reservation_not_found'
+  | 'agents.spend_reservation_closed'
+  | 'agents.spend_hold_max_age_unset';
 
 export class AgentError extends Error {
   constructor(

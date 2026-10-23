@@ -14,6 +14,7 @@ const BLANK: ChartValues = {
   drawingCap: null,
   brushPointCap: null,
   delayedBoundarySeconds: null,
+  renderBudgetMs: null,
 };
 
 function deps(overrides: Partial<PublicRestDeps> = {}): PublicRestDeps {
@@ -58,7 +59,14 @@ describe('GET /api/v1/charts/owner-values', () => {
   it('answers the set counts as whole numbers with no envelope', async () => {
     const app = await build(
       deps({
-        chartOwnerValues: reader({ compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 }),
+        chartOwnerValues: reader({
+          compareCap: 3,
+          chartCountLimit: 4,
+          drawingCap: 50,
+          brushPointCap: 2000,
+          delayedBoundarySeconds: 30,
+          renderBudgetMs: 500,
+        }),
       }),
     );
     const body = (await app.inject({ method: 'GET', url: '/api/v1/charts/owner-values' })).json() as Record<string, unknown>;
@@ -68,6 +76,7 @@ describe('GET /api/v1/charts/owner-values', () => {
       drawingCap: 50,
       brushPointCap: 2000,
       delayedBoundarySeconds: 30,
+      renderBudgetMs: 500,
       dataClass: null,
     });
     expect(body).not.toHaveProperty('data');

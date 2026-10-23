@@ -91,7 +91,7 @@ export const centreCopy = defineCopy('notifications-centre', {
   pushDeniedHow:
     'No alert reaches this device while notifications are blocked; your in-app inbox still works. To allow them, open this site’s settings in your browser, allow notifications, then press the button again.',
   pushDismissed: 'The browser was not given an answer, so nothing changed. Press the button again to be asked.',
-  pushNoGateway: 'Registering this device needs a push delivery gateway. It is switched off in this build.',
+  pushRegisterAction: 'Registering this device',
   pushSubscribeFailed: 'This browser could not set up push for this site. Nothing was registered. Try again in a moment.',
   pushCodeSent: 'We asked for a code to be sent to this device. Type it below to confirm it.',
   pushDevice: 'A device is registered.',
