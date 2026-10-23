@@ -156,6 +156,40 @@ describe('academy stored video — grant and signed URL', () => {
     ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
   });
 
+  it('a caller below a published gate is refused captions and transcript', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'none' as const };
+    const gate = { minTier: 'full', minStake: '0' };
+    await expect(
+      grantAcademyVideoCaptions({
+        deps: deps({ gate }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    await expect(
+      grantAcademyVideoTranscript({
+        deps: deps({ gate }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+        transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+  });
+
   it('tier shortfall is not a grant', async () => {
     await expect(
       grantAcademyVideoPlayback({
