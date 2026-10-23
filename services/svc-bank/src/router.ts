@@ -534,6 +534,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.limit_request_self_decision':
+      case 'bank.profile_not_held':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -601,6 +602,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.currency_in_use':
       case 'bank.space_limit_unset':
       case 'bank.space_limit_reached':
+      case 'bank.company_account_unwired':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —

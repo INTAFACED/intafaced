@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -5,7 +6,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
 // One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
 // publishes labelled TEST account terms, a TEST currency list, a TEST space limit of 5 and TEST currencies for account
-// details (tooling/scripts/local-test-stack.mjs, svc-bank). Balances are read through the person's own bank API.
+// details (tooling/scripts/local-test-stack.mjs, svc-bank). Balances are read through the person's own bank API. Step 7 opens
+// a TEST business through that API, so the person has a business profile to switch to.
 const J = 'J-bank-01';
 const LIMIT = 5;
 const SPACE = 'Trip TEST';
@@ -31,7 +33,13 @@ async function bank(who) {
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
-    if (!res.ok) return { ok: false, status: res.status, code: body?.error?.data?.code ?? body?.error?.data?.cause?.code, body };
+    if (!res.ok)
+      return {
+        ok: false,
+        status: res.status,
+        code: body?.error?.data?.intafacedCode ?? body?.error?.data?.cause?.code ?? body?.error?.data?.code,
+        body,
+      };
     return { ok: true, data: body.result.data };
   };
   return {
@@ -198,4 +206,78 @@ test(`${J} #6 opens account details: each currency needs a banking partner, rail
     await expect(block.getByTestId('account-details-set')).toHaveCount(0);
   }
   await expect(page.locator('main')).not.toContainText(/IBAN|Sort code|Account number/);
+});
+
+/** The bank reads the page made, each with the input it sent. `business.list` is the profile picker's own list. */
+function bankReads(page) {
+  const reads = [];
+  page.on('request', (req) => {
+    const url = new URL(req.url());
+    const match = /\/api\/bank\/trpc\/([^/?]+)$/.exec(url.pathname);
+    if (req.method() !== 'GET' || !match || match[1] === 'business.list') return;
+    const raw = url.searchParams.get('input');
+    reads.push({ procedure: match[1], input: raw === null ? undefined : JSON.parse(raw) });
+  });
+  return reads;
+}
+
+test(`${J} #7 switches to a business profile: every bank read carries it, and a profile not held is refused with no side effect`, async ({
+  page,
+}) => {
+  const who = person();
+  const api = await bank(who);
+  const accountId = randomUUID();
+  const business = `business:${accountId}`;
+  const opened = await api.mutate('business.create', { accountId, name: 'Studio TEST', assetId: 'USDT', spendThreshold: '10' });
+  expect(opened.ok, JSON.stringify(opened.body ?? {}).slice(0, 300)).toBe(true);
+
+  await signIn(page, who);
+  await page.goto('/bank');
+  await expect(page.getByTestId('account-profile')).toContainText('Your personal account');
+
+  // Switch in the account menu, then open the bank again and watch what it asks for.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByTestId('profile-business').filter({ hasText: 'Studio TEST' }).click();
+  await expect(page).toHaveURL(/\/pay\/merchant/);
+  const reads = bankReads(page);
+  await page.goto('/bank');
+  const profile = page.getByTestId('account-profile');
+  await expect(profile).toContainText('Studio TEST');
+  await expect(profile).toContainText('Your role: Administrator');
+  // A business has no account of its own: no company terms, currencies or details, and no personal money shown as its own.
+  const home = page.getByTestId('account-home');
+  await expect(home.getByText('No company account')).toHaveCount(2);
+  await expect(home).toContainText('bank.company_account_unwired');
+  await expect(page.getByTestId('account-details-company')).toContainText('bank.company_account_unwired');
+  await expect(page.getByTestId('currency-USDT')).toHaveCount(0);
+  await expect(page.getByTestId('account-terms')).toHaveCount(0);
+
+  // The four account reads must be among them, and every bank read the page made carries the profile: a read added to a
+  // business view later without it fails here.
+  const asked = new Set(reads.map((r) => r.procedure));
+  for (const procedure of ['accounts.profile', 'accounts.features', 'currencies.list', 'accountDetails.list'])
+    expect(asked).toContain(procedure);
+  for (const read of reads) expect(read, `${read.procedure} carried no profile`).toMatchObject({ input: { profile: business } });
+
+  // A business the person does not hold, asked for straight at the bank: refused, and nothing on the account changes.
+  const before = await spaces(who);
+  const forged = `business:${randomUUID()}`;
+  for (const [kind, procedure, input] of [
+    ['query', 'accounts.profile', { profile: forged }],
+    ['query', 'currencies.list', { profile: forged }],
+    ['mutate', 'currencies.add', { assetId: 'USDC', profile: forged }],
+    ['mutate', 'currencies.remove', { assetId: 'USDT', profile: forged }],
+  ]) {
+    const res = await api[kind](procedure, input);
+    expect(res, procedure).toMatchObject({ ok: false, status: 403, code: 'bank.profile_not_held' });
+  }
+  expect(await spaces(who)).toEqual(before);
+
+  // Back to Personal: the account's own terms and money are there again.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByTestId('profile-personal').click();
+  await page.goto('/bank');
+  await expect(page.getByTestId('account-profile')).toContainText('Your personal account');
+  await expect(page.getByTestId('account-terms')).toContainText('TEST base tier');
+  await expect(page.getByTestId('currency-USDT')).toContainText('80 USDT');
 });

@@ -237,12 +237,19 @@ export const currencySetSchema = z.object({
   addable: z.array(z.string()).nullable(),
   addableBlocker: z.literal('bank.account_currencies_unset').nullable(),
 });
+/** svc-bank `bank.accounts.profile`: the profile in view, proved held by the person, with their role in a business. */
+export const bankProfileSchema = z.object({
+  profile: z.string(),
+  kind: z.enum(['personal', 'business']),
+  business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
+});
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
 };
 export const bankReads = {
   'accounts.features': accountTermsSchema,
+  'accounts.profile': bankProfileSchema,
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,

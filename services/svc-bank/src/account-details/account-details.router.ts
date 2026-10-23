@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { ACCOUNT_DETAIL_REQUEST_STATES } from './account-details.js';
+import { profileField } from '../account-home/profile.js';
 
 /**
  * `bank.accountDetails.list/get/request` and `bank.eligibility.get` (BK-acct-03). Reads, and one request that the banking partner
- * (not wired today: `rail.bank`) answers. Nothing here writes to the ledger.
+ * (not wired today: `rail.bank`) answers. Nothing here writes to the ledger. The account calls take the profile they are made
+ * for; a profile the caller does not hold, or a business (which has no account of its own), refuses (`../account-home/profile.ts`).
  */
 
 const currencyCode = z.string().trim().min(3).max(3);
@@ -29,22 +31,41 @@ const currencyDetails = z.object({
   sets: z.array(detailSet),
 });
 
-export function createAccountDetailsRouter(bank: Pick<BankServices, 'accountDetails'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {
+export function createAccountDetailsRouter(
+  bank: Pick<BankServices, 'accountDetails' | 'profiles'>,
+  guard: <T>(fn: () => Promise<T>) => Promise<T>,
+) {
   return router({
     list: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ profile: profileField }).strict().optional())
       .output(z.object({ currencies: z.array(currencyDetails) }))
-      .query(({ ctx }) => guard(async () => bank.accountDetails.list(ctx.principal.userId))),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          await bank.profiles.personalOnly(ctx.principal.userId, input?.profile);
+          return bank.accountDetails.list(ctx.principal.userId);
+        }),
+      ),
 
     get: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ currency: currencyCode }).strict())
+      .input(z.object({ currency: currencyCode, profile: profileField }).strict())
       .output(currencyDetails)
-      .query(({ ctx, input }) => guard(async () => bank.accountDetails.get(ctx.principal.userId, input.currency))),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          await bank.profiles.personalOnly(ctx.principal.userId, input.profile);
+          return bank.accountDetails.get(ctx.principal.userId, input.currency);
+        }),
+      ),
 
     /** Ask for details in one currency. The same customer and currency again is the same request. */
     request: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ currency: currencyCode }).strict())
+      .input(z.object({ currency: currencyCode, profile: profileField }).strict())
       .output(currencyDetails)
-      .mutation(({ ctx, input }) => guard(async () => bank.accountDetails.request(ctx.principal.userId, input.currency))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          await bank.profiles.personalOnly(ctx.principal.userId, input.profile);
+          return bank.accountDetails.request(ctx.principal.userId, input.currency);
+        }),
+      ),
   });
 }
 
