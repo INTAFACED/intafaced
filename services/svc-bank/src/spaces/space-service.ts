@@ -8,6 +8,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
 import {
@@ -16,6 +17,23 @@ import {
   type RecipientStatePort,
   type RecipientStatus,
 } from '../recipient-state.js';
+
+/** Owner-set number of live named spaces one account may hold (BK-pots-01). */
+export const BANK_SPACE_LIMIT_ENV = 'BANK_SPACE_LIMIT';
+
+/** Unset, blank, zero or not a whole number refuses `bank.space_limit_unset`. No default. */
+export function requireSpaceLimit(raw: string | undefined): number {
+  const trimmed = raw?.trim() ?? '';
+  if (!/^[1-9][0-9]{0,5}$/.test(trimmed)) {
+    throw new BankError('The owner has not set how many spaces an account can hold, so no new space is made', 'bank.space_limit_unset');
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
+export interface SpaceServiceOptions {
+  /** The owner's space limit, read on each call so a change takes effect without a restart. */
+  readonly spaceLimit?: () => string | undefined;
+}
 
 /** One message for frozen, closed and unknown. Never says which. */
 export const RECIPIENT_CANNOT_RECEIVE_MESSAGE = 'This recipient cannot receive payments';
@@ -116,6 +134,7 @@ export class SpaceService {
      * from an active one, and must not pay either.
      */
     private readonly recipients: RecipientStatePort = unconfiguredRecipientState(),
+    private readonly options: SpaceServiceOptions = {},
   ) {}
 
   /**
@@ -199,14 +218,77 @@ export class SpaceService {
     return row ? toRecord(row) : null;
   }
 
-  async create(input: {
+  /** Show a removed currency on the account again. A label: nothing moves. */
+  async restoreCurrency(userId: string, assetId: string): Promise<void> {
+    await this.sql`
+      UPDATE bank.spaces SET removed_at = NULL, updated_at = now()
+       WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary' AND removed_at IS NOT NULL
+    `;
+  }
+
+  /**
+   * A new named space for a customer, inside the owner's limit on live named spaces (BK-pots-01).
+   *
+   * The limit is the owner setting (`BANK_SPACE_LIMIT`), read on each call: blank refuses `bank.space_limit_unset`, and
+   * at the limit the create refuses `bank.space_limit_reached` with the number. Creates and restores for one customer
+   * are serialised by an advisory lock, so two racing for the last place make one space, not two. Archived spaces do
+   * not count; restoring one does (`unarchiveWithinLimit`).
+   */
+  async createWithinLimit(input: {
     userId: string;
     assetId: string;
     name: string;
     goalTarget?: Amount | null;
     lockedUntil?: Date | null;
   }): Promise<SpaceRecord> {
-    const rows = await this.sql<SpaceRow[]>`
+    const max = requireSpaceLimit(this.options.spaceLimit?.());
+    return transaction(this.sql, async (tx) => {
+      await this.assertRoomForSpace(tx, input.userId, max);
+      return this.create(input, tx);
+    });
+  }
+
+  /** Restore an archived space, inside the same limit as a new one. A live space is a no-op that needs no room. */
+  async unarchiveWithinLimit(spaceId: string): Promise<void> {
+    const space = await this.get(spaceId);
+    if (space.kind === 'named' && space.archivedAt) {
+      const max = requireSpaceLimit(this.options.spaceLimit?.());
+      await transaction(this.sql, async (tx) => {
+        await this.assertRoomForSpace(tx, space.userId, max);
+        await tx`
+          UPDATE bank.spaces SET archived_at = NULL, updated_at = now()
+           WHERE id = ${spaceId} AND archived_at IS NOT NULL
+        `;
+      });
+      return;
+    }
+    await this.unarchive(spaceId);
+  }
+
+  private async assertRoomForSpace(tx: Sql, userId: string, max: number): Promise<void> {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank-spaces:${userId}`}))`;
+    const count = await tx<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NULL
+    `;
+    if ((count[0]?.n ?? 0) >= max) {
+      throw new BankError(
+        `This account already has ${max} spaces, the most it can hold. Archive one to make room.`,
+        'bank.space_limit_reached',
+      );
+    }
+  }
+
+  async create(
+    input: {
+      userId: string;
+      assetId: string;
+      name: string;
+      goalTarget?: Amount | null;
+      lockedUntil?: Date | null;
+    },
+    db: Sql = this.sql,
+  ): Promise<SpaceRecord> {
+    const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name, goal_target, locked_until)
       VALUES (
         ${input.userId}, ${input.assetId}, 'named', ${input.name},
@@ -303,13 +385,13 @@ export class SpaceService {
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
           SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
-            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL
+            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY kind DESC, name ASC
            LIMIT ${page}
         `
       : await this.sql<SpaceRow[]>`
           SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
-            FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL
+            FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY asset_id ASC, kind DESC, name ASC
            LIMIT ${page}
         `;
@@ -358,17 +440,23 @@ export class SpaceService {
    * know about spaces, so the row is made the first time the owner reads the
    * list; before this, Pay and Bank showed "nothing to send" over a funded
    * account. Labels only: `ensurePrimary` is race-safe and a repeat is a no-op.
-   * A failed write never fails the read; the next read tries again.
+   * A currency the customer removed comes back the same way once money is in it
+   * again, so a funded account is never hidden. A failed write never fails the
+   * read; the next read tries again.
    */
-  private async ensureHeldPrimaries(userId: string, assetId?: string): Promise<void> {
+  async ensureHeldPrimaries(userId: string, assetId?: string): Promise<void> {
     try {
       const held = heldAvailable(await this.ledger.balances('user', userId), assetId);
       if (held.length === 0) return;
-      const rows = await this.sql<Array<{ asset_id: string }>>`
-        SELECT asset_id FROM bank.spaces WHERE user_id = ${userId} AND kind = 'primary'
+      const rows = await this.sql<Array<{ asset_id: string; removed: boolean }>>`
+        SELECT asset_id, removed_at IS NOT NULL AS removed FROM bank.spaces WHERE user_id = ${userId} AND kind = 'primary'
       `;
-      const open = new Set(rows.map((r) => r.asset_id));
-      for (const b of held) if (!open.has(b.account.assetId)) await this.ensurePrimary(userId, b.account.assetId);
+      const known = new Map(rows.map((r) => [r.asset_id, r.removed]));
+      for (const b of held) {
+        const removed = known.get(b.account.assetId);
+        if (removed === undefined) await this.ensurePrimary(userId, b.account.assetId);
+        else if (removed) await this.restoreCurrency(userId, b.account.assetId);
+      }
     } catch (err) {
       console.error(
         JSON.stringify({

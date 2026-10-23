@@ -60,6 +60,7 @@ import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -527,6 +528,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_grant_unset':
       case 'bank.loan_params_invalid':
       case 'bank.personal_transfer_terms_invalid':
+      case 'bank.asset_unknown':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
@@ -594,6 +596,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.pay_request_notify_unwired':
       case 'bank.transfer_notify_unwired':
       case 'bank.party_handles_unset':
+      case 'bank.account_terms_unset':
+      case 'bank.account_currencies_unset':
+      case 'bank.currency_in_use':
+      case 'bank.space_limit_unset':
+      case 'bank.space_limit_reached':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -963,7 +970,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           // The primary space must exist before a named one is useful — it is
           // where value arrives from every other module.
           await bank.spaces.ensurePrimary(ctx.principal.userId, input.assetId);
-          const space = await bank.spaces.create({
+          // Inside the owner's limit on live named spaces; blank refuses `bank.space_limit_unset` (BK-pots-01).
+          const space = await bank.spaces.createWithinLimit({
             userId: ctx.principal.userId,
             assetId: input.assetId,
             name: input.name,
@@ -993,7 +1001,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
-          await bank.spaces.unarchive(input.spaceId);
+          await bank.spaces.unarchiveWithinLimit(input.spaceId);
           return { archived: false as const };
         }),
       ),
@@ -4861,6 +4869,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
+    accounts: createAccountsRouter(bank, guard),
+    currencies: createCurrenciesRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),

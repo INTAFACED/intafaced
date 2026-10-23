@@ -266,6 +266,27 @@ const schema = serviceEnvSchema
       BANK_ELIGIBILITY_JSON: z.string().optional(),
 
       /**
+       * Owner-published base-tier account terms as JSON (BK-acct-01): `{ tier, version, currency, monthlyFee, minimumBalance,
+       * overdraftFee, included: [...] }`, money as decimal strings. NO DEFAULT. Blank / unset / not in shape → the account
+       * panel refuses `bank.account_terms_unset` and never claims a fee-free account. Boot stays up; the read is the refuse.
+       */
+      BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /
+       * unset → adding a currency refuses `bank.account_currencies_unset`; an asset not on the list refuses
+       * `bank.asset_unknown`. Removing a currency needs no list.
+       */
+      BANK_ACCOUNT_CURRENCIES: z.string().optional(),
+
+      /**
+       * Owner-published number of live named spaces one account may hold (BK-pots-01). NO DEFAULT. Blank / unset / not a
+       * positive whole number → creating a space refuses `bank.space_limit_unset`; at the limit it refuses
+       * `bank.space_limit_reached` with the number. Boot stays up; the create is the refuse.
+       */
+      BANK_SPACE_LIMIT: z.string().optional(),
+
+      /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
        * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
        * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →

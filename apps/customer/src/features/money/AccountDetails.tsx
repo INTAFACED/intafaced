@@ -64,7 +64,9 @@ export function AccountDetailsList({ rows }: { rows: readonly AccountDetailsRow[
       {rows.map((row) => (
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
           <h3>{row.currency}</h3>
-          <p role="status">{t(stateKey[row.state])}</p>
+          <p role="status">
+            {t(stateKey[row.state])} {row.blocker && <small className="muted">{t('blocker', { code: row.blocker })}</small>}
+          </p>
           {row.sets.map((set) => (
             <SetView key={set.id} set={set} />
           ))}

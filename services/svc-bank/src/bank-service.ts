@@ -18,6 +18,8 @@ import { ActivityService, type ActivityServiceOptions } from './activity/activit
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
+import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
+import { CurrencyService } from './account-home/currencies.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
@@ -55,6 +57,10 @@ export interface BankServices {
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
   readonly accountDetails: AccountDetailsService;
+  /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
+  readonly accountTerms: () => AccountTerms;
+  /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
+  readonly currencies: CurrencyService;
   readonly loans: LoanService;
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
@@ -123,6 +129,12 @@ export interface BankServiceOptions {
    * default; the banking partner is not wired today, so details refuse `rail.bank`.
    */
   accountDetails?: AccountDetailsOptions;
+  /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
+  accountTerms?: string | undefined;
+  /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
+  accountCurrencies?: string | undefined;
+  /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
+  spaceLimit?: string | undefined;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -181,7 +193,7 @@ export interface BankServiceOptions {
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
-  const spaces = new SpaceService(sql, ledger, options.recipients);
+  const spaces = new SpaceService(sql, ledger, options.recipients, { spaceLimit: () => options.spaceLimit });
   const transfers = new TransferService(sql, ledger, spaces);
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
@@ -202,6 +214,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
+  const accountTerms = () => parseAccountTerms(options.accountTerms);
+  const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -251,6 +265,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activityRecords,
     statements,
     accountDetails,
+    accountTerms,
+    currencies,
     assetPauses,
     loans,
     cards,
