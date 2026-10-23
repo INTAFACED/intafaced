@@ -84,7 +84,15 @@ describe('risk limits route', () => {
     expect(sent.payloadHash).toBe(
       riskSetPayloadHash({
         market: MARKET,
-        limits: { collar: '0.05', fatFinger: null, slippageCap: '100', throttle: null, circuitBreaker: null },
+        limits: {
+          collar: '0.05',
+          fatFinger: null,
+          slippageCap: '100',
+          throttle: null,
+          circuitBreaker: null,
+          oiLimit: null,
+          oiShareBps: null,
+        },
         expectedVersion: '2',
         reason: REASON,
       }),

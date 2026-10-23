@@ -55,6 +55,8 @@ export interface EngineCheck {
   /** How the value is written, one line. */
   readonly unit: string;
   readonly kind: 'decimal' | 'integer';
+  /** Read by the futures order path only; the room lists it on futures markets. */
+  readonly futuresOnly?: true;
 }
 
 export const ENGINE_CHECKS: readonly EngineCheck[] = [
@@ -98,7 +100,30 @@ export const ENGINE_CHECKS: readonly EngineCheck[] = [
     unit: 'Whole number.',
     kind: 'integer',
   },
+  {
+    id: 'open_interest_limit',
+    field: 'oiLimit',
+    name: 'Open-interest limit',
+    what: 'The most open interest the market may carry: open positions plus what live opening orders can still fill. An open past it is refused with the room left. While blank, every futures open on the market is refused. Closing is never refused.',
+    unit: 'In the base asset, up to 18 places.',
+    kind: 'decimal',
+    futuresOnly: true,
+  },
+  {
+    id: 'open_interest_share',
+    field: 'oiShareBps',
+    name: 'Open-interest share per account',
+    what: 'The largest part of the open-interest limit one account may hold. An open past it is refused with the room left. While blank, every futures open on the market is refused.',
+    unit: 'Whole basis points, 1 to 10000: 1000 is 10%.',
+    kind: 'integer',
+    futuresOnly: true,
+  },
 ];
+
+/** The checks the room lists for a market of this kind. */
+export function checksFor(kind: 'spot' | 'futures' | 'options' | undefined): readonly EngineCheck[] {
+  return ENGINE_CHECKS.filter((c) => !c.futuresOnly || kind === 'futures');
+}
 
 const LIMIT_DEC = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const LIMIT_INT = /^(?:0|[1-9]\d*)$/;
@@ -130,6 +155,8 @@ export function checkRiskSet(
     slippageCap: null,
     throttle: null,
     circuitBreaker: null,
+    oiLimit: null,
+    oiShareBps: null,
   };
   for (const check of ENGINE_CHECKS) {
     const raw = (values[check.field] ?? '').trim();
@@ -138,6 +165,12 @@ export function checkRiskSet(
     if (!good) return { ok: false, code: 'risk_limits.bad_value', message: `${check.name}: ${check.unit} No signs, exponents or spaces.` };
     if (check.field === 'slippageCap' && (Number(raw) < 1 || Number(raw) > 5000))
       return { ok: false, code: 'risk_limits.bad_value', message: 'Slippage cap must be a whole number of basis points from 1 to 5000.' };
+    if (check.field === 'oiShareBps' && (Number(raw) < 1 || Number(raw) > 10_000))
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: 'Open-interest share must be a whole number of basis points from 1 to 10000.',
+      };
     next[check.field] = raw;
   }
   const unchanged = ENGINE_CHECKS.every((c) => next[c.field] === current[c.field]);
@@ -154,7 +187,7 @@ export function limitText(value: string | null): string {
 }
 
 export const FUTURES_NOTE =
-  'Futures limits, auto-deleveraging (ADL) and the insurance fund are not shown: futures are switched off (TRADE_FUTURES_ENABLED stays off), so there is nothing to read or change. Operator controls for them are not built.';
+  'The open-interest limit and the per-account share are listed with the operator limits when a futures market is chosen; with either blank, every futures open on that market is refused. Auto-deleveraging (ADL) and the insurance fund have no operator controls in this room.';
 
 // ── exact decimal helpers (BigInt, no floats) ────────────────────────────────
 

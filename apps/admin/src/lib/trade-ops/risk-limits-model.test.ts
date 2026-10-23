@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketRow } from './reads';
-import { checkLimitEdit, checkRiskSet, decimalGte, isMultipleOf, isPositiveDecimal, limitEditOutcome } from './risk-limits-model';
+import {
+  checkLimitEdit,
+  checkRiskSet,
+  decimalGte,
+  isMultipleOf,
+  isPositiveDecimal,
+  limitEditOutcome,
+  checksFor,
+} from './risk-limits-model';
 
 const ME = 'me';
 const market: MarketRow = {
@@ -75,8 +83,18 @@ describe('checkLimitEdit', () => {
 });
 
 describe('checkRiskSet', () => {
-  const now = { marketId: 'm1', version: '3', collar: '0.05', fatFinger: null, slippageCap: null, throttle: null, circuitBreaker: null };
-  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '' };
+  const now = {
+    marketId: 'm1',
+    version: '3',
+    collar: '0.05',
+    fatFinger: null,
+    slippageCap: null,
+    throttle: null,
+    circuitBreaker: null,
+    oiLimit: null,
+    oiShareBps: null,
+  };
+  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '', oiLimit: '', oiShareBps: '' };
   const REASON = 'tighten after incident 4471';
   it('builds the write for the version it was given, with a blank as unset', () => {
     expect(checkRiskSet(now, { ...vals, fatFinger: '1000.5', slippageCap: '100' }, REASON)).toEqual({
@@ -85,7 +103,15 @@ describe('checkRiskSet', () => {
         market: 'm1',
         expectedVersion: '3',
         reason: REASON,
-        limits: { collar: '0.05', fatFinger: '1000.5', slippageCap: '100', throttle: null, circuitBreaker: null },
+        limits: {
+          collar: '0.05',
+          fatFinger: '1000.5',
+          slippageCap: '100',
+          throttle: null,
+          circuitBreaker: null,
+          oiLimit: null,
+          oiShareBps: null,
+        },
       },
     });
   });
@@ -102,5 +128,20 @@ describe('checkRiskSet', () => {
     expect(checkRiskSet(now, { ...vals, slippageCap: '5001' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
     expect(checkRiskSet(now, { ...vals, throttle: '5' }, 'short')).toMatchObject({ code: 'risk_limits.bad_reason' });
     expect(checkRiskSet(now, { ...vals, throttle: '5' }, undefined)).toMatchObject({ code: 'risk_limits.bad_reason' });
+  });
+  it('sets the open-interest pair, refusing a share outside 1 to 10000 basis points', () => {
+    expect(checkRiskSet(now, { ...vals, oiLimit: '1000', oiShareBps: '500' }, REASON)).toMatchObject({
+      ok: true,
+      body: { limits: { oiLimit: '1000', oiShareBps: '500' } },
+    });
+    for (const oiShareBps of ['0', '10001', '1.5'])
+      expect(checkRiskSet(now, { ...vals, oiLimit: '1000', oiShareBps }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, oiLimit: '-5' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+  });
+  it('lists the open-interest pair on futures markets only', () => {
+    const ids = (kind: 'spot' | 'futures') => checksFor(kind).map((c) => c.field);
+    expect(ids('futures')).toEqual(expect.arrayContaining(['oiLimit', 'oiShareBps']));
+    expect(ids('spot')).not.toContain('oiLimit');
+    expect(ids('spot')).not.toContain('oiShareBps');
   });
 });

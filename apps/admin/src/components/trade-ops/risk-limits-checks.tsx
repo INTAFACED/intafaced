@@ -20,7 +20,7 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { RiskCurrent, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
 import type { MarketRow } from '@/lib/trade-ops/reads';
 import type { Outcome } from '@/lib/trade-ops/outcome';
-import { checkRiskSet, ENGINE_CHECKS, limitText, type EngineCheck, type OperatorLimitField } from '@/lib/trade-ops/risk-limits-model';
+import { checkRiskSet, checksFor, limitText, type EngineCheck, type OperatorLimitField } from '@/lib/trade-ops/risk-limits-model';
 import { ConfirmAction } from './confirm-action';
 import { OutcomeNotice } from './outcome-notice';
 
@@ -34,7 +34,15 @@ import { OutcomeNotice } from './outcome-notice';
  */
 
 type Read = { current: RiskCurrent; history: readonly RiskVersionRow[] };
-const EMPTY: Record<OperatorLimitField, string> = { collar: '', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '' };
+const EMPTY: Record<OperatorLimitField, string> = {
+  collar: '',
+  fatFinger: '',
+  slippageCap: '',
+  throttle: '',
+  circuitBreaker: '',
+  oiLimit: '',
+  oiShareBps: '',
+};
 
 export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] }) {
   const [marketId, setMarketId] = useState(markets[0]?.id ?? '');
@@ -47,7 +55,8 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
   const [approvalId, setApprovalId] = useState('');
 
   const loaded = read?.kind === 'ok' ? read.data : null;
-  const symbol = markets.find((m) => m.id === marketId)?.symbol ?? '';
+  const market = markets.find((m) => m.id === marketId);
+  const symbol = market?.symbol ?? '';
   const check = loaded ? checkRiskSet(loaded.current, values, reason.length >= 12 ? reason : 'x'.repeat(12)) : null;
   const problem = check && !check.ok ? check : null;
 
@@ -65,6 +74,8 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
         slippageCap: limitText(c.slippageCap),
         throttle: limitText(c.throttle),
         circuitBreaker: limitText(c.circuitBreaker),
+        oiLimit: limitText(c.oiLimit),
+        oiShareBps: limitText(c.oiShareBps),
       });
     }
     setBusy(false);
@@ -126,8 +137,9 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
     { id: 'at', header: 'When (UTC)', width: 190, value: (h) => h.createdAt.replace('T', ' ').slice(0, 19) },
     {
       id: 'limits',
-      header: 'Collar / fat-finger / slippage / throttle / breaker',
-      value: (h) => [h.collar, h.fatFinger, h.slippageCap, h.throttle, h.circuitBreaker].map((v) => v ?? 'unset').join(' / '),
+      header: 'Collar / fat-finger / slippage / throttle / breaker / open interest / share',
+      value: (h) =>
+        [h.collar, h.fatFinger, h.slippageCap, h.throttle, h.circuitBreaker, h.oiLimit, h.oiShareBps].map((v) => v ?? 'unset').join(' / '),
     },
     { id: 'who', header: 'Operator → approver', value: (h) => `${h.operatorId} → ${h.approverId}` },
     { id: 'reason', header: 'Reason', value: (h) => h.reason },
@@ -166,7 +178,7 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       </div>
       {read && read.kind !== 'ok' ? <OutcomeNotice outcome={read} /> : null}
 
-      <Table<EngineCheck> label="Operator limits" density="dense" columns={columns} rows={ENGINE_CHECKS} getRowId={(c) => c.id} />
+      <Table<EngineCheck> label="Operator limits" density="dense" columns={columns} rows={checksFor(market?.kind)} getRowId={(c) => c.id} />
 
       <div className="flex flex-col gap-3">
         <Field label="Reason (12 to 500 characters, kept in the audit)" density="dense">

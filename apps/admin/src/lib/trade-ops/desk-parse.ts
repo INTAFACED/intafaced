@@ -62,6 +62,10 @@ export interface RiskLimitValues {
   readonly slippageCap: string | null;
   readonly throttle: string | null;
   readonly circuitBreaker: string | null;
+  /** A futures market's largest open interest, in its base asset (D-margin-05). */
+  readonly oiLimit: string | null;
+  /** The largest share of `oiLimit` one account may hold, in basis points. */
+  readonly oiShareBps: string | null;
 }
 
 /** `admin.risk.get`: the current limits, version "0" and all null when none were ever set. */
@@ -83,12 +87,18 @@ function limitValues(v: Record<string, unknown>): RiskLimitValues | null {
   if (!decOrNull(v.collar) || !decOrNull(v.fatFinger)) return null;
   if (!(v.slippageCap === null || uint(v.slippageCap)) || !(v.throttle === null || uint(v.throttle))) return null;
   if (!(v.circuitBreaker === null || uint(v.circuitBreaker))) return null;
+  // A version written before the open-interest pair existed reads as unset, never as a number.
+  const oiLimit = v.oiLimit === undefined ? null : v.oiLimit;
+  const oiShareBps = v.oiShareBps === undefined ? null : v.oiShareBps;
+  if (!decOrNull(oiLimit) || !(oiShareBps === null || uint(oiShareBps))) return null;
   return {
     collar: v.collar,
     fatFinger: v.fatFinger,
     slippageCap: v.slippageCap as string | null,
     throttle: v.throttle as string | null,
     circuitBreaker: v.circuitBreaker as string | null,
+    oiLimit,
+    oiShareBps: oiShareBps as string | null,
   };
 }
 
