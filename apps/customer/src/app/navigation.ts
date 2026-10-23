@@ -920,10 +920,16 @@ export function customerRoomHref(candidate: string | null | undefined): string |
     return undefined;
   }
 }
+/**
+ * Public rooms a sign-in may return to: the help centre promises that an answer kept for signed-in readers opens again
+ * after sign-in. Every other public room (sign-in, sign-up, recovery, the front page) sends a signed-in person home.
+ */
+export const RETURNABLE_PUBLIC_ROOMS: ReadonlySet<string> = new Set(['/help', '/helpdetail', '/help/category/:id', '/help/section/:id']);
+
 export function safeReturnTo(candidate: string | null | undefined): string {
   const href = customerRoomHref(candidate);
   const room = href ? findRoom(href.split('?')[0] ?? '') : undefined;
-  if (!href || room?.area === 'public') return '/home';
+  if (!href || (room?.area === 'public' && !RETURNABLE_PUBLIC_ROOMS.has(room.path))) return '/home';
   const url = new URL(candidate!, 'https://intafaced.invalid');
   return url.origin === 'https://intafaced.invalid' && !url.username && !url.password ? `${href}${url.hash}` : '/home';
 }

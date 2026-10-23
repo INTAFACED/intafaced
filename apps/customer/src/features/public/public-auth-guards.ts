@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { rooms } from '../../app/navigation';
+import { RETURNABLE_PUBLIC_ROOMS, rooms } from '../../app/navigation';
 import { sessionSchema, type Session } from '../session/session';
 
 export const authKinds = ['register', 'password', 'options', 'passkey'] as const;
 export type AuthKind = (typeof authKinds)[number];
-const roomPatterns = new Set(rooms.filter((room) => !['public', 'team', 'web3'].includes(room.area)).map((room) => room.path));
+// Where a sign-in may land: the signed-in rooms, plus the help-centre pages that promise to open again after sign-in.
+const roomPatterns = new Set(
+  rooms
+    .filter((room) => !['public', 'team', 'web3'].includes(room.area) || RETURNABLE_PUBLIC_ROOMS.has(room.path))
+    .map((room) => room.path),
+);
 const recordSchema = z
   .object({
     localRef: z.string().uuid(),
