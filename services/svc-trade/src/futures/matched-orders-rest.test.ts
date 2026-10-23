@@ -111,6 +111,8 @@ describe('futures orders through the book: REST', () => {
       [{ ...body, side: 'long' }, 'trade.side_invalid'],
       [{ ...body, type: 'stop' }, 'trade.order_type_invalid'],
       [{ ...body, reduceOnly: 'yes' }, 'trade.reduce_only_invalid'],
+      [{ ...body, timeInForce: 'IOC' }, 'trade.time_in_force_unsupported'],
+      [{ ...body, type: 'market', price: undefined, timeInForce: 'FOK' }, 'trade.time_in_force_unsupported'],
     ];
     for (const [payload, code] of cases) {
       const res = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload });
@@ -124,6 +126,7 @@ describe('futures orders through the book: REST', () => {
     const read = readPlaceBody(USER, { ...body, type: 'market', price: undefined, leverage: undefined, reduceOnly: true, side: 'sell' });
     expect(read).toMatchObject({ ok: true, input: { reduceOnly: true, type: 'market', side: 'sell' } });
     expect(read.ok ? read.input.limitPrice : 'unread').toBeUndefined();
+    expect(readPlaceBody(USER, { ...body, timeInForce: 'GTC' }).ok).toBe(true);
   });
 
   it('a typed service refusal keeps its code and status', async () => {

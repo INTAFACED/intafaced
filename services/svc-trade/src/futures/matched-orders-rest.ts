@@ -87,6 +87,15 @@ export function readPlaceBody(
   if (leverage === null || (leverage === undefined && !reduceOnly)) {
     return { ok: false, code: 'trade.leverage_required', message: 'leverage is required on an opening order — it does not default to 1x' };
   }
+  // The book takes a limit as GTC and a market as IOC at the band edge; another time in force refuses rather than
+  // being dropped silently.
+  if (body.timeInForce !== undefined && body.timeInForce !== (body.type === 'market' ? 'IOC' : 'GTC')) {
+    return {
+      ok: false,
+      code: 'trade.time_in_force_unsupported',
+      message: 'a limit order rests GTC and a market order is IOC; another time in force is not offered on the futures book yet',
+    };
+  }
   if (body.marginMode !== undefined && body.marginMode !== 'isolated') {
     return {
       ok: false,
