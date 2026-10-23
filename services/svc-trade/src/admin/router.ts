@@ -20,6 +20,36 @@ const agreementKind = z.enum(['derivatives_risk', 'margin_terms']);
 const versionText = z.string().regex(/^(?:0|[1-9]\d*)$/);
 const tenorRow = z.object({ tenor: z.enum(['weekly', 'monthly', 'quarterly']), enabled: z.boolean() }).strict();
 
+/** Charts owner values (C-ops-04). A count is a whole number from 1 to its bound, or null (blank: not set). */
+const chartCountSet = <K extends string>(key: K, max: number) =>
+  z
+    .object({
+      key: z.literal(key),
+      value: z.number().int().min(1).max(max).nullable(),
+      expectedVersion: versionText,
+      reason,
+      clientRequestId,
+    })
+    .strict();
+const chartOwnerValueSet = z.discriminatedUnion('key', [
+  chartCountSet('compareCap', 50),
+  chartCountSet('chartCountLimit', 64),
+  chartCountSet('drawingCap', 10_000),
+  chartCountSet('brushPointCap', 100_000),
+  chartCountSet('delayedBoundarySeconds', 86_400),
+  z
+    .object({
+      key: z.literal('dataClass'),
+      symbol: z.string().trim().min(1).max(64),
+      value: z.enum(['real_time', 'delayed', 'end_of_day']).nullable(),
+      expectedVersion: versionText,
+      reason,
+      approvalId,
+      clientRequestId,
+    })
+    .strict(),
+]);
+
 const limits = z
   .object({
     collar: z.string().nullable(),
@@ -141,6 +171,8 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
             expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
             reason,
             approvalId: z.string().trim().min(1).max(128),
+            // The approval's own operation id (identity mints it at propose); its consume refuses any other.
+            operationId: z.string().trim().min(1).max(128),
           }),
         )
         .mutation(({ ctx, input }) => ready().riskSet(ctx.principal, input).catch(fail)),
@@ -302,6 +334,12 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       convert: operatorWrite
         .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
+    }),
+    chartOwnerValues: router({
+      get: operator.query(({ ctx }) => ready().chartOwnerValues.get(ctx.principal).catch(fail)),
+      set: operatorWrite
+        .input(chartOwnerValueSet)
+        .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
     }),
     agreements: router({
       get: operator

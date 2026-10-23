@@ -5,6 +5,7 @@ import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } fro
 import { PayError, type PayService } from './payment-service.js';
 import type { SubscriptionService } from './subscriptions/subscription-service.js';
 import type { Cadence } from './subscriptions/schedule.js';
+import { COLLECTION_METHODS, collectionMethodOf } from './subscriptions/merchant-disp-bill-rep-collection-method.js';
 import {
   CARD_MANDATE_CHARGE_SOCKET,
   MANDATE_PATH_MATRIX,
@@ -13,6 +14,7 @@ import {
   preChargeNotifyGap,
   subscriptionsProductPosture,
 } from './subscriptions/mandate-product.js';
+import { ownMerchantRead } from './own-merchant-read.js';
 
 /**
  * Merchant subscription surface — mandate + subscription create/get/list/cancel.
@@ -295,7 +297,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ mandateId: z.string().uuid() }))
         .output(mandateView)
         .query(({ ctx, input }) =>
@@ -309,7 +311,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       /**
        * Merchant fleet list (ops truth). Read-only — no charge, no cascade.
        */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(
           z.object({
             merchantId: z.string().uuid(),
@@ -388,7 +390,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Crypto invoice-and-watch is product-complete; card refuse + pre-charge
        * notify gap are named. `preChargeNotify.notified` is always false.
        */
-      productReady: scopedProcedure('pay:read', { module: 'pay' })
+      productReady: ownMerchantRead()
         .output(
           z.object({
             mountain: z.literal('pay.subscriptions'),
@@ -506,7 +508,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ subscriptionId: z.string().uuid() }))
         .output(subscriptionView)
         .query(({ ctx, input }) =>
@@ -520,7 +522,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
       /**
        * Merchant fleet list (ops truth). Read-only — no fire, no dunning.
        */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(
           z.object({
             merchantId: z.string().uuid(),
@@ -556,7 +558,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Firing history for one subscription (invoice / settled / rejected).
        * Read-only — no dunning invent, no retry.
        */
-      listExecutions: scopedProcedure('pay:read', { module: 'pay' })
+      listExecutions: ownMerchantRead()
         .input(
           z.object({
             subscriptionId: z.string().uuid(),
@@ -587,6 +589,23 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const sub = await subscriptions.cancelSubscription(input.subscriptionId);
             return toSubOut(sub);
+          }),
+        ),
+
+      /**
+       * M-bill-01: collection method. `send_invoice` is the live crypto-invoice
+       * path; `charge_automatically` refuses `pay.mandate_rail_absent` and the
+       * method stays as it was.
+       */
+      setCollectionMethod: scopedProcedure('pay:write', { module: 'pay' })
+        .input(z.object({ subscriptionId: z.string().uuid(), method: z.enum(COLLECTION_METHODS) }))
+        .output(z.object({ subscription: subscriptionView, collectionMethod: z.enum(COLLECTION_METHODS) }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const existing = await subscriptions.getSubscription(input.subscriptionId);
+            await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
+            const sub = await subscriptions.setCollectionMethod(input.subscriptionId, input.method);
+            return { subscription: toSubOut(sub), collectionMethod: collectionMethodOf(sub.path) };
           }),
         ),
 
@@ -638,7 +657,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * The period journal. Read-only, and the honest answer to "did you charge
        * me twice" — two periods carry two keys, one period retried carries one.
        */
-      cycles: scopedProcedure('pay:read', { module: 'pay' })
+      cycles: ownMerchantRead()
         .input(
           z.object({
             subscriptionId: z.string().uuid(),

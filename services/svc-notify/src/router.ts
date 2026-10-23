@@ -51,11 +51,12 @@ import { PreferenceError } from './preferences/account.js';
 import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
-import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import { INCIDENT_PHASES, NOTICE_ASSET_PATTERN, NOTICE_NETWORK_PATTERN, NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
 import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
 import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
 import { TEMPLATE_KEYS } from './ops-config/templates.js';
+import { CONTACT_CHANNELS } from './ops-config/contact-policy.js';
 
 /**
  * svc-notify API — inbox, channels, and the delivery record.
@@ -236,6 +237,28 @@ const proposalOutput = z.object({ targetId: z.string(), expectedVersion: z.strin
 const templateKeySchema = z.enum(TEMPLATE_KEYS);
 const templateCopyInput = { key: z.string().min(1).max(64), subject: z.string().max(2000), body: z.string().max(50_000) };
 
+const contactPolicyInput = {
+  officialDomains: z.array(z.string().max(253)).max(50).nullable().optional(),
+  neverAskStatement: z.string().max(10_000).nullable().optional(),
+  contactChannels: z.array(z.string().max(32)).max(20).nullable().optional(),
+  smsCarriesLinks: z.boolean().nullable().optional(),
+  phishingReport: z.string().max(10_000).nullable().optional(),
+};
+
+const contactPolicyOutput = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('not_published') }),
+  z.object({
+    status: z.literal('published'),
+    version: z.number().int().positive(),
+    publishedAt: z.string(),
+    officialDomains: z.array(z.string()),
+    neverAskStatement: z.string(),
+    contactChannels: z.array(z.enum(CONTACT_CHANNELS)),
+    smsCarriesLinks: z.boolean(),
+    phishingReport: z.string(),
+  }),
+]);
+
 const templateOutput = z.object({
   key: templateKeySchema,
   fields: z.array(z.string()),
@@ -384,8 +407,14 @@ const noticeWireOutput = z.object({
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
   version: z.number().int(),
+  asset: z.string().nullable(),
+  network: z.string().nullable(),
+  phase: z.enum(INCIDENT_PHASES).nullable(),
   changelog: changelogOutput.nullable(),
 });
+
+const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
+const noticeNetwork = z.string().regex(NOTICE_NETWORK_PATTERN);
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
   return {
@@ -1176,6 +1205,31 @@ export function createNotifyRouter(
         }),
 
       /**
+       * Open funding incidents and maintenance for one asset on one network, for
+       * the deposit and withdraw banners. Signed-out. Another network of the same
+       * asset is not included. Each incident carries its newest entry and phase.
+       */
+      fundingNotices: publicProcedure
+        .input(z.object({ asset: noticeAsset, network: noticeNetwork }))
+        .output(
+          z.object({
+            asset: z.string(),
+            network: z.string(),
+            incidents: z.array(z.object({ root: noticeWireOutput, latest: noticeWireOutput })),
+            maintenance: z.array(noticeWireOutput),
+          }),
+        )
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            const read = await notify.notices.fundingNotices(input);
+            return { ...read, incidents: [...read.incidents], maintenance: [...read.maintenance] };
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
        * Machine-readable status. Signed-out. A component nothing measures reads
        * `unknown`. History is incident minutes per day with no uptime percentage.
        * `days` above the feed maximum is clamped to it.
@@ -1200,6 +1254,9 @@ export function createNotifyRouter(
             components: z.array(statusComponentId).max(3).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
+            asset: noticeAsset.nullable().optional(),
+            network: noticeNetwork.nullable().optional(),
+            phase: z.enum(INCIDENT_PHASES).nullable().optional(),
             changelog: changelogInput.nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
@@ -1271,6 +1328,40 @@ export function createNotifyRouter(
           if (!notify.channelSettings) return typedUnavailable('channel_settings');
           try {
             return await notify.channelSettings.set(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * Genuine-communication policy (BK-safe-02): official domains, the never-ask
+       * statement, our contact channels, SMS links and where to report phishing.
+       * Signed-out. Before the owner publishes one it reads `not_published`.
+       */
+      contactPolicy: publicProcedure
+        .output(contactPolicyOutput)
+        .query(async () => (notify.contactPolicy ? await notify.contactPolicy.current() : typedUnavailable('contact_policy'))),
+
+      contactPolicyProposal: scopedProcedure('admin:read', { module: 'notify' })
+        .input(z.object(contactPolicyInput))
+        .output(proposalOutput)
+        .query(async ({ input }) => {
+          if (!notify.contactPolicy) return typedUnavailable('contact_policy');
+          try {
+            return await notify.contactPolicy.proposal(input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Publish a new version. Every field is required; needs an approval from a different person. */
+      publishContactPolicy: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ ...contactPolicyInput, ...approvalInput }))
+        .output(contactPolicyOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.contactPolicy) return typedUnavailable('contact_policy');
+          try {
+            return await notify.contactPolicy.publish(ctx.principal.userId, input);
           } catch (err) {
             typedRefusal(err);
           }

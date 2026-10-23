@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { futuresLadderPolicyGate, TRADE_FUTURES_LADDER_POLICY_ENV } from './futures-ladder-owner-gate.js';
+import { futuresLadderPolicyGate, ownerLadderPolicy, TRADE_FUTURES_LADDER_POLICY_ENV } from './futures-ladder-owner-gate.js';
 
 const SAMPLE = JSON.stringify({
   tiers: [
@@ -19,5 +19,13 @@ describe('futures ladder owner policy gate', () => {
   it('parses owner ladder JSON without inventing defaults', () => {
     const gate = futuresLadderPolicyGate({ [TRADE_FUTURES_LADDER_POLICY_ENV]: SAMPLE });
     expect(gate.configured).toBe(true);
+  });
+
+  it('the service runs with the owner’s ladder; blank is no ladder; a set value that does not parse or cohere stops boot', () => {
+    expect(ownerLadderPolicy(SAMPLE)).toEqual(JSON.parse(SAMPLE));
+    expect(ownerLadderPolicy('')).toBeUndefined();
+    expect(ownerLadderPolicy(undefined)).toBeUndefined();
+    expect(() => ownerLadderPolicy('{not json')).toThrow(/TRADE_FUTURES_LADDER_POLICY/);
+    expect(() => ownerLadderPolicy(JSON.stringify({ tiers: [] }))).toThrow(/TRADE_FUTURES_LADDER_POLICY/);
   });
 });

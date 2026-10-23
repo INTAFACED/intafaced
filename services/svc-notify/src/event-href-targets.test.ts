@@ -18,7 +18,15 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** Rooms that exist on main (`apps/customer/src/app/navigation.ts`). */
-const LIVE_ROOMS = ['/support', '/p2p/orders/:id', '/verification', '/uc/account', '/token', '/trade/futures'];
+const LIVE_ROOMS = [
+  '/support',
+  '/p2p/orders/:id',
+  '/verification',
+  '/uc/account',
+  '/token',
+  '/trade/futures',
+  '/money/activity?tab=transfers',
+];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */
 const IA_SPEC_DETAIL_ROWS = ['/bank/loans/:id', '/trade/orders/:id', '/pay/request/:id', '/agents/sessions/:id'];

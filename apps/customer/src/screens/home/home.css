@@ -93,6 +93,18 @@
   .home-eye:hover {
     color: var(--if-fg);
   }
+  /* The total's own door to the Assets room (Money). */
+  .home-tile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    color: var(--if-fg-2);
+    text-decoration: none;
+  }
+  .home-tile-link:hover {
+    color: var(--if-fg);
+  }
 
   .home-total {
     display: flex;
@@ -624,9 +636,17 @@
     gap: 16px;
     min-height: 56px;
     margin: 0 16px;
+    color: inherit;
+    text-decoration: none;
   }
-  .home-activity__row + .home-activity__row {
+  .home-activity > li {
+    list-style: none;
+  }
+  .home-activity > li + li > .home-activity__row {
     border-top: 1px solid var(--if-line);
+  }
+  .home-activity__row:hover .home-activity__kind {
+    text-decoration: underline;
   }
   .home-activity__what {
     display: flex;
@@ -691,5 +711,73 @@
     .home-link {
       transition: none;
     }
+  }
+
+  /* Customise Home (HM-widgets-01): a quiet control above the tiles, and its dialog. */
+  .home-customise {
+    display: inline-flex;
+    margin-left: 16px;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .home-customise:hover {
+    color: var(--if-fg);
+  }
+  .home-customise__hint {
+    margin: 0 0 12px;
+    color: var(--if-fg-2);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .home-customise__list {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+  }
+  .home-customise__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    border-top: 1px solid var(--if-line);
+  }
+  .home-customise__name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+  }
+  /* The kit resets inputs to no size and no look; draw a real checkbox again. */
+  .home-customise__name input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    appearance: auto;
+    accent-color: var(--if-lime);
+  }
+  .home-customise__name small {
+    color: var(--if-fg-2);
+    font-size: 12px;
+  }
+  .home-customise__moves {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .home-customise__outcome {
+    margin: 0 0 12px;
+    color: var(--if-fg);
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .home-customise__foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 }

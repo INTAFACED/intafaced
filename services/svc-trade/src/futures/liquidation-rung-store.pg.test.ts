@@ -826,6 +826,38 @@ describe('liquidation rungs (Postgres)', () => {
       expect(await sql`SELECT 1 FROM trade.liquidation_rungs WHERE position_id = ${id}`).toHaveLength(1);
     });
 
+    it('a position with a matched fill still being recorded is not begun: the pot holds margin the row does not show yet', async () => {
+      const id = await openPosition();
+      const [pos] = await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`;
+      const orderId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      await sql`
+        INSERT INTO trade.futures_orders (
+          id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price, band_low, band_high,
+          leverage, hold_asset, status
+        ) VALUES (${orderId}, ${pos!.user_id}, ${MARKET}, 'pending-fill', 'buy', 'limit', '1', '100', '100', '95', '105', '5', 'USDT', 'open')
+      `;
+      await sql`
+        INSERT INTO trade.futures_order_fills (
+          fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount, new_filled, new_adverse, new_applied, state
+        ) VALUES (${`${MARKET}:9:${id}`}, ${orderId}, ${MARKET}, 9, ${id}, '1', '100', '20', '1', '0', '20', 'pending')
+      `;
+      const store = sqlLiquidationRungStore(sql);
+      const input = {
+        rungId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        positionId: id,
+        liquidationId: `liq:${id}`,
+        kind: 'partial' as const,
+        fromSize: amt('10'),
+        fromMargin: amt('100'),
+        plan: plan(),
+      };
+      expect(await store.begin(input)).toEqual({ status: 'changed' });
+      expect(await sql`SELECT 1 FROM trade.liquidation_rungs WHERE position_id = ${id}`).toHaveLength(0);
+
+      await sql`UPDATE trade.futures_order_fills SET state = 'applied', applied_at = now() WHERE position_id = ${id}`;
+      expect((await store.begin(input)).status).toBe('created');
+    });
+
     it('the database refuses a second live rung for a position, and an unknown kind or state', async () => {
       const id = await openPosition();
       const ins = (rung: string, kind: string, state: string) => sql`

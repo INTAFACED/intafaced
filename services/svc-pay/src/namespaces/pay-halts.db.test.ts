@@ -333,6 +333,16 @@ describe('payHalts.* with a real halt store', () => {
       expect(missing).toMatchObject({ code: other!.code, message: other!.message });
     });
 
+    it('an owner still onboarding (pay:onboard only) reads no platform-wide answer, only a merchant it may see', async () => {
+      const r = router(fetcherFor([]));
+      const onboarding = r.createCaller(ctxOf(principalFor(id(), { scopes: ['pay:onboard'], mfa: true })));
+      await expect(onboarding.payHalts.status({})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(onboarding.payHalts.status({ merchantId: id() })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'pay.merchant_forbidden',
+      });
+    });
+
     it('an unreadable store reports readable:false with every scope halted, never "all clear"', async () => {
       const r = router(fetcherFor([]));
       await sql`ALTER TABLE pay.halts RENAME TO halts_offline`;

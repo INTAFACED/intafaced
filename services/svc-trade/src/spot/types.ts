@@ -473,6 +473,12 @@ export type TradeErrorCode =
   | 'trade.paper_fill_refused'
   | 'trade.hold_uncovered'
   /**
+   * An engine cancel event says part of the order filled, and that fill is not
+   * in `trade.fills` yet. Releasing now would hand back the hold the fill is
+   * about to spend. Hold stays; the bus redelivers the cancel, within its delivery budget.
+   */
+  | 'trade.cancel_ahead_of_fill'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */
@@ -508,6 +514,10 @@ export type TradeErrorCode =
    * both refuse. Never `orderable: true` with a null protection price.
    */
   | 'trade.protection_unset'
+  /** No operator price band is published for the pair: a priced order is refused, never banded by a default. */
+  | 'trade.price_band_unset'
+  /** No operator open-order cap is published for the pair: an order that can rest is refused, never capped by a default. */
+  | 'trade.open_orders_cap_unset'
   /**
    * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
    * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
@@ -557,6 +567,10 @@ export type TradeErrorCode =
   /** Mark policy key blank at creation. Names `AlgoMarkPolicy.maxAgeSeconds`. */
   | 'trade.algo_mark_policy_unset'
   | 'trade.algo_insufficient_balance'
+  /** CB-bots-10: the owner has not set the verification level bots need. Every bot create refuses. */
+  | 'trade.bots_verification_level_not_set'
+  /** CB-bots-10: the caller's verification tier is below the owner's level for bots. `data.required` names it. */
+  | 'trade.bots_verification_insufficient'
   /** Ledger balance read failed at creation. Never treated as enough funds. */
   | 'trade.algo_balance_unreadable'
   | 'trade.algo_child_refused'
@@ -577,6 +591,10 @@ export type TradeErrorCode =
   | 'trade.sub_account_denied'
   /** Caller owns the id but it is soft-revoked */
   | 'trade.sub_account_revoked'
+  /** The user's email is not proved yet; a new custodial order waits for it (RC-identity-01) */
+  | 'trade.email_proof_required'
+  /** Identity could not answer the email-proof read in a form we trust — refuse, never guess */
+  | 'trade.identity_unavailable'
   /**
    * Two DIFFERENT matches claimed one `(market, sequence, role)`.
    *
@@ -665,9 +683,9 @@ export type TradeErrorCode =
   | 'trade.auth_attribution_missing'
   /** Operator fat-finger notional is set and this order is past it. */
   | 'trade.operator_fat_finger'
-  /** Operator collar (max price) is set and this order is past it. */
-  | 'trade.operator_collar'
-  /** Operator throttle is set and this account is already at it. */
+  /** Operator price band (collar, a fraction of the mid) is set and this order is priced outside it. */
+  | 'trade.price_band'
+  /** Operator open-order cap (throttle) is set and this account is already at it on this market. */
   | 'trade.operator_throttle'
   /** Operator circuit breaker is set and no reference mark is configured. */
   | 'trade.circuit_breaker_reference_unset'

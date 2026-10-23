@@ -34,6 +34,8 @@ import {
 } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
+import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -63,7 +65,7 @@ async function assertLimitAsk(control: ControlService, principal: Principal, mer
 }
 
 export function createMerchantControlRouter(control?: ControlService) {
-  const read = scopedProcedure('pay:read', { module: 'pay' });
+  const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const payout = scopedProcedure('pay:payout', { module: 'pay' });
 
@@ -74,6 +76,10 @@ export function createMerchantControlRouter(control?: ControlService) {
           .input(merchantControlGetInputSchema)
           .output(merchantControlProfileSchema)
           .query(() => notBuilt('merchantControl.get')),
+        reserve: read
+          .input(merchantControlGetInputSchema)
+          .output(merchantReserveViewSchema)
+          .query(() => notBuilt('merchantControl.reserve')),
         approvals: router({
           list: read
             .input(merchantControlApprovalListInputSchema)
@@ -99,6 +105,16 @@ export function createMerchantControlRouter(control?: ControlService) {
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
             return control.profile(input.merchantId);
+          }),
+        ),
+      /** M-money-out-01: reserve rule and recorded amounts, labelled recorded and not withheld. */
+      reserve: read
+        .input(merchantControlGetInputSchema)
+        .output(merchantReserveViewSchema)
+        .query(({ ctx, input }) =>
+          guarded(async () => {
+            await control.assertCanView(principalOf(ctx), input.merchantId);
+            return control.reserve(input.merchantId);
           }),
         ),
       usage: read

@@ -15,7 +15,10 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     get: async () => fail(),
     list: async () => fail(),
     counts: async () => fail(),
+    okKinds: async () => fail(),
     claimOnce: async () => fail(),
+    history: async () => fail(),
+    setLabel: async () => fail(),
   };
 }
 

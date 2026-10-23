@@ -125,15 +125,24 @@ const messages = {
   'Close summary': '{contract}, {side}. Size {size}. Mark {mark}.',
   'Close summary no mark':
     '{contract}, {side}. Size {size}. The service closes at the mark it accepts when you confirm; it is not shown here because positions do not carry one.',
-  'Close mark word': 'This closes at the accepted mark price, not a price you choose.',
+  'Close mark word':
+    'The close is a reduce-only market order on the futures book. It fills at the best prices there, never past the price at which this position’s margin is gone.',
+  'Close size field': 'Size to close',
+  'Close size hint': 'Leave empty to close all {size}.',
+  'Close share group': 'Share of the position',
+  'Close share': '{pct}%',
+  'Close part button': 'Close this size',
+  'Close problem notPositive': 'Enter a size above zero.',
+  'Close problem overPosition': 'That is more than the position holds.',
+  'Close problem empty': 'Enter a size.',
   'Close retry word': 'This position is waiting for a usable mark. Retrying sends the same request again, so it can only close once.',
   'Close button': 'Close position',
   'Retry close button': 'Retry close',
 
   // Close all
   'Close all title': 'Close all positions',
-  'Close all count': '{count} positions will be closed, one after another, each at its accepted mark price.',
-  'Close all count one': '1 position will be closed at its accepted mark price.',
+  'Close all count': '{count} positions will be closed, one after another, each by a reduce-only market order on the book.',
+  'Close all count one': '1 position will be closed by a reduce-only market order on the book.',
   'Close all list label': 'Positions to close',
   'Close all button': 'Close {count} positions',
   'Close all button one': 'Close 1 position',

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { SocialSignIn } from './SocialSignIn';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
@@ -311,6 +312,15 @@ export function AuthForm({ register }: { register: boolean }) {
     void run(register ? 'register' : 'password');
   }
   const selected = journal.records.find((record) => record.localRef === selectedRef);
+  // The second step's own words, only for a definite answer on this page.
+  const secondStep =
+    result && !result.ok && result.reason !== 'uncertain'
+      ? result.code === 'auth.mfa_required'
+        ? ('needCode' as const)
+        : result.code === 'auth.mfa_invalid'
+          ? ('codeMismatch' as const)
+          : null
+      : null;
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
@@ -537,7 +547,29 @@ export function AuthForm({ register }: { register: boolean }) {
           )}
           {result && !result.ok && (
             <div lang="und">
-              <Failure result={result} />
+              {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
+                // The per-account pause: say how long, from the service's own Retry-After.
+                <p className="failure" role="alert" lang={languageFor('locked')}>
+                  {result.retryAfterSeconds
+                    ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
+                    : t('lockedPlain')}
+                </p>
+              ) : secondStep ? (
+                // The second step, on the page that asks for it. A wrong code and a used one read the same.
+                <p className="failure" role="alert" lang={languageFor(secondStep)}>
+                  {t(secondStep)}
+                </p>
+              ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
+                // Sent only after the password verified: name the state and the one way forward.
+                <div className="failure" role="alert">
+                  <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
+                  <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
+                    {t('stateHelp')}
+                  </a>
+                </div>
+              ) : (
+                <Failure result={result} />
+              )}
               {result.code && <small lang="zxx">{result.code}</small>}
             </div>
           )}
@@ -564,6 +596,7 @@ export function AuthForm({ register }: { register: boolean }) {
             </a>
           )}
         </form>
+        {!register && <SocialSignIn />}
       </div>
     </section>
   );

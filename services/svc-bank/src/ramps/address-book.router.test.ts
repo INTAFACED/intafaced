@@ -5,17 +5,39 @@ import type { LedgerClient } from '@intafaced/ledger-client';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
-import { memoryWithdrawDestinations } from '../withdraw-destination.js';
+import { memoryWithdrawDestinations, type UserWithdrawDestinations } from '../withdraw-destination.js';
 import { RampService } from './ramp-service.js';
+import { memoryWithdrawNetworks, type WithdrawNetworkSource } from './withdraw-networks.js';
 
 /** W-withdraw-08 through the router: who may save, rename and remove, and what a list row shows. */
 
 const SECRET = 'a-bank-address-book-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
-const ADDRESS = '0xAbCdEf0123456789aBcDeF0123456789AbCdEf01';
+const ADDRESS = '0xabCDeF0123456789AbcdEf0123456789aBCDEF01';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
 
-function callerWith(scopes: string[], mfa = true) {
+const registryRow = (id: string, networks: string[], allowedActions: Array<'deposit' | 'withdraw' | 'trade' | 'transfer'>) => ({
+  id,
+  kind: 'crypto' as const,
+  precision: 6,
+  networks: networks.map((networkId) => ({ networkId, label: `TEST ${networkId}` })),
+  defaultNetworkId: networks[0] ?? null,
+  allowedActions,
+  state: 'active' as const,
+  revision: 1,
+  updatedAt: '2026-10-23T00:00:00.000Z',
+});
+const REGISTRY = memoryWithdrawNetworks([
+  registryRow('USDT', ['erc20', 'base'], ['deposit', 'withdraw']),
+  registryRow('BTC', ['bitcoin'], ['deposit']),
+]);
+
+function callerWith(
+  scopes: string[],
+  mfa = true,
+  networks: WithdrawNetworkSource | null = REGISTRY,
+  destinations: UserWithdrawDestinations = shared,
+) {
   const raw = encodePrincipal({
     sub: USER,
     userId: USER,
@@ -25,7 +47,7 @@ function callerWith(scopes: string[], mfa = true) {
     mfa,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
-  const ramps = new RampService({} as Sql, {} as LedgerClient, { destinations: shared, addressBookCap: '2' });
+  const ramps = new RampService({} as Sql, {} as LedgerClient, { destinations, addressBookCap: '2', withdrawNetworks: networks });
   return createBankRouter({ ramps } as unknown as BankServices).createCaller(
     edgeContext({
       headers: {
@@ -60,7 +82,7 @@ describe('bank.ramps.destinations: the address book', () => {
       tag: '777',
       origin: 'customer',
       state: 'active',
-      refMasked: '0xAbCd…Ef01',
+      refMasked: '0xabCD…EF01',
     });
     const listed = await callerWith(['bank:read']).ramps.destinations.list();
     expect(listed).toHaveLength(1);
@@ -80,7 +102,7 @@ describe('bank.ramps.destinations: the address book', () => {
     await stepped.ramps.destinations.save({ ...entry, ref: '0x3333333333333333333333333333333333333333', label: 'Second' });
     await expect(
       stepped.ramps.destinations.save({ ...entry, ref: '0x4444444444444444444444444444444444444444', label: 'Third' }),
-    ).rejects.toMatchObject({ message: expect.stringContaining('address book is full') });
+    ).rejects.toMatchObject({ message: expect.stringContaining('address book is full at 2 addresses') });
   });
 
   it('removes a saved address with the step-up scope', async () => {
@@ -91,5 +113,135 @@ describe('bank.ramps.destinations: the address book', () => {
       removed: true,
     });
     expect(await stepped.ramps.destinations.list()).toHaveLength(1);
+  });
+
+  it('lists the assets an address may be saved for, with their networks, from the registry', async () => {
+    expect(await callerWith(['bank:read']).ramps.destinations.networks()).toEqual([
+      {
+        assetId: 'USDT',
+        precision: 6,
+        networks: [
+          { networkId: 'erc20', label: 'TEST erc20' },
+          { networkId: 'base', label: 'TEST base' },
+        ],
+        defaultNetworkId: 'erc20',
+      },
+    ]);
+    expect(await callerWith(['bank:read'], true, memoryWithdrawNetworks([])).ramps.destinations.networks()).toEqual([]);
+  });
+
+  it('refuses a network the registry does not list for the asset, and an asset that cannot be withdrawn, saving nothing', async () => {
+    const stepped = callerWith(['bank:read', 'bank:write', 'trade:withdraw']);
+    const before = await stepped.ramps.destinations.list();
+    await expect(stepped.ramps.destinations.save({ ...entry, network: 'tron', label: 'Tron' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('USDT is not sent on tron'),
+    });
+    await expect(stepped.ramps.destinations.save({ ...entry, assetId: 'BTC', network: 'bitcoin', label: 'Coins' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(await stepped.ramps.destinations.list()).toEqual(before);
+  });
+
+  it('checks the registry on the entry as it is stored, so a lower-case asset or a capitalised network is the same entry', async () => {
+    const stepped = callerWith(['bank:read', 'bank:write', 'trade:withdraw']);
+    const saved = await stepped.ramps.destinations.save({
+      ...entry,
+      assetId: 'usdt',
+      network: 'Base',
+      ref: '0x5555555555555555555555555555555555555555',
+      label: 'Cased',
+    });
+    expect(saved).toMatchObject({ assetId: 'USDT', network: 'base' });
+    await stepped.ramps.destinations.remove({ destinationId: saved.destinationId, idempotencyKey: 'rm-cased' });
+  });
+
+  it('refuses to save while the registry cannot be read, and says so, rather than accepting any network', async () => {
+    const down: WithdrawNetworkSource = {
+      withdrawable: async () => {
+        throw new Error('ledger timed out');
+      },
+    };
+    for (const source of [down, null]) {
+      const stepped = callerWith(['bank:read', 'bank:write', 'trade:withdraw'], true, source);
+      await expect(stepped.ramps.destinations.save({ ...entry, label: 'Later' })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      await expect(stepped.ramps.destinations.networks()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    }
+  });
+});
+
+describe('bank.ramps.destinations: a changed character and a look-alike address (W-withdraw-03)', () => {
+  // The same start and end as ADDRESS as the book shows it (0xabCD…EF01), a different middle: the poisoning shape.
+  const LOOKALIKE = `0xabcd${'0'.repeat(32)}ef01`;
+  // ADDRESS with the case of one letter flipped: its checksum no longer matches.
+  const TAMPERED = '0xAbCDeF0123456789AbcdEf0123456789aBCDEF01';
+  const book = () => memoryWithdrawDestinations({ addressBookCap: () => '5' });
+
+  it('checks an address before the confirmation: a mismatched checksum, not an address, and the saved entry it shows like', async () => {
+    const destinations = book();
+    const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
+    const reader = callerWith(['bank:read'], true, REGISTRY, destinations);
+    expect(await reader.ramps.destinations.check({ ref: ADDRESS })).toEqual({ address: 'ok', lookalike: null });
+    const saved = await stepped.ramps.destinations.save(entry);
+    expect(await reader.ramps.destinations.check({ ref: ADDRESS.toLowerCase() })).toEqual({ address: 'ok', lookalike: null });
+    expect(await reader.ramps.destinations.check({ ref: TAMPERED })).toEqual({ address: 'checksum_mismatch', lookalike: null });
+    expect(await reader.ramps.destinations.check({ ref: '0x1234' })).toEqual({ address: 'invalid', lookalike: null });
+    expect(await reader.ramps.destinations.check({ ref: ` ${LOOKALIKE} ` })).toEqual({
+      address: 'ok',
+      lookalike: { destinationId: saved.destinationId, label: 'Cold wallet', refMasked: '0xabCD…EF01' },
+    });
+  });
+
+  it('refuses to save a mismatched checksum, saving nothing', async () => {
+    const destinations = book();
+    const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
+    await expect(stepped.ramps.destinations.save({ ...entry, ref: TAMPERED })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('do not match its checksum'),
+    });
+    expect(await stepped.ramps.destinations.list()).toEqual([]);
+  });
+
+  it('refuses a look-alike until the customer confirms they checked it, then saves it as its own entry', async () => {
+    const destinations = book();
+    const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
+    await stepped.ramps.destinations.save(entry);
+    for (const confirmLookalike of [undefined, false]) {
+      await expect(
+        stepped.ramps.destinations.save({
+          ...entry,
+          ref: LOOKALIKE,
+          label: 'Look-alike',
+          ...(confirmLookalike === undefined ? {} : { confirmLookalike }),
+        }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: expect.stringContaining('starts and ends like your saved address "Cold wallet"'),
+      });
+    }
+    expect(await stepped.ramps.destinations.list()).toHaveLength(1);
+    const confirmed = await stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike', confirmLookalike: true });
+    expect(confirmed).toMatchObject({ label: 'Look-alike', refMasked: '0xabcd…ef01' });
+    expect(await stepped.ramps.destinations.list()).toHaveLength(2);
+    // Saved once after confirming, the same entry again is that entry, not a new warning.
+    await expect(stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike' })).resolves.toMatchObject({
+      destinationId: confirmed.destinationId,
+    });
+    expect(await callerWith(['bank:read'], true, REGISTRY, destinations).ramps.destinations.check({ ref: LOOKALIKE })).toEqual({
+      address: 'ok',
+      lookalike: null,
+    });
+  });
+
+  it('does not call the same address in another case, or saved again, a look-alike', async () => {
+    const destinations = book();
+    const stepped = callerWith(['bank:read', 'trade:withdraw'], true, REGISTRY, destinations);
+    const first = await stepped.ramps.destinations.save(entry);
+    expect(await stepped.ramps.destinations.save(entry)).toMatchObject({ destinationId: first.destinationId });
+    await expect(
+      stepped.ramps.destinations.save({ ...entry, network: 'base', ref: ADDRESS.toLowerCase(), label: 'On Base' }),
+    ).resolves.toMatchObject({
+      network: 'base',
+    });
   });
 });

@@ -52,7 +52,7 @@ describe('openIdentityMail', () => {
     const text = readFileSync(outbox, 'utf8');
     expect(text).toContain('LOCAL-TEST');
     expect(text).toContain('purpose=email-confirm');
-    expect(text).toContain(`link=confirmEmail?token=${encodeURIComponent(token)}`);
+    expect(text).toContain(`link=confirm-email?token=${encodeURIComponent(token)}`);
     expect(written.join('')).not.toContain(token);
     expect(readFileSync(new URL('./local-mail.ts', import.meta.url), 'utf8')).not.toMatch(
       /nodemailer|resend|sendgrid|mailgun|postmark|amazonaws/i,
@@ -67,7 +67,33 @@ describe('openIdentityMail', () => {
       purpose: 'email-confirm',
     });
     expect(line).toBe(
-      'LOCAL-TEST purpose=email-confirm email=ab@example.com expires=2026-10-17T00:00:00.000Z link=confirmEmail?token=tok\n',
+      'LOCAL-TEST purpose=email-confirm email=ab@example.com expires=2026-10-17T00:00:00.000Z link=confirm-email?token=tok\n',
+    );
+  });
+});
+
+describe('localMailLine anti-phishing code', () => {
+  const expiresAt = new Date('2026-10-23T12:00:00.000Z');
+
+  it('puts the code on the end of the line, after everything the line already says', () => {
+    const plain = localMailLine({ email: 'a@example.com', code: 'tok', expiresAt, purpose: 'email-confirm' });
+    const stamped = localMailLine({
+      email: 'a@example.com',
+      code: 'tok',
+      expiresAt,
+      purpose: 'email-confirm',
+      antiPhishingCode: 'Harbour42',
+    });
+    expect(stamped).toBe(plain.replace(/\n$/, ' anti_phishing=Harbour42\n'));
+    expect(
+      localMailLine({ email: 'a@example.com', code: '', expiresAt, purpose: 'email-change-notice', antiPhishingCode: 'Ab12' }),
+    ).toMatch(/notice=address-changed anti_phishing=Ab12\n$/);
+  });
+
+  it('writes nothing for a missing code and only letters and digits for a present one', () => {
+    expect(localMailLine({ email: 'a@example.com', code: 'tok', expiresAt })).not.toContain('anti_phishing');
+    expect(localMailLine({ email: 'a@example.com', code: 'tok', expiresAt, antiPhishingCode: 'Ab 12\nx=y' })).toMatch(
+      / anti_phishing=Ab12xy\n$/,
     );
   });
 });

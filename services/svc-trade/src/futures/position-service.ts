@@ -54,6 +54,7 @@ import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForEntry,
@@ -74,7 +75,11 @@ import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircut
 import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
 import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
+import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
+import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { MatchingClient } from '../spot/matching-client.js';
+import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
 /**
  * How long one close waits for another close of the SAME position.
@@ -210,6 +215,8 @@ export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
 export const OPEN_ROLLED_BACK = 'trade.open_rolled_back';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
+/** A margin outflow or leverage change refused while reduce-only orders on the position may still fill. */
+export const FUTURES_REDUCE_ORDERS_RESTING = 'trade.futures_reduce_orders_resting';
 /**
  * A liquidation rung is live (planned or posted) on this position: its loss is booked or
  * about to be, and the row has not caught up. Refused with 409, retryable once the rung
@@ -247,6 +254,8 @@ export function publishedListClosedLimit(value: number | undefined | null): numb
 
 export interface PositionServiceDeps {
   accountAdmission?: TradingAdmissionPort;
+  /** Identity email-proof read (RC-identity-01). Unset refuses every new position `trade.identity_unavailable`. */
+  emailProof?: EmailProofSource;
   /**
    * Where prices come from. Required, and required to be a port the caller
    * cannot reach: making this optional would put the old defect one missing
@@ -305,6 +314,17 @@ export interface PositionServiceDeps {
    * the equity-only gate (`planLiquidation`, equity <= 0) applies, as before.
    */
   ladder?: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
+  /**
+   * Futures orders through svc-matching (futures ADR slice 6). Absent or `enabled: false` refuses NEW matched
+   * orders; settling a fill already matched, and releasing a hold, run regardless. The band is the owner's
+   * number and stays null until it is named.
+   */
+  matchedOrders?: {
+    matching: MatchingClient | null;
+    enabled: boolean;
+    priceBand: Amount | null;
+    lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
+  };
 }
 
 /** Why a position is frozen waiting for a mark — futures-namespaced refuse codes. */
@@ -359,8 +379,13 @@ interface PresentExtras {
   markPrice?: string | null;
   markReason?: 'mark_missing' | 'mark_unusable' | 'mark_not_read' | null;
   realizedPnl?: string | null;
+  /** A closed matched position: the summed quantity of its applied reduce fills. */
+  closedSize?: string | null;
   maintenanceMargin?: string | null;
   maintenanceReason?: string | null;
+  /** The ladder's liquidation price at today's depth (`liquidation-price.ts`); shown only, never stored. */
+  liquidationPrice?: string | null;
+  liquidationReason?: string | null;
   replayed?: boolean;
 }
 
@@ -386,6 +411,7 @@ export class PositionService {
   private readonly maxLeverage: Amount | null;
   private readonly afterMarginLedgerPost: ((request: string) => Promise<void>) | null;
   private readonly now: () => Date;
+  private readonly matched: MatchedFuturesOrders;
 
   constructor(
     private readonly sql: Sql,
@@ -397,6 +423,28 @@ export class PositionService {
     this.maxLeverage = deps.maxLeverage ?? null;
     this.afterMarginLedgerPost = deps.afterMarginLedgerPost ?? null;
     this.now = deps.now ?? (() => new Date());
+    const matchedOrders = deps.matchedOrders;
+    this.matched = new MatchedFuturesOrders({
+      sql,
+      ledger,
+      matching: matchedOrders?.matching ?? null,
+      enabled: matchedOrders?.enabled ?? false,
+      priceBand: matchedOrders?.priceBand ?? null,
+      maxLeverage: this.maxLeverage,
+      now: this.now,
+      markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,
+      assertPositionIdle: (positionId) => this.sql.begin((tx) => this.assertLiquidationHold(tx, positionId, 'close')),
+      lifecycleProof: matchedOrders?.lifecycleProof ?? null,
+      assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
+      ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
+      // An opening order takes on exposure the same way the at-mark open did, so it answers to the same two doors.
+      assertOpeningAllowed: async (userId) => {
+        this.refuseIfFuturesExposureOff();
+        if (deps.assertAdlDisclosureAcked) await deps.assertAdlDisclosureAcked(userId);
+      },
+      admission: deps.accountAdmission,
+      publishPosition: (positionId) => this.publishPositionById(positionId),
+    });
   }
 
   private requireLeverageCap(): Amount {
@@ -404,6 +452,17 @@ export class PositionService {
       throw new FuturesError('listing leverage cap is unset — refusing to invent a production leverage limit', LEVERAGE_CAP_UNSET, 503);
     }
     return this.maxLeverage;
+  }
+
+  /** The plane refusal an opening action would meet now, or null. The gated list shows it without throwing. */
+  futuresExposureRefusal(): { code: string; message: string } | null {
+    try {
+      this.refuseIfFuturesExposureOff();
+      return null;
+    } catch (err) {
+      if (err instanceof FuturesError) return { code: err.code, message: err.message };
+      throw err;
+    }
   }
 
   /**
@@ -619,6 +678,18 @@ export class PositionService {
     positionId: string,
     operation: 'close' | 'reduce_margin' | 'set_leverage' | 'add_margin',
   ): Promise<void> {
+    // A matched fill that is still being recorded has posted into this position's pot without its row yet, so
+    // no change may run until its row has caught up. The fill itself is retried until it does.
+    const [pendingFill] = await tx<{ n: number }[]>`
+      SELECT 1 AS n FROM trade.futures_order_fills WHERE position_id = ${positionId} AND state = 'pending' LIMIT 1
+    `;
+    if (pendingFill) {
+      throw new FuturesError(
+        'a matched fill on this position is still being recorded — retry in a moment',
+        'trade.futures_fill_in_progress',
+        409,
+      );
+    }
     const [hold] = await tx<
       { live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean; adl_planned: boolean }[]
     >`
@@ -653,6 +724,25 @@ export class PositionService {
         POSITION_UNDER_REVIEW,
         409,
       );
+    }
+    // A resting reduce-only order was bounded by the bankruptcy price of the margin at placement. Taking margin out
+    // moves that price toward entry, so a fill before the sweep could land past it and draw on the insurance fund for
+    // money the trader took out. The orders go first; adding margin moves the price away and is always allowed.
+    if (operation === 'reduce_margin' || operation === 'set_leverage') {
+      const [resting] = await tx<{ n: number }[]>`
+        SELECT 1 AS n FROM trade.futures_orders
+         WHERE position_id = ${positionId} AND reduce_only
+           AND (status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+                OR (status = 'cancelled' AND COALESCE(engine_filled_qty, qty) > filled_qty))
+         LIMIT 1
+      `;
+      if (resting) {
+        throw new FuturesError(
+          'this position has reduce-only orders that may still fill — cancel them before taking margin out or changing leverage',
+          FUTURES_REDUCE_ORDERS_RESTING,
+          409,
+        );
+      }
     }
   }
 
@@ -840,6 +930,69 @@ export class PositionService {
    * Active positions: `open` and `closing`. A frozen exit must remain visible
    * and must never render as a normal open (ADR 2026-08-07 done bar 7).
    */
+  /**
+   * Place a futures order through svc-matching (slice 6). Refused unless the switch is on, the band is named and
+   * the market is a futures market. See `matched-orders.ts`.
+   */
+  /** `context.region` is the request's edge region, read only by the derivatives gate (see `open`). */
+  async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.matched.place(principal, input, context);
+  }
+
+  /** The caller's own matched futures orders (`MatchedFuturesOrders.listForUser`). */
+  async listMatchedOrders(
+    userId: string,
+    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
+  ) {
+    return this.matched.listForUser(userId, input);
+  }
+
+  /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */
+  async cancelMatchedOrder(principal: Principal, orderId: string) {
+    return this.matched.cancel(principal, orderId);
+  }
+
+  /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */
+  async retryWaitingMatchedFills(limit: number) {
+    return this.matched.retryWaitingFills(limit);
+  }
+
+  /** The port the liquidation tick works a liquidation through the book with (futures ADR slice 7). */
+  get matchedLiquidation() {
+    return this.matched.liquidationPort;
+  }
+
+  /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
+  async cancelMatchedOrdersOutsideBand() {
+    return this.matched.cancelOutsideBand();
+  }
+
+  /** The matched-order settlement, for the matching consumers. Fills and releases run whether or not the switch is on. */
+  get matchedFills(): {
+    settle(fill: MatchedFillEvent): Promise<void>;
+    releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+    ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
+  } {
+    return {
+      settle: async (fill) => {
+        await this.matched.settleFillOrWait(fill);
+      },
+      releaseCancelled: (orderId, remainingQty) => this.matched.releaseEngineCancellation(orderId, remainingQty),
+      ownsFill: (fill) => this.matched.ownsFill(fill),
+    };
+  }
+
+  /** The private positions update for one row, by id. Used after a matched fill commits. */
+  private async publishPositionById(positionId: string): Promise<void> {
+    const [row] = await this.sql<PositionRow[]>`
+      SELECT p.*, m.symbol, m.contract_size
+      FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id
+      WHERE p.id = ${positionId}
+    `;
+    if (row) await this.publishPositionUpdated(row);
+  }
+
   async listOpen(userId: string, symbol?: string, clientOpenId?: string): Promise<Position[]> {
     const openId = clientOpenId === undefined ? null : clientOpenId;
     const rows = symbol
@@ -919,7 +1072,34 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const realized = await this.matchedRealized(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, realized.get(row.id))));
+  }
+
+  /**
+   * A position closed by reduce-only orders through the book realised its result fill by fill: the sum of its applied
+   * reduce fills, each the amount that was paid, owed or booked (migration 0096). The row's accepted mark is only the
+   * last reduce's price, so it would report the last fill alone. Closed rows only; a liquidation also hands part to ADL.
+   */
+  private async matchedRealized(rows: readonly PositionRow[]): Promise<Map<string, { realizedPnl: string | null; closedSize: string }>> {
+    const ids = rows.filter((row) => row.status === 'closed').map((row) => row.id);
+    if (ids.length === 0) return new Map();
+    const sums = await this.sql<{ position_id: string; realized: string | null; closed: string }[]>`
+      SELECT position_id::text AS position_id, (CASE WHEN count(*) = count(realized_pnl) THEN sum(realized_pnl) END)::text AS realized, sum(qty)::text AS closed
+      FROM trade.futures_order_fills
+      WHERE kind = 'reduce' AND state = 'applied' AND position_id IN ${this.sql(ids)}
+      GROUP BY position_id
+    `;
+    // A fill with no recorded result (a liquidation fill keeps its result on the rung) leaves the sum unknown, never zero.
+    return new Map(
+      sums.map((row) => [
+        row.position_id,
+        {
+          realizedPnl: row.realized == null ? null : formatAmount(parseAmount(row.realized)),
+          closedSize: formatAmount(parseAmount(row.closed)),
+        },
+      ]),
+    );
   }
 
   /**
@@ -939,7 +1119,8 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    return this.presentListed(row);
+    const realized = await this.matchedRealized([row]);
+    return this.presentListed(row, realized.get(row.id));
   }
 
   /**
@@ -948,6 +1129,23 @@ export class PositionService {
    * compared against, and a retry from another region must still find the original open.
    */
   async open(input: OpenPositionInput, principal?: Principal, context: { readonly region?: string | null } = {}): Promise<Position> {
+    /**
+     * WHILE MATCHED MODE IS ON, NO AT-MARK OPEN AND NO AT-MARK REDUCE.
+     *
+     * A matched fill opens its row under a slot id and inserts it when the first fill lands. An at-mark open that
+     * inserted an open row for the same (user, market, side) in between would make that insert violate the unique
+     * open index after the ledger had already posted the fill's margin. So while matching is on, new at-mark opens
+     * refuse. A reduce-only open here is an at-mark close (`closeQuantity`), retired with the rest of the at-mark
+     * close path (slice 6b): a reduce goes through a reduce-only matched order, priced in the book.
+     */
+    if (this.matched.matchingEnabled) {
+      if (input.reduceOnly === true) this.refuseCloseAtMark();
+      throw new FuturesError(
+        'opening at the mark is retired while futures orders go through the matching engine — place a matched order',
+        'trade.futures_open_at_mark_retired',
+        409,
+      );
+    }
     if (input.reduceOnly === true) return this.reduceOnlyOpen(input);
     /**
      * NO POT, NO NEW POSITIONS.
@@ -1016,6 +1214,9 @@ export class PositionService {
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
     }
+    // RC-identity-01: a new position locks customer margin, so it needs a proved email.
+    // Before any margin lock; reduce-only and close never come here.
+    await assertEmailProved(this.deps.emailProof, input.userId);
 
     /**
      * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
@@ -1927,6 +2128,7 @@ export class PositionService {
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        if (row.status === 'open' && this.matched.matchingEnabled) this.refuseCloseAtMark();
         // Under the row lock, before the mark read and before anything posts: a trader may not
         // close out from under a live rung or a parked position (see `assertLiquidationHold`).
         await this.assertLiquidationHold(tx, row.id, 'close');
@@ -2143,6 +2345,23 @@ export class PositionService {
   }
 
   /**
+   * WHILE MATCHED MODE IS ON, NO AT-MARK CLOSE (futures ADR slice 6b).
+   *
+   * With matching on, every position comes from a fill between two traders, and the clearing pot pays a winner only
+   * what some other trader lost (ADR section 3). A close at the mark has no counterparty: it would shrink one side
+   * of the market and pay from the pot with nobody on the other side, breaking long size = short size. So a close
+   * goes through a reduce-only matched order instead. Liquidation rungs and ADL keep their own paths. A row already
+   * `closing` (it asked to leave while the feed was dark, before the switch) still settles at its frozen mark.
+   */
+  private refuseCloseAtMark(): never {
+    throw new FuturesError(
+      'closing at the mark is retired while futures orders go through the matching engine — place a reduce-only order',
+      'trade.futures_close_at_mark_retired',
+      409,
+    );
+  }
+
+  /**
    * Post a close plan: the profit leg first through `payOrOweProfit` (paid from
    * the clearing pot, or owed until it holds it), then every other leg in plan
    * order. Runs under the position row lock, inside the close transaction.
@@ -2331,6 +2550,7 @@ export class PositionService {
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        if (row.status === 'open' && this.matched.matchingEnabled) this.refuseCloseAtMark();
         await this.assertLiquidationHold(tx, row.id, 'close');
         this.assertNoPendingMarginAdjustment(row);
 
@@ -2496,6 +2716,8 @@ export class PositionService {
       WHERE user_id = ${userId} AND client_batch_id = ${clientBatchId}
     `;
     if (stored[0]) return stored[0].result;
+    // Refused whole, before a batch is stored: a retry once the switch is off is a new close, not a stored refusal.
+    if (this.matched.matchingEnabled) this.refuseCloseAtMark();
 
     const market = input.market?.trim() || undefined;
     const open = await this.listOpen(userId, market);
@@ -2639,18 +2861,26 @@ export class PositionService {
     }
     let maintenanceMargin = extras?.maintenanceMargin;
     let maintenanceReason = extras?.maintenanceReason ?? null;
+    let liquidationPrice = extras?.liquidationPrice;
+    let liquidationReason = extras?.liquidationReason ?? null;
     // A settled row has no maintenance requirement. Do not read depth for it.
     if (row.status === 'closed' || row.status === 'liquidated') {
       maintenanceMargin = null;
       maintenanceReason = 'position_closed';
+      liquidationPrice = null;
+      liquidationReason = 'position_closed';
     } else if (maintenanceMargin === undefined) {
       if (markPrice == null) {
         maintenanceMargin = null;
         maintenanceReason = markReason;
+        liquidationPrice = null;
+        liquidationReason = markReason;
       } else {
         const maint = await this.maintenanceAt(row, parseAmount(markPrice));
         maintenanceMargin = maint.amount;
         maintenanceReason = maint.reason;
+        liquidationPrice = maint.liquidationPrice;
+        liquidationReason = maint.liquidationReason;
       }
     }
     return presentPosition(row, {
@@ -2659,22 +2889,43 @@ export class PositionService {
       markReason,
       maintenanceMargin,
       maintenanceReason,
+      ...(liquidationPrice === undefined ? {} : { liquidationPrice, liquidationReason }),
     });
   }
 
-  /** Same `planLadderRung` the liquidation tick plans with. No copied ladder. */
-  private async maintenanceAt(row: PositionRow, markPrice: Amount): Promise<{ amount: string | null; reason: string | null }> {
+  /**
+   * Same `planLadderRung` the liquidation tick plans with. No copied ladder. The liquidation price is read from the
+   * same policy and depth (`liquidation-price.ts`), so the two figures describe one ladder.
+   */
+  private async maintenanceAt(
+    row: PositionRow,
+    markPrice: Amount,
+  ): Promise<{ amount: string | null; reason: string | null; liquidationPrice: string | null; liquidationReason: string | null }> {
+    const none = (reason: string) => ({ amount: null, reason, liquidationPrice: null, liquidationReason: reason });
     const ladder = this.deps.ladder;
-    if (!ladder?.policy) return { amount: null, reason: 'maintenance_policy_unset' };
+    if (!ladder?.policy) return none('maintenance_policy_unset');
     let depthNotional: Amount | null;
     try {
       depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
-      return { amount: null, reason: 'depth_unknown' };
+      if (err instanceof FuturesLadderError) return none(err.code);
+      return none('depth_unknown');
     }
-    if (depthNotional == null || depthNotional <= 0n) return { amount: null, reason: 'depth_unknown' };
+    if (depthNotional == null || depthNotional <= 0n) return none('depth_unknown');
     try {
+      const margin = parseAmount(row.margin_current ?? row.margin_initial);
+      const liq = liquidationPriceFor({
+        side: row.side,
+        size: parseAmount(row.size),
+        entryPrice: parseAmount(row.entry_price),
+        margin,
+        depthNotional,
+        policy: ladder.policy,
+      });
+      const liquidation =
+        liq.price === null
+          ? { liquidationPrice: null, liquidationReason: liq.reason }
+          : { liquidationPrice: formatAmount(liq.price), liquidationReason: null };
       const rung = planLadderRung({
         position: {
           positionId: row.id,
@@ -2689,10 +2940,10 @@ export class PositionService {
         depthNotional,
         policy: ladder.policy,
       });
-      if (rung.action === 'refuse') return { amount: null, reason: rung.reason };
-      return { amount: formatAmount(rung.maintenanceRequired), reason: null };
+      if (rung.action === 'refuse') return { amount: null, reason: rung.reason, ...liquidation };
+      return { amount: formatAmount(rung.maintenanceRequired), reason: null, ...liquidation };
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      if (err instanceof FuturesLadderError) return none(err.code);
       throw err;
     }
   }
@@ -2727,7 +2978,9 @@ function isoOf(value: Date | string | null | undefined): string | null {
 
 /** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
 export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
-  const size = parseAmount(row.size);
+  // A position closed by reduce fills through the book keeps the size of its last remainder on the row; what it closed
+  // in all is the sum of those fills, which is the size a closed position reports.
+  const size = extras?.closedSize != null ? parseAmount(extras.closedSize) : parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);
   // W4 R6: collateral = residual margin; initialMargin stays the open stake.
@@ -2738,7 +2991,8 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const SCALE = 10n ** 18n;
   const notional = (size * entry) / SCALE;
   const opened = row.opened_at instanceof Date ? row.opened_at : new Date(row.opened_at);
-  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null;
+  // A stored price wins; otherwise the ladder's price at today's depth, when the caller read one.
+  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : (extras?.liquidationPrice ?? null);
 
   const markPrice = extras?.markPrice === undefined ? null : extras.markPrice;
   let markReason = extras?.markReason ?? null;
@@ -2805,6 +3059,10 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const fieldReasons: Record<string, string> = {};
   if (markPrice == null && markReason) fieldReasons.markPrice = markReason;
   if (maintenanceMargin == null && maintenanceReason) fieldReasons.maintenanceMargin = maintenanceReason;
+  if (liq == null) {
+    const liquidationReason = settled ? 'position_closed' : (extras?.liquidationReason ?? maintenanceReason);
+    if (liquidationReason) fieldReasons.liquidationPrice = liquidationReason;
+  }
   if (unrealized == null && unrealizedReason) fieldReasons.unrealizedPnl = unrealizedReason;
   if (percentage == null && percentageReason) fieldReasons.percentage = percentageReason;
   if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;

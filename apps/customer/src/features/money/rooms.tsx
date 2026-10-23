@@ -39,6 +39,9 @@ import { OwnerCards } from './Cards';
 import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
+import { AccountHome } from './AccountHome';
+import { AddMoney } from './AddMoney';
+import { addMoneyCopy } from './add-money-copy';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -1346,6 +1349,15 @@ function Ramps({ open }: { open: (spec: ActionSpec) => void }) {
     </BankPage>
   );
 }
+/** `/bank/ramps/new`: add money, inside the Ramps room. */
+function AddMoneyRoom() {
+  const { t } = addMoneyCopy.useCopy();
+  return (
+    <BankPage room="Ramps" title={t('title')} description={t('description')}>
+      <AddMoney />
+    </BankPage>
+  );
+}
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -1731,6 +1743,7 @@ function BankOverview() {
           </ResourceView>
         </Section>
       </div>
+      <AccountHome />
       <Section title={copyText('overview.services')}>
         <nav className="money-destinations" aria-label={copyText('overview.services')}>
           {bankServices.map((service) => (
@@ -1767,6 +1780,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Cards open={open} />;
     case '/bank/ramps':
       return <Ramps open={open} />;
+    case '/bank/ramps/new':
+      return <AddMoneyRoom />;
     case '/bank/analytics':
       return <Analytics />;
     case '/bank/business':

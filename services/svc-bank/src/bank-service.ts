@@ -1,3 +1,4 @@
+import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
@@ -8,6 +9,7 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
+import { AddMoneyService } from './ramps/add-money.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
@@ -17,14 +19,19 @@ import { ActivityService, type ActivityServiceOptions } from './activity/activit
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
+import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
+import { CurrencyService } from './account-home/currencies.js';
+import { ProfileService } from './account-home/profile.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
+import type { PersonalTransferNotices } from './transfers/transfer-notices.js';
 import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
 import { GlobalHoldService } from './personal-pay/holds.js';
+import { SpendFiguresReader } from './insufficient-funds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -52,15 +59,27 @@ export interface BankServices {
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
   readonly accountDetails: AccountDetailsService;
+  /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
+  readonly accountTerms: () => AccountTerms;
+  /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
+  readonly currencies: CurrencyService;
+  /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
+  readonly profiles: ProfileService;
   readonly loans: LoanService;
+  /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
+  readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
   readonly ramps: RampService;
+  /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
+  readonly addMoney: AddMoneyService;
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
+  /** RC-wallet-09: figures for a refused spend. Reads only. */
+  readonly spendFigures: SpendFiguresReader;
   /**
    * Operator transfer reads. The same connection the services use.
    * The procedures only SELECT. They do not post.
@@ -116,6 +135,12 @@ export interface BankServiceOptions {
    * default; the banking partner is not wired today, so details refuse `rail.bank`.
    */
   accountDetails?: AccountDetailsOptions;
+  /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
+  accountTerms?: string | undefined;
+  /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
+  accountCurrencies?: string | undefined;
+  /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
+  spaceLimit?: string | undefined;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -144,6 +169,8 @@ export interface BankServiceOptions {
   handles?: PartyHandlePort;
   /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
   requestNotices?: PersonalRequestNotices;
+  /** Inbox events for a posted personal send (both people). Unset = no notice; the send is unaffected. */
+  transferNotices?: PersonalTransferNotices;
   /**
    * Public handles and exact recipient lookup. Unset refuses team, approval
    * history and recipient-space reads. It does not invent a handle.
@@ -172,13 +199,16 @@ export interface BankServiceOptions {
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
-  const spaces = new SpaceService(sql, ledger, options.recipients);
+  const spaces = new SpaceService(sql, ledger, options.recipients, { spaceLimit: () => options.spaceLimit });
   const transfers = new TransferService(sql, ledger, spaces);
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,
+    transferNotices: options.transferNotices,
   });
-  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC' });
+  const assetPauses = new AssetPauseService(sql);
+  // The supply pause lives in the deposit path so auto-invest cannot go around it.
+  const earn = new EarnService(sql, ledger, { nativeAssetId: options.nativeAssetId ?? 'IFC', supplyGate: assetPauses });
   const analytics = new SpendAnalytics(spaces, history);
   const portfolio = new PortfolioService(ledger, spaces, options.portfolio ?? {});
   const activityRecords = new ActivityRecordService(sql);
@@ -190,6 +220,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const statements = new StatementService(activity, options.activity?.cursorSecret);
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
+  const accountTerms = () => parseAccountTerms(options.accountTerms);
+  const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
+  const profiles = new ProfileService(sql);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -206,6 +239,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
+  const addMoney = new AddMoneyService(sql, ramps);
   const deposits = new DepositService(sql, options.deposits ?? {});
   const business = new BusinessService(
     sql,
@@ -239,15 +273,21 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activityRecords,
     statements,
     accountDetails,
+    accountTerms,
+    currencies,
+    profiles,
+    assetPauses,
     loans,
     cards,
     ramps,
+    addMoney,
     deposits,
     autoInvest,
     business,
     bills,
     globalSend,
     globalHolds,
+    spendFigures: new SpendFiguresReader(sql, ledger),
     transferOps: { sql, handles: options.handles },
   };
 }

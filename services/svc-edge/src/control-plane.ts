@@ -720,6 +720,25 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     return reply.code(res.status).send(res.body);
   });
 
+  /**
+   * The ledger object lookup (OPS-rules-monitoring-12): one transaction by id, or the one a business key booked.
+   * Treasury scope, forwarded with the operator's OWN token, so svc-ledger records the lookup against the person at the
+   * keyboard before it reads. svc-ledger's answer passes through unchanged, refusals included.
+   */
+  app.get<{ Params: { txId: string } }>('/admin/ledger/transactions/:txId', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    const res = await admin.lookupTransaction(req.params.txId, auth.bearer);
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.get<{ Querystring: { businessKey?: unknown } }>('/admin/ledger/trace', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    const res = await admin.traceBusinessKey(req.query?.businessKey, auth.bearer);
+    return reply.code(res.status).send(res.body);
+  });
+
   const matchingUnwired = {
     error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
     code: 'edge.matching_unwired' as const,

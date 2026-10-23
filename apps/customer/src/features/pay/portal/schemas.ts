@@ -137,6 +137,38 @@ export const invitationSchema = z.array(
 );
 export type Invitation = z.infer<typeof invitationSchema>[number];
 
+/**
+ * `merchantOps.permissions.catalogue`: the built-in roles and every permission, read from the service's role table. An
+ * area is any string, so one the service adds later still shows (under its key) instead of failing the whole page.
+ */
+export const permissionCatalogueSchema = z.object({
+  roles: z.array(
+    z.object({
+      role: memberRoleSchema,
+      builtIn: z.literal(true),
+      editable: z.literal(false),
+      description: z.string(),
+      grants: z.array(z.string()),
+    }),
+  ),
+  areas: z.array(
+    z.object({
+      area: z.string(),
+      permissions: z.array(
+        z.object({
+          key: z.string(),
+          area: z.string(),
+          kind: z.enum(['read', 'write']),
+          requires: z.array(z.string()),
+          heldBy: z.array(memberRoleSchema),
+          unheld: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+});
+export type PermissionCatalogue = z.infer<typeof permissionCatalogueSchema>;
+
 export const disputeStatuses = ['open', 'contested', 'accepted', 'won', 'lost'] as const;
 export type DisputeStatus = (typeof disputeStatuses)[number];
 export const disputeSchema = z.object({
@@ -282,9 +314,20 @@ export const preferenceSchema = z.object({
   kind: z.enum(notificationKinds),
   inApp: z.boolean(),
   threshold: z.string().nullable(),
+  updatedBy: z.string().nullable(),
   updatedAt: timestamp.nullable(),
 });
 export type Preference = z.infer<typeof preferenceSchema>;
+/** One change to a notification preference (`merchantOps.notifications.preferences.history`): what it was set to, by whom. */
+export const preferenceChangeSchema = z.object({
+  seq: z.string(),
+  kind: z.enum(notificationKinds),
+  inApp: z.boolean(),
+  threshold: z.string().nullable(),
+  actorId: z.string(),
+  createdAt: timestamp,
+});
+export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
 export const unreadSchema = z.object({ unread: z.number().int() });
 

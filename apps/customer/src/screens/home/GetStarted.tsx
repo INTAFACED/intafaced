@@ -5,6 +5,7 @@ import { IN_PANEL } from './panel';
 import { progress, type Step, type StepId, type StepStatus } from './started';
 
 const TITLE = {
+  register: 'Step register',
   verify: 'Step verify',
   secure: 'Step secure',
   deposit: 'Step deposit',
@@ -12,6 +13,7 @@ const TITLE = {
   alert: 'Step alert',
 } as const satisfies Record<StepId, string>;
 const HINT = {
+  register: 'Step register hint',
   verify: 'Step verify hint',
   secure: 'Step secure hint',
   deposit: 'Step deposit hint',
@@ -68,7 +70,7 @@ function Row({ step }: { step: Step }) {
 }
 
 /**
- * "Get started" (ROADMAP M8): five steps for an account that holds nothing. Each shows done or not from the real answers; a step
+ * "Get started" (ROADMAP M8, HM-widgets-02): six steps, from creating the account to a first price alert. Each shows done or not from the real answers; a step
  * whose answer has not come, or could not be read, never claims to be done. The person can hide the list.
  */
 export function GetStarted({ steps, onHide }: { steps: Step[]; onHide: () => void }) {

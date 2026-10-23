@@ -53,6 +53,21 @@ export const accountStateSchema = z.object({
 export type AccountState = z.infer<typeof accountStateSchema>;
 
 /**
+ * Whether the account's current email address is proved (RC-identity-01), for a service that gates an action on it:
+ * svc-trade refuses a new custodial order while it is `missing`. Read per request from svc-identity's
+ * `GET /internal/email-proof/:userId`, service-authenticated; never copied. A separate shape from `AccountState` on
+ * purpose: that projection is status and KYC tier "and literally nothing else", and support stores it as cited.
+ * No address in it, only the fact.
+ */
+export const emailProofSchema = z
+  .object({
+    userId: z.string().uuid(),
+    emailProof: z.enum(['accepted', 'missing']),
+  })
+  .strict();
+export type EmailProof = z.infer<typeof emailProofSchema>;
+
+/**
  * The perk table other services query (§4.1). Machine-readable on purpose:
  * svc-trade reads `feeDiscountBps` and applies it without knowing what a rank
  * means, which is why rank can be re-tuned without touching a second service.
@@ -170,3 +185,20 @@ export const sessionOwnershipSchema = z.object({
   revoked: z.boolean(),
 });
 export type SessionOwnership = z.infer<typeof sessionOwnershipSchema>;
+
+/**
+ * ANTI-PHISHING CODE (I-signin-sessions-25). A word the account owner picks so a real security message from us can be
+ * told from a fake one. 4 to 20 letters and digits. `profile.antiPhishing.get` answers the caller's own code (null when
+ * none is set) and nothing else; `profile.antiPhishing.set` takes the code, or '' to clear it, with a step-up.
+ */
+export const ANTI_PHISHING_CODE_PATTERN = /^[A-Za-z0-9]{4,20}$/;
+/** The step-up door for a set or clear (see `CUSTOMER_STEP_UP_DOORS`): its scope and purpose, named once. */
+export const ANTI_PHISHING_STEP_UP_SCOPE = 'identity.step_up.anti_phishing_set' as const;
+export const ANTI_PHISHING_STEP_UP_PURPOSE = 'account.antiPhishing.set' as const;
+export const antiPhishingCodeSchema = z.object({
+  code: z.string().nullable(),
+  updatedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type AntiPhishingCodeView = z.infer<typeof antiPhishingCodeSchema>;
+export const antiPhishingSetResultSchema = antiPhishingCodeSchema.extend({ changed: z.boolean() });
+export type AntiPhishingSetResult = z.infer<typeof antiPhishingSetResultSchema>;

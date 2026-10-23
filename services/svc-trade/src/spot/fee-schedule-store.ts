@@ -44,7 +44,7 @@ export async function feeScheduleAt(sql: Sql, base: OwnerFeeSchedule, at: Date):
     SELECT version::text, schedule
       FROM trade.fee_schedule_versions
      WHERE effective_at <= ${at.toISOString()}
-     ORDER BY effective_at DESC, version DESC
+     ORDER BY effective_at DESC, fee_schedule_versions.version DESC
      LIMIT 1`;
   return row ? scheduleOf(row) : base;
 }
@@ -66,7 +66,7 @@ export async function feeScheduleHistory(sql: Sql): Promise<FeeScheduleVersionRo
   const rows = await sql<VersionDbRow[]>`
     SELECT version::text, schedule, effective_at, operator_id, approver_id, reason, approval_id, created_at
       FROM trade.fee_schedule_versions
-     ORDER BY version ASC`;
+     ORDER BY fee_schedule_versions.version ASC`;
   return rows.map(present);
 }
 

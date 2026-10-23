@@ -8,6 +8,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
 import {
@@ -16,6 +17,23 @@ import {
   type RecipientStatePort,
   type RecipientStatus,
 } from '../recipient-state.js';
+
+/** Owner-set number of live named spaces one account may hold (BK-pots-01). */
+export const BANK_SPACE_LIMIT_ENV = 'BANK_SPACE_LIMIT';
+
+/** Unset, blank, zero or not a whole number refuses `bank.space_limit_unset`. No default. */
+export function requireSpaceLimit(raw: string | undefined): number {
+  const trimmed = raw?.trim() ?? '';
+  if (!/^[1-9][0-9]{0,5}$/.test(trimmed)) {
+    throw new BankError('The owner has not set how many spaces an account can hold, so no new space is made', 'bank.space_limit_unset');
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
+export interface SpaceServiceOptions {
+  /** The owner's space limit, read on each call so a change takes effect without a restart. */
+  readonly spaceLimit?: () => string | undefined;
+}
 
 /** One message for frozen, closed and unknown. Never says which. */
 export const RECIPIENT_CANNOT_RECEIVE_MESSAGE = 'This recipient cannot receive payments';
@@ -91,6 +109,16 @@ export function accountForSpace(space: Pick<SpaceRecord, 'id' | 'userId' | 'asse
   return space.kind === 'primary' ? userAvailable(space.userId, space.assetId) : subAccountAvailable(space.id, space.assetId);
 }
 
+/** What the user holds in their main account: available balances above zero, optionally for one asset. */
+function heldAvailable<B extends { account: { kind: string; assetId: string }; amount: bigint }>(
+  balances: readonly B[],
+  assetId?: string,
+): B[] {
+  return balances.filter(
+    (b) => b.account.kind === 'available' && b.amount > 0n && (assetId === undefined || b.account.assetId === assetId),
+  );
+}
+
 export interface SpaceView extends SpaceRecord {
   /** Decimal string, straight from the ledger. Never persisted anywhere. */
   balance: string;
@@ -106,6 +134,7 @@ export class SpaceService {
      * from an active one, and must not pay either.
      */
     private readonly recipients: RecipientStatePort = unconfiguredRecipientState(),
+    private readonly options: SpaceServiceOptions = {},
   ) {}
 
   /**
@@ -139,8 +168,8 @@ export class SpaceService {
    * `spaces_one_primary_idx` makes the race safe — two concurrent calls produce
    * one row.
    */
-  async ensurePrimary(userId: string, assetId: string, name = 'Main'): Promise<SpaceRecord> {
-    const rows = await this.sql<SpaceRow[]>`
+  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Sql = this.sql): Promise<SpaceRecord> {
+    const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name)
       VALUES (${userId}, ${assetId}, 'primary', ${name})
       ON CONFLICT DO NOTHING
@@ -150,13 +179,30 @@ export class SpaceService {
     const inserted = rows[0];
     if (inserted) return toRecord(inserted);
 
-    const existing = await this.sql<SpaceRow[]>`
+    const existing = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
         FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary'
     `;
     const row = existing[0];
     if (!row) throw new BankError(`Could not resolve the primary ${assetId} space for ${userId}`, 'bank.space_not_found');
     return toRecord(row);
+  }
+
+  /**
+   * The main account of a member being paid by user id, for a credit.
+   *
+   * A member who has never held the asset has no primary row yet, but they do
+   * have the ledger account the row names (`userAvailable`). The row is made
+   * here, after identity says the user can receive, so an unknown, frozen or
+   * closed id gets the one `bank.recipient_cannot_receive` and no row.
+   */
+  async primaryForCredit(userId: string, assetId: string): Promise<SpaceRecord | null> {
+    const id = userId.trim();
+    if (!id) return null;
+    const known = await this.findPrimary(id, assetId);
+    if (known) return known;
+    await this.assertCanReceive(id);
+    return this.ensurePrimary(id, assetId);
   }
 
   /** Lookup only. Does not invent a dest user or a primary space. */
@@ -172,14 +218,96 @@ export class SpaceService {
     return row ? toRecord(row) : null;
   }
 
-  async create(input: {
+  /** Show a removed currency on the account again. A label: nothing moves. */
+  async restoreCurrency(userId: string, assetId: string, db: Sql = this.sql): Promise<void> {
+    await db`
+      UPDATE bank.spaces SET removed_at = NULL, updated_at = now()
+       WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary' AND removed_at IS NOT NULL
+    `;
+  }
+
+  /**
+   * A new named space for a customer, inside the owner's limit on live named spaces (BK-pots-01).
+   *
+   * The limit is the owner setting (`BANK_SPACE_LIMIT`), read on each call: blank refuses `bank.space_limit_unset`, and
+   * at the limit the create refuses `bank.space_limit_reached` with the number. Creates and restores for one customer
+   * are serialised by an advisory lock, so two racing for the last place make one space, not two. Archived spaces do
+   * not count; restoring one does (`unarchiveWithinLimit`).
+   */
+  async createWithinLimit(input: {
     userId: string;
     assetId: string;
     name: string;
     goalTarget?: Amount | null;
     lockedUntil?: Date | null;
   }): Promise<SpaceRecord> {
-    const rows = await this.sql<SpaceRow[]>`
+    const max = requireSpaceLimit(this.options.spaceLimit?.());
+    return this.underSpaceLock(input.userId, async (tx) => {
+      await this.assertRoomForSpace(tx, input.userId, max);
+      // The primary must exist before a named one is useful (it is where value arrives from every other module), and a
+      // named space puts its currency back on the account if the customer had removed it.
+      await this.ensurePrimary(input.userId, input.assetId, 'Main', tx);
+      await this.restoreCurrency(input.userId, input.assetId, tx);
+      return this.create(input, tx);
+    });
+  }
+
+  /**
+   * One customer's space labels, changed one call at a time: creates, restores and currency removals for a customer
+   * take the same advisory lock. Read committed, so each statement after the lock sees what the call before it committed.
+   */
+  async underSpaceLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+    return transaction(
+      this.sql,
+      async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`bank-spaces:${userId}`}))`;
+        return fn(tx);
+      },
+      { isolation: 'read committed' },
+    );
+  }
+
+  /** Restore an archived space, inside the same limit as a new one. A live space is a no-op that needs no room. */
+  async unarchiveWithinLimit(spaceId: string): Promise<void> {
+    const space = await this.get(spaceId);
+    if (space.kind === 'named' && space.archivedAt) {
+      const max = requireSpaceLimit(this.options.spaceLimit?.());
+      await this.underSpaceLock(space.userId, async (tx) => {
+        await this.assertRoomForSpace(tx, space.userId, max);
+        await this.restoreCurrency(space.userId, space.assetId, tx);
+        await tx`
+          UPDATE bank.spaces SET archived_at = NULL, updated_at = now()
+           WHERE id = ${spaceId} AND archived_at IS NOT NULL
+        `;
+      });
+      return;
+    }
+    await this.unarchive(spaceId);
+  }
+
+  private async assertRoomForSpace(tx: Sql, userId: string, max: number): Promise<void> {
+    const count = await tx<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NULL
+    `;
+    if ((count[0]?.n ?? 0) >= max) {
+      throw new BankError(
+        `This account already has ${max} spaces, the most it can hold. Archive one to make room.`,
+        'bank.space_limit_reached',
+      );
+    }
+  }
+
+  async create(
+    input: {
+      userId: string;
+      assetId: string;
+      name: string;
+      goalTarget?: Amount | null;
+      lockedUntil?: Date | null;
+    },
+    db: Sql = this.sql,
+  ): Promise<SpaceRecord> {
+    const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name, goal_target, locked_until)
       VALUES (
         ${input.userId}, ${input.assetId}, 'named', ${input.name},
@@ -276,13 +404,13 @@ export class SpaceService {
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
           SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
-            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL
+            FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY kind DESC, name ASC
            LIMIT ${page}
         `
       : await this.sql<SpaceRow[]>`
           SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
-            FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL
+            FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY asset_id ASC, kind DESC, name ASC
            LIMIT ${page}
         `;
@@ -314,12 +442,51 @@ export class SpaceService {
 
   /** Spaces with their ledger balances attached — the multi-currency overview (§8.1). */
   async overview(userId: string, assetId?: string, limit?: number): Promise<SpaceView[]> {
+    assertSpacesListLimit(limit);
+    await this.ensureHeldPrimaries(userId, assetId);
     const spaces = await this.list(userId, assetId, limit);
     const views: SpaceView[] = [];
     for (const space of spaces) {
       views.push({ ...space, balance: formatAmount(await this.balanceOf(space)) });
     }
     return views;
+  }
+
+  /**
+   * Every asset the user holds in their main account gets its primary row, so a
+   * list of spaces always shows the account itself. Money that lands from
+   * outside the bank (a deposit, a fill) is posted by other services that do not
+   * know about spaces, so the row is made the first time the owner reads the
+   * list; before this, Pay and Bank showed "nothing to send" over a funded
+   * account. Labels only: `ensurePrimary` is race-safe and a repeat is a no-op.
+   * A currency the customer removed comes back the same way once money is in it
+   * again, so a funded account is never hidden. A failed write never fails the
+   * read; the next read tries again.
+   */
+  async ensureHeldPrimaries(userId: string, assetId?: string): Promise<void> {
+    try {
+      const held = heldAvailable(await this.ledger.balances('user', userId), assetId);
+      if (held.length === 0) return;
+      const rows = await this.sql<Array<{ asset_id: string; removed: boolean }>>`
+        SELECT asset_id, removed_at IS NOT NULL AS removed FROM bank.spaces WHERE user_id = ${userId} AND kind = 'primary'
+      `;
+      const known = new Map(rows.map((r) => [r.asset_id, r.removed]));
+      for (const b of held) {
+        const removed = known.get(b.account.assetId);
+        if (removed === undefined) await this.ensurePrimary(userId, b.account.assetId);
+        else if (removed) await this.restoreCurrency(userId, b.account.assetId);
+      }
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-bank',
+          event: 'bank.held_primary_open_failed',
+          userId,
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
   }
 
   /**
@@ -332,8 +499,8 @@ export class SpaceService {
   async unnamedAssets(userId: string): Promise<Array<{ assetId: string; balance: string }>> {
     const balances = await this.ledger.balances('user', userId);
     const named = new Set((await this.namedSpaces(userId)).map((s) => s.assetId));
-    return balances
-      .filter((b) => b.account.kind === 'available' && b.amount > 0n && !named.has(b.account.assetId))
+    return heldAvailable(balances)
+      .filter((b) => !named.has(b.account.assetId))
       .map((b) => ({ assetId: b.account.assetId, balance: formatAmount(b.amount) }));
   }
 

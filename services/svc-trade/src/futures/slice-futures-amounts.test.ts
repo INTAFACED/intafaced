@@ -36,7 +36,7 @@ import type { Amount, Balance } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { CommittedOperationAdmission } from '@intafaced/contracts';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
-import { principalFor } from '../spot/testing.js';
+import { StubEmailProof, principalFor } from '../spot/testing.js';
 import { closeHoldFailureAction } from '../spot/close-position.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { memoryMarkBook } from './mark-source.js';
@@ -319,6 +319,8 @@ function creditBook(options?: { balanceThrows?: boolean }) {
       const id = String(values[0]);
       return positions.filter((row) => row.id === id);
     }
+    // No matched futures fills exist in this fixture, so the pending-fill guard finds none.
+    if (text.includes('FROM trade.futures_order_fills') && text.includes("state = 'pending'")) return [];
     throw new Error(`unexpected sql: ${text}`);
   };
 
@@ -357,6 +359,7 @@ function creditBook(options?: { balanceThrows?: boolean }) {
     maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
     now: () => CREDIT_NOW,
     accountAdmission: recordingAdmission(),
+    emailProof: new StubEmailProof(),
   });
 
   return {

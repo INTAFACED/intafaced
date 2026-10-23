@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema, academyRelatedInputSchema } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -11,6 +11,8 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { AcademyError } from './errors.js';
+import { relatedItems } from './curriculum/related.js';
+import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
 import type { CallerSeat } from './learning/customer-store.js';
@@ -49,7 +51,6 @@ import {
 } from './curriculum/catalog.js';
 import { curriculumInventory, curriculumImportStageStatus } from './curriculum/import-pipeline.js';
 import { resolveCurriculumDeepLink, listCurriculumPathDeepLinks } from './curriculum/deep-links.js';
-import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import {
   drillProgress,
   isDrillComplete,
@@ -762,6 +763,14 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.video_grant_required':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+
+    case 'academy.slug_reserved':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.prerequisite_cycle':
+    case 'academy.window_invalid':
+    case 'academy.reason_required':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
@@ -831,6 +840,7 @@ export function createAcademyRouter(
   video: AcademyRouterVideo = unconfiguredVideoLibrary(),
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   verifyRate: VerifyRate | null = null,
+  settings: SettingsEnv = {},
 ) {
   const ifcPayLaw = payLaws.ifcPayLaw ?? UNPUBLISHED_AMBASSADOR_IFC_PAY_LAW;
   const revenueShareLaw = payLaws.revenueShareLaw ?? UNPUBLISHED_AMBASSADOR_REVENUE_SHARE_LAW;
@@ -867,6 +877,12 @@ export function createAcademyRouter(
         }),
       ),
 
+    /** AC-articles-02 — related items by shared path. None → []. */
+    curriculumRelated: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyRelatedInputSchema)
+      .output(z.array(curriculumSummaryOut))
+      .query(({ input }) => guard(async () => relatedItems(input.slug, assertCurriculumPageLimit(input.limit)))),
+
     /**
      * One curriculum item including markdown body.
      *
@@ -876,15 +892,7 @@ export function createAcademyRouter(
     curriculumItem: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
-      .query(({ input }) =>
-        guard(async () => {
-          const item = getCurriculumItem(input.slug);
-          if (!item) {
-            throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-          }
-          return { ...item, objectives: [...item.objectives], keyTerms: [...item.keyTerms], selfCheck: [...item.selfCheck] };
-        }),
-      ),
+      .query(({ input, ctx }) => guard(() => academy.readCurriculumItem({ userId: ctx.principal!.userId, slug: input.slug }))),
 
     /**
      * Stage-1 import pipeline inventory: content source decision + count gate.
@@ -934,24 +942,14 @@ export function createAcademyRouter(
     curriculumItemLocalized: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120), locale: z.string().min(2).max(12).optional() }))
       .output(curriculumItemLocalizedOut)
-      .query(({ input }) =>
-        guard(async () => {
-          const item = getCurriculumItem(input.slug);
-          if (!item) {
-            throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-          }
-          const localized = curriculumBodyForLocale(item.body, input.locale);
-          return {
-            ...item,
-            objectives: [...item.objectives],
-            keyTerms: [...item.keyTerms],
-            selfCheck: [...item.selfCheck],
-            body: localized.body,
-            locale: localized.resolution.locale,
-            fellBack: localized.resolution.fellBack,
-            i18nStrategy: curriculumI18nStrategyLine(),
-          };
-        }),
+      .query(({ input, ctx }) =>
+        guard(() =>
+          academy.readCurriculumItemLocalized({
+            userId: ctx.principal!.userId,
+            slug: input.slug,
+            ...(input.locale !== undefined ? { locale: input.locale } : {}),
+          }),
+        ),
       ),
 
     /**
@@ -2071,6 +2069,29 @@ export function createAcademyRouter(
       ),
 
     /**
+     * Whether this learner may work the item: locked, unlocked, started or
+     * completed. No stored rule means unlocked (or started, once they opened it).
+     */
+    itemRelease: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }))
+      .output(
+        z.object({
+          itemSlug: z.string(),
+          state: z.enum(['locked', 'unlocked', 'started', 'completed']),
+          missing: z.array(z.string()),
+          lock: z.enum(['prerequisite', 'window']).nullable(),
+          availableFrom: z.date().nullable(),
+          availableUntil: z.date().nullable(),
+          dueAt: z.date().nullable(),
+          extendedUntil: z.date().nullable(),
+          reason: z.string().nullable(),
+          grantedAt: z.date().nullable(),
+          grantedBy: z.string().uuid().nullable(),
+        }),
+      )
+      .query(({ input, ctx }) => guard(() => academy.itemRelease({ userId: ctx.principal!.userId, itemSlug: input.itemSlug }))),
+
+    /**
      * Grant the caller's own certification, publish the XP it is worth, and
      * report real identity perks (or refuse when invent/unreadable).
      *
@@ -2416,6 +2437,93 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
+        .output(z.object({ itemSlug: z.string(), prerequisites: z.array(z.string()) }))
+        .mutation(({ input }) => guard(() => academy.setItemPrerequisites(input))),
+
+      setItemWindow: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            itemSlug: z.string().min(1).max(120),
+            availableFrom: z.string().datetime({ offset: true }).nullable(),
+            availableUntil: z.string().datetime({ offset: true }).nullable(),
+            dueAt: z.string().datetime({ offset: true }).nullable(),
+          }),
+        )
+        .output(
+          z.object({
+            itemSlug: z.string(),
+            availableFrom: z.date().nullable(),
+            availableUntil: z.date().nullable(),
+            dueAt: z.date().nullable(),
+          }),
+        )
+        .mutation(({ input }) =>
+          guard(() =>
+            academy.setItemWindow({
+              itemSlug: input.itemSlug,
+              availableFrom: input.availableFrom === null ? null : new Date(input.availableFrom),
+              availableUntil: input.availableUntil === null ? null : new Date(input.availableUntil),
+              dueAt: input.dueAt === null ? null : new Date(input.dueAt),
+            }),
+          ),
+        ),
+
+      grantItemExtension: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            userId: z.string().uuid(),
+            itemSlug: z.string().min(1).max(120),
+            reason: z.string().max(500),
+            extendedUntil: z.string().datetime({ offset: true }),
+            clientRequestId: z.string().min(1).max(200),
+          }),
+        )
+        .output(
+          z.object({
+            userId: z.string().uuid(),
+            itemSlug: z.string(),
+            revision: z.number().int().positive(),
+            reason: z.string(),
+            extendedUntil: z.date(),
+            clientRequestId: z.string(),
+          }),
+        )
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.grantItemExtension({
+              userId: input.userId,
+              itemSlug: input.itemSlug,
+              reason: input.reason,
+              extendedUntil: new Date(input.extendedUntil),
+              clientRequestId: input.clientRequestId,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
+
+      /**
+       * AC-order-02 — owner settings register: every class-a owner value with
+       * its state (set / not set) and the refusal shown while blank. State only:
+       * no value and no default ever leaves this read.
+       */
+      settingsStatus: scopedProcedure('admin:read', { module: 'academy' })
+        .output(
+          z.object({
+            rows: z.array(
+              z.object({
+                key: z.string(),
+                state: z.enum(['set', 'not_set']),
+                store: z.enum(['env', 'pending', 'refuse_closed']),
+                readOnly: z.boolean(),
+                refusalCode: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(() => ({ rows: [...settingsRegister(settings)] })),
+
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
           z.object({

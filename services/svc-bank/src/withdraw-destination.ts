@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { BankError } from './errors.js';
@@ -130,6 +131,45 @@ export function isEvmAddressRef(ref: string): boolean {
 }
 
 /**
+ * EIP-55: a mixed-case EVM address carries a checksum in its letter case, so a changed character shows. All lower or
+ * all upper case carries none and passes. Only meaningful on an `isEvmAddressRef` shape.
+ */
+export function evmChecksumMatches(ref: string): boolean {
+  const hex = ref.trim().slice(2);
+  if (hex === hex.toLowerCase() || hex === hex.toUpperCase()) return true;
+  const hash = keccak_256(new TextEncoder().encode(hex.toLowerCase()));
+  for (let i = 0; i < hex.length; i++) {
+    const char = hex[i]!;
+    if (char >= '0' && char <= '9') continue;
+    // The i-th nibble of the hash: upper case when it is 8 or more.
+    const nibble = (hash[i >> 1]! >> (i % 2 === 0 ? 4 : 0)) & 0x0f;
+    if (nibble >= 8 !== (char >= 'A' && char <= 'F')) return false;
+  }
+  return true;
+}
+
+/**
+ * Address poisoning sends a customer dust from an address made to start and end like one they use, so that the copy
+ * from their history is the wrong one. Two addresses look the same here when they agree on what the address book shows
+ * (`0x` and the first four characters, then the last four, ignoring case; the customer app's `shortenAddress` and the
+ * bank's `maskRef` show the same) and differ anywhere else. Returns the first saved entry the address could be mistaken
+ * for, or null. An address already in the book is not new, so it is never a look-alike: the customer saved it already
+ * (after confirming, when it was one), and saving it again on another network or as the same entry asks nothing more.
+ */
+export function lookalikeOf<T extends { ref: string }>(ref: string, saved: readonly T[]): T | null {
+  const address = ref.trim().toLowerCase();
+  if (!isEvmAddressRef(address)) return null;
+  if (saved.some((row) => row.ref.trim().toLowerCase() === address)) return null;
+  const shown = (value: string) => `${value.slice(0, 6)}${value.slice(-4)}`;
+  return (
+    saved.find((row) => {
+      const other = row.ref.trim().toLowerCase();
+      return isEvmAddressRef(other) && other !== address && shown(other) === shown(address);
+    }) ?? null
+  );
+}
+
+/**
  * IBAN structural check: country + check digits + BBAN, length 15–34, mod-97 = 1.
  * Spaces ignored. Does not prove the account exists or is reachable.
  */
@@ -190,6 +230,12 @@ export function assertPersistableWithdrawDestination(destination: { kind: string
         'bank.ramp_invalid_destination',
       );
     }
+    if (!evmChecksumMatches(ref)) {
+      throw new BankError(
+        "This address's upper and lower case letters do not match its checksum, so a character may have been changed. Copy it again from where it came from",
+        'bank.address_checksum_mismatch',
+      );
+    }
     return { kind, ref };
   }
   if (!isBankDestinationRef(ref)) {
@@ -206,7 +252,8 @@ const MISSING = (userId: string, what: string) =>
 
 const LABEL_TAKEN = () => new BankError('You already have a saved address with this name', 'bank.destination_label_taken');
 
-const BOOK_FULL = () => new BankError('Your address book is full. Remove an address to save a new one', 'bank.address_book_full');
+const BOOK_FULL = (cap: number) =>
+  new BankError(`Your address book is full at ${cap} addresses. Remove one to save a new one`, 'bank.address_book_full');
 
 /**
  * Router-test default: assert on persist, never invent a stored ref.
@@ -303,7 +350,7 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
           (row.tag ?? '') === (entry.tag ?? ''),
       );
       if (same) return strip(same);
-      if (saved.length >= cap) throw BOOK_FULL();
+      if (saved.length >= cap) throw BOOK_FULL(cap);
       if (labelTaken(input.userId, entry.label)) throw LABEL_TAKEN();
       const stored = {
         userId: input.userId,
@@ -432,7 +479,7 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
         const count = await tx<Array<{ n: number }>>`
           SELECT count(*)::int AS n FROM bank.user_withdraw_destinations WHERE user_id = ${input.userId} AND origin = 'customer'
         `;
-        if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL();
+        if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL(cap);
         const rows = await tx<DestinationRow[]>`
           INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, asset_id, network, tag, origin)
           VALUES (${input.userId}, 'crypto', ${entry.ref}, ${entry.label}, ${entry.assetId}, ${entry.network}, ${entry.tag}, 'customer')

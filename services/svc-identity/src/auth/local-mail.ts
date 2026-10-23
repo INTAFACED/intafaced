@@ -38,14 +38,16 @@ export function openIdentityMail(input: IdentityMailBoot): PasswordResetMail | u
   return createLocalOutboxMail(outboxPath);
 }
 
+type LocalMailMessage = Parameters<PasswordResetMail['send']>[0];
+
 /** One LOCAL-TEST line. `code` is the secret and is placed only in `link`. */
-export function localMailLine(message: {
-  readonly email: string;
-  readonly code: string;
-  readonly expiresAt: Date;
-  readonly purpose?: MailPurpose;
-  readonly handle?: string;
-}): string {
+export function localMailLine(message: LocalMailMessage): string {
+  // The anti-phishing code goes on the end of the line it rides on; letters and digits only, by its own rule.
+  const stamp = message.antiPhishingCode ? ` anti_phishing=${message.antiPhishingCode.replace(/[^A-Za-z0-9]/g, '')}` : '';
+  return localMailBody(message).replace(/\n$/, `${stamp}\n`);
+}
+
+function localMailBody(message: LocalMailMessage): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
   if (purpose === 'email-change-notice') {
@@ -54,12 +56,19 @@ export function localMailLine(message: {
   if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=no-account\n`;
   }
+  if (purpose === 'signup-existing') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
+  }
+  if (purpose === 'signup-code') {
+    // A six-digit code the person types, not a link.
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
+  }
   if (purpose === 'handle-recovery') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
   }
   const link =
     purpose === 'email-confirm'
-      ? `confirmEmail?token=${encodeURIComponent(message.code)}`
+      ? `confirm-email?token=${encodeURIComponent(message.code)}`
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
         : `completePasswordReset?code=${encodeURIComponent(message.code)}`;

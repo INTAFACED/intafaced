@@ -25,3 +25,20 @@ function derive(namespace: string, name: string): string {
 export function positionIdFor(userId: string, marketId: string, clientOpenId: string): string {
   return derive('intafaced.trade.position', `${userId}:${marketId}:${clientOpenId}`);
 }
+
+/**
+ * Futures order id for a caller's `clientOrderId` on one market (slice 6). The same retry always names the
+ * same order, so the hold key `futures.order.margin.hold:<id>` posts once however often the request repeats.
+ */
+export function matchedOrderIdFor(userId: string, marketId: string, clientOrderId: string): string {
+  return derive('intafaced.trade.futures-matched-order', `${userId}:${marketId}:${clientOrderId}`);
+}
+
+/**
+ * Position id for a NEW position row opened by matched fills on one side of one market. The row is the
+ * user's open slot `(user, market, side, isolated)`; `generation` counts the rows that slot has had, so a slot
+ * that was closed gets a fresh id instead of colliding with its old row's primary key.
+ */
+export function matchedSlotPositionIdFor(userId: string, marketId: string, side: 'long' | 'short', generation: number): string {
+  return derive('intafaced.trade.futures-matched-slot', `${userId}:${marketId}:${side}:${generation}`);
+}

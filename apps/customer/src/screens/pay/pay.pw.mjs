@@ -160,6 +160,8 @@ test('keyboard path: To, asset, amount, Review, dialog, Send', async ({ page }) 
   await page.keyboard.press('Tab'); // amount
   await expect(amount(page)).toBeFocused();
   await page.keyboard.type('3');
+  // Review waits for the published limits for this amount, then Enter reviews.
+  await expect(page.getByTestId('pay-terms')).toHaveText('No fee. Up to 1,000,000 USDT per payment. 1,000,000 USDT left today.');
   await page.keyboard.press('Enter'); // reviews
   await expect(dialog(page).getByRole('heading')).toHaveText('Send 3 USDT to @maya_test?');
   await page.getByTestId('pay-send').focus();
@@ -430,6 +432,75 @@ test('another unconfirmed bank payment on this device also keeps Send off', asyn
   await pickMaya(page);
   await amount(page).fill('1');
   await expect(review(page)).toBeDisabled();
+  expect(api.to('transfers.toUser')).toHaveLength(0);
+});
+
+test('the note goes with the payment, and Review shows the fee and what is left of today', async ({ page }) => {
+  const api = await mock(page);
+  await open(page);
+  await pickMaya(page);
+  await amount(page).fill('4');
+  await page.locator('#pay-note').fill('  Lunch  on Friday ');
+  await expect(page.getByTestId('pay-terms')).toHaveAttribute('data-terms', 'ok');
+  await review(page).click();
+  await expect(page.getByTestId('pay-review-fee')).toContainText('No fee');
+  await expect(page.getByTestId('pay-review-left')).toContainText('999,996 USDT');
+  await sendButton(page).click();
+  await expect(page.locator('.buy-receipt__title')).toHaveText('Sent 4 USDT to @maya_test');
+  expect(api.to('transfers.toUser')[0].body).toMatchObject({ amount: '4', note: 'Lunch on Friday' });
+  expect(api.to('transfers.quote').at(-1).input).toEqual({ assetId: 'USDT', amount: '4' });
+});
+
+test('no published limits, an amount over a limit, and a failed check each keep Review off in plain words', async ({ page }) => {
+  // TEST limits.
+  const quote = ({ input }) => {
+    if (input.assetId === 'ETH')
+      return refusal(412, 'No per-transfer limit, daily limit, or fee is published for ETH', 'bank.personal_transfer_terms_unset');
+    const amount = Number(input.amount);
+    return {
+      result: {
+        data: {
+          assetId: input.assetId,
+          amount: input.amount,
+          perTransferLimit: '10',
+          dailyLimit: '12',
+          spentToday: '5',
+          fee: '0',
+          feeBlocker: null,
+          withinPerTransfer: amount <= 10,
+          withinDaily: amount + 5 <= 12,
+        },
+      },
+    };
+  };
+  let fail = false;
+  const api = await mock(page, { quote: (request) => (fail ? 'error' : quote(request)) });
+  await open(page);
+  await pickMaya(page);
+  await amount(page).fill('11');
+  await expect(page.getByTestId('pay-terms')).toHaveText('The most you can send in one payment is 10 USDT.');
+  await expect(review(page)).toBeDisabled();
+  await expect(review(page)).toHaveText('Over your limit');
+  await amount(page).fill('8');
+  await expect(page.getByTestId('pay-terms')).toHaveText('You can send 7 USDT more today.');
+  await expect(review(page)).toBeDisabled();
+  await amount(page).fill('7');
+  await expect(page.getByTestId('pay-terms')).toHaveText('No fee. Up to 10 USDT per payment. 7 USDT left today.');
+  await expect(review(page)).toBeEnabled();
+
+  fail = true;
+  await amount(page).fill('6');
+  await expect(page.getByTestId('pay-terms')).toContainText('We couldn’t check your limits.');
+  await expect(review(page)).toHaveText('Limits not checked');
+  fail = false;
+  await page.getByTestId('pay-terms').getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByTestId('pay-terms')).toHaveText('No fee. Up to 10 USDT per payment. 7 USDT left today.');
+
+  await page.getByLabel('Asset to send').click();
+  await page.getByRole('option', { name: /^ETH/ }).click();
+  await amount(page).fill('0.1');
+  await expect(page.getByTestId('pay-terms')).toHaveText('Sending ETH is paused: no payment limits are published for it.');
+  await expect(review(page)).toHaveText('Sending is paused');
   expect(api.to('transfers.toUser')).toHaveLength(0);
 });
 

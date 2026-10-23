@@ -694,6 +694,9 @@ services:
       # Maximum leverage on a futures open. Empty = DIRECTION §1 10× in code.
       # Set only to tighten (≤ 10). Compose does not pin a raise.
       TRADE_FUTURES_MAX_LEVERAGE: ${TRADE_FUTURES_MAX_LEVERAGE:-}
+      TRADE_FUTURES_MATCHING_ENABLED: ${TRADE_FUTURES_MATCHING_ENABLED:-false}
+      TRADE_FUTURES_PRICE_BAND: ${TRADE_FUTURES_PRICE_BAND:-}
+      TRADE_FUTURES_INDEX_SPOT_MARKETS: ${TRADE_FUTURES_INDEX_SPOT_MARKETS:-}
       # Dated futures settlement fixing (trade.futures / PTX-M10-R03). Empty =
       # refuse style=dated listing (`trade.dated_futures_fixing_unconfigured`).
       # Opaque stamp only — never invent last trade / mark as settlement.
@@ -1863,6 +1866,7 @@ services:
       # refuses blank. Operator-set 200 is that size — this mill does not
       # invent one.
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-}
+      INDEXER_EXPLORER_LIST_LIMIT: ${INDEXER_EXPLORER_LIST_LIMIT:-}
       INDEXER_INGEST_ENABLED: ${INDEXER_INGEST_ENABLED:-true}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4013']

@@ -166,6 +166,17 @@ type PendingEvent =
   | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'spreadFilled'; readonly payload: SpreadFillEvent; readonly key: string };
 
+/**
+ * Who asks for an emergency action (halt, resume, halt-all, resume-all, expire), who confirmed it, and its evidence.
+ * The engine reads the two operators; the rulebook wrapper (rulebook-refuse.ts) refuses one without evidence.
+ */
+export type EmergencyCmd = {
+  readonly operatorId?: string | null;
+  readonly confirmOperatorId?: string | null;
+  readonly evidence?: string | null;
+  readonly evidenceRefs?: readonly unknown[] | null;
+};
+
 export class MatchingEngine {
   private readonly books = new Map<MarketId, OrderBook>();
   private readonly journal: EngineJournal;
@@ -554,12 +565,15 @@ export class MatchingEngine {
   }
 
   /**
-   * Depth for a market, or null if it has never traded.
+   * Depth for a market that holds a book. An opened market with no book yet (never traded, not delisted or expired)
+   * is a live, empty ladder, so its first order can be checked and placed. Any other market is null.
    * `limit` is required. Unset refuses (never invent 50). Owner-explicit 50 is a published window.
    */
   depth(marketId: MarketId, limit?: number | null): ReturnType<OrderBook['depth']> | null {
     const n = publishedEngineL2Limit(limit);
-    return this.existingBook(marketId)?.depth(n) ?? null;
+    const book = this.existingBook(marketId);
+    if (book) return book.depth(n);
+    return this.isListed(marketId) ? { bids: [], asks: [], sequence: 0 } : null;
   }
 
   restingOrders(marketId?: MarketId): readonly EngineLiveOrder[] {
@@ -1094,10 +1108,7 @@ export class MatchingEngine {
     return this.submit(marketId, flattenCloseOrder(cmd, net), lifecycleProof);
   }
 
-  async halt(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async halt(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.halt', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1126,10 +1137,7 @@ export class MatchingEngine {
     });
   }
 
-  async resume(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async resume(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.resume', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1158,7 +1166,7 @@ export class MatchingEngine {
     });
   }
 
-  async haltAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async haltAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.halt_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1184,7 +1192,7 @@ export class MatchingEngine {
     });
   }
 
-  async resumeAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async resumeAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.resume_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1403,10 +1411,7 @@ export class MatchingEngine {
     });
   }
 
-  async expire(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketExpireResult> {
+  async expire(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketExpireResult> {
     return withEngineSpan('matching.expire', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1720,6 +1725,8 @@ function cancelledEvent(marketId: MarketId, cancellation: CancelledRef): Pending
       marketId,
       remainingQty: formatAmount(cancellation.remainingQty),
       sequence: cancellation.sequence,
+      // Why it left, so a consumer that hears the event before the inline outcome ends the order the same way.
+      reason: cancellation.reason,
     },
     key: `matching.order.cancelled:${marketId}:${cancellation.sequence}`,
   };

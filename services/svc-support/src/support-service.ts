@@ -17,6 +17,8 @@ import {
   type SupportBulkChange,
   type SupportBulkPolicy,
   type SupportBulkResult,
+  type SupportMergePreview,
+  type SupportMergeResult,
   type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
@@ -495,7 +497,8 @@ export class SupportService implements SupportContract {
       if (!visible) throw ticketNotFound();
       // An operator reads their own tickets as a customer; anything else obeys desk scope.
       if (input.asOperator === true && ticket.userId !== input.userId) await this.assertDeskVisible(input.userId, ticket.id);
-      return ticket;
+      const merge = ticket.status === 'closed' ? await this.store.findMergeBySource(ticket.id) : null;
+      return merge ? { ...ticket, mergedInto: merge.survivorId } : ticket;
     });
   }
 
@@ -1162,6 +1165,25 @@ export class SupportService implements SupportContract {
     return (await this.staff.list()).map((member) => this.withEffectiveAvailability(member));
   }
 
+  /**
+   * The staff directory: each member with the desk groups (teams) they belong to,
+   * read from the group book (SP-agents-01 with SP-desk-04). Groups are sorted by
+   * name; a member in no group carries an empty list, never an invented team.
+   */
+  async listStaffDirectory(): Promise<(StaffMember & { groups: { id: string; name: string }[] })[]> {
+    const [members, groups] = await Promise.all([this.listStaff(), this.groups.list()]);
+    // One pass over the groups (already sorted by name) builds user id -> groups, so the directory stays linear.
+    const byUser = new Map<string, { id: string; name: string }[]>();
+    for (const g of groups) {
+      for (const userId of g.memberIds) {
+        const list = byUser.get(userId);
+        if (list) list.push({ id: g.id, name: g.name });
+        else byUser.set(userId, [{ id: g.id, name: g.name }]);
+      }
+    }
+    return members.map((member) => ({ ...member, groups: byUser.get(member.userId) ?? [] }));
+  }
+
   /** Whether the automatic offline window is an owner value or still blank. */
   staffAvailabilityPolicy(): { automaticOffline: 'set' | 'not_set'; heartbeatWindowSeconds: number | null } {
     return {
@@ -1362,6 +1384,60 @@ export class SupportService implements SupportContract {
         clientRequestId: key,
       });
     }
+  }
+
+  /**
+   * Fold a duplicate request into the one that stays (SP-tickets-07). Irreversible. Both requests must be below resolved
+   * and held by one requester account (no sharing concept exists, so a merge never puts a customer's messages under
+   * someone else's request). The move and the trail rows are one store transaction; a replay of (source, survivor)
+   * returns the stored result. A rating or an escalation case file stays on the source.
+   */
+  async mergeTickets(input: { operatorId: string; sourceId: string; survivorId: string; reason: string }): Promise<SupportMergeResult> {
+    return withSupportSpan('support.mergeTickets', { op: 'mergeTickets', ticketId: input.sourceId }, async () => {
+      if (input.sourceId === input.survivorId) {
+        throw new SupportError('a request cannot be merged into itself', 'support.merge_same_ticket');
+      }
+      await this.assertDeskVisible(input.operatorId, input.sourceId);
+      await this.assertDeskVisible(input.operatorId, input.survivorId);
+      const result = await this.store.mergeTickets(input);
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        throw new SupportError('these requests cannot be merged', 'support.merge_not_allowed');
+      }
+      const { merge } = result;
+      return {
+        sourceId: merge.sourceId,
+        survivorId: merge.survivorId,
+        commentsMoved: merge.commentsMoved,
+        attachmentsMoved: merge.attachmentsMoved,
+        mergedAt: merge.mergedAt,
+      };
+    });
+  }
+
+  /** What a merge would move and what stays, for the confirmation. Reads only; moves nothing. */
+  async previewMerge(input: { operatorId: string; sourceId: string; survivorId: string }): Promise<SupportMergePreview> {
+    return withSupportSpan('support.previewMerge', { op: 'previewMerge', ticketId: input.sourceId }, async () => {
+      await this.assertDeskVisible(input.operatorId, input.sourceId);
+      await this.assertDeskVisible(input.operatorId, input.survivorId);
+      const same = input.sourceId === input.survivorId;
+      const result = same ? null : await this.store.previewMerge(input);
+      if (result?.status === 'refuse') throw ticketNotFound();
+      const refusal = same
+        ? ('support.merge_same_ticket' as const)
+        : result && (result.allowed || result.alreadyMerged)
+          ? null
+          : ('support.merge_not_allowed' as const);
+      return {
+        sourceId: input.sourceId,
+        survivorId: input.survivorId,
+        refusal,
+        commentsToMove: result?.commentsToMove ?? 0,
+        attachmentsToMove: result?.attachmentsToMove ?? 0,
+        staysOnSource: { rating: result?.ratingStays ?? false, caseFile: result?.caseFileStays ?? false },
+        alreadyMerged: result?.alreadyMerged ?? false,
+      };
+    });
   }
 
   /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */

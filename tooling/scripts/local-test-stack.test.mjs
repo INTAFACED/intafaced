@@ -142,9 +142,15 @@ try {
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
   for (const schema of plan.schemas) {
-    assert.equal(names.includes(schema), true, `schema ${schema} has no service`);
-    const sql = join(repo, 'services', `svc-${schema}`, 'scripts', 'migrate.ts');
-    assert.equal(existsSync(sql), true, `svc-${schema} has no migrate script`);
+    // A service owns each schema (svc-mining-pool owns mining_pool), and has a migrate script.
+    const owner = plan.services.find((x) => x.schema === schema);
+    assert.ok(owner, `schema ${schema} has no service`);
+    const scripts = join(repo, 'services', `svc-${owner.name}`, 'scripts');
+    assert.equal(
+      existsSync(join(scripts, 'migrate.ts')) || existsSync(join(scripts, 'migrate.mjs')),
+      true,
+      `svc-${owner.name} has no migrate script`,
+    );
   }
   assert.equal(names.at(-1), 'edge', 'Edge starts last');
 
@@ -159,7 +165,12 @@ try {
     const u = plan.edgeUpstreams[envVar];
     if (!u) return null;
     if (u.service) {
-      assert.equal(u.service, envVar.replace(/_URL$/, '').toLowerCase(), `${envVar} points at the wrong service (${u.service})`);
+      // MINING_POOL_URL -> mining-pool: the env name's underscores are the service name's hyphens.
+      assert.equal(
+        u.service,
+        envVar.replace(/_URL$/, '').toLowerCase().replaceAll('_', '-'),
+        `${envVar} points at the wrong service (${u.service})`,
+      );
     }
     if (u.service) return names.includes(u.service) && u.url === plan.services.find((x) => x.name === u.service).url ? 'started' : 'broken';
     return u.absentReason && u.absentReason.length > 20 ? 'absent' : 'broken';
@@ -198,11 +209,11 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, each with a reason in EDGE_ABSENT. mining is the static placeholder.
-  // protocol, indexer and dex are called by the Protocol rooms (#4835) and stay unwired.
+  // Absent on purpose, each with a reason in EDGE_ABSENT: protocol, indexer and dex are called by the Protocol rooms
+  // (#4835) and stay unwired. mining is started (svc-mining-pool binds HTTP_HOST since #5907).
   assert.deepEqual(
     [...absentButUsed].sort(),
-    ['dex', 'indexer', 'mining', 'protocol'],
+    ['dex', 'indexer', 'protocol'],
     `unexpected Customer modules without a service: ${absentButUsed}`,
   );
 } finally {
@@ -378,7 +389,15 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  assert.match(source, /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*ensureMarket\(\);/);
+  // The founder console starts after the Customer app and before the market check, and stops first.
+  assert.match(
+    source,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+  );
+  assert.match(source, /const order = \['admin', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
+  assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
+  assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
   assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
   console.log('local-test-stack: market supervision checks passed');

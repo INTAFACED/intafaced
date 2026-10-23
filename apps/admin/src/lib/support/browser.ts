@@ -1,6 +1,8 @@
 /** Browser hop for the support desk. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { SupportMergePreview } from '@intafaced/contracts';
+import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
 import type {
   SupportKbView,
@@ -234,6 +236,7 @@ export type ActionReply =
 const ACTIONS: readonly string[] = [
   'reply',
   'bulk',
+  'merge',
   'status',
   'escalate',
   'properties',
@@ -288,3 +291,26 @@ export async function postSupportAction(request: SupportActionRequest): Promise<
     return UNKNOWN;
   }
 }
+
+/** What a merge would do, read before the confirmation. Null when it could not be read: never drawn as "nothing moves". */
+export async function fetchMergePreview(sourceId: string, survivorId: string, signal?: AbortSignal): Promise<MergePreviewReply> {
+  try {
+    const res = await fetch(`/api/support?view=merge&id=${encodeURIComponent(sourceId)}&survivor=${encodeURIComponent(survivorId)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    const body: unknown = await res.json().catch(() => null);
+    if (res.ok) {
+      const preview = readMergePreview(isRecord(body) ? body.preview : null);
+      return preview ? { ok: true, preview } : { ok: false, refusal: null };
+    }
+    const read = readClaimReply(body);
+    return { ok: false, refusal: read.ok ? null : read.refusal };
+  } catch {
+    return { ok: false, refusal: null };
+  }
+}
+
+export type MergePreviewReply =
+  { readonly ok: true; readonly preview: SupportMergePreview } | { readonly ok: false; readonly refusal: RefusalView | null };

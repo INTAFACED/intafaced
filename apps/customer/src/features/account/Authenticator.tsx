@@ -17,7 +17,7 @@ import {
   stepUpDone,
   totpStatus,
   type StepUpScope,
-} from './authenticator';
+} from './authenticator-api';
 
 type Mode =
   | { kind: 'idle' }

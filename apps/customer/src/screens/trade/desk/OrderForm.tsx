@@ -31,7 +31,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
-import { MoreOrderTypes, TifSelect } from './OrderOptions';
+import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -65,11 +65,12 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
-import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
-import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
+import { TicketRules } from './MarketRules';
+import { failureOf, isLedgerFrozen, previewFailure, previewIsOrderable, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
@@ -155,6 +156,8 @@ interface SideProps {
   tif: Tif;
   /** The expiry a good-till-date pick carries (UTC ISO), or null while none valid is picked. Unused by other picks. */
   expireAt: string | null;
+  /** The person's own label for the order, trimmed; null when none. */
+  tag: string | null;
   onPlaced: () => void;
 }
 
@@ -173,6 +176,7 @@ function SideForm({
   autoFocus,
   tif,
   expireAt,
+  tag,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -237,8 +241,11 @@ function SideForm({
     }
   }, [restingId, openOrders]);
 
+  // Set by Flatten until its review opens; any other edit of the form drops it.
+  const flattenPending = useRef(false);
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
+    flattenPending.current = false;
     apply();
     setReview(null);
     setFailure(null);
@@ -246,9 +253,24 @@ function SideForm({
     setHint(null);
   };
 
+  // Flatten (Assets): the sell form takes every free lot as a market sell and opens its review once the order check
+  // allows it. The review number comes from the order itself, so pressing Flatten again for the same amount is the same
+  // order, never a second one.
+  useEffect(() => {
+    if (!suggestion?.flatten || side !== 'sell') return;
+    edit(() => {
+      setTotalEdit(null);
+      const lots = floorToLot(suggestion.amount, market.lotSize);
+      setAmount(lots ?? '');
+      // Less than one lot is nothing to sell: no review is opened for it.
+      flattenPending.current = lots !== null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion?.nonce]);
+
   // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
   useEffect(() => {
-    if (!suggestion) return;
+    if (!suggestion || suggestion.flatten) return;
     edit(() => {
       setPrice(padDecimals(suggestion.price, pricePlaces));
       setTotalEdit(null);
@@ -264,14 +286,14 @@ function SideForm({
   const priced = isPriced(type);
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
-  const sellOff = marketSellOff(side, type);
   const exitOff = exitSideOff(side, type);
   const held = blocked || exitRetry !== null;
-  const tradable = signedIn && market.open && !held && !sellOff && !exitOff;
+  const tradable = signedIn && market.open && !held && !exitOff;
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
+    // The tag does not price the order: it joins only the reviewed and sent draft, so typing it never re-checks.
     return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
   }, [
     tradable,
@@ -291,7 +313,14 @@ function SideForm({
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
-  const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
+  const { live, retry } = useLivePreview(
+    api,
+    draft && !review ? draft : null,
+    key,
+    context,
+    () => env.poller.recordExternalRequest(),
+    market.tickSize,
+  );
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
@@ -351,6 +380,14 @@ function SideForm({
   });
   const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
 
+  useEffect(() => {
+    if (!flattenPending.current || type !== 'market') return;
+    if (canSend) {
+      flattenPending.current = false;
+      void startReview();
+    } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
+  });
+
   async function startReview() {
     if (!canSend || busyRef.current || !checked.ok) return;
     busyRef.current = true;
@@ -358,7 +395,7 @@ function SideForm({
     setFailure(null);
     setStatus(null);
     // The number is given once per draft: a repeat review of the same order keeps it, so a send that was lost cannot become a second order.
-    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: '' });
+    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, tag, checked, clientOrderId: '' });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
@@ -370,7 +407,7 @@ function SideForm({
       else if (previewIsOrderable(result.data) && holdShort(result.data, spendAsset, available))
         setFailure(refusalFailure('ledger.insufficient_funds', context));
       else if (previewIsOrderable(result.data)) setReview({ draft: parsed.data, preview: result.data, changed: false });
-      else setFailure(refusalFailure(previewRefusalCode(result.data), context));
+      else setFailure(previewFailure(result.data, context, market.tickSize));
     }
     setBusy(false);
     busyRef.current = false;
@@ -459,7 +496,7 @@ function SideForm({
         if (previewIsOrderable(result.preview)) setReview({ draft: sending, preview: result.preview, changed: true });
         else {
           setReview(null);
-          setFailure(refusalFailure(previewRefusalCode(result.preview), context));
+          setFailure(previewFailure(result.preview, context, market.tickSize));
         }
       }
     } else if (result.reason === 'uncertain') {
@@ -724,15 +761,13 @@ function SideForm({
       </dl>
       <p className="dk-fees if-num">
         <span>
-          {sellOff
-            ? t('Fee at fill')
-            : live.state === 'ok' && feeRate(live.preview) !== null
-              ? live.preview.feeRole === 'maker'
-                ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-                : priced && tif === 'GTC'
-                  ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-                  : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-              : t('Fee unknown')}
+          {live.state === 'ok' && feeRate(live.preview) !== null
+            ? live.preview.feeRole === 'maker'
+              ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+              : priced && tif === 'GTC'
+                ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+                : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
+            : t('Fee unknown')}
         </span>
         {listed ? (
           <span className="dk-fees-listed" title={t('Fee listed title')}>
@@ -761,7 +796,6 @@ function SideForm({
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
-        {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
         {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
@@ -942,6 +976,41 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
+      {preview.feeRole ? (
+        <div>
+          <dt>{t('Review fee role')}</dt>
+          <dd>
+            {preview.feeRole === 'maker'
+              ? t('Review fee role maker')
+              : // Taker is the server's worst case for an order that can rest (as the fee line's "up to" says): only an
+                // order that never rests is surely a taker.
+                draft.type === 'market' || tifOfDraft(draft) === 'IOC' || tifOfDraft(draft) === 'FOK'
+                ? t('Review fee role taker')
+                : t('Review fee role either')}
+          </dd>
+        </div>
+      ) : null}
+      {draft.stpMode ? (
+        <div>
+          <dt>{t('Review self trade')}</dt>
+          <dd>{t('Self trade cancel maker')}</dd>
+        </div>
+      ) : null}
+      {draft.tag ? (
+        <div>
+          <dt>{t('Review tag')}</dt>
+          <dd>{draft.tag}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>{t('Review client id')}</dt>
+        <dd>
+          {/* The end of the client order id (draft hash and mint); the rest is the account, which the person knows. */}
+          <span className="if-num">{draft.clientOrderId.split(':').at(-1)}</span>
+          <br />
+          {t('Review client id note')}
+        </dd>
+      </div>
       {exitFeeLines(preview).map((line) => (
         <div key={line.leg}>
           <dt>{line.leg === 'takeProfit' ? t('Review take profit fee') : t('Review stop loss fee')}</dt>
@@ -1006,6 +1075,9 @@ export const OrderPanel = memo(function OrderPanel({
   // A good-till-date pick carries the expiry the trader types (local time); it is sent only once it names a future instant.
   const [expiry, setExpiry] = useState('');
   const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
+  // The person's own label, kept for the next orders until they clear it; blank sends none.
+  const [tagText, setTagText] = useState('');
+  const tag = tagText.trim() === '' ? null : tagText.trim();
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1018,11 +1090,11 @@ export const OrderPanel = memo(function OrderPanel({
   const env = useDataEnv();
   const attempts = useRef(0);
 
-  // A book click means a limit order at that price.
+  // A book click means a limit order at that price; Flatten means a market sell.
   useEffect(() => {
     if (suggestion && suggestion.nonce !== lastSuggestion.current) {
       lastSuggestion.current = suggestion.nonce;
-      setType('limit');
+      setType(suggestion.flatten ? 'market' : 'limit');
     }
   }, [suggestion]);
 
@@ -1130,6 +1202,7 @@ export const OrderPanel = memo(function OrderPanel({
     type,
     tif,
     expireAt,
+    tag,
   } as const;
   return (
     <Tabs
@@ -1170,6 +1243,13 @@ export const OrderPanel = memo(function OrderPanel({
           </label>
         ) : null}
       </div>
+      {market.open ? (
+        <div className="dk-order-opts">
+          <SelfTradeSelect />
+          <TagField value={tagText} onChange={setTagText} />
+        </div>
+      ) : null}
+      <TicketRules market={market} />
       {!market.open ? (
         <div className="dk-order-body">
           <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />

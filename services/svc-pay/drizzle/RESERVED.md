@@ -56,7 +56,15 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0115      | wallet lane (withdrawal allowlist)                    | used                                            |
 | 0116      | wallet lane (custody approval tasks)                  | used                                            |
 | 0117      | wallet lane (deposit addresses and settings)          | used                                            |
-| 0115+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0118      | wallet lane (custody deposits)                        | used                                            |
+| 0119      | wallet lane (deposit setting edits)                   | used                                            |
+| 0120      | KYB documents (I-kyc-compliance-22)                   | used                                            |
+| 0122      | wallet lane (custody sweeps)                          | used                                            |
+| 0123      | invoice duplicate action (M-bill-07)                  | used                                            |
+| 0125      | team-wide require-MFA rule (M-plat-org-06)            | used                                            |
+| 0129      | wallet lane (custody transaction policy)              | used                                            |
+| 0130      | notification preference history (M-plat-org-11)       | used                                            |
+| 0131+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 

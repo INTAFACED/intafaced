@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { DataTable } from '@intafaced/ui';
 import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import { useSession } from '../../../../session/session';
@@ -7,7 +6,15 @@ import { PaySection } from '../../../components';
 import { Chip, Gate, ListShell, MoreFooter, SelectField } from '../../components';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
-import { teamRoles, type Invitation, type Member, type MemberRole, type TeamEvent, type TeamRole } from '../../schemas';
+import {
+  teamRoles,
+  type Invitation,
+  type Member,
+  type MemberRole,
+  type PermissionCatalogue,
+  type TeamEvent,
+  type TeamRole,
+} from '../../schemas';
 import { DateTime } from '../../ui/DateTime';
 import { EntityList } from '../../ui/EntityList';
 import { PortalReview } from '../../ui/PortalReview';
@@ -20,6 +27,7 @@ import { memberKey, memberName, pinOwner } from '../account/model';
 import { extensionCopy, portalCopy } from '../copy';
 import { grantableRoles, memberActions } from '../model';
 import { inviteEmailOf, maskEmail, normaliseInviteEmail } from './email';
+import { RolesCatalogue } from './Roles';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 type Filters = { search: string; role: string; status: string };
@@ -34,6 +42,7 @@ export function Team({ portal }: { portal: PortalApi }) {
   const names = useMemberNames(portal);
   const me = useResource((s) => portal.teamMe(s), 'portal:team-me');
   const invitations = useResource((s) => portal.myInvitations(s), 'portal:team-invites');
+  const catalogue = useResource((s) => portal.permissionCatalogue(s), 'portal:team-catalogue');
   const filters: Filters = { search: search.trim(), role, status };
   const members = useServerList((f: Filters, cursor, signal) => portal.teamPage(cursor, f, signal), filters, memberKey);
   const history = useCursorList(
@@ -54,6 +63,8 @@ export function Team({ portal }: { portal: PortalApi }) {
       myUserId={userId}
       names={names}
       invitations={invitations.resource}
+      catalogue={catalogue.resource}
+      retryCatalogue={catalogue.reload}
       members={members.state}
       history={history.state}
       filters={{ search, setSearch, role, setRole, status, setStatus }}
@@ -72,6 +83,8 @@ export function TeamView(props: {
   myUserId: string | null;
   names: ReadonlyMap<string, string>;
   invitations: Resource<Invitation[]>;
+  catalogue: Resource<PermissionCatalogue>;
+  retryCatalogue: () => void;
   members: ListState<Member>;
   history: ListState<TeamEvent>;
   filters: {
@@ -211,18 +224,7 @@ export function TeamView(props: {
 
       <InviteForm portal={portal} role={role} refresh={refresh} />
 
-      <PaySection title={t('rolesTitle')} description={t('rolesBody')}>
-        <div className="pp-left">
-          <DataTable label={t('rolesTitle')} headers={[t('colRole'), t('colCan')]}>
-            {(['owner', ...teamRoles] as const).map((r) => (
-              <tr key={r}>
-                <th scope="row">{roleName(r)}</th>
-                <td>{t(`roleCan_${r}` as 'roleCan_owner')}</td>
-              </tr>
-            ))}
-          </DataTable>
-        </div>
-      </PaySection>
+      <RolesCatalogue catalogue={props.catalogue} retry={props.retryCatalogue} />
 
       <PaySection title={t('teamHistoryTitle')} description={t('teamHistoryBody')}>
         <ListShell state={props.history} retry={refresh} empty={{ title: t('teamHistoryEmptyTitle'), body: t('teamHistoryEmptyBody') }}>

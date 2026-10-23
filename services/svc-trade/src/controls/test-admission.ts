@@ -10,7 +10,7 @@ import {
 } from '../futures/position-service.js';
 import { CopyService as ProductionCopyService } from '../copy/copy-service.js';
 import { OtcDeskService as ProductionOtcDeskService } from '../otc/otc-service.js';
-import { principalFor } from '../spot/testing.js';
+import { StubEmailProof, principalFor } from '../spot/testing.js';
 import { canonicalPayload, type TradingAdmissionPort } from './trading-controls.js';
 import { createHash } from 'node:crypto';
 
@@ -55,13 +55,24 @@ function readyForSql(sql: object): TradingAdmissionPort {
 export class TradeService extends ProductionTradeService {
   constructor(...args: ConstructorParameters<typeof ProductionTradeService>) {
     const [sql, ledger, matching, perks, bus, options = {}] = args;
-    super(sql, ledger, matching, perks, bus, { ...options, accountAdmission: options.accountAdmission ?? readyForSql(sql) });
+    super(sql, ledger, matching, perks, bus, {
+      ...options,
+      accountAdmission: options.accountAdmission ?? readyForSql(sql),
+      // Legacy tests predate the email-proof gate (RC-identity-01): every test user is proved.
+      emailProof: options.emailProof ?? new StubEmailProof(),
+      // Legacy tests predate published pair rules (J-cex-spot-04 step 6): their markets publish no band or cap.
+      allowUnpublishedPairRules: options.allowUnpublishedPairRules ?? true,
+    });
   }
 }
 export class PositionService extends ProductionPositionService {
   constructor(...args: ConstructorParameters<typeof ProductionPositionService>) {
     const [sql, ledger, deps] = args;
-    super(sql, ledger, { ...deps, accountAdmission: deps.accountAdmission ?? readyForSql(sql) });
+    super(sql, ledger, {
+      ...deps,
+      accountAdmission: deps.accountAdmission ?? readyForSql(sql),
+      emailProof: deps.emailProof ?? new StubEmailProof(),
+    });
   }
   override open(input: OpenPositionInput, principal?: Principal, context?: { readonly region?: string | null }) {
     return super.open(input, principal ?? principalFor(input.userId), context);
@@ -107,6 +118,10 @@ export class CopyService extends ProductionCopyService {
 export class OtcDeskService extends ProductionOtcDeskService {
   constructor(...args: ConstructorParameters<typeof ProductionOtcDeskService>) {
     const [ledger, stakes, options = {}] = args;
-    super(ledger, stakes, { ...options, accountAdmission: options.accountAdmission ?? readyTestAdmission() });
+    super(ledger, stakes, {
+      ...options,
+      accountAdmission: options.accountAdmission ?? readyTestAdmission(),
+      emailProof: options.emailProof ?? new StubEmailProof(),
+    });
   }
 }

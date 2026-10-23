@@ -16,6 +16,10 @@ import {
   supportBulkInputSchema,
   supportBulkPolicySchema,
   supportBulkResultSchema,
+  supportMergeInputSchema,
+  supportMergePreviewInputSchema,
+  supportMergePreviewSchema,
+  supportMergeResultSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
   supportCaseFileSchema,
@@ -103,6 +107,8 @@ function mapError(err: unknown): never {
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.bulk_cap_unset' ||
+      err.code === 'support.merge_not_allowed' ||
+      err.code === 'support.merge_same_ticket' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
       err.code === 'support.attachment_count_unset' ||
@@ -971,12 +977,14 @@ export function createSupportRouter(
             availability: z.enum(['online', 'busy', 'offline']),
             availabilitySetAt: z.string().nullable(),
             lastHeartbeatAt: z.string().nullable(),
+            /** Desk groups (teams) this member belongs to, sorted by name. */
+            groups: z.array(z.object({ id: z.string(), name: z.string() })),
           }),
         ),
       )
       .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return support.listStaff();
+        return support.listStaffDirectory();
       }),
 
     /** Says whether automatic offline is an owner value or still blank. */
@@ -1199,6 +1207,32 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** What a merge would move and what stays on the source, read before the confirmation. Moves nothing. */
+    previewMerge: scopedProcedure('support:ops')
+      .input(supportMergePreviewInputSchema)
+      .output(supportMergePreviewSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.previewMerge({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Fold a duplicate request into the one that stays. Irreversible; a replay of the same pair returns the stored result. */
+    mergeTickets: scopedProcedure('support:ops')
+      .input(supportMergeInputSchema)
+      .output(supportMergeResultSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.mergeTickets({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

@@ -39,4 +39,33 @@ describe('assertOwnerPayScopeStillGranted', () => {
       assertOwnerPayScopeStillGranted(principal(), 'pay:read', async () => merchant({ kybStatus: 'rejected' })),
     ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
   });
+
+  it('keeps pay:onboard for an owner still verifying, and withdraws it once the business is suspended or closed', async () => {
+    await expect(
+      assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => merchant({ kybStatus: 'none', status: 'pending' })),
+    ).resolves.toBeUndefined();
+    await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => null)).resolves.toBeUndefined();
+    for (const status of ['suspended', 'closed'] as const) {
+      await expect(
+        assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => merchant({ kybStatus: 'none', status })),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+    }
+  });
+
+  it('withdraws pay:onboard from a team member whose business is suspended or closed, and keeps it otherwise', async () => {
+    const team =
+      (...statuses: OwnerPayScopeMerchant['status'][]) =>
+      async () =>
+        statuses;
+    for (const status of ['suspended', 'closed'] as const) {
+      await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => null, team(status))).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'pay.owner_grant_withdrawn',
+      });
+    }
+    await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => null, team('active'))).resolves.toBeUndefined();
+    await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:onboard', async () => null, team())).resolves.toBeUndefined();
+    // pay:read and pay:write stay with the role table for team members, as before.
+    await expect(assertOwnerPayScopeStillGranted(principal(), 'pay:read', async () => null, team('suspended'))).resolves.toBeUndefined();
+  });
 });

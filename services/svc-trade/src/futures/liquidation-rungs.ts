@@ -53,7 +53,12 @@
  */
 import { type Amount, type EntryInput, type PostRequest } from '@intafaced/ledger-client';
 
-export type RungKind = 'partial' | 'closing';
+/**
+ * `matched` (futures ADR slice 7): the tranche is worked by one reduce-only IOC order in the book and whatever the book
+ * does not take goes to ADL. The rung posts nothing itself and never moves the row: the order's fills and the ADL pairs
+ * do both, through their own keyed paths. It is finished with `finishMatched`, never `apply`.
+ */
+export type RungKind = 'partial' | 'closing' | 'matched';
 export type RungState = 'planned' | 'posted' | 'applied' | 'abandoned' | 'resolved';
 
 /** What the rung committed to, fixed before its first post. */
@@ -88,6 +93,14 @@ export interface RungPlan {
   markPrice?: Amount;
   /** A liquidation fee the writer recorded. Absent means no fee was recorded. */
   fee?: Amount;
+  /**
+   * D-margin-07: the fee decision recorded when the rung was planned. `fee_unset`: the owner fraction was
+   * blank, nothing is charged. `ledger_job_pending`: a fee was planned (`plannedFee`) but nothing is charged
+   * until ledger owner job J-3 grants a fee recipe. Absent on rungs planned before this field.
+   */
+  feeState?: 'fee_unset' | 'ledger_job_pending';
+  /** The planned (NOT charged) fee when `feeState` is `ledger_job_pending`. */
+  plannedFee?: Amount;
 }
 
 export interface RungRecord {
@@ -180,6 +193,11 @@ export interface LiquidationRungStore {
    * abandons the rung.
    */
   apply(positionId: string, rungId: string): Promise<ApplyRungResult>;
+  /**
+   * Set a `matched` rung 'applied' under the position row lock, WITHOUT moving the row: its order's fills and its ADL
+   * pairs already moved it. Refuses (throws) for any other kind.
+   */
+  finishMatched(positionId: string, rungId: string): Promise<'applied' | 'already_applied' | 'not_live'>;
   /** The position's LATEST rung is 'abandoned': no new rung may be planned until an operator marks it 'resolved'. */
   isParked(positionId: string): Promise<boolean>;
   /** Applied closing rungs whose bus announcement has not been recorded as published. Oldest first. */
@@ -210,6 +228,9 @@ export interface EncodedRungPlan {
   markPrice?: string;
   /** Scaled integer string. Omitted when the writer did not record a fee. */
   fee?: string;
+  feeState?: string;
+  /** Scaled integer string. */
+  plannedFee?: string;
 }
 
 export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
@@ -230,6 +251,8 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     marginAsset: plan.marginAsset,
     ...(plan.markPrice != null ? { markPrice: plan.markPrice.toString() } : {}),
     ...(plan.fee != null ? { fee: plan.fee.toString() } : {}),
+    ...(plan.feeState != null ? { feeState: plan.feeState } : {}),
+    ...(plan.plannedFee != null ? { plannedFee: plan.plannedFee.toString() } : {}),
   };
 }
 
@@ -250,6 +273,8 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     marginAsset: encoded.marginAsset,
     ...(encoded.markPrice != null ? { markPrice: BigInt(encoded.markPrice) } : {}),
     ...(encoded.fee != null ? { fee: BigInt(encoded.fee) } : {}),
+    ...(encoded.feeState === 'fee_unset' || encoded.feeState === 'ledger_job_pending' ? { feeState: encoded.feeState } : {}),
+    ...(encoded.plannedFee != null ? { plannedFee: BigInt(encoded.plannedFee) } : {}),
   };
 }
 
@@ -334,6 +359,7 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
         e.rec.state = 'abandoned';
         return { status: 'abandoned', reason };
       };
+      if (e.rec.kind === 'matched') throw new Error(`rung ${rungId} is worked in the book: finish it with finishMatched, never apply`);
       const row = rows.read(positionId);
       if (!row) return abandon('row_missing');
       if (row.status !== 'open') return abandon('row_changed');
@@ -361,6 +387,16 @@ export function memoryLiquidationRungStore(rows: RungRowBook): LiquidationRungSt
       }
       e.rec.state = 'applied';
       return { status: 'applied' };
+    },
+    async finishMatched(positionId, rungId) {
+      const e = rungs.get(rungId);
+      if (!e || e.rec.positionId !== positionId) return 'not_live';
+      if (e.rec.kind !== 'matched')
+        throw new Error(`rung ${rungId} is ${e.rec.kind}: only a matched rung is finished without moving the row`);
+      if (e.rec.state === 'applied') return 'already_applied';
+      if (e.rec.state !== 'planned' && e.rec.state !== 'posted') return 'not_live';
+      e.rec.state = 'applied';
+      return 'applied';
     },
     async isParked(positionId) {
       const mine = [...rungs.values()].filter((e) => e.rec.positionId === positionId);

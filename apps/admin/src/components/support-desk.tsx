@@ -14,6 +14,7 @@ import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
 import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
+import { TicketMerge } from './support-ticket-merge';
 import { TicketProperties } from './support-ticket-properties';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -238,6 +239,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       <TicketFiles key={t.id} ticketId={t.id} />
       <TicketLifecycle key={t.id} ticket={t} />
       <TicketProperties key={t.id} ticket={t} />
+      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );

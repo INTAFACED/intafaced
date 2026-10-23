@@ -115,8 +115,14 @@ export type AcademyErrorCode =
   | 'academy.video_s3_region_unset'
   /** Lobby ceiling unset — never invent a seat count. */
   | 'academy.room_capacity_unset'
-  /** Programme prerequisites the caller has not enrolled in. */
+  /** Programme prerequisites the caller has not enrolled in, or an item prerequisite is unmet. */
   | 'academy.prerequisite_unmet'
+  /** Item prerequisite graph contains a cycle. */
+  | 'academy.prerequisite_cycle'
+  /** Availability or due window is unpublished, inverted, or closed for this learner. */
+  | 'academy.window_invalid'
+  /** Per-learner extension was asked for without a reason. */
+  | 'academy.reason_required'
   /** touchLesson secondsRead outside 0..TOUCH_LESSON_MAX_SECONDS. */
   | 'academy.seconds_out_of_range'
   /** Video slug is not on the named spine. */
@@ -150,7 +156,9 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
-  | 'academy.holder_name_invalid';
+  | 'academy.holder_name_invalid'
+  /** AC-articles-02: a slug equal to a reserved academy tab. */
+  | 'academy.slug_reserved';
 
 export class AcademyError extends Error {
   constructor(
@@ -224,6 +232,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.video_s3_region_unset',
   'academy.room_capacity_unset',
   'academy.prerequisite_unmet',
+  'academy.prerequisite_cycle',
+  'academy.window_invalid',
+  'academy.reason_required',
   'academy.seconds_out_of_range',
   'academy.video_not_found',
   'academy.video_position_out_of_range',
@@ -244,6 +255,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
   'academy.holder_name_invalid',
+  'academy.slug_reserved',
 ] as const;
 
 /** L3 — catalog size. */

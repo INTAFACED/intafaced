@@ -70,6 +70,10 @@ export function sqlFundingPositionLoader(sql: Sql): FundingPositionLoader {
           AND NOT EXISTS (
             SELECT 1 FROM trade.futures_adl_pairs q
              WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
+          -- no matched fill still being recorded: a reduce fill fixed its loss and release from the margin at intent
+          -- time, so a charge meanwhile would leave the row short of it (matched-orders.ts). The fill finishes first.
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
         -- p.id is the tiebreak, not decoration: opened_at is not unique, so two
         -- positions opened in the same tick had no stable order between two
         -- queries. Funding legs are built by iterating this list, and under the
@@ -200,6 +204,9 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
           AND NOT EXISTS (
             SELECT 1 FROM trade.futures_adl_pairs q
              WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
+          -- no matched fill still being recorded: it has posted into the pot ahead of the row (matched-orders.ts)
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

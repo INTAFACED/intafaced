@@ -1,6 +1,9 @@
 /**
  * Operator account directory. Search is an exact email or a handle prefix.
- * The email leaves this module only masked. Every search is audited as a hash.
+ * The email leaves this module only masked. Every search (and every page of
+ * one) is audited as a hash. Results come a page at a time in sign-up order;
+ * `nextCursor` says exactly whether more match, so a long result is paged,
+ * never cut silently.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -8,11 +11,16 @@ import type { Context } from '@intafaced/contracts';
 
 export const IDENTITY_ACCOUNT_SEARCH_UNSET = 'identity.account_search_unset' as const;
 export const IDENTITY_HANDLE_PREFIX_SHORT = 'identity.handle_prefix_short' as const;
+export const IDENTITY_SEARCH_CURSOR_INVALID = 'identity.search_cursor_invalid' as const;
 
 export class AccountDirectoryError extends Error {
   constructor(
     message: string,
-    readonly code: typeof IDENTITY_ACCOUNT_SEARCH_UNSET | typeof IDENTITY_HANDLE_PREFIX_SHORT | 'operator.denied',
+    readonly code:
+      | typeof IDENTITY_ACCOUNT_SEARCH_UNSET
+      | typeof IDENTITY_HANDLE_PREFIX_SHORT
+      | typeof IDENTITY_SEARCH_CURSOR_INVALID
+      | 'operator.denied',
   ) {
     super(message);
     this.name = 'AccountDirectoryError';
@@ -53,7 +61,51 @@ function likePrefix(prefix: string): string {
   return `${prefix.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 }
 
-type SearchInput = { email?: string | undefined; handle?: string | undefined };
+type SearchInput = { email?: string | undefined; handle?: string | undefined; cursor?: string | undefined };
+
+type Cursor = { readonly createdAt: string; readonly id: string };
+
+const CURSOR_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CURSOR_AT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})\.\d{6}Z$/;
+
+/** A real UTC instant in the marker's own format: a date the calendar does not have (February 30) is refused here, not by Postgres. */
+function cursorInstant(raw: string): boolean {
+  const match = CURSOR_AT.exec(raw);
+  if (!match) return false;
+  const ms = Date.parse(`${match[1]}T${match[2]}Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === `${match[1]}T${match[2]}`;
+}
+
+/** The page marker is the last row's sign-up time (UTC, to the microsecond, in one fixed format) and id. */
+function encodeCursor(cursor: Cursor): string {
+  return Buffer.from(JSON.stringify([cursor.createdAt, cursor.id]), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string | undefined): Cursor | null {
+  if (raw === undefined) return null;
+  const invalid = () =>
+    new AccountDirectoryError(
+      `This page marker was not issued by the account search (${IDENTITY_SEARCH_CURSOR_INVALID})`,
+      IDENTITY_SEARCH_CURSOR_INVALID,
+    );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw invalid();
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length !== 2 ||
+    typeof parsed[0] !== 'string' ||
+    typeof parsed[1] !== 'string' ||
+    !CURSOR_ID.test(parsed[1]) ||
+    !cursorInstant(parsed[0])
+  ) {
+    throw invalid();
+  }
+  return { createdAt: parsed[0], id: parsed[1] };
+}
 
 function searchKey(input: SearchInput): { kind: 'email' | 'handle'; value: string } {
   const email = typeof input.email === 'string' ? normaliseEmail(input.email) : '';
@@ -83,21 +135,28 @@ type SqlRow = {
   handle: string;
   status: 'active' | 'frozen' | 'closed';
   created_at: Date;
+  created_key: string;
   email: string;
   kyc_tier: 'none' | 'basic' | 'full' | 'institutional';
   identity_restricted: boolean;
   trading_restricted: boolean;
 };
 
-export async function searchAccounts(sql: Sql, context: Context, input: SearchInput): Promise<{ rows: AccountSearchRow[] }> {
+export async function searchAccounts(
+  sql: Sql,
+  context: Context,
+  input: SearchInput,
+): Promise<{ rows: AccountSearchRow[]; nextCursor: string | null }> {
   const actorId = requireReader(context, 'admin:compliance');
   const key = searchKey(input);
+  const after = decodeCursor(input.cursor);
   const pattern = key.kind === 'handle' ? likePrefix(key.value) : null;
   const rows = await sql<SqlRow[]>`
     SELECT u.id,
            u.handle::text AS handle,
            u.status,
            u.created_at,
+           to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_key,
            u.email::text AS email,
            COALESCE((
              SELECT k.tier::text FROM kyc_records k
@@ -112,16 +171,20 @@ export async function searchAccounts(sql: Sql, context: Context, input: SearchIn
       (${key.kind} = 'email' AND u.email = ${key.kind === 'email' ? key.value : ''})
       OR (${key.kind} = 'handle' AND u.handle LIKE ${pattern ?? ''} ESCAPE '\\')
     )
+    AND (${after === null} OR (u.created_at, u.id) > (${after?.createdAt ?? null}::text::timestamptz, ${after?.id ?? null}::uuid))
     ORDER BY u.created_at ASC, u.id ASC
-    LIMIT ${SEARCH_CAP}
+    LIMIT ${SEARCH_CAP + 1}
   `;
+  const page = rows.slice(0, SEARCH_CAP);
+  const last = page.at(-1);
   const queryHash = createHash('sha256').update(`${key.kind}\0${key.value}`).digest('hex');
   await sql`
     INSERT INTO operator_read_audit (audit_id, actor_id, kind, query_hash)
     VALUES (${randomUUID()}, ${actorId}, 'account_search', ${queryHash})
   `;
   return {
-    rows: rows.map((row) => ({
+    nextCursor: rows.length > SEARCH_CAP && last ? encodeCursor({ createdAt: last.created_key, id: last.id }) : null,
+    rows: page.map((row) => ({
       id: row.id,
       handle: row.handle,
       status: row.status,

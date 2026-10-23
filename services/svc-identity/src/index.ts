@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { selectOnboardingUser } from './auth/onboarding-user.js';
@@ -49,9 +50,10 @@ import { createFounderControlsRouter } from './controls/founder-controls-router.
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { createMembershipRouter } from './membership/membership-router.js';
 import { OAuthService } from './oauth/oauth.js';
 import { createOAuthRouter } from './oauth/oauth-router.js';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
 import { createAuthKeysRouter } from './auth-keys-router.js';
@@ -64,7 +66,11 @@ import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createFactorStatusRouter } from './factor-status-router.js';
+import { createWorkItemsRouter } from './work-items.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
 import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
@@ -94,6 +100,9 @@ import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
+import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
@@ -307,11 +316,14 @@ if (env.PAY_URL) {
 // reset request refuses auth.reset_unwired. The only transport this process
 // can install is the local-outbox file, and only when APP_ENV is exactly dev
 // or test. Staging and production stay unwired. No provider is configured.
-const mail = openIdentityMail({
+const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Mails to an account's own address carry the anti-phishing code its owner set.
+const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
+const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -341,6 +353,16 @@ auth.useEmailConfirmation({
   ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
+});
+// Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
+auth.useSignUpPolicy({
+  minAgeYears: env.IDENTITY_SIGNUP_MIN_AGE_YEARS,
+  codeTtlSeconds: env.IDENTITY_SIGNUP_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_SIGNUP_RESEND_SECONDS,
+  requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
+  closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
 });
 
 const placeDoor = new PlaceDoor(sql);
@@ -414,6 +436,7 @@ const actionApprovals = new ActionApprovalService(
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
+const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
@@ -449,6 +472,13 @@ const tradeClosureCheck = httpClosureChecker({
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
+const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
+const antiPhishing = new AntiPhishingService({
+  sql,
+  approvals: actionApprovals,
+  key: antiPhishingMailKey,
+});
+const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
   approvals: actionApprovals,
@@ -472,6 +502,8 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // The code-less register door is for the dev and test stacks' own tools only.
+    directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
@@ -492,6 +524,9 @@ export const appRouter = mergeRouters(
     account,
     closure,
     subAccountDelete,
+    subAccountFeatures,
+    subAccountEdit,
+    antiPhishing,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -513,6 +548,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),
@@ -542,6 +578,9 @@ export const appRouter = mergeRouters(
     securityStepUp,
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
+  createFactorStatusRouter(sql),
+  createWorkItemsRouter(sql),
+  createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -583,6 +622,7 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+selfFreezeLift.useLogger(app.log);
 account.useLog({
   warn(obj, msg) {
     app.log.warn(obj, msg);
@@ -766,6 +806,22 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return state;
+});
+
+/**
+ * Whether a user's current email is proved (RC-identity-01), `emailProofSchema`. svc-trade reads it per order and
+ * refuses a new custodial order while it is `missing`. Service credentials only; no address in the answer.
+ * Unknown user → 404, which the caller refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const proof = await auth.emailProof(req.params.userId);
+  if (!proof) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return proof;
 });
 
 /**

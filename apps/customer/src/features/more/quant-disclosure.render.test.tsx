@@ -75,7 +75,9 @@ describe('quant risk disclosure panel', () => {
     const button = document.body.querySelector('[data-testid="quant-disclosure-accept"]') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-describedby')).toBe('quant-disclosure-accept-reason');
-    expect(document.getElementById('quant-disclosure-accept-reason')?.textContent).toContain('no saved strategy version to accept it for');
+    expect(document.getElementById('quant-disclosure-accept-reason')?.textContent).toContain(
+      'accepting belongs to putting a strategy to use, which this build does not offer',
+    );
   });
 
   it('says the read failed and offers a retry, never the wording of an older read', async () => {

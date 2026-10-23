@@ -21,7 +21,7 @@ const ALERT_MIGRATIONS = [
   '0020_notify_alert_stopped.sql',
   '0021_notify_alert_triggers.sql',
   '0022_notify_alert_frequency.sql',
-  '0023_notify_alert_burst.sql',
+  '0026_notify_alert_burst.sql',
 ];
 
 const available = await postgresAvailable(URL);
@@ -360,10 +360,10 @@ describe.skipIf(!available)('PostgresAlertStore frequency and migration 0022', (
   });
 });
 
-describe.skipIf(!available)('PostgresAlertStore burst auto-stop and migration 0023', () => {
+describe.skipIf(!available)('PostgresAlertStore burst auto-stop and migration 0026', () => {
   it('runs twice, counts triggers in a window, stops past the count with the reason, and clears on resume', async () => {
-    await sql!.unsafe(migration('0023_notify_alert_burst.sql'));
-    await sql!.unsafe(migration('0023_notify_alert_burst.sql'));
+    await sql!.unsafe(migration('0026_notify_alert_burst.sql'));
+    await sql!.unsafe(migration('0026_notify_alert_burst.sql'));
     const store = new PostgresAlertStore(sql!);
     const userId = fresh();
     const rule = { windowMs: 10 * 60_000, max: 2 };

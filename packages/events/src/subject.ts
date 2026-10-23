@@ -51,10 +51,13 @@ export const VERBS = [
   'disputed',
   'resolved',
   'requested',
+  'submitted',
   'confirmed',
   'reversed',
   'frozen',
   'attested',
+  'sent',
+  'escalated',
 ] as const;
 
 export type Verb = (typeof VERBS)[number];

@@ -10,10 +10,13 @@ import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
+import { AntiPhishing } from './AntiPhishing';
+import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { securityCopy as copy } from './security-copy';
+import { refusalCopy } from '../../data/refusals';
 import {
   credentialId,
   familyBlocked,
@@ -27,6 +30,7 @@ import {
   securityKey,
   securitySessionLock,
   setupResponse,
+  stepUpKind,
   type Passkey,
   type SecurityJournal,
   type SecurityKind,
@@ -36,10 +40,30 @@ import { nativeRegistration, registrationFor, registrationPayload } from './secu
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './security.css';
+import { VerifyEmail } from './VerifyEmail';
+import { WithdrawStepUp } from '../money/WithdrawStepUp';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
-type Original = { owner: string; client: ApiClient; kind: SecurityKind; credential?: Passkey; limit: number; requestId: string };
-type Setup = { original: Original; record: SecurityRecord; data: z.infer<typeof setupResponse>; confirmed: boolean };
+type Original = {
+  owner: string;
+  client: ApiClient;
+  kind: SecurityKind;
+  credential?: Passkey;
+  limit: number;
+  requestId: string;
+  /** The five-minute token from "Confirm it's you" (`auth.stepUp`), for this one change only. Never persisted. */
+  bearer?: string;
+};
+type Setup = {
+  original: Original;
+  record: SecurityRecord;
+  data: z.infer<typeof setupResponse>;
+  confirmed: boolean;
+  /** The confirmation's answer was lost: the authenticator may be on, so its recovery codes show, labelled as such. */
+  outcomeUnknown?: boolean;
+};
+/** The recovery codes show once the authenticator is on, or may be on because the confirmation's answer was lost. */
+const recoveryCodesShown = (setup: Setup): boolean => setup.confirmed || setup.outcomeUnknown === true;
 type Response = {
   original: Original;
   record?: SecurityRecord;
@@ -73,6 +97,16 @@ export function Security() {
     original = useRef<Original | null>(null),
     controller = useRef<AbortController | null>(null);
   const setupHeading = useRef<HTMLHeadingElement | null>(null);
+  const authenticatorHeading = useRef<HTMLHeadingElement | null>(null);
+  const [codesKept, setCodesKept] = useState(false);
+  // A new or cleared setup asks again whether its codes were kept.
+  useEffect(() => setCodesKept(false), [setup]);
+  const [stepUp, setStepUp] = useState<Response | null>(null);
+  /** Counts passkeys added or removed here, so the passkey names below load again. */
+  const [passkeyRevision, setPasskeyRevision] = useState(0);
+  /** Counts sign-in methods changed on this page, so the checklist loads again. */
+  const [methodsRevision, setMethodsRevision] = useState(0);
+  const methodsChanged = () => setMethodsRevision((value) => value + 1);
   const setupFocus = useRef<{
     intent: Original;
     origin: Element | null;
@@ -91,6 +125,11 @@ export function Security() {
         : Promise.resolve({ ok: true as const, data: [] }),
     `security-credentials:${userId}:${clientVersion.current.value}:${limit}`,
   );
+  const passkeysChanged = () => {
+    reload();
+    setPasskeyRevision((value) => value + 1);
+    methodsChanged();
+  };
   useEffect(() => {
     mounted.current = true;
     const changed = (event: StorageEvent) => {
@@ -125,6 +164,7 @@ export function Security() {
     setShowKey(false);
     setReview(null);
     setActiveStage(null);
+    setStepUp(null);
     setupFocus.current = null;
     original.current = null;
     controller.current?.abort();
@@ -148,12 +188,18 @@ export function Security() {
     journal.records.some((row) => row.requestId === setup.record.requestId && row.state === 'prepared')
       ? setup
       : null;
+  const codesShown = visibleSetup ? recoveryCodesShown(visibleSetup) : false;
   useEffect(() => {
     const waiting = setupFocus.current;
     if (!visibleSetup || waiting?.readyRequest !== visibleSetup.record.requestId || waiting.intent !== visibleSetup.original) return;
     setupFocus.current = null;
     if (!waiting.moved && same(visibleSetup.original)) setupHeading.current?.focus();
   }, [visibleSetup?.record.requestId, api, userId]);
+  /** The call options for this change: its abort signal, and the step-up token when the person just confirmed it is them. */
+  const sending = (intent: Original, signal?: AbortSignal) => ({
+    ...(signal ? { signal } : {}),
+    ...(intent.bearer ? { bearer: intent.bearer } : {}),
+  });
   const blocked = (kind: SecurityKind) => !userId || busy || familyBlocked(journal, securityFamily(kind));
   function open(kind: SecurityKind, credential?: Passkey) {
     if (!userId || blocked(kind) || running.current || !api.canWrite()) return;
@@ -263,9 +309,13 @@ export function Security() {
     controller.current = abort;
     const preparation = makeRecord(intent, 'options');
     if (!save(intent, preparation)) return;
-    const options = await intent.client.mutate('identity', 'webauthn.registerOptions', {}, registrationFor(intent.owner), {
-      signal: abort.signal,
-    });
+    const options = await intent.client.mutate(
+      'identity',
+      'webauthn.registerOptions',
+      {},
+      registrationFor(intent.owner),
+      sending(intent, abort.signal),
+    );
     if (!same(intent)) {
       settleOriginalRefusal(preparation, options);
       return;
@@ -292,14 +342,16 @@ export function Security() {
       'webauthn.registerVerify',
       payload,
       z.object({ credentialId }).refine((value) => value.credentialId === payload!.rawId),
-      { signal: abort.signal },
+      sending(intent, abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(registration, answer);
+      // The passkey is stored even if this page moved on; the lists and the checklist still follow it.
+      if (answer.ok && mounted.current) passkeysChanged();
       return;
     }
     known(intent, registration, answer, answer.ok ? 'registered' : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function removePasskey(intent: Original) {
     if (!intent.credential) return;
@@ -318,7 +370,7 @@ export function Security() {
     }
     if (!fresh.data.some((row) => row.credentialId === intent.credential!.credentialId && row.createdAt === intent.credential!.createdAt)) {
       setProblem('keyChanged');
-      reload();
+      passkeysChanged();
       return;
     }
     const record = makeRecord(intent, 'remove', intent.credential.credentialId);
@@ -328,14 +380,15 @@ export function Security() {
       'webauthn.remove',
       { credentialId: intent.credential.credentialId },
       z.object({ removed: z.boolean() }),
-      { signal: abort.signal },
+      sending(intent, abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
+      if (answer.ok && mounted.current) passkeysChanged();
       return;
     }
     known(intent, record, answer, answer.ok ? (answer.data.removed ? 'removed' : 'notRemoved') : undefined);
-    if (answer.ok) reload();
+    if (answer.ok) passkeysChanged();
   }
   async function startSetup(intent: Original) {
     const record = makeRecord(intent, 'setup');
@@ -343,7 +396,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse);
+    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse, sending(intent));
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -360,6 +413,8 @@ export function Security() {
     const prepared = { ...record, state: 'prepared' as const };
     sync(intent.owner);
     if (setupFocus.current?.intent === intent) setupFocus.current.readyRequest = prepared.requestId;
+    // A setup started after "Confirm it is you" keeps that token for its own confirmation only: the factor gate checks
+    // the confirmation too. It stays in memory with this setup and expires in five minutes.
     setSetup({ original: intent, record: prepared, data: answer.data, confirmed: false });
     setResponse(null);
   }
@@ -386,9 +441,16 @@ export function Security() {
         'totp.confirm',
         { secret: prepared.data.secret, code: entered },
         z.object({ ok: z.literal(true) }),
+        // A wrong code is this form's answer, not the end of the sign-in.
+        { ...sending(intent), keepSessionFor: ['auth.mfa_invalid'] },
       );
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);
+        // An uncertain answer may also mean it is on: the checklist re-reads either way.
+        if ((answer.ok || answer.reason === 'uncertain') && mounted.current) methodsChanged();
+        // The authenticator is on; while it is still this person on this client, the recovery codes must still show.
+        if (answer.ok && sameActor(intent)) setSetup({ ...prepared, confirmed: true });
+        else if (!answer.ok && answer.reason === 'uncertain' && sameActor(intent)) setSetup({ ...prepared, outcomeUnknown: true });
         return;
       }
       known(intent, record, answer, answer.ok ? 'confirmationAccepted' : undefined);
@@ -396,6 +458,11 @@ export function Security() {
       if (answer.ok) {
         setShowKey(false);
         setSetup({ ...prepared, confirmed: true });
+        methodsChanged();
+      } else if (answer.reason === 'uncertain') {
+        // Identity may have turned the authenticator on before the answer was lost; these codes would be its only copy.
+        setSetup({ ...prepared, outcomeUnknown: true });
+        methodsChanged();
       }
     });
   }
@@ -423,19 +490,50 @@ export function Security() {
       clear();
     }
   }
+  /** The person saved the recovery codes: the codes, the setup key and the setup's journal row leave for good. */
+  function codesSaved() {
+    const saved = visibleSetup;
+    if (!saved || !recoveryCodesShown(saved) || !codesKept) return;
+    if (finishSecurity(saved.record)) sync(saved.record.owner);
+    setSetup(null);
+    setShowKey(false);
+    setCode('');
+    setCodesKept(false);
+    setResponse(null);
+    authenticatorHeading.current?.focus();
+  }
+  function dispatch(intent: Original) {
+    return intent.kind === 'options'
+      ? addPasskey(intent)
+      : intent.kind === 'remove'
+        ? removePasskey(intent)
+        : intent.kind === 'setup'
+          ? startSetup(intent)
+          : logoutAll(intent);
+  }
+  /**
+   * Sends the change the factor gate refused once more, with the step-up token as that call's own bearer. The token is
+   * never persisted; it stays in memory with this one intent (and a setup it starts, for that setup's confirmation), and
+   * a later change asks again. The change's own answer
+   * shows on the page, as any other answer does. A refused authenticator confirmation is not resent: its code has likely
+   * expired, so that refusal offers signing in again instead.
+   */
+  async function afterStepUp(refused: Response, token: string): Promise<ApiResult<null>> {
+    const kind = stepUpKind(refused.record?.kind);
+    if (!kind || !userId || running.current || !sameActor(refused.original)) {
+      return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
+    }
+    setStepUp(null);
+    const intent: Original = { ...refused.original, kind, requestId: crypto.randomUUID(), bearer: token };
+    original.current = intent;
+    await coordinated(intent, () => dispatch(intent));
+    return { ok: true, data: null };
+  }
   function confirmReview() {
     const intent = review;
     if (!intent) return;
     if (setupFocus.current?.intent === intent) setupFocus.current.pending = true;
-    void coordinated(intent, () =>
-      intent.kind === 'options'
-        ? addPasskey(intent)
-        : intent.kind === 'remove'
-          ? removePasskey(intent)
-          : intent.kind === 'setup'
-            ? startSetup(intent)
-            : logoutAll(intent),
-    );
+    void coordinated(intent, () => dispatch(intent));
   }
   function references(owner: string, request?: string, credential?: string) {
     return (
@@ -468,11 +566,14 @@ export function Security() {
   const kindLabel = (kind: SecurityKind) =>
     kind === 'remove' ? 'removeKind' : kind === 'confirm' ? 'confirmKind' : kind === 'logout' ? 'logoutKind' : kind;
   const currentResponse = response && sameActor(response.original) ? response : null;
+  const secondFactor = refusalCopy('auth.mfa_required');
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
   return (
     <div lang={languageFor('title')} className="security">
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
+        <VerifyEmail />
+        <SecurityChecklist revision={methodsRevision} />
         {uncertainty.map((record) => {
           const preparation = record.kind === 'options' || record.kind === 'setup';
           const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
@@ -599,14 +700,14 @@ export function Security() {
             </div>
           </section>
           <section className="security__authenticator security__card" aria-label={t('authenticator')}>
-            <h2>
+            <h2 ref={authenticatorHeading} tabIndex={-1}>
               <Copy k="authenticator" />
             </h2>
             <p>
               <Copy k="authenticatorBody" />
             </p>
             <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
-              {visibleSetup && !visibleSetup.confirmed ? <Copy k="setupReady" /> : null}
+              {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
             </p>
             {visibleSetup ? (
               <div className="stack">
@@ -614,13 +715,13 @@ export function Security() {
                   <h3 className="security__setup-heading" ref={setupHeading} tabIndex={-1}>
                     <Copy k="continue" />
                   </h3>
-                  {!visibleSetup.confirmed && (
+                  {!codesShown && (
                     <p className="security__setup-ready" aria-hidden="true">
                       <Copy k="setupReady" />
                     </p>
                   )}
                 </div>
-                {!visibleSetup.confirmed && (
+                {!codesShown && (
                   <>
                     <p>
                       <Copy k="setupBody" />
@@ -664,18 +765,37 @@ export function Security() {
                     <Copy k="confirmationAccepted" />
                   </p>
                 )}
-                <details data-security-sensitive="true">
-                  <summary>
-                    <Copy k="recoveryCodes" />
-                  </summary>
-                  <ul className="recovery-codes">
-                    {visibleSetup.data.recoveryCodes.map((value) => (
-                      <li key={value} lang="zxx">
-                        {value}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
+                {codesShown && (
+                  // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
+                  // this page; nothing here is ever written to storage.
+                  <div className="security__recovery stack" data-security-sensitive="true">
+                    <h3>
+                      <Copy k="recoveryTitle" />
+                    </h3>
+                    {!visibleSetup.confirmed && (
+                      <p className="notice" role="status">
+                        <Copy k="recoveryUnknown" />
+                      </p>
+                    )}
+                    <p>
+                      <Copy k="recoveryOnce" />
+                    </p>
+                    <ul className="recovery-codes">
+                      {visibleSetup.data.recoveryCodes.map((value) => (
+                        <li key={value} lang="zxx">
+                          {value}
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="security__check">
+                      <input type="checkbox" checked={codesKept} onChange={(event) => setCodesKept(event.target.checked)} />
+                      <Copy k="recoveryCheck" />
+                    </label>
+                    <Button disabled={!codesKept} onClick={codesSaved}>
+                      <Copy k="recoverySaved" />
+                    </Button>
+                  </div>
+                )}
                 <Button variant="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
                   <Copy k="newSetup" />
                 </Button>
@@ -690,8 +810,9 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
-          <PasskeyNames />
-          <Authenticator />
+          <PasskeyNames revision={passkeyRevision} />
+          <AntiPhishing />
+          <Authenticator onChanged={methodsChanged} />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <FreezeAccount />
           <CloseAccount />
@@ -734,7 +855,32 @@ export function Security() {
             )
           ) : (
             <div lang="und">
-              <Failure result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer} />
+              {currentResponse.answer.code === 'auth.mfa_required' &&
+              currentResponse.record &&
+              isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
+                // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
+                // them here sends the same change once more; signing in again with the code or a passkey also works.
+                <div className="failure" role="status">
+                  <h3>{secondFactor.title}</h3>
+                  {stepUpKind(currentResponse.record?.kind) ? (
+                    <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
+                  ) : (
+                    <p>{secondFactor.body}</p>
+                  )}
+                  {stepUpKind(currentResponse.record?.kind) && (
+                    <Button onClick={() => setStepUp(currentResponse)}>
+                      <Copy k="stepUpConfirm" />
+                    </Button>
+                  )}
+                  <a className="text-link" href={`${secondFactor.action?.href ?? '/login'}?redirect=${encodeURIComponent('/uc/safe')}`}>
+                    {secondFactor.action?.label}
+                  </a>
+                </div>
+              ) : (
+                <Failure
+                  result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
+                />
+              )}
               {currentResponse.answer.code && (
                 <p className="security__ref" lang="zxx">
                   {currentResponse.answer.code}
@@ -742,6 +888,14 @@ export function Security() {
               )}
             </div>
           ))}
+        {stepUp && sameActor(stepUp.original) && (
+          <WithdrawStepUp
+            why={t('stepUpWhy')}
+            run={(token) => afterStepUp(stepUp, token)}
+            onDone={() => setStepUp(null)}
+            onCancel={() => setStepUp(null)}
+          />
+        )}
         <ApiKeyRecords />
         {review && sameActor(review) && (
           <Dialog

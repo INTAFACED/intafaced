@@ -21,12 +21,14 @@ import {
   parseAmount,
   positionCollateralAccount,
   recipes,
+  SCALE,
   type Amount,
   type LedgerClient,
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
 import { gateLiquidationRecipe } from './sub-account-loss.js';
+import { planLiquidationFee } from './liquidation-fee.js';
 
 async function postGuarded(
   ledger: Pick<LedgerClient, 'post'>,
@@ -61,6 +63,8 @@ import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-a
 import { ADL_PAIR_REPLAYED } from './adl-pairing.js';
 export type { LiquidationAdlDeps } from './liquidation-adl-gate.js';
 import type { LiquidationRungStore, RungIdFactory, RungPlan, RungRecord } from './liquidation-rungs.js';
+import { driveMatchedRung, type MatchedLiquidationPort } from './matched-liquidation.js';
+export type { MatchedLiquidationPort } from './matched-liquidation.js';
 
 /**
  * WHAT A CALLER ASKS A MARK SOURCE FOR — AND WHAT THE ANSWER IS FOR.
@@ -289,6 +293,12 @@ export interface LiquidationTickDeps {
   /** Mints rung ids. Default `crypto.randomUUID`. */
   newRungId?: RungIdFactory;
   /**
+   * D-margin-07: the owner liquidation fee fraction (scaled), `null` when unset. When provided (null
+   * included), each new rung records its fee decision (`feeState`, `plannedFee`) in its plan. Nothing is
+   * charged: no fee recipe exists until ledger owner job J-3. Omitted: no fee decision is recorded.
+   */
+  liquidationFeeFraction?: Amount | null;
+  /**
    * Ignored. The tick no longer full-closes through the legacy planner; a
    * published `ladder.policy` is the only maintenance table.
    */
@@ -348,6 +358,13 @@ export interface LiquidationTickDeps {
    * book. A timeout leaves the rung unposted.
    */
   increasingOrders?: IncreasingOrderBook;
+  /**
+   * Liquidation through the book (futures ADR slice 7, `matched-liquidation.ts`). When `enabled` (the matched-order
+   * switch), a NEW rung that would liquidate is a `matched` rung: one reduce-only IOC in the book at the insurance-widened
+   * bankruptcy price, the remainder to ADL. Never at the mark. A live matched rung is worked to its end whether the
+   * switch is on or off. Omitted: every rung closes at the mark, as before.
+   */
+  matched?: MatchedLiquidationPort;
 }
 
 export interface RestingIncreaseOrder {
@@ -407,6 +424,8 @@ export interface LiquidationTickItemResult {
     | 'partially_liquidated'
     | 'liquidated'
     | 'invalid'
+    /** A matched rung's IOC is in the book and a fill is still settling; the rung holds the position and is driven next tick. */
+    | 'in_book'
     /** The position's own processing threw. Its failure is reported here and never stops the others. */
     | 'errored';
   reason: string;
@@ -529,7 +548,7 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
       if (deps.rungs) {
         const live = await deps.rungs.findLive(row.positionId);
         if (live) {
-          const item = await driveRung(deps, deps.rungs, row, live);
+          const item = await driveLive(deps, deps.rungs, row, live);
           items.push(item);
           if (item.outcome === 'liquidated') liquidated += 1;
           else if (item.outcome === 'partially_liquidated') partial += 1;
@@ -864,6 +883,65 @@ async function planAndDrive(
   }
 
   /**
+   * THROUGH THE BOOK WHILE MATCHED ORDERS ARE ON (futures ADR section 5, `matched-liquidation.ts`).
+   *
+   * The tranche is not closed at the mark: a `matched` rung works it with one reduce-only IOC at the insurance-widened
+   * bankruptcy price, and what the book does not take goes to ADL. The at-mark insurance bound below is not consulted:
+   * no loss is booked at the mark, and the IOC's limit is drawn from the fund's live balance instead.
+   */
+  if (deps.matched?.enabled) {
+    if (!deps.rungs || rungId === undefined) {
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: 'trade.liquidation_matched_needs_rungs',
+        summary: `${row.marketId}: a liquidation through the book needs the rung store; nothing was posted`,
+      };
+    }
+    const notReady = deps.matched.readiness();
+    if (notReady) {
+      return {
+        positionId: row.positionId,
+        outcome: 'errored',
+        reason: notReady,
+        summary: `${row.marketId}: the liquidation cannot be worked in the book (${notReady}) and is never closed at the mark instead`,
+      };
+    }
+    const sizeClosed = await deps.matched.trancheFor({ marketId: row.marketId, positionSize: row.size, sizeClosed: decision.sizeClosed });
+    const begunMatched = await deps.rungs.begin({
+      rungId,
+      positionId: row.positionId,
+      liquidationId,
+      kind: 'matched',
+      fromSize: row.size,
+      fromMargin: row.margin,
+      plan: {
+        // Nothing posts under the rung itself: the IOC's fills and the ADL pairs post under their own keys.
+        recipes: [],
+        sizeClosed,
+        // Informational only for a matched rung: what is left depends on the book.
+        marginRemaining: 0n,
+        marginTaken: 0n,
+        releaseShort: 0n,
+        lossShort: 0n,
+        reason: decision.reason,
+        fromInsurance: 0n,
+        marginAsset: row.marginAsset,
+        markPrice,
+      },
+    });
+    if (begunMatched.status === 'changed') {
+      return {
+        positionId: row.positionId,
+        outcome: 'skipped_changed',
+        reason: 'trade.liquidation_row_changed_before_plan',
+        summary: `${row.marketId}: the position moved (or closed) since it was read; nothing was placed — the next tick reads it again`,
+      };
+    }
+    return driveLive(deps, deps.rungs, row, begunMatched.rung);
+  }
+
+  /**
    * Same insurance bound as the full-close path — bankrupt ladder rungs are the
    * case that invents cover when the fund is empty. Partial rungs with
    * `fromInsurance === 0` pass through without a balance read cost that matters.
@@ -901,6 +979,7 @@ async function planAndDrive(
         reason: decision.reason,
         fromInsurance: decision.fromInsurance,
         marginAsset: row.marginAsset,
+        ...rungFeeDecision(deps.liquidationFeeFraction, rungId, decision.sizeClosed, markPrice, feeLeftoverCollateral(decision)),
       },
     });
     if (begun.status === 'changed') {
@@ -913,7 +992,7 @@ async function planAndDrive(
     }
     // 'live': another worker planned this position first. Its rung wins and is
     // replayed as stored; what this tick computed is discarded.
-    return driveRung(deps, deps.rungs, row, begun.rung);
+    return driveLive(deps, deps.rungs, row, begun.rung);
   }
 
   /**
@@ -966,6 +1045,16 @@ async function planAndDrive(
     reason: decision.reason,
     summary: summarizeLadder(decision),
   };
+}
+
+/** A live rung of either shape: a `matched` rung is worked in the book, every other rung posts its stored recipes. */
+async function driveLive(
+  deps: LiquidationTickDeps,
+  rungs: LiquidationRungStore,
+  row: LiquidationPositionRow,
+  rung: RungRecord,
+): Promise<LiquidationTickItemResult> {
+  return rung.kind === 'matched' ? driveMatchedRung(deps, rungs, row, rung) : driveRung(deps, rungs, row, rung);
 }
 
 /**
@@ -1316,4 +1405,33 @@ export function memoryLiquidationAttemptStore(): LiquidationAttemptStore {
       done.add(id);
     },
   };
+}
+
+/**
+ * D-margin-07: collateral left after the rung's loss. A closing rung hands it back as `residualRelease`
+ * (its `marginRemaining` is 0); a partial rung keeps it as `marginRemaining` (its `residualRelease` is 0).
+ */
+export function feeLeftoverCollateral(decision: { marginRemaining: Amount; residualRelease: Amount }): Amount {
+  return decision.marginRemaining + decision.residualRelease;
+}
+
+/**
+ * D-margin-07: the fee decision a new rung records. Charges nothing (no recipe until J-3); the plan's
+ * recipes are unchanged. `undefined` fraction (not wired) records nothing.
+ */
+export function rungFeeDecision(
+  fraction: Amount | null | undefined,
+  rungId: string,
+  sizeClosed: Amount,
+  markPrice: Amount,
+  leftoverCollateral: Amount,
+): { feeState?: 'fee_unset' | 'ledger_job_pending'; plannedFee?: Amount } {
+  if (fraction === undefined) return {};
+  const plan = planLiquidationFee({
+    rungId,
+    fraction,
+    notionalClosed: (sizeClosed * markPrice) / SCALE,
+    leftoverCollateral,
+  });
+  return plan.state === 'planned' ? { feeState: plan.chargeState, plannedFee: plan.fee } : { feeState: plan.state };
 }

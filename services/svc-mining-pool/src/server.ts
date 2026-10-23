@@ -9,6 +9,7 @@ import { createMiningRequestHandler } from './http.js';
 import { createLedgerClient } from './ledger-client.js';
 import { startMiningJobs } from './epoch-jobs.js';
 import { edgeTrustFromProcessEnv } from './edge-trust.js';
+import { listenHost } from './listen-host.js';
 
 const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
@@ -64,5 +65,5 @@ if (isDirectRun()) {
   const server = createServer((request, response) => {
     void handler(request, response);
   });
-  server.listen(port, '0.0.0.0');
+  server.listen(port, listenHost());
 }

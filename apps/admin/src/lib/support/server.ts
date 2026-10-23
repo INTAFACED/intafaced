@@ -3,6 +3,7 @@ import {
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
+  supportMergeResultSchema,
   supportTicketEventSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
@@ -13,6 +14,7 @@ import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
 import { readBulkPolicy, readBulkResults } from './bulk';
+import { readMergePreview } from './merge';
 import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
@@ -172,6 +174,11 @@ export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): P
   return { asOf: now.toISOString(), articles: partFrom(result, (a) => a, LABELS) };
 }
 
+/** What a merge of one request into another would move, for the confirmation. Reads only; a refusal is returned as it is. */
+export async function previewMerge(ctx: FounderCallContext, sourceId: string, survivorId: string) {
+  return founderCall(ctx, 'support', 'previewMerge', 'GET', { sourceId, survivorId }, readMergePreview);
+}
+
 /** The owner's bulk batch size, or `cap: null` while it is not set. A failed read is the part's failure, never a number. */
 export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportBulkPolicyView> {
   const result = await founderCall(ctx, 'support', 'bulkPolicy', 'GET', {}, readBulkPolicy);
@@ -262,6 +269,15 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         parseWith(supportTicketPropertiesSchema),
+      );
+    case 'merge':
+      return founderCall(
+        ctx,
+        'support',
+        'mergeTickets',
+        'POST',
+        { sourceId: request.ticketId, survivorId: request.survivorId, reason: request.reason },
+        parseWith(supportMergeResultSchema),
       );
     case 'bulk':
       return founderCall(

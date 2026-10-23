@@ -181,6 +181,13 @@ refuses `support.bulk_too_large`; neither touches a request. Each request goes t
 changes nothing twice and returns the first answers. The answer lists every request as `changed`, `unchanged` (already at the asked status) or `refused` with the
 typed code the single change gives, and the rest of the batch still runs. Assigning needs a lead and is refused once up front.
 
+Merge duplicates (SP-tickets-07): `mergeTickets` (`support:ops`, reason required) folds a duplicate request (the source) into the one
+that stays (the survivor). It is irreversible. Both requests must be below resolved (open, pending or on hold) and belong to the same
+requester account, otherwise `support.merge_not_allowed`; the same request twice is `support.merge_same_ticket`. In one transaction the
+comments and files move to the survivor, the source ends `closed` (its `mergedInto` read from `support.ticket_merges`), and a `merged`
+trail row lands on both requests. A rating or an escalation case file stays on the source. The key is (source, survivor): a replay returns
+the stored result and moves nothing. `previewMerge` reads what would move and what stays, for the confirmation.
+
 ## Migrations
 
 ```bash

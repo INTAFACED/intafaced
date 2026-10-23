@@ -87,6 +87,24 @@
   .hp-eye:hover {
     color: var(--if-fg);
   }
+  /* Customise Home, above the summary in every state of the account. */
+  .hp-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin: -8px 0 8px;
+  }
+  /* The total's own door to the Assets room (Money). */
+  .hp-tile-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    color: var(--if-fg-2);
+    text-decoration: none;
+  }
+  .hp-tile-link:hover {
+    color: var(--if-fg);
+  }
   .hp-total__figure {
     display: flex;
     align-items: center;
@@ -168,6 +186,17 @@
     padding: 8px 24px 16px;
     border-radius: 16px;
     background: var(--if-panel);
+  }
+  /* Recent activity reuses Simple Home's list; in Pro it sits in a panel, so the list drops its own card. */
+  .hp-activity .home-activity {
+    padding: 0;
+    background: transparent;
+  }
+  .hp-activity .home-activity__row {
+    margin: 0;
+  }
+  .hp-started {
+    margin-top: 24px;
   }
   .hp-panel__head {
     display: flex;

@@ -323,6 +323,56 @@ export class InvoiceService {
     return view(row, lines.get(row.id) ?? [], reveal);
   }
 
+  /**
+   * M-bill-07 (billing-tax-028 duplicate row): copy a draft into a new draft.
+   * The copy has the same asset, amount, customer reference, description, due
+   * date and lines, and no payment link (a link is only made by `send`). The
+   * payer's email is NOT copied: this slice adds no new payer contact storage
+   * (spec merchant-disp-bill-rep.md M-bill-07 Depends). Only a draft can be
+   * duplicated; any other status refuses with its own code. Idempotent on the
+   * request id: a replay returns the same copy, a reused id for another action
+   * or another source refuses `pay.request_id_reused`.
+   */
+  async duplicate(caller: MerchantCaller, input: { requestId: string; invoiceId: string }): Promise<InvoiceView> {
+    assertPermission(caller, 'invoices.write');
+    const fp = fingerprint('duplicate', [input.invoiceId]);
+    const prior = await this.action(caller, input.requestId);
+    if (prior) {
+      this.sameAction(prior, 'duplicate', fp);
+      return this.get(caller, prior.invoice_id);
+    }
+    const source = await this.owned(caller, input.invoiceId);
+    if (!source) throw notFound();
+    if (source.status !== 'draft') throw statusError(source.status);
+    const lines = (await this.linesFor([source.id])).get(source.id) ?? [];
+    try {
+      const row = await this.sql.begin(async (tx) => {
+        const rows = await tx<InvoiceRow[]>`
+          INSERT INTO pay.merchant_invoices (
+            merchant_id, status, asset_id, amount, customer_ref, customer_email, description, due_at, created_by
+          )
+          VALUES (
+            ${caller.merchantId}, 'draft', ${source.asset_id}, ${money(source.amount)}::numeric,
+            ${source.customer_ref}, NULL, ${source.description}, ${source.due_at}, ${caller.userId}
+          )
+          RETURNING ${this.returning(tx as unknown as Sql)}`;
+        const inserted = rows[0];
+        if (!inserted) throw new MerchantOpsError('pay.invoice_not_found', 'unavailable');
+        if (lines.length > 0) await this.insertLines(tx as unknown as Sql, inserted.id, lines);
+        await this.recordAction(caller, input.requestId, 'duplicate', fp, inserted.id, tx as unknown as Sql);
+        return inserted;
+      });
+      return view(row, lines);
+    } catch (error) {
+      if (error instanceof MerchantOpsError) throw error;
+      if (!uniqueViolation(error)) throw error;
+      const raced = await this.action(caller, input.requestId);
+      if (!raced) throw error;
+      this.sameAction(raced, 'duplicate', fp);
+      return this.get(caller, raced.invoice_id);
+    }
+  }
+
   async send(caller: MerchantCaller, input: { requestId: string; invoiceId: string }) {
     assertPermission(caller, 'invoices.write');
     const fp = fingerprint('send', [input.invoiceId]);

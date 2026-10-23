@@ -22,7 +22,12 @@ import {
   type FundingRate,
   type FuturesApi,
   type FuturesListing,
+  type FuturesOrder,
+  type GatedList,
+  type Agreement,
+  type Eligibility,
   type MarginCall,
+  type OrderTypeCatalogue,
   type TickerStrip,
 } from './api';
 import { isLive } from './model';
@@ -35,6 +40,9 @@ export const FUTURES_INTERVALS = {
   marginCalls: 30_000,
   adl: 60_000,
   history: 30_000,
+  orders: 5_000,
+  orderTypes: 300_000,
+  access: 60_000,
 } as const;
 
 /** How old a read may be before the room calls it stale and disables actions that need a fresh mark. */
@@ -194,13 +202,90 @@ export function useMarginCalls(positions: readonly Position[], enabled: boolean)
   );
 }
 
+/** What the futures book offers, per contract (public). */
+export function useOrderTypes(): Loadable<OrderTypeCatalogue> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        env.poller.source<OrderTypeCatalogue>('futures-order-types', (signal) => api.orderTypes(signal), {
+          intervalMs: FUTURES_INTERVALS.orderTypes,
+        }),
+      [env, api],
+    ),
+  );
+}
+
+/** The trader's futures orders through the book: resting ones, or all recent ones. */
+export function useFuturesOrders(scope: 'open' | 'all', enabled: boolean): Loadable<FuturesOrder[]> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<FuturesOrder[]>(
+          env,
+          `futures-orders-${scope}`,
+          (signal) => api.orders(scope, signal),
+          FUTURES_INTERVALS.orders,
+          enabled,
+        ),
+      [env, api, scope, enabled],
+    ),
+  );
+}
+
+/** Each contract open or blocked for this account, with every reason (D-ops-01). */
+export function useGatedList(): Loadable<GatedList> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(() => privateSource<GatedList>(env, 'futures-gated', (signal) => api.gatedList(signal), FUTURES_INTERVALS.access), [env, api]),
+  );
+}
+
+export function useAgreements(): Loadable<{ agreements: Agreement[] }> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<{ agreements: Agreement[] }>(env, 'futures-agreements', (signal) => api.agreements(signal), FUTURES_INTERVALS.access),
+      [env, api],
+    ),
+  );
+}
+
+export function useEligibility(): Loadable<Eligibility> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () => privateSource<Eligibility>(env, 'futures-eligibility', (signal) => api.eligibility(signal), FUTURES_INTERVALS.access),
+      [env, api],
+    ),
+  );
+}
+
 /** Re-read now, after a write or when the trader presses refresh. Only keys with a mounted reader fetch. */
 export function useFuturesRefresh(): () => void {
   const env = useDataEnv();
   return useMemo(
     () => () => {
       if (!env.userId) return;
-      for (const key of ['futures-positions', 'futures-closed', 'futures-adl', 'futures-adl-events', 'balance'])
+      for (const key of [
+        'futures-positions',
+        'futures-closed',
+        'futures-adl',
+        'futures-adl-events',
+        'futures-orders-open',
+        'futures-orders-all',
+        'futures-gated',
+        'futures-agreements',
+        'futures-eligibility',
+        'balance',
+      ])
         env.poller.refresh(`${key}:${env.userId}`);
     },
     [env],

@@ -179,6 +179,7 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
   const resultCap = assertRunResultCap(cap);
   const runs = relation(schema, 'runs');
   const claims = relation(schema, 'claims');
+  const runLabels = relation(schema, 'run_labels');
 
   async function query<T>(db: Sql | TransactionSql, text: string, params: readonly unknown[]): Promise<T[]> {
     return db.unsafe(text, params as never[]);
@@ -295,6 +296,63 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
         }),
         nextCursor: rows.length > input.limit && last ? encodeListCursor(iso(last.started_at), last.id) : null,
       };
+    },
+
+    async history(input) {
+      const cursor = input.cursor ? decodeListCursor(input.cursor) : null;
+      const rows = await query<RunSql & { label: string | null }>(
+        sql,
+        `SELECT r.id, r.user_id, r.scope_key, r.idempotency_key, r.kind, r.strategy_id, r.strategy_version, r.started_at,
+                r.finished_at, r.outcome_code, NULL::jsonb AS result, l.label
+         FROM ${runs} r
+         LEFT JOIN ${runLabels} l ON l.run_id = r.id AND l.user_id = r.user_id
+         WHERE r.user_id = $1::uuid
+           AND r.kind = $2
+           AND ($3::timestamptz IS NULL OR (r.started_at, r.id) < ($3::timestamptz, $4::text))
+         ORDER BY r.started_at DESC, r.id DESC
+         LIMIT $5`,
+        [input.userId, input.kind, cursor?.createdAt ?? null, cursor?.id ?? null, input.limit + 1],
+      );
+      const page = rows.slice(0, input.limit);
+      const last = page[page.length - 1];
+      return {
+        runs: page.map((row) => ({
+          id: row.id,
+          strategyId: row.strategy_id,
+          strategyVersion: row.strategy_version,
+          started: iso(row.started_at),
+          finished: row.finished_at ? iso(row.finished_at) : null,
+          outcome: row.outcome_code,
+          label: row.label,
+        })),
+        nextCursor: rows.length > input.limit && last ? encodeListCursor(iso(last.started_at), last.id) : null,
+      };
+    },
+
+    async setLabel(input) {
+      // One statement: the label row is written only when the run is the caller's own.
+      const rows = await query<{ label: string }>(
+        sql,
+        `INSERT INTO ${runLabels} (run_id, user_id, label, updated_at)
+         SELECT r.id, r.user_id, $3, now() FROM ${runs} r WHERE r.id = $1 AND r.user_id = $2::uuid
+         ON CONFLICT (run_id) DO UPDATE SET label = EXCLUDED.label, updated_at = EXCLUDED.updated_at
+           WHERE ${runLabels}.user_id = EXCLUDED.user_id
+         RETURNING label`,
+        [input.runId, input.userId, input.label],
+      );
+      if (!rows[0]) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+      return { label: rows[0].label };
+    },
+
+    async okKinds(input) {
+      const ok = (kind: RunKind) =>
+        `EXISTS (SELECT 1 FROM ${runs} WHERE user_id = $1::uuid AND kind = '${kind}' AND finished_at IS NOT NULL AND outcome_code = 'ok')`;
+      const rows = await query<{ backtest: boolean; sandbox: boolean }>(
+        sql,
+        `SELECT ${ok('backtest')} AS backtest, ${ok('sandbox')} AS sandbox`,
+        [input.userId],
+      );
+      return { backtest: rows[0]?.backtest === true, sandbox: rows[0]?.sandbox === true };
     },
 
     async counts(input) {

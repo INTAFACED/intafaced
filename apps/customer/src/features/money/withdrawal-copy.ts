@@ -85,10 +85,7 @@ const en = {
   fReason: 'This button is off because sending money out of INTAFACED isn’t connected.',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
-  aLead: 'The withdrawal addresses the bank has on record for your account.',
-  aUnavailable: 'Saving addresses is not available',
-  aUnavailableNote:
-    'Saving an address needs a confirmed sign-in step that this app does not offer, so new addresses can’t be saved here. The bank’s saved addresses appear in the list.',
+  aLead: 'Save the addresses you withdraw to. A new address waits out a cooling-off period before money can be sent to it.',
   aTableTitle: 'Saved addresses',
   aColLabel: 'Label',
   aColAddress: 'Address',
@@ -118,7 +115,6 @@ const en = {
   aRenameAddress: 'Address',
   aRenameNote: 'Only the name changes. The address and its cooling-off period stay as they are.',
   aRenameSubmit: 'Save name',
-  aRemoveReason: 'Removing an address is off because it needs a confirmed sign-in step that this app does not offer.',
   aFullAddress: 'Full address',
   aAddTitle: 'Add an address',
   aLabel: 'Label',
@@ -128,8 +124,39 @@ const en = {
   aNetwork: 'Network',
   aAddress: 'Address',
   aSave: 'Save address',
-  aSaveReason: 'This button is off because saving an address needs a confirmed sign-in step that this app does not offer.',
   aBack: 'Back to Withdraw',
+  aRemove: 'Remove',
+  aRemoveWhy: 'Removing {address} from your address book needs a fresh confirmation.',
+  aRemoved: '{label} was removed from your address book.',
+  aLabelBad: 'Use 1 to 64 characters for the label.',
+  aAssetPick: 'Choose an asset.',
+  aNetworkFirst: 'Choose an asset first',
+  aNetworkPick: 'Choose a network.',
+  aNetworkHint: 'Only the networks this asset is sent on are listed.',
+  aAddressHint: 'A wallet address on that network: 0x followed by 40 letters a to f or digits.',
+  aAddressEmpty: 'Enter the address.',
+  aAddressBad: 'This is not a valid address. It must be 0x followed by 40 letters a to f or digits.',
+  aTag: 'Memo or tag (optional)',
+  aTagHint: 'Only if the place you send to asks for one.',
+  aTagBad: 'Use 1 to 64 characters for the memo or tag, with no spaces at either end.',
+  aSaveNote: 'Saving asks you to confirm it is you. A new address can be used once its cooling-off period ends.',
+  aSaveWhy: 'Saving a withdrawal address needs a fresh confirmation.',
+  aSaved: '{label} was saved to your address book.',
+  aNoAssetsTitle: 'No asset is open for withdrawals',
+  aNoAssetsBody: 'No asset is published for withdrawals, so there is nothing to save an address for.',
+  aAddressChecksum:
+    'Some letters in this address are in the wrong case, so a character may have been changed. Copy it again from where it came from.',
+  aChecking: 'Checking the address…',
+  aCheckFailed: 'The address could not be checked, so nothing was saved. Try again.',
+  aLookalikeTitle: 'This address looks like one you saved',
+  aLookalikeBody:
+    'It starts and ends like your saved address {saved} ({address}) but is a different address. Scammers send small amounts from addresses made to look like yours, so that the one you copy is theirs. Check every character against where you got it.',
+  aLookalikeBodyUnnamed:
+    'It starts and ends like your saved address {address} but is a different address. Scammers send small amounts from addresses made to look like yours, so that the one you copy is theirs. Check every character against where you got it.',
+  aLookalikeConfirm: 'I checked every character. This is a different address and I want to save it.',
+  aLookalikeUnticked: 'Tick the box once you have checked the address, or change it.',
+  aLookalikeRefused:
+    'This address looks like one you saved, so it was not saved. Close this, check every character, and tick the box to save it.',
 } as const;
 
 const es = {
@@ -217,10 +244,7 @@ const es = {
   fReason: 'Este botón está desactivado porque enviar dinero fuera de INTAFACED no está conectado.',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
-  aLead: 'Las direcciones de retiro que el banco tiene registradas para tu cuenta.',
-  aUnavailable: 'Guardar direcciones no está disponible',
-  aUnavailableNote:
-    'Guardar una dirección requiere un paso de confirmación de inicio de sesión que esta app no ofrece, así que aquí no se pueden guardar direcciones nuevas. Las direcciones guardadas en el banco aparecen en la lista.',
+  aLead: 'Guarda las direcciones a las que retiras. Una dirección nueva espera un periodo de espera antes de poder enviarle dinero.',
   aTableTitle: 'Direcciones guardadas',
   aColLabel: 'Etiqueta',
   aColAddress: 'Dirección',
@@ -250,7 +274,6 @@ const es = {
   aRenameAddress: 'Dirección',
   aRenameNote: 'Solo cambia el nombre. La dirección y su periodo de espera siguen igual.',
   aRenameSubmit: 'Guardar nombre',
-  aRemoveReason: 'Eliminar una dirección está desactivado porque necesita un paso de inicio de sesión confirmado que esta app no ofrece.',
   aFullAddress: 'Dirección completa',
   aAddTitle: 'Añadir una dirección',
   aLabel: 'Etiqueta',
@@ -260,9 +283,39 @@ const es = {
   aNetwork: 'Red',
   aAddress: 'Dirección',
   aSave: 'Guardar dirección',
-  aSaveReason:
-    'Este botón está desactivado porque guardar una dirección requiere un paso de confirmación de inicio de sesión que esta app no ofrece.',
   aBack: 'Volver a Retirar',
+  aRemove: 'Eliminar',
+  aRemoveWhy: 'Eliminar {address} de tu libreta de direcciones requiere una nueva confirmación.',
+  aRemoved: '{label} se eliminó de tu libreta de direcciones.',
+  aLabelBad: 'Usa de 1 a 64 caracteres para la etiqueta.',
+  aAssetPick: 'Elige un activo.',
+  aNetworkFirst: 'Elige primero un activo',
+  aNetworkPick: 'Elige una red.',
+  aNetworkHint: 'Solo se muestran las redes en las que se envía este activo.',
+  aAddressHint: 'Una dirección de cartera en esa red: 0x seguido de 40 letras de la a a la f o dígitos.',
+  aAddressEmpty: 'Escribe la dirección.',
+  aAddressBad: 'Esta dirección no es válida. Debe ser 0x seguido de 40 letras de la a a la f o dígitos.',
+  aTag: 'Memo o etiqueta de destino (opcional)',
+  aTagHint: 'Solo si el lugar al que envías lo pide.',
+  aTagBad: 'Usa de 1 a 64 caracteres para el memo o la etiqueta, sin espacios al principio ni al final.',
+  aSaveNote: 'Al guardar te pediremos que confirmes que eres tú. Una dirección nueva se puede usar cuando termina su periodo de espera.',
+  aSaveWhy: 'Guardar una dirección de retiro requiere una nueva confirmación.',
+  aSaved: '{label} se guardó en tu libreta de direcciones.',
+  aNoAssetsTitle: 'Ningún activo está abierto a retiros',
+  aNoAssetsBody: 'No hay ningún activo publicado para retiros, así que no hay nada para lo que guardar una dirección.',
+  aAddressChecksum:
+    'Algunas letras de esta dirección están en mayúscula o minúscula incorrecta, así que puede que haya cambiado un carácter. Cópiala de nuevo desde su origen.',
+  aChecking: 'Comprobando la dirección…',
+  aCheckFailed: 'No se pudo comprobar la dirección, así que no se guardó nada. Inténtalo de nuevo.',
+  aLookalikeTitle: 'Esta dirección se parece a una que guardaste',
+  aLookalikeBody:
+    'Empieza y termina como tu dirección guardada {saved} ({address}), pero es otra dirección. Los estafadores envían pequeñas cantidades desde direcciones hechas para parecerse a las tuyas, para que la que copies sea la suya. Comprueba cada carácter con el origen.',
+  aLookalikeBodyUnnamed:
+    'Empieza y termina como tu dirección guardada {address}, pero es otra dirección. Los estafadores envían pequeñas cantidades desde direcciones hechas para parecerse a las tuyas, para que la que copies sea la suya. Comprueba cada carácter con el origen.',
+  aLookalikeConfirm: 'He comprobado cada carácter. Es otra dirección y quiero guardarla.',
+  aLookalikeUnticked: 'Marca la casilla cuando hayas comprobado la dirección, o cámbiala.',
+  aLookalikeRefused:
+    'Esta dirección se parece a una que guardaste, así que no se guardó. Cierra esto, comprueba cada carácter y marca la casilla para guardarla.',
 } as const;
 
 const fr = {
@@ -350,10 +403,8 @@ const fr = {
   fReason: 'Ce bouton est désactivé parce que l’envoi d’argent hors d’INTAFACED n’est pas connecté.',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',
-  aLead: 'Les adresses de retrait que la banque a enregistrées pour ton compte.',
-  aUnavailable: 'L’enregistrement d’adresses n’est pas disponible',
-  aUnavailableNote:
-    'Enregistrer une adresse demande une étape de confirmation de connexion que cette app ne propose pas : de nouvelles adresses ne peuvent donc pas être enregistrées ici. Les adresses enregistrées à la banque apparaissent dans la liste.',
+  aLead:
+    'Enregistre les adresses vers lesquelles tu retires. Une nouvelle adresse attend la fin d’un délai de sécurité avant de pouvoir recevoir de l’argent.',
   aTableTitle: 'Adresses enregistrées',
   aColLabel: 'Libellé',
   aColAddress: 'Adresse',
@@ -383,7 +434,6 @@ const fr = {
   aRenameAddress: 'Adresse',
   aRenameNote: 'Seul le nom change. L’adresse et son délai de sécurité restent inchangés.',
   aRenameSubmit: 'Enregistrer le nom',
-  aRemoveReason: 'La suppression d’une adresse est désactivée : elle exige une étape de connexion confirmée que cette app ne propose pas.',
   aFullAddress: 'Adresse complète',
   aAddTitle: 'Ajouter une adresse',
   aLabel: 'Libellé',
@@ -393,9 +443,40 @@ const fr = {
   aNetwork: 'Réseau',
   aAddress: 'Adresse',
   aSave: 'Enregistrer l’adresse',
-  aSaveReason:
-    'Ce bouton est désactivé parce qu’enregistrer une adresse demande une étape de confirmation de connexion que cette app ne propose pas.',
   aBack: 'Retour à Retirer',
+  aRemove: 'Supprimer',
+  aRemoveWhy: 'Supprimer {address} de ton carnet d’adresses demande une nouvelle confirmation.',
+  aRemoved: '{label} a été supprimée de ton carnet d’adresses.',
+  aLabelBad: 'Utilise de 1 à 64 caractères pour le nom.',
+  aAssetPick: 'Choisis un actif.',
+  aNetworkFirst: 'Choisis d’abord un actif',
+  aNetworkPick: 'Choisis un réseau.',
+  aNetworkHint: 'Seuls les réseaux sur lesquels cet actif est envoyé sont listés.',
+  aAddressHint: 'Une adresse de portefeuille sur ce réseau : 0x suivi de 40 lettres de a à f ou chiffres.',
+  aAddressEmpty: 'Saisis l’adresse.',
+  aAddressBad: 'Cette adresse n’est pas valide. Elle doit être 0x suivi de 40 lettres de a à f ou chiffres.',
+  aTag: 'Mémo ou tag (facultatif)',
+  aTagHint: 'Seulement si l’endroit où tu envoies en demande un.',
+  aTagBad: 'Utilise de 1 à 64 caractères pour le mémo ou le tag, sans espace au début ni à la fin.',
+  aSaveNote:
+    'L’enregistrement te demande de confirmer que c’est bien toi. Une nouvelle adresse peut servir à la fin de son délai de sécurité.',
+  aSaveWhy: 'Enregistrer une adresse de retrait demande une nouvelle confirmation.',
+  aSaved: '{label} a été enregistrée dans ton carnet d’adresses.',
+  aNoAssetsTitle: 'Aucun actif n’est ouvert aux retraits',
+  aNoAssetsBody: 'Aucun actif n’est publié pour les retraits, il n’y a donc rien pour quoi enregistrer une adresse.',
+  aAddressChecksum:
+    'Certaines lettres de cette adresse ne sont pas dans la bonne casse, un caractère a donc peut-être été modifié. Copie-la à nouveau depuis sa source.',
+  aChecking: 'Vérification de l’adresse…',
+  aCheckFailed: 'L’adresse n’a pas pu être vérifiée, rien n’a donc été enregistré. Réessaie.',
+  aLookalikeTitle: 'Cette adresse ressemble à une adresse enregistrée',
+  aLookalikeBody:
+    'Elle commence et finit comme ton adresse enregistrée {saved} ({address}), mais c’est une autre adresse. Des escrocs envoient de petits montants depuis des adresses faites pour ressembler aux tiennes, afin que celle que tu copies soit la leur. Vérifie chaque caractère avec sa source.',
+  aLookalikeBodyUnnamed:
+    'Elle commence et finit comme ton adresse enregistrée {address}, mais c’est une autre adresse. Des escrocs envoient de petits montants depuis des adresses faites pour ressembler aux tiennes, afin que celle que tu copies soit la leur. Vérifie chaque caractère avec sa source.',
+  aLookalikeConfirm: 'J’ai vérifié chaque caractère. C’est une autre adresse et je veux l’enregistrer.',
+  aLookalikeUnticked: 'Coche la case une fois l’adresse vérifiée, ou modifie-la.',
+  aLookalikeRefused:
+    'Cette adresse ressemble à une adresse enregistrée, elle n’a donc pas été enregistrée. Ferme ceci, vérifie chaque caractère et coche la case pour l’enregistrer.',
 } as const;
 
 export const withdrawalCopy = defineCopy('customer.money.withdrawals', en, { es, fr });

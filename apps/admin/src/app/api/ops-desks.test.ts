@@ -430,3 +430,30 @@ describe('module gate', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 });
+
+describe('GET a part of a desk (?section=)', () => {
+  it('reads only the named section: the mining desk calls svc-mining-pool and nothing else on More modules', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        return ok({});
+      }),
+    );
+    const res = await more.GET(get('/api/more-ops?section=mining'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { reads: Record<string, unknown> };
+    const mining = DESKS.more.sections.find((s) => s.id === 'mining')!.reads.map((r) => r.id);
+    expect(Object.keys(body.reads).sort()).toEqual([...mining].sort());
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(url).toContain('/api/mining/');
+  });
+  it('a section the desk does not have reads nothing', async () => {
+    const fn = vi.fn(async () => ok({}));
+    vi.stubGlobal('fetch', fn);
+    const body = (await (await more.GET(get('/api/more-ops?section=nope'))).json()) as { reads: Record<string, unknown> };
+    expect(body.reads).toEqual({});
+    expect(fn).not.toHaveBeenCalled();
+  });
+});

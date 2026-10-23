@@ -39,4 +39,11 @@ describe('engine order ids on the bus: an order uuid or one OCO leg of it', () =
     );
     expect(orderAccepted.schema.safeParse({ orderId: `${ID}:tp`, marketId: 'btc-usdt', sequence: 1 }).success).toBe(true);
   });
+
+  it('matching.order.cancelled may say why the order left, and an older event without the reason still parses', () => {
+    const base = { orderId: ID, marketId: 'btc-usdt', remainingQty: '0.6', sequence: 9 };
+    expect(orderCancelled.schema.parse({ ...base, reason: 'expired' }).reason).toBe('expired');
+    expect(orderCancelled.schema.parse(base).reason).toBeUndefined();
+    expect(orderCancelled.schema.safeParse({ ...base, reason: '' }).success).toBe(false);
+  });
 });
