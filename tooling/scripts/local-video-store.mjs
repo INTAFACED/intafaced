@@ -91,8 +91,13 @@ export function serveVideoStore({ host, port, secretKey }) {
     if (url.pathname === '/health') return deny(200, 'ok');
     const rawPath = (req.url ?? '/').split('?')[0];
     const prefix = `/${VIDEO_STORE_BUCKET}/`;
-    const objectKey = rawPath.startsWith(prefix) ? decodeURIComponent(rawPath.slice(prefix.length)) : null;
-    const object = objectKey === null ? undefined : VIDEO_STORE_OBJECTS[objectKey];
+    let objectKey = null;
+    try {
+      objectKey = rawPath.startsWith(prefix) ? decodeURIComponent(rawPath.slice(prefix.length)) : null;
+    } catch {
+      return deny(400, 'bad object key');
+    }
+    const object = objectKey !== null && Object.hasOwn(VIDEO_STORE_OBJECTS, objectKey) ? VIDEO_STORE_OBJECTS[objectKey] : undefined;
     const refusal = presignRefusal({ method: 'GET', rawPath, query: url.searchParams, host: req.headers.host ?? '', secretKey });
     if (refusal) return deny(403, refusal);
     if (!object) return deny(404, 'no such object');

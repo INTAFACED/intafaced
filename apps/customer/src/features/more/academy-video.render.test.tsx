@@ -9,7 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import type { AcademyVideoPlayback, AcademyVideoPlayer } from '@intafaced/contracts/academy-catalogue';
 import { SessionProvider } from '../session/session';
-import { VideoPlayerView, activeCue, clock, cuesToVtt } from './AcademyVideoPlayer';
+import { VideoPlayerView, activeCue, clock, cuePlainText, cuesToVtt } from './AcademyVideoPlayer';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const save = async (positionSeconds: number) => ({ ok: true as const, data: { positionSeconds, completedItems: [] } });
@@ -50,8 +50,8 @@ describe('video player (AC-videos-01)', () => {
     expect(out).toMatch(
       /<option value="" selected="">Off<\/option><option value="en" lang="en">TEST English<\/option><option value="es" lang="es">TEST Español<\/option>/,
     );
-    expect(out.match(/<track /g)).toHaveLength(2);
-    expect(out).toContain('srcLang="en"');
+    // The track files are made in the browser (academy-video.dom.test.tsx); a server render has none yet.
+    expect(out).not.toContain('<track');
     expect(out).toContain('Keys: Space or K plays and pauses');
   });
 
@@ -74,11 +74,20 @@ describe('video player (AC-videos-01)', () => {
     expect(out).toContain('Academy has no watch threshold set');
   });
 
-  it('an expired link says so and offers a new one instead of a dead player', () => {
+  it('an expired link says so and offers a new one, and the element stays so the place is kept', () => {
     const out = view(player(), null, { ...playback, expiresAt: '2000-01-01T00:00:00.000Z' });
     expect(out).toContain('The playback link expired.');
     expect(out).toContain('Request a new link');
-    expect(out).not.toContain('<video');
+    expect(out).toContain('<video');
+    expect(view(player())).not.toContain('data-video-expired');
+  });
+
+  it('the transcript reads cue words without WebVTT tags or entities', () => {
+    const marked = [{ startMs: 0, endMs: 1000, text: '<v TEST Speaker>Risk &amp; <i>reward</i> &lt;3' }];
+    expect(cuePlainText(marked[0]!.text)).toBe('Risk & reward <3');
+    const out = view(player({ tracks: [{ language: 'en', label: 'TEST English', cues: marked }] }));
+    expect(out).toContain('0:00</span> Risk &amp; reward &lt;3');
+    expect(out).not.toContain('&lt;v TEST');
   });
 
   it('times, cues and the WebVTT the browser renders', () => {

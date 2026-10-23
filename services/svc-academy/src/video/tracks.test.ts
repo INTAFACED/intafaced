@@ -11,6 +11,12 @@ describe('parseVtt (AC-videos-01 caption tracks)', () => {
     ]);
   });
 
+  it('skips header lines such as Kind and Language up to the first blank line', () => {
+    expect(parseVtt('WEBVTT\nKind: captions\nLanguage: en\n\n00:00.000 --> 00:01.000\nTEST <i>one</i>\n')).toEqual([
+      { startMs: 0, endMs: 1000, text: 'TEST <i>one</i>' },
+    ]);
+  });
+
   it('an empty file with only the header has no cues', () => {
     expect(parseVtt('WEBVTT\n')).toEqual([]);
   });
@@ -21,6 +27,7 @@ describe('parseVtt (AC-videos-01 caption tracks)', () => {
     ['a block with no timing', 'WEBVTT\n\nhello\nworld'],
     ['a bad timestamp', 'WEBVTT\n\n0:0.0 --> 00:01.000\nx'],
     ['an end before the start', 'WEBVTT\n\n00:01.000 --> 00:01.000\nx'],
+    ['a cue with no blank line after the header', 'WEBVTT\n00:00.000 --> 00:01.000\nx'],
   ])('refuses %s with academy.captions_invalid', (_why, vtt) => {
     expect(() => parseVtt(vtt)).toThrow(expect.objectContaining({ code: 'academy.captions_invalid' }));
   });

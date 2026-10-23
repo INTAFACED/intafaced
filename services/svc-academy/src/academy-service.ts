@@ -1901,37 +1901,66 @@ export class AcademyService {
   }
 
   /**
-   * Stores the caller's watch position (AC-videos-01). A position at or past the owner's threshold completes, without a
-   * button, every item this video is attached to that completes by the `watch` rule, is open to the caller and is not
-   * complete yet; `completedItems` names them. Storing comes first: if completing fails, the next save completes.
+   * Stores the caller's watch position (AC-videos-01). A save that crosses the owner's threshold (the stored position was
+   * below it, or there was none) completes, without a button, every item this video is attached to that completes by
+   * the `watch` rule, is open to the caller, is not complete yet, and whose video the caller may watch (`mayWatch`, the
+   * playback gate). Only a crossing completes, so an Undo stays undone while the learner keeps watching. `completedItems`
+   * names the attached watch items that are complete once the stored position is at or past the threshold, so a save
+   * sent again after a lost reply gets the same answer. Storing comes first: if completing fails, or the item was
+   * locked, the learner's position still meets the rule and Complete finishes the item.
    */
-  async setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
-    const stored = await this.customer.setVideoProgress({
-      ...input,
+  async setVideoProgress(input: {
+    userId: string;
+    videoSlug: string;
+    positionSeconds: number;
+    clientRequestId: string;
+    now?: Date;
+    mayWatch?: () => Promise<void>;
+  }) {
+    const { previousSeconds, replayed, ...stored } = await this.customer.setVideoProgress({
+      userId: input.userId,
+      videoSlug: input.videoSlug,
+      positionSeconds: input.positionSeconds,
+      clientRequestId: input.clientRequestId,
+      ...(input.now ? { now: input.now } : {}),
       ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
     });
     const threshold = this.options.videoWatchThresholdSeconds;
-    const completedItems: string[] = [];
     if (threshold === undefined || stored.positionSeconds === null || stored.positionSeconds < threshold) {
-      return { ...stored, completedItems };
+      return { ...stored, completedItems: [] as string[] };
     }
     const now = input.now ?? new Date();
-    const items = await this.videoTracks.itemsWithVideo(stored.videoSlug);
-    const quizzes = items.length > 0 ? await this.assessments.publishedSlugs() : new Set<string>();
-    for (const slug of items) {
-      if (quizzes.has(slug) || !hasCurriculumSlug(slug)) continue;
-      if (await this.currentCompletion(this.sql, input.userId, slug)) continue;
-      try {
-        await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
-      } catch (err) {
-        // An item still locked for the caller keeps its watch position and completes on a save after it opens.
-        if (err instanceof AcademyError) continue;
-        throw err;
+    const attached = await this.videoTracks.itemsWithVideo(stored.videoSlug);
+    const quizzes = attached.length > 0 ? await this.assessments.publishedSlugs() : new Set<string>();
+    const items = attached.filter((slug) => !quizzes.has(slug) && hasCurriculumSlug(slug));
+    const crossed = !replayed && (previousSeconds === null || previousSeconds < threshold);
+    if (crossed && items.length > 0 && (await this.mayWatch(input.mayWatch))) {
+      for (const slug of items) {
+        if (await this.currentCompletion(this.sql, input.userId, slug)) continue;
+        try {
+          await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
+        } catch (err) {
+          // Still locked for the caller: the stored position meets the rule, so Complete finishes it once it opens.
+          if (err instanceof AcademyError) continue;
+          throw err;
+        }
+        await this.recordCompletion(input.userId, slug, now);
       }
-      await this.recordCompletion(input.userId, slug, now);
-      completedItems.push(slug);
     }
+    const completedItems: string[] = [];
+    for (const slug of items) if (await this.currentCompletion(this.sql, input.userId, slug)) completedItems.push(slug);
     return { ...stored, completedItems };
+  }
+
+  /** Whether the playback gate lets the caller watch; a typed refusal means no, anything else is a failure. */
+  private async mayWatch(check?: () => Promise<void>): Promise<boolean> {
+    try {
+      await check?.();
+      return true;
+    } catch (err) {
+      if (err instanceof AcademyError) return false;
+      throw err;
+    }
   }
 
   getVideoProgress(input: { userId: string; videoSlug: string }) {
@@ -2127,7 +2156,13 @@ export class AcademyService {
     };
   }
 
-  async markCurriculumComplete(input: { userId: string; itemSlug: string; now?: Date }): Promise<ItemCompletionRecord> {
+  /** `mayWatch`: the playback gate, which a `watch` item needs too (refusing with the gate's own error). */
+  async markCurriculumComplete(input: {
+    userId: string;
+    itemSlug: string;
+    now?: Date;
+    mayWatch?: () => Promise<void>;
+  }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {
       throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
@@ -2151,6 +2186,7 @@ export class AcademyService {
     if (rule === 'watch' && this.options.videoWatchThresholdSeconds === undefined) {
       throw new AcademyError('academy.watch_threshold_unset', 'academy.watch_threshold_unset');
     }
+    if (rule === 'watch') await input.mayWatch?.();
     const met =
       rule === 'view' ||
       (rule === 'score' && (await this.assessments.passedSlugs(input.userId, now)).has(slug)) ||

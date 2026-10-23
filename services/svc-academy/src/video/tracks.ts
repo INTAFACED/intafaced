@@ -27,14 +27,19 @@ function millis(stamp: string, line: number): number {
 }
 
 /**
- * The cues of one WebVTT file (UTF-8 text). The file must start with `WEBVTT`; NOTE, STYLE and REGION blocks are
- * skipped; each cue needs an end after its start and some text. Cue settings after the timing are dropped.
+ * The cues of one WebVTT file (UTF-8 text). The file must start with `WEBVTT`; header lines up to the first blank line
+ * and NOTE, STYLE and REGION blocks are skipped; each cue needs an end after its start and some text. Cue settings after the timing are dropped.
  */
 export function parseVtt(vtt: string): VideoCue[] {
   const lines = vtt.replace(/^﻿/, '').split(/\r\n|\r|\n/);
   if (!/^WEBVTT(?:[ \t].*)?$/.test(lines[0] ?? '')) invalid('the file does not start with WEBVTT');
   const cues: VideoCue[] = [];
+  // Header lines (`Kind:`, `Language:` and the like) run until the first blank line.
   let i = 1;
+  while (i < lines.length && lines[i]!.trim() !== '') {
+    if (lines[i]!.includes('-->')) invalid(`line ${i + 1}: a cue needs a blank line after the header`);
+    i++;
+  }
   while (i < lines.length) {
     while (i < lines.length && lines[i]!.trim() === '') i++;
     if (i >= lines.length) break;

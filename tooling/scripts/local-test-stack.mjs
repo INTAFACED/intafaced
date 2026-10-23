@@ -1300,7 +1300,8 @@ async function cmdStart(flags) {
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
-  if (!only || only.includes('video-store')) await startVideoStore(secrets);
+  // Academy's env points at the video store, so `--only academy` starts it too.
+  if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
   for (const def of wanted) await startNodeService(def);
   try {
     await ensureLocalTestFounders();

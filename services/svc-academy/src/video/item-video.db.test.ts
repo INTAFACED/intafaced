@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { AcademyService } from '../academy-service.js';
+import { AcademyError } from '../errors.js';
 import { NullStreamProvider } from '../stream/provider.js';
 import { listCurriculum } from '../curriculum/catalog.js';
 import type { VideoSpineEntry } from './catalog.js';
@@ -149,11 +150,36 @@ describe('videos on items (AC-videos-01)', () => {
     expect((await outlineRow(academy)).completedAt).toBeNull();
     expect(await save(academy, 4)).toEqual({ videoSlug: 'test-video', positionSeconds: 4, completedItems: [ITEM] });
     expect(await outlineRow(academy)).toMatchObject({ rule: 'watch', ruleMet: true, completedAt: expect.any(String) });
-    expect(await save(academy, 6)).toMatchObject({ completedItems: [] });
-    const events = await sql`SELECT event FROM academy.item_completion_events WHERE user_id = ${USER} AND item_slug = ${ITEM}`;
-    expect(events.map((row) => row.event)).toEqual(['completed']);
+    // Later saves and a save sent again after a lost reply give the same answer, and complete nothing twice.
+    expect(await save(academy, 6)).toMatchObject({ completedItems: [ITEM] });
+    expect(
+      await academy.setVideoProgress({
+        userId: USER,
+        videoSlug: 'test-video',
+        positionSeconds: 4,
+        clientRequestId: `video:test-video:${n - 1}`,
+      }),
+    ).toEqual({ videoSlug: 'test-video', positionSeconds: 4, completedItems: [ITEM] });
+    const events = async () =>
+      (await sql`SELECT event FROM academy.item_completion_events WHERE user_id = ${USER} AND item_slug = ${ITEM}`)
+        .map((row) => row.event)
+        .sort();
+    expect(await events()).toEqual(['completed']);
     // The pressed button agrees once watched: the item is already complete.
     expect((await academy.markCurriculumComplete({ userId: USER, itemSlug: ITEM })).itemSlug).toBe(ITEM);
+
+    // Undo stays undone while the learner keeps watching: only a save that crosses the threshold completes.
+    await academy.undoCurriculumComplete({
+      userId: USER,
+      itemSlug: ITEM,
+      completedAt: (await outlineRow(academy)).completedAt!,
+      clientRequestId: 'undo:watch',
+    });
+    expect(await save(academy, 8)).toMatchObject({ completedItems: [] });
+    expect(await outlineRow(academy)).toMatchObject({ ruleMet: true, completedAt: null });
+    expect(await save(academy, 1)).toMatchObject({ completedItems: [] });
+    expect(await save(academy, 5)).toMatchObject({ completedItems: [ITEM] });
+    expect(await events()).toEqual(['completed', 'completed', 'undone']);
 
     // Taking the video off returns the item to the view rule.
     await attach(academy, null);
@@ -166,13 +192,16 @@ describe('videos on items (AC-videos-01)', () => {
     });
   });
 
-  it('a locked item keeps the watch position and completes on a later save once it opens; a blank threshold completes nothing', async () => {
+  it('a locked item keeps the watch position and Complete finishes it once it opens; a blank threshold completes nothing', async () => {
     const academy = service({ videoSpine: SPINE, videoWatchThresholdSeconds: 4 });
     await attach(academy);
     await academy.setItemPrerequisites({ itemSlug: ITEM, prerequisites: [FIRST] });
     expect(await save(academy, 10)).toMatchObject({ positionSeconds: 10, completedItems: [] });
     await academy.markCurriculumComplete({ userId: USER, itemSlug: FIRST });
-    expect(await save(academy, 11)).toMatchObject({ completedItems: [ITEM] });
+    expect(await save(academy, 11)).toMatchObject({ completedItems: [] });
+    expect(await outlineRow(academy)).toMatchObject({ rule: 'watch', ruleMet: true, completedAt: null });
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: ITEM });
+    expect(await save(academy, 12)).toMatchObject({ completedItems: [ITEM] });
 
     const unset = service({ videoSpine: SPINE });
     await academy.undoCurriculumComplete({
@@ -181,10 +210,82 @@ describe('videos on items (AC-videos-01)', () => {
       completedAt: (await outlineRow(academy)).completedAt!,
       clientRequestId: 'undo:test',
     });
-    expect(await save(unset, 12)).toMatchObject({ completedItems: [] });
+    expect(await save(unset, 13)).toMatchObject({ completedItems: [] });
     await expect(unset.markCurriculumComplete({ userId: USER, itemSlug: ITEM })).rejects.toMatchObject({
       code: 'academy.watch_threshold_unset',
     });
     expect((await unset.courseOutline({ userId: USER, itemSlug: ITEM })).items[1]).toMatchObject({ rule: 'watch', ruleMet: false });
+  });
+
+  it('the playback gate holds for watching: a refused learner completes nothing by saving, and Complete says why', async () => {
+    const academy = service({ videoSpine: SPINE, videoWatchThresholdSeconds: 4 });
+    await attach(academy);
+    const refused = async () => {
+      throw new AcademyError('academy.video_grant_required TEST', 'academy.video_grant_required');
+    };
+    expect(
+      await academy.setVideoProgress({
+        userId: USER,
+        videoSlug: 'test-video',
+        positionSeconds: 9,
+        clientRequestId: 'video:gate:1',
+        mayWatch: refused,
+      }),
+    ).toMatchObject({ completedItems: [] });
+    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: ITEM, mayWatch: refused })).rejects.toMatchObject({
+      code: 'academy.video_grant_required',
+    });
+    const broken = async () => {
+      throw new Error('TEST stake source down');
+    };
+    await expect(
+      academy.setVideoProgress({
+        userId: USER,
+        videoSlug: 'test-video',
+        positionSeconds: 1,
+        clientRequestId: 'video:gate:2',
+        mayWatch: broken,
+      }),
+    ).resolves.toMatchObject({ completedItems: [] });
+    await expect(
+      academy.setVideoProgress({
+        userId: USER,
+        videoSlug: 'test-video',
+        positionSeconds: 9,
+        clientRequestId: 'video:gate:3',
+        mayWatch: broken,
+      }),
+    ).rejects.toThrow('TEST stake source down');
+    expect((await outlineRow(academy)).completedAt).toBeNull();
+  });
+
+  it('an item with a published quiz completes by score even with a video attached', async () => {
+    const academy = service({ videoSpine: SPINE, videoWatchThresholdSeconds: 4 });
+    await attach(academy);
+    await academy.setQuiz({
+      slug: ITEM,
+      quiz: {
+        passMark: 1,
+        attemptLimit: null,
+        timeLimitSeconds: null,
+        reviewMode: 'answers',
+        questions: [
+          {
+            id: 'q1',
+            prompt: 'TEST',
+            points: 1,
+            choices: [
+              { id: 'a', text: 'TEST a' },
+              { id: 'b', text: 'TEST b' },
+            ],
+            correctChoiceId: 'a',
+          },
+        ],
+      },
+      reason: 'TEST quiz',
+      operatorId: STAFF,
+    });
+    expect(await save(academy, 9)).toMatchObject({ completedItems: [] });
+    expect(await outlineRow(academy)).toMatchObject({ rule: 'score', ruleMet: false, completedAt: null });
   });
 });

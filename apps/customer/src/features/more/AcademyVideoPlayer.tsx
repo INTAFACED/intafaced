@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import {
   academyItemVideoSchema,
   academyVideoPlaybackSchema,
@@ -40,6 +40,13 @@ export function cuesToVtt(cues: readonly AcademyVideoCue[]): string {
       Math.floor(ms / 1000) % 60,
     ).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`;
   return `WEBVTT\n\n${cues.map((cue) => `${stamp(cue.startMs)} --> ${stamp(cue.endMs)}\n${cue.text}\n`).join('\n')}`;
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', nbsp: '\u00a0', lrm: '\u200e', rlm: '\u200f' };
+
+/** A cue's words for the transcript: WebVTT tags (`<v Name>`, `<i>`, timestamps) dropped and its entities read. */
+export function cuePlainText(text: string): string {
+  return text.replace(/<[^>]*>/g, '').replace(/&(amp|lt|gt|nbsp|lrm|rlm);/g, (_all, name: string) => ENTITIES[name]!);
 }
 
 /** The cue playing at `seconds`, or -1. */
@@ -87,13 +94,21 @@ export function VideoPlayerView({
   const tracks = player.tracks;
   const transcript: AcademyVideoTrack | undefined = tracks.find((track) => track.language === captions) ?? tracks[0];
   const current = transcript ? activeCue(transcript.cues, time) : -1;
-  const urls = useMemo(() => tracks.map((track) => URL.createObjectURL(new Blob([cuesToVtt(track.cues)], { type: 'text/vtt' }))), [tracks]);
-  useEffect(() => () => urls.forEach((url) => URL.revokeObjectURL(url)), [urls]);
+  // Each track as a file the browser renders itself; made and revoked by the same effect.
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const made = tracks.map((track) => URL.createObjectURL(new Blob([cuesToVtt(track.cues)], { type: 'text/vtt' })));
+    setUrls(made);
+    return () => made.forEach((url) => URL.revokeObjectURL(url));
+  }, [tracks]);
 
   // One save at a time, in order; a position already stored is not sent again. The words and the completion callback are
   // read when a save answers, so a new render never starts or drops a save.
   const queue = useRef(Promise.resolve());
   const lastSaved = useRef<number | null>(resumeAt);
+  // The last place the element reported: saves read it, so a save after the element is gone never stores 0.
+  const at = useRef(resumeAt ?? 0);
+  const reported = useRef(new Set<string>());
   const latest = useRef({ t, onCompleted });
   latest.current = { t, onCompleted };
   const store = useCallback(
@@ -104,12 +119,15 @@ export function VideoPlayerView({
         const { t, onCompleted } = latest.current;
         if (result.ok) {
           lastSaved.current = result.data.positionSeconds;
-          setStatus(
-            result.data.completedItems.length > 0
+          // Once complete, the player keeps saying so; the outline hears about each item once.
+          const fresh = result.data.completedItems.filter((item) => !reported.current.has(item));
+          fresh.forEach((item) => reported.current.add(item));
+          setStatus((was) =>
+            result.data.completedItems.length > 0 || was?.kind === 'completed'
               ? { kind: 'completed', text: t('videoCompleted') }
               : { kind: 'saved', text: t('videoSaved', { time: clock(result.data.positionSeconds) }) },
           );
-          if (result.data.completedItems.length > 0) onCompleted?.(result.data.completedItems);
+          if (fresh.length > 0) onCompleted?.(fresh);
         } else {
           const reason = academyRefusalText(result as Failure, t) ?? t('videoSaveFailedPlain');
           setStatus({ kind: 'failed', text: t('videoSaveFailed', { reason }) });
@@ -118,7 +136,7 @@ export function VideoPlayerView({
     },
     [save],
   );
-  const position = () => Math.floor(media.current?.currentTime ?? 0);
+  const position = () => Math.floor(at.current);
 
   // While playing, save every owner-set interval; with none set, only pause and leaving save.
   useEffect(() => {
@@ -128,13 +146,12 @@ export function VideoPlayerView({
   }, [playing, player.saveEverySeconds, store]);
   useEffect(() => {
     const leave = () => {
-      if (document.visibilityState === 'hidden' && media.current && media.current.currentTime > 0) store(position());
+      if (document.visibilityState === 'hidden' && at.current > 0) store(Math.floor(at.current));
     };
-    const node = media.current;
     document.addEventListener('visibilitychange', leave);
     return () => {
       document.removeEventListener('visibilitychange', leave);
-      if (node && node.currentTime > 0) store(Math.floor(node.currentTime));
+      if (at.current > 0) store(Math.floor(at.current));
     };
   }, [store]);
 
@@ -149,7 +166,7 @@ export function VideoPlayerView({
     const node = media.current;
     if (!node) return;
     for (const [i, track] of Array.from(node.textTracks).entries()) track.mode = tracks[i]?.language === captions ? 'showing' : 'disabled';
-  }, [captions, tracks]);
+  }, [captions, tracks, urls]);
   useEffect(() => {
     if (media.current) media.current.playbackRate = speed;
   }, [speed]);
@@ -201,52 +218,61 @@ export function VideoPlayerView({
         {player.title}
       </figcaption>
       <div ref={frame} className="academy-video-frame" tabIndex={0} onKeyDown={keys} aria-describedby={`${id}-keys`}>
-        {expired || loadFailed ? (
+        <video
+          ref={media}
+          src={playback.playbackUrl}
+          preload="metadata"
+          playsInline
+          muted={muted}
+          aria-label={t('playerLabel')}
+          style={{ width: '100%' }}
+          onClick={toggle}
+          onLoadedMetadata={(event) => {
+            const node = event.currentTarget;
+            setDuration(Number.isFinite(node.duration) ? node.duration : null);
+            node.playbackRate = speed;
+            const from = lastSaved.current;
+            if (from !== null && from > 0 && (!Number.isFinite(node.duration) || from < node.duration - 0.5)) {
+              node.currentTime = from;
+              at.current = from;
+              setResumed(from);
+            }
+          }}
+          onTimeUpdate={(event) => {
+            at.current = event.currentTarget.currentTime;
+            setTime(at.current);
+          }}
+          onPlay={() => setPlaying(true)}
+          onPause={(event) => {
+            setPlaying(false);
+            store(Math.floor(event.currentTarget.currentTime));
+          }}
+          onEnded={(event) => store(Math.floor(event.currentTarget.currentTime))}
+          onError={() => setLoadFailed(true)}
+        >
+          {urls.length === tracks.length &&
+            tracks.map((track, i) => (
+              <track key={track.language} kind="captions" srcLang={track.language} label={track.label} src={urls[i]} />
+            ))}
+        </video>
+        {/* The element stays: a link that expires mid-play keeps playing what the browser holds, and the place is kept. */}
+        {(loadFailed || (expired && !playing)) && (
           <div className="failure" role="status" data-video-expired>
-            <p>{expired ? t('videoExpired') : t('videoLoadFailed')}</p>
+            <p>{loadFailed ? t('videoLoadFailed') : t('videoExpired')}</p>
             <Button
               variant="secondary"
               onClick={() => {
-                setLoadFailed(false);
-                renewLink();
+                // The place is stored before the new link reads it back.
+                store(position());
+                void queue.current.then(() => {
+                  setLoadFailed(false);
+                  renewLink();
+                });
               }}
             >
               {t('requestNewLink')}
             </Button>
           </div>
-        ) : (
-          <video
-            ref={media}
-            src={playback.playbackUrl}
-            preload="metadata"
-            playsInline
-            muted={muted}
-            aria-label={t('playerLabel')}
-            style={{ width: '100%' }}
-            onClick={toggle}
-            onLoadedMetadata={(event) => {
-              const node = event.currentTarget;
-              setDuration(Number.isFinite(node.duration) ? node.duration : null);
-              node.playbackRate = speed;
-              const at = lastSaved.current;
-              if (at !== null && at > 0 && (!Number.isFinite(node.duration) || at < node.duration - 0.5)) {
-                node.currentTime = at;
-                setResumed(at);
-              }
-            }}
-            onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
-            onPlay={() => setPlaying(true)}
-            onPause={(event) => {
-              setPlaying(false);
-              store(Math.floor(event.currentTarget.currentTime));
-            }}
-            onEnded={(event) => store(Math.floor(event.currentTarget.currentTime))}
-            onError={() => setLoadFailed(true)}
-          >
-            {tracks.map((track, i) => (
-              <track key={track.language} kind="captions" srcLang={track.language} label={track.label} src={urls[i]} />
-            ))}
-          </video>
         )}
         <div className="academy-video-controls" role="group" aria-label={t('videoControls')}>
           <Button variant="secondary" onClick={toggle} aria-pressed={playing} data-video-play>
@@ -378,7 +404,7 @@ function TranscriptList({
       {cues.map((cue, i) => (
         <li key={`${cue.startMs}-${i}`} aria-current={i === current ? 'true' : undefined} data-cue={i}>
           <button type="button" className="link-button" onClick={() => seek(cue.startMs / 1000)}>
-            <span lang="zxx">{clock(cue.startMs / 1000)}</span> {cue.text}
+            <span lang="zxx">{clock(cue.startMs / 1000)}</span> {cuePlainText(cue.text)}
           </button>
         </li>
       ))}
@@ -486,6 +512,8 @@ export function ItemVideo({ itemSlug, onCompleted }: { itemSlug: string; onCompl
       ),
     `item-video:${userId}:${itemSlug}`,
   );
-  if (attached.resource.status !== 'ready' || attached.resource.data.videoSlug === null) return <LessonVideoLink slug={itemSlug} />;
+  if (attached.resource.status === 'failed') return <AcademyRefusal failure={attached.resource.failure} retry={attached.reload} />;
+  if (attached.resource.status !== 'ready') return <Loading />;
+  if (attached.resource.data.videoSlug === null) return <LessonVideoLink slug={itemSlug} />;
   return <AcademyVideoPlayer videoSlug={attached.resource.data.videoSlug} onCompleted={onCompleted} />;
 }

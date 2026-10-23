@@ -2314,7 +2314,13 @@ export function createAcademyRouter(
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))
       .output(itemCompletionOut)
       .mutation(({ input, ctx }) =>
-        guard(() => academy.markCurriculumComplete({ userId: ctx.principal!.userId, itemSlug: input.itemSlug })),
+        guard(() =>
+          academy.markCurriculumComplete({
+            userId: ctx.principal!.userId,
+            itemSlug: input.itemSlug,
+            mayWatch: () => assertAcademyVideoEntitled(video, { userId: ctx.principal!.userId, tier: ctx.principal!.tier }),
+          }),
+        ),
       ),
 
     /** AC-progress-01: Undo a completion. Progress drops and the history keeps both events; completing again adds one. */
@@ -2704,6 +2710,7 @@ export function createAcademyRouter(
               videoSlug: input.videoSlug,
               positionSeconds: input.positionSeconds,
               clientRequestId: input.clientRequestId,
+              mayWatch: () => assertAcademyVideoEntitled(video, { userId: ctx.principal.userId, tier: ctx.principal.tier }),
             }),
           ),
         ),
