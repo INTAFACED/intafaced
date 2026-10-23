@@ -304,3 +304,27 @@
 .more-media-tracks audio {
   max-width: 100%;
 }
+.more-paper-banner {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px dashed var(--color-divider);
+  background: var(--color-surface);
+}
+.more-paper-banner h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.more-paper-banner p {
+  margin: 0;
+  color: var(--color-muted);
+}
+.more-paper-label {
+  justify-self: start;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
