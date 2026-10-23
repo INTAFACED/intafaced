@@ -51,7 +51,6 @@ import {
 } from './curriculum/catalog.js';
 import { curriculumInventory, curriculumImportStageStatus } from './curriculum/import-pipeline.js';
 import { resolveCurriculumDeepLink, listCurriculumPathDeepLinks } from './curriculum/deep-links.js';
-import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import {
   drillProgress,
   isDrillComplete,
@@ -893,15 +892,7 @@ export function createAcademyRouter(
     curriculumItem: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120) }))
       .output(curriculumItemOut)
-      .query(({ input }) =>
-        guard(async () => {
-          const item = getCurriculumItem(input.slug);
-          if (!item) {
-            throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-          }
-          return { ...item, objectives: [...item.objectives], keyTerms: [...item.keyTerms], selfCheck: [...item.selfCheck] };
-        }),
-      ),
+      .query(({ input, ctx }) => guard(() => academy.readCurriculumItem({ userId: ctx.principal!.userId, slug: input.slug }))),
 
     /**
      * Stage-1 import pipeline inventory: content source decision + count gate.
@@ -951,24 +942,14 @@ export function createAcademyRouter(
     curriculumItemLocalized: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ slug: z.string().min(1).max(120), locale: z.string().min(2).max(12).optional() }))
       .output(curriculumItemLocalizedOut)
-      .query(({ input }) =>
-        guard(async () => {
-          const item = getCurriculumItem(input.slug);
-          if (!item) {
-            throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-          }
-          const localized = curriculumBodyForLocale(item.body, input.locale);
-          return {
-            ...item,
-            objectives: [...item.objectives],
-            keyTerms: [...item.keyTerms],
-            selfCheck: [...item.selfCheck],
-            body: localized.body,
-            locale: localized.resolution.locale,
-            fellBack: localized.resolution.fellBack,
-            i18nStrategy: curriculumI18nStrategyLine(),
-          };
-        }),
+      .query(({ input, ctx }) =>
+        guard(() =>
+          academy.readCurriculumItemLocalized({
+            userId: ctx.principal!.userId,
+            slug: input.slug,
+            ...(input.locale !== undefined ? { locale: input.locale } : {}),
+          }),
+        ),
       ),
 
     /**
@@ -2099,6 +2080,13 @@ export function createAcademyRouter(
           state: z.enum(['locked', 'unlocked', 'started', 'completed']),
           missing: z.array(z.string()),
           lock: z.enum(['prerequisite', 'window']).nullable(),
+          availableFrom: z.date().nullable(),
+          availableUntil: z.date().nullable(),
+          dueAt: z.date().nullable(),
+          extendedUntil: z.date().nullable(),
+          reason: z.string().nullable(),
+          grantedAt: z.date().nullable(),
+          grantedBy: z.string().uuid().nullable(),
         }),
       )
       .query(({ input, ctx }) => guard(() => academy.itemRelease({ userId: ctx.principal!.userId, itemSlug: input.itemSlug }))),

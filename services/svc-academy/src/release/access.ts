@@ -30,6 +30,18 @@ export type ReleaseDecision = {
   readonly lock: ReleaseLock | null;
 };
 
+/** What the lesson card reads. Null dates mean the owner has not set them. */
+export type ItemReleaseView = ReleaseDecision & {
+  readonly itemSlug: string;
+  readonly availableFrom: Date | null;
+  readonly availableUntil: Date | null;
+  readonly dueAt: Date | null;
+  readonly extendedUntil: Date | null;
+  readonly reason: string | null;
+  readonly grantedAt: Date | null;
+  readonly grantedBy: string | null;
+};
+
 export function requireCurriculumSlug(slug: string): string {
   const trimmed = slug.trim();
   if (!hasCurriculumSlug(trimmed)) {
@@ -204,19 +216,42 @@ type ExtensionRow = {
   extended_until: Date;
   client_request_id: string;
 };
+type ExtensionViewRow = {
+  extended_until: Date;
+  reason: string;
+  granted_at: Date;
+  granted_by: string;
+};
+
+/** Same learner, item, reason, and end. A difference is not a replay. */
+function extensionReplayAgrees(
+  stored: { item_slug: string; reason: string; extended_until: Date },
+  requested: { itemSlug: string; reason: string; extendedUntil: Date },
+): boolean {
+  return (
+    stored.item_slug === requested.itemSlug &&
+    stored.reason === requested.reason &&
+    stored.extended_until.getTime() === requested.extendedUntil.getTime()
+  );
+}
 
 export class ReleaseAccess {
   constructor(private readonly sql: Sql) {}
 
-  async itemRelease(input: { userId: string; itemSlug: string; now?: Date }): Promise<ReleaseDecision & { itemSlug: string }> {
+  async itemRelease(input: { userId: string; itemSlug: string; now?: Date }): Promise<ItemReleaseView> {
     const itemSlug = requireCurriculumSlug(input.itemSlug);
-    const decision = await this.decide(input.userId, itemSlug, input.now ?? new Date());
-    return { itemSlug, ...decision };
+    return this.load(input.userId, itemSlug, input.now ?? new Date());
+  }
+
+  /** Same decision as completion. A lock throws before a lesson body is read. */
+  async assertMayRead(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
+    const itemSlug = requireCurriculumSlug(input.itemSlug);
+    const view = await this.load(input.userId, itemSlug, input.now ?? new Date());
+    refuseRelease(view);
   }
 
   async assertMayComplete(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
-    const decision = await this.decide(input.userId, input.itemSlug, input.now ?? new Date());
-    refuseRelease(decision);
+    await this.assertMayRead(input);
   }
 
   async setItemPrerequisites(input: { itemSlug: string; prerequisites: readonly string[] }): Promise<{
@@ -269,8 +304,9 @@ export class ReleaseAccess {
   }
 
   /**
-   * One revision per (learner, item). The same clientRequestId returns the
-   * first grant and does not write another, even when the later body differs.
+   * Replay key is the learner, the item, and clientRequestId.
+   * The same item, reason, and end returns the first grant.
+   * A reused id whose item, reason, or end differs is refused and writes nothing.
    */
   async grantItemExtension(input: {
     userId: string;
@@ -292,13 +328,20 @@ export class ReleaseAccess {
     }
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:extension-request`}, 0))`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${itemSlug}:extension`}, 0))`;
       const replay = await tx<ExtensionRow[]>`
         SELECT user_id, item_slug, revision, reason, extended_until, client_request_id
           FROM academy.item_extensions
          WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
       `;
-      if (replay[0]) return toExtension(replay[0]);
+      if (replay.length > 0) {
+        const requested = { itemSlug, reason, extendedUntil: input.extendedUntil };
+        if (replay.some((row) => !extensionReplayAgrees(row, requested))) {
+          throw new AcademyError('academy.window_invalid replay item, reason, or end differs', 'academy.window_invalid');
+        }
+        return toExtension(replay[0]!);
+      }
       const windows = await tx<WindowRow[]>`
         SELECT available_from, available_until, due_at
           FROM academy.item_windows
@@ -333,7 +376,7 @@ export class ReleaseAccess {
     });
   }
 
-  private async decide(userId: string, itemSlug: string, now: Date): Promise<ReleaseDecision> {
+  private async load(userId: string, itemSlug: string, now: Date): Promise<ItemReleaseView> {
     const prereqRows = await this.sql<Array<{ prerequisite_slug: string }>>`
       SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = ${itemSlug}
     `;
@@ -352,8 +395,9 @@ export class ReleaseAccess {
         FROM academy.item_windows
        WHERE item_slug = ${itemSlug}
     `;
-    const extensions = await this.sql<Array<{ extended_until: Date }>>`
-      SELECT extended_until FROM academy.item_extensions
+    const extensions = await this.sql<ExtensionViewRow[]>`
+      SELECT extended_until, reason, granted_at, granted_by
+        FROM academy.item_extensions
        WHERE user_id = ${userId} AND item_slug = ${itemSlug}
        ORDER BY revision DESC
        LIMIT 1
@@ -377,7 +421,8 @@ export class ReleaseAccess {
       ) AS completed
     `;
     const windowRow = windows[0];
-    return decideRelease({
+    const extension = extensions[0];
+    const decision = decideRelease({
       completed: completed[0]?.completed === true,
       started: started[0]?.started === true,
       missing,
@@ -388,9 +433,20 @@ export class ReleaseAccess {
             dueAt: windowRow.due_at,
           }
         : null,
-      extensionUntil: extensions[0]?.extended_until ?? null,
+      extensionUntil: extension?.extended_until ?? null,
       now,
     });
+    return {
+      itemSlug,
+      ...decision,
+      availableFrom: windowRow?.available_from ?? null,
+      availableUntil: windowRow?.available_until ?? null,
+      dueAt: windowRow?.due_at ?? null,
+      extendedUntil: extension?.extended_until ?? null,
+      reason: extension?.reason ?? null,
+      grantedAt: extension?.granted_at ?? null,
+      grantedBy: extension?.granted_by ?? null,
+    };
   }
 }
 

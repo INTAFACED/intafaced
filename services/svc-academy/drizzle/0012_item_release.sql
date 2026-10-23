@@ -38,5 +38,11 @@ CREATE TABLE IF NOT EXISTS "academy"."item_extensions" (
   CONSTRAINT "item_extensions_revision_chk" CHECK ("revision" > 0)
 );
 
+-- Replay identity is the learner, the item, and the client request.
+-- request_once still forbids storing a second item under the same request id.
+-- The write refuses that reuse so the caller does not receive the first grant.
 CREATE UNIQUE INDEX IF NOT EXISTS "item_extensions_request_uq"
+  ON "academy"."item_extensions" ("user_id", "item_slug", "client_request_id");
+
+CREATE UNIQUE INDEX IF NOT EXISTS "item_extensions_request_once_uq"
   ON "academy"."item_extensions" ("user_id", "client_request_id");

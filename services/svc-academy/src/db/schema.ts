@@ -408,7 +408,8 @@ export const itemExtensions = academy.table(
   },
   (t) => [
     uniqueIndex('item_extensions_pk').on(t.userId, t.itemSlug, t.revision),
-    uniqueIndex('item_extensions_request_uq').on(t.userId, t.clientRequestId),
+    uniqueIndex('item_extensions_request_uq').on(t.userId, t.itemSlug, t.clientRequestId),
+    uniqueIndex('item_extensions_request_once_uq').on(t.userId, t.clientRequestId),
   ],
 );
 

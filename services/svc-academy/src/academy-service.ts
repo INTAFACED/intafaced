@@ -68,7 +68,8 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { hasCurriculumSlug } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug } from './curriculum/catalog.js';
+import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import type { VideoSpineEntry } from './video/catalog.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
@@ -1740,6 +1741,43 @@ export class AcademyService {
 
   itemRelease(input: { userId: string; itemSlug: string; now?: Date }) {
     return this.release.itemRelease(input);
+  }
+
+  /**
+   * Lesson body for this learner. The release decision runs first: a lock
+   * throws and the catalog body is not read into the result.
+   */
+  async readCurriculumItem(input: { userId: string; slug: string; now?: Date }) {
+    await this.release.assertMayRead({ userId: input.userId, itemSlug: input.slug, now: input.now });
+    const item = getCurriculumItem(input.slug.trim());
+    if (!item) {
+      throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+    }
+    return {
+      slug: item.slug,
+      title: item.title,
+      kind: item.kind,
+      path: item.path,
+      order: item.order,
+      summary: item.summary,
+      estimatedMinutes: item.estimatedMinutes,
+      body: item.body,
+      objectives: [...item.objectives],
+      keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
+      selfCheck: [...item.selfCheck],
+    };
+  }
+
+  async readCurriculumItemLocalized(input: { userId: string; slug: string; locale?: string; now?: Date }) {
+    const item = await this.readCurriculumItem(input);
+    const localized = curriculumBodyForLocale(item.body, input.locale);
+    return {
+      ...item,
+      body: localized.body,
+      locale: localized.resolution.locale,
+      fellBack: localized.resolution.fellBack,
+      i18nStrategy: curriculumI18nStrategyLine(),
+    };
   }
 
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
