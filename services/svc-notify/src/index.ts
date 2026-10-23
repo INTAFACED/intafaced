@@ -216,12 +216,12 @@ const notices = new NoticeBoard(
   undefined,
   async () => (await statusBook.definition()).components.map((component) => component.id),
   (row) => statusSubscriptions.fanOut(row),
-  () => maintenanceStore.closed(),
+  (ids) => maintenanceStore.closedAmong(ids),
 );
 const maintenance = new MaintenanceLifecycle({
   store: maintenanceStore,
   notice: (id) => notices.maintenanceNotice(id),
-  published: (limit) => notices.publishedMaintenance(limit),
+  upcoming: (at, limit) => notices.upcomingMaintenance(at, limit),
   remind: (notice, offset) => statusSubscriptions.remind(notice, offset),
 });
 const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);

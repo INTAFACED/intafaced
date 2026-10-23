@@ -93,7 +93,7 @@ if (!available) {
         now,
         async () => [],
         async () => undefined,
-        () => store().closed(),
+        (ids) => store().closedAmong(ids),
       );
     const publish = async (startInMinutes: number, reminderOffsets: number[] = []) => {
       n += 1;
@@ -118,6 +118,10 @@ if (!available) {
     it('stores the offsets with the notice, and lists moves and a closed window', async () => {
       const window = await publish(-5, [15, 5]);
       expect((await board().maintenanceNotice(window.id))?.reminderOffsets).toEqual([15, 5]);
+      // What the approval bound stays as published: the offsets are held by the published-row trigger too.
+      await expect(client!`UPDATE notify.notices SET reminder_offsets = '{1}' WHERE id = ${window.id}`).rejects.toThrow(
+        /notice_published_immutable/,
+      );
       const s = store();
       const move = (state: 'verifying' | 'completed') => ({
         noticeId: window.id,
@@ -131,7 +135,8 @@ if (!available) {
       expect(await s.applyMove(move('completed'), rule('completed'))).toBe('status.maintenance_illegal_move');
       expect((await s.applyMove(move('verifying'), rule('verifying'))) as unknown[]).toHaveLength(1);
       expect((await s.applyMove(move('completed'), rule('completed'))) as unknown[]).toHaveLength(2);
-      expect((await s.closed()).has(window.id)).toBe(true);
+      expect([...(await s.closedAmong([window.id]))]).toEqual([window.id]);
+      expect((await s.closedAmong([])).size).toBe(0);
       expect((await s.movesOf([window.id])).map((m) => m.state)).toEqual(['verifying', 'completed']);
       expect((await board().noticeStatus()).maintenance.some((m) => m.id === window.id)).toBe(false);
     });
@@ -141,8 +146,8 @@ if (!available) {
       const lifecycle = new MaintenanceLifecycle({
         store: store(),
         notice: (id) => board().maintenanceNotice(id),
-        published: (limit) => board().publishedMaintenance(limit),
-        remind: async () => undefined,
+        upcoming: (at, limit) => board().upcomingMaintenance(at, limit),
+        remind: async () => ({ undelivered: 0 }),
         now,
       });
       const outcomes = await Promise.allSettled([
@@ -160,9 +165,10 @@ if (!available) {
         new MaintenanceLifecycle({
           store: store(),
           notice: (id) => board().maintenanceNotice(id),
-          published: (limit) => board().publishedMaintenance(limit),
+          upcoming: (at, limit) => board().upcomingMaintenance(at, limit),
           remind: async (notice, offset) => {
             if (notice.id === window.id) reminded.push(offset);
+            return { undelivered: 0 };
           },
           now,
         });
@@ -178,5 +184,21 @@ if (!available) {
       const rows = await store().remindersOf([window.id]);
       expect(rows.every((r) => r.sentAt !== null && r.skipped === null)).toBe(true);
       clock.at = T0;
+    });
+
+    it('an offset already past at publish is stored late in the same insert as the ones still to come', async () => {
+      const window = await publish(20, [60, 10]);
+      await new MaintenanceLifecycle({
+        store: store(),
+        notice: (id) => board().maintenanceNotice(id),
+        upcoming: (at, limit) => board().upcomingMaintenance(at, limit),
+        remind: async () => ({ undelivered: 0 }),
+        now,
+      }).sweep();
+      const rows = await store().remindersOf([window.id]);
+      expect(rows.map((r) => [r.offsetMinutes, r.skipped]).sort()).toEqual([
+        [10, null],
+        [60, 'published_late'],
+      ]);
     });
   });

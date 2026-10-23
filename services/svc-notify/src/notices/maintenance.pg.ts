@@ -43,9 +43,11 @@ export class SqlMaintenanceStore implements MaintenanceStore {
     return rows.map(fromMove);
   }
 
-  async closed(): Promise<ReadonlySet<string>> {
+  async closedAmong(noticeIds: readonly string[]): Promise<ReadonlySet<string>> {
+    if (noticeIds.length === 0) return new Set();
     const rows = await this.sql<{ notice_id: string }[]>`
-      SELECT DISTINCT notice_id FROM notify.maintenance_moves WHERE state IN ('completed', 'cancelled')
+      SELECT DISTINCT notice_id FROM notify.maintenance_moves
+       WHERE notice_id = ANY(${this.sql.array([...noticeIds])}::uuid[]) AND state IN ('completed', 'cancelled')
     `;
     return new Set(rows.map((r) => r.notice_id));
   }
@@ -74,13 +76,21 @@ export class SqlMaintenanceStore implements MaintenanceStore {
     });
   }
 
-  async schedule(noticeId: string, reminders: readonly { offsetMinutes: number; dueAt: Date }[]): Promise<void> {
-    for (const r of reminders)
-      await this.sql`
-        INSERT INTO notify.maintenance_reminders (notice_id, offset_minutes, due_at)
-        VALUES (${noticeId}, ${r.offsetMinutes}, ${r.dueAt})
-        ON CONFLICT (notice_id, offset_minutes) DO NOTHING
-      `;
+  async schedule(
+    noticeId: string,
+    reminders: readonly { offsetMinutes: number; dueAt: Date; skipped: 'published_late' | null }[],
+  ): Promise<void> {
+    if (reminders.length === 0) return;
+    await this.sql`
+      INSERT INTO notify.maintenance_reminders (notice_id, offset_minutes, due_at, skipped)
+      SELECT ${noticeId}::uuid, r.offset_minutes, r.due_at, NULLIF(r.skipped, '')
+        FROM unnest(
+          ${this.sql.array(reminders.map((r) => r.offsetMinutes))}::integer[],
+          ${this.sql.array(reminders.map((r) => r.dueAt.toISOString()))}::timestamptz[],
+          ${this.sql.array(reminders.map((r) => r.skipped ?? ''))}::text[]
+        ) AS r(offset_minutes, due_at, skipped)
+      ON CONFLICT (notice_id, offset_minutes) DO NOTHING
+    `;
   }
 
   async remindersOf(noticeIds: readonly string[]): Promise<readonly ReminderRow[]> {

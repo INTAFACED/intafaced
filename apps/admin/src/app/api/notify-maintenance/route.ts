@@ -62,8 +62,11 @@ export async function POST(request: Request) {
     switch (body.op) {
       case 'draft': {
         const components = body.components ?? [];
+        // A list holds whole numbers only: a nested list or a string inside it would read as numbers once joined.
         const offsets = Array.isArray(body.reminderOffsets)
-          ? parseOffsets(body.reminderOffsets.map((o: unknown) => String(o)).join(','))
+          ? body.reminderOffsets.every((o: unknown) => Number.isSafeInteger(o))
+            ? parseOffsets(body.reminderOffsets.join(','))
+            : null
           : parseOffsets(str(body.reminderOffsets));
         const basis = body.basis === null || body.basis === undefined ? null : str(body.basis);
         const startsAt = instant(body.startsAt);

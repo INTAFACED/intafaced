@@ -36,7 +36,7 @@ const minutes = (n: number) => new Date(T0 + n * 60_000);
 function desk() {
   const clock = { at: T0 };
   const now = () => new Date(clock.at);
-  const store = new MaintenanceStoreSpy();
+  const store = new MemoryMaintenanceStore();
   const board = new NoticeBoard(
     new MemoryNoticeStore(),
     new Approvals(),
@@ -44,15 +44,16 @@ function desk() {
     now,
     async () => ['api'],
     async () => undefined,
-    () => store.closed(),
+    (ids) => store.closedAmong(ids),
   );
   const reminded: { id: string; offset: number }[] = [];
   const lifecycle = new MaintenanceLifecycle({
     store,
     notice: (id) => board.maintenanceNotice(id),
-    published: (limit) => board.publishedMaintenance(limit),
+    upcoming: (at, limit) => board.upcomingMaintenance(at, limit),
     remind: async (notice, offset) => {
       reminded.push({ id: notice.id, offset });
+      return { undelivered: 0 };
     },
     now,
   });
@@ -73,8 +74,6 @@ function desk() {
   };
   return { board, lifecycle, store, clock, reminded, publish };
 }
-
-class MaintenanceStoreSpy extends MemoryMaintenanceStore {}
 
 describe('maintenance reminder offsets on the draft', () => {
   it('belong to maintenance with a start, are stored distinct largest first, and are part of what the approval binds', async () => {
@@ -191,10 +190,10 @@ describe('maintenance reminders', () => {
     const { lifecycle, clock, reminded, publish } = desk();
     const window = await publish({ startsAt: minutes(60), endsAt: minutes(120), reminderOffsets: [30, 10] });
     const quiet = await publish({ startsAt: minutes(60), endsAt: minutes(120) });
-    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
     clock.at = minutes(30).getTime();
-    expect(await lifecycle.sweep()).toEqual({ sent: 1, skipped: 0 });
-    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 1, skipped: 0, retrying: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
     clock.at = minutes(55).getTime();
     await lifecycle.sweep();
     await lifecycle.sweep();
@@ -217,11 +216,11 @@ describe('maintenance reminders', () => {
     const { lifecycle, clock, reminded, publish } = desk();
     const cancelled = await publish({ startsAt: minutes(60), endsAt: minutes(120), reminderOffsets: [30] });
     const late = await publish({ startsAt: minutes(20), endsAt: minutes(120), reminderOffsets: [10] });
-    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
     await lifecycle.move(AUTHOR, { id: cancelled.id, to: 'cancelled', reason: 'TEST' });
     // No sweep ran between the late window's reminder coming due and its start.
     clock.at = minutes(35).getTime();
-    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 2 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 2, retrying: 0 });
     expect(reminded).toEqual([]);
     const windows = await lifecycle.windows([
       (await lifecycle['deps'].notice(cancelled.id)) as NoticeRow,
@@ -241,8 +240,61 @@ describe('maintenance reminders', () => {
       },
     });
     await expect(failing.sweep()).rejects.toThrow('TEST transport down');
-    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
     clock.at = minutes(33).getTime();
-    expect(await lifecycle.sweep()).toEqual({ sent: 1, skipped: 0 });
+    expect(await lifecycle.sweep()).toEqual({ sent: 1, skipped: 0, retrying: 0 });
+  });
+
+  it('a reminder some subscribers did not get stays unsent and is tried again after its lease', async () => {
+    const { lifecycle, clock, publish } = desk();
+    const window = await publish({ startsAt: minutes(60), endsAt: minutes(120), reminderOffsets: [30] });
+    clock.at = minutes(30).getTime();
+    const tries: number[] = [];
+    const flaky = new MaintenanceLifecycle({
+      ...lifecycle['deps'],
+      remind: async () => {
+        tries.push(clock.at);
+        return { undelivered: tries.length === 1 ? 1 : 0 };
+      },
+    });
+    expect(await flaky.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 1 });
+    const unsent = await lifecycle.windows([(await lifecycle['deps'].notice(window.id)) as NoticeRow]);
+    expect(unsent[0]!.reminders.map((r) => [r.sentAt, r.skipped])).toEqual([[null, null]]);
+    expect(await flaky.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
+    clock.at = minutes(33).getTime();
+    expect(await flaky.sweep()).toEqual({ sent: 1, skipped: 0, retrying: 0 });
+    expect(tries).toHaveLength(2);
+  });
+
+  it('offsets already past when the window is published are marked late, never sent in a burst', async () => {
+    const { lifecycle, reminded, publish } = desk();
+    // Published at T0 for a start 20 minutes later: the 60 and 30 minute reminders were due before it existed.
+    const window = await publish({ startsAt: minutes(20), endsAt: minutes(80), reminderOffsets: [60, 30, 10] });
+    expect(await lifecycle.sweep()).toEqual({ sent: 0, skipped: 0, retrying: 0 });
+    expect(reminded).toEqual([]);
+    const [shown] = await lifecycle.windows([(await lifecycle['deps'].notice(window.id)) as NoticeRow]);
+    expect(shown!.reminders.map((r) => [r.offsetMinutes, r.skipped])).toEqual([
+      [60, 'published_late'],
+      [30, 'published_late'],
+      [10, null],
+    ]);
+  });
+
+  it('the sweep reads only windows still to start, and makes a reminder row once', async () => {
+    const { board, lifecycle, store, clock, publish } = desk();
+    const soon = await publish({ startsAt: minutes(40), endsAt: minutes(80), reminderOffsets: [10] });
+    await publish({ startsAt: minutes(40), endsAt: minutes(80) });
+    expect((await board.upcomingMaintenance(minutes(0), 10)).map((n) => n.id)).toEqual([soon.id]);
+    expect(await board.upcomingMaintenance(minutes(40), 10)).toEqual([]);
+    const made: number[] = [];
+    const schedule = store.schedule.bind(store);
+    store.schedule = async (id, rows) => {
+      made.push(rows.length);
+      return schedule(id, rows);
+    };
+    await lifecycle.sweep();
+    clock.at = minutes(1).getTime();
+    await lifecycle.sweep();
+    expect(made).toEqual([1]);
   });
 });

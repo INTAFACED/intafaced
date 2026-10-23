@@ -212,6 +212,7 @@ function ScheduleForm({
 
 function reminderLine(r: MaintenanceWindow['reminders'][number]) {
   if (r.sentAt) return `sent ${formatWhen(r.sentAt)}`;
+  if (r.skipped === 'published_late') return 'not sent: its time had passed when the window was published';
   if (r.skipped) return `not sent: the window was ${r.skipped.replace('_', ' ')} when it came due`;
   return `due ${formatWhen(r.dueAt)}`;
 }
@@ -245,6 +246,11 @@ function WindowCard({
         {notice.components.length === 0 ? 'none named' : notice.components.map((c) => names.get(c) ?? c).join(', ')}.
         {notice.authorId === me ? ' Written by you.' : ''}
       </p>
+      {(w.state === 'in_progress' || w.state === 'verifying') && notice.endsAt && Date.parse(notice.endsAt) <= Date.now() && (
+        <p data-testid="maintenance-overrun">
+          Past its planned end: the public page no longer shows it as open. Mark it completed, or publish an incident if work goes on.
+        </p>
+      )}
       <div data-testid="maintenance-reminders">
         {notice.reminderOffsets.length === 0 ? (
           <p className="dk-muted">No reminders.</p>

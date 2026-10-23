@@ -182,6 +182,17 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows.map(fromPg);
   }
 
+  async listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published' AND kind = 'maintenance' AND starts_at > ${at}
+         AND cardinality(reminder_offsets) > 0
+       ORDER BY starts_at ASC, id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map(fromPg);
+  }
+
   async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
     const rows =
       kind == null

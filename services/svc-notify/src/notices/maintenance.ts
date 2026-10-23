@@ -55,16 +55,19 @@ export type ReminderRow = {
   readonly offsetMinutes: number;
   readonly dueAt: Date;
   readonly sentAt: Date | null;
-  /** The state the window was in when its reminder came due and was not sent. */
-  readonly skipped: 'in_progress' | 'verifying' | 'completed' | 'cancelled' | null;
+  /**
+   * Why it was not sent: the window was published after the reminder's time (`published_late`), or was no longer
+   * scheduled when the reminder came due or was tried again.
+   */
+  readonly skipped: 'published_late' | 'in_progress' | 'verifying' | 'completed' | 'cancelled' | null;
 };
 
 export interface MaintenanceStore {
   moves(noticeId: string): Promise<readonly MaintenanceMove[]>;
   /** Moves of many windows at once, for the desk. */
   movesOf(noticeIds: readonly string[]): Promise<readonly MaintenanceMove[]>;
-  /** Ids of windows moved to completed or cancelled. */
-  closed(): Promise<ReadonlySet<string>>;
+  /** Of these windows, the ones moved to completed or cancelled. */
+  closedAmong(noticeIds: readonly string[]): Promise<ReadonlySet<string>>;
   /**
    * Stores `move` when `allowed` says the window's moves so far permit it, in one step under the window's lock, so two
    * moves at once cannot both pass. Answers the moves as stored after it, or the refusal `allowed` gave.
@@ -73,8 +76,8 @@ export interface MaintenanceStore {
     move: MaintenanceMove,
     allowed: (moves: readonly MaintenanceMove[]) => MaintenanceCode | 'replay' | null,
   ): Promise<readonly MaintenanceMove[] | MaintenanceCode>;
-  /** Makes the window's reminder rows; rows that exist are left as they are. */
-  schedule(noticeId: string, reminders: readonly { offsetMinutes: number; dueAt: Date }[]): Promise<void>;
+  /** Makes the window's reminder rows in one step; rows that exist are left as they are. */
+  schedule(noticeId: string, reminders: readonly { offsetMinutes: number; dueAt: Date; skipped: 'published_late' | null }[]): Promise<void>;
   remindersOf(noticeIds: readonly string[]): Promise<readonly ReminderRow[]>;
   /** Takes up to `limit` due, unsettled reminders for a lease; another sweep holding one is skipped. */
   claimDue(at: Date, until: Date, limit: number): Promise<readonly ReminderRow[]>;
@@ -119,8 +122,9 @@ export type MaintenanceWindow = {
 export type MaintenanceDeps = {
   readonly store: MaintenanceStore;
   readonly notice: (id: string) => Promise<NoticeRow | null>;
-  readonly published: (limit: number) => Promise<readonly NoticeRow[]>;
-  readonly remind: (notice: NoticeRow, offsetMinutes: number) => Promise<void>;
+  /** Published windows with reminder offsets that have not started yet, soonest first. */
+  readonly upcoming: (at: Date, limit: number) => Promise<readonly NoticeRow[]>;
+  readonly remind: (notice: NoticeRow, offsetMinutes: number) => Promise<{ undelivered: number }>;
   readonly now?: () => Date;
 };
 
@@ -166,24 +170,34 @@ export class MaintenanceLifecycle {
   }
 
   /**
-   * One sweep: makes the reminder rows of every published window with offsets, then sends the due ones whose window is
-   * still scheduled. Returns how many it sent and skipped.
+   * One sweep: makes the missing reminder rows of each upcoming window (an offset whose time had passed when the window
+   * was published is marked `published_late`, never sent in a burst), then sends the due ones whose window is still
+   * scheduled. A reminder that did not reach everyone stays unsettled and is tried again when its lease runs out; the
+   * subscribers it reached are not sent it twice.
    */
-  async sweep(): Promise<{ sent: number; skipped: number }> {
-    const started = this.now().getTime();
-    for (const notice of await this.deps.published(SWEEP_WINDOWS_MAX)) {
-      const offsets = notice.reminderOffsets ?? [];
-      // A window that has started is reminded of no more: its rows, made or not, would only be skipped.
-      if (offsets.length === 0 || !notice.startsAt || notice.startsAt.getTime() <= started) continue;
+  async sweep(): Promise<{ sent: number; skipped: number; retrying: number }> {
+    const upcoming = await this.deps.upcoming(this.now(), SWEEP_WINDOWS_MAX);
+    const made = await this.deps.store.remindersOf(upcoming.map((n) => n.id));
+    for (const notice of upcoming) {
+      if (!notice.startsAt) continue;
       const start = notice.startsAt.getTime();
+      const published = notice.publishedAt?.getTime() ?? 0;
+      const missing = (notice.reminderOffsets ?? []).filter(
+        (offset) => !made.some((r) => r.noticeId === notice.id && r.offsetMinutes === offset),
+      );
+      if (missing.length === 0) continue;
       await this.deps.store.schedule(
         notice.id,
-        offsets.map((offsetMinutes) => ({ offsetMinutes, dueAt: new Date(start - offsetMinutes * 60_000) })),
+        missing.map((offsetMinutes) => {
+          const dueAt = new Date(start - offsetMinutes * 60_000);
+          return { offsetMinutes, dueAt, skipped: dueAt.getTime() <= published ? ('published_late' as const) : null };
+        }),
       );
     }
     const at = this.now();
     let sent = 0;
     let skipped = 0;
+    let retrying = 0;
     for (const reminder of await this.deps.store.claimDue(at, new Date(at.getTime() + REMINDER_LEASE_MS), REMINDERS_PER_SWEEP)) {
       const notice = await this.deps.notice(reminder.noticeId);
       if (!notice) continue;
@@ -193,15 +207,15 @@ export class MaintenanceLifecycle {
         skipped += 1;
         continue;
       }
-      await this.deps.remind(notice, reminder.offsetMinutes);
+      const { undelivered } = await this.deps.remind(notice, reminder.offsetMinutes);
+      if (undelivered > 0) {
+        retrying += 1;
+        continue;
+      }
       await this.deps.store.settle(notice.id, reminder.offsetMinutes, { sentAt: this.now() });
       sent += 1;
     }
-    return { sent, skipped };
-  }
-
-  async closed(): Promise<ReadonlySet<string>> {
-    return this.deps.store.closed();
+    return { sent, skipped, retrying };
   }
 }
 
@@ -216,18 +230,23 @@ export class MemoryMaintenanceStore implements MaintenanceStore {
   async movesOf(noticeIds: readonly string[]) {
     return this.allMoves.filter((m) => noticeIds.includes(m.noticeId));
   }
-  async closed() {
-    return new Set(this.allMoves.filter((m) => m.state === 'completed' || m.state === 'cancelled').map((m) => m.noticeId));
+  async closedAmong(noticeIds: readonly string[]) {
+    return new Set(
+      this.allMoves
+        .filter((m) => noticeIds.includes(m.noticeId) && (m.state === 'completed' || m.state === 'cancelled'))
+        .map((m) => m.noticeId),
+    );
   }
   async applyMove(move: MaintenanceMove, allowed: (moves: readonly MaintenanceMove[]) => MaintenanceCode | 'replay' | null) {
-    const current = await this.moves(move.noticeId);
+    // No await between the read and the write: two moves at once are decided one after the other, as under the row lock.
+    const current = this.allMoves.filter((m) => m.noticeId === move.noticeId);
     const verdict = allowed(current);
     if (verdict === 'replay') return current;
     if (verdict) return verdict;
     this.allMoves.push(move);
-    return this.moves(move.noticeId);
+    return [...current, move];
   }
-  async schedule(noticeId: string, reminders: readonly { offsetMinutes: number; dueAt: Date }[]) {
+  async schedule(noticeId: string, reminders: readonly { offsetMinutes: number; dueAt: Date; skipped: 'published_late' | null }[]) {
     for (const r of reminders) {
       const key = this.key(noticeId, r.offsetMinutes);
       if (!this.reminders.has(key))
@@ -236,7 +255,7 @@ export class MemoryMaintenanceStore implements MaintenanceStore {
           offsetMinutes: r.offsetMinutes,
           dueAt: r.dueAt,
           sentAt: null,
-          skipped: null,
+          skipped: r.skipped,
           claimedUntil: null,
         });
     }

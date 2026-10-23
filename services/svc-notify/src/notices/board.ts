@@ -195,6 +195,8 @@ export interface NoticeStore {
   listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
+  /** Published maintenance with reminder offsets that starts after `at`, soonest first: the reminder sweep's work list. */
+  listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]>;
   /** Drafts and published rows, newest created first: the founders' desk. */
   listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
   /** Whether a published entry resolved this incident. */
@@ -366,6 +368,20 @@ export class MemoryNoticeStore implements NoticeStore {
       .slice(0, limit);
   }
 
+  async listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.status === 'published' &&
+          row.kind === 'maintenance' &&
+          row.startsAt !== null &&
+          row.startsAt.getTime() > at.getTime() &&
+          (row.reminderOffsets?.length ?? 0) > 0,
+      )
+      .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
   async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
     return [...this.rows.values()]
       .filter((row) => kind == null || row.kind === kind)
@@ -425,14 +441,17 @@ export class NoticeBoard {
     private readonly pageComponents: () => Promise<readonly string[]> = async () => [],
     /** Told once a notice is published (status subscriptions fan it out). A failure there never undoes the publish. */
     private readonly onPublished: (row: NoticeRow) => Promise<void> = async () => undefined,
-    /** Maintenance windows an operator marked completed or cancelled: no longer open, whatever their planned end. */
-    private readonly closedMaintenance: () => Promise<ReadonlySet<string>> = async () => new Set(),
+    /** Of these maintenance windows, the ones an operator marked completed or cancelled: no longer open, whatever their planned end. */
+    private readonly closedMaintenance: (ids: readonly string[]) => Promise<ReadonlySet<string>> = async () => new Set(),
   ) {}
 
   /** Published rows for the status reads, without maintenance an operator has closed. */
   private async publishedForStatus(): Promise<readonly NoticeRow[]> {
-    const [rows, closed] = await Promise.all([this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX), this.closedMaintenance()]);
-    return closed.size === 0 ? rows : rows.filter((row) => row.kind !== 'maintenance' || !closed.has(row.id));
+    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const windows = rows.filter((row) => row.kind === 'maintenance').map((row) => row.id);
+    if (windows.length === 0) return rows;
+    const closed = await this.closedMaintenance(windows);
+    return closed.size === 0 ? rows : rows.filter((row) => !closed.has(row.id));
   }
 
   /** One maintenance notice, draft or published, or null when there is none by that id. */
@@ -446,9 +465,9 @@ export class NoticeBoard {
     return this.store.listAll('maintenance', clampNoticeLimit(limit));
   }
 
-  /** Published maintenance windows, newest published first: the reminder sweep's work list. */
-  async publishedMaintenance(limit: number): Promise<readonly NoticeRow[]> {
-    return this.store.listPublished('maintenance', limit);
+  /** Published windows with reminder offsets that have not started at `at`, soonest first: the reminder sweep's work list. */
+  async upcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return this.store.listUpcomingMaintenance(at, limit);
   }
 
   async draft(

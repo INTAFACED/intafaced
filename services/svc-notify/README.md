@@ -236,11 +236,16 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   the same move again is a replay. Each move is stored once in `notify.maintenance_moves` (migration 0032) with who and
   why, decided under the window's row lock. A window past its planned end stays where the operators left it.
 - A completed or cancelled window leaves `notify.noticeStatus`, the status feed and the funding banners at once, before
-  its planned end.
-- Reminders: a sweep every 15 seconds makes one `notify.maintenance_reminders` row per offset of each published window
-  that has not started, keyed (window, offset), and sends each due one while the window is still scheduled: one email per
-  active subscriber it concerns, keyed `<window>:reminder:<offset>:<subscriber>:email`, so a reminder sent again after a
-  crash reaches no one twice. A window that started, completed or was cancelled first marks its due reminder skipped.
+  its planned end. A window still open past its planned end leaves them at that end, as before; the desk says so and the
+  operators complete it or publish an incident.
+- Reminders: a sweep every 15 seconds reads the published windows with offsets that have not started (soonest first,
+  at most 500), makes the missing `notify.maintenance_reminders` rows of each in one insert, keyed (window, offset), and
+  sends each due one while the window is still scheduled: one email per active subscriber it concerns, keyed
+  `<window>:reminder:<offset>:<subscriber>:email`, so a reminder sent again after a crash reaches no one twice. An offset
+  whose time had already passed when the window was published is marked `published_late` and never sent. A reminder some
+  subscriber did not get (failed, or waiting with no sender) stays unsent and is tried again when its two-minute lease
+  runs out, until the window starts. A window that started, completed or was cancelled first marks its due reminder
+  skipped. The offsets of a published window are held by the published-row trigger like its other fields.
 - `statusPage.maintenance.windows` (`admin:write`) is the founders' desk: windows (drafts too) with state, moves and
   reminders.
 
