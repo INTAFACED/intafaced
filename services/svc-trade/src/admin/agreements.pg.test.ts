@@ -774,6 +774,7 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
           return tx;
         },
         balance: (ref: Parameters<LedgerClient['balance']>[0]) => memory.balance(ref),
+        balances: (...args: Parameters<LedgerClient['balances']>) => memory.balances(...args),
       } as LedgerClient;
       const admitted = new Map<string, { payload: unknown; admission: CommittedOperationAdmission; grantId: string }>();
       const accountAdmission: TradingAdmissionPort = {

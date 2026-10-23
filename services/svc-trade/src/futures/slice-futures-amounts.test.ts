@@ -239,6 +239,7 @@ function creditBook(options?: { balanceThrows?: boolean; ladder?: { depth: Depth
     if (text.includes('liquidation_rungs') || text.includes('liquidation_attempts')) return [];
     // This book places no matched orders: no opening order holds anything.
     if (text.includes('FROM trade.futures_orders') && text.includes('hold_asset')) return [];
+    if (text.includes('pg_advisory_xact_lock')) return [];
     if (text.includes('INSERT INTO trade.position_margin_adjustments')) {
       adjustments.push({
         position_id: String(values[0]),
@@ -350,6 +351,10 @@ function creditBook(options?: { balanceThrows?: boolean; ladder?: { depth: Depth
     async balance(ref: AccountRef) {
       if (options?.balanceThrows) throw new Error('balance down');
       return readBalance(ref);
+    },
+    async balances(...args: Parameters<MemoryLedger['balances']>) {
+      if (options?.balanceThrows) throw new Error('balance down');
+      return ledger.balances(...args);
     },
   } as LedgerClient;
 
