@@ -59,6 +59,11 @@ interface TickLedger {
    * Without it the tick counts only this process.
    */
   consecutiveIncompleteRuns?(): Promise<number>;
+  /**
+   * Operator controls that are due (OPS-reconciliation-01). A throw here does not
+   * freeze posting: a configured control is not the built-in invariant.
+   */
+  runDueReconciliationControls?(): Promise<void>;
 }
 
 /** Mutable per-process state. Pass one object for the life of the timer. */
@@ -229,6 +234,14 @@ export async function runScheduledReconciliationTick(
   }
 
   await reportWhenStale(ledger, log, state, options, now);
+
+  if (ledger.runDueReconciliationControls) {
+    try {
+      await ledger.runDueReconciliationControls();
+    } catch (err) {
+      log.fatal({ err }, 'LEDGER RECONCILIATION CONTROLS TICK FAILED — posting unchanged');
+    }
+  }
 }
 
 /** Report every tick, including skipped ones, so backoff cannot hide stale evidence. */

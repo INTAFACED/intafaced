@@ -97,6 +97,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./ledger-reconciliation": {
+      "types": "./dist/ledger-reconciliation.d.ts",
+      "default": "./dist/ledger-reconciliation.js"
     }
   },
   "scripts": {

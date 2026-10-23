@@ -1,6 +1,18 @@
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import { anyScopeProcedure, router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import {
+  LEDGER_RECONCILE_ASOF_INVALID,
+  LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  OPS_CONTROL_ACTOR_UNSET,
+  OPS_CONTROL_REASON_REQUIRED,
+  defineReconciliationControlInputSchema,
+  reconciliationControlListSchema,
+  reconciliationControlRunSchema,
+  reconciliationControlViewSchema,
+  runReconciliationControlInputSchema,
+  updateReconciliationControlInputSchema,
+} from '@intafaced/contracts/ledger-reconciliation';
 import {
   formatAmount,
   parseAmount,
@@ -37,7 +49,15 @@ import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import { LookupUnrecordedError } from './ledger/operator-lookup.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
+import {
+  defineReconciliationControl,
+  listReconciliationControls,
+  runReconciliationControl,
+  updateReconciliationControl,
+} from './ledger/reconciliation-controls.js';
 import type { LedgerService } from './service.js';
+import type { Sql } from 'postgres';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -82,6 +102,18 @@ function toTrpcError(err: unknown): TRPCError {
   }
   if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
     return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
+  }
+  if (err instanceof ReconciliationControlError) {
+    if (err.code === 'ledger.idempotency_conflict') {
+      return new TRPCError({ code: 'CONFLICT', message: err.code, cause: err });
+    }
+    if (err.code === LEDGER_RECONCILE_CONTROL_NOT_FOUND) {
+      return new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
+    }
+    if (err.code === LEDGER_RECONCILE_ASOF_INVALID || err.code === OPS_CONTROL_ACTOR_UNSET || err.code === OPS_CONTROL_REASON_REQUIRED) {
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.code, cause: err });
+    }
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.code, cause: err });
   }
   // Caller-actionable, and retrying the same body never will succeed. Same
   // status as `s2s-http.httpError`: a history window that cannot be answered,
@@ -581,7 +613,77 @@ export function createLedgerRouter(
           throw toTrpcError(err);
         }
       }),
+
+    /**
+     * Operator reconciliation controls (OPS-reconciliation-01). Read-only: a run
+     * does not post and does not freeze. `admin:compliance` may list; treasury defines and runs.
+     */
+    reconciliation: router({
+      controls: router({
+        list: anyScopeProcedure(['admin:treasury', 'admin:compliance'])
+          .output(reconciliationControlListSchema)
+          .query(async () => {
+            try {
+              return { controls: await listReconciliationControls(ledgerSql(ledger)) };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        define: scopedProcedure('admin:treasury')
+          .input(defineReconciliationControlInputSchema)
+          .output(reconciliationControlViewSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await defineReconciliationControl(
+                ledgerSql(ledger),
+                { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null },
+                input,
+              );
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        update: scopedProcedure('admin:treasury')
+          .input(updateReconciliationControlInputSchema)
+          .output(reconciliationControlViewSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await updateReconciliationControl(
+                ledgerSql(ledger),
+                { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null },
+                input,
+              );
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        run: scopedProcedure('admin:treasury')
+          .input(runReconciliationControlInputSchema)
+          .output(reconciliationControlRunSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await runReconciliationControl(
+                ledgerSql(ledger),
+                approvals,
+                { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null },
+                input,
+              );
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+    }),
   });
+}
+
+/** The service's postgres handle. `sql` stays private because another branch owns `service.ts`'s shape; the field is stable. */
+function ledgerSql(ledger: LedgerService): Sql {
+  const sql = (ledger as unknown as { sql?: Sql }).sql;
+  if (!sql) {
+    throw new ReconciliationControlError('ledger.reconcile_source_unavailable');
+  }
+  return sql;
 }
 
 export type LedgerRouter = ReturnType<typeof createLedgerRouter>;
