@@ -176,6 +176,23 @@ if (!available) {
       expect(await user()).toEqual({ status: 'active', version: '0', closed_reason: null });
     });
 
+    it('refuses an approval given at an earlier control version, after a freeze moved the account on', async () => {
+      const early = await approved(first, id(second), close('0'));
+      await controls.change(first, {
+        requestId: randomUUID(),
+        target: { area: 'identity', userId: target },
+        action: 'restrict',
+        reason: 'Incident review',
+        expectedVersion: '0',
+      });
+      expect(await controls.closure(first, { ...early, requestId: randomUUID(), expectedVersion: '1' })).toMatchObject({
+        outcome: 'refused',
+        code: 'identity.close_approval_mismatch',
+      });
+      expect(await user()).toEqual({ status: 'frozen', version: '1', closed_reason: null });
+      expect(await approvalStatus(early.approvalId!)).toBe('APPROVED');
+    });
+
     it('refuses while the closure checks report open products, and keeps the approval unspent', async () => {
       blockers = [{ code: 'bank.balance_open', count: 1 }];
       const input = await approved(first, id(second), close());

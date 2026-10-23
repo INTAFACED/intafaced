@@ -77,6 +77,56 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity applies the change only to the version that was approved. Nothing was changed.',
     next: 'Read the account again and make a new request if it is still needed.',
   },
+  'identity.close_requires_approver': {
+    title: 'Closing or reopening needs a second person',
+    body: 'Identity closes or reopens an account only with an approval a different person signed. Nothing was changed.',
+    next: 'Make the request, send the packet to the other founder, and run it once they approve.',
+  },
+  'identity.close_approval_mismatch': {
+    title: 'That approval is not for this change',
+    body: 'Identity checked the approval against this account, its current version, the reason code and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
+    next: 'Read the account again and make a new request.',
+  },
+  'identity.close_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'An approval runs once. Nothing was changed by this attempt.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the change is already there. If it still needs doing, make a new request.',
+  },
+  'identity.close_blocked': {
+    title: 'The account still has open products or balances',
+    body: 'Identity asked the bank, trading and P2P services before closing, and at least one still holds something for this account. Nothing was changed and the approval was not used.',
+    next: 'Settle or move what is open, then run the same approval again.',
+  },
+  'identity.close_check_unavailable': {
+    title: 'Identity could not check the account before closing',
+    body: 'One of the services identity asks before a close did not answer. Nothing was changed and the approval was not used.',
+    next: 'Try again later with the same approval.',
+  },
+  'identity.close_founder_forbidden': {
+    title: 'A founder account cannot be closed here',
+    body: 'Identity refuses to close either founder account from the console. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
+  'identity.close_self_forbidden': {
+    title: 'You cannot close your own account',
+    body: 'Identity refuses a close of the account making the request. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
+  'identity.close_already_closed': {
+    title: 'The account is already closed',
+    body: 'Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.reopen_not_closed': {
+    title: 'The account is not closed',
+    body: 'Only a closed account can be reopened. Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.reopen_not_allowed': {
+    title: 'This account cannot be reopened',
+    body: 'Identity reopens only an account the customer closed. This one was closed by staff for another reason, so it stays closed. Nothing was changed.',
+    next: 'The customer would need a new application.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',

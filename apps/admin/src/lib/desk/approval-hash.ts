@@ -66,6 +66,11 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
     case 'identity.account.unfreeze':
       return shaIdentity(request.userId, { reason: request.reason });
+    // svc-identity `identityClosurePayloadHash`: { targetId, action, reasonCode (close only), reason }, in this order.
+    case 'identity.account.close':
+      return shaIdentity(request.userId, { action: 'close', reasonCode: request.reasonCode, reason: request.reason });
+    case 'identity.account.reopen':
+      return shaIdentity(request.userId, { action: 'reopen', reason: request.reason });
     case 'academy.ambassador.appoint':
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
@@ -187,6 +192,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         policyVersion: 'v1',
       };
     // svc-identity's restore is bound to the account itself, at the control version the founder read.
+    case 'identity.account.close':
+    case 'identity.account.reopen':
+      return {
+        actionType: request.kind === 'identity.account.close' ? 'identity.account_close' : 'identity.account_reopen',
+        targetService: 'svc-identity',
+        targetId: request.userId,
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
     case 'identity.account.unfreeze':
       return {
         actionType: 'identity.account_unfreeze',
