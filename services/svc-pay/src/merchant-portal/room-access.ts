@@ -10,10 +10,12 @@ import { PortalError } from './errors.js';
  *
  * Every portal room is returned for every role. Open stays on. Every other
  * action names a suspended or closed account, then KYB that is not approved,
- * before the role table. A pending account is not inactive: onboarding still
- * holds pay:write once KYB is approved. Money still requires an active account,
- * and an allowed refund or payout names step-up. Nothing here moves money, and
- * a missing KYB status is refused rather than treated as verified.
+ * before the role table. The owner's own profile.manage is the exception:
+ * that owner can submit the business profile before KYB is approved. An
+ * admin's profile.manage still waits for approval. A pending account is not
+ * inactive. Money still requires an active account, and an allowed refund or
+ * payout names step-up. Nothing here moves money, and a missing KYB status
+ * is refused rather than treated as verified.
  */
 
 export type RoomActionReason = 'role' | 'kyb' | 'step_up' | 'inactive' | 'session';
@@ -80,7 +82,8 @@ export function decideRoomAction(ctx: RoomAccessContext, need: ActionNeed): { al
   const inactive =
     need.kind === 'money' ? ctx.accountStatus !== 'active' : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
   if (inactive) return { allowed: false, reason: 'inactive' };
-  if (ctx.kybStatus !== 'approved') return { allowed: false, reason: 'kyb' };
+  const ownerProfile = need.kind === 'permission' && need.permission === 'profile.manage' && ctx.role === 'owner';
+  if (ctx.kybStatus !== 'approved' && !ownerProfile) return { allowed: false, reason: 'kyb' };
   if (need.kind === 'permission') {
     const flags = capabilityFlagsForSession(ctx.role, true);
     return flags[need.permission] ? { allowed: true, reason: null } : { allowed: false, reason: 'role' };

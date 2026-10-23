@@ -45,8 +45,27 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
       allowed: false,
       reason: 'kyb',
     });
+    expect(action('owner', 'settings', 'profile.manage', { kybStatus: 'none' })).toEqual({
+      action: 'profile.manage',
+      allowed: true,
+      reason: null,
+    });
+    expect(action('owner', 'settings', 'profile.manage', { kybStatus: 'pending' })).toEqual({
+      action: 'profile.manage',
+      allowed: true,
+      reason: null,
+    });
+    expect(action('owner', 'settings', 'profile.manage', { kybStatus: 'rejected' })).toEqual({
+      action: 'profile.manage',
+      allowed: true,
+      reason: null,
+    });
+    expect(action('admin', 'settings', 'profile.manage', { kybStatus: 'none' })).toEqual({
+      action: 'profile.manage',
+      allowed: false,
+      reason: 'kyb',
+    });
     const writes = [
-      ['settings', 'profile.manage'],
       ['team', 'team.manage'],
       ['links', 'link.create'],
       ['invoices', 'invoice.create'],
@@ -60,8 +79,22 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
   });
 
   it('keeps a pending account in onboarding and names a suspended or closed account inactive', () => {
+    expect(action('owner', 'settings', 'profile.manage', { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
+      action: 'profile.manage',
+      allowed: true,
+      reason: null,
+    });
+    expect(action('owner', 'settings', 'profile.manage', { accountStatus: 'pending' })).toEqual({
+      action: 'profile.manage',
+      allowed: true,
+      reason: null,
+    });
+    expect(action('owner', 'settings', 'profile.manage', { accountStatus: 'closed', kybStatus: 'none' })).toEqual({
+      action: 'profile.manage',
+      allowed: false,
+      reason: 'inactive',
+    });
     const writes = [
-      ['settings', 'profile.manage'],
       ['team', 'team.manage'],
       ['links', 'link.create'],
       ['invoices', 'invoice.create'],
