@@ -58,7 +58,7 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
       account: deployer.walletClient.account!,
       chain: deployer.walletClient.chain,
     });
-    token = (await deployer.publicClient.waitForTransactionReceipt({ hash: tTx })).contractAddress!;
+    token = (await mined(deployer, tTx)).contractAddress!;
 
     const m = loadArtifact('MerchantAccept');
     acceptAbi = m.abi;
@@ -69,7 +69,7 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
       account: deployer.walletClient.account!,
       chain: deployer.walletClient.chain,
     });
-    accept = (await deployer.publicClient.waitForTransactionReceipt({ hash: mTx })).contractAddress!;
+    accept = (await mined(deployer, mTx)).contractAddress!;
 
     await mined(
       deployer,
@@ -97,7 +97,7 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
         chain: payer.walletClient.chain,
       }),
     );
-    await mined(
+    const paid = await mined(
       payer,
       await payer.walletClient.writeContract({
         address: accept,
@@ -113,12 +113,14 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
       abi: tokenAbi,
       functionName: 'balanceOf',
       args: [merchant.deployer],
+      blockNumber: paid.blockNumber,
     })) as bigint;
     const fBal = (await deployer.publicClient.readContract({
       address: token,
       abi: tokenAbi,
       functionName: 'balanceOf',
       args: [fee.deployer],
+      blockNumber: paid.blockNumber,
     })) as bigint;
     expect(fBal).toBe(amount / 100n);
     expect(mBal).toBe(amount - amount / 100n);
