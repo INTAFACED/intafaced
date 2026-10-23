@@ -46,9 +46,11 @@ import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, pu
 import type {
   AcademyAccessGrant,
   AcademyCourseEnrolment,
+  AcademyCompletionRule,
   AcademyCourseOutline,
   AcademyEnrolmentTrack,
   AcademyMyCourse,
+  AcademyUndoCompletion,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
@@ -1718,21 +1720,30 @@ export class AcademyService {
     const path = item.path as CurriculumPath;
     const now = input.now ?? new Date();
     const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
-    return {
-      slug: path,
-      items: releases.map(({ row, view }) => {
-        const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
-        return {
-          slug: row.slug,
-          title: row.title,
-          kind: row.kind,
-          state: view.state,
-          lock: view.lock,
-          missing: [...view.missing],
-          opensAt: opensLater ? view.availableFrom!.toISOString() : null,
-        };
-      }),
-    };
+    const [completedAt, passed] = await Promise.all([
+      this.completionTimes(
+        input.userId,
+        releases.map(({ row }) => row.slug),
+      ),
+      this.assessments.passedSlugs(input.userId),
+    ]);
+    const items = releases.map(({ row, view }) => {
+      const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
+      const rule = this.completionRule(row.slug);
+      return {
+        slug: row.slug,
+        title: row.title,
+        kind: row.kind,
+        state: view.state,
+        lock: view.lock,
+        missing: [...view.missing],
+        opensAt: opensLater ? view.availableFrom!.toISOString() : null,
+        rule,
+        ruleMet: this.completionRuleMet(row.slug, rule, passed),
+        completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
+      };
+    });
+    return { slug: path, items };
   }
 
   /**
@@ -1910,22 +1921,12 @@ export class AcademyService {
     };
   }
 
-  async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
+  async markCurriculumComplete(input: { userId: string; itemSlug: string; now?: Date }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {
       throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
     }
-    const existingRows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
-      SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
-       WHERE user_id = ${input.userId} AND item_slug = ${slug}
-    `;
-    const existing = existingRows[0]
-      ? {
-          userId: existingRows[0].user_id,
-          itemSlug: existingRows[0].item_slug,
-          completedAt: existingRows[0].completed_at,
-        }
-      : null;
+    const existing = await this.currentCompletion(this.sql, input.userId, slug);
     let decision: { record: ItemCompletionRecord; alreadyComplete: boolean };
     try {
       decision = decideItemComplete({ userId: input.userId, itemSlug: slug, existing });
@@ -1934,25 +1935,114 @@ export class AcademyService {
     }
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
-    const rows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
-      INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
-      VALUES (${input.userId}, ${slug}, now())
-      ON CONFLICT (user_id, item_slug) DO NOTHING
-      RETURNING user_id, item_slug, completed_at
-    `;
-    if (rows[0]) {
-      return { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at };
+    const rule = this.completionRule(slug);
+    if (rule === 'score' && this.assessments.definition(slug)!.passMark === null) {
+      throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     }
-    // concurrent insert — re-read
-    const again = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+    if (rule !== 'view' && !this.completionRuleMet(slug, rule, await this.assessments.passedSlugs(input.userId))) {
+      throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
+    }
+    const now = input.now ?? new Date();
+    return transaction(this.sql, async (tx) => {
+      // Complete and Undo on one item take turns, so the history and the current row never disagree.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
+      const rows = await tx<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+        INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
+        VALUES (${input.userId}, ${slug}, ${now})
+        ON CONFLICT (user_id, item_slug) DO NOTHING
+        RETURNING user_id, item_slug, completed_at
+      `;
+      if (!rows[0]) {
+        // Completed by a concurrent request: that one wrote the history row.
+        return (await this.currentCompletion(tx, input.userId, slug))!;
+      }
+      await tx`
+        INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
+        VALUES (${input.userId}, ${slug}, 'completed', NULL, ${now})
+      `;
+      return { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at };
+    });
+  }
+
+  /**
+   * AC-progress-01 Undo of one completion, named by its `completedAt`: the item is no longer complete, so course progress
+   * drops and items that need it, and are not complete themselves, lock again (a later item already completed stays so).
+   * The history keeps both events; completing again appends a new one with a new `completedAt`, which an old or replayed
+   * Undo does not match. A replay of the same request answers as the first did; a request id reused for another item is
+   * refused. Nothing matching to undo answers `undoneAt: null`.
+   */
+  async undoCurriculumComplete(input: {
+    userId: string;
+    itemSlug: string;
+    completedAt: string;
+    clientRequestId: string;
+    now?: Date;
+  }): Promise<AcademyUndoCompletion> {
+    const slug = input.itemSlug.trim();
+    if (!hasCurriculumSlug(slug)) {
+      throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    }
+    const clientRequestId = input.clientRequestId.trim();
+    const completedAt = new Date(input.completedAt);
+    const now = input.now ?? new Date();
+    return transaction(this.sql, async (tx) => {
+      // completed_at may carry microseconds (rows from before this change used now()); the caller saw it in milliseconds.
+      // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
+      const replay = await tx<Array<{ item_slug: string; recorded_at: Date }>>`
+        SELECT item_slug, recorded_at FROM academy.item_completion_events
+         WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
+      `;
+      if (replay[0]) {
+        if (replay[0].item_slug !== slug) {
+          throw new AcademyError('academy.request_reused this request id undid another item', 'academy.request_reused');
+        }
+        return { userId: input.userId, itemSlug: slug, undoneAt: replay[0].recorded_at.toISOString() };
+      }
+      const removed = await tx<Array<{ item_slug: string }>>`
+        DELETE FROM academy.cert_item_completions
+         WHERE user_id = ${input.userId} AND item_slug = ${slug}
+           AND date_trunc('milliseconds', completed_at) = ${completedAt}
+        RETURNING item_slug
+      `;
+      if (!removed[0]) return { userId: input.userId, itemSlug: slug, undoneAt: null };
+      await tx`
+        INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
+        VALUES (${input.userId}, ${slug}, 'undone', ${clientRequestId}, ${now})
+      `;
+      return { userId: input.userId, itemSlug: slug, undoneAt: now.toISOString() };
+    });
+  }
+
+  private async currentCompletion(sql: Sql, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
+    const rows = await sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
       SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
-       WHERE user_id = ${input.userId} AND item_slug = ${slug}
+       WHERE user_id = ${userId} AND item_slug = ${slug}
     `;
-    return {
-      userId: again[0]!.user_id,
-      itemSlug: again[0]!.item_slug,
-      completedAt: again[0]!.completed_at,
-    };
+    return rows[0] ? { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at } : null;
+  }
+
+  /**
+   * The course rule an item completes by (AC-progress-01): `score` when a quiz is published for it, otherwise `view`, met
+   * by opening it, which the Complete button on the open item already is.
+   */
+  completionRule(slug: string): AcademyCompletionRule {
+    return this.assessments.definition(slug) ? 'score' : 'view';
+  }
+
+  /** `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why. */
+  private completionRuleMet(slug: string, rule: AcademyCompletionRule, passed: ReadonlySet<string>): boolean {
+    return rule === 'view' || passed.has(slug);
+  }
+
+  private async completionTimes(userId: string, slugs: readonly string[]): Promise<Map<string, Date>> {
+    if (slugs.length === 0) return new Map();
+    const rows = await this.sql<Array<{ item_slug: string; completed_at: Date }>>`
+      SELECT item_slug, completed_at FROM academy.cert_item_completions
+       WHERE user_id = ${userId} AND item_slug = ANY(${slugs as string[]})
+    `;
+    return new Map(rows.map((r) => [r.item_slug, r.completed_at]));
   }
 
   private async completedSlugs(userId: string): Promise<Set<string>> {

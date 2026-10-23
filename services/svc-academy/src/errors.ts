@@ -170,7 +170,11 @@ export type AcademyErrorCode =
   /** AC-catalogue-03: no published course by that slug. A draft gets the same answer as a missing one. */
   | 'academy.course_not_found'
   /** AC-enrolment-01: the course or the chosen track is closed for enrolment; the message carries `reason=<reason>`. */
-  | 'academy.enrolment_closed';
+  | 'academy.enrolment_closed'
+  /** The item's course rule (pass its quiz, watch its video) is not met, so it cannot be marked complete. */
+  | 'academy.completion_rule_unmet'
+  /** A request id already answered a different request (another item, another action). */
+  | 'academy.request_reused';
 
 export class AcademyError extends Error {
   constructor(
@@ -274,6 +278,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.slug_reserved',
   'academy.course_not_found',
   'academy.enrolment_closed',
+  'academy.completion_rule_unmet',
+  'academy.request_reused',
 ] as const;
 
 /** L3 — catalog size. */

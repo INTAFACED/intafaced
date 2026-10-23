@@ -14,7 +14,8 @@ import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
-import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { LessonVideoLink, LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { academyCodeOf, missingItems } from './academy-flows';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -69,6 +70,7 @@ export function progressFor(owner: string | null | undefined, certId: string, re
   );
 }
 const completion = z.object({ userId: z.string().uuid(), itemSlug: ref, completedAt: date });
+const touched = z.object({ lastItemSlug: ref.nullable() });
 type Context = { owner: string; certId: string; slug: string };
 const contextSchema = z.object({ owner: z.string().uuid(), certId: z.string(), slug: ref });
 const selectionKey = (owner: string) => `intafaced:academy:certificate:${owner}`;
@@ -221,8 +223,15 @@ export function AcademyLearning({
   );
   const overview = useAcademyTracking();
   const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
+  // One reader on screen is one visit: the key is this reader's mount, so an effect run twice for the same lesson
+  // (a remount check, a session refresh) is one opening, and opening the lesson again later is another.
+  const visit = useRef(`${Date.now().toString(36)}`);
   useEffect(() => {
-    if (openedLesson) rememberLastLesson(userId, openedLesson);
+    if (!openedLesson) return;
+    rememberLastLesson(userId, openedLesson);
+    // Academy keeps where this account last read, so Continue opens the same item on any device. A failed write leaves
+    // the lesson readable and Continue where it was; it is not worth a notice on the lesson.
+    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${visit.current}` }, touched);
   }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
@@ -427,7 +436,12 @@ export function AcademyLearning({
             <div className="academy-learning-stack">
               {recovery}
               {/* A lesson held by its course start or window is refused in words; the outline beside it says when it opens. */}
-              {reader.resource.status === 'failed' ? (
+              {reader.resource.status === 'failed' && academyCodeOf(reader.resource.failure) === 'academy.prerequisite_unmet' ? (
+                <LockedItemNotice
+                  missing={missingItems(reader.resource.failure.message)}
+                  lessons={overview.resource.status === 'ready' ? overview.resource.data.lessons : []}
+                />
+              ) : reader.resource.status === 'failed' ? (
                 <AcademyRefusal failure={reader.resource.failure} retry={reader.reload} />
               ) : (
                 <Read resource={reader.resource} retry={reader.reload}>

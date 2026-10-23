@@ -13,6 +13,7 @@ import { listCurriculum } from '../curriculum/catalog.js';
 import { formatUtcIcs } from './calendar.js';
 import type { ProgrammeDefinition } from '../curriculum/programmes.js';
 import type { VideoSpineEntry } from '../video/catalog.js';
+import type { AssessmentDefinition } from '../assessment/catalog.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -304,6 +305,137 @@ describe('academy customer learning reads and writes', () => {
     await expect(academy.courseOutline({ userId: USER, itemSlug: 'no-such-item' })).rejects.toMatchObject({
       code: 'academy.curriculum_not_found',
     });
+  });
+
+  it('Complete records once with one history event, Undo drops progress and relocks, and completing again records a new event', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    await academy.setItemPrerequisites({ itemSlug: items[1]!.slug, prerequisites: [items[0]!.slug] });
+    const first = await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
+    const again = await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
+    expect(again.completedAt.toISOString()).toBe(first.completedAt.toISOString());
+    const outline = await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug });
+    expect(outline.items[0]).toMatchObject({
+      state: 'completed',
+      rule: 'view',
+      ruleMet: true,
+      completedAt: first.completedAt.toISOString(),
+    });
+    expect(outline.items[1]).toMatchObject({ lock: null, completedAt: null });
+
+    const at = first.completedAt.toISOString();
+    const undone = await academy.undoCurriculumComplete({
+      userId: USER,
+      itemSlug: items[0]!.slug,
+      completedAt: at,
+      clientRequestId: 'undo-1',
+    });
+    expect(undone.undoneAt).not.toBeNull();
+    // A lost reply sends the same request again: same answer, nothing written twice.
+    expect(
+      await academy.undoCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug, completedAt: at, clientRequestId: 'undo-1' }),
+    ).toEqual(undone);
+    await expect(
+      academy.undoCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug, completedAt: at, clientRequestId: 'undo-1' }),
+    ).rejects.toMatchObject({ code: 'academy.request_reused' });
+    expect(
+      await academy.undoCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug, completedAt: at, clientRequestId: 'undo-2' }),
+    ).toMatchObject({ undoneAt: null });
+    const dropped = await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug });
+    expect(dropped.items[0]).toMatchObject({ state: 'unlocked', completedAt: null });
+    expect(dropped.items[1]).toMatchObject({ lock: 'prerequisite', missing: [items[0]!.slug] });
+    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug })).rejects.toMatchObject({
+      code: 'academy.prerequisite_unmet',
+    });
+
+    const later = new Date(first.completedAt.getTime() + 60_000);
+    const redone = await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug, now: later });
+    expect(redone.completedAt.toISOString()).toBe(later.toISOString());
+    const history = await sql<Array<{ event: string }>>`
+      SELECT event FROM academy.item_completion_events WHERE user_id = ${USER} AND item_slug = ${items[0]!.slug} ORDER BY recorded_at
+    `;
+    expect(history.map((row) => row.event)).toEqual(['completed', 'undone', 'completed']);
+    // A late Undo of the first completion does not take back the new one.
+    expect(
+      await academy.undoCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug, completedAt: at, clientRequestId: 'undo-late' }),
+    ).toMatchObject({ undoneAt: null });
+    expect((await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug })).items[0]!.state).toBe('completed');
+    // Two Undos sharing one request id on different items: one runs, the other is refused in words, never a raw error.
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug });
+    const outlineNow = (await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug })).items;
+    const raced = await Promise.allSettled(
+      [0, 1].map((i) =>
+        academy.undoCurriculumComplete({
+          userId: USER,
+          itemSlug: items[i]!.slug,
+          completedAt: outlineNow[i]!.completedAt!,
+          clientRequestId: 'shared',
+        }),
+      ),
+    );
+    expect(raced.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(raced.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'academy.request_reused' } });
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug });
+    // Undo is the caller's own: another learner's completion of the same item is untouched.
+    await academy.markCurriculumComplete({ userId: OTHER, itemSlug: items[0]!.slug });
+    const mine = (await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug })).items[0]!.completedAt!;
+    await academy.undoCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug, completedAt: mine, clientRequestId: 'undo-3' });
+    expect((await academy.courseOutline({ userId: OTHER, itemSlug: items[0]!.slug })).items[0]!.state).toBe('completed');
+  });
+
+  it('Undo matches a completion stored with microseconds, as rows recorded before Undo existed were', async () => {
+    const academy = service();
+    const slug = listCurriculum({ path: 'markets' })[0]!.slug;
+    await sql`
+      INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
+      VALUES (${USER}, ${slug}, '2026-10-01T10:00:00.123456Z')
+    `;
+    const seen = (await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]!.completedAt!;
+    expect(seen).toBe('2026-10-01T10:00:00.123Z');
+    const undone = await academy.undoCurriculumComplete({ userId: USER, itemSlug: slug, completedAt: seen, clientRequestId: 'old-row' });
+    expect(undone.undoneAt).not.toBeNull();
+    expect((await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]!.state).not.toBe('completed');
+  });
+
+  it('an item with a published quiz completes only after a passing attempt, and the outline says which rule is unmet', async () => {
+    const slug = listCurriculum({ path: 'foundations' })[0]!.slug;
+    const quiz: AssessmentDefinition = {
+      slug,
+      kind: 'quiz',
+      passMark: 1,
+      attemptLimit: null,
+      cooldownSeconds: null,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'TEST question',
+          kind: 'single',
+          points: 1,
+          choices: [
+            { id: 'a', text: 'TEST wrong' },
+            { id: 'b', text: 'TEST right' },
+          ],
+          correctChoiceId: 'b',
+        },
+      ],
+    };
+    const unscored = service({ assessmentCatalog: [{ ...quiz, passMark: null }] });
+    await expect(unscored.markCurriculumComplete({ userId: USER, itemSlug: slug })).rejects.toMatchObject({
+      code: 'academy.pass_mark_unset',
+    });
+    const academy = service({ assessmentCatalog: [quiz] });
+    expect((await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]).toMatchObject({ rule: 'score', ruleMet: false });
+    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: slug })).rejects.toMatchObject({
+      code: 'academy.completion_rule_unmet',
+    });
+    await academy.submitAssessment({ userId: USER, slug, clientAttemptId: 'a1', answers: [{ questionId: 'q1', choiceId: 'a' }] });
+    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: slug })).rejects.toMatchObject({
+      code: 'academy.completion_rule_unmet',
+    });
+    await academy.submitAssessment({ userId: USER, slug, clientAttemptId: 'a2', answers: [{ questionId: 'q1', choiceId: 'b' }] });
+    expect((await academy.courseOutline({ userId: USER, itemSlug: slug })).items[0]).toMatchObject({ rule: 'score', ruleMet: true });
+    expect((await academy.markCurriculumComplete({ userId: USER, itemSlug: slug })).itemSlug).toBe(slug);
   });
 
   it('a course that starts next week takes enrolments, shows its date, and holds every item until it starts', async () => {

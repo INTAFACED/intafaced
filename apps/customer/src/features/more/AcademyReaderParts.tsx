@@ -109,3 +109,35 @@ export function LessonVideoLink({ slug }: { slug: string }) {
     </div>
   );
 }
+
+/**
+ * A lesson whose prerequisite is unmet (AC-release-access-02): Academy refused before sending its body, and this names
+ * the earlier items with a link to each. Titles come from the published catalogue; an unknown slug is shown as itself.
+ */
+export function LockedItemNotice({ missing, lessons }: { missing: readonly string[]; lessons: readonly LessonSummary[] }) {
+  const { t } = copy.useCopy();
+  return (
+    <section className="failure" role="status" data-locked-item="prerequisite">
+      <h3>{t('lockedItemTitle')}</h3>
+      {missing.length > 0 ? (
+        <>
+          <p>{t('lockedItemBody')}</p>
+          <ul>
+            {missing.map((slug) => {
+              const title = lessons.find((lesson) => lesson.slug === slug)?.title;
+              return (
+                <li key={slug}>
+                  <a className="text-link" href={`/academy/${encodeURIComponent(slug)}`} lang={title ? 'und' : 'zxx'}>
+                    {title ?? slug}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : (
+        <p>{t('lockedItemUnnamed')}</p>
+      )}
+    </section>
+  );
+}

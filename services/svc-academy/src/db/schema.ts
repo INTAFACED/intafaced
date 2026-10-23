@@ -343,6 +343,20 @@ export const certItemCompletions = academy.table(
   ],
 );
 
+/** AC-progress-01: every Complete and Undo, in order. The current state stays in cert_item_completions. */
+export const itemCompletionEvents = academy.table(
+  'item_completion_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    itemSlug: text('item_slug').notNull(),
+    event: text('event').notNull(),
+    clientRequestId: text('client_request_id'),
+    recordedAt: tstz('recorded_at').notNull(),
+  },
+  (t) => [index('item_completion_events_user_item_idx').on(t.userId, t.itemSlug, t.recordedAt)],
+);
+
 export const certGrants = academy.table(
   'cert_grants',
   {
@@ -453,6 +467,7 @@ export const schema = {
   residencyApplications,
   certEnrollments,
   certItemCompletions,
+  itemCompletionEvents,
   certGrants,
   assessmentAttempts,
   certHolderNameRequests,

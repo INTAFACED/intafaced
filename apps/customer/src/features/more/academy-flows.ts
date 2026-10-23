@@ -160,6 +160,12 @@ export function academyCodeOf(failure: Pick<Failure, 'code' | 'message'>): strin
   return /\bacademy\.[a-z_]+\b/.exec(failure.message)?.[0] ?? null;
 }
 
+/** Curriculum item slugs from "academy.prerequisite_unmet missing=a-lesson,another" (an item's own prerequisite). */
+export function missingItems(message: string): string[] {
+  const list = /\bmissing=(\S+)/.exec(message)?.[1];
+  return list ? list.split(',').filter(Boolean) : [];
+}
+
 /** Programme names from "academy.prerequisite_unmet missing=foundations,markets". */
 export function missingProgrammes(message: string): string[] {
   const list = /\bmissing=([a-z0-9,-]+)/.exec(message)?.[1];
@@ -190,7 +196,9 @@ export type RefusalKey =
   | 'refCurriculumNotFound'
   | 'refCourseNotFound'
   | 'refEnrolmentClosed'
-  | 'refItemNotOpen';
+  | 'refItemNotOpen'
+  | 'refCompletionRuleUnmet'
+  | 'refRequestReused';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -242,6 +250,10 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refEnrolmentClosed';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
+    case 'academy.completion_rule_unmet':
+      return 'refCompletionRuleUnmet';
+    case 'academy.request_reused':
+      return 'refRequestReused';
     default:
       return null;
   }
