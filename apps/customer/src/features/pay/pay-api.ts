@@ -769,6 +769,53 @@ export function createPersonalPayApi(
       return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
     },
     /**
+     * Hold the reviewed figures: `trades.lockQuote`. The service keeps this price, fee and amount until the quote ends,
+     * and a take that names it places exactly them or refuses before anything is reserved. The reply must describe the
+     * same request and add up, like a preview quote.
+     */
+    async lockQuote(offer: s.Offer, request: TakeRequest, signal?: AbortSignal): Promise<ApiResult<s.TakeQuote>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
+      if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
+      if (!p2pCurrent()) return p2pDeparted();
+      let quoteId: string;
+      try {
+        quoteId = globalThis.crypto.randomUUID();
+      } catch {
+        return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+          code: 'pay.recovery_journal_unavailable',
+          reason: 'not_supported',
+        });
+      }
+      const result = await api.mutate('p2p', 'trades.lockQuote', { ...request, quoteId }, s.lockedQuoteSchema, { signal });
+      if (!p2pCurrent()) return p2pDeparted();
+      if (!result.ok) return result;
+      const { expiresAt, ...figures } = result.data;
+      const held: s.TakeQuote = { ...figures, reservationExpiresAt: expiresAt };
+      return quoteIsConsistent(offer, request, held) && held.quoteId === quoteId
+        ? { ok: true, data: held }
+        : takeRefusal('pay.take_quote_invalid', 'invalid_response');
+    },
+    /**
+     * The coin amount a fiat amount buys on this offer, as the service converts it (`trades.quote` with `fiatAmount`,
+     * rounded down so the fiat is never more than asked). Only the amount is used: the order is then quoted by it.
+     */
+    async coinForFiat(offer: s.Offer, input: { fiatAmount: string; method: string }, signal?: AbortSignal): Promise<ApiResult<string>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query(
+        'p2p',
+        'trades.quote',
+        { offerId: offer.id.toLowerCase(), fiatAmount: input.fiatAmount, method: input.method },
+        s.takeQuoteSchema,
+        { signal },
+      );
+      if (!p2pCurrent()) return p2pDeparted();
+      return result.ok ? { ok: true, data: result.data.amount } : result;
+    },
+    /**
      * Place the order: `trades.take`, which locks the seller's asset in escrow. Money moves, so:
      *  - the order id is chosen here, stored on this device before the request leaves, and sent with it;
      *  - the offer and the quote are read again first and must be what was reviewed;
@@ -815,7 +862,13 @@ export function createPersonalPayApi(
         const sent = await api.mutate(
           'p2p',
           'trades.take',
-          { offerId: request.offerId, tradeId, amount: request.amount, method: request.method },
+          {
+            offerId: request.offerId,
+            tradeId,
+            amount: request.amount,
+            method: request.method,
+            ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+          },
           s.tradeSchema,
         );
         if (sent.ok)

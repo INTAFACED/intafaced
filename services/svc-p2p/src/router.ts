@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   ActionApprovalConsumeError,
   consumeDisputeResolveApproval,
@@ -116,6 +116,22 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
  * Shared board filters. `offers.list` stays an array for the live customer
  * parser. `offers.page` is the cursor page. Cursor is not a list input.
  */
+/** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
+const takeAmountInput = z
+  .object({
+    offerId: z.string().uuid(),
+    amount: amountString.optional(),
+    fiatAmount: amountString.optional(),
+    method: z.string().min(1).max(64),
+  })
+  .refine((value) => (value.amount === undefined) !== (value.fiatAmount === undefined), {
+    message: 'p2p.invalid_amount: give the amount in the coin or in fiat, not both',
+    path: ['amount'],
+  });
+
+const takeAmountOf = (input: { amount?: string; fiatAmount?: string }): { amount: Amount } | { fiatAmount: Amount } =>
+  input.amount !== undefined ? { amount: parseAmount(input.amount) } : { fiatAmount: parseAmount(input.fiatAmount!) };
+
 const offerListShape = {
   asset: z.string().optional(),
   fiatCurrency: z.string().length(3).optional(),
@@ -436,6 +452,7 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof P2pError) {
     switch (err.code) {
       case 'p2p.offer_not_found':
+      case 'p2p.quote_not_found':
       case 'p2p.trade_not_found':
       case 'p2p.dispute_not_found':
       case 'p2p.user_not_found':
@@ -498,6 +515,7 @@ function toTrpcError(err: unknown): TRPCError {
       // looking for a scope they already have.
       case 'p2p.merchant_ineligible':
       case 'p2p.merchant_reason_required':
+      case 'p2p.quote_mismatch':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
@@ -509,6 +527,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_already_resolved':
       case 'p2p.dispute_resolve_approval_consumed':
       case 'p2p.trade_exists':
+      // The quote's window passed, or its price or fee moved: ask for a new quote.
+      case 'p2p.quote_expired':
+      case 'p2p.quote_changed':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':
@@ -1208,6 +1229,8 @@ export function createP2pRouter(
             tradeId: z.string().uuid(),
             amount: amountString,
             method: z.string().min(1).max(64),
+            /** P-trade-orders-06: the locked quote (`trades.lockQuote`) this take places, inside its window. */
+            quoteId: z.string().uuid().optional(),
           }),
         )
         .output(tradeOutput)
@@ -1222,6 +1245,7 @@ export function createP2pRouter(
                 amount: parseAmount(input.amount),
                 tradeId: input.tradeId,
                 method: input.method,
+                ...(input.quoteId ? { quoteId: input.quoteId } : {}),
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
               }),
             );
@@ -1329,13 +1353,7 @@ export function createP2pRouter(
        * the offer and the published fee. No row is written.
        */
       quote: merchantApiProcedure('p2p:read')
-        .input(
-          z.object({
-            offerId: z.string().uuid(),
-            amount: amountString,
-            method: z.string().min(1).max(64),
-          }),
-        )
+        .input(takeAmountInput)
         .output(
           z.object({
             amount: amountString,
@@ -1352,8 +1370,8 @@ export function createP2pRouter(
             const quoted = await p2p.quoteTake({
               offerId: input.offerId,
               takerId: ctx.principal.userId,
-              amount: parseAmount(input.amount),
               method: input.method,
+              ...takeAmountOf(input),
               ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
             });
             return {
@@ -1364,6 +1382,48 @@ export function createP2pRouter(
               fee: formatAmount(quoted.fee),
               netAmount: formatAmount(quoted.netAmount),
               reservationExpiresAt: quoted.reservationExpiresAt.toISOString(),
+            };
+          }),
+        ),
+
+      /**
+       * P-trade-orders-06: lock the quote for its window. `trades.take` with this `quoteId` places exactly these terms,
+       * or refuses `p2p.quote_expired` / `p2p.quote_changed` before anything is reserved. Client-chosen `quoteId`: a
+       * retry returns the same quote.
+       */
+      lockQuote: merchantApiProcedure('p2p:write')
+        .input(takeAmountInput.and(z.object({ quoteId: z.string().uuid() })))
+        .output(
+          z.object({
+            quoteId: z.string().uuid(),
+            amount: amountString,
+            price: amountString,
+            fiatAmount: amountString,
+            feeBps: z.number().int().nonnegative(),
+            fee: amountString,
+            netAmount: amountString,
+            expiresAt: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const locked = await p2p.lockQuote({
+              quoteId: input.quoteId,
+              offerId: input.offerId,
+              takerId: ctx.principal.userId,
+              method: input.method,
+              ...takeAmountOf(input),
+              ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
+            });
+            return {
+              quoteId: locked.quoteId,
+              amount: formatAmount(locked.amount),
+              price: formatAmount(locked.price),
+              fiatAmount: formatAmount(locked.fiatAmount),
+              feeBps: locked.feeBps,
+              fee: formatAmount(locked.fee),
+              netAmount: formatAmount(locked.netAmount),
+              expiresAt: locked.expiresAt.toISOString(),
             };
           }),
         ),

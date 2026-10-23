@@ -39,6 +39,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failTermsChanged');
     case 'quoteChanged':
       return t('failQuoteChanged');
+    case 'quoteExpired':
+      return t('failQuoteExpired');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -173,6 +175,58 @@ export function TakeReviewDetails({
 
 type QuoteState = { key: string; result: ApiResult<TakeQuote> | 'loading' } | null;
 
+const FIAT_TEXT = /^\d{1,18}(\.\d{1,18})?$/;
+
+const clock = (at: Date) => at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+/**
+ * How long the service holds the reviewed quote, to the second. Once it ends the order cannot be placed from it: the
+ * service would refuse `p2p.quote_expired`, so the button is off and a new quote is one click.
+ */
+export function QuoteCountdown({
+  endsAt,
+  renewing,
+  onRenew,
+  now = () => Date.now(),
+  children,
+}: {
+  endsAt: string;
+  renewing: boolean;
+  onRenew: () => void;
+  now?: () => number;
+  children: (ended: boolean) => ReactNode;
+}) {
+  const { t } = p2pDepth.useCopy();
+  const end = new Date(endsAt);
+  const [left, setLeft] = useState(() => Math.max(0, end.getTime() - now()));
+  useEffect(() => {
+    setLeft(Math.max(0, end.getTime() - now()));
+    const timer = setInterval(() => setLeft(Math.max(0, end.getTime() - now())), 1000);
+    return () => clearInterval(timer);
+  }, [endsAt]);
+  const ended = left <= 0;
+  const seconds = Math.ceil(left / 1000);
+  return (
+    <>
+      <div className="p2p-quote-countdown" role="timer" aria-live="off" data-testid="take-quote-countdown" data-ended={ended}>
+        {ended ? (
+          <p role="status">
+            {t('quoteEnded', { time: clock(end) })}{' '}
+            <Button type="button" variant="secondary" disabled={renewing} onClick={onRenew} data-testid="take-quote-renew">
+              {renewing ? t('quoteLocking') : t('quoteRenew')}
+            </Button>
+          </p>
+        ) : (
+          <p className="muted">
+            {t('quoteHeld', { left: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, time: clock(end) })}
+          </p>
+        )}
+      </div>
+      {children(ended)}
+    </>
+  );
+}
+
 /**
  * Placing an order on someone else's offer. The quantity is checked against the offer's limits, the service quotes the
  * exact fee and net amount, and the order is placed only from a review of those figures. It locks money in escrow, so
@@ -185,6 +239,11 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const methods = offerMethodIds(offer);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
+  // A fiat amount the service turns into the coin amount; editing the coin amount clears it.
+  const [fiat, setFiat] = useState('');
+  const [converted, setConverted] = useState<ApiResult<string> | 'loading' | null>(null);
+  const [locking, setLocking] = useState(false);
+  const [lockFailure, setLockFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const check = checkTake(offer, amount);
   const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
   const selling = takerRole(offer) === 'seller';
@@ -262,6 +321,28 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     };
   }, [requestKey, quoteRound, own, pay]);
 
+  // The fiat amount, a moment after typing stops, becomes the coin amount the service works out at this ad's price.
+  const conversionMethod = method || methods[0] || '';
+  useEffect(() => {
+    if (own || !FIAT_TEXT.test(fiat.trim()) || !conversionMethod) {
+      setConverted(null);
+      return;
+    }
+    const controller = new AbortController();
+    setConverted('loading');
+    const timer = setTimeout(() => {
+      void pay.coinForFiat(offer, { fiatAmount: fiat.trim(), method: conversionMethod }, controller.signal).then((result) => {
+        if (controller.signal.aborted) return;
+        setConverted(result);
+        if (result.ok) setAmount(result.data);
+      });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fiat, conversionMethod, own, pay]);
+
   if (own)
     return (
       <section
@@ -300,6 +381,21 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
     setReview(null);
     setOutcome(null);
   };
+  // The review holds the service's figures for the quote's window: the order names this quote, and an ended one refuses.
+  async function lockAndReview(asked: TakeRequest) {
+    if (locking || busy) return;
+    setLocking(true);
+    setLockFailure(null);
+    const held = await pay.lockQuote(offer, asked);
+    if (!mounted.current) return;
+    setLocking(false);
+    if (!held.ok) {
+      setLockFailure(held);
+      return;
+    }
+    setOutcome(null);
+    setReview({ token: ++reviewToken.current, request: asked, quote: held.data });
+  }
   async function confirm() {
     if (busy || !review || !userId) return;
     const { token } = review;
@@ -424,7 +520,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready && request.ok && !busy) setReview({ token: ++reviewToken.current, request: request.request, quote: ready });
+          if (ready && request.ok && !busy) void lockAndReview(request.request);
         }}
         className="form-stack"
         noValidate
@@ -439,10 +535,27 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             inputMode="decimal"
             autoComplete="off"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              setAmount(event.target.value);
+              setFiat('');
+            }}
             aria-invalid={problem !== null && check.kind !== 'empty'}
           />
           {problem && check.kind !== 'empty' ? <small className="error-text">{problem}</small> : null}
+        </label>
+        <label className="field">
+          <span>{t('takeFiatAmount', { fiat: offer.fiatCurrency })}</span>
+          <input
+            inputMode="decimal"
+            autoComplete="off"
+            value={fiat}
+            onChange={(event) => setFiat(event.target.value)}
+            data-testid="take-fiat-amount"
+          />
+          <small className="muted">
+            {converted === 'loading' ? t('takeFiatConverting', { asset: offer.asset }) : t('takeFiatHint', { asset: offer.asset })}
+          </small>
+          {converted && converted !== 'loading' && !converted.ok ? <TakeFailureNote failure={converted} context="quote" /> : null}
         </label>
         <label className="field">
           <span>{t('takeMethod')}</span>
@@ -475,8 +588,9 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             </>
           )}
         </div>
-        <Button type="submit" variant="primary" disabled={ready === null || busy} data-testid="take-review">
-          {t('takeReview')}
+        {lockFailure ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
+        <Button type="submit" variant="primary" disabled={ready === null || busy || locking} data-testid="take-review">
+          {locking ? t('quoteLocking') : t('takeReview')}
         </Button>
       </form>
       {review ? (
@@ -500,15 +614,26 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
               methodLabel={methodLabel(review.request.method)}
               counterparty={<TraderName record={traders[offer.makerId.toLowerCase()] ?? null} />}
             />
-            {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
-            <div className="actions">
-              <Button variant="ghost" disabled={busy} onClick={closeReview}>
-                {t('takeBack')}
-              </Button>
-              <Button variant="primary" disabled={busy} onClick={() => void confirm()} data-testid="take-confirm">
-                {busy ? t('takePlacing') : t('takeConfirm')}
-              </Button>
-            </div>
+            <QuoteCountdown
+              endsAt={review.quote.reservationExpiresAt}
+              renewing={locking}
+              onRenew={() => void lockAndReview(review.request)}
+            >
+              {(ended) => (
+                <>
+                  {outcome && !outcome.ok ? <TakeFailureNote failure={outcome} context="take" /> : null}
+                  {lockFailure ? <TakeFailureNote failure={lockFailure} context="quote" /> : null}
+                  <div className="actions">
+                    <Button variant="ghost" disabled={busy} onClick={closeReview}>
+                      {t('takeBack')}
+                    </Button>
+                    <Button variant="primary" disabled={busy || ended} onClick={() => void confirm()} data-testid="take-confirm">
+                      {busy ? t('takePlacing') : t('takeConfirm')}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </QuoteCountdown>
           </div>
         </Dialog>
       ) : null}

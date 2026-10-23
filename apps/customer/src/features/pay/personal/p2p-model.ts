@@ -333,6 +333,7 @@ export type TakeFailure =
   | 'notFound'
   | 'termsChanged'
   | 'quoteChanged'
+  | 'quoteExpired'
   | 'ownOffer'
   | 'unavailable'
   | 'blocked'
@@ -352,6 +353,11 @@ export type TakeFailure =
 
 /** Service refusals that are proof nothing was reserved or locked: they are raised before any inventory moves. */
 export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
+  // A locked quote is checked before anything is reserved, and a take that already placed skips the check.
+  'p2p.quote_expired',
+  'p2p.quote_changed',
+  'p2p.quote_not_found',
+  'p2p.quote_mismatch',
   'p2p.invalid_amount',
   'p2p.amount_below_min',
   'p2p.amount_above_max',
@@ -408,7 +414,12 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'pay.take_terms_changed':
       return 'termsChanged';
     case 'pay.take_quote_changed':
+    case 'p2p.quote_changed':
+    case 'p2p.quote_mismatch':
       return 'quoteChanged';
+    case 'p2p.quote_expired':
+    case 'p2p.quote_not_found':
+      return 'quoteExpired';
     case 'pay.take_own_offer':
     case 'p2p.self_trade':
       return 'ownOffer';
