@@ -16,6 +16,11 @@ import {
   quantBacktestInputSchema,
   quantBacktestHistorySchema,
   quantBacktestResultSchema,
+  quantPublicResultSchema,
+  quantReportSchema,
+  quantShareCreatedSchema,
+  quantShareEmbedSchema,
+  quantShareStateSchema,
   QUANT_RUN_LABEL_MAX,
   quantCompileOutputSchema,
   quantQuickStartOutputSchema,
@@ -72,8 +77,16 @@ import {
   QUANT_OPS_RUNS_LIMIT_UNSET,
   QUANT_OPS_RUNS_TO_UNSET,
   QUANT_RUN_IMMUTABLE,
+  QUANT_EMBED_ORIGINS_UNSET,
   QUANT_RUN_NOT_FOUND,
   QUANT_RUN_NOT_SIMULATED,
+  QUANT_SHARE_NOT_FOUND,
+  QUANT_SHARE_RATE_LIMITED,
+  QUANT_SHARE_RATE_UNSET,
+  QUANT_SHARE_SEQ_STALE,
+  QUANT_SHARE_SEQ_UNSET,
+  QUANT_SHARE_TOKEN_UNSET,
+  QUANT_SHARE_WINDOW_UNSET,
   QUANT_RUN_RESULT_CAP_UNSET,
   QUANT_RUN_RESULT_TOO_LARGE,
   QUANT_RUN_UNFINISHED,
@@ -108,6 +121,8 @@ import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } f
 import { openStrategyRepository } from './studio/open.js';
 import { draftOf, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
 import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST } from './studio/scope.js';
+import { publicResultOf, reportOf } from './report/document.js';
+import type { ShareRepository } from './share/repository.js';
 import { withQuantSpan } from './tracing.js';
 
 const simulatedStamp = z.object({
@@ -152,7 +167,10 @@ const runOutput = z
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
     const code =
-      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND || err.code === QUANT_TEMPLATE_NOT_FOUND
+      err.code === QUANT_STUDIO_NOT_FOUND ||
+      err.code === QUANT_RUN_NOT_FOUND ||
+      err.code === QUANT_SHARE_NOT_FOUND ||
+      err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -167,6 +185,10 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_RUN_RESULT_TOO_LARGE ||
             err.code === QUANT_CLAIM_PNL_UNSET ||
             err.code === QUANT_DISCLOSURE_UNSET ||
+            err.code === QUANT_EMBED_ORIGINS_UNSET ||
+            err.code === QUANT_SHARE_RATE_UNSET ||
+            err.code === QUANT_SHARE_WINDOW_UNSET ||
+            err.code === QUANT_SHARE_RATE_LIMITED ||
             err.code === QUANT_SIGNAL_RULES_SANDBOX ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
@@ -329,6 +351,17 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly templates?: TemplateRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
+  /**
+   * Share links (AL-report-03). Omitted, the rate and the window are blank and every share call refuses by name.
+   * A repository is still required once the rate is set; production passes Postgres.
+   */
+  readonly share?: {
+    readonly repository: ShareRepository;
+    readonly rate: number | null;
+    readonly windowSec: number | null;
+    readonly embedOrigins: readonly string[] | null;
+    readonly now?: () => number;
+  };
 }
 
 const strategyMetadata = z.object({
@@ -357,6 +390,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
+  const shares = deps.share?.repository;
+  const shareRate = deps.share?.rate ?? null;
+  const shareWindowSec = deps.share?.windowSec ?? null;
+  const embedOrigins = deps.share?.embedOrigins ?? null;
+  const shareNow = deps.share?.now ?? (() => Date.now());
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
   async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
@@ -378,6 +416,51 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     return found
       ? { published: true as const, version: found.version, text: found.text, publishedAt: found.publishedAt }
       : { published: false as const };
+  }
+
+  function requireShareLimits(): { readonly rate: number; readonly windowMs: number } {
+    if (shareRate === null || !Number.isInteger(shareRate) || shareRate < 0) {
+      throw new QuantError(QUANT_SHARE_RATE_UNSET, 'share rate — the public read limit is not set');
+    }
+    if (shareWindowSec === null || !Number.isInteger(shareWindowSec) || shareWindowSec < 1) {
+      throw new QuantError(QUANT_SHARE_WINDOW_UNSET, 'share window — the public read window is not set');
+    }
+    if (!shares) throw new QuantError(QUANT_DATABASE_URL_UNSET, 'DATABASE_URL is unset');
+    return { rate: shareRate, windowMs: shareWindowSec * 1000 };
+  }
+
+  function requireSeq(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new QuantError(QUANT_SHARE_SEQ_UNSET, 'seq — the number of links the screen read is unset');
+    }
+    return value;
+  }
+
+  function sharePath(token: string): string {
+    return `/quant/share/${token}`;
+  }
+
+  function embedOf(token: string | null): {
+    embed: { snippet: string; origins: string[] } | null;
+    embedRefusal: 'quant.embed_origins_unset' | null;
+  } {
+    if (embedOrigins === null || embedOrigins.length === 0) {
+      return { embed: null, embedRefusal: QUANT_EMBED_ORIGINS_UNSET };
+    }
+    if (!token) return { embed: null, embedRefusal: null };
+    const origins = [...embedOrigins];
+    return {
+      embed: { snippet: `<iframe src="${sharePath(token)}" title="Historical simulation — not a forecast"></iframe>`, origins },
+      embedRefusal: null,
+    };
+  }
+
+  /** The caller's own finished bar backtest. Anything else, including another account's run, is not found. */
+  async function ownedBar(accountId: string, runId: string): Promise<{ id: string; stored: StoredBacktest }> {
+    const row = await runs.get({ userId: accountId, id: runId });
+    const stored = row && row.finished && row.outcome === 'ok' && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
+    if (!row || !stored) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+    return { id: row.id, stored };
   }
 
   /** The caller's own, undeleted strategy at a version that exists. Anything else reads as not found. */
@@ -991,6 +1074,140 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /** The print document of one of the caller's own bar backtests (AL-report-03). Derived on read. */
+      report: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1), ...accountField }))
+        .output(quantReportSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const owned = await ownedBar(accountOf(ctx, input.accountId), input.runId);
+            return reportOf(presentBacktest(owned.stored, owned.id));
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    result: router({
+      share: router({
+        /** How many links this run has, and whether one is active. The screen sends that count as `seq` on create. */
+        get: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ runId: z.string().min(1), ...accountField }))
+          .output(quantShareStateSchema)
+          .query(async ({ input, ctx }) => {
+            try {
+              requireShareLimits();
+              const accountId = accountOf(ctx, input.accountId);
+              await ownedBar(accountId, input.runId);
+              const rows = await shares!.list({ accountId, runId: input.runId });
+              const active = rows.find((link) => link.revokedAt === null) ?? null;
+              return { runId: input.runId, links: rows.length, active: active !== null, seq: active?.seq ?? null };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /**
+         * One active link per run, under `result.share:<runId>:<seq>`. The token is returned only by the call that
+         * stores the link. A lost reply is answered by revoking and creating the next seq, never by a second token
+         * for the same key.
+         */
+        create: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ runId: z.string().min(1), seq: z.unknown().optional(), ...accountField }))
+          .output(quantShareCreatedSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              requireShareLimits();
+              const accountId = accountOf(ctx, input.accountId);
+              await ownedBar(accountId, input.runId);
+              const seq = requireSeq(input.seq);
+              const created = await shares!.create({ accountId, runId: input.runId, seq, now: new Date(shareNow()).toISOString() });
+              const shown = embedOf(created.token);
+              return {
+                runId: created.link.runId,
+                links: created.links,
+                active: created.link.revokedAt === null,
+                seq: created.link.seq,
+                token: created.token,
+                path: created.token ? sharePath(created.token) : null,
+                embed: shown.embed,
+                embedRefusal: shown.embedRefusal,
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        revoke: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ runId: z.string().min(1), ...accountField }))
+          .output(quantShareStateSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              requireShareLimits();
+              const accountId = accountOf(ctx, input.accountId);
+              await ownedBar(accountId, input.runId);
+              const revoked = await shares!.revoke({ accountId, runId: input.runId, now: new Date(shareNow()).toISOString() });
+              return { runId: input.runId, links: revoked.links, active: false, seq: null };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /**
+         * The embed snippet for a token the caller already holds. A blank origin list refuses only this call.
+         * The link stays. The token is not issued again.
+         */
+        embed: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ runId: z.string().min(1), token: z.unknown().optional(), ...accountField }))
+          .output(quantShareEmbedSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              requireShareLimits();
+              if (embedOrigins === null || embedOrigins.length === 0) {
+                throw new QuantError(QUANT_EMBED_ORIGINS_UNSET, 'embed origins — the list of frames is not set');
+              }
+              const token = typeof input.token === 'string' ? input.token.trim() : '';
+              if (!token) throw new QuantError(QUANT_SHARE_TOKEN_UNSET, 'token — the share token is unset');
+              const accountId = accountOf(ctx, input.accountId);
+              await ownedBar(accountId, input.runId);
+              const link = await shares!.matchActive({ accountId, runId: input.runId, token });
+              if (!link) throw new QuantError(QUANT_SHARE_NOT_FOUND, 'not found');
+              return {
+                snippet: `<iframe src="${sharePath(token)}" title="Historical simulation — not a forecast"></iframe>`,
+                origins: [...embedOrigins],
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** Signed-out read of a share link. A revoked token and an unknown token answer the same not-found. */
+        public: publicProcedure
+          .input(z.object({ token: z.string() }))
+          .output(quantPublicResultSchema)
+          .query(async ({ input }) => {
+            try {
+              const limits = requireShareLimits();
+              const opened = await shares!.openPublic({
+                token: input.token,
+                rate: limits.rate,
+                windowMs: limits.windowMs,
+                nowMs: shareNow(),
+              });
+              if (opened.kind === 'limited') {
+                throw new QuantError(QUANT_SHARE_RATE_LIMITED, 'share rate — the published share rate is used up');
+              }
+              if (opened.kind !== 'ok') throw new QuantError(QUANT_SHARE_NOT_FOUND, 'not found');
+              const row = await runs.get({ userId: opened.link.accountId, id: opened.link.runId });
+              const stored = row && row.finished && row.outcome === 'ok' && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
+              if (!row || !stored) throw new QuantError(QUANT_SHARE_NOT_FOUND, 'not found');
+              return publicResultOf(presentBacktest(stored, row.id));
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
     }),
 
     sandbox: router({

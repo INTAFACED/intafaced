@@ -37,6 +37,12 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 | `ops.disclosure.publish` | `admin:write`                                 | `{ text, reason, idempotencyKey }`                                          | the next version; the wording is owner content                                                   |
 | `ops.disclosure.counts`  | `admin:read`                                  | —                                                                           | versions and acceptance counts, no accounts or wording                                           |
 | `ops.runCounts`          | `admin:read`                                  | `{ from, to }`                                                              | counts by kind and outcome, `asOf`                                                               |
+| `backtest.report`        | session                                       | `{ runId }`                                                                 | print document: parameters, statistics, charts, coverage, warnings, labels                       |
+| `result.share.get`       | session                                       | `{ runId }`                                                                 | link count and whether one is active; no token                                                   |
+| `result.share.create`    | session                                       | `{ runId, seq }`                                                            | one active link; the token is returned only by the call that stores it                           |
+| `result.share.revoke`    | session                                       | `{ runId }`                                                                 | the active link stops opening; the key is kept                                                   |
+| `result.share.embed`     | session                                       | `{ runId, token }`                                                          | iframe snippet, or `quant.embed_origins_unset` when the origin list is blank                     |
+| `result.share.public`    | public, no session                            | `{ token }`                                                                 | the result with its simulation label; revoked and unknown are both not found                     |
 
 ## Per-account library (customer contract)
 
@@ -140,3 +146,19 @@ disclosure version needs a new one, and an older disclosure version refuses `qua
 account's strategy, a version that does not exist and a deleted strategy all read as `quant.studio_not_found`. The deploy
 and publish doors of later slices read the acceptance; nothing here starts a live run. Rows are append-only; the counts
 view carries no account, strategy or text.
+
+## Shared results (AL-report-03)
+
+`backtest.report` builds the print document from the stored run on each read. It does not write a row.
+
+`result.share.create` stores one active link per run under `result.share:<runId>:<seq>`, where `seq` is the link count
+`result.share.get` returned. The token is a secret, hashed at rest, and is returned only by the call that inserts the
+row. A repeat of that key, including a reply that was lost, returns the same link without the token. To replace a lost
+token, revoke and create with the next count. Nothing is left half-written: the insert is one transaction, and a crash
+after it is cleared by that revoke and the next seq.
+
+`QUANT_SHARE_RATE` and `QUANT_SHARE_WINDOW_SEC` are the owner's cap on public reads. Blank refuses `quant.share_rate_unset`
+or `quant.share_window_unset`; neither is filled in. Zero rate refuses every public read. `QUANT_EMBED_ORIGINS` is the
+frame list. Blank refuses only `result.share.embed` (`quant.embed_origins_unset`); the link still opens. The public read
+returns the result, the historical-simulation label, the checks and the coverage. It does not return an account, the
+strategy source or the run key. A revoked token and an unknown token both answer `quant.share_not_found`.
