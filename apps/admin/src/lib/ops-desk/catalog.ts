@@ -1,4 +1,4 @@
-import type { Column, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -1309,6 +1309,24 @@ const academySections: readonly DeskSection[] = [
         forbiddenText: 'svc-academy did not answer this read.',
       },
       {
+        id: 'academy.courses',
+        title: 'Courses',
+        note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
+        module: 'academy',
+        procedure: 'admin.courses',
+        input: { limit: 1 },
+        shape: 'record',
+        columns: [
+          int('counts.draft', 'Drafts'),
+          int('counts.published', 'Published'),
+          int('counts.concluded', 'Concluded'),
+          int('counts.archived', 'Archived'),
+          int('counts.deleted', 'Deleted'),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_ACADEMY_ADMIN,
+      },
+      {
         id: 'academy.inventory',
         title: 'Curriculum inventory',
         note: 'Counts of the content the service ships, against the promise made on the product (the "title target").',
@@ -1369,16 +1387,15 @@ const academySections: readonly DeskSection[] = [
         forbiddenText: FORBID_ACADEMY_READ,
       },
     ],
-    unavailable: [
-      un(
-        'academy.enrolments',
-        'Enrolments, lesson completions and completion rate',
-        'svc-academy keeps progress per learner and answers only for the signed-in learner (certProgress, myCerts). There is no aggregate read.',
-        20,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
-    links: [],
+    links: [
+      {
+        href: '/academy-ops/catalogue/courses',
+        label: 'Courses',
+        why: 'Create a course, set its price and publish it. Every course staff created is listed there.',
+      },
+    ],
   },
   {
     id: 'certificates',
@@ -1409,16 +1426,9 @@ const academySections: readonly DeskSection[] = [
         forbiddenText: FORBID_ACADEMY_READ,
       },
     ],
-    unavailable: [
-      un(
-        'academy.grant-audit',
-        'Certificate grant audit: who was granted what and when',
-        'grantCert is the learner’s own door and myCerts answers only for the signed-in learner. No operator read lists grants.',
-        20,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
-    links: [],
+    links: [{ href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' }],
   },
   {
     id: 'programmes',
@@ -1526,6 +1536,62 @@ const academySections: readonly DeskSection[] = [
     sectionAction: 'academy.ambassador.appoint',
     links: [],
   },
+  {
+    id: 'grants',
+    title: 'Grants and enrolments',
+    intro: 'Who was granted a certificate, and how many people enrolled in each course, as svc-academy records them.',
+    reads: [
+      {
+        id: 'academy.grant-audit',
+        title: 'Certificate grants',
+        note: 'Newest first, fifty a page. A grant is the learner’s own record: this list reads it, nothing here grants or takes one away.',
+        module: 'academy',
+        procedure: 'admin.grantAudit',
+        input: { limit: 50 },
+        shape: 'list',
+        rowsKey: 'items',
+        idKey: 'reference',
+        page: 50,
+        cursorKey: 'nextCursor',
+        columns: [
+          text('accountId', 'Learner'),
+          text('certificateId', 'Certificate'),
+          time('grantedAt', 'Granted'),
+          text('status', 'Status'),
+          text('reference', 'Reference', { detail: true }),
+        ],
+        emptyText: 'svc-academy records no certificate grants.',
+        forbiddenText: FORBID_ACADEMY_ADMIN,
+      },
+      {
+        id: 'academy.enrolments',
+        title: 'Enrolments, last 30 UTC days',
+        note: 'New enrolments per course in the window, as svc-academy counts them.',
+        module: 'academy',
+        procedure: 'admin.enrolments',
+        windowDays: 30,
+        windowInUtcDays: true,
+        shape: 'list',
+        rowsKey: 'paths',
+        idKey: 'pathSlug',
+        columns: [text('pathSlug', 'Course'), int('count', 'Enrolments')],
+        emptyText: 'Nobody enrolled in a course in this window.',
+        forbiddenText: FORBID_ACADEMY_ADMIN,
+      },
+    ],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+  },
+];
+
+/** The Academy desk's sections, each also on a page of its own (IA-SPEC 2.12: catalogue, certificates, programmes, ambassadors, grants). */
+export const ACADEMY_PAGES: readonly DeskPage[] = [
+  { id: 'catalogue', title: 'Catalogue', href: '/academy-ops/catalogue' },
+  { id: 'certificates', title: 'Certificates', href: '/academy-ops/certificates' },
+  { id: 'programmes', title: 'Programmes', href: '/academy-ops/programmes' },
+  { id: 'ambassadors', title: 'Ambassadors', href: '/academy-ops/ambassadors' },
+  { id: 'grants', title: 'Grants', href: '/academy-ops/grants' },
 ];
 
 // ─── More ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2212,6 +2278,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     intro: 'Content and catalogue health, certificates, seasons, and ambassador control.',
     sections: academySections,
     commonSet: 'academy',
+    pages: ACADEMY_PAGES,
   },
   more: {
     id: 'more',
@@ -2246,6 +2313,23 @@ export const MINING_DESK: DeskSpec = {
   sections: moreSections.filter((s) => s.id === 'mining'),
   commonSet: 'mining',
 };
+
+/**
+ * One Academy section on its own page: the overview desk's reads for that section alone, through the same API, with the
+ * five section pages in its navigation.
+ */
+export function academySectionDesk(sectionId: string): DeskSpec {
+  const page = ACADEMY_PAGES.find((p) => p.id === sectionId);
+  const section = academySections.find((s) => s.id === sectionId);
+  if (!page || !section) throw new Error(`no Academy section ${sectionId}`);
+  return {
+    ...DESKS.academy,
+    title: `Academy: ${page.title.toLowerCase()}`,
+    intro: section.intro,
+    sections: [section],
+    commonSet: undefined,
+  };
+}
 
 export function allReads(desk: DeskSpec): ReadSpec[] {
   return desk.sections.flatMap((s) => [...s.reads]);

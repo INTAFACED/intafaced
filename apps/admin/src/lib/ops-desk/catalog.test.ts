@@ -5,12 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { MODULE_IDS, moduleForApi, moduleForPage } from '@/lib/modules';
 import { ACCOUNT_GAPS } from './accounts-gaps';
 import {
+  ACADEMY_PAGES,
   BANK_CUSTOMER_BALANCES,
   BANK_CUSTOMER_ENTRIES,
   BANK_CUSTOMER_ENTRIES_CHECK,
   DESKS,
   DESK_IDS,
   PAY_TRANSFER_DETAIL,
+  academySectionDesk,
   allReads,
 } from './catalog';
 import type { DeskSpec, ReadSpec } from './types';
@@ -302,8 +304,28 @@ describe('the desks cover what the product order asks for', () => {
     expect(ambassadors.sectionAction).toBe('academy.ambassador.appoint');
     const residencies = ambassadors.reads.find((r) => r.id === 'academy.residencies')!;
     expect(residencies.rowAction).toBe('academy.residency');
-    const unavailable = DESKS.academy.sections.flatMap((s) => s.unavailable.map((u) => u.id));
-    expect(unavailable).toEqual(expect.arrayContaining(['academy.enrolments', 'academy.grant-audit']));
+    // The grant audit and enrolment counts are real reads now (svc-academy admin.grantAudit, admin.enrolments), on the grants page.
+    expect(DESKS.academy.sections.flatMap((s) => s.unavailable)).toEqual([]);
+    const grants = DESKS.academy.sections.find((s) => s.id === 'grants')!;
+    expect(grants.reads.map((r) => r.procedure)).toEqual(['admin.grantAudit', 'admin.enrolments']);
+    expect(DESKS.academy.sections.find((s) => s.id === 'catalogue')!.reads.map((r) => r.id)).toContain('academy.courses');
+  });
+
+  it('academy: each section also has a page of its own, with the five pages in its navigation', () => {
+    expect(ACADEMY_PAGES.map((p) => p.href)).toEqual([
+      '/academy-ops/catalogue',
+      '/academy-ops/certificates',
+      '/academy-ops/programmes',
+      '/academy-ops/ambassadors',
+      '/academy-ops/grants',
+    ]);
+    for (const page of ACADEMY_PAGES) {
+      const desk = academySectionDesk(page.id);
+      expect(desk.sections.map((s) => s.id)).toEqual([page.id]);
+      expect(desk.endpoint).toBe('/api/academy-ops');
+      expect(desk.pages).toBe(ACADEMY_PAGES);
+    }
+    expect(() => academySectionDesk('nope')).toThrow();
   });
   it('more: agents, quant, mining, launch, market, token, campaigns', () => {
     expect(sections('more')).toEqual(expect.arrayContaining(['agents', 'quant', 'mining', 'launch', 'market', 'token', 'campaigns']));

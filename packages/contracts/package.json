@@ -125,6 +125,10 @@
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"
+    },
+    "./academy-courses": {
+      "types": "./dist/academy-courses.d.ts",
+      "default": "./dist/academy-courses.js"
     }
   },
   "scripts": {

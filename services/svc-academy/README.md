@@ -22,7 +22,7 @@
 
 There is **no `LEDGER_URL`** in its environment and no ledger client in the process. It holds no credential that could reach anything which moves value — the same argument svc-dex's compose block makes. When ambassador pay lands (§8.3 "per-session IFC pay + sub revenue share (ledger recipes)"), it arrives as recipes in `packages/ledger-client` and a `LEDGER_URL`, as its own reviewable change.
 
-The only `numeric(38,18)` column in the `academy` schema is `rooms.min_stake`, and it is a **threshold, not a balance** — a number this service compares against a stake it reads from svc-token, and never stores. It is `numeric(38,18)` because a threshold compared against a scaled amount must carry the same scale; it is a scaled `bigint` in memory and a decimal string on the wire, like every other amount in the OS.
+Two `numeric(38,18)` columns exist in the `academy` schema, and neither is a balance. `courses.price` is a **catalogue figure** (what a paid course will cost once AC-commerce-01 sells it; nothing here charges it). `rooms.min_stake` is a **threshold, not a balance** — a number this service compares against a stake it reads from svc-token, and never stores. It is `numeric(38,18)` because a threshold compared against a scaled amount must carry the same scale; it is a scaled `bigint` in memory and a decimal string on the wire, like every other amount in the OS.
 
 ---
 
@@ -77,23 +77,27 @@ Lobbies still run without it: seats, presence, capacity, invites and the 2D scen
 
 tRPC, mounted at `/trpc`, reached through svc-edge at `/api/academy` (port 4016).
 
-| Procedure                     | Scope           | Purpose                                                     |
-| ----------------------------- | --------------- | ----------------------------------------------------------- |
-| `health`                      | public          | Liveness                                                    |
-| `curriculum`                  | `academy:read`  | List the spine (filter by Blueprint path / kind)            |
-| `curriculumItem`              | `academy:read`  | One item: markdown body **plus** its teaching scaffolding   |
-| `curriculumStudyGuide`        | `academy:read`  | One item's objectives / key terms / self-check, no body     |
-| `curriculumStudyGuides`       | `academy:read`  | Study guides for a whole path — one call for an index       |
-| `curriculumDepth`             | `academy:read`  | Depth inventory; **names** anything under the floor         |
-| `rooms` / `room`              | `academy:read`  | Lobbies and their terms                                     |
-| `session`                     | `academy:read`  | One session and its live occupancy                          |
-| `join` / `leave`              | `academy:write` | Take or vacate a seat                                       |
-| `streamCredential`            | `academy:write` | Join token for the stage — refused while provider is `none` |
-| `createRoom`                  | `academy:write` | Host a lobby — **also gated on §4.1 `lobbyHostRights`**     |
-| `invite`                      | `academy:write` | Invite somebody to an invite-only room (host only)          |
-| `scheduleSession`             | `academy:write` | Schedule a session in a room (host only)                    |
-| `startSession` / `endSession` | `academy:write` | Host controls                                               |
-| `updateScene`                 | `academy:write` | Write the 2D scene (host only)                              |
+| Procedure                        | Scope           | Purpose                                                              |
+| -------------------------------- | --------------- | -------------------------------------------------------------------- |
+| `health`                         | public          | Liveness                                                             |
+| `curriculum`                     | `academy:read`  | List the spine (filter by Blueprint path / kind)                     |
+| `curriculumItem`                 | `academy:read`  | One item: markdown body **plus** its teaching scaffolding            |
+| `curriculumStudyGuide`           | `academy:read`  | One item's objectives / key terms / self-check, no body              |
+| `curriculumStudyGuides`          | `academy:read`  | Study guides for a whole path — one call for an index                |
+| `curriculumDepth`                | `academy:read`  | Depth inventory; **names** anything under the floor                  |
+| `rooms` / `room`                 | `academy:read`  | Lobbies and their terms                                              |
+| `session`                        | `academy:read`  | One session and its live occupancy                                   |
+| `join` / `leave`                 | `academy:write` | Take or vacate a seat                                                |
+| `streamCredential`               | `academy:write` | Join token for the stage — refused while provider is `none`          |
+| `createRoom`                     | `academy:write` | Host a lobby — **also gated on §4.1 `lobbyHostRights`**              |
+| `invite`                         | `academy:write` | Invite somebody to an invite-only room (host only)                   |
+| `scheduleSession`                | `academy:write` | Schedule a session in a room (host only)                             |
+| `startSession` / `endSession`    | `academy:write` | Host controls                                                        |
+| `updateScene`                    | `academy:write` | Write the 2D scene (host only)                                       |
+| `admin.courses` / `admin.course` | `admin:read`    | Courses staff created (with counts by state) / one with its history  |
+| `admin.createCourse`             | `admin:write`   | A draft course: title, fixed slug, thumbnail, free or paid           |
+| `admin.updateCourse`             | `admin:write`   | A draft's details, over the revision read                            |
+| `admin.setCourseState`           | `admin:write`   | Publish with a reason; refuses `price_unset`, `course_outline_empty` |
 
 ### Curriculum
 

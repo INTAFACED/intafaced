@@ -549,7 +549,46 @@ export const learningGoals = academy.table('learning_goals', {
   setAt: tstz('set_at').notNull(),
 });
 
+/** AC-course-structure-01: a course staff create; the slug is fixed, details change by revision. `price` is a catalogue figure, not a balance. */
+export const courses = academy.table(
+  'courses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull(),
+    title: text('title').notNull(),
+    summary: text('summary'),
+    thumbnailUrl: text('thumbnail_url'),
+    pricing: text('pricing').notNull(),
+    price: amount('price'),
+    priceAsset: text('price_asset'),
+    state: text('state').notNull().default('draft'),
+    revision: integer('revision').notNull().default(1),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    updatedAt: tstz('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('courses_slug_uq').on(t.slug), index('courses_state_idx').on(t.state, t.createdAt)],
+);
+
+/** AC-course-structure-01: every create, edit and lifecycle move of a course, one row per revision, with who and why. */
+export const courseEvents = academy.table(
+  'course_events',
+  {
+    courseId: uuid('course_id').notNull(),
+    revision: integer('revision').notNull(),
+    kind: text('kind').notNull(),
+    fromState: text('from_state'),
+    toState: text('to_state').notNull(),
+    actor: uuid('actor').notNull(),
+    reason: text('reason'),
+    at: tstz('at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.courseId, t.revision] })],
+);
+
 export const schema = {
+  courses,
+  courseEvents,
   plannerTodos,
   learningGoals,
   itemVideos,

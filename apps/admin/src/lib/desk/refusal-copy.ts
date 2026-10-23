@@ -598,6 +598,46 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Someone released it first, or it never was quarantined, so there is nothing to lift.',
     next: 'Read the list again. Nothing was changed.',
   },
+  'academy.slug_reserved': {
+    title: 'That address is an Academy tab',
+    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course can use one.',
+    next: 'Choose another address. Nothing was saved.',
+  },
+  'academy.course_slug_taken': {
+    title: 'That address is taken',
+    body: 'Another course, a shipped course or a lesson already uses this address.',
+    next: 'Choose another address. Nothing was saved.',
+  },
+  'academy.course_revision_stale': {
+    title: 'The course changed since you opened it',
+    body: 'Someone saved or moved this course after you read it, so your change was not applied.',
+    next: 'Read the course again and decide again. Nothing was changed.',
+  },
+  'academy.course_not_editable': {
+    title: 'Only a draft is edited here',
+    body: 'This course is no longer a draft, so its details are not changed from this form.',
+    next: 'Nothing was changed.',
+  },
+  'academy.item_transition_illegal': {
+    title: 'That move is not open from this state',
+    body: 'The course is not in a state this move starts from.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.price_unset': {
+    title: 'A paid course needs a price',
+    body: 'This course is paid and has no price, so it was not published.',
+    next: 'Set a price and its asset, save, then publish. Nothing was changed.',
+  },
+  'academy.course_outline_empty': {
+    title: 'The course has nothing in it yet',
+    body: 'Its outline has no sections or items, so there is nothing for a learner to open and it was not published.',
+    next: 'Build the outline first. Nothing was changed.',
+  },
+  'academy.course_not_found': {
+    title: 'No such course',
+    body: 'svc-academy has no course with this id.',
+    next: 'Go back to the course list. Nothing was changed.',
+  },
   'admin.session_required': {
     title: 'You are signed out',
     body: 'Your founder session ended.',
