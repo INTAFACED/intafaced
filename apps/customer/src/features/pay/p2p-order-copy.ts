@@ -16,6 +16,12 @@ const en = {
   details: 'Order details',
   other: 'Other actions',
   counterparty: 'Counterparty',
+  payeeChangedTitle: 'The seller changed these payment details after this order was placed',
+  payeeRemovedTitle: 'The seller removed these payment details after this order was placed',
+  payeeChangedBody:
+    'Pay to the details shown here: they are the ones agreed for this order and they stay the same. If anything about them looks wrong, do not pay; message the seller or open a dispute.',
+  payeeNameRule:
+    'Pay from an account in your own name. Enter the account holder exactly as shown here: your bank may check the payee name against the account.',
   terms: 'Terms when placed',
   termsUnrecorded: 'The ad’s terms were not copied onto this order when it was placed.',
   reputation: 'Inspect reported reputation',
@@ -58,6 +64,12 @@ const es = {
   details: 'Datos del pedido',
   other: 'Otras acciones',
   counterparty: 'Contraparte',
+  payeeChangedTitle: 'El vendedor cambió estos datos de pago después de hacer este pedido',
+  payeeRemovedTitle: 'El vendedor eliminó estos datos de pago después de hacer este pedido',
+  payeeChangedBody:
+    'Paga a los datos que se muestran aquí: son los acordados para este pedido y no cambian. Si algo en ellos no parece correcto, no pagues; escribe al vendedor o abre una disputa.',
+  payeeNameRule:
+    'Paga desde una cuenta a tu nombre. Escribe el titular de la cuenta exactamente como aparece aquí: tu banco puede comprobar el nombre del beneficiario con la cuenta.',
   terms: 'Condiciones al hacer el pedido',
   termsUnrecorded: 'Las condiciones del anuncio no se copiaron en este pedido cuando se hizo.',
   reputation: 'Consultar reputación comunicada',
@@ -101,6 +113,12 @@ const fr = {
   details: 'Détails de la commande',
   other: 'Autres actions',
   counterparty: 'Contrepartie',
+  payeeChangedTitle: 'Le vendeur a modifié ces informations de paiement après cette commande',
+  payeeRemovedTitle: 'Le vendeur a supprimé ces informations de paiement après cette commande',
+  payeeChangedBody:
+    'Payez aux informations affichées ici : ce sont celles convenues pour cette commande et elles ne changent pas. Si quelque chose vous semble incorrect, ne payez pas ; écrivez au vendeur ou ouvrez un litige.',
+  payeeNameRule:
+    'Payez depuis un compte à votre nom. Saisissez le titulaire du compte exactement comme indiqué ici : votre banque peut vérifier le nom du bénéficiaire avec le compte.',
   terms: 'Conditions à la commande',
   termsUnrecorded: 'Les conditions de l’annonce n’ont pas été copiées sur cette commande quand elle a été passée.',
   reputation: 'Consulter la réputation signalée',

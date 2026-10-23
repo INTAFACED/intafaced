@@ -1471,6 +1471,8 @@ describe('svc-p2p payment instruments', () => {
       // copying an account number out of.
       await expect(callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).resolves.toMatchObject({
         details: { account_reference: CANARY, holder_name: 'A Seller' },
+        // P-trade-orders-08: the buyer is told the seller no longer keeps this destination.
+        payeeChange: { kind: 'removed', at: expect.any(String) },
       });
 
       // And it is gone for everything that has not started yet.
@@ -1485,6 +1487,16 @@ describe('svc-p2p payment instruments', () => {
     it('does not let the seller redirect a payment already in flight', async () => {
       const created = await sellerInstrument();
       const { trade } = await liveTrade();
+      // The labels the buyer reads, in the schema's order, and no change to report yet.
+      const placed = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
+      expect(placed.fields).toEqual([
+        { key: 'account_reference', label: 'Account reference' },
+        { key: 'holder_name', label: 'Account holder' },
+      ]);
+      expect(placed.payeeChange).toBeNull();
+      // Renaming the destination is not a change of payee.
+      await callerFor(SELLER).instruments.update({ instrumentId: created.id, label: 'Renamed' });
+      expect((await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).payeeChange).toBeNull();
 
       await callerFor(SELLER).instruments.update({
         instrumentId: created.id,
@@ -1497,6 +1509,8 @@ describe('svc-p2p payment instruments', () => {
       // work; the frozen row is what makes it evidence.
       const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
       expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
+      // P-trade-orders-08: and the buyer is told the seller's details changed since the order was placed.
+      expect(view.payeeChange).toEqual({ kind: 'changed', at: expect.any(String) });
 
       // The owner's own copy did change — the edit was legitimate, it just does
       // not reach backwards.

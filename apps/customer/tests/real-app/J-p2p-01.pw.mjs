@@ -588,3 +588,42 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   run.write({ tradeId });
   await context.close();
 });
+
+test('J-p2p-01 #6 the payment details name the seller’s account holder and number with the payee-name rule, and a changed payee shows a notice', async ({
+  page,
+}) => {
+  const state = journey();
+  const s = p2p(await api(state.seller));
+  await signIn(page, state.buyer);
+
+  // While escrow is held: the account holder and IBAN under their labels, and the name the payment must carry.
+  const reveal = async () => {
+    await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+    const order = page.getByRole('main');
+    await order.getByRole('button', { name: 'Reveal agreed payment details' }).click();
+    const card = order.locator('section.pay-section', { has: page.getByRole('heading', { name: 'External payment destination' }) });
+    await expect(card).toContainText(TEST_IBAN);
+    return card;
+  };
+  const card = await reveal();
+  await expect(card).toContainText('Account holder');
+  await expect(card).toContainText(state.seller.handle);
+  await expect(card).toContainText('IBAN');
+  await expect(card).not.toContainText('account_holder');
+  await expect(card.getByTestId('order-payee-name-rule')).toContainText('Enter the account holder exactly as shown here');
+  await expect(card.getByTestId('order-payee-changed')).toHaveCount(0);
+
+  // The seller changes their saved account mid-order: the buyer is told, and the order still pays the agreed one.
+  const [saved] = await s.query('instruments.list', { limit: 10 });
+  const switched = 'DE02120300000000202051';
+  await s.mutate('instruments.update', {
+    instrumentId: saved.id,
+    details: { account_holder: state.seller.handle, iban: switched },
+  });
+  const after = await reveal();
+  await expect(after.getByTestId('order-payee-changed')).toContainText(
+    'The seller changed these payment details after this order was placed',
+  );
+  await expect(after).toContainText('Pay to the details shown here');
+  await expect(after).not.toContainText(switched);
+});

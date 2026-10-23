@@ -16,7 +16,7 @@ import {
   Status,
   MutationResult,
 } from './components';
-import { id, type Trade } from './schemas';
+import { id, type Trade, type TradeDestination } from './schemas';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
@@ -257,7 +257,17 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
     />
   );
 }
-function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
+/** The agreed destination's values under their schema labels, in the schema's order; any other key under its own name. */
+export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields'>): [string, string][] {
+  const named = (data.fields ?? []).filter((field) => field.key in data.details);
+  const rest = Object.keys(data.details).filter((key) => !named.some((field) => field.key === key));
+  return [
+    ...named.map((field): [string, string] => [field.label, data.details[field.key]!]),
+    ...rest.map((key): [string, string] => [key, data.details[key]!]),
+  ];
+}
+export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
+  const order = orderCopy.useCopy();
   const [requested, setRequested] = useState(false);
   const destination = useResource(
     (signal) =>
@@ -271,17 +281,29 @@ function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: Person
       {requested ? (
         <PayState resource={destination.resource} retry={destination.reload}>
           {(data) => (
-            <PayDetails
-              values={[
-                [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
-                [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
-                ...Object.entries(data.details).map(([label, value]): [string, ReactNode, string?] => [
-                  label,
-                  <span lang="und">{value}</span>,
-                  'und',
-                ]),
-              ]}
-            />
+            <>
+              {data.payeeChange ? (
+                <div data-testid="order-payee-changed">
+                  <PayNotice title={order.t(data.payeeChange.kind === 'removed' ? 'payeeRemovedTitle' : 'payeeChangedTitle')}>
+                    {order.t('payeeChangedBody')}
+                  </PayNotice>
+                </div>
+              ) : null}
+              <PayDetails
+                values={[
+                  [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
+                  [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
+                  ...destinationRows(data).map(([label, value]): [string, ReactNode, string?] => [
+                    label,
+                    <span lang="und">{value}</span>,
+                    'und',
+                  ]),
+                ]}
+              />
+              <p className="muted" data-testid="order-payee-name-rule">
+                {order.t('payeeNameRule')}
+              </p>
+            </>
           )}
         </PayState>
       ) : (
