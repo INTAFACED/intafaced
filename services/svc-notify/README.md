@@ -184,7 +184,9 @@ an open incident or active maintenance notice that names it, else its newest rea
 
 - `statusPage.configure` (`admin:write`, module notify) replaces the component list and sets the owner values, from the
   revision the founder read and with a reason. Changes are logged append-only in `notify.status_page_log` under
-  `status.page:r<revision>`; a replay of the same change returns the stored state.
+  `status.page:r<revision>`; a replay of the same change returns the stored state. `statusPage.definition` (same scope)
+  and `configure` also answer `publicOrigin`, the site address from `NOTIFY_PUBLIC_ORIGIN` (null when unset), which the
+  founder console's status desk (`/notify/status`) builds badge snippets on.
 - `statusPage.record` (same scope) stores one reading (`component`, `observedAt`, `state`, `source`). The pair is the key:
   a replay is one row, a different state at the same instant is `status.reading_conflict`. Readings are append-only.
 - Owner values, blank until a founder sets them: component cap (blank refuses any component, `status.component_cap_unset`),

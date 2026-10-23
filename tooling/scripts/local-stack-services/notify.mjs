@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
   name: 'notify',
   env: () => ({
     ...c('svc-notify', PORTS.notify),
@@ -37,5 +37,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     NOTIFY_STATUS_LINK_SECRET: secrets.notifyStatusLink,
     NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox',
     NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log'),
+    // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
+    // snippets on it. The local outbox above writes app paths and does not read it.
+    NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
   }),
 });

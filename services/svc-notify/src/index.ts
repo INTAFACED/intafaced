@@ -333,7 +333,7 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-const statusPageDeps = { book: statusBook, notices, subscriptions: statusSubscriptions };
+const statusPageDeps = { book: statusBook, notices, subscriptions: statusSubscriptions, publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null };
 export const appRouter = createNotifyRouter(
   notify,
   alerts,

@@ -23,6 +23,8 @@ export type StatusPageDeps = {
   book: StatusPageBook;
   notices: NoticeBoard | null;
   subscriptions?: StatusSubscriptions;
+  /** NOTIFY_PUBLIC_ORIGIN: the site address badge and subscription links use. Unset, the founders' read says so. */
+  publicOrigin?: string | null;
   now?: () => Date;
 };
 
@@ -35,7 +37,14 @@ const definitionOutput = z.object({
   subscribeRatePerHour: z.number().int().nullable(),
   revision: z.number().int(),
   updatedAt: z.string().nullable(),
+  /** The public site address (no trailing slash) the founder console builds badge snippets on; null when not set. */
+  publicOrigin: z.string().nullable(),
 });
+
+const originOrNull = (origin: string | null | undefined): string | null => {
+  const trimmed = origin?.trim().replace(/\/+$/, '') ?? '';
+  return trimmed === '' ? null : trimmed;
+};
 
 /** The page as a visitor reads it now: definition, latest readings, the uptime window and the incident feed. */
 export async function readStatusPage({ book, notices }: StatusPageDeps, at: Date): Promise<StatusPage> {
@@ -90,14 +99,21 @@ export function statusPageRouter(deps?: StatusPageDeps) {
 
     definition: scopedProcedure('admin:write', { module: 'notify' })
       .output(definitionOutput)
-      .query(() => call(async ({ book }) => definitionOutput.parse(await book.definition()))),
+      .query(() =>
+        call(async ({ book, publicOrigin }) =>
+          definitionOutput.parse({ ...(await book.definition()), publicOrigin: originOrNull(publicOrigin) }),
+        ),
+      ),
 
     configure: scopedProcedure('admin:write', { module: 'notify' })
       .input(statusPageConfigureInputSchema)
       .output(definitionOutput)
       .mutation(({ ctx, input }) =>
-        call(async ({ book }) =>
-          definitionOutput.parse(await book.configure({ input, by: ctx.principal.userId, at: now().toISOString() })),
+        call(async ({ book, publicOrigin }) =>
+          definitionOutput.parse({
+            ...(await book.configure({ input, by: ctx.principal.userId, at: now().toISOString() })),
+            publicOrigin: originOrNull(publicOrigin),
+          }),
         ),
       ),
 

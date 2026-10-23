@@ -79,6 +79,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/compliance', 'jurisdiction'],
   ['/api/support', 'support'],
   ['/api/notify-health', 'notify'],
+  ['/api/notify-status', 'notify'],
   ['/api/bank-ops', 'bank-ops'],
   ['/api/pay-ops', 'pay-ops'],
   ['/api/p2p-ops', 'p2p-ops'],
