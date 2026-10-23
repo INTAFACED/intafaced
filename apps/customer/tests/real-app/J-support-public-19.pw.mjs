@@ -565,6 +565,14 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
   const published = (await publishedPostmortems()).find((p) => p.incidentId === resolved.id);
   expect(published).toMatchObject({ body: POSTMORTEM, version: 1, publishedAt: expect.any(String) });
   expect(published).not.toHaveProperty('writtenBy');
+  // A signed-out visitor reads it on /status under its incident; the open incident shows none.
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  await expect(visitor.getByTestId(`status-postmortem-${resolved.id}`)).toContainText(POSTMORTEM);
+  await expect(visitor.getByTestId(`status-postmortem-${resolved.id}`)).toContainText('Postmortem');
+  await expect(visitor.getByTestId(`status-incident-${open.id}`)).toBeVisible();
+  await expect(visitor.getByTestId(`status-postmortem-${open.id}`)).toHaveCount(0);
+  await visitor.context().close();
 
   // The open one is resolved again here, so the run leaves nothing open.
   await publishNotice(

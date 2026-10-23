@@ -89,6 +89,20 @@
   margin: 0;
   font-size: var(--text-15);
 }
+.status-postmortem {
+  display: grid;
+  gap: var(--spacing-4);
+  padding-top: var(--spacing-8);
+  border-top: 1px solid var(--color-border);
+}
+.status-postmortem h4 {
+  margin: 0;
+  font-size: var(--text-14);
+}
+.status-postmortem__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
 .status-timeline {
   margin: 0;
   padding-left: var(--spacing-20);

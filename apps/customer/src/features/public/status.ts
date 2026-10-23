@@ -83,6 +83,31 @@ export function statusPageFetcher(api: ApiClient): Fetcher<StatusPage> {
   return (signal) => readContract(api, statusPageRead, undefined, { signal });
 }
 
+// hand-declared-ok: svc-notify's published postmortem output (statusPage.postmortems.published), not in contracts yet
+const publishedPostmortemSchema = z.object({
+  incidentId: z.string(),
+  body: z.string(),
+  version: z.number().int(),
+  publishedAt: z.string(),
+});
+export type PublishedPostmortem = z.infer<typeof publishedPostmortemSchema>;
+
+const statusPostmortemsRead = contractProcedure('notify', 'statusPage.postmortems.published', {
+  input: z.object({ limit: z.number().int() }),
+  output: z.array(publishedPostmortemSchema),
+});
+
+/** The most svc-notify answers in one read (POSTMORTEMS_LIST_MAX). */
+const POSTMORTEMS_READ_MAX = 200;
+
+/**
+ * Postmortems a second founder approved and one published, newest first, by incident. Signed-out; no author. The newest
+ * 200: more than the incidents of the 90 days /status lists are likely to carry.
+ */
+export function statusPostmortemsFetcher(api: ApiClient): Fetcher<PublishedPostmortem[]> {
+  return (signal) => readContract(api, statusPostmortemsRead, { limit: POSTMORTEMS_READ_MAX }, { signal });
+}
+
 export const statusSubscriptionPolicy = contractProcedure('notify', 'statusPage.subscriptions.policy', {
   output: statusSubscriptionPolicySchema,
 });
