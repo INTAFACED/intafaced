@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState, toUnits } from './stack.mjs';
+import { journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { closedBarsSince, tapeWindow } from './tape.mjs';
 
 // J-algo-dev-01, in the running app (docs/roadmap/journeys.json): build a first strategy, save it and backtest it on
 // history. One test per step this build serves, titled "J-algo-dev-01 #<n>", run in order on one TEST developer who
@@ -288,44 +289,6 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   await expect(home).toContainText('Version 2');
   run.write({ strategy: 'TEST first strategy' });
 });
-
-/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
-function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
-}
-
-/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
-async function closedBarsSince(minute) {
-  const since = Date.parse(`${minute}:00Z`);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
-  if (!res.ok) return [];
-  const rows = await res.json();
-  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
-}
-
-/**
- * The last `minutes` of the TEST tape as a from/to window, fixed only once it holds at least 8 closed bars: the window
- * is taken again on every poll, because a window fixed early (a shard that starts minutes after the market maker) can
- * never gain a bar.
- */
-async function tapeWindow(minutes) {
-  let window;
-  await expect
-    .poll(
-      async () => {
-        window = { from: utcMinute(minutes), to: utcMinute(0) };
-        return (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length;
-      },
-      {
-        timeout: 12 * 60_000,
-        intervals: [15_000],
-        message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
-      },
-    )
-    .toBeGreaterThanOrEqual(8);
-  return window;
-}
 
 // The window both backtest steps run on: the last hour of the TEST tape, fixed once so #6 repeats #5's inputs exactly.
 const WINDOW_MINUTES = 60;

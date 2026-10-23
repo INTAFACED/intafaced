@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState } from './stack.mjs';
+import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 
 // J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
 // or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
@@ -17,44 +18,6 @@ function developer() {
   const who = run.read().account;
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
   return who;
-}
-
-/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
-function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
-}
-
-/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
-async function closedBarsSince(minute) {
-  const since = Date.parse(`${minute}:00Z`);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
-  if (!res.ok) return [];
-  const rows = await res.json();
-  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
-}
-
-/**
- * The last `minutes` of the TEST tape as a from/to window, fixed only once it holds at least 8 closed bars: the window
- * is taken again on every poll, because a window fixed early (a shard that starts minutes after the market maker) can
- * never gain a bar.
- */
-async function tapeWindow(minutes) {
-  let window;
-  await expect
-    .poll(
-      async () => {
-        window = { from: utcMinute(minutes), to: utcMinute(0) };
-        return (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length;
-      },
-      {
-        timeout: 12 * 60_000,
-        intervals: [15_000],
-        message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
-      },
-    )
-    .toBeGreaterThanOrEqual(8);
-  return window;
 }
 
 /** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
@@ -266,6 +229,7 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
   const offset = check('bar_offset');
   await expect(offset).toHaveAttribute('data-threshold', '1');
   const [, second] = (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`));
+  if (!second) throw new Error(`${J} #1's window holds fewer than two closed bars, so there is no later bar to start from`);
   await expect(offset).toHaveAttribute('data-offsetfrom', new Date(second[0]).toISOString());
   const shift = Number(await offset.getAttribute('data-shiftpercent'));
   await expect(offset).toHaveAttribute('data-status', shift > 1 ? 'warning' : 'clear');
