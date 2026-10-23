@@ -162,6 +162,10 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
             forbiddenText:
               'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
+            refusals: {
+              'kyc_doc.unwired':
+                'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
+            },
           },
         ],
         unwired: [

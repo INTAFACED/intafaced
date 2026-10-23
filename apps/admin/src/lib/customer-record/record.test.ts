@@ -44,6 +44,7 @@ describe('what each tab reads', () => {
       ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
     ]);
     expect(docs.unwired.map((u) => u.id)).toEqual(['documents.decisions']);
+    expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
   });
   it('names procedures the owning services serve today', () => {
     const bank = service('svc-bank/src/router.ts');
