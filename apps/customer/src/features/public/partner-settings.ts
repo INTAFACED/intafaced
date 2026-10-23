@@ -16,23 +16,26 @@ export type PartnerSettings = {
 };
 
 /**
- * What the partner page shows (SP-pages-02). The founders' join address from the outreach desk wins; the build-time
- * `VITE_JOIN_URL` is used only when the desk holds none or could not be read. Terms come only from the desk.
+ * What the partner page shows (SP-pages-02). Once the founders have set anything on the outreach desk (revision above 0)
+ * its join address decides, and a cleared one means no form link. The build-time `VITE_JOIN_URL` stands in only before
+ * that, or when the desk could not be read. Terms come only from the desk.
  */
 export function mergePartnerSettings(
-  read: { ok: true; joinUrl: string | null; partnerTerms: string | null } | { ok: false },
+  read: { ok: true; joinUrl: string | null; partnerTerms: string | null; revision: number } | { ok: false },
   build: string | undefined,
 ): PartnerSettings {
   const fallback = partnerEnquiryHref(build);
   if (!read.ok) return { status: 'unread', formHref: fallback, terms: null };
-  return { status: 'ready', formHref: partnerEnquiryHref(read.joinUrl ?? undefined) ?? fallback, terms: read.partnerTerms };
+  const formHref = read.revision > 0 ? partnerEnquiryHref(read.joinUrl ?? undefined) : fallback;
+  return { status: 'ready', formHref, terms: read.partnerTerms };
 }
 
 /** Reads `outreach.publicSettings` (public: a signed-out visitor reads it too) and merges it with the build address. */
 export function usePartnerSettings(): PartnerSettings {
   const api = useApi();
   const build = import.meta.env.VITE_JOIN_URL as string | undefined;
-  const [state, setState] = useState<PartnerSettings>({ status: 'loading', formHref: partnerEnquiryHref(build), terms: null });
+  // Nothing is linked until the desk answers: the build address may be one the founders have since withdrawn.
+  const [state, setState] = useState<PartnerSettings>({ status: 'loading', formHref: null, terms: null });
   useEffect(() => {
     const controller = new AbortController();
     void readContract(api, publicSettings, undefined, { signal: controller.signal })

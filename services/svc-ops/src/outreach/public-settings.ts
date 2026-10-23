@@ -10,6 +10,7 @@ import type { Sql } from 'postgres';
 import {
   OUTREACH_PUBLIC_SETTINGS,
   outreachPublicSetKey,
+  type OutreachPublicErrorCode,
   type OutreachPublicSetting,
   type OutreachPublicSettings,
   type OutreachPublicSettingsSetInput,
@@ -28,7 +29,7 @@ export interface PublicSettingsChange {
 
 export class PublicSettingsStaleError extends Error {
   constructor() {
-    super('ops.public_settings_revision_stale');
+    super('ops.public_settings_revision_stale' satisfies OutreachPublicErrorCode);
     this.name = 'PublicSettingsStaleError';
   }
 }
