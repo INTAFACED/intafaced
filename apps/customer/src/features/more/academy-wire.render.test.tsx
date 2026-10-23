@@ -65,7 +65,7 @@ const openAttempt = (over: Partial<AcademyQuizAttempt> = {}): AcademyQuizAttempt
 const finished = openAttempt({
   secondsLeft: null,
   answers: { q1: 'a', q2: 'b' },
-  result: { score: 2, maxScore: 3, pass: false, finishedAt: '2026-10-12T10:05:00.000Z' },
+  result: { hidden: false, score: 2, maxScore: 3, pass: false, finishedAt: '2026-10-12T10:05:00.000Z' },
 });
 const [q1, q2] = quizData.questions as [AcademyQuiz['questions'][number], AcademyQuiz['questions'][number]];
 const reviewOf = (questions: AcademyQuizReview['questions']): AcademyQuizReview => ({
@@ -79,7 +79,7 @@ const reviewOf = (questions: AcademyQuizReview['questions']): AcademyQuizReview 
   reviewMode: questions === null ? 'score_only' : 'answers',
   questions,
 });
-const attempt = (score: number, at: string): Attempt => ({ slug: quizData.slug, score, maxScore: 3, pass: score >= 3, submittedAt: at });
+const attempt = (score: number, at: string): Attempt => ({ slug: quizData.slug, score, maxScore: 3, pass: score >= 3, submittedAt: at, hiddenUntil: null });
 const history = { status: 'ready' as const, data: [attempt(3, '2026-10-12T10:00:00.000Z'), attempt(1, '2026-10-11T10:00:00.000Z')] };
 const noop = () => undefined;
 const quiz = (over: Partial<TimedQuizViewProps> = {}) =>

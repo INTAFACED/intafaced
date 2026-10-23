@@ -240,7 +240,7 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
     });
     expect(await academy.currentQuizAttempt({ userId: USER, slug: SLUG, now: late })).toBeNull();
     const done = await academy.finishQuizAttempt({ userId: USER, attemptId, now: late });
-    expect(done.result).toEqual({ score: 1, maxScore: 2, pass: false, finishedAt: '2026-10-23T10:01:00.000Z' });
+    expect(done.result).toEqual({ hidden: false, score: 1, maxScore: 2, pass: false, finishedAt: '2026-10-23T10:01:00.000Z' });
     const second = await academy.startQuizAttempt({ userId: USER, slug: SLUG, now: late });
     expect(second).toMatchObject({ number: 2 });
     expect(second.attemptId).not.toBe(attemptId);

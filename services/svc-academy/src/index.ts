@@ -127,6 +127,7 @@ const academy = new AcademyService(
   stream,
   {
     maxRoomCapacity: env.ACADEMY_MAX_ROOM_CAPACITY,
+    plannerTodoLimit: env.ACADEMY_PLANNER_TODO_LIMIT,
     tournamentEnabled: env.ACADEMY_TOURNAMENT_ENABLED,
     paperTradingEnabled: env.ACADEMY_PAPER_TRADING_ENABLED,
     paperMarketFlagPort: env.TRADE_URL

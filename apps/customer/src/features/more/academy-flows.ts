@@ -18,17 +18,21 @@ const ref = z.string().min(1);
 
 // ---------------------------------------------------------------- assessments
 
-/** One scored attempt, as the attempts list returns it. */
+/** One attempt, as the attempts list returns it: scored, or with its result hidden until a date (AC-progress-02). */
 export function attemptFor(slug: string) {
   return z
-    .object({
-      slug: ref,
-      score: z.number().int().nonnegative(),
-      maxScore: z.number().int().nonnegative(),
-      pass: z.boolean(),
-      submittedAt: isoDate,
-    })
-    .refine((attempt) => attempt.slug === slug && attempt.score <= attempt.maxScore);
+    .union([
+      z.object({
+        slug: ref,
+        score: z.number().int().nonnegative(),
+        maxScore: z.number().int().nonnegative(),
+        pass: z.boolean(),
+        submittedAt: isoDate,
+        hiddenUntil: z.null(),
+      }),
+      z.object({ slug: ref, score: z.null(), maxScore: z.null(), pass: z.null(), submittedAt: isoDate, hiddenUntil: isoDate }),
+    ])
+    .refine((attempt) => attempt.slug === slug && (attempt.score === null || attempt.score <= attempt.maxScore!));
 }
 export type Attempt = z.infer<ReturnType<typeof attemptFor>>;
 export const attemptsFor = (slug: string) => z.array(attemptFor(slug));
@@ -157,7 +161,12 @@ export type RefusalKey =
   | 'refAttemptClosed'
   | 'refAttemptNotFound'
   | 'refAttemptOpen'
-  | 'refAttemptRequired';
+  | 'refAttemptRequired'
+  | 'refGradesHidden'
+  | 'refPlannerLimitUnset'
+  | 'refPlannerFull'
+  | 'refTodoNotFound'
+  | 'refGoalInvalid';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -221,6 +230,16 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refAttemptOpen';
     case 'academy.attempt_required':
       return 'refAttemptRequired';
+    case 'academy.grades_hidden':
+      return 'refGradesHidden';
+    case 'academy.planner_limit_unset':
+      return 'refPlannerLimitUnset';
+    case 'academy.planner_full':
+      return 'refPlannerFull';
+    case 'academy.todo_not_found':
+      return 'refTodoNotFound';
+    case 'academy.goal_invalid':
+      return 'refGoalInvalid';
     default:
       return null;
   }

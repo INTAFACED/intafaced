@@ -18,6 +18,23 @@ export type AttemptRow = {
   readonly submittedAt: Date;
 };
 
+/** An attempt as the learner may read it: while its quiz's results are hidden, no score, pass or maximum. */
+export type VisibleAttemptRow =
+  | (AttemptRow & { readonly hiddenUntil: null })
+  | {
+      readonly slug: string;
+      readonly submittedAt: Date;
+      readonly hiddenUntil: Date;
+      readonly score: null;
+      readonly maxScore: null;
+      readonly pass: null;
+    };
+
+/** One quiz on the grades page: the best released attempt, or pending until its date. */
+export type GradeRow =
+  | { pending: false; slug: string; attempts: number; score: number; possible: number; passed: boolean }
+  | { pending: true; slug: string; attempts: number; hiddenUntil: Date };
+
 type AttemptSql = {
   slug: string;
   score: number;
@@ -96,18 +113,21 @@ export class AssessmentRepository {
     }
     const now = input.now ?? new Date();
     await this.sql`
-      INSERT INTO academy.quizzes (slug, definition, pass_mark, attempt_limit, time_limit_seconds, review_mode, reason, set_by, set_at)
+      INSERT INTO academy.quizzes (slug, definition, pass_mark, attempt_limit, time_limit_seconds, review_mode, reason, set_by, set_at,
+                                   results_hidden_until)
       VALUES (${slug}, ${this.sql.json(definition.questions as never)}, ${definition.passMark}, ${definition.attemptLimit},
-              ${definition.timeLimitSeconds ?? null}, ${definition.reviewMode!}, ${input.reason.trim()}, ${input.operatorId}, ${now})
+              ${definition.timeLimitSeconds ?? null}, ${definition.reviewMode!}, ${input.reason.trim()}, ${input.operatorId}, ${now},
+              ${input.quiz.resultsHiddenUntil ? new Date(input.quiz.resultsHiddenUntil) : null})
       ON CONFLICT (slug) DO UPDATE SET
         definition = EXCLUDED.definition, pass_mark = EXCLUDED.pass_mark, attempt_limit = EXCLUDED.attempt_limit,
         time_limit_seconds = EXCLUDED.time_limit_seconds, review_mode = EXCLUDED.review_mode,
-        reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at
+        reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at,
+        results_hidden_until = EXCLUDED.results_hidden_until
     `;
     return { slug, published: true };
   }
 
-  async attempts(userId: string, slug: string): Promise<AttemptRow[]> {
+  async attempts(userId: string, slug: string, now: Date = new Date()): Promise<VisibleAttemptRow[]> {
     if (!(await this.definition(slug))) {
       throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
     }
@@ -117,7 +137,33 @@ export class AssessmentRepository {
        WHERE user_id = ${userId} AND slug = ${slug}
        ORDER BY submitted_at DESC, client_attempt_id DESC
     `;
-    return rows.map(mapAttempt);
+    const hiddenUntil = await this.hiddenUntil(this.sql, slug, now);
+    return rows.map((row) =>
+      hiddenUntil
+        ? { slug: row.slug, submittedAt: row.submitted_at, hiddenUntil, score: null, maxScore: null, pass: null }
+        : { ...mapAttempt(row), hiddenUntil: null },
+    );
+  }
+
+  /**
+   * AC-progress-02: one row per quiz the caller has finished an attempt on, at the best score (ties: the latest), or
+   * pending while the quiz's results are hidden.
+   */
+  async grades(userId: string, now: Date = new Date()): Promise<GradeRow[]> {
+    const rows = await this.sql<Array<AttemptSql & { attempts: number; hidden_until: Date | null }>>`
+      SELECT DISTINCT ON (a.slug) a.slug, a.score, a.max_score, a.passed, a.submitted_at,
+             COUNT(*) OVER (PARTITION BY a.slug)::int AS attempts,
+             CASE WHEN q.results_hidden_until > ${now} THEN q.results_hidden_until END AS hidden_until
+        FROM academy.assessment_attempts a
+        LEFT JOIN academy.quizzes q ON q.slug = a.slug
+       WHERE a.user_id = ${userId}
+       ORDER BY a.slug, a.score * 1.0 / NULLIF(a.max_score, 0) DESC NULLS LAST, a.submitted_at DESC
+    `;
+    return rows.map((row) =>
+      row.hidden_until
+        ? { pending: true, slug: row.slug, attempts: row.attempts, hiddenUntil: row.hidden_until }
+        : { pending: false, slug: row.slug, attempts: row.attempts, score: row.score, possible: row.max_score, passed: row.passed },
+    );
   }
 
   async submit(input: {
@@ -175,10 +221,12 @@ export class AssessmentRepository {
     });
   }
 
-  async passedSlugs(userId: string): Promise<Set<string>> {
+  /** Quizzes the caller has passed. A pass whose results are still hidden is not known to the learner yet, so it does not count. */
+  async passedSlugs(userId: string, now: Date = new Date()): Promise<Set<string>> {
     const rows = await this.sql<Array<{ slug: string }>>`
-      SELECT DISTINCT slug FROM academy.assessment_attempts
-       WHERE user_id = ${userId} AND passed = true
+      SELECT DISTINCT a.slug FROM academy.assessment_attempts a
+       WHERE a.user_id = ${userId} AND a.passed = true
+         AND NOT EXISTS (SELECT 1 FROM academy.quizzes q WHERE q.slug = a.slug AND q.results_hidden_until > ${now})
     `;
     return new Set(rows.map((row) => row.slug));
   }
@@ -194,7 +242,7 @@ export class AssessmentRepository {
     const now = input.now ?? new Date();
     return this.underQuizLock(input.userId, async (tx) => {
       const open = await this.settleOpen(tx, input.userId, input.slug, now);
-      if (open) return attemptView(open, now);
+      if (open) return attemptView(open, now, null);
       const def = await this.definition(input.slug, tx);
       if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${input.slug}`, 'academy.assessment_unpublished');
       if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${def.slug}`, 'academy.pass_mark_unset');
@@ -206,7 +254,7 @@ export class AssessmentRepository {
         VALUES (${input.userId}, ${def.slug}, ${count + 1}, ${now}, ${deadline}, ${tx.json(def as never)})
         RETURNING ${tx.unsafe(ATTEMPT_COLUMNS)}
       `;
-      return attemptView(rows[0]!, now);
+      return attemptView(rows[0]!, now, null);
     });
   }
 
@@ -218,7 +266,7 @@ export class AssessmentRepository {
     const now = input.now ?? new Date();
     return this.underQuizLock(input.userId, async (tx) => {
       const open = await this.settleOpen(tx, input.userId, input.slug, now);
-      return open ? attemptView(open, now) : null;
+      return open ? attemptView(open, now, null) : null;
     });
   }
 
@@ -246,7 +294,7 @@ export class AssessmentRepository {
          WHERE id = ${open.id}
         RETURNING ${tx.unsafe(ATTEMPT_COLUMNS)}
       `;
-      return attemptView(rows[0]!, now);
+      return attemptView(rows[0]!, now, null);
     });
   }
 
@@ -259,8 +307,8 @@ export class AssessmentRepository {
         SELECT ${tx.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts WHERE id = ${input.attemptId} AND user_id = ${input.userId}
       `;
       const row = rows[0]!;
-      if (row.finished_at) return attemptView(row, now);
-      return attemptView(await this.finishRow(tx, row, now), now);
+      const finished = row.finished_at ? row : await this.finishRow(tx, row, now);
+      return attemptView(finished, now, await this.hiddenUntil(tx, row.slug, now));
     });
   }
 
@@ -272,6 +320,10 @@ export class AssessmentRepository {
     const row = rows[0];
     if (!row) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
     if (!row.finished_at) throw new AcademyError('academy.attempt_open finish the attempt to review it', 'academy.attempt_open');
+    const hiddenUntil = await this.hiddenUntil(this.sql, row.slug, new Date());
+    if (hiddenUntil) {
+      throw new AcademyError(`academy.grades_hidden until=${hiddenUntil.toISOString()}`, 'academy.grades_hidden');
+    }
     // Reviewed against the quiz as it was at Start, the same version it was scored against.
     const def = row.quiz;
     const mode = def.reviewMode ?? 'score_only';
@@ -308,6 +360,14 @@ export class AssessmentRepository {
     `;
     if (!rows[0]) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
     return rows[0].slug;
+  }
+
+  /** When the quiz's results are hidden at `now`, the instant they show; otherwise null. */
+  private async hiddenUntil(sql: Sql, slug: string, now: Date): Promise<Date | null> {
+    const rows = await sql<Array<{ until: Date }>>`
+      SELECT results_hidden_until AS until FROM academy.quizzes WHERE slug = ${slug} AND results_hidden_until > ${now}
+    `;
+    return rows[0]?.until ?? null;
   }
 
   private async underQuizLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
@@ -414,7 +474,7 @@ type AttemptRowSql = {
   quiz: AssessmentDefinition;
 };
 
-function attemptView(row: AttemptRowSql, now: Date): AcademyQuizAttempt {
+function attemptView(row: AttemptRowSql, now: Date, hiddenUntil: Date | null): AcademyQuizAttempt {
   const open = row.finished_at === null;
   return {
     attemptId: row.id,
@@ -424,6 +484,10 @@ function attemptView(row: AttemptRowSql, now: Date): AcademyQuizAttempt {
     deadlineAt: row.deadline_at?.toISOString() ?? null,
     secondsLeft: open && row.deadline_at ? Math.max(0, Math.ceil((row.deadline_at.getTime() - now.getTime()) / 1000)) : null,
     answers: { ...row.answers },
-    result: open ? null : { score: row.score!, maxScore: row.max_score!, pass: row.passed!, finishedAt: row.finished_at!.toISOString() },
+    result: open
+      ? null
+      : hiddenUntil
+        ? { hidden: true, hiddenUntil: hiddenUntil.toISOString(), finishedAt: row.finished_at!.toISOString() }
+        : { hidden: false, score: row.score!, maxScore: row.max_score!, pass: row.passed!, finishedAt: row.finished_at!.toISOString() },
   };
 }

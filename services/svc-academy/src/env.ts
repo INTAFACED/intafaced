@@ -71,6 +71,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-progress-02: how many to-do items one learner may keep in the planner. Blank / unset is unpublished: adding
+       * refuses `academy.planner_limit_unset`. Never invent a cap.
+       */
+      ACADEMY_PLANNER_TODO_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(10_000)]),
+      ),
+
+      /**
        * Stage-1 tournament ladder kill-switch (mirrors flag `academy.tournament`).
        * When false, season/standing procedures refuse `academy.tournament_disabled`.
        */

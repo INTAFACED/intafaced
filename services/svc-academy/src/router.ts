@@ -20,6 +20,15 @@ import {
   academyQuizReviewSchema,
   academyQuizSchema,
   academySetQuizInputSchema,
+  academyProgressPageSchema,
+  academyPlannerSchema,
+  academyPlannerTodoSchema,
+  academyGoalSchema,
+  academyGoalReminderSchema,
+  academyAddTodoInputSchema,
+  academySetTodoDoneInputSchema,
+  academyRemoveTodoInputSchema,
+  academySetGoalInputSchema,
   academyUndoCompletionInputSchema,
   academyUndoCompletionSchema,
   academyPublicHubSchema,
@@ -763,6 +772,7 @@ function toTrpcError(err: unknown): TRPCError {
         cause: err,
       });
 
+    case 'academy.goal_invalid':
     case 'academy.seconds_out_of_range':
     case 'academy.video_position_out_of_range':
     case 'academy.metrics_range_invalid':
@@ -783,15 +793,19 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.video_transcript_unpublished':
     case 'academy.watch_threshold_unset':
     case 'academy.completion_rule_unmet':
+    case 'academy.grades_hidden':
+    case 'academy.planner_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.request_reused':
     case 'academy.attempt_closed':
     case 'academy.attempt_open':
     case 'academy.attempt_required':
+    case 'academy.planner_full':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_not_found':
+    case 'academy.todo_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
@@ -2239,6 +2253,37 @@ export function createAcademyRouter(
       .output(z.array(academyAccessGrantSchema))
       .query(({ ctx }) => guard(() => academy.myAccessGrants(ctx.principal.userId))),
 
+    /** AC-progress-02: the caller's progress page: percent complete per enrolled course, check marks, and grades. */
+    myProgress: scopedProcedure('academy:read', { module: 'academy' })
+      .output(academyProgressPageSchema)
+      .query(({ ctx }) => guard(() => academy.progressPage(ctx.principal.userId))),
+
+    /** AC-progress-02: the caller's own planner: to-do items and a weekly goal. Nothing here is visible to anyone else. */
+    planner: router({
+      get: scopedProcedure('academy:read', { module: 'academy' })
+        .output(academyPlannerSchema)
+        .query(({ ctx }) => guard(() => academy.planner(ctx.principal.userId))),
+      addTodo: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academyAddTodoInputSchema)
+        .output(academyPlannerTodoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.addTodo({ ...input, userId: ctx.principal.userId }))),
+      setTodoDone: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academySetTodoDoneInputSchema)
+        .output(academyPlannerTodoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setTodoDone({ ...input, userId: ctx.principal.userId }))),
+      removeTodo: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academyRemoveTodoInputSchema)
+        .output(z.object({ id: z.string().uuid(), removed: z.literal(true) }))
+        .mutation(({ input, ctx }) => guard(() => academy.removeTodo({ ...input, userId: ctx.principal.userId }))),
+      setGoal: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academySetGoalInputSchema)
+        .output(academyGoalSchema.nullable())
+        .mutation(({ input, ctx }) => guard(() => academy.setGoal({ ...input, userId: ctx.principal.userId }))),
+      sendGoalReminder: scopedProcedure('academy:write', { module: 'academy' })
+        .output(academyGoalReminderSchema)
+        .mutation(({ ctx }) => guard(() => academy.sendGoalReminder({ userId: ctx.principal.userId }))),
+    }),
+
     markCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))
       .output(itemCompletionOut)
@@ -2480,12 +2525,14 @@ export function createAcademyRouter(
         .input(z.object({ slug: z.string().min(1).max(120) }))
         .output(
           z.array(
+            // While the quiz's results are hidden (AC-progress-02) an attempt carries `hiddenUntil` and no score.
             z.object({
               slug: z.string(),
-              score: z.number().int(),
-              maxScore: z.number().int(),
-              pass: z.boolean(),
+              score: z.number().int().nullable(),
+              maxScore: z.number().int().nullable(),
+              pass: z.boolean().nullable(),
               submittedAt: z.date(),
+              hiddenUntil: z.date().nullable(),
             }),
           ),
         )
