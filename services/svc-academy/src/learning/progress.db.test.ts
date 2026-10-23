@@ -158,6 +158,9 @@ describe('progress page (AC-progress-02)', () => {
     const finished = await academy.finishQuizAttempt({ userId: USER, attemptId, now });
     expect(finished.result).toEqual({ hidden: true, hiddenUntil: until.toISOString(), finishedAt: expect.any(String) });
     await expect(academy.reviewQuizAttempt({ userId: USER, attemptId })).rejects.toMatchObject({ code: 'academy.grades_hidden' });
+    await expect(
+      academy.submitAssessment({ userId: USER, slug: SLUG, answers: [], clientAttemptId: `quiz-attempt:${attemptId}` }),
+    ).rejects.toMatchObject({ code: 'academy.request_reused' });
     const listed = await academy.assessmentAttempts(USER, SLUG);
     expect(listed.every((row) => row.score === null && row.hiddenUntil?.getTime() === until.getTime())).toBe(true);
     expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({ rule: 'score', ruleMet: false });

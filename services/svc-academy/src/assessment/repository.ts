@@ -181,6 +181,10 @@ export class AssessmentRepository {
   }): Promise<AttemptRow> {
     const clientAttemptId = input.clientAttemptId.trim();
     if (!clientAttemptId) throw new AcademyError('clientAttemptId is required', 'academy.assessment_invalid');
+    // `quiz-attempt:` names a finished timed attempt's row; a replay under it would show a score kept hidden until its date.
+    if (clientAttemptId.startsWith('quiz-attempt:')) {
+      throw new AcademyError('academy.request_reused clientAttemptId names a timed attempt', 'academy.request_reused');
+    }
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:assessment`}, 0))`;
