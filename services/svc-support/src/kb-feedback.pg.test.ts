@@ -44,7 +44,7 @@ async function harnessUrl(): Promise<string | null> {
 const url = await harnessUrl();
 
 if (!url) {
-  describe.skip('kb feedback postgres (unavailable)', () => {
+  describe.skip('kb feedback postgres (Postgres unavailable)', () => {
     it('skipped', () => undefined);
   });
 } else {
