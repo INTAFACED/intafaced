@@ -131,10 +131,11 @@ test(`${J} #5 enters the code and is signed in on Home; wrong codes lock with a 
   await page.getByLabel('Code from the email').fill(code);
   await page.getByRole('button', { name: 'Confirm and open my account' }).click();
   await expect(page).toHaveURL(/\/home/);
-  // Signed in: the account menu is there and the top bar's Sign in link is not. Home's own cards may say "sign in" in
-  // their text (the passkey card does), so only the link named exactly Sign in counts.
-  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toHaveCount(0);
+  // Signed in: the top bar has the account menu and no sign-in link. Home's own cards may say "sign in" in their text
+  // (the passkey card does), so only the top bar is read.
+  const topBar = page.getByRole('banner');
+  await expect(topBar.getByRole('button', { name: 'Account menu' })).toBeVisible();
+  await expect(topBar.getByRole('link', { name: /sign in/i })).toHaveCount(0);
 
   // The same code a second time is refused, and makes no second session.
   const again = await fetch(`${EDGE}/api/identity/trpc/auth.signUpConfirm`, {
