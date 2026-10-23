@@ -21,6 +21,11 @@ describe('restore archive manifest', () => {
     expect(parseRestoreArchiveManifest({ backups: [] })).toEqual([]);
   });
 
+  it('returns every row of a manifest that parsed, including one past 500', () => {
+    const rows = Array.from({ length: 501 }, (_, i) => ({ ...one, id: `full-${i}`, sequence: String(i) }));
+    expect(parseRestoreArchiveManifest({ backups: rows })).toHaveLength(501);
+  });
+
   it('refuses a number, a blank, a duplicate, or a cut-off list instead of inventing rows', () => {
     expect(parseRestoreArchiveManifest({ backups: [{ ...one, sequence: 9 }] })).toBeNull();
     expect(parseRestoreArchiveManifest({ backups: [{ ...one, sequence: '' }] })).toBeNull();

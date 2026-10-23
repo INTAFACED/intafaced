@@ -13,7 +13,6 @@ export interface RestoreBackup {
 export type RestoreArchiveProbeResult = { readonly probed: true; readonly backups: readonly RestoreBackup[] } | { readonly probed: false };
 
 const MAX_BODY = 1_000_000;
-const MAX_ROWS = 500;
 const TAKEN_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const unprobed = (): RestoreArchiveProbeResult => ({ probed: false });
@@ -22,7 +21,7 @@ const unprobed = (): RestoreArchiveProbeResult => ({ probed: false });
 export function parseRestoreArchiveManifest(body: unknown): readonly RestoreBackup[] | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const backups = (body as { backups?: unknown }).backups;
-  if (!Array.isArray(backups) || backups.length > MAX_ROWS) return null;
+  if (!Array.isArray(backups)) return null;
   const seen = new Set<string>();
   const rows: RestoreBackup[] = [];
   for (const row of backups) {
