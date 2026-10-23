@@ -2004,6 +2004,53 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  // ── GET /fees/published ───────────────────────────────────────────────────
+
+  it('GET /fees/published: no principal needed; the owner schedule with its version, not listing-row bps', async () => {
+    const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
+    const app = await build(
+      deps({
+        markets: async () => [rich],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ version: 'desk', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } });
+    await app.close();
+  });
+
+  it('GET /fees/published: an unpublished schedule refuses by name and never lists markets', async () => {
+    let listed = false;
+    const app = await build(
+      deps({
+        markets: async () => {
+          listed = true;
+          return [market];
+        },
+        feeSchedule: parseFeeScheduleJson(''),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.fee_schedule_blank' });
+    expect(listed).toBe(false);
+    await app.close();
+  });
+
+  it('GET /fees/published: an empty listing answers the version with no rates', async () => {
+    const app = await build(
+      deps({
+        markets: async () => [],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ version: 'desk', fees: {} });
+    await app.close();
+  });
+
   // ── GET /account/balance ──────────────────────────────────────────────────
 
   it('GET /account/balance: forged → 401; never reads ledger', async () => {
