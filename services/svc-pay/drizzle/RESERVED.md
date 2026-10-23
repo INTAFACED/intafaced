@@ -62,7 +62,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0122      | wallet lane (custody sweeps)                          | used                                            |
 | 0123      | invoice duplicate action (M-bill-07)                  | used                                            |
 | 0125      | team-wide require-MFA rule (M-plat-org-06)            | used                                            |
-| 0124+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0129      | wallet lane (custody transaction policy)              | used                                            |
+| 0130+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 
