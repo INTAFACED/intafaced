@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
@@ -167,6 +168,8 @@ export interface PrivateRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  /** Ledger history and statement export (J-cex-spot-07 #5, #6). Absent: those routes answer 503 `trade.statements_unmounted`. */
+  statements?: StatementRestDeps;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
@@ -1210,6 +1213,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
+  attachStatementRoutes(app, deps.statements, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.

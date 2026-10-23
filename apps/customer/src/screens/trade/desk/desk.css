@@ -1411,3 +1411,33 @@
     font-size: 12px;
   }
 }
+
+/* Ledger history and statement export (J-cex-spot-07 #5, #6) */
+.dk-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dk-ledger-head {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dk-ledger-ref {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.dk-statement-days {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dk-statement-days label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dk-statement-days input {
+  appearance: auto;
+  min-height: 32px;
+}
