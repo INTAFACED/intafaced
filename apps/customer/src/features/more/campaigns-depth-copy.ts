@@ -12,7 +12,6 @@ const en = {
   catalogueUnavailable: 'No campaign can be listed',
   catalogueBody:
     'No campaign service is connected, so there is no published list to show. This is not a list of zero campaigns, and nothing here is a promise of a reward.',
-  openPublic: 'Open public campaigns',
   detailTitle: 'Campaign detail',
   detailBody:
     'A campaign’s page would show its rules, tasks, dates, eligibility and reward terms. Select a campaign from the catalogue to open it; none can be selected.',
@@ -76,7 +75,6 @@ const es = {
   catalogueUnavailable: 'No se puede listar ninguna campaña',
   catalogueBody:
     'No hay ningún servicio de campañas conectado, así que no hay una lista publicada que mostrar. No es una lista con cero campañas y nada aquí es una promesa de recompensa.',
-  openPublic: 'Abrir campañas públicas',
   detailTitle: 'Detalle de la campaña',
   detailBody:
     'La página de una campaña mostraría sus reglas, tareas, fechas, requisitos y condiciones de recompensa. Selecciona una campaña del catálogo para abrirla; no se puede seleccionar ninguna.',
@@ -143,7 +141,6 @@ const fr = {
   catalogueUnavailable: 'Aucune campagne ne peut être listée',
   catalogueBody:
     'Aucun service de campagnes n’est connecté : il n’y a donc pas de liste publiée à afficher. Ce n’est pas une liste de zéro campagne, et rien ici n’est une promesse de récompense.',
-  openPublic: 'Ouvrir les campagnes publiques',
   detailTitle: 'Détail de la campagne',
   detailBody:
     'La page d’une campagne afficherait ses règles, tâches, dates, conditions d’éligibilité et récompenses. Sélectionne une campagne du catalogue pour l’ouvrir ; aucune ne peut l’être.',
