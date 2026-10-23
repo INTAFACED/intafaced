@@ -248,6 +248,8 @@ const bank = createBankServices(sql, ledger, history, {
     programme: rampProgrammeFor(env.BANK_RAMP_MODE),
     offrampCoolingHours: env.BANK_OFFRAMP_COOLING_HOURS,
     addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
+    walletProofWindowMinutes: env.BANK_WALLET_PROOF_WINDOW_MINUTES,
+    walletProofValidDays: env.BANK_WALLET_PROOF_VALID_DAYS,
     /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
     withdrawNetworks: createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
   },

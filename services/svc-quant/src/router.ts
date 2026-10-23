@@ -11,6 +11,7 @@ import {
   quantDisclosurePublishOutputSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
+  quantAccountRulesSchema,
   quantBacktestFeeSchema,
   quantBacktestInputSchema,
   quantBacktestHistorySchema,
@@ -834,6 +835,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /** The simulated account's published margin rules (ENGINE RK-5), read only; a blank one reads null. */
+      accountRules: publicJurisdictionProcedure('quant', 'fiat')
+        .output(quantAccountRulesSchema)
+        .query(() => judgement.account),
 
       /**
        * Runs a saved signal-rules version on the exchange's own closed bars (AL-backtest-01, AL-backtest-02). The run key

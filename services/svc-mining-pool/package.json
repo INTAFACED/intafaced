@@ -11,6 +11,7 @@
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
+    "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",

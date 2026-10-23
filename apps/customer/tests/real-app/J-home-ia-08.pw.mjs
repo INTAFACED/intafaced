@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
+import { expectServiceOff } from './service-off.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-home-ia-08, in the running app (docs/roadmap/journeys.json): I move between the Exchange and the Web3 shell. Tests titled
-// "J-home-ia-08 #<n>" prove a whole step. Step 3 (one shared service-off notice for a blocked action) belongs to
-// HM-shell-03 and is not proven here.
+// "J-home-ia-08 #<n>" prove a whole step.
 const J = 'J-home-ia-08';
 
 test.describe.configure({ mode: 'serial' });
@@ -59,6 +59,14 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   await switcher(page).getByRole('link', { name: 'Web3' }).click();
   await expect(page).toHaveURL(/\/dex\/pools$/);
   await expectWeb3(page);
+
+  // Narrower than 1280 px the signed-in bar has no room for the switch, so the account menu carries it.
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto('/money');
+  await expect(switcher(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await switcher(page).getByRole('link', { name: 'Web3' }).click();
+  await expect(page).toHaveURL(/\/dex\/pools$/);
   await page.context().close();
 });
 
@@ -84,6 +92,31 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   await page.context().close();
 });
 
+test(`${J} #3 a blocked action names its blocker: an outside one is the shared service-off notice with its code, our own gap never has a code`, async ({
+  browser,
+}) => {
+  const page = await device(browser);
+  // Staking waits on the INTACHAIN launch go-ahead, an outside gate on the allowlist (chain.go).
+  await page.goto('/chain/validators');
+  await expectWeb3(page);
+  for (const [action, label] of [
+    ['stake', 'Stake'],
+    ['unstake', 'Unstake'],
+  ]) {
+    const row = page.locator(`[data-action="${action}"]`);
+    await expect(row.getByRole('button', { name: label })).toBeDisabled();
+    await expectServiceOff(row.locator('[data-not-connected]'), 'chain.go', label);
+  }
+  // Swapping is blocked by our own Protocol service not answering on this stack: it says so, with no allowlist code.
+  await page.goto('/dex');
+  await expectWeb3(page);
+  const swap = page.locator('[data-action="swap"]');
+  await expect(swap.getByRole('button', { name: 'Swap' })).toBeDisabled();
+  await expect(swap.getByRole('note')).toHaveText(/^Blocked: .+/);
+  await expect(page.locator('[data-not-connected]')).toHaveCount(0);
+  await page.context().close();
+});
+
 test(`${J} #4 switching back returns the last Exchange room; a device with no history gets the defaults`, async ({ browser }) => {
   const page = await device(browser);
   await page.goto('/money');
@@ -104,6 +137,18 @@ test(`${J} #4 switching back returns the last Exchange room; a device with no hi
   await switcher(fresh).getByRole('link', { name: 'Exchange' }).click();
   await expect(fresh).toHaveURL(new RegExp(`^${ORIGIN}/?$`));
   await context.close();
+
+  // Signed out on a phone there is no account menu, so the Exchange bar keeps the switch itself.
+  const phone = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 390, height: 844 } });
+  const visitor = await phone.newPage();
+  await visitor.goto('/trade');
+  await expect(switcher(visitor).getByRole('link', { name: 'Exchange' })).toHaveAttribute('aria-current', 'page');
+  await switcher(visitor).getByRole('link', { name: 'Web3' }).click();
+  await expect(visitor).toHaveURL(/\/dex$/);
+  await expect(visitor.locator('[data-shell="web3"]')).toBeVisible();
+  await expect(switcher(visitor).getByRole('link', { name: 'Web3' })).toHaveAttribute('aria-current', 'page');
+  expect(await visitor.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await phone.close();
 });
 
 test(`${J} #5 /dex signed out is the public read-only view with a prompt to sign in`, async ({ browser }) => {

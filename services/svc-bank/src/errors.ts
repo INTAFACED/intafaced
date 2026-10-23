@@ -360,6 +360,20 @@ export type BankErrorCode =
    * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
    */
   | 'bank.address_lookalike'
+  /** The owner has not published how long a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`). Nothing was offered. */
+  | 'bank.wallet_proof_window_unset'
+  /** The owner has not published how long a verified wallet proof holds (`BANK_WALLET_PROOF_VALID_DAYS`). Nothing was recorded. */
+  | 'bank.wallet_proof_validity_unset'
+  /** No open wallet proof of this customer's has that id, or its saved address is gone or changed. */
+  | 'bank.wallet_proof_not_found'
+  /** The proof offer lapsed before it was signed. Start a new one. */
+  | 'bank.wallet_proof_expired'
+  /** The text pasted is not a 65-byte signature of the proof message. */
+  | 'bank.wallet_proof_signature_invalid'
+  /** The message was signed by a different address from the saved one. The offer stays open. */
+  | 'bank.wallet_proof_wrong_signer'
+  /** The proof is already complete with another signature, or changed while it was checked. */
+  | 'bank.wallet_proof_conflict'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.
@@ -390,6 +404,10 @@ export type BankErrorCode =
   | 'bank.linked_account_invalid'
   /** The customer has as many linked bank accounts as the owner's address-book cap allows. */
   | 'bank.linked_accounts_full'
+  /** The linked account is not verified: only a banking partner (`rail.bank`) can verify it, so it cannot be cashed out to. */
+  | 'bank.linked_account_unverified'
+  /** The amount to cash out is more than the ledger's available balance for the asset. Nothing was kept. */
+  | 'bank.cash_out_over_available'
   /** No linked bank account of this customer has this id. */
   | 'bank.linked_account_not_found'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */

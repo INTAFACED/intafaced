@@ -108,6 +108,38 @@ const schema = baseEnvSchema
       QUANT_HOLDOUT_START: blankable(
         z.string().regex(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})|P(?=.*[1-9])(\d+D)?(T(?=\d)(\d+H)?(\d+M)?)?)$/i),
       ),
+      /**
+       * Overfitting check (ENGINE BT-9): how far the out-of-sample return may fall below the in-sample return, in
+       * percentage points, before a result shows a warning. NO DEFAULT: blank, the check reads "not set" and warns of
+       * nothing.
+       */
+      QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT: blankable(z.string().regex(/^\d{1,6}(\.\d{1,4})?$/)),
+      /**
+       * Overfitting check (ENGINE BT-9): the most variants of one strategy on one symbol and bar size before a result
+       * shows a warning, a whole number. NO DEFAULT: blank, the check reads "not set" and warns of nothing.
+       */
+      QUANT_CHECK_MAX_VARIANTS: blankable(z.string().regex(/^\d{1,6}$/)),
+      /**
+       * Sensitivity check (ENGINE BT-9): how far the return may move, in percentage points, when the same run starts one
+       * bar later, before a result shows a warning. NO DEFAULT: blank, the check reads "not set" and warns of nothing.
+       */
+      QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT: blankable(z.string().regex(/^\d{1,6}(\.\d{1,4})?$/)),
+      /**
+       * Simulated account (ENGINE RK-5): the highest leverage a margin backtest may use, from 1. The rules of the market
+       * simulated, published here until the futures engine publishes its own. NO DEFAULT: blank, a margin run refuses
+       * `quant.account_rule_unset` naming it; a cash run is unaffected.
+       */
+      QUANT_ACCOUNT_MAX_LEVERAGE: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
+      /**
+       * Simulated account (ENGINE RK-5): the margin level, equity over the margin used in percent, at which a margin
+       * backtest records a margin call. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
+       */
+      QUANT_ACCOUNT_MARGIN_CALL_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
+      /**
+       * Simulated account (ENGINE RK-5): the margin level in percent at which a margin backtest closes the position (a
+       * stop-out), below the margin call level. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
+       */
+      QUANT_ACCOUNT_STOP_OUT_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

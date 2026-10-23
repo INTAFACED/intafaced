@@ -1,5 +1,6 @@
 import { MemorySeenStore, idempotent, type EventBus, type SeenStore, type Subscription } from '@intafaced/events';
 import type { TradeService } from './spot/trade-service.js';
+import type { StopTriggerStore } from './spot/stop-trigger-door.js';
 import './spot/qty-up-amend.js';
 import './spot/gtd-gtt-place.js';
 import './spot/reduce-only-place.js';
@@ -72,6 +73,7 @@ export async function subscribeMatchingEvents(
   trade: TradeService,
   store: SeenStore = new MemorySeenStore(),
   futures: { current: MatchedFillsSink | null } = { current: null },
+  stops: Pick<StopTriggerStore, 'recordFired'> | null = null,
 ): Promise<Subscription[]> {
   bindCloseSpotTrade(trade);
   const filled = await bus.subscribe(
@@ -120,5 +122,26 @@ export async function subscribeMatchingEvents(
     { durable: 'trade-cancels' },
   );
 
-  return [filled, cancelled];
+  if (!stops) return [filled, cancelled];
+
+  // A stop fired: keep when and at what price, so the order says why it went to the book. Evidence only; no money moves.
+  // An order with no stop here (a futures stop, the house) is not this table's, and the event is done with.
+  const triggered = await bus.subscribe(
+    'orderTriggered',
+    idempotent(
+      async (payload) => {
+        await stops.recordFired(payload.orderId, {
+          at: payload.ts,
+          by: payload.triggerBy,
+          referencePrice: payload.referencePrice,
+          sequence: payload.sequence,
+        });
+      },
+      store,
+      'svc-trade',
+    ),
+    { durable: 'trade-triggers' },
+  );
+
+  return [filled, cancelled, triggered];
 }

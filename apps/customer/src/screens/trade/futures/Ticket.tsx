@@ -113,6 +113,9 @@ const TYPE_NAMES = {
   twap: 'Type twap',
 } as const;
 
+const COLLATERAL_CHOICES = ['cash', 'yield_bearing', 'staked', 'lending_idle'] as const;
+type CollateralChoice = (typeof COLLATERAL_CHOICES)[number];
+
 export function Ticket(props: TicketProps) {
   const { market, strip, balances, disclosure, now, onOpened } = props;
   const { t } = ticketCopy.useCopy();
@@ -131,6 +134,7 @@ export function Ticket(props: TicketProps) {
   const [nonce, setNonce] = useState(newNonce);
   const [review, setReview] = useState<Review>({ status: 'idle' });
   const [modeAsked, setModeAsked] = useState<string | null>(null);
+  const [collateral, setCollateral] = useState<CollateralChoice>('cash');
   const [cap, setCap] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [offSeen, setOffSeen] = useState(false);
@@ -148,7 +152,9 @@ export function Ticket(props: TicketProps) {
     return key ? t(key) : id;
   };
   const form: FormKey | null =
-    size !== null && isPositive(size) && isPositive(lev) ? { symbol: market.symbol, side, size, leverage: lev } : null;
+    size !== null && isPositive(size) && isPositive(lev)
+      ? { symbol: market.symbol, side, size, leverage: lev, ...(collateral === 'cash' ? {} : { collateralClass: collateral }) }
+      : null;
   const formRef = useRef(form);
   formRef.current = form;
   const request = useRef(0);
@@ -406,6 +412,21 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-fg-2">{t('Margin from')}</span>
+        {/* Cash is the margin. Another choice is sent to the review as chosen, so the service names its own refusal. */}
+        <SegmentedControl
+          aria-label={t('Margin from')}
+          size={28}
+          value={collateral}
+          onValueChange={(v) => {
+            setCollateral(v as CollateralChoice);
+            touch();
+          }}
+          items={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`) }))}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-fg-2">{t('Order type')}</span>
         <span className="flex items-center gap-2">
           <SegmentedControl
@@ -603,11 +624,14 @@ export function Ticket(props: TicketProps) {
       {shown && review.status === 'ready' ? (
         <>
           <KeyValue density="dense" items={costItems(shown, review.at)} unknownLabel={t('Unknown figure')} now={now} />
-          {shown.refusals.map((r) => (
-            <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn">
-              {r.message}
-            </p>
-          ))}
+          {shown.refusals.map((r) => {
+            const words = r.field === 'collateral' ? futuresRefusal({ code: r.code }) : null;
+            return (
+              <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn" data-code={r.code}>
+                {words ? `${words.title}. ${words.body}` : r.message}
+              </p>
+            );
+          })}
         </>
       ) : review.status === 'idle' || (review.status === 'ready' && !shown) ? (
         <p className={note}>{t('Review to see cost')}</p>

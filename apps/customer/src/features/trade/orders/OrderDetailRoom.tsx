@@ -18,6 +18,7 @@ import { dayTime } from '../../../screens/trade/desk/time';
 import { useSession } from '../../session/session';
 import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type OrderChange } from '../trade-api';
 import { orderReason } from './order-reason';
+import { fillsAverage, orderTrigger, type Slippage } from './order-trigger';
 import { ordersCopy, type OrdersT } from './orders-copy';
 import './orders.css';
 
@@ -48,6 +49,68 @@ function Reason({ order, t }: { order: Order; t: OrdersT }) {
   const text =
     reason.kind === 'not-recorded' ? t('reasonNotRecorded') : reason.kind === 'known' ? t(reason.key) : refusalCopy(reason.code).title;
   return <Row label={t('reason')}>{text}</Row>;
+}
+
+/** The slippage line: against the person ("worse") or for them ("better"), without the sign; none or not known in words. */
+function slippageText(s: Slippage | 'not-filled' | 'unknown', price: (value: string) => string, quote: string, t: OrdersT): string {
+  if (s === 'not-filled') return t('slippageNotFilled');
+  if (s === 'unknown') return t('notStated');
+  if (isZero(s.amount)) return t('slippageNone');
+  const better = s.amount.startsWith('-');
+  const words = {
+    amount: price(s.amount.replace(/^-/, '')),
+    quote,
+    pct: fmtPct(s.rate.replace(/^-/, ''), { signed: false }),
+  };
+  return better ? t('slippageBetter', words) : t('slippageWorse', words);
+}
+
+/** A stop order's trigger: its stop price, whether it fired, when and at what price, and how far its fills landed. */
+function Trigger({
+  order,
+  average,
+  tick,
+  quote,
+  t,
+}: {
+  order: Order;
+  average: string | null;
+  tick: string | undefined;
+  quote: string;
+  t: OrdersT;
+}) {
+  const { timeZone } = usePreferences();
+  const state = orderTrigger(order, isTerminalOrder(order), average);
+  if (state.kind === 'not-stop') return null;
+  const price = (value: string) => fmtPrice(value, tick);
+  let fired: ReactNode;
+  let slippage: ReactNode = null;
+  if (state.kind === 'not-stated') fired = t('notStated');
+  else if (state.kind === 'waiting') fired = t('triggerWaiting', { price: price(state.stopPrice), quote });
+  else if (state.kind === 'not-recorded') fired = t('triggerNotRecorded');
+  else {
+    const reference = state.by === 'mark' ? t('referenceMark') : state.by === 'index' ? t('referenceIndex') : t('referenceLast');
+    fired = t('triggerFired', { time: dayTime(Date.parse(state.at), timeZone), reference, price: price(state.referencePrice), quote });
+    const text = slippageText(state.slippage, price, quote, t);
+    slippage = (
+      <Row label={t('slippage')}>
+        <span className="if-num">{text}</span>
+      </Row>
+    );
+  }
+  return (
+    <>
+      <Row label={t('stopPrice')}>
+        <span className="if-num">
+          {price(state.stopPrice)} {quote}
+        </span>
+      </Row>
+      <Row label={t('trigger')}>
+        <span className="if-num">{fired}</span>
+      </Row>
+      {slippage}
+    </>
+  );
 }
 
 /** One fill, opened for its detail: price, amount, total, role, fee, fee asset, fee rate and the order's rank discount. */
@@ -220,6 +283,8 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
   const lot = precision.lotOf(o.symbol);
   const base = baseOf(o.symbol);
   const quote = quoteOf(o.symbol);
+  // The wire's average when it states one, else the average of the fills this page read (when they cover the order).
+  const average = o.average ?? (fills.status === 'ready' ? fillsAverage(fills.data, o.filled) : null);
   const side = o.side === 'buy' ? t('sideBuy') : t('sideSell');
   async function cancel() {
     if (busyRef.current || order.status !== 'ready') return;
@@ -272,6 +337,7 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
                 ? `${t('typeStopLimit')}${o.stopPrice ? ` @ ${fmtPrice(o.stopPrice, tick)}` : ''}`
                 : t('typeLimit')}
           </Row>
+          <Trigger order={o} average={average} tick={tick} quote={quote} t={t} />
           <Row label={t('price')}>
             <span className="if-num">{o.price === null ? t('marketPrice') : `${fmtPrice(o.price, tick)} ${quote}`}</span>
           </Row>
@@ -297,10 +363,10 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
               <span className="if-num">{o.hold ? `${fmtAmount(o.hold.amount, { places: 8 })} ${o.hold.asset}` : t('notStated')}</span>
             </Row>
           ) : null}
-          {o.average ? (
+          {average ? (
             <Row label={t('average')}>
               <span className="if-num">
-                {fmtPrice(o.average, tick)} {quote}
+                {fmtPrice(average, tick)} {quote}
               </span>
             </Row>
           ) : null}

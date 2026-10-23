@@ -51,6 +51,20 @@ const schema = serviceEnvSchema
       P2P_FEE_BPS: ownerInt,
 
       /**
+       * P-disputes-security-15. JSON table of per-tier buy caps in one fiat.
+       * Empty is unset. A partial table or a JSON number is invalid, not a cap.
+       * No default currency and no default amount.
+       */
+      P2P_VERIFICATION_LIMITS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
+       * Seconds a security-setting change would lock new sells. Empty is unset.
+       * A positive value still cannot be applied until identity publishes the
+       * change time; it is not 86400 by default.
+       */
+      P2P_SECURITY_CHANGE_LOCK_SECONDS: ownerInt,
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).

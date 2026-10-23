@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { signUp } from './desk.mjs';
 import { draftNotice, openNotices, publishNotice } from './notices.mjs';
+import { expectServiceOff } from './service-off.mjs';
 import { ORIGIN } from './stack.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
 // "J-home-ia-06 #<n>" prove a whole step. The stack's two TEST founders draft and publish through the notice board's own
 // four-eyes door; every notice closes a few minutes after it opens, so a run leaves the board empty for the next one.
-// Step 5 (one shared service-off notice across the shell) belongs to HM-shell-03 and is not proven here.
 const J = 'J-home-ia-06';
 const RUN = Date.now().toString(36);
 const WINDOW_MINUTES = 6;
@@ -115,4 +115,26 @@ test(`${J} #3 during an open maintenance window, a banner shows its title and en
   await expect(banner.getByRole('link', { name: 'Read' })).toHaveAttribute('href', `/notice/${maintenance.id}`);
   // The announcement strip is still there, once, under the banner.
   await expect(page.getByRole('status', { name: 'Announcement' })).toHaveCount(1);
+});
+
+test(`${J} #5 an action the shell cannot run because an outside service is off says one shared sentence, the same in every room`, async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  await context.grantPermissions(['notifications']);
+  const person = await context.newPage();
+  await signUp(person, 'hmo');
+  // Notifications: allowing this device needs the push delivery gateway, which the stack leaves unset.
+  await person.goto('/notifications?view=settings');
+  const push = person.locator('.nf-channelcard[data-channel="push"]');
+  await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  const pushed = await expectServiceOff(push.locator('[data-not-connected]'), 'vendor.push', 'Registering this device');
+  // Web3: staking needs the INTACHAIN launch go-ahead. Same component, same sentence, its own code.
+  await person.goto('/chain/validators');
+  const stake = person.locator('[data-action="stake"]');
+  await expect(stake.getByRole('button', { name: 'Stake' })).toBeDisabled();
+  const staked = await expectServiceOff(stake.locator('[data-not-connected]'), 'chain.go', 'Stake');
+  expect(pushed.replace(/^.+ needs .+?\./, '')).toBe(' It is switched off in this build. vendor.push');
+  expect(staked.replace(/^.+ needs .+?\./, '')).toBe(' It is switched off in this build. chain.go');
+  await context.close();
 });
