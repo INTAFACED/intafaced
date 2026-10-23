@@ -4828,7 +4828,10 @@ export class TradeService {
                  : this.sql``
          }
          ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
-         ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
+         ${
+           // `until` names a whole millisecond and includes all of it: created_at keeps microseconds.
+           untilDate ? this.sql`AND created_at < ${untilDate}::timestamptz + interval '1 millisecond'` : this.sql``
+         }
          ${
            input.before !== undefined
              ? this.sql`AND (created_at, id) < (SELECT c.created_at, c.id FROM trade.orders c WHERE c.id = ${input.before})`
@@ -4899,7 +4902,8 @@ export class TradeService {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
     }
     const rows = await this.sql<FillRow[]>`
-      SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId} ORDER BY ts ASC LIMIT ${capped}
+      SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId}
+       ORDER BY ts ASC, sequence ASC, id ASC LIMIT ${capped}
     `;
     return rows.map(toFill);
   }

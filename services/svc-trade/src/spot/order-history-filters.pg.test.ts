@@ -124,6 +124,11 @@ describe('orderHistory filters (PG-hard)', () => {
     expect(await history({ untilMs: T2 })).toEqual([ids.b, ids.a]);
     expect(await history({ sinceMs: T2, untilMs: T2 })).toEqual([ids.b]);
     expect(await history({ untilMs: T1 - 1 })).toEqual([]);
+    // until names a whole millisecond: an order half a millisecond into it is inside, the next millisecond is not.
+    await db.sql`UPDATE trade.orders SET created_at = '2026-10-02T00:00:00.000500Z' WHERE id = ${ids.b}`;
+    expect(await history({ untilMs: T2 })).toEqual([ids.b, ids.a]);
+    await db.sql`UPDATE trade.orders SET created_at = '2026-10-02T00:00:00.001Z' WHERE id = ${ids.b}`;
+    expect(await history({ untilMs: T2 })).toEqual([ids.a]);
   });
 
   it('filters combine, and a symbol filter still applies', async () => {

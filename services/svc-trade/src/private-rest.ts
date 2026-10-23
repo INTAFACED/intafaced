@@ -620,7 +620,7 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
     rejectCode: order.rejectCode,
     tag: order.tag ?? null,
     /** The rank fee discount this order trades with, as a rate ("0" when none). Its fills' fee rates already include it. */
-    feeDiscount: bpsToFeeRate(order.feeDiscountBps),
+    feeDiscount: Number.isInteger(order.feeDiscountBps) && order.feeDiscountBps >= 0 ? bpsToFeeRate(order.feeDiscountBps) : undefined,
     /** Additive frozen-spine evidence; unresolved is never flattened to open/rejected. */
     recoveryReason: order.recoveryReason,
     reconciliationKey: order.reconciliationKey,

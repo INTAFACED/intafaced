@@ -219,7 +219,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
         <p className="muted orders-note">
           {t('openOrders')}{' '}
           <a className="text-link" href="/exchange">
-            {t('eyebrow')}
+            {t('tradingDesk')}
           </a>
         </p>
         {state.status === 'loading' ? <Loading label={t('loading')} /> : null}

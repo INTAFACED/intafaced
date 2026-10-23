@@ -11,11 +11,11 @@ import { deskCopy } from '../../../screens/trade/desk/copy';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { fillFeeRate, fillRole } from '../../../screens/trade/desk/fill-detail';
 import { changeLine } from '../../../screens/trade/desk/order-changes';
-import { orderStatus, precisionOf, type Precision } from '../../../screens/trade/desk/OrderTables';
+import { baseOf, orderStatus, precisionOf, quoteOf, type Precision } from '../../../screens/trade/desk/OrderTables';
 import { quotePlaces } from '../../../screens/trade/desk/text';
 import { dayTime } from '../../../screens/trade/desk/time';
 import { useSession } from '../../session/session';
-import { createTradeApi, isTerminalOrder, type Order, type OrderChange } from '../trade-api';
+import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type OrderChange } from '../trade-api';
 import { orderReason } from './order-reason';
 import { ordersCopy, type OrdersT } from './orders-copy';
 import './orders.css';
@@ -24,8 +24,6 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Read<T> = { status: 'loading' } | { status: 'failed'; failure: Refusal } | { status: 'ready'; data: T };
 type Cancelled = { tone: 'good'; text: string } | { tone: 'bad'; text: string };
 
-const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
-const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 const isZero = (value: string): boolean => /^0*(\.0*)?$/.test(value);
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -332,11 +330,16 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
             fills.data.length === 0 ? (
               <p>{t('fillsNone')}</p>
             ) : (
-              <ul className="orders-fills">
-                {fills.data.map((fill) => (
-                  <Fill key={fill.id} fill={fill} order={o} precision={precision} t={t} />
-                ))}
-              </ul>
+              <>
+                <ul className="orders-fills">
+                  {fills.data.map((fill) => (
+                    <Fill key={fill.id} fill={fill} order={o} precision={precision} t={t} />
+                  ))}
+                </ul>
+                {fills.data.length >= ORDER_TRADES_LIMIT ? (
+                  <p className="orders-note">{t('fillsCapped', { count: String(ORDER_TRADES_LIMIT) })}</p>
+                ) : null}
+              </>
             )
           ) : null}
         </section>

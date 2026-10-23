@@ -35,6 +35,15 @@ let catalogueIdentity = 0;
  * The spot desk, Markets list, Buy and Convert are the redesigned screens under `screens/trade/`;
  * `/exchange` and `/trade` reach them through the room table, never through here.
  */
+/** A path segment as written; one with broken percent-encoding stays raw, so it reads as an order that is not found. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function TradeRoutes({ path }: { path: string }) {
   const pathname = new URL(path, location.origin).pathname.replace(/\/+$/, '');
   if (pathname === '/trade/news') return <NewsRoom />;
@@ -42,7 +51,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/risk') return <RiskControl />;
   if (pathname === '/trade/orders') return <OrderHistoryRoom path={path} />;
   const orderMatch = /^\/trade\/orders\/([^/]+)$/.exec(pathname);
-  if (orderMatch) return <OrderDetailRoom orderId={decodeURIComponent(orderMatch[1]!)} />;
+  if (orderMatch) return <OrderDetailRoom orderId={decodedSegment(orderMatch[1]!)} />;
   return <TradeModeRoutes path={path} />;
 }
 function TradeModeRoutes({ path }: { path: string }) {

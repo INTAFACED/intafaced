@@ -10,6 +10,7 @@ const messages = {
   signIn: 'Sign in',
   refresh: 'Refresh',
   openOrders: 'Open orders are on the trading desk.',
+  tradingDesk: 'Open the trading desk',
 
   filterSide: 'Side',
   filterState: 'State',
@@ -86,6 +87,7 @@ const messages = {
   fillsNone: 'Nothing has filled.',
   fillsLoading: 'Reading the fills',
   fillsFailed: 'The fills couldn’t be read.',
+  fillsCapped: 'These are the first {count} fills. The order’s Filled amount above counts every fill.',
   fillSummary: '{amount} at {price}',
   fillTime: 'Time',
   fillRole: 'Role',

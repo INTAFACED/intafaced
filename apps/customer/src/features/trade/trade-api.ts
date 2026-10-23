@@ -394,7 +394,7 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     /** One order by id. A reply for another order is refused, never shown. */
     async orderById(id: string, signal?: AbortSignal): Promise<ApiResult<Order>> {
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema, { signal });
-      return result.ok && result.data.id !== id
+      return result.ok && result.data.id.toLowerCase() !== id.toLowerCase()
         ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
         : result;
     },
@@ -404,7 +404,7 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         query: { limit: ORDER_TRADES_LIMIT },
         signal,
       });
-      return result.ok && result.data.some((fill) => fill.order !== id)
+      return result.ok && result.data.some((fill) => fill.order?.toLowerCase() !== id.toLowerCase())
         ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
         : result;
     },

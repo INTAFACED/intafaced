@@ -177,8 +177,8 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
   );
 }
 
-const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
-const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
+export const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
+export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 
 /** Open orders (with Cancel) or past orders (with a status tag). `onChanged` runs after a cancel so the lists refresh. */
 export function OrdersTable({
