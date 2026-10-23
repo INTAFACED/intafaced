@@ -2,11 +2,13 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
 import {
+  lotBasisSavedSchema,
   lotBookInputSchema,
   lotBookSchema,
   lotChoiceSavedSchema,
   pickSaleLotInputSchema,
   setDayMethodInputSchema,
+  setLotBasisInputSchema,
   setLotMethodInputSchema,
 } from '@intafaced/contracts/tax-lot-book';
 import { TAX_EXPORT_INCOMPLETE, TAX_JURISDICTION_UNMAPPED, TaxError } from './codes.js';
@@ -95,7 +97,11 @@ export function createTaxRouter(tax: TaxService) {
       .output(lotBookSchema)
       .query(async ({ ctx, input }) => {
         try {
-          return await tax.lotBook({ userId: ctx.principal!.userId, ...(input?.method === undefined ? {} : { method: input.method }) });
+          return await tax.lotBook({
+            userId: ctx.principal!.userId,
+            ...(input?.method === undefined ? {} : { method: input.method }),
+            ...(input?.trial === undefined ? {} : { trial: input.trial }),
+          });
         } catch (err) {
           mapError(err);
         }
@@ -135,6 +141,27 @@ export function createTaxRouter(tax: TaxService) {
         try {
           await tax.pickSaleLot({ userId: ctx.principal!.userId, saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId });
           return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The caller's own price per coin for one of their lots with no cost of ours; null removes it. Labelled customer-entered
+     * wherever it is used. Checked against the caller's own book. Settings only: no balance or ledger fact changes.
+     */
+    setLotBasis: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setLotBasisInputSchema)
+      .output(lotBasisSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const version = await tax.setLotBasis({
+            userId: ctx.principal!.userId,
+            lotId: input.lotId,
+            pricePerUnitUsd: input.pricePerUnitUsd,
+            note: input.note,
+          });
+          return { saved: true as const, version };
         } catch (err) {
           mapError(err);
         }

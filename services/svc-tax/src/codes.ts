@@ -33,6 +33,10 @@ export const TAX_PRICE_AT_TIME_UNAVAILABLE = 'tax.price_at_time_unavailable' as 
 export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
 /** A lot pick names a sale or a lot that is not in the caller's book, or a lot that arrived after the sale. */
 export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
+/** A price was entered for a lot that is not in the caller's book. */
+export const TAX_BASIS_LOT_UNKNOWN = 'tax.basis_lot_unknown' as const;
+/** A price was entered for a lot whose cost comes from our own records: our figure wins. */
+export const TAX_BASIS_OVERRIDE_NOT_ALLOWED = 'tax.basis_override_not_allowed' as const;
 /** The settings store is not connected, so a cost-basis choice cannot be saved. Reads use the product default. */
 export const TAX_DATABASE_URL_UNSET = 'tax.database_url_unset' as const;
 /** The saved choices could not be read for this answer; the product default was used and the book says so. */
@@ -62,6 +66,8 @@ export type TaxRefuseCode =
   | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
   | typeof TAX_LOT_PICK_UNUSABLE
   | typeof TAX_LOT_PICK_INVALID
+  | typeof TAX_BASIS_LOT_UNKNOWN
+  | typeof TAX_BASIS_OVERRIDE_NOT_ALLOWED
   | typeof TAX_DATABASE_URL_UNSET
   | typeof TAX_DATABASE_POOL_MAX_UNSET
   | typeof TAX_CHOICES_UNAVAILABLE;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { decimalString } from './instruments.js';
 
 /**
  * `tax.lotBook`: the customer's profit and loss indicator, built by svc-tax from their own ledger history. Shared by the
@@ -20,7 +21,17 @@ export type LotSourceKind = (typeof LOT_SOURCES)[number];
  * `method` previews one method for every sale (the customer's saved choices and lot picks are not applied). Without it the
  * book applies what the customer saved.
  */
-export const lotBookInputSchema = z.object({ method: lotBookMethodSchema.optional() }).strict().optional();
+export const lotBookInputSchema = z
+  .object({
+    method: lotBookMethodSchema.optional(),
+    /** Work the book out as if this price were entered for this lot, without saving it: the effect shown before a save. */
+    trial: z
+      .object({ lotId: z.string().min(1).max(300), pricePerUnitUsd: decimalString })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .optional();
 
 /** A coin as the ledger names it, e.g. `BTC`. */
 const lotAssetIdSchema = z.string().regex(/^[A-Z0-9]{1,20}$/);
@@ -44,6 +55,22 @@ export const pickSaleLotInputSchema = z
   .strict();
 
 export const lotChoiceSavedSchema = z.object({ saved: z.literal(true) });
+
+/**
+ * `tax.setLotBasis`: the customer's own price per coin, in dollars, for a lot whose cost the platform does not know (a
+ * deposit, a reward, a move in). `pricePerUnitUsd` null removes it, and the lot's cost is unknown again. Each change is a
+ * new version; the same price and note sent again is not. A lot whose cost comes from our own records is refused.
+ */
+export const setLotBasisInputSchema = z
+  .object({
+    lotId: z.string().min(1).max(300),
+    pricePerUnitUsd: decimalString.refine((v) => /[1-9]/.test(v), 'must be greater than zero').nullable(),
+    /** Where the price comes from, in the customer's words. */
+    note: z.string().trim().max(200).default(''),
+  })
+  .strict();
+
+export const lotBasisSavedSchema = z.object({ saved: z.literal(true), version: z.number().int().positive() });
 
 /** Where a sale's method came from, most specific first. `preview`: one method asked for every sale. */
 export const LOT_METHOD_SOURCES = ['preview', 'day', 'asset', 'account', 'default'] as const;
@@ -85,6 +112,16 @@ export const lotBookLotSchema = z.object({
   costUsd: z.string().nullable(),
   remainingCostUsd: z.string().nullable(),
   valuedAt: lotBookValuedAtSchema.nullable(),
+  /**
+   * Where the cost comes from: `ours` (what was paid, or the value at arrival under the owner's deposit policy), `customer`
+   * (a price the customer entered; every figure that uses it says so), or `unknown`.
+   */
+  basis: z.enum(['ours', 'customer', 'unknown']),
+  /**
+   * The customer's entry when `basis` is `customer`: price per coin, their note, and its version (0: the trial price of this
+   * answer, not saved). Our own record stays unknown.
+   */
+  entered: z.object({ pricePerUnitUsd: z.string(), note: z.string(), version: z.number().int().nonnegative() }).nullable(),
   /** Whole days since it arrived, for a lot still open; null once all of it is sold. */
   daysHeld: z.number().int().nonnegative().nullable(),
   /** Short or long term is an owner tax rule that is not published, so it is always null. */
@@ -97,6 +134,8 @@ export const lotBookMatchSchema = z.object({
   costUsd: z.string().nullable(),
   proceedsUsd: z.string().nullable(),
   realizedUsd: z.string().nullable(),
+  /** The cost uses a price the customer entered. */
+  customerEntered: z.boolean(),
 });
 
 export const lotBookSaleSchema = z.object({
@@ -113,6 +152,8 @@ export const lotBookSaleSchema = z.object({
   proceedsUsd: z.string().nullable(),
   costUsd: z.string().nullable(),
   realizedUsd: z.string().nullable(),
+  /** The cost uses a price the customer entered. */
+  customerEntered: z.boolean(),
   matches: z.array(lotBookMatchSchema),
 });
 
@@ -120,7 +161,36 @@ export const lotBookAssetSchema = z.object({
   assetId: z.string(),
   openQty: z.string(),
   openCostUsd: z.string().nullable(),
+  /** The open cost uses a price the customer entered. */
+  customerEntered: z.boolean(),
   held: z.string(),
+});
+
+/**
+ * What a missing cost touches. `lots`: every lot whose cost is not known, with the sales that drew on it. `sales`: every sale
+ * with an unknown share (drawn from such a lot, or from no lot at all): that share's quantity and proceeds, while its
+ * result stays unknown and is never worked out from a made-up cost.
+ */
+export const lotBookMissingBasisSchema = z.object({
+  lots: z.array(
+    z.object({
+      lotId: z.string(),
+      assetId: z.string(),
+      source: z.enum(LOT_SOURCES),
+      qty: z.string(),
+      remaining: z.string(),
+      sales: z.array(z.object({ txId: z.string(), qty: z.string(), proceedsUsd: z.string().nullable() })),
+    }),
+  ),
+  sales: z.array(
+    z.object({
+      txId: z.string(),
+      assetId: z.string(),
+      unknownQty: z.string(),
+      /** Proceeds of the unknown share; null when the sale's proceeds are not in dollars. */
+      unknownProceedsUsd: z.string().nullable(),
+    }),
+  ),
 });
 
 export const lotBookSchema = z.object({
@@ -133,6 +203,11 @@ export const lotBookSchema = z.object({
   sales: z.array(lotBookSaleSchema),
   lots: z.array(lotBookLotSchema),
   realizedUsd: z.string().nullable(),
+  /** The total uses a price the customer entered. */
+  realizedCustomerEntered: z.boolean(),
+  missingBasis: lotBookMissingBasisSchema,
+  /** The price tried for one lot (`trial` in the input): this answer is not saved. */
+  trial: z.object({ lotId: z.string(), pricePerUnitUsd: z.string() }).nullable(),
   termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
   residuals: z.array(z.string()),
 });
@@ -141,4 +216,5 @@ export type LotBookAnswer = z.infer<typeof lotBookSchema>;
 export type LotBookLot = z.infer<typeof lotBookLotSchema>;
 export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
 export type LotBookChoices = z.infer<typeof lotBookChoicesSchema>;
+export type LotBookMissingBasis = z.infer<typeof lotBookMissingBasisSchema>;
 export type LotMethodSource = (typeof LOT_METHOD_SOURCES)[number];

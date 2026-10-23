@@ -1,4 +1,4 @@
-import { formatAmount, mul, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
@@ -15,12 +15,22 @@ import {
   TAX_CHOICES_UNAVAILABLE,
   TAX_DATABASE_URL_UNSET,
   TAX_LOT_PICK_INVALID,
+  TAX_BASIS_LOT_UNKNOWN,
+  TAX_BASIS_OVERRIDE_NOT_ALLOWED,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type BookChoices, type Inflow, type LotBook } from './lot-book.js';
+import {
+  buildLotBook,
+  DEFAULT_LOT_BOOK_METHOD,
+  PAR_ASSETS,
+  type BookChoices,
+  type EnteredBasis,
+  type Inflow,
+  type LotBook,
+} from './lot-book.js';
 import { NO_CHOICES, saleRules, unwiredChoices, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
@@ -220,7 +230,7 @@ export class TaxService {
    * tax pack. Without a method it applies the customer's saved choices (choices.ts), else the product default FIFO; with
    * one it previews that method for every sale. An unknown name is refused, not guessed.
    */
-  async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
+  async lotBook(input: { userId: string; method?: string; trial?: { lotId: string; pricePerUnitUsd: string } }): Promise<LotBook> {
     const preview = input.method === undefined ? null : requireBookMethod(input.method);
     // The indicator needs no settings to be worked out: if the saved choices cannot be read, it answers with the default
     // and says so (`choices.status: 'unavailable'`), rather than failing every customer's page.
@@ -236,12 +246,31 @@ export class TaxService {
       preview,
       saved,
       unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
+      input.trial ?? null,
     );
   }
 
-  private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {
+  private async bookWith(
+    userId: string,
+    preview: EngineMethod | null,
+    saved: CostBasisChoices,
+    choices: BookChoices,
+    trial: { lotId: string; pricePerUnitUsd: string } | null = null,
+  ): Promise<LotBook> {
     const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
-    const shared = { method, rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview), preview: preview !== null, choices };
+    // The customer's prices apply to their own lots with no cost; a trial price stands in for that lot's entry, unsaved.
+    const entered = new Map<string, EnteredBasis>(
+      saved.basis.map((b) => [b.lotId, { pricePerUnit: b.pricePerUnit, note: b.note, version: b.version }]),
+    );
+    if (trial !== null) entered.set(trial.lotId, { pricePerUnit: parseAmount(trial.pricePerUnitUsd), note: '', version: 0 });
+    const shared = {
+      method,
+      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+      preview: preview !== null,
+      choices,
+      entered,
+      trial,
+    };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
     const [balances, filled] = await Promise.all([this.reads.balances('user', userId), readFills.call(this.reads, userId)]);
@@ -299,6 +328,32 @@ export class TaxService {
       }
     }
     await this.choices.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);
+  }
+
+  /**
+   * The caller's own price per coin for one of their lots with no cost of ours; null removes it. Refused for a lot that is
+   * not in the caller's book, and for a lot whose cost comes from our records (what was paid, or the owner's deposit policy):
+   * our figure wins. Returns the version in force.
+   */
+  async setLotBasis(input: { userId: string; lotId: string; pricePerUnitUsd: string | null; note: string }): Promise<number> {
+    const saved = await this.choices.read(input.userId);
+    if (input.pricePerUnitUsd !== null) {
+      const book = await this.bookWith(
+        input.userId,
+        null,
+        { ...saved, basis: saved.basis.filter((b) => b.lotId !== input.lotId) },
+        this.bookChoices(saved),
+      );
+      const lot = book.lots.find((l) => l.id === input.lotId);
+      if (!lot) throw new TaxError(TAX_BASIS_LOT_UNKNOWN, 'that lot is not in your book');
+      if (lot.basis === 'ours') throw new TaxError(TAX_BASIS_OVERRIDE_NOT_ALLOWED, 'this lot already has a cost from our own records');
+    }
+    return this.choices.setBasis(
+      input.userId,
+      input.lotId,
+      input.pricePerUnitUsd === null ? null : parseAmount(input.pricePerUnitUsd),
+      input.note,
+    );
   }
 
   /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */

@@ -55,6 +55,8 @@ export interface BookAsset {
   readonly openQty: string;
   /** USD cost of that open quantity; null if any open lot has no known cost, or the book does not reconcile. */
   readonly openCostUsd: string | null;
+  /** The open cost uses a price the customer entered. */
+  readonly customerEntered: boolean;
   /** Everything the customer holds of the asset now (main account, all lock kinds). */
   readonly held: string;
 }
@@ -81,6 +83,10 @@ export interface BookLot {
   readonly remainingCostUsd: string | null;
   /** Value when it arrived and the price that gave it; null for a trade (its cost is what was paid) or no price. */
   readonly valuedAt: BookValuedAt | null;
+  /** Where the cost comes from: ours, a price the customer entered, or nowhere. */
+  readonly basis: 'ours' | 'customer' | 'unknown';
+  /** The customer's entry, when `basis` is `customer`. */
+  readonly entered: { pricePerUnitUsd: string; note: string; version: number } | null;
   /** Whole days since it arrived, for a lot still open; null once it is all sold. */
   readonly daysHeld: number | null;
   /** Short or long term is a tax rule the owner has not published, so it is never filled in. */
@@ -93,6 +99,7 @@ export interface BookMatch {
   readonly costUsd: string | null;
   readonly proceedsUsd: string | null;
   readonly realizedUsd: string | null;
+  readonly customerEntered: boolean;
 }
 
 export type BookMethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
@@ -112,6 +119,8 @@ export interface BookSale {
   readonly proceedsUsd: string | null;
   readonly costUsd: string | null;
   readonly realizedUsd: string | null;
+  /** The cost uses a price the customer entered. */
+  readonly customerEntered: boolean;
   /** The lots the sale drew on, in the order taken. */
   readonly matches: BookMatch[];
 }
@@ -128,6 +137,26 @@ export type BookChoices =
   | { readonly status: 'unwired'; readonly code: 'tax.database_url_unset' | 'tax.database_pool_max_unset' }
   | { readonly status: 'unavailable'; readonly code: 'tax.choices_unavailable' };
 
+/** What a missing cost touches: the lots with no cost and the sales that drew on them, and every sale's unknown share. */
+export interface BookMissingBasis {
+  readonly lots: Array<{
+    lotId: string;
+    assetId: string;
+    source: LotSource;
+    qty: string;
+    remaining: string;
+    sales: Array<{ txId: string; qty: string; proceedsUsd: string | null }>;
+  }>;
+  readonly sales: Array<{ txId: string; assetId: string; unknownQty: string; unknownProceedsUsd: string | null }>;
+}
+
+/** A price per coin the customer entered for one lot, and the version of that entry. */
+export interface EnteredBasis {
+  readonly pricePerUnit: Amount;
+  readonly note: string;
+  readonly version: number;
+}
+
 export const UNWIRED_CHOICES: BookChoices = { status: 'unwired', code: 'tax.database_url_unset' };
 
 export interface LotBook {
@@ -141,6 +170,10 @@ export interface LotBook {
   readonly lots: BookLot[];
   /** Sum of every sale's result; null as soon as any sale's result is unknown. Null, not 0, when there is no sale. */
   readonly realizedUsd: string | null;
+  readonly realizedCustomerEntered: boolean;
+  readonly missingBasis: BookMissingBasis;
+  /** The price tried for one lot without saving it, when this answer is a trial. */
+  readonly trial: { lotId: string; pricePerUnitUsd: string } | null;
   /** The short-or-long-term rule is an owner value that is not published. */
   readonly termRule: { readonly status: 'unset'; readonly code: typeof TAX_TERM_RULE_UNSET };
   readonly residuals: string[];
@@ -207,6 +240,9 @@ export function buildLotBook(input: {
   outsideInflows?: ReadonlySet<string>;
   /** Coins that reached the customer other than by a fill, each a lot of its own. */
   inflows?: readonly Inflow[];
+  /** Prices the customer entered, by lot id (a trial price is passed here too, with version 0). */
+  entered?: ReadonlyMap<string, EnteredBasis>;
+  trial?: { lotId: string; pricePerUnitUsd: string } | null;
   now?: Date;
 }): LotBook {
   const residuals = new Set<string>();
@@ -226,17 +262,19 @@ export function buildLotBook(input: {
       valuedAt: inflow.valuedAt,
     });
   }
-  const run = runLotEngine(movements, input.rules ?? input.method);
+  const entered = input.entered ?? new Map<string, EnteredBasis>();
+  const run = runLotEngine(movements, input.rules ?? input.method, new Map([...entered].map(([id, e]) => [id, e.pricePerUnit])));
   for (const r of run.residuals) residuals.add(r);
 
   // Open quantity per asset. If more or less is open than the customer holds, coins arrived or left in a way the book
   // cannot see, and there is no way to say which lot is open: the cost of that asset is unknown, not a guess.
-  const openByAsset = new Map<string, { qty: Amount; cost: Amount | null }>();
+  const openByAsset = new Map<string, { qty: Amount; cost: Amount | null; customer: boolean }>();
   for (const lot of run.lots) {
     if (lot.remaining === 0n) continue;
-    const entry = openByAsset.get(lot.assetId) ?? { qty: 0n, cost: 0n as Amount | null };
+    const entry = openByAsset.get(lot.assetId) ?? { qty: 0n, cost: 0n as Amount | null, customer: false };
     entry.qty += lot.remaining;
     entry.cost = entry.cost === null || lot.remainingCostUsd === null ? null : entry.cost + lot.remainingCostUsd;
+    entry.customer ||= lot.remainingCustomerEntered;
     openByAsset.set(lot.assetId, entry);
   }
   const soldAssets = new Set(run.sales.map((sale) => sale.assetId));
@@ -259,10 +297,12 @@ export function buildLotBook(input: {
       outside.add(assetId);
     }
     if (open?.cost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+    const openCostUsd = open === undefined || !reconciled || input.truncated || open.cost === null ? null : formatAmount(open.cost);
     assets.push({
       assetId,
       openQty: formatAmount(open?.qty ?? 0n),
-      openCostUsd: open === undefined || !reconciled || input.truncated || open.cost === null ? null : formatAmount(open.cost),
+      openCostUsd,
+      customerEntered: openCostUsd !== null && (open?.customer ?? false),
       held: formatAmount(held),
     });
   }
@@ -282,12 +322,14 @@ export function buildLotBook(input: {
     proceedsUsd: money(sale.proceedsUsd),
     costUsd: blank(sale.assetId) ? null : money(sale.costUsd),
     realizedUsd: blank(sale.assetId) ? null : money(sale.realizedUsd),
+    customerEntered: !blank(sale.assetId) && sale.customerEntered,
     matches: sale.matches.map((m) => ({
       lotId: m.lotId,
       qty: formatAmount(m.qty),
       costUsd: blank(sale.assetId) ? null : money(m.costUsd),
       proceedsUsd: money(m.proceedsUsd),
       realizedUsd: blank(sale.assetId) ? null : money(m.realizedUsd),
+      customerEntered: !blank(sale.assetId) && m.customerEntered,
     })),
   }));
   const now = (input.now ?? new Date()).getTime();
@@ -310,9 +352,13 @@ export function buildLotBook(input: {
             timeframe: lot.valuedAt.timeframe,
             candleAt: lot.valuedAt.candleAt === null ? null : lot.valuedAt.candleAt.toISOString(),
           },
+    basis: lot.enteredPrice !== null ? 'customer' : lot.costUsd !== null ? 'ours' : 'unknown',
+    entered: enteredOf(lot.id, lot.enteredPrice, entered),
     daysHeld: lot.remaining === 0n ? null : Math.max(0, Math.floor((now - lot.acquiredAt.getTime()) / DAY_MS)),
     termClass: null,
   }));
+
+  const missingBasis = missingBasisOf(lots, sales);
 
   let realizedTotal: Amount | null = 0n;
   for (const sale of sales) {
@@ -332,7 +378,61 @@ export function buildLotBook(input: {
     sales,
     lots,
     realizedUsd: sales.length === 0 ? null : realizedTotal === null ? null : formatAmount(realizedTotal),
+    realizedCustomerEntered: realizedTotal !== null && sales.some((sale) => sale.customerEntered),
+    missingBasis,
+    trial: input.trial ?? null,
     termRule: { status: 'unset', code: TAX_TERM_RULE_UNSET },
     residuals: [...residuals].sort(),
   };
+}
+
+function enteredOf(lotId: string, price: Amount | null, entered: ReadonlyMap<string, EnteredBasis>): BookLot['entered'] {
+  const entry = entered.get(lotId);
+  if (price === null || entry === undefined) return null;
+  return { pricePerUnitUsd: formatAmount(entry.pricePerUnit), note: entry.note, version: entry.version };
+}
+
+/** The lots with no cost and the sales that drew on them; each sale's share with no cost, quantity and proceeds only. */
+function missingBasisOf(lots: readonly BookLot[], sales: readonly BookSale[]): BookMissingBasis {
+  const unknownLots = lots.filter((lot) => lot.basis === 'unknown');
+  const out: BookMissingBasis = {
+    lots: unknownLots.map((lot) => ({
+      lotId: lot.id,
+      assetId: lot.assetId,
+      source: lot.source,
+      qty: lot.qty,
+      remaining: lot.remaining,
+      sales: sales.flatMap((sale) =>
+        sale.matches.filter((m) => m.lotId === lot.id).map((m) => ({ txId: sale.txId, qty: m.qty, proceedsUsd: m.proceedsUsd })),
+      ),
+    })),
+    sales: [],
+  };
+  for (const sale of sales) {
+    const unknown = sale.matches.filter((m) => m.costUsd === null);
+    const unmatched = parseAmount(sale.unmatchedQty);
+    if (unknown.length === 0 && unmatched === 0n) continue;
+    let qty = unmatched;
+    let proceeds: Amount | null = 0n;
+    for (const m of unknown) {
+      qty += parseAmount(m.qty);
+      proceeds = proceeds === null || m.proceedsUsd === null ? null : proceeds + parseAmount(m.proceedsUsd);
+    }
+    if (unmatched > 0n) {
+      // The part no lot covered gets what is left of the proceeds after every lot it did reach.
+      const reached = sale.matches.reduce<Amount | null>(
+        (sum, m) => (sum === null || m.proceedsUsd === null ? null : sum + parseAmount(m.proceedsUsd)),
+        0n,
+      );
+      proceeds =
+        proceeds === null || reached === null || sale.proceedsUsd === null ? null : proceeds + parseAmount(sale.proceedsUsd) - reached;
+    }
+    out.sales.push({
+      txId: sale.txId,
+      assetId: sale.assetId,
+      unknownQty: formatAmount(qty),
+      unknownProceedsUsd: sale.proceedsUsd === null ? null : money(proceeds),
+    });
+  }
+  return out;
 }

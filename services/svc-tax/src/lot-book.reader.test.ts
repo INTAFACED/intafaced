@@ -140,7 +140,8 @@ describe('tax.lotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        customerEntered: false,
+        matches: [{ lotId: 'lot:buy:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', customerEntered: false }],
       },
     ]);
     expect(book.residuals).toEqual([]);

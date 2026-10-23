@@ -37,11 +37,18 @@ describe('buildLotBook', () => {
         proceedsUsd: '300',
         costUsd: '100',
         realizedUsd: '200',
-        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }],
+        customerEntered: false,
+        matches: [{ lotId: 'lot:t1:BTC', qty: '1', costUsd: '100', proceedsUsd: '300', realizedUsd: '200', customerEntered: false }],
       },
     ]);
     expect(book.realizedUsd).toBe('200');
-    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1' });
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toEqual({
+      assetId: 'BTC',
+      openQty: '1',
+      openCostUsd: '200',
+      customerEntered: false,
+      held: '1',
+    });
     expect(book.indicator).toBe('indicator_not_tax_advice');
     expect(book.residuals).toEqual([]);
   });

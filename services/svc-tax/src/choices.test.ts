@@ -41,6 +41,7 @@ describe('which method a sale uses', () => {
       { day: '2026-10-06', assetId: null, method: 'HIFO' },
     ],
     picks: [{ saleTxId: 's9', assetId: 'BTC', lotId: 'lot:b1:BTC' }],
+    basis: [],
   };
   const rule = saleRules(choices, 'FIFO', null);
 

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { parseAmount as amt } from '@intafaced/ledger-client';
 import { postgresChoices, type ChoiceStore } from './choices.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -81,9 +82,40 @@ describe('cost-basis choices in Postgres', () => {
     );
   });
 
+  it('keeps every version of an entered price, adds none for a repeat, and reads the one in force per customer', async () => {
+    const lot = 'lot:tx-dep-1:BTC';
+    expect(await store.setBasis(ADA, lot, amt('100'), 'receipt')).toBe(1);
+    expect(await store.setBasis(ADA, lot, amt('100'), 'receipt')).toBe(1); // the same entry again: no new version
+    expect(
+      await Promise.all([store.setBasis(ADA, lot, amt('250.5'), 'receipt'), store.setBasis(ADA, lot, amt('250.5'), 'receipt')]),
+    ).toEqual([2, 2]);
+    expect((await store.read(ADA)).basis).toEqual([{ lotId: lot, pricePerUnit: amt('250.5'), note: 'receipt', version: 2 }]);
+    expect((await store.read(BO)).basis).toEqual([]);
+    expect(await store.setBasis(ADA, lot, null, '')).toBe(3); // removal is a version too
+    expect((await store.read(ADA)).basis).toEqual([]);
+    expect(await store.setBasis(ADA, lot, null, '')).toBe(3);
+    expect(await store.setBasis(BO, lot, null, '')).toBe(0); // nothing to remove: nothing written
+    const rows = await db.sql`SELECT version, price_per_unit::text AS price FROM tax.lot_basis WHERE user_id = ${ADA} ORDER BY version`;
+    expect(rows).toEqual([
+      { version: 1, price: '100.000000000000000000' },
+      { version: 2, price: '250.500000000000000000' },
+      { version: 3, price: null },
+    ]);
+  });
+
+  it('never changes or deletes an entered price row, and refuses a zero price at the table', async () => {
+    await store.setBasis(ADA, 'lot:tx-dep-1:BTC', amt('100'), '');
+    await expect(db.sql`UPDATE tax.lot_basis SET price_per_unit = 1`).rejects.toThrow(/append-only/);
+    await expect(db.sql`DELETE FROM tax.lot_basis`).rejects.toThrow(/append-only/);
+    await expect(
+      db.sql`INSERT INTO tax.lot_basis (user_id, lot_id, version, price_per_unit) VALUES (${ADA}, 'lot:x:BTC', 1, 0)`,
+    ).rejects.toThrow(/lot_basis_values_check/);
+  });
+
   it('the migration reverses cleanly and applies again', async () => {
     for (const down of downs) await db.sql.unsafe(down);
     expect(await db.sql`SELECT to_regclass('tax.method_choices') AS t`).toEqual([{ t: null }]);
+    expect(await db.sql`SELECT to_regclass('tax.lot_basis') AS t`).toEqual([{ t: null }]);
     for (const up of ups) await db.sql.unsafe(up);
     for (const up of ups) await db.sql.unsafe(up); // re-runnable
     await store.setMethod(ADA, null, 'FIFO');

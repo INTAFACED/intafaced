@@ -1,4 +1,4 @@
-import type { Amount } from '@intafaced/ledger-client';
+import { mul, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } from './codes.js';
 
 /**
@@ -10,6 +10,9 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } 
  * year pack's matcher, which stops at the first unknown lot). Under HIFO a lot with no basis cannot be ranked, so a sale
  * that would have to rank it is unknown as a whole: its quantity is still drawn (oldest first) so the open quantity stays
  * right, and the lots left have an unknown basis, since which of them is open is not known.
+ *
+ * A lot whose basis is null can carry a price per coin the customer entered (`entered`, by lot id). It then has a basis like
+ * any other, and every figure that uses it is flagged `customerEntered`. A lot with a basis of our own ignores an entry.
  *
  * AVERAGE keeps one running cost per asset: a sale takes quantity at the current average cost per coin and leaves the
  * average unchanged. The lots list still shows which arrivals are left, oldest first, each at that average.
@@ -63,6 +66,8 @@ export interface LotMatch {
   readonly costUsd: Amount | null;
   readonly proceedsUsd: Amount | null;
   readonly realizedUsd: Amount | null;
+  /** The cost uses a price the customer entered. */
+  readonly customerEntered: boolean;
 }
 
 /**
@@ -92,6 +97,8 @@ export interface EngineSale {
   /** Null as soon as any part is unknown or uncovered. */
   readonly costUsd: Amount | null;
   readonly realizedUsd: Amount | null;
+  /** The cost uses a price the customer entered. */
+  readonly customerEntered: boolean;
   readonly matches: readonly LotMatch[];
 }
 
@@ -106,8 +113,12 @@ export interface EngineLot {
   readonly remaining: Amount;
   /** Basis of the whole arrival; null when unknown. */
   readonly costUsd: Amount | null;
+  /** The basis is the customer's price per coin times the quantity, not a figure of our own. */
+  readonly enteredPrice: Amount | null;
   /** Basis of what is left; null when unknown. */
   readonly remainingCostUsd: Amount | null;
+  /** What is left is costed with a customer's price (its own, or, under AVERAGE, one in the pool it was restated from). */
+  readonly remainingCustomerEntered: boolean;
   readonly valuedAt: ValuedAt | null;
 }
 
@@ -126,9 +137,10 @@ export function lotIdOf(acquireTxId: string, assetId: string): string {
 }
 
 interface OpenLot {
-  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd'>;
+  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd' | 'remainingCustomerEntered'>;
   remaining: Amount;
   remainingCost: Amount | null;
+  customer: boolean;
 }
 
 /** total * take / qty, floored at the ledger's places; the whole when all is taken. */
@@ -150,7 +162,12 @@ function pick(open: readonly OpenLot[], method: EngineMethod): number | null {
   return best;
 }
 
-export function runLotEngine(movements: readonly EngineMovement[], rules: SaleRules): EngineRun {
+export function runLotEngine(
+  movements: readonly EngineMovement[],
+  rules: SaleRules,
+  /** Price per coin the customer entered, by lot id; used only for a lot whose own basis is null. */
+  entered: ReadonlyMap<string, Amount> = new Map(),
+): EngineRun {
   const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'call' }) : rules;
   const byAsset = new Map<string, EngineMovement[]>();
   for (const m of movements) {
@@ -176,6 +193,8 @@ export function runLotEngine(movements: readonly EngineMovement[], rules: SaleRu
         let id = lotIdOf(m.txId, m.assetId);
         for (let n = 2; usedIds.has(id); n++) id = `${lotIdOf(m.txId, m.assetId)}:${n}`;
         usedIds.add(id);
+        const price = m.costUsd === null ? (entered.get(id) ?? null) : null;
+        const cost = price === null ? m.costUsd : mul(m.qty, price);
         const entry: OpenLot = {
           lot: {
             id,
@@ -185,11 +204,13 @@ export function runLotEngine(movements: readonly EngineMovement[], rules: SaleRu
             source: m.source,
             reason: m.reason,
             qty: m.qty,
-            costUsd: m.costUsd,
+            costUsd: cost,
+            enteredPrice: price,
             valuedAt: m.valuedAt,
           },
           remaining: m.qty,
-          remainingCost: m.costUsd,
+          remainingCost: cost,
+          customer: price !== null,
         };
         open.push(entry);
         all.push(entry);
@@ -198,7 +219,12 @@ export function runLotEngine(movements: readonly EngineMovement[], rules: SaleRu
       sales.push(dispose(m, open, ruleOf(m), residuals));
     }
     for (const entry of all) {
-      lots.push({ ...entry.lot, remaining: entry.remaining, remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost });
+      lots.push({
+        ...entry.lot,
+        remaining: entry.remaining,
+        remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost,
+        remainingCustomerEntered: entry.remaining !== 0n && entry.customer,
+      });
       if (entry.remaining > 0n && entry.remainingCost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     }
   }
@@ -222,15 +248,17 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
   let unranked = false;
 
   // AVERAGE: one cost per coin for the whole open quantity, fixed for this sale.
-  let averagePool: { qty: Amount; cost: Amount | null } | null = null;
+  let averagePool: { qty: Amount; cost: Amount | null; customer: boolean } | null = null;
   if (method === 'AVERAGE') {
     let qty = 0n;
     let cost: Amount | null = 0n;
+    let customer = false;
     for (const lot of open) {
       qty += lot.remaining;
       cost = cost === null || lot.remainingCost === null ? null : cost + lot.remainingCost;
+      customer ||= lot.customer;
     }
-    averagePool = { qty, cost };
+    averagePool = { qty, cost, customer };
   }
 
   while (remaining > 0n && open.length > 0) {
@@ -265,6 +293,7 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
       costUsd: cost,
       proceedsUsd: proceeds,
       realizedUsd: cost === null || proceeds === null ? null : proceeds - cost,
+      customerEntered: cost !== null && (averagePool === null ? lot.customer : averagePool.customer),
     });
     remaining -= take;
     if (proceedsLeft !== null && proceeds !== null) proceedsLeft -= proceeds;
@@ -276,6 +305,7 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
   if (averagePool !== null) {
     // The average is unchanged by a sale: every lot still open is restated at that cost per coin. The pool's cost left is
     // exactly what it had less what this sale took, so the rounding remainder goes to the last lot and nothing drifts.
+    for (const lot of open) lot.customer = averagePool.customer;
     if (averagePool.cost === null) {
       for (const lot of open) lot.remainingCost = null;
     } else {
@@ -314,6 +344,7 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
     proceedsUsd: m.proceedsUsd,
     costUsd,
     realizedUsd: costUsd === null || m.proceedsUsd === null ? null : m.proceedsUsd - costUsd,
+    customerEntered: costUsd !== null && matches.some((x) => x.customerEntered),
     matches,
   };
 }

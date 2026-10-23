@@ -58,7 +58,7 @@ describe('runLotEngine', () => {
     const run = runLotEngine(two, 'FIFO');
     expect(run.lots.map((l) => l.id)).toEqual([lotIdOf('b1', 'BTC'), lotIdOf('b2', 'BTC')]);
     expect(run.sales[0]!.matches).toEqual([
-      { lotId: 'lot:b1:BTC', qty: amt('1'), costUsd: amt('100'), proceedsUsd: amt('300'), realizedUsd: amt('200') },
+      { lotId: 'lot:b1:BTC', qty: amt('1'), costUsd: amt('100'), proceedsUsd: amt('300'), realizedUsd: amt('200'), customerEntered: false },
     ]);
   });
 
