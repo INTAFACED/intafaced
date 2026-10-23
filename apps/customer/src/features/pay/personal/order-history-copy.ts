@@ -54,7 +54,7 @@ const en = {
   receiptCompleted: 'Completed',
   receiptQuotaDaily: 'You have used today’s receipts. You can get more from {time}.',
   receiptQuotaTrade: 'You have downloaded this receipt as many times as allowed.',
-  notSetUp: 'This is not set up yet: {setting}.',
+  notSetUp: 'This needs a setting the operator has left blank: {setting}.',
 } as const;
 
 const es = {
@@ -110,7 +110,7 @@ const es = {
   receiptCompleted: 'Completado',
   receiptQuotaDaily: 'Has usado los recibos de hoy. Podrás obtener más desde {time}.',
   receiptQuotaTrade: 'Has descargado este recibo tantas veces como se permite.',
-  notSetUp: 'Esto aún no está configurado: {setting}.',
+  notSetUp: 'Esto necesita un ajuste que el operador dejó en blanco: {setting}.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -166,7 +166,7 @@ const fr = {
   receiptCompleted: 'Terminée',
   receiptQuotaDaily: 'Vous avez utilisé les reçus du jour. Vous pourrez en obtenir d’autres à partir de {time}.',
   receiptQuotaTrade: 'Vous avez téléchargé ce reçu autant de fois que permis.',
-  notSetUp: 'Ce n’est pas encore configuré : {setting}.',
+  notSetUp: 'Il faut un réglage que l’opérateur a laissé vide : {setting}.',
 } satisfies Record<keyof typeof en, string>;
 
 export const orderHistoryCopy = defineCopy('pay.p2p.orderHistory', en, { es, fr });

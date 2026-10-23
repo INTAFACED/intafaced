@@ -27,7 +27,7 @@ describe('order history refusals', () => {
   });
   it('names an unset owner value and leaves any other refusal to the shared failure', () => {
     expect(historyRefusal(refused('p2p.config_unset: P2P_EXPORT_MAX_ROWS'), t, (iso) => iso)).toBe(
-      'This is not set up yet: P2P_EXPORT_MAX_ROWS.',
+      'This needs a setting the operator has left blank: P2P_EXPORT_MAX_ROWS.',
     );
     expect(historyRefusal(refused('p2p.trade_not_found'), t, (iso) => iso)).toBeNull();
   });
