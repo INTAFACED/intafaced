@@ -43,17 +43,39 @@ describe('sumByAsset', () => {
 });
 
 describe('statementRange', () => {
-  const now = new Date('2026-10-20T12:00:00.000Z');
+  const now = new Date('2026-10-20T12:34:56.789Z');
 
   it('covers both days picked, in UTC, and the key is the days themselves', () => {
     expect(statementRange('2026-10-01', '2026-10-19', now)).toEqual({
       ok: true,
-      range: { from: '2026-10-01T00:00:00.000Z', to: '2026-10-20T00:00:00.000Z', requestKey: 'statement:2026-10-01:2026-10-19' },
+      range: {
+        from: '2026-10-01T00:00:00.000Z',
+        to: '2026-10-20T00:00:00.000Z',
+        requestKey: 'statement:2026-10-01:2026-10-19',
+        endsToday: false,
+      },
     });
   });
 
-  it('refuses a day still running, days the wrong way round, and a day that is not one', () => {
-    expect(statementRange('2026-10-01', '2026-10-20', now)).toEqual({ ok: false, why: 'future' });
+  it('ends at the minute it was asked when the last day is today, and that minute is in the key', () => {
+    expect(statementRange('2026-10-20', '2026-10-20', now)).toEqual({
+      ok: true,
+      range: {
+        from: '2026-10-20T00:00:00.000Z',
+        to: '2026-10-20T12:34:00.000Z',
+        requestKey: 'statement:2026-10-20:2026-10-20T12:34:00.000Z',
+        endsToday: true,
+      },
+    });
+    // The same dialog asking again: the same range and key.
+    expect(statementRange('2026-10-20', '2026-10-20', new Date('2026-10-20T12:34:59.999Z'))).toEqual(
+      statementRange('2026-10-20', '2026-10-20', now),
+    );
+  });
+
+  it('refuses a day after today, today’s first minute, days the wrong way round, and a day that is not one', () => {
+    expect(statementRange('2026-10-01', '2026-10-21', now)).toEqual({ ok: false, why: 'future' });
+    expect(statementRange('2026-10-20', '2026-10-20', new Date('2026-10-20T00:00:30.000Z'))).toEqual({ ok: false, why: 'future' });
     expect(statementRange('2026-10-05', '2026-10-01', now)).toEqual({ ok: false, why: 'order' });
     expect(statementRange('', '2026-10-01', now)).toEqual({ ok: false, why: 'days' });
     expect(dayStart('2026-02-30')).toBeNull();

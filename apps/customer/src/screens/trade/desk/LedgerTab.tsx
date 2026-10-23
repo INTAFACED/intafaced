@@ -19,7 +19,7 @@ import {
   type Loadable,
 } from './deps';
 import { sameAmount, sha256Hex, statementRange, sumByAsset } from './ledger';
-import { dayTime } from './time';
+import { clockMinutes, dayTime } from './time';
 
 const PAGE = 50;
 
@@ -178,6 +178,8 @@ function Statement() {
   const { t } = deskCopy.useCopy();
   const api = useDeskApi();
   const [open, setOpen] = useState(false);
+  // The minute the dialog opened: a range that ends today ends here, so asking twice is the same range.
+  const [asOf, setAsOf] = useState(() => new Date());
   const [fromDay, setFromDay] = useState('');
   const [toDay, setToDay] = useState('');
   const [asked, setAsked] = useState<Asked>({ status: 'idle' });
@@ -185,7 +187,7 @@ function Statement() {
 
   async function ask() {
     setSaved(null);
-    const picked = statementRange(fromDay, toDay, new Date());
+    const picked = statementRange(fromDay, toDay, asOf);
     if (!picked.ok) {
       setAsked({
         status: 'refused',
@@ -194,7 +196,8 @@ function Statement() {
       return;
     }
     setAsked({ status: 'busy' });
-    const result = await api.requestStatement(picked.range);
+    const { from, to, requestKey } = picked.range;
+    const result = await api.requestStatement({ from, to, requestKey });
     if (result.ok) setAsked({ status: 'job', job: result.data });
     else setAsked({ status: 'refused', text: result.code ? refusalCopy(result.code).title : t('Statement refused') });
   }
@@ -217,7 +220,16 @@ function Statement() {
   const job = asked.status === 'job' ? asked.job : null;
   return (
     <>
-      <Button variant="secondary" size={32} onClick={() => setOpen(true)}>
+      <Button
+        variant="secondary"
+        size={32}
+        onClick={() => {
+          setAsOf(new Date());
+          setAsked({ status: 'idle' });
+          setSaved(null);
+          setOpen(true);
+        }}
+      >
         {t('Statement open')}
       </Button>
       <AlertDialog open={open} onOpenChange={(next) => setOpen(next)}>
@@ -237,6 +249,7 @@ function Statement() {
                 <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
+            <p className="dk-note">{t('Statement today', { time: clockMinutes(asOf.getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
               <p className="dk-note dk-note--bad" role="alert">
                 {asked.text}

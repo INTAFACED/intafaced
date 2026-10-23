@@ -170,3 +170,149 @@ test(`${J} #4 keeps refreshing, then disarms with timeout 0: nothing cancelled w
   expect((await (await client(who)).get('/api/v1/orders/cancel-all-after')).body).toMatchObject({ armed: false });
   await (await client(who)).delete(`/api/v1/orders/${order}`);
 });
+
+/** Every ledger line of the account, newest first, read page by page through the service. */
+async function ledgerLines(who) {
+  const lines = [];
+  let cursor = null;
+  for (;;) {
+    const { status, body } = await (await client(who)).get(`/api/v1/ledger?limit=200${cursor ? `&cursor=${cursor}` : ''}`);
+    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+    lines.push(...body.entries);
+    if (!body.nextCursor) return lines;
+    cursor = body.nextCursor;
+  }
+}
+
+/** Every order of the account in any state, through the open and closed reads. */
+async function allOrders(who) {
+  const open = await openOrders(who, SYMBOL);
+  const { status, body } = await (await client(who)).get('/api/v1/orders/closed?limit=500');
+  expect(status).toBe(200);
+  return [...open, ...body];
+}
+
+const parseCsv = (text) => {
+  const [head, ...rows] = text.trimEnd().split('\n');
+  const columns = head.split(',');
+  return rows.map((row) => Object.fromEntries(row.split(',').map((v, i) => [columns[i], v])));
+};
+
+test(`${J} #5 requests a statement of orders, trades and ledger lines for a date range: one job, the file lists exactly the range's rows`, async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const who = account();
+  // A trade of its own, so the file has a trade row: a market buy that fills against the TEST book.
+  const bought = await (
+    await client(who)
+  ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: '0.0002', clientOrderId: `${J}-mbuy-${Date.now()}` });
+  expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
+  // A statement that ends today ends at the minute it is asked; wait for the next minute so the trade is inside it.
+  const placedMinute = Math.floor(Date.now() / 60_000);
+  await expect.poll(() => Math.floor(Date.now() / 60_000), { timeout: 70_000, intervals: [1000] }).toBeGreaterThan(placedMinute);
+
+  await signIn(page, who);
+  await page.goto(deskPath(SYMBOL));
+  await page.getByRole('tab', { name: 'Ledger' }).click();
+  await page.getByRole('button', { name: 'Statement…' }).click();
+  const box = page.getByRole('alertdialog').filter({ hasText: 'Download a statement' });
+  const today = new Date().toISOString().slice(0, 10);
+  await box.getByLabel('From').fill(today);
+  await box.getByLabel('To (included)').fill(today);
+  const asks = [];
+  page.on('response', (r) => {
+    if (r.url().endsWith('/api/v1/statements') && r.request().method() === 'POST') asks.push(r);
+  });
+  await box.getByRole('button', { name: 'Make statement' }).click();
+  const ready = box.getByText(/^Ready: \d+ orders, \d+ trades and \d+ balance changes\. Statement [0-9a-f-]{36}\.$/);
+  await expect(ready).toBeVisible({ timeout: 30_000 });
+  // Asking again from the same dialog is the same job, not a second file.
+  await box.getByRole('button', { name: 'Make statement' }).click();
+  await expect.poll(() => asks.length).toBe(2);
+  const [first, second] = await Promise.all(asks.map((r) => r.json()));
+  expect(second.id).toBe(first.id);
+  expect(second.sha256).toBe(first.sha256);
+  const job = first;
+  expect(job).toMatchObject({ status: 'finished', from: `${today}T00:00:00.000Z` });
+
+  // The file the desk saves is the one the job fingerprinted.
+  const download = page.waitForEvent('download');
+  await box.getByRole('button', { name: 'Download' }).click();
+  const saved = await download;
+  expect(saved.suggestedFilename()).toBe(`statement-${today}-${today}.csv`);
+  const text = await new Promise((resolve, reject) => {
+    saved.createReadStream().then((stream) => {
+      const parts = [];
+      stream.on('data', (chunk) => parts.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
+      stream.on('error', reject);
+    }, reject);
+  });
+  const { createHash } = await import('node:crypto');
+  expect(createHash('sha256').update(text, 'utf8').digest('hex')).toBe(job.sha256);
+  await expect(box.getByText(`Saved statement-${today}-${today}.csv.`)).toBeVisible();
+
+  // Exactly the range's rows: every order placed, trade filled and ledger line posted in [from, to), and nothing else.
+  const from = Date.parse(job.from);
+  const to = Date.parse(job.to);
+  const inRange = (at) => at >= from && at < to;
+  const rows = parseCsv(text);
+  const ids = (record) =>
+    rows
+      .filter((r) => r.record === record)
+      .map((r) => r.id)
+      .sort();
+  const orders = (await allOrders(who))
+    .filter((o) => inRange(o.timestamp))
+    .map((o) => o.id)
+    .sort();
+  const trades = (await (await client(who)).get('/api/v1/account/trades?limit=500')).body
+    .filter((f) => inRange(f.timestamp))
+    .map((f) => f.id)
+    .sort();
+  const lines = (await ledgerLines(who))
+    .filter((l) => inRange(l.timestamp))
+    .map((l) => l.id)
+    .sort();
+  expect(ids('order')).toEqual(orders);
+  expect(ids('trade')).toEqual(trades);
+  expect(ids('ledger')).toEqual(lines);
+  expect(ids('order')).toContain(bought.body.id);
+  expect(ids('trade').length).toBeGreaterThan(0);
+  expect(job.rows).toEqual({ orders: orders.length, trades: trades.length, ledger: lines.length });
+});
+
+test(`${J} #6 opens ledger history: every balance change with its ledger reference, adding up to the balances`, async ({ page }) => {
+  test.setTimeout(90_000);
+  const who = account();
+  await signIn(page, who);
+  await page.goto(deskPath(SYMBOL));
+  await page.getByRole('tab', { name: 'Ledger' }).click();
+  const table = page.getByRole('table', { name: 'Ledger history' });
+  await expect(table).toBeVisible({ timeout: 15_000 });
+  // Read every page.
+  const older = page.getByRole('button', { name: 'Show older' });
+  while (await older.isVisible()) await older.click();
+  const totals = page.getByRole('table', { name: 'Ledger totals' });
+  await expect(totals).toBeVisible();
+
+  // Every line the ledger holds for this account is listed, with its own ledger reference.
+  const lines = await ledgerLines(who);
+  const shown = await table
+    .locator('tbody tr')
+    .evaluateAll((trs) =>
+      trs.map((tr) => ({ id: tr.getAttribute('data-entry'), ref: tr.querySelector('.dk-ledger-ref')?.textContent?.trim() })),
+    );
+  expect(shown).toEqual(lines.map((l) => ({ id: l.id, ref: l.referenceId })));
+
+  // Each asset's lines add up to its available balance, and the desk says so.
+  const balances = await (await client(who)).balances();
+  const assets = [...new Set(lines.map((l) => l.currency))];
+  expect(assets.length).toBeGreaterThan(0);
+  for (const asset of assets) {
+    const row = totals.locator(`tr[data-asset="${asset}"]`);
+    await expect(row).toContainText('Matches your balance');
+    expect(balances[asset]).toBeDefined();
+  }
+});

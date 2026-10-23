@@ -29,25 +29,41 @@ export function dayStart(day: string): Date | null {
   return Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== day ? null : at;
 }
 
-export type StatementRange = { from: string; to: string; requestKey: string };
+export type StatementRange = { from: string; to: string; requestKey: string; endsToday: boolean };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The range a statement covers for the days picked, both included: from the first day's start to the start of the day
- * after the last, in UTC. The request key is the range itself, so asking again for the same days is the same job.
+ * The range a statement covers for the days picked, both included, in UTC: from the first day's start to the start of
+ * the day after the last. When the last day is today, the range ends at `asOf` instead (the minute the person opened the
+ * statement, so asking twice from the same dialog is the same range), because the service lists only time that is over.
+ * The request key is the range itself, so the same range is the same job.
  */
 export function statementRange(
   fromDay: string,
   toDay: string,
-  now: Date,
+  asOf: Date,
 ): { ok: true; range: StatementRange } | { ok: false; why: 'days' | 'order' | 'future' } {
   const start = dayStart(fromDay);
   const last = dayStart(toDay);
   if (!start || !last) return { ok: false, why: 'days' };
   if (last < start) return { ok: false, why: 'order' };
-  const end = new Date(last.getTime() + 24 * 60 * 60 * 1000);
-  // The service lists a finished range only: a day still running would give a file that changes.
-  if (end > now) return { ok: false, why: 'future' };
-  return { ok: true, range: { from: start.toISOString(), to: end.toISOString(), requestKey: `statement:${fromDay}:${toDay}` } };
+  const dayAfter = new Date(last.getTime() + DAY_MS);
+  const minute = new Date(Math.floor(asOf.getTime() / 60_000) * 60_000);
+  if (last > minute) return { ok: false, why: 'future' };
+  const endsToday = dayAfter > minute;
+  const end = endsToday ? minute : dayAfter;
+  if (end <= start) return { ok: false, why: 'future' };
+  const to = end.toISOString();
+  return {
+    ok: true,
+    range: {
+      from: start.toISOString(),
+      to,
+      requestKey: endsToday ? `statement:${fromDay}:${to}` : `statement:${fromDay}:${toDay}`,
+      endsToday,
+    },
+  };
 }
 
 /** The SHA-256 of a text, as lowercase hex, to check a downloaded file is the one the job fingerprinted. */
