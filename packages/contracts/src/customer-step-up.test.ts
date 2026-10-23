@@ -105,7 +105,7 @@ describe('customer step-up binding', () => {
     expect(begin({})).toMatchObject({ ok: true, payloadHash: 'sha256:ed94a0f0e49b1c63f030f1b90ba43575e859339a9ce3e63783f546024d22d406' });
     // Only the shape the bank keeps after its own trimming: anything else would hash bytes the bank never hashes.
     for (const extra of [
-      { note: '' },
+      { note: '' } as Record<string, string>,
       { note: '   ' },
       { note: ' Lunch ' },
       { note: 'x'.repeat(141) },
