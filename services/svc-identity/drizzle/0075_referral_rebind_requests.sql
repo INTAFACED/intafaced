@@ -1,7 +1,7 @@
 -- A reviewed change of referrer (CM-referral-01, ENGINE RF-3; J-campaigns-05 #5 and #6). The customer asks; a second
 -- person approves through the action-approval service (type referral.rebind). Approval changes the relationship from
 -- that time on; stored accruals are not touched. Each row is also the audit record of the request and its decision.
--- Reversal: 0074_referral_rebind_requests.down.sql
+-- Reversal: 0075_referral_rebind_requests.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."referral_rebind_requests" (
   "id" uuid PRIMARY KEY,

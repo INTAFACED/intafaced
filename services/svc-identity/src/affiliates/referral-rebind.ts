@@ -302,6 +302,10 @@ export class ReferralRebindService {
     if (row.state !== 'under_review' || !row.approval_id || !row.approval_operation_id) {
       throw new ReferralError('This request is not waiting for review', 'referral.rebind_not_open');
     }
+    // A reviewer who would gain or lose future commission by this change is not a second person for it.
+    if (operatorId === row.to_referrer_id || operatorId === row.from_referrer_id) {
+      throw new ReferralError('A referrer named in this request cannot decide it', 'referral.rebind_interested');
+    }
     const approvalId = row.approval_id;
 
     if (decision === 'reject') {

@@ -29,7 +29,8 @@ export type ReferralErrorCode =
   | 'referral.rebind_open'
   | 'referral.rebind_not_found'
   | 'referral.rebind_not_open'
-  | 'referral.rebind_stale';
+  | 'referral.rebind_stale'
+  | 'referral.rebind_interested';
 
 export class ReferralError extends Error {
   constructor(

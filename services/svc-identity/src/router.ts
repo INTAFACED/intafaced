@@ -170,6 +170,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'referral.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       case 'referral.attach_window_closed':
+      case 'referral.rebind_interested':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'referral.attach_window_unset':
       case 'referral.code_length_unset':
@@ -2645,7 +2646,8 @@ export function createIdentityRouter(
 
       /**
        * A second person approves or rejects, with a reason (J-campaigns-05 #6). The requester can never decide their
-       * own (`action_approval.same_person`). Approval applies the new referrer from this time; stored accruals stay.
+       * own (`action_approval.same_person`), and neither the referrer it moves to nor the one it moves from may decide it
+       * (`referral.rebind_interested`). Approval applies the new referrer from this time; stored accruals stay.
        */
       decideRebind: scopedProcedure('admin:compliance')
         .input(z.object({ requestId: z.string().uuid(), decision: z.enum(['approve', 'reject']), reason: z.string().min(3).max(500) }))

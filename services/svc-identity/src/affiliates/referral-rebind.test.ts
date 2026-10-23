@@ -232,4 +232,16 @@ if (!available) {
     expect(await db.sql`SELECT id FROM referral_rebind_requests`).toHaveLength(0);
     expect((await rebind().request(ME, OLD_REF, 'Another referrer')).state).toBe('under_review');
   });
+
+  it('neither the referrer it moves to nor the one it moves from may decide the request', async () => {
+    await referral.attribute({ userId: ME, referrerId: OLD_REF });
+    const svc = rebind();
+    const asked = await svc.request(ME, NEW_REF, 'Wrong referrer at sign-up');
+    for (const who of [NEW_REF, OLD_REF])
+      for (const decision of ['approve', 'reject'] as const)
+        await expect(svc.decide(who, asked.id, decision, 'interested')).rejects.toMatchObject({ code: 'referral.rebind_interested' });
+    expect((await edge())?.referrer_id).toBe(OLD_REF);
+    expect((await svc.latestOf(ME))?.state).toBe('under_review');
+    expect((await svc.decide(OPERATOR, asked.id, 'approve', 'Checked with both people')).state).toBe('approved');
+  });
 }
