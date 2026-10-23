@@ -26,7 +26,7 @@ const OTHER_SESSION = '44444444-4444-4444-8444-444444444444';
 const SECRET = 'an-agents-spend-limit-test-secret';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
 
-function callerFor(scopes: string[], extra: { kid?: string; sub_account?: string } = {}) {
+function callerFor(scopes: string[], extra: { kid?: string; sub_account?: string; service?: string } = {}) {
   const principal = {
     sub: USER,
     userId: USER,
@@ -39,7 +39,7 @@ function callerFor(scopes: string[], extra: { kid?: string; sub_account?: string
     ...(extra.sub_account ? { sub_account: extra.sub_account } : {}),
   } as Principal;
   const raw = encodePrincipal(principal);
-  return edgeContext({
+  const ctx = edgeContext({
     headers: {
       'x-intafaced-principal': raw,
       'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
@@ -47,6 +47,7 @@ function callerFor(scopes: string[], extra: { kid?: string; sub_account?: string
     },
     id: 'req-spend',
   });
+  return extra.service ? { ...ctx, service: extra.service } : ctx;
 }
 
 const available = await postgresAvailable(URL);
@@ -294,6 +295,8 @@ if (!available) {
       callerFor(['agents:read', 'identity:write', 'agents:execute'], { kid: '66666666-6666-4666-8666-666666666666' }),
     );
     await expect(delegated.spend.limits.set(raise)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const actingService = router.createCaller(callerFor(['agents:read', 'identity:write'], { service: 'svc-trade' }));
+    await expect(actingService.spend.limits.set(raise)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(await person.spend.limits.get()).toMatchObject({
       limits: { perCall: '1', perSession: '1', perPeriod: '1', period: 'day', assetId: 'IFC' },
     });

@@ -42,9 +42,10 @@ function storeOf(sql: Sql | undefined): UserSpendStore {
  * which a signed-in session already holds and which `agents:execute` does not
  * imply. `identity:write` is that same session's own write. A delegated token
  * (`kid` or `sub_account`) is not the person, even if it copied both scopes.
+ * A service on the same request is refused by `scopedProcedure(..., { person: true })`.
  */
-function assertPersonSetsLimits(principal: Principal, service: string | null): void {
-  if (service || principal.kid || principal.sub_account || !hasScope(principal.scopes, 'identity:write')) {
+function assertPersonSetsLimits(principal: Principal): void {
+  if (principal.kid || principal.sub_account || !hasScope(principal.scopes, 'identity:write')) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'A signed-in user session is required' });
   }
 }
@@ -57,7 +58,7 @@ export function spendRouter(sql: Sql | undefined) {
         .output(z.object({ limits: limitView.nullable() }))
         .query(({ ctx }) => guard(async () => ({ limits: await storeOf(sql).get(ctx.principal.userId) }))),
 
-      set: scopedProcedure('agents:read', { module: 'agents' })
+      set: scopedProcedure('agents:read', { module: 'agents', person: true })
         .input(
           z.object({
             idempotencyKey: text,
@@ -70,7 +71,7 @@ export function spendRouter(sql: Sql | undefined) {
         )
         .output(z.object({ limits: limitView, replayed: z.boolean() }))
         .mutation(({ ctx, input }) => {
-          assertPersonSetsLimits(ctx.principal, ctx.service);
+          assertPersonSetsLimits(ctx.principal);
           return guard(() => storeOf(sql).set({ userId: ctx.principal.userId, ...input }));
         }),
     }),

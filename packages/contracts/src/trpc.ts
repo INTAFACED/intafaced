@@ -312,6 +312,12 @@ export interface GuardOptions {
   module?: ModuleId;
   /** Which plane the call runs on. Drives the §22 sovereignty branch. */
   plane?: Plane;
+  /**
+   * The signed-in person is the caller. A service may forward that person's
+   * principal on the same request; scope checks do not notice. Set this so the
+   * service is refused here, instead of a service file comparing the caller name.
+   */
+  person?: boolean;
 }
 
 /**
@@ -339,6 +345,12 @@ function refuseGuard(err: unknown): never {
   throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
 }
 
+function refuseActingService(ctx: Context, guards: GuardOptions): void {
+  if (guards.person && ctx.service) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'A signed-in user session is required' });
+  }
+}
+
 function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
   if (!guards.module) return;
   const decision = checkAccess({
@@ -355,6 +367,7 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
 
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
   return protectedProcedure.use(async ({ ctx, next }) => {
+    refuseActingService(ctx, guards);
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
@@ -378,6 +391,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
  */
 export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
   return protectedProcedure.use(async ({ ctx, next }) => {
+    refuseActingService(ctx, guards);
     let accepted = false;
     let sawMfa = false;
     let withdrawn: TRPCError | null = null;
