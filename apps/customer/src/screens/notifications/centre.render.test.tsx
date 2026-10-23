@@ -48,10 +48,10 @@ describe('channel card', () => {
     expect(page).toContain('Six-digit code');
   });
 
-  it('explains why a phone cannot be added from the web', () => {
+  it('explains that a device registers by allowing notifications on it', () => {
     const channels = buildChannels([{ channel: 'push', configured: true, available: true }], [{ channel: 'push', muted: false }], []);
     const page = html(<ChannelCard channel="push" view={channels.push} onMute={mute} onChanged={() => undefined} />);
-    expect(page).toContain('Registering one is not available from the web app');
+    expect(page).toContain('Allow them on this device to register it.');
   });
 });
 

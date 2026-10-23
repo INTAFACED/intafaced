@@ -25,6 +25,7 @@ export const deskCopy = defineCopy('trade.futures.desk', {
   'Leverage cap': 'Leverage cap',
   'Contract size': 'Contract size',
   'Contract type': 'Contract type',
+  'Settle asset': 'Settles in',
   Linear: 'Linear',
   Inverse: 'Inverse',
   Perpetual: 'Perpetual',

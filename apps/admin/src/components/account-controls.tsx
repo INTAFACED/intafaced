@@ -1,9 +1,11 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
+import type { AccountClosureState, AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
 import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
 import { formatAsOf } from '@/lib/as-of';
+import { ControlDesk } from '@/components/control-desk';
+import { AccountClosure } from '@/components/account-closure';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -20,7 +22,7 @@ function resultText(result: AccountControlResult): string {
   return 'The service refused this action.';
 }
 
-export function AccountControls({ csrf }: { csrf: string }) {
+export function AccountControls({ csrf, founderId }: { csrf: string; founderId: string }) {
   const [area, setArea] = useState<'identity' | 'trading' | 'merchant'>('identity');
   const [id, setId] = useState('');
   const [state, setState] = useState<AccountControlState | null>(null);
@@ -31,6 +33,12 @@ export function AccountControls({ csrf }: { csrf: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [readAt, setReadAt] = useState<string | null>(null);
+  // Closed, open, or not known yet (identity's closure read has not answered): the freeze desk waits until it is known.
+  const [closed, setClosed] = useState<boolean | null>(null);
+  const onClosureState = useCallback(
+    (current: AccountClosureState | null | undefined) => setClosed(current === undefined ? null : current?.status === 'closed'),
+    [],
+  );
   const pending = useRef<{ key: string; requestId: string } | null>(null);
   const target: AccountControlTarget = area === 'merchant' ? { area, merchantId: id } : { area, userId: id };
   const controlAction = state?.restricted ? 'Restore access' : 'Restrict access';
@@ -66,6 +74,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
           setBusy(true);
           setError('');
           setState(null);
+          setClosed(null);
           setResult(null);
           setHistory([]);
           setConfirmed(false);
@@ -128,75 +137,115 @@ export function AccountControls({ csrf }: { csrf: string }) {
             </p>
           )}
           <p className="adm-subtle">{controlExplanation(area)}</p>
-          <form
-            className="adm-form"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!confirmed) return;
-              setBusy(true);
-              setError('');
-              setResult(null);
-              const input = {
-                target,
-                action: state.restricted ? 'restore' : 'restrict',
-                reason: reason.trim(),
-                expectedVersion: state.version,
-              };
-              const key = JSON.stringify(input);
-              const requestId = pending.current?.key === key ? pending.current.requestId : crypto.randomUUID();
-              pending.current = { key, requestId };
-              try {
-                const response = await fetch('/api/accounts', {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json', 'x-intafaced-csrf': csrf },
-                  body: JSON.stringify({ ...input, requestId }),
-                });
-                if (!response.ok)
-                  throw new Error(
-                    'The change could not be confirmed. Inspect the account before retrying; the request is retained for a safe retry.',
-                  );
-                const value = (await response.json()) as AccountControlResult;
-                setResult(value);
-                pending.current = null;
-                setConfirmed(false);
-                if ('after' in value) setState(value.after);
-                else if (value.current) setState(value.current);
-                try {
-                  await inspect();
-                } catch {
-                  setError(
-                    'The service confirmed the outcome below, but the latest account history could not be loaded. Inspect the account again.',
-                  );
-                }
-              } catch (failure) {
-                setError(failure instanceof Error ? failure.message : 'Change unavailable.');
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            <label>
-              Reason
-              <textarea
-                required
-                minLength={3}
-                maxLength={500}
-                value={reason}
-                onChange={(event) => {
-                  setReason(event.target.value);
-                  setConfirmed(false);
+          {area === 'identity' && state.restricted && closed !== false ? (
+            <p className="adm-subtle" data-testid="account-closed-note">
+              {closed
+                ? 'This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.'
+                : 'Identity has not said yet whether this account is closed, so lifting the freeze waits until it does (see Close or reopen below).'}
+            </p>
+          ) : area === 'identity' && state.restricted ? (
+            <div data-testid="account-unfreeze">
+              <ControlDesk
+                key={`${id}:${state.version}`}
+                endpoint="/api/accounts/restore"
+                userId={founderId}
+                blockedReason={null}
+                action={{
+                  heading: 'Lift this account’s freeze',
+                  submitLabel: 'Ask a second founder to approve lifting the freeze',
+                  needsReason: true,
+                  reasonLabel: 'Why (kept in the account’s control history, 12 to 500 characters)',
+                  build: (why) => ({ kind: 'identity.account.unfreeze', userId: id.toLowerCase(), reason: why, version: state.version }),
+                }}
+                consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity spends the approval once and refuses anyone approving their own request; it also accepts another operator as the approver, so check who approved before you run it."
+                blockedButtonLabel="Restore unavailable"
+                onChanged={() => {
+                  void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
                 }}
               />
-            </label>
-            <label className="adm-check">
-              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed this account
-              and intend to {state.restricted ? 'restore' : 'restrict'} this area.
-            </label>
-            <button className={state.restricted ? '' : 'adm-danger-button'} disabled={busy || !confirmed || reason.trim().length < 3}>
-              {busy ? 'Waiting for confirmation…' : controlAction}
-            </button>
-          </form>
+            </div>
+          ) : (
+            <form
+              className="adm-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!confirmed) return;
+                setBusy(true);
+                setError('');
+                setResult(null);
+                const input = {
+                  target,
+                  action: state.restricted ? 'restore' : 'restrict',
+                  reason: reason.trim(),
+                  expectedVersion: state.version,
+                };
+                const key = JSON.stringify(input);
+                const requestId = pending.current?.key === key ? pending.current.requestId : crypto.randomUUID();
+                pending.current = { key, requestId };
+                try {
+                  const response = await fetch('/api/accounts', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json', 'x-intafaced-csrf': csrf },
+                    body: JSON.stringify({ ...input, requestId }),
+                  });
+                  if (!response.ok)
+                    throw new Error(
+                      'The change could not be confirmed. Inspect the account before retrying; the request is retained for a safe retry.',
+                    );
+                  const value = (await response.json()) as AccountControlResult;
+                  setResult(value);
+                  pending.current = null;
+                  setConfirmed(false);
+                  if ('after' in value) setState(value.after);
+                  else if (value.current) setState(value.current);
+                  try {
+                    await inspect();
+                  } catch {
+                    setError(
+                      'The service confirmed the outcome below, but the latest account history could not be loaded. Inspect the account again.',
+                    );
+                  }
+                } catch (failure) {
+                  setError(failure instanceof Error ? failure.message : 'Change unavailable.');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <label>
+                Reason
+                <textarea
+                  required
+                  minLength={3}
+                  maxLength={500}
+                  value={reason}
+                  onChange={(event) => {
+                    setReason(event.target.value);
+                    setConfirmed(false);
+                  }}
+                />
+              </label>
+              <label className="adm-check">
+                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed this
+                account and intend to {state.restricted ? 'restore' : 'restrict'} this area.
+              </label>
+              <button className={state.restricted ? '' : 'adm-danger-button'} disabled={busy || !confirmed || reason.trim().length < 3}>
+                {busy ? 'Waiting for confirmation…' : controlAction}
+              </button>
+            </form>
+          )}
         </div>
+      )}
+      {state && area === 'identity' && (
+        <AccountClosure
+          key={id.toLowerCase()}
+          userId={id}
+          founderId={founderId}
+          onState={onClosureState}
+          onChanged={() => {
+            void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
+          }}
+        />
       )}
       {result && (
         <p role={result.outcome === 'refused' || result.outcome === 'conflict' ? 'alert' : 'status'}>
@@ -235,6 +284,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
                     <th>Action</th>
                     <th>Outcome</th>
                     <th>Actor</th>
+                    <th>Approved by</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
@@ -245,6 +295,7 @@ export function AccountControls({ csrf }: { csrf: string }) {
                       <td>{event.action}</td>
                       <td>{event.outcome}</td>
                       <td>{event.actorUserId?.slice(0, 8) ?? 'Unauthenticated'}</td>
+                      <td>{'approverUserId' in event && event.approverUserId ? event.approverUserId.slice(0, 8) : '—'}</td>
                       <td>{event.reason}</td>
                     </tr>
                   ))}

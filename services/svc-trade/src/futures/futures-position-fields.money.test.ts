@@ -26,6 +26,7 @@ import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
 import { planLadderRung } from './maintenance-ladder.js';
+import { liquidationPriceFor } from './liquidation-price.js';
 import { unrealizedPnl } from './liquidation-planner.js';
 import { DEFAULT_FUTURES_LADDER_POLICY } from './ladder-policy.test-harness.js';
 import { positionPercentage } from './position-service.js';
@@ -223,6 +224,18 @@ describe('futures position fields', () => {
     expect(longRow.percentage).toBe('20');
     expect(longRow.maintenanceMargin).toBe(formatAmount(longMaint.maintenanceRequired));
     expect(longRow.maintenanceMargin).toBe('510');
+    // The liquidation price comes from the same ladder and depth, shown and never stored.
+    const longLiq = liquidationPriceFor({
+      side: 'long',
+      size: amt('1'),
+      entryPrice: amt('50000'),
+      margin: amt(longRow.collateral!),
+      depthNotional: DEPTH,
+      policy: DEFAULT_FUTURES_LADDER_POLICY,
+    });
+    expect(longRow.liquidationPrice).toBe(formatAmount(longLiq.price!));
+    expect(parseFloat(longRow.liquidationPrice!)).toBeLessThan(50000);
+    expect((await sql`SELECT liq_price FROM trade.positions WHERE id = ${long.id!}`)[0]!.liq_price).toBeNull();
     expect(longRow.contractSize).toBeNull();
     expect(longRow.fieldReasons?.contractSize).toBe('contract_size_not_recorded');
     expect(longRow.fieldReasons?.markPrice).toBeUndefined();
@@ -250,6 +263,7 @@ describe('futures position fields', () => {
     expect(shortRow!.percentage).toBe('20');
     expect(shortRow!.maintenanceMargin).toBe(formatAmount(shortMaint.maintenanceRequired));
     expect(shortRow!.maintenanceMargin).toBe('245');
+    expect(parseFloat(shortRow!.liquidationPrice!)).toBeGreaterThan(50000);
 
     marks.clear(MARKET);
     const dark = await positions.get(ALICE, long.id!);
@@ -266,7 +280,9 @@ describe('futures position fields', () => {
       unrealizedPnl: 'mark_missing',
       percentage: 'mark_missing',
       maintenanceMargin: 'mark_missing',
+      liquidationPrice: 'mark_missing',
     });
+    expect(dark.liquidationPrice).toBeNull();
 
     await sql`UPDATE trade.markets SET contract_size = '0.01' WHERE id = ${MARKET}`;
     feed('51000');

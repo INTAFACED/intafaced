@@ -6,6 +6,7 @@ import * as privacy from './crm/privacy/route';
 import * as workflows from './crm/workflows/route';
 import * as killSwitch from './kill-switch/route';
 import * as ledgerFreeze from './ledger-freeze/route';
+import * as ledgerLookup from './ledger-lookup/route';
 import * as operatorTools from './operator-tools/route';
 import * as bankOps from './bank-ops/route';
 import * as bankOpsCustomer from './bank-ops/customer/route';
@@ -51,6 +52,7 @@ const readOnly = [
   ['academy-ops', academyOps, '/api/academy-ops'],
   ['more-ops', moreOps, '/api/more-ops'],
   ['protocol-ops', protocolOps, '/api/protocol-ops'],
+  ['ledger-lookup', ledgerLookup, '/api/ledger-lookup?txId=33333333-3333-4333-8333-333333333333'],
 ] as const;
 
 describe('route-level module gate', () => {

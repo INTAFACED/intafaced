@@ -1018,6 +1018,9 @@ export const userWithdrawDestinations = bank.table(
     state: text('state').notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // A look-alike saved after the customer confirmed it (migration 0054): the saved entry it was checked against, and when.
+    lookalikeOf: uuid('lookalike_of'),
+    lookalikeConfirmedAt: tstz('lookalike_confirmed_at'),
   },
   (t) => [
     primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),
@@ -1056,6 +1059,8 @@ export const rampOnrampQuotes = bank.table('ramp_onramp_quotes', {
   payCurrency: text('pay_currency').notNull(),
   expiresAt: tstz('expires_at').notNull(),
   simulated: boolean('simulated').notNull().default(true),
+  /** How long the source says the money takes to arrive, in its words. Null: it did not say. */
+  deliveryEstimate: text('delivery_estimate'),
   createdAt: createdAt(),
 });
 
@@ -1083,6 +1088,51 @@ export const customerOnramps = bank.table('customer_onramps', {
   bankAccountRef: text('bank_account_ref'),
   createdAt: createdAt(),
 });
+
+/**
+ * One add-money request (J-bank-02): opened with a partner instruction, or refused with the rail and the reason.
+ * A record of what was asked, never a balance or a credit.
+ */
+export const addMoneyRequests = bank.table('add_money_requests', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  method: text('method').notNull(),
+  country: text('country').notNull(),
+  rail: text('rail').notNull(),
+  status: text('status').notNull(),
+  refusalCode: text('refusal_code'),
+  quoteId: uuid('quote_id'),
+  onrampId: uuid('onramp_id'),
+  createdAt: createdAt(),
+});
+
+/**
+ * A customer's own account at another bank (BK-acct-02, migration 0055). Kept `unverified` until a banking partner
+ * verifies it; one active link per (user, IBAN). Holds no amount.
+ */
+export const linkedBankAccounts = bank.table(
+  'linked_bank_accounts',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    label: text('label').notNull(),
+    holderName: text('holder_name').notNull(),
+    iban: text('iban').notNull(),
+    country: text('country').notNull(),
+    state: text('state').notNull().default('unverified'),
+    verifiedAt: tstz('verified_at'),
+    createdAt: createdAt(),
+    removedAt: tstz('removed_at'),
+  },
+  (t) => [
+    uniqueIndex('linked_bank_accounts_active_iban_idx')
+      .on(t.userId, t.iban)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('linked_bank_accounts_user_idx').on(t.userId, t.createdAt),
+  ],
+);
 
 /** Address custody issued. Not a locally derived key and not a balance. */
 export const depositAddresses = bank.table(

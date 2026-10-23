@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Quant } from '../more/Quant';
 import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
+import { BacktestRoom } from './BacktestRoom';
 import { algoCopy } from './algo-copy';
 
 const MODES = { '/quant/studio': 'studio', '/quant/backtest': 'backtest', '/quant/sandbox': 'sandbox' } as const;
@@ -29,6 +30,15 @@ export function quantRoute(
           ? moreCopy('moreroutes.quant.studio')
           : moreCopy('moreroutes.backtest'),
     description: moreCopy('moreroutes.simulated.strategy.research.with.explicit.historical.evidence'),
-    content: <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />,
+    content:
+      mode === 'backtest' ? (
+        // The bar backtest runs saved signal rules; the walk-forward record below keeps its own named refusal.
+        <>
+          <BacktestRoom key={`bars:${userId}`} />
+          <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
+        </>
+      ) : (
+        <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
+      ),
   };
 }

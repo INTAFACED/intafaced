@@ -44,6 +44,7 @@ import {
   type ReplaceOrderOutcome,
 } from './spot/types.js';
 import { FuturesError } from './futures/position-service.js';
+import type { GatedContract, GatedListSubject } from './futures/gated-list.js';
 import { attachMatchedOrderRoutes, type MatchedOrdersRestDeps } from './futures/matched-orders-rest.js';
 import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
 import { resolveOpenPositionMode } from './futures/account-mode.js';
@@ -106,6 +107,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
  *   GET    /api/v1/account/agreements         scope: trade:read  (current risk agreement + margin terms for the caller's region, accepted or not)
  *   POST   /api/v1/account/agreements/accept  scope: trade:write + jurisdiction (accept the named current version; idempotent per user+kind+version)
+ *   GET    /api/v1/account/gated-list         scope: trade:read  (each futures contract open or blocked for the caller, with every reason)
  *   GET    /api/v1/account/derivatives-eligibility        scope: trade:read  (level state, quiz questions without answers)
  *   POST   /api/v1/account/derivatives-eligibility/assess scope: trade:write + jurisdiction (submit quiz answers; idempotent on clientSubmissionId)
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
@@ -167,6 +169,8 @@ export interface PrivateRestDeps {
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
+  /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
+  gatedList?: (subject: GatedListSubject) => Promise<readonly GatedContract[]>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
@@ -197,9 +201,13 @@ export interface PrivateRestDeps {
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
       type?: ClosedOrderType;
+      /** The last order of the previous page: the page holds only orders older than it (newest first, ties by id). */
+      before?: string;
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
+  /** One of the caller's orders' fills, oldest first; another person's order is not found. Unset mounts a typed 503. */
+  orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
   orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
@@ -615,6 +623,8 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
     status: toCcxtOrderStatus(order.status),
     rejectCode: order.rejectCode,
     tag: order.tag ?? null,
+    /** The rank fee discount this order trades with, as a rate ("0" when none). Its fills' fee rates already include it. */
+    feeDiscount: Number.isInteger(order.feeDiscountBps) && order.feeDiscountBps >= 0 ? bpsToFeeRate(order.feeDiscountBps) : undefined,
     /** Additive frozen-spine evidence; unresolved is never flattened to open/rejected. */
     recoveryReason: order.recoveryReason,
     reconciliationKey: order.reconciliationKey,
@@ -802,7 +812,15 @@ export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok:
   return { ok: true, sinceMs: Math.floor(n) };
 }
 
-type ClosedQuery = { symbol?: string; limit?: string; since?: string; until?: string; side?: string; status?: string };
+type ClosedQuery = {
+  symbol?: string;
+  limit?: string;
+  since?: string;
+  until?: string;
+  side?: string;
+  status?: string;
+  before?: string;
+};
 
 const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 'expired'> = {
   closed: 'filled',
@@ -1340,6 +1358,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!filters.ok) {
       return sendCcxt(reply, badRequest(filters.message, 'trade.invalid_filter'));
     }
+    const before = req.query.before;
+    if (before !== undefined && before !== '' && !ORDER_ID_SHAPE.test(before)) {
+      return sendCcxt(reply, badRequest('before must be the id of an order on the previous page', 'trade.invalid_cursor'));
+    }
 
     try {
       // since/until → SQL on orders.created_at (timestamptz); side and status filter in SQL too.
@@ -1351,6 +1373,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(filters.side ? { side: filters.side } : {}),
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.type ? { type: filters.type } : {}),
+        ...(before ? { before } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
@@ -1770,6 +1793,27 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(200).send(accepted);
     } catch (err) {
       if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** D-ops-01: each futures contract open or blocked for this account, with every reason. A read; it opens nothing. */
+  app.get('/api/v1/account/gated-list', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+      if (!deps.gatedList)
+        return reply.code(503).send({ error: 'trade.gated_list_unmounted', message: 'The gated list is not wired on this deployment.' });
+      const contracts = await deps.gatedList({
+        userId: principal.userId,
+        tier: principal.tier ?? null,
+        region: contextFrom(req).region ?? null,
+      });
+      return reply.code(200).send({ contracts });
+    } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -3140,6 +3184,41 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** CCXT fetchOrderTrades: one order's fills, oldest first, each with its role, fee, fee asset and fee rate. */
+  app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/v1/orders/:id/trades', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.orderFills) {
+      return reply.code(503).send({ error: 'order fills are not configured', code: 'trade.order_fills_unconfigured' });
+    }
+    const limit = parsePrivateRestLimit(req.query.limit, MAX_FILLS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('orders/:id/trades limit is unset — refuse to invent 100', TRADE_ACCOUNT_TRADES_LIMIT_UNSET));
+    }
+    try {
+      // A malformed id is no order of the caller's: the same answer as another person's order, before any read.
+      if (!ORDER_ID_SHAPE.test(req.params.id)) throw new TradeError('order not found', 'trade.order_not_found');
+      const fills = await deps.orderFills(principal, req.params.id, limit);
+      const serverTime = stampServerTime(reply, deps);
+      const symbolByMarket = new Map<string, string>();
+      const wire = [];
+      for (const fill of fills) {
+        let symbol = symbolByMarket.get(fill.marketId);
+        if (symbol === undefined) {
+          const market = await deps.marketById(fill.marketId);
+          symbol = market?.symbol ?? fill.marketId;
+          symbolByMarket.set(fill.marketId, symbol);
+        }
+        wire.push({ ...presentCcxtMyTrade(fill, symbol), serverTime });
+      }
+      return reply.code(200).send(wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

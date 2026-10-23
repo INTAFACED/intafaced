@@ -1,3 +1,4 @@
+import { listWithdrawNetworks, type WithdrawAsset, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -19,7 +20,10 @@ import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import {
+  checkDestination,
   createOnramp,
+  onrampQuoteOf,
+  customerOnrampsByIds,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
@@ -28,6 +32,7 @@ import {
   saveDestination,
   type CustomerOnrampView,
   type CustomerRampDeps,
+  type DestinationCheck,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
@@ -212,6 +217,11 @@ export interface RampServiceOptions {
    * Unset refuses `bank.offramp_fee_unset`. A zero fee is not assumed.
    */
   offrampFees?: OfframpFeeSource | null;
+  /**
+   * svc-ledger's asset and network registry: which asset may be withdrawn on which network. Unset refuses saving an
+   * address with `bank.asset_registry_unavailable`; no network is accepted on its looks.
+   */
+  withdrawNetworks?: WithdrawNetworkSource | null;
 }
 
 export class RampService {
@@ -222,6 +232,7 @@ export class RampService {
   private readonly onrampQuotes: OnrampQuoteSource | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
+  private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
 
   constructor(
     private readonly sql: Sql,
@@ -239,6 +250,7 @@ export class RampService {
     this.onrampQuotes = options.onrampQuotes ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
+    this.withdrawNetworkSource = options.withdrawNetworks ?? null;
   }
 
   private customerDeps(): CustomerRampDeps {
@@ -250,6 +262,7 @@ export class RampService {
       payments: this.onrampPayments,
       fees: this.offrampFees,
       destinations: this.destinations,
+      networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
     };
   }
@@ -292,8 +305,21 @@ export class RampService {
     return listDestinations(this.customerDeps(), userId);
   }
 
-  /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */
-  saveDestination(input: SaveDestinationInput) {
+  /** Assets an address may be saved for, with their networks, from svc-ledger's registry. */
+  withdrawNetworks(): Promise<WithdrawAsset[]> {
+    return listWithdrawNetworks(this.withdrawNetworkSource);
+  }
+
+  /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
+  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+    return checkDestination(this.customerDeps(), input);
+  }
+
+  /**
+   * Save an address-book entry (asset, network, address, optional memo or tag, unique label). An address that shows
+   * like a saved one but is not needs `confirmLookalike`.
+   */
+  saveDestination(input: SaveDestinationInput & { confirmLookalike?: boolean }) {
     return saveDestination(this.customerDeps(), input);
   }
 
@@ -318,6 +344,16 @@ export class RampService {
    */
   onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /** One of the customer's own on-ramp quotes as stored, expired or not. */
+  onrampQuoteOf(userId: string, quoteId: string): Promise<OnrampQuoteView> {
+    return onrampQuoteOf(this.customerDeps(), userId, quoteId);
+  }
+
+  /** The customer's own on-ramps among these ids, with the partner's instructions, in one read. */
+  customerOnrampsByIds(userId: string, onrampIds: readonly string[]): Promise<Map<string, CustomerOnrampView>> {
+    return customerOnrampsByIds(this.customerDeps(), userId, onrampIds);
   }
 
   /**

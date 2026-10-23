@@ -23,7 +23,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
-import { parsePriceBand } from './futures/matched-order-plan.js';
+import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
@@ -33,7 +33,8 @@ import { wireTradeOpsAdmin } from './admin/wire.js';
 import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
-import { registerPublicRest } from './public-rest.js';
+import { orderableForListedMarket, registerPublicRest } from './public-rest.js';
+import { readGatedList } from './futures/gated-list.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
   conditionalTriggerScheduled,
@@ -89,11 +90,23 @@ import {
   AdlDisclosureError,
 } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
-import { derivativesAccessGate } from './futures/derivatives-access.js';
-import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
+import { derivativesAccessGate, FUTURES_OPEN_AGREEMENT_KINDS } from './futures/derivatives-access.js';
+import {
+  assertEligible,
+  assessEligibility,
+  presentQuestions,
+  readEligibilityState,
+  sqlEligibilityStore,
+} from './futures/derivatives-eligibility.js';
 import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
-import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
+import {
+  acceptAgreement,
+  AGREEMENT_KINDS,
+  assertAgreementsAccepted,
+  readAgreementView,
+  sqlRiskAgreementStore,
+} from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
@@ -123,6 +136,8 @@ import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
+import { liquidationPriceFor } from './futures/liquidation-price.js';
+import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -495,6 +510,8 @@ const futuresJobs = startFuturesJobs({
   }),
   // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
   stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
+  // The owner's maintenance ladder (D3). Blank: no ladder, as before; a value that is not a coherent policy stops boot.
+  ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
@@ -525,6 +542,10 @@ const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
 const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
+const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+/** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
+const futuresFeeRates = async (userId: string) =>
+  perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
   emailProof,
@@ -540,8 +561,10 @@ const positions = new PositionService(sql, ledger, {
   matchedOrders: {
     matching,
     enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
-    priceBand: parsePriceBand(env.TRADE_FUTURES_PRICE_BAND),
+    priceBand: futuresPriceBand,
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
+    // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
+    feeRates: futuresFeeRates,
   },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
@@ -847,6 +870,21 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The rate an opening order would keep as taker, from the same schedule the order path reads.
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
+  // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is
+  // null, which the preview refuses with its reason.
+  liquidationPriceFor: async ({ market, side, size, markPrice, initialMargin }) => {
+    const { policy, depth } = futuresJobs.ladderGate;
+    if (!policy) return null;
+    try {
+      const depthNotional = await depth.depthNotional({ marketId: market.id, side, symbol: market.symbol });
+      if (depthNotional == null || depthNotional <= 0n) return null;
+      return liquidationPriceFor({ side, size, entryPrice: markPrice, margin: initialMargin, depthNotional, policy }).price;
+    } catch {
+      return null;
+    }
+  },
 });
 registerGreeksWhatIfRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -984,6 +1022,7 @@ registerPrivateRest(app, {
   adminOpenOrders: (principal, limit) => trade.adminOpenOrders(principal, limit),
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
+  orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   placeOrder: (principal, input) =>
     trade.placeOrder(
@@ -1034,6 +1073,27 @@ registerPrivateRest(app, {
         },
       }
     : {}),
+  // D-ops-01: the same gates the open runs, asked one by one so every reason shows at once.
+  gatedList: (subject) =>
+    readGatedList(
+      {
+        markets: () => trade.markets(500),
+        planeRefusal: () => positions.futuresExposureRefusal(),
+        orderPathRefusal: () =>
+          !env.TRADE_FUTURES_MATCHING_ENABLED
+            ? { code: 'trade.futures_matching_disabled', message: 'Futures orders through the book are switched off on this deployment.' }
+            : futuresPriceBand === null
+              ? { code: FUTURES_PRICE_BAND_UNSET, message: 'The futures price band is unset on this deployment.' }
+              : null,
+        emailProved: async (userId) => (await emailProof.get(userId)) === 'accepted',
+        orderable: (market) => orderableForListedMarket(market, env.TRADE_FUTURES_ENABLED),
+        checkEligibility: (who) => assertEligible(derivativesEligibility, { userId: who.userId, tier: who.tier }),
+        checkAgreements: (who) =>
+          assertAgreementsAccepted(riskAgreements, { userId: who.userId, kinds: FUTURES_OPEN_AGREEMENT_KINDS, region: who.region }),
+        adlAcknowledged: async (userId) => (await adlDisclosureAcks.getAck(userId, ADL_DISCLOSURE_VERSION)) != null,
+      },
+      subject,
+    ),
   listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),

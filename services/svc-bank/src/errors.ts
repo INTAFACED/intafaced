@@ -349,6 +349,17 @@ export type BankErrorCode =
    */
   | 'bank.ramp_invalid_asset'
   | 'bank.ramp_invalid_destination'
+  /** svc-ledger's asset and network registry could not be read, or is not connected. Nothing was saved. */
+  | 'bank.asset_registry_unavailable'
+  /** The asset does not allow withdrawals, or the network is not listed for it in the registry. Nothing was saved. */
+  | 'bank.withdraw_network_unsupported'
+  /** A mixed-case EVM address whose letter case does not match its EIP-55 checksum, so a character may have changed. Nothing was saved. */
+  | 'bank.address_checksum_mismatch'
+  /**
+   * The address shows like one already in the customer's book (same start and end, as the book shortens it) but is a
+   * different address: the shape of address poisoning. Saved only once the customer confirms it. Nothing was saved.
+   */
+  | 'bank.address_lookalike'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.
@@ -375,6 +386,12 @@ export type BankErrorCode =
   | 'bank.eligibility_unset'
   /** The address book holds as many entries as the owner allows. */
   | 'bank.address_book_full'
+  /** A linked bank account's IBAN, name or holder name is not usable. Nothing was linked. */
+  | 'bank.linked_account_invalid'
+  /** The customer has as many linked bank accounts as the owner's address-book cap allows. */
+  | 'bank.linked_accounts_full'
+  /** No linked bank account of this customer has this id. */
+  | 'bank.linked_account_not_found'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */

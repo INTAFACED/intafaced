@@ -1,11 +1,15 @@
+import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
 import {
+  assertBookEntry,
+  evmChecksumMatches,
   isBankDestinationRef,
   isEvmAddressRef,
+  lookalikeOf,
   type SaveDestinationInput,
   type UserWithdrawDestinations,
   type WithdrawDestination,
@@ -32,6 +36,7 @@ export interface CustomerRampDeps {
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
+  networks: WithdrawNetworkSource | null;
   coolingRaw: () => string | undefined;
 }
 
@@ -48,6 +53,7 @@ interface QuoteRow {
   pay_currency: string;
   expires_at: Date;
   simulated: boolean;
+  delivery_estimate: string | null;
   created_at: Date;
 }
 
@@ -83,6 +89,8 @@ export interface OnrampQuoteView {
   rate: string;
   payCurrency: string;
   expiresAt: string;
+  /** The source's own delivery estimate, or null when it gave none. */
+  deliveryEstimate: string | null;
   simulated: true;
 }
 
@@ -131,6 +139,8 @@ export interface DestinationView {
   addedAt: string;
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
+  /** When the customer confirmed this address is not the saved entry it looks like (W-withdraw-03); null otherwise. */
+  lookalikeConfirmedAt: string | null;
 }
 
 export async function quoteOnramp(
@@ -173,14 +183,18 @@ export async function quoteOnramp(
   if (!(terms.expiresAt instanceof Date) || Number.isNaN(terms.expiresAt.getTime()) || terms.expiresAt.getTime() <= Date.now()) {
     throw new BankError('The rate source did not publish a future expiry', 'bank.onramp_rate_unset');
   }
+  const estimate = terms.deliveryEstimate?.trim() || null;
+  if (estimate !== null && estimate.length > 140) {
+    throw new BankError('The rate source published a delivery estimate longer than 140 characters', 'bank.onramp_rate_unset');
+  }
 
   const rows = await deps.sql<QuoteRow[]>`
     INSERT INTO bank.ramp_onramp_quotes (
-      user_id, asset_id, amount, method, country, pay_amount, fee, rate, pay_currency, expires_at, simulated
+      user_id, asset_id, amount, method, country, pay_amount, fee, rate, pay_currency, expires_at, simulated, delivery_estimate
     ) VALUES (
       ${input.userId}, ${input.assetId}, ${formatAmount(amount)}::numeric, ${input.method}, ${country},
       ${formatAmount(payAmount)}::numeric, ${formatAmount(fee)}::numeric, ${formatAmount(rate)}::numeric,
-      ${payCurrency}, ${terms.expiresAt}, true
+      ${payCurrency}, ${terms.expiresAt}, true, ${estimate}
     )
     RETURNING *
   `;
@@ -197,14 +211,14 @@ export async function createOnramp(
   if (quote.method !== input.method) {
     throw new BankError('On-ramp method does not match the quote', 'bank.ramp_conflict');
   }
-  if (quote.expires_at.getTime() <= Date.now()) {
-    throw new BankError('On-ramp quote has expired', 'bank.onramp_quote_expired');
-  }
-
+  // A replay of an instruction already opened returns it, even after its quote expired: the partner holds it.
   const existing = await deps.sql<CustomerOnrampRow[]>`
     SELECT * FROM bank.customer_onramps WHERE id = ${input.onrampId}::uuid
   `;
   if (existing[0]) return sameOnramp(existing[0], input.userId, quote.id);
+  if (quote.expires_at.getTime() <= Date.now()) {
+    throw new BankError('On-ramp quote has expired', 'bank.onramp_quote_expired');
+  }
 
   if (!deps.payments) {
     throw new BankError(
@@ -262,6 +276,25 @@ export async function createOnramp(
     return raced[0];
   });
   return sameOnramp(inserted, input.userId, quote.id);
+}
+
+/** One of the customer's own on-ramp quotes, as stored, expired or not. Someone else's, or none, is `bank.onramp_quote_missing`. */
+export async function onrampQuoteOf(deps: CustomerRampDeps, userId: string, quoteId: string): Promise<OnrampQuoteView> {
+  assertUuid(quoteId, 'quoteId');
+  return toQuote(await loadQuote(deps, userId, quoteId));
+}
+
+/** The customer's own on-ramps among these ids, by id, in one read. Someone else's are left out. */
+export async function customerOnrampsByIds(
+  deps: CustomerRampDeps,
+  userId: string,
+  onrampIds: readonly string[],
+): Promise<Map<string, CustomerOnrampView>> {
+  if (onrampIds.length === 0) return new Map();
+  const rows = await deps.sql<CustomerOnrampRow[]>`
+    SELECT * FROM bank.customer_onramps WHERE id = ANY(${deps.sql.array([...onrampIds])}::uuid[]) AND user_id = ${userId}
+  `;
+  return new Map(rows.map((row) => [row.id, toCustomerOnramp(row)]));
 }
 
 export async function quoteOfframp(
@@ -343,6 +376,7 @@ function viewOf(row: WithdrawDestination, hours: number | null): DestinationView
     addedAt: row.addedAt.toISOString(),
     coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
+    lookalikeConfirmedAt: row.lookalikeConfirmedAt ? row.lookalikeConfirmedAt.toISOString() : null,
   };
 }
 
@@ -352,8 +386,48 @@ export async function listDestinations(deps: CustomerRampDeps, userId: string): 
   return rows.map((row) => viewOf(row, hours));
 }
 
-export async function saveDestination(deps: CustomerRampDeps, input: SaveDestinationInput): Promise<DestinationView> {
-  return viewOf(await deps.destinations.save(input), readOfframpCoolingHours(deps.coolingRaw()));
+/** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
+export type DestinationCheck = {
+  /** `checksum_mismatch`: mixed case that does not match its EIP-55 checksum. `invalid`: not an EVM address at all. */
+  address: 'ok' | 'invalid' | 'checksum_mismatch';
+  /** The saved entry this address shows like but is not (address poisoning), or null. */
+  lookalike: { destinationId: string; label: string | null; refMasked: string } | null;
+};
+
+/** Read-only: the same address rules `saveDestination` applies, answered as data so the form can warn before step-up. */
+export async function checkDestination(deps: CustomerRampDeps, input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  const ref = input.ref.trim();
+  if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null };
+  const near = lookalikeOf(ref, await deps.destinations.list(input.userId));
+  return {
+    address: evmChecksumMatches(ref) ? 'ok' : 'checksum_mismatch',
+    lookalike: near ? { destinationId: near.destinationId, label: near.label, refMasked: maskRef(near.ref) } : null,
+  };
+}
+
+export async function saveDestination(
+  deps: CustomerRampDeps,
+  input: SaveDestinationInput & { confirmLookalike?: boolean },
+): Promise<DestinationView> {
+  // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
+  // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
+  // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
+  const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
+  const entry = assertBookEntry(book);
+  await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
+  // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
+  const near = lookalikeOf(entry.ref, await deps.destinations.list(book.userId));
+  if (near && confirmLookalike !== true) {
+    throw new BankError(
+      `This address starts and ends like your saved address ${near.label ? `"${near.label}"` : maskRef(near.ref)} but is a different address. Check every character before you save it`,
+      'bank.address_lookalike',
+    );
+  }
+  // The confirmation is recorded on the new entry: which saved entry it was checked against, and when.
+  return viewOf(
+    await deps.destinations.save(near ? { ...book, lookalikeOf: near.destinationId } : book),
+    readOfframpCoolingHours(deps.coolingRaw()),
+  );
 }
 
 export async function renameDestination(
@@ -442,6 +516,7 @@ function toQuote(row: QuoteRow): OnrampQuoteView {
     rate: formatAmount(parseAmount(row.rate)),
     payCurrency: row.pay_currency,
     expiresAt: row.expires_at.toISOString(),
+    deliveryEstimate: row.delivery_estimate,
     simulated: true,
   };
 }

@@ -41,9 +41,29 @@ const defaults = {
   passkeys: () => passkeyList(1),
   alerts: () => alertList(),
   activity: () => establishedActivity(),
+  // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
+  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  'work:identity': () => ({ items: [] }),
+  'work:bank': () => ({ items: [] }),
+  'work:pay': () => ({ items: [] }),
 };
 // The service calls (/api/<module>/trpc/<procedure>) the checklist and the activity list make.
-const procedures = { 'kyc.status': 'kyc', 'webauthn.list': 'passkeys', 'notify.alerts': 'alerts', 'activity.list': 'activity' };
+const procedures = {
+  'kyc.status': 'kyc',
+  'webauthn.list': 'passkeys',
+  'notify.alerts': 'alerts',
+  'activity.list': 'activity',
+  'home.config': 'homeConfig',
+};
+/** An item identity answers for a person who has not verified yet. */
+const verifyItem = {
+  id: 'verification:u-new',
+  kind: 'verification',
+  source: 'identity',
+  severity: 'action',
+  titleKey: 'identity.verification.start',
+  link: '/verification',
+};
 /** A brand-new account: nothing done anywhere. */
 const newAccount = {
   balance: emptyBalances,
@@ -51,6 +71,7 @@ const newAccount = {
   passkeys: () => passkeyList(0),
   alerts: () => alertList([]),
   activity: () => activityPage([]),
+  'work:identity': () => ({ items: [verifyItem] }),
 };
 /** A history page as the bank answers `input`: only the kinds asked for, at most `limit` lines. */
 function asked(page, input) {
@@ -75,8 +96,10 @@ async function mock(page, overrides = {}) {
     return route.fulfill({ status: 200, json: wrap(typeof value === 'function' ? value(arg) : value) });
   };
   await page.route('**/api/*/trpc/**', async (route) => {
-    const procedure = decodeURIComponent(new URL(route.request().url()).pathname.split('/trpc/')[1]);
-    const name = procedures[procedure];
+    const [prefix, rest] = new URL(route.request().url()).pathname.split('/trpc/');
+    const procedure = decodeURIComponent(rest);
+    // Every owner mounts the same work list procedure, so it is told apart by the module it was asked of.
+    const name = procedure === 'workItems.list' ? `work:${prefix.split('/').at(-1)}` : procedures[procedure];
     seen.push(procedure);
     if (!name || !(name in served)) return route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } });
     // The bank filters the history by kind and cuts it at the limit, as Get started's one-line reads ask it to.
@@ -256,10 +279,11 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
     path.push(stop);
   }
-  expect(path.map((stop) => stop.name).slice(0, 9)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 10)).toEqual([
     'Hide balances',
     'How the total is worked out',
     'Assets',
+    'Customise Home',
     'About this change',
     'Buy',
     'Sell',
@@ -268,8 +292,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Receive',
   ]);
   expect(path[2].href).toBe('/money');
-  expect(path.slice(9, 11).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
-  const cardStops = path.slice(11, 19);
+  expect(path.slice(10, 12).map((stop) => stop.href)).toEqual(['/money#cash', '/money#crypto']);
+  const cardStops = path.slice(12, 20);
   expect(cardStops.filter((stop) => stop.href).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH', '/coin/IFC', '/coin/SOL']);
   expect(cardStops.filter((stop) => !stop.href).map((stop) => stop.name)).toEqual([
     'Add BTC to watchlist',
@@ -277,8 +301,8 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
     'Add IFC to watchlist',
     'Add SOL to watchlist',
   ]);
-  expect(path[19].name).toBe('About top movers');
-  expect(path.slice(20, 26).map((stop) => stop.href)).toEqual([
+  expect(path[20].name).toBe('About top movers');
+  expect(path.slice(21, 27).map((stop) => stop.href)).toEqual([
     '/coin/DOGE',
     '/coin/BTC',
     '/coin/XRP',
@@ -288,17 +312,17 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   ]);
   // Recent activity ("See all", then its three newest rows, each opening its record) and the Learn strip (the Academy,
   // four links) follow the movers.
-  expect(path.slice(26, 27).map((stop) => stop.href)).toEqual(['/money/activity']);
-  expect(path.slice(27, 30).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
-  expect(path.slice(30, 34).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
-  expect(path.slice(34, 36).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
+  expect(path.slice(27, 28).map((stop) => stop.href)).toEqual(['/money/activity']);
+  expect(path.slice(28, 31).every((stop) => stop.href?.startsWith('/money/activity/'))).toBe(true);
+  expect(path.slice(31, 35).map((stop) => stop.href)).toEqual(Array(4).fill('/academy'));
+  expect(path.slice(35, 37).map((stop) => stop.href)).toEqual(['/coin/BTC', '/coin/ETH']); // Your crypto
   expect(
     path
-      .slice(36)
+      .slice(37)
       .filter((stop) => stop.href)
       .map((stop) => stop.href),
   ).toEqual(['/coin/XRP', '/coin/DOGE']);
-  expect(path.slice(36).filter((stop) => !stop.href).length).toBe(2); // one star per row
+  expect(path.slice(37).filter((stop) => !stop.href).length).toBe(2); // one star per row
 
   // The total-value rule is available in the page for assistive tech and as a tooltip that opens on hover AND
   // keyboard focus (critic M5), fully below the top bar (critic H7: it hid behind the banner when it opened upward).
@@ -634,6 +658,72 @@ test('a failed activity list says so, with Try again, and does not touch the res
   await mock(page, newAccount);
   await page.locator('.home-main').getByRole('button', { name: 'Try again' }).click();
   await expect(page.locator('.home-main')).toContainText('No activity');
+});
+
+test('Needs you lists each owner’s item, opening its room, in the owner’s order and within the cap', async ({ page }) => {
+  const card = {
+    id: 'card_frozen:c1',
+    kind: 'card_frozen',
+    source: 'bank',
+    severity: 'warning',
+    titleKey: 'bank.card.frozen',
+    link: '/bank/cards',
+    reasonCode: 'card.frozen_by_owner',
+  };
+  const payout = {
+    id: 'payout_waiting:p1',
+    kind: 'payout_waiting',
+    source: 'pay',
+    severity: 'info',
+    titleKey: 'pay.payout.waiting',
+    link: '/pay',
+  };
+  await mock(page, {
+    homeConfig: () => ({
+      workListCap: 2,
+      workListOrder: ['payout_waiting', 'verification', 'card_frozen'],
+      searchResultCap: null,
+      revision: 3,
+    }),
+    'work:identity': () => ({ items: [verifyItem] }),
+    'work:bank': () => ({ items: [card] }),
+    'work:pay': () => ({ items: [payout] }),
+  });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.locator('.home-work__row');
+  await expect(rows).toHaveCount(2);
+  expect(await rows.evaluateAll((nodes) => nodes.map((node) => [node.dataset.kind, node.getAttribute('href')]))).toEqual([
+    ['payout_waiting', '/pay'],
+    ['verification', '/verification'],
+  ]);
+  await expect(rows.nth(1)).toContainText('Verify your identity');
+  await expect(work).toContainText('1 more not shown.');
+  await page.screenshot({ path: join(shots, 'home-work-list.png') });
+});
+
+test('Needs you never says "nothing" on a missing answer: a blank cap is refused with its code, an owner not answering is named', async ({
+  page,
+}) => {
+  await mock(page, { homeConfig: () => ({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 1 }) });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  await expect(work).toContainText('List size not set');
+  await expect(work).toContainText('home.work_list_cap_unset');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  await page.unrouteAll();
+  await mock(page, { 'work:bank': { status: 404, json: { error: { message: 'No procedure found on path "workItems.list"' } } } });
+  await page.reload();
+  await expect(work).toContainText('Nothing so far from the services that answered.');
+  await expect(work).toContainText('Not served here: Bank.');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  // A row from another owner, or not in the contract, drops that owner's whole answer.
+  await page.unrouteAll();
+  await mock(page, { 'work:pay': () => ({ items: [{ ...verifyItem }] }) });
+  await page.reload();
+  await expect(work).toContainText('Couldn’t check: Pay.');
 });
 
 test('unpriced assets are named, not counted, and never shown as zero', async ({ page }) => {

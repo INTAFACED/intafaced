@@ -8,7 +8,7 @@
  * never 0.
  */
 import { formatMoney, formatNumber, formatPercent } from '@intafaced/i18n';
-import { SCALE } from '@intafaced/ledger-client/money';
+import { SCALE } from '@intafaced/money-math';
 import { dec, decOrNull, fractionDigits, ratio, roundScaled, toFixedString, type Scaled } from './decimal';
 import type { Decimal } from './types';
 

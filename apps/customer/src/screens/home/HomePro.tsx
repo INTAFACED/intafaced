@@ -49,8 +49,13 @@ import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
+import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
+import { useHomeLayout } from './tiles-data';
+import { shownTiles } from './tiles';
 
 /** How many markets and assets Home Pro lists before it points to the full screen. */
 const MARKET_ROWS = 10;
@@ -584,7 +589,9 @@ export function HomePro() {
   const orders = useOpenOrders();
   const markets = useMarkets();
   const activity = useActivity();
-  const started = useStartedTile(portfolio);
+  const home = useHomeLayout();
+  const tiles = shownTiles(home.layout, 'pro');
+  const started = useStartedTile(portfolio, tiles.includes('started'));
 
   const noMarkets = markets.status === 'empty' || (markets.status === 'ready' && !markets.data.some((market) => market.orderable));
   const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
@@ -604,15 +611,32 @@ export function HomePro() {
   return (
     <div className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
+      {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
+      <div className="hp-toolbar">
+        <CustomiseHome home={home} mode="pro" />
+      </div>
       <Summary portfolio={portfolio} orders={orders} hidden={hideBalances} actionMode={actionMode} />
-      {started.show ? (
-        <div className="hp-started">
-          <GetStarted steps={started.steps} onHide={started.hide} />
-        </div>
-      ) : null}
-      {showAssets ? <Assets portfolio={portfolio} hidden={hideBalances} /> : null}
-      <RecentActivity activity={activity} hidden={hideBalances} className="hp-panel hp-activity" />
-      <MarketsPanel />
+      {tiles.map((id) => {
+        switch (id) {
+          case 'started':
+            return started.show ? (
+              <div className="hp-started" key={id}>
+                <GetStarted steps={started.steps} onHide={started.hide} />
+              </div>
+            ) : null;
+          case 'work':
+            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" />;
+          case 'holdings':
+            return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
+          case 'activity':
+            return <RecentActivity key={id} activity={activity} hidden={hideBalances} className="hp-panel hp-activity" />;
+          case 'markets':
+            return <MarketsPanel key={id} />;
+          default:
+            return null;
+        }
+      })}
     </div>
   );
 }

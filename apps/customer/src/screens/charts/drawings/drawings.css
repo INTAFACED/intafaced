@@ -1,0 +1,215 @@
+/*
+ * Chart drawings: the toolbar, the object tree and their notices. Only --if-* tokens: no colour values live here. In
+ * `@layer components`, with the layer order declared again so it holds in any bundle order.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  /*
+   * The layer is a dock under the chart, in the flow of the workbench: the chart stage takes the room above it, and the
+   * studies bar (an add-on) sits below the dock.
+   */
+  .dw-layer {
+    position: relative;
+    flex: none;
+    box-sizing: border-box;
+    height: var(--dw-dock, 320px);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 16px;
+    overflow: auto;
+    padding: 12px;
+    background: var(--if-bg);
+    border-top: 1px solid var(--if-line);
+  }
+  .dw-layer > .dw-toolbar {
+    flex: 1 1 480px;
+  }
+  .dw-layer > .dw-tree {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
+  .dw-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .dw-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .dw-group + .dw-group {
+    padding-top: 8px;
+    border-top: 1px solid var(--if-line);
+  }
+  .dw-tool,
+  .dw-toggle {
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 6px;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .dw-tool[aria-pressed='true'],
+  .dw-toggle[aria-pressed='true'] {
+    border-color: var(--if-lime);
+    color: var(--if-lime);
+  }
+  .dw-toggle:disabled,
+  .dw-tool:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .dw-actions {
+    align-items: center;
+  }
+  .dw-text-field,
+  .dw-inline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .dw-text-field input,
+  .dw-inline input {
+    min-height: 32px;
+    min-width: 0;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 6px;
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: inherit;
+  }
+  .dw-hint,
+  .dw-note {
+    margin: 0;
+    color: var(--if-fg-2);
+  }
+  .dw-notice {
+    margin: 0;
+    color: var(--if-fg);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .dw-link {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--if-lime);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .dw-link:disabled {
+    color: var(--if-fg-2);
+    cursor: not-allowed;
+  }
+  .dw-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    font: 400 13px/18px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .dw-tree-title {
+    margin: 0;
+    font: 600 15px/22px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .dw-rows,
+  .dw-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .dw-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .dw-row[data-selected] {
+    border-color: var(--if-lime);
+  }
+  .dw-row[data-visible='false'] .dw-row-name {
+    opacity: 0.6;
+  }
+  .dw-row-name {
+    min-width: 0;
+    border: 0;
+    background: none;
+    padding: 0;
+    text-align: left;
+    color: var(--if-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .dw-badge {
+    color: var(--if-fg-2);
+  }
+  .dw-points {
+    grid-column: 2 / -1;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .dw-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .dw-figures {
+    grid-column: 2 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--if-fg);
+  }
+  .dw-row .dw-inline {
+    grid-column: 2 / -1;
+  }
+  .dw-slot-note {
+    margin: 0;
+  }
+  /* The row's group checkbox has no size of its own in the page's reset: give it one a person can tick. */
+  .dw-check {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .dw-check input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--if-lime);
+    cursor: pointer;
+  }
+}
+@media (max-width: 720px) {
+  .dw-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .dw-row-actions {
+    grid-column: 2 / -1;
+  }
+}

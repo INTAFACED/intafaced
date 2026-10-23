@@ -200,11 +200,14 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
   const empty = await fresh.newPage();
   const nobody = await signUp(empty, 'hme');
-  // Before verification the bank refuses the read: Home gives the bank's reason, not a bare "couldn't load".
+  // Before verification the bank refuses the read: Home says what the card will hold once verified, not a bare
+  // "couldn't load", and does not repeat the summary's own "Verify your identity first" (one ask per page).
   await empty.goto('/');
   const refused = empty.locator('section[aria-labelledby="home-activity-title"]');
-  await expect(refused.locator('[data-slot="state-block"]')).toBeVisible();
+  await expect(refused.locator('[data-slot="state-block"]')).toContainText('Your activity shows here once you’re verified');
   await expect(refused).not.toContainText('Couldn’t load your activity');
+  await expect(refused).not.toContainText('Verify your identity first');
+  await expect(empty.getByText('Verify your identity first')).toHaveCount(1);
   await verify(empty, nobody);
   await signIn(empty, nobody);
   await empty.goto('/');
@@ -228,6 +231,22 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   fail = false;
   await list.getByRole('button', { name: 'Try again' }).click();
   await expect(list.locator('.home-activity__row')).toHaveCount(3);
+});
+
+test(`${J}, part of #4: Needs you is on Home, and while Home's list settings cannot be read it says so with its code and Try again, never "nothing needs you"`, async ({
+  page,
+}) => {
+  await signIn(page, who);
+  await page.goto('/');
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  await expect(work).toBeVisible();
+  // The local stack runs no svc-ops, so Home's owner values (`home.config`: the cap and order) cannot be read: the gateway
+  // answers that the service is unavailable, which is a failure to retry, not "not connected". The list is refused and
+  // named; an empty list here would claim that nothing needs the person.
+  await expect(work.locator('[data-slot="state-block"]')).toContainText('Couldn’t load this list');
+  await expect(work).toContainText('edge.upstream_unavailable');
+  await expect(work).not.toContainText('Nothing needs you');
+  await expect(work.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
 /** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */

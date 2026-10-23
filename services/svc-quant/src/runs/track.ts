@@ -31,6 +31,15 @@ export async function trackRun<T>(
     try {
       await runs.finish({ id: row.id, userId: begin.userId, outcome: 'ok', stored: storedOf(value, null) });
     } catch (sizeErr) {
+      // A second call under the same key ran while the first was in flight, and the first finished the row: answer
+      // what the row holds, as a replay would.
+      if (sizeErr instanceof QuantError && sizeErr.code === QUANT_RUN_IMMUTABLE) {
+        const settled = await runs.replay(begin.userId, begin.idempotencyKey);
+        if (settled?.finished) {
+          if (settled.outcome !== 'ok') throwOutcome(settled.outcome ?? 'quant.params_invalid');
+          return settled.response as T;
+        }
+      }
       if (sizeErr instanceof QuantError && sizeErr.code === QUANT_RUN_RESULT_TOO_LARGE) {
         await runs.finish({
           id: row.id,

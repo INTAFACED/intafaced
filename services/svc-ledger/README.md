@@ -23,20 +23,24 @@ Internal tRPC. Note there is no user-facing write path, and `packages/auth` has 
 
 HTTP: `GET /health` (liveness) · `GET /ready` — returns **503 when frozen**, so a frozen ledger leaves the load balancer rotation instead of refusing posts one by one.
 
-### Operator HTTP (`admin:treasury` + MFA on every route)
+### Operator HTTP (`admin:treasury` + MFA on every route; the two lookups also take a founder's `admin:read` + MFA)
 
 tRPC procedures above are exported for their type; **nothing mounts the tRPC plugin**. Operator control reaches the process through raw Fastify routes:
 
-| Method | Path                          | Effect                                                                      |
-| ------ | ----------------------------- | --------------------------------------------------------------------------- |
-| `GET`  | `/operator/freeze`            | Durable `posting_freeze` row                                                |
-| `POST` | `/operator/freeze`            | Halt posting (`reason` ≥ 12 chars + distinct `confirmOperatorId`)           |
-| `POST` | `/operator/unfreeze`          | Resume posting (distinct `confirmOperatorId`)                               |
-| `POST` | `/operator/reconcile`         | Full three-check run (balances · chain · totalsByAsset); freezes on failure |
-| `GET`  | `/operator/assets`            | Every asset registry row, published or not (W-balances-05)                  |
-| `POST` | `/operator/assets/apply-edit` | Apply one founder-approved registry edit (`ledger.asset_edit`)              |
+| Method | Path                           | Effect                                                                      |
+| ------ | ------------------------------ | --------------------------------------------------------------------------- |
+| `GET`  | `/operator/freeze`             | Durable `posting_freeze` row                                                |
+| `POST` | `/operator/freeze`             | Halt posting (`reason` ≥ 12 chars + distinct `confirmOperatorId`)           |
+| `POST` | `/operator/unfreeze`           | Resume posting (distinct `confirmOperatorId`)                               |
+| `POST` | `/operator/reconcile`          | Full three-check run (balances · chain · totalsByAsset); freezes on failure |
+| `GET`  | `/operator/transactions/:txId` | One booked transaction with its postings; 404 `ledger.tx_not_found`         |
+| `GET`  | `/operator/trace?businessKey=` | The transaction a business key booked, or `found: false`                    |
+| `GET`  | `/operator/assets`             | Every asset registry row, published or not (W-balances-05)                  |
+| `POST` | `/operator/assets/apply-edit`  | Apply one founder-approved registry edit (`ledger.asset_edit`)              |
 
 Operator freeze/unfreeze is dual-control: the signed treasury principal plus a distinct `confirmOperatorId`. Missing or same-as-operator confirm refuses (`missing_operator`) — the ledger does not invent a second caller. Reconciliation and boot `LEDGER_POSTING_ENABLED=false` still freeze through `LedgerService` without a confirmer (not operator doors).
+
+The two lookups are reads that answer while posting is frozen. Who may look (owner decision 2026-10-23): a founder's own sign-in with `admin:read` and a second factor, so the access row names the person, or `admin:treasury`; the tRPC `trace` and `transactionGet` take the same rule (`requireLookupAuthority`). Each writes one `operator_access_log` row first (`transaction.read` or `trace.read`, migration 0026), inside the read itself, so the `trace` and `transactionGet` tRPC procedures record the same way; a row that cannot be written refuses with 503 `ledger.lookup_unrecorded` and nothing is read. A malformed id or key refuses with 400 `ledger.lookup_input_invalid`; a recorded lookup the database could not answer is 503 `ledger.lookup_unavailable`. Postings name opaque account ids only; transaction metadata is not returned.
 
 `POST /operator/reconcile` is the on-demand path for apps/admin. A broken chain reports `chainLength` as how far verification got and names `chainBrokenAt` — never collapses a break to zero (that would look like an empty healthy book). Edge/admin must proxy this route; until they do, the scheduled job and this path are the live answers.
 

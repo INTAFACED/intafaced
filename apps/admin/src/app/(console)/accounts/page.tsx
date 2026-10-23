@@ -11,7 +11,7 @@ export default async function AccountsPage() {
     <>
       <AccountSearch />
       <CustomerRecordFinder />
-      <AccountControls csrf={session.csrf} />
+      <AccountControls csrf={session.csrf} founderId={session.userId} />
     </>
   );
 }

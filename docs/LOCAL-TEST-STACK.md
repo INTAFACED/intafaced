@@ -82,7 +82,40 @@ node tooling/scripts/local-test-gates.mjs verify          # verifies those accou
 
 The first BTC/USDT trade, and so the first candle, follows within about a minute.
 
+### Chart history
+
+A wiped stack has no past trades, so a chart asking for 200 fifteen-minute bars has nothing to draw. To give it history, stop the market maker before `verify`, then write the history and start the maker again:
+
+```sh
+pnpm local:market stop                                   # after its accounts exist, before verify: nothing trades yet
+node tooling/scripts/local-test-gates.mjs verify
+node tooling/scripts/local-test-market.mjs history       # 210 bars of TEST trades per market, moved into the past
+pnpm local:market                                        # live quotes carry on from the last history price
+```
+
+`history` places real TEST trades now, through the same door and ledger as the market maker: a post-only maker order and an immediate-or-cancel taker order at the same TEST price, two trades per bar on the same price walk, with client ids starting `LTEST-TAPE-`. It then calls svc-trade's signed LOCAL TEST route, which moves those fills' times into the past, evenly inside 15-minute bars, the newest bar ending where the current bucket starts. Prices, amounts, fees, orders and ledger entries keep what they were. That gives 210 fifteen-minute bars, each with its own open and close, and about 53 hourly ones. It sends at most 14 orders a second, under Edge's local budget of 1200 a minute, so five markets take about five minutes. `--bars`, `--step-minutes`, `--trades-per-bar` and `--markets` change that.
+
+svc-trade has that route only with `TRADE_LOCAL_TEST_TAPE_RETIME=on`, which the stack sets, and refuses to start with it outside `APP_ENV` dev or test (`services/svc-trade/src/spot/local-test-tape.ts`). It refuses any market that already has a trade that is not a tape trade. So `history` skips every market with trades and says so. On a long-lived stack, wipe the state folder for history.
+
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
+
+## Try it (a temporary link, TEST money)
+
+The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub's runner the same way Real-app journeys does. It then gives a password-protected link to the Customer app for up to about 5 h 45 min (owner decision 48; the ADR amendment is in `docs/adr/2026-08-08-staging-deploy-path.md`). The link is in the run summary. The password is the repository secret `TRY_PASSWORD`; without it, the run refuses before it boots.
+
+- **The gate.** `tooling/scripts/try-it.mjs gate` sits between the tunnel and the Customer server. It shows a password page and sets a SameSite=Strict, HttpOnly, Secure cookie; with ten wrong tries in a minute it stops taking passwords for that minute. Every other request needs the cookie. The gate refuses any Host other than the link's own and any Origin other than the link's. Before forwarding, it rewrites Host and Origin to `http://127.0.0.1:3210`, so the Customer server's Host guard and Edge's `EDGE_ALLOWED_ORIGINS` stay unchanged.
+- **The start page** (`/__try/`, behind the password):
+  - the demo account: `try-demo@local-test.invalid`, with the same password, verified and funded with TEST USDT by `try-it.mjs demo`;
+  - a TEST inbox showing the codes and links the stack "mails" to its outbox file;
+  - a button for the two TEST operators to approve waiting verification requests;
+  - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
+- **Not on the link:**
+  - live streams (no svc-ws, as in the journeys run);
+  - the founder console;
+  - passkeys (their relying party is localhost);
+  - anything that needs a partner.
+- **One rate limit.** Everyone on the link counts as one caller against Edge's 1200 requests a minute.
+- **Checks.** `node tooling/scripts/try-it.test.mjs` checks the gate in front of a fake app. `try-it.mjs check <link>` checks a running link; the workflow runs it before posting the link.
 
 ## Founder console
 
@@ -116,7 +149,7 @@ Limits: Bank transfers have no memo field, so labels like "Lunch (test)" appear 
 
 On this stack only, the stack may stand in for three people who do not exist locally. Every record carries the label **"LOCAL TEST — not a real approval"** and a `local-test:` marker, and no service code is bypassed.
 
-`node tooling/scripts/local-test-gates.mjs apply` (also: `operators | futures | lifecycle | open | verify | status`) does, in order:
+`node tooling/scripts/local-test-gates.mjs apply` (also: `operators | futures | lifecycle | open | terms | assets | verify | status`) does, in order:
 
 0. **TEST perpetual and derivatives terms.** It lists the labelled TEST perpetual `BTC/USDT:USDT` (`test = true`, from `services/svc-trade/fixtures/btc-usdt-swap.TEST.json`, through `tooling/scripts/seed-futures-test-listing.mjs`, which refuses a real listing of the same symbol), then the two founders publish a TEST risk agreement and TEST margin terms for the stack's region `XX` and a one-question TEST quiz through svc-trade's own admin doors (one proposes, the other approves; texts in `tooling/scripts/local-test-futures-terms.mjs`). Futures orders go through the futures book (`TRADE_FUTURES_MATCHING_ENABLED=true`, band 5%), the perpetual is marked from the `BTC/USDT` book (`TRADE_FUTURES_INDEX_SPOT_MARKETS`), and the TEST market maker accepts the terms, passes the quiz and quotes it through `POST /api/v1/futures/orders`. None of these are owner or legal values.
 
@@ -124,7 +157,8 @@ On this stack only, the stack may stand in for three people who do not exist loc
 2. **Matching opens the book.** svc-matching's `open` needs a two-person approval from svc-identity. The script signs in two labelled operators (`local_test_operator_a`, `local_test_operator_b`; credentials and TOTP secrets in `~/.intafaced/local-test-stack/operators.json`, mode 600), operator A proposes, operator B approves with a second factor, and matching consumes the approval. Needs `IDENTITY_URL` on matching and `IDENTITY_ACTION_APPROVAL_TTL_SECONDS` (600, a local test value) and `IDENTITY_TOTP_SECRET_KEY` on identity; the stack sets all three.
 3. **Operator verifies test accounts.** An account submits its own `full` request (`kyc.submit`; nobody can submit for someone else), then operator A approves it with a consumed approval from operator B. The operator token is minted for a real signed-in operator session the way `.env.example` documents for operator principals, because user sessions never carry `admin:compliance`. The world watcher runs this for any account that has a pending request, so **a new account only has to tap Verify** (the stack submits requests only for the three test accounts whose passwords it holds). Accounts the stack cannot sign in as are listed by `verify`.
 4. **Personal transfer limits.** Pay sends refuse with `bank.personal_transfer_terms_unset` while no limits are published for the asset. The script has the stack's two founders publish LOCAL TEST limits for USDT and USDC (1,000 per payment, 5,000 a day, no fee) through svc-bank `ops.publishTransferTerms`: one proposes in identity, the other approves, and bank consumes the approval bound to those figures (`local-test-gates.mjs terms`; also part of `apply`). They are not owner values.
-5. **Sanctions list.** The stack env sets `INTAFACED_SCREENING_FAIL_CLOSED=off` so the labelled test fixture (kept outside this repo) is read as "a list exists". It is not counsel's list.
+5. **Supported assets and networks.** The ledger's asset registry starts blank, and while it is the withdrawal address book offers no asset and refuses every save (`bank.withdraw_network_unsupported`). The founders publish LOCAL TEST rows for USDT and USDC (6 places; networks `ethereum` and `base`, labelled `TEST`; deposit, withdraw, trade and transfer allowed): one proposes `ledger.asset_edit` in identity for the row's current revision, the other approves, and svc-ledger `POST /operator/assets/apply-edit` consumes it (`local-test-gates.mjs assets`; also part of `apply`; a row that already says the same is left alone). The stack sets `IDENTITY_URL` on the ledger for this, and LOCAL TEST `BANK_ADDRESS_BOOK_CAP=10` and `BANK_OFFRAMP_COOLING_HOURS=24` on the bank. None are owner values.
+6. **Sanctions list.** The stack env sets `INTAFACED_SCREENING_FAIL_CLOSED=off` so the labelled test fixture (kept outside this repo) is read as "a list exists". It is not counsel's list.
 
 **Local test founders.** On start, the stack seeds `local_test_founder_a` and `local_test_founder_b` on this identity only. Password and TOTP are in `~/.intafaced/local-test-stack/founders.json` (mode 600). `IDENTITY_FOUNDER_NITRO_USER_ID` and `IDENTITY_FOUNDER_PHANTOM_USER_ID` are set to those two ids, so founder KYB approval can run here. They are not the Docker stack founders (`pnpm local:founder` writes `.env.founder-secrets.local` for edge :4000) and they are not the test operators. Merchant populate reads `founders.json` and no other vault. A founder's signed-in session with its second factor also carries `admin:read`, `admin:compliance` and `market:ops` on this stack (`IDENTITY_FOUNDER_SESSION_SCOPES`), the operator reads the founder console makes; `admin:write`, `support:ops` and money-moving scopes stay off. This is a LOCAL TEST grant, not the lead's: which founder holds which scope is the lead's call on a real stack. `local-test-gates.mjs verify` also has each founder submit its own `full` request, because the bank and P2P desks check the caller's own tier; identity refuses a KYC decision by its own subject, so the two TEST operators approve a founder's request. `subAccounts.create` uses `IDENTITY_MAX_SUB_ACCOUNTS=10`, an explicit LOCAL TEST value, not an owner limit.
 

@@ -191,6 +191,16 @@ export function withdrawalAllowanceOf(cause: unknown): { perTx: string; rolling2
   return out as { perTx: string; rolling24h: string };
 }
 
+/**
+ * The protocol blocker on `token.delegation_unavailable` only.
+ * Any other string is dropped, so a sentence cannot ride out on this field.
+ */
+export function delegationBlockerOf(cause: unknown): 'no_chain_service' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'token.delegation_unavailable') return undefined;
+  if (!('blocker' in cause) || cause.blocker !== 'no_chain_service') return undefined;
+  return 'no_chain_service';
+}
+
 /** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
 export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
   if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
@@ -248,6 +258,7 @@ const t = initTRPC.context<Context>().create({
     const code = causeCode(cause);
     const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
     const blockers = errorBlockersOf(cause);
+    const delegationBlocker = delegationBlockerOf(cause);
     const algo = algoRefusalDetails(cause);
     const allowance = withdrawalAllowanceOf(cause);
     const preview = previewRefusalOf(cause);
@@ -267,7 +278,8 @@ const t = initTRPC.context<Context>().create({
         requiredTier: cause instanceof JurisdictionError ? cause.requiredTier : undefined,
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
-        ...(code ? { cause: { code } } : {}),
+        // `blocker` is only `no_chain_service` on `token.delegation_unavailable`.
+        ...(code ? { cause: delegationBlocker ? { code, blocker: delegationBlocker } : { code } } : {}),
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),

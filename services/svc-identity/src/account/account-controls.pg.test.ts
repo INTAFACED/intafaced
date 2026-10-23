@@ -59,7 +59,7 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
-type SentMail = { email: string; code: string; purpose?: string };
+type SentMail = { email: string; code: string; purpose?: string; userId?: string };
 type SentPhone = { phone: string; code: string; purpose: string };
 
 const available = await postgresAvailable(DATABASE_URL);
@@ -101,7 +101,7 @@ if (!available) {
         const leaked = sentMail.find((row) => row.purpose === 'email-change')?.code ?? 'none';
         throw new Error(`smtp down ${leaked}`);
       }
-      sentMail.push({ email: message.email, code: message.code, purpose: message.purpose });
+      sentMail.push({ email: message.email, code: message.code, purpose: message.purpose, userId: message.userId });
     },
   };
   const phoneSender: PhoneCodeSender = {
@@ -513,6 +513,25 @@ if (!available) {
       expect(JSON.stringify(warnings)).not.toContain(code);
       const email = await db.sql<Array<{ email: string }>>`SELECT email FROM users WHERE id = ${user.userId}`;
       expect(email[0]?.email).toBe('kept@example.com');
+    });
+
+    it('names the account on the old-address notice only when that address was proved (the anti-phishing code rides on it)', async () => {
+      const notices: Array<string | undefined> = [];
+      for (const proved of [false, true]) {
+        const user = await register();
+        await db.sql`UPDATE users SET email_verified_at = ${proved ? new Date() : null} WHERE id = ${user.userId}`;
+        const secret = await enrolTotp(user.userId);
+        const target = `moved-${proved}-${user.handle}@example.com`;
+        const approval = await mint(user, EMAIL_SCOPE, 'account.email.change', 'newEmail', target, secret);
+        const caller = await callerOf(user);
+        sentMail.length = 0;
+        await caller.account.email.begin({ newEmail: target, stepUpApprovalId: approval });
+        expect(await caller.account.email.confirm({ code: sentMail[0]?.code ?? '' })).toEqual({ ok: true });
+        const notice = sentMail.find((m) => m.purpose === 'email-change-notice');
+        expect(notice?.email).toBe(user.email);
+        notices.push(notice?.userId === user.userId ? 'named' : notice?.userId);
+      }
+      expect(notices).toEqual([undefined, 'named']);
     });
 
     it('refuses an API key and a sub-account', async () => {

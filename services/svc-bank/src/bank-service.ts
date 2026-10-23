@@ -9,6 +9,10 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
+import { AddMoneyService } from './ramps/add-money.js';
+import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
+import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
+import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
@@ -69,6 +73,10 @@ export interface BankServices {
   readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
   readonly ramps: RampService;
+  /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
+  readonly addMoney: AddMoneyService;
+  /** BK-acct-02: the customer's own accounts at other banks. Kept unverified until a banking partner verifies them. */
+  readonly linkedAccounts: LinkedAccountService;
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
@@ -236,6 +244,15 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   const ramps = new RampService(sql, ledger, options.ramps ?? {});
+  const addMoney = new AddMoneyService(sql, ramps);
+  // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
+  const linkedAccounts = new LinkedAccountService(sql, {
+    // Resolved as RampService resolves them: a value passed in wins, otherwise the live env.
+    addressBookCap: () =>
+      options.ramps?.addressBookCap !== undefined ? options.ramps.addressBookCap : process.env[BANK_ADDRESS_BOOK_CAP_ENV],
+    offrampCoolingHours: () =>
+      options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
+  });
   const deposits = new DepositService(sql, options.deposits ?? {});
   const business = new BusinessService(
     sql,
@@ -276,6 +293,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     loans,
     cards,
     ramps,
+    addMoney,
+    linkedAccounts,
     deposits,
     autoInvest,
     business,

@@ -60,7 +60,7 @@ export interface WorkbenchChartProps {
   /** Move the view so this bar index is in the middle; `nonce` makes the same index move it again. */
   focus?: { index: number; nonce: number } | null;
   /** Add-ons drawn on top of the chart (studies, drawings), given the host once the chart exists. */
-  children?: (host: ChartHost | null) => ReactNode;
+  children?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
   /** Told the host whenever it changes (null when the chart goes), so a grid can link charts. */
   onHost?: (host: ChartHost | null) => void;
 }
@@ -269,46 +269,48 @@ export function WorkbenchChart({
 
   return (
     <div className="wc-root">
-      <div
-        ref={element}
-        className="wc-host"
-        role="img"
-        tabIndex={0}
-        aria-label={labels.chart}
-        aria-description={labels.keys}
-        data-style={style}
-        data-scheme={scheme}
-        data-scale={percent ? 'percent' : 'price'}
-        data-base={rebase.base}
-        data-first-percent={rebase.first}
-        data-bars={candles.length}
-        data-first={candles[0] ? String(candles[0].t) : ''}
-        data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
-        onKeyDown={onKey}
-        onPointerDown={() => (moved.current = true)}
-        onWheel={() => (moved.current = true)}
-      />
-      {legend && focusBar ? (
-        <div className="wc-legend" data-testid="chart-legend">
-          <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>
-          <span>
-            {labels.open} <b>{legend.open}</b>
-          </span>
-          <span>
-            {labels.high} <b>{legend.high}</b>
-          </span>
-          <span>
-            {labels.low} <b>{legend.low}</b>
-          </span>
-          <span>
-            {labels.close} <b>{legend.close}</b>
-          </span>
-          <span className="wc-change" data-direction={legend.direction}>
-            {labels.change} {legend.change}
-          </span>
-        </div>
-      ) : null}
-      {children?.(host)}
+      <div className="wc-stage">
+        <div
+          ref={element}
+          className="wc-host"
+          role="img"
+          tabIndex={0}
+          aria-label={labels.chart}
+          aria-description={labels.keys}
+          data-style={style}
+          data-scheme={scheme}
+          data-scale={percent ? 'percent' : 'price'}
+          data-base={rebase.base}
+          data-first-percent={rebase.first}
+          data-bars={candles.length}
+          data-first={candles[0] ? String(candles[0].t) : ''}
+          data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
+          onKeyDown={onKey}
+          onPointerDown={() => (moved.current = true)}
+          onWheel={() => (moved.current = true)}
+        />
+        {legend && focusBar ? (
+          <div className="wc-legend" data-testid="chart-legend">
+            <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>
+            <span>
+              {labels.open} <b>{legend.open}</b>
+            </span>
+            <span>
+              {labels.high} <b>{legend.high}</b>
+            </span>
+            <span>
+              {labels.low} <b>{legend.low}</b>
+            </span>
+            <span>
+              {labels.close} <b>{legend.close}</b>
+            </span>
+            <span className="wc-change" data-direction={legend.direction}>
+              {labels.change} {legend.change}
+            </span>
+          </div>
+        ) : null}
+      </div>
+      {children?.(host, candles)}
     </div>
   );
 }

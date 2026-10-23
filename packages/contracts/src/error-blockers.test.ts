@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
-import { errorBlockersOf, publicProcedure, router, type Context } from './trpc.js';
+import { delegationBlockerOf, errorBlockersOf, publicProcedure, router, type Context } from './trpc.js';
 
 class BlankLaw extends Error {
   constructor(
@@ -28,6 +28,20 @@ const app = router({
   plain: publicProcedure.query(() => {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'no', cause: new Error('no') });
   }),
+  delegate: publicProcedure.query(() => {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'There is no chain service and no on-chain delegate registry.',
+      cause: Object.assign(new Error('internal'), { code: 'token.delegation_unavailable', blocker: 'no_chain_service' }),
+    });
+  }),
+  delegateSentence: publicProcedure.query(() => {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'no',
+      cause: Object.assign(new Error('no'), { code: 'token.delegation_unavailable', blocker: 'there is no chain' }),
+    });
+  }),
 });
 
 async function wireData(path: string): Promise<Record<string, unknown>> {
@@ -53,6 +67,16 @@ describe('error blockers', () => {
   it('omits blockers when the cause has none', async () => {
     const data = await wireData('plain');
     expect(data).not.toHaveProperty('blockers');
+  });
+
+  it('copies no_chain_service onto the delegation refusal and drops any other blocker string', async () => {
+    const data = await wireData('delegate');
+    expect(data.cause).toEqual({ code: 'token.delegation_unavailable', blocker: 'no_chain_service' });
+    const dropped = await wireData('delegateSentence');
+    expect(dropped.cause).toEqual({ code: 'token.delegation_unavailable' });
+    expect(JSON.stringify(dropped)).not.toContain('there is no chain');
+    expect(delegationBlockerOf({ code: 'token.delegation_unavailable', blocker: 'no_chain_service' })).toBe('no_chain_service');
+    expect(delegationBlockerOf({ code: 'token.buyback_book_empty', blocker: 'no_chain_service' })).toBeUndefined();
   });
 
   it('drops a list that is not codes', () => {

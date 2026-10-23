@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
+import { AuthError, type Principal } from '@intafaced/auth';
+import { router, protectedProcedure, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
 import {
   formatAmount,
   parseAmount,
@@ -35,6 +35,7 @@ import {
 } from './ledger/operator-owner-balances.js';
 import { isWriteBlockCode } from './ledger/write-block.js';
 import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
+import { LookupUnrecordedError, requireLookupAuthority } from './ledger/operator-lookup.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -133,6 +134,23 @@ export interface LedgerIndexerCompose {
   readonly url?: string;
   readonly fetch?: typeof globalThis.fetch;
 }
+
+/**
+ * The object lookups' door, the same rule as the operator port's (`requireLookupAuthority`): a founder's `admin:read`
+ * with a second factor, or `admin:treasury`. A missing second factor is UNAUTHORIZED, anything else FORBIDDEN, as
+ * `scopedProcedure` reports them.
+ */
+const lookupProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  try {
+    requireLookupAuthority(ctx.principal);
+  } catch (err) {
+    if (err instanceof AuthError && err.code === 'mfa.required') {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+    }
+    throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+  }
+  return next({ ctx });
+});
 
 export function createLedgerRouter(
   ledger: LedgerService,
@@ -469,16 +487,17 @@ export function createLedgerRouter(
 
     /**
      * Operator trace (OPS-ledger-desk-01): a business key to the transaction it booked, each posting with its balance
-     * after, or an honest `found: false`. A read, never a post; works while the posting freeze is on.
+     * after, or an honest `found: false`. Recorded in the access log first. A read, never a post; works while the posting
+     * freeze is on.
      */
-    trace: scopedProcedure('admin:treasury')
+    trace: lookupProcedure
       .input(operatorTraceInputSchema)
       .output(operatorTraceOutputSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await traceBusinessKey(ledger, input);
+          return await traceBusinessKey(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
-          if (err instanceof TraceInconsistentError) {
+          if (err instanceof TraceInconsistentError || err instanceof LookupUnrecordedError) {
             throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);
@@ -486,18 +505,21 @@ export function createLedgerRouter(
       }),
 
     /**
-     * Operator transaction detail (OPS-ledger-desk-01): one booked transaction by id with its postings. A read; works
-     * while the posting freeze is on.
+     * Operator transaction detail (OPS-ledger-desk-01): one booked transaction by id with its postings. Recorded in the
+     * access log first. A read; works while the posting freeze is on.
      */
-    transactionGet: scopedProcedure('admin:treasury')
+    transactionGet: lookupProcedure
       .input(operatorTxGetInputSchema)
       .output(operatorTxGetOutputSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await operatorTxGet(ledger, input);
+          return await operatorTxGet(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
           if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
             throw new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
+          }
+          if (err instanceof LookupUnrecordedError) {
+            throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
           }
           throw toTrpcError(err);
         }

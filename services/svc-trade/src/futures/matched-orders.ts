@@ -82,11 +82,14 @@ import type { IncreasingOrderBook } from './liquidation-tick.js';
 import {
   FUTURES_PRICE_BAND_UNSET,
   bankruptcyPrice,
+  feeSplit,
+  fillFee,
   fillMargin,
   fillWithinLimit,
   limitWithinBand,
   liquidationLimit,
   marketReduceLimit,
+  orderFeeReserve,
   orderHoldAmount,
   planLiquidationFill,
   planLiquidationSettlement,
@@ -99,12 +102,15 @@ import {
   reducingSide,
   weightedEntry,
   withinBankruptcy,
+  type FeeRates,
+  type FeeRole,
   type OrderSide,
   liquidationClientOrderId,
   type PositionSide,
   type PriceBand,
 } from './matched-order-plan.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
+import { FeeScheduleError } from '../spot/fee-schedule.js';
 
 /** A refusal with a typed code. Shaped like `FuturesError` so the edge can map it the same way. */
 export class MatchedOrderError extends Error {
@@ -184,6 +190,8 @@ export interface PlaceMatchedOrderInput {
 
 export interface MatchedOrderView {
   readonly orderId: string;
+  /** The caller's own request id: a client that lost the answer finds its order by it without sending again. */
+  readonly clientOrderId: string;
   readonly marketId: string;
   readonly userId: string;
   readonly side: OrderSide;
@@ -193,10 +201,13 @@ export interface MatchedOrderView {
   readonly markPrice: string;
   readonly bandLow: string;
   readonly bandHigh: string;
+  /** The whole hold the order locked: its margin and, for an opening order, its fee reserve. */
   readonly holdAmount: string;
   readonly filledQty: string;
   readonly appliedAmount: string;
   readonly releasedAmount: string;
+  /** What the order's fills paid in trading fees from its hold, so held = holdAmount − applied − feesPaid − released. */
+  readonly feesPaid: string;
   readonly status: MatchedOrderStatus;
   readonly refusalCode: string | null;
   readonly reduceOnly: boolean;
@@ -204,6 +215,16 @@ export interface MatchedOrderView {
   readonly positionId: string | null;
   /** The bankruptcy price a reduce-only order was bounded by at placement; null for an opening order. */
   readonly bankruptcyPrice: string | null;
+}
+
+/** One order's share of one engine fill, and which side of it the order was on. */
+interface FillShare {
+  readonly marketId: string;
+  readonly orderId: string;
+  readonly sequence: number;
+  readonly price: Amount;
+  readonly qty: Amount;
+  readonly role: FeeRole;
 }
 
 /** One engine fill, as the event carries it. Both sides are futures orders on a futures market. */
@@ -249,6 +270,12 @@ export interface MatchedOrdersDeps {
   readonly admission?: TradingAdmissionPort;
   /** Publishes the private positions update after a fill commits. Best effort: it never undoes a settled fill. */
   readonly publishPosition?: (positionId: string) => Promise<void>;
+  /**
+   * The perpetual maker and taker rates this account pays now (`perpetualFeeRates`: the owner's published schedule
+   * less the account's rank discount). An order keeps what this returned when it was accepted. Null is unwired and
+   * refuses an opening order; an unpublished schedule refuses it with the schedule's own code.
+   */
+  readonly feeRates: ((userId: string) => Promise<FeeRates>) | null;
 }
 
 interface OrderRow {
@@ -277,6 +304,11 @@ interface OrderRow {
   bankruptcy_price: string | null;
   /** The matched liquidation rung this order works for (slice 7); null for every trader's order. */
   liquidation_rung_id: string | null;
+  /** The listing's published rates when the order was accepted (migration 0099). Zero on an older order. */
+  maker_fee_bps: string;
+  taker_fee_bps: string;
+  /** What this opening order's fills have paid in fees from its hold so far. Zero on a reduce-only order. */
+  fee_charged: string;
 }
 
 interface FillRow {
@@ -302,6 +334,10 @@ interface FillRow {
   pot_out: string | null;
   initial_out: string | null;
   closes_position: boolean | null;
+  /** The fee this fill paid, and the part its source could not cover (recorded, never posted). */
+  fee: string;
+  fee_waived: string;
+  fee_role: FeeRole | null;
 }
 
 interface PositionRowLite {
@@ -348,6 +384,11 @@ const LIVE_OR_UNKNOWN = ['held', 'submitting', 'open', 'submit_unknown'] as cons
  * the money, and these terms are what it was opened for.
  */
 function holdOf(order: OrderRow): Amount {
+  return marginHoldOf(order) + feeReserveOf(order);
+}
+
+/** The margin part of the hold: what the order's fills can move into the position's pot. */
+function marginHoldOf(order: OrderRow): Amount {
   // A reduce-only order locks nothing: what it can lose is bounded by its position's bankruptcy price instead.
   if (order.reduce_only) return 0n;
   return orderHoldAmount({
@@ -359,20 +400,39 @@ function holdOf(order: OrderRow): Amount {
   });
 }
 
+/** The rates the order kept from its listing when it was accepted. */
+function ratesOf(order: OrderRow): FeeRates {
+  return { makerBps: Number(order.maker_fee_bps), takerBps: Number(order.taker_fee_bps) };
+}
+
+/** The fee part of the hold: the most the order's fills can owe at its rates (`orderFeeReserve`). */
+function feeReserveOf(order: OrderRow): Amount {
+  if (order.reduce_only) return 0n;
+  return orderFeeReserve({
+    side: order.side,
+    qty: parseAmount(order.qty),
+    limit: parseAmount(order.limit_price),
+    bandHigh: parseAmount(order.band_high),
+    rates: ratesOf(order),
+  });
+}
+
+/**
+ * What fills applied, what they paid in fees and what was released never exceed what the order locked, and neither
+ * part borrows from the other: margin stays within the margin part and fees within the fee reserve. The hold is
+ * derived from the order's stored terms, so this is the check a stored hold column used to give; it runs before every
+ * apply or release.
+ */
+function assertWithinHold(order: OrderRow, applied: Amount, feeCharged: Amount, released: Amount): void {
+  if (applied <= marginHoldOf(order) && feeCharged <= feeReserveOf(order) && applied + feeCharged + released <= holdOf(order)) return;
+  refuse('trade.futures_hold_exceeded', `order ${order.id} would use more than the margin it holds`, 500);
+}
+
 /**
  * How much of the order the engine filled in all, or null while that is not known. A cancel or a cancellation
  * event says it (qty less the remainder); a fill can still arrive after it, because the engine printed the fill
  * before the cancel and the event or reply carrying it is slower.
  */
-/**
- * What fills applied plus what was released never exceeds what the order locked. The hold is derived from the
- * order's stored terms, so this is the check a stored hold column used to give; it runs before every apply or release.
- */
-function assertWithinHold(order: OrderRow, applied: Amount, released: Amount): void {
-  if (applied + released <= holdOf(order)) return;
-  refuse('trade.futures_hold_exceeded', `order ${order.id} would use more than the margin it holds`, 500);
-}
-
 function engineFilled(order: OrderRow): Amount | null {
   if (order.status === 'filled') return parseAmount(order.qty);
   return order.engine_filled_qty == null ? null : parseAmount(order.engine_filled_qty);
@@ -430,6 +490,7 @@ function positionSideOf(side: OrderSide): 'long' | 'short' {
 function presentOrder(row: OrderRow): MatchedOrderView {
   return {
     orderId: row.id,
+    clientOrderId: row.client_order_id,
     marketId: row.market_id,
     userId: row.user_id,
     side: row.side,
@@ -443,6 +504,7 @@ function presentOrder(row: OrderRow): MatchedOrderView {
     filledQty: formatAmount(parseAmount(row.filled_qty)),
     appliedAmount: formatAmount(parseAmount(row.applied_amount)),
     releasedAmount: formatAmount(parseAmount(row.released_amount)),
+    feesPaid: formatAmount(parseAmount(row.fee_charged)),
     status: row.status,
     refusalCode: row.refusal_code,
     reduceOnly: row.reduce_only,
@@ -656,7 +718,11 @@ export class MatchedFuturesOrders {
       await this.deps.assertPositionIdle(slot[0].id);
     }
 
-    const hold = orderHoldAmount({ side: input.side, qty: input.qty, limit, mark, leverage: input.leverage });
+    // The hold carries the order's fees as well as its margin, so a fill never needs money the trader no longer has.
+    const rates = await this.openingFeeRates(input.userId);
+    const hold =
+      orderHoldAmount({ side: input.side, qty: input.qty, limit, mark, leverage: input.leverage }) +
+      orderFeeReserve({ side: input.side, qty: input.qty, limit, bandHigh: bandAt.high, rates });
     const orderId = matchedOrderIdFor(input.userId, market.id, clientOrderId);
 
     const pretrade = await checkOpenAdmission({
@@ -696,12 +762,12 @@ export class MatchedFuturesOrders {
     const inserted = await this.deps.sql<{ id: string }[]>`
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
-        band_low, band_high, leverage, hold_asset, status
+        band_low, band_high, leverage, hold_asset, status, maker_fee_bps, taker_fee_bps
       ) VALUES (
         ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
         ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
         ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(input.leverage)},
-        ${market.quote_asset}, 'pending'
+        ${market.quote_asset}, 'pending', ${rates.makerBps}, ${rates.takerBps}
       )
       ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
       RETURNING id
@@ -748,6 +814,34 @@ export class MatchedFuturesOrders {
     );
   }
 
+  /** The rates an opening order keeps. Unwired or unpublished refuses: an order never trades on an invented rate. */
+  private async openingFeeRates(userId: string): Promise<FeeRates> {
+    if (!this.deps.feeRates) {
+      refuse('trade.fee_schedule_blank', 'futures trading fees are not wired on this deployment — the owner publishes them');
+    }
+    try {
+      return await this.deps.feeRates(userId);
+    } catch (err) {
+      if (err instanceof FeeScheduleError) refuse(err.code, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * The rates a reduce-only order keeps. A reduce is never refused for fees: while matching is on it is the only way
+   * to close, and a schedule withdrawn after the position opened must not trap it. With no published rate there is no
+   * fee to charge, so the order keeps zero and its fills record a fee of zero.
+   */
+  private async reducingFeeRates(userId: string): Promise<FeeRates> {
+    if (!this.deps.feeRates) return { makerBps: 0, takerBps: 0 };
+    try {
+      return await this.deps.feeRates(userId);
+    } catch (err) {
+      if (err instanceof FeeScheduleError) return { makerBps: 0, takerBps: 0 };
+      throw err;
+    }
+  }
+
   /**
    * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
    * position's size less its other live reduce-only orders, and never past its bankruptcy price.
@@ -764,6 +858,8 @@ export class MatchedFuturesOrders {
     band: Amount,
   ): Promise<MatchedOrderView> {
     const target = oppositeSide(positionSideOf(input.side));
+    // A reduce pays its fee from the margin share each fill returns, at the rates the order keeps from now on.
+    const reduceRates = await this.reducingFeeRates(input.userId);
     const [open] = await this.deps.sql<{ id: string }[]>`
       SELECT id FROM trade.positions
        WHERE user_id = ${input.userId} AND market_id = ${market.id} AND side = ${target}
@@ -870,12 +966,14 @@ export class MatchedFuturesOrders {
       const inserted = await tx<{ id: string }[]>`
         INSERT INTO trade.futures_orders (
           id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
-          band_low, band_high, leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price
+          band_low, band_high, leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price,
+          maker_fee_bps, taker_fee_bps
         ) VALUES (
           ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
           ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
           ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
-          ${position.margin_asset}, 'pending', true, ${position.id}, ${formatAmount(bankruptcy)}
+          ${position.margin_asset}, 'pending', true, ${position.id}, ${formatAmount(bankruptcy)},
+          ${reduceRates.makerBps}, ${reduceRates.takerBps}
         )
         ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
         RETURNING id
@@ -1060,8 +1158,8 @@ export class MatchedFuturesOrders {
     }
     // Both sides are checked before either posts: a fill one side cannot take is refused whole, never half-applied.
     await this.assertFillSettles(fill, price, qty);
-    await this.applyFill({ marketId: fill.marketId, orderId: fill.takerOrderId, sequence: fill.sequence, price, qty });
-    await this.applyFill({ marketId: fill.marketId, orderId: fill.makerOrderId, sequence: fill.sequence, price, qty });
+    await this.applyFill({ marketId: fill.marketId, orderId: fill.takerOrderId, sequence: fill.sequence, price, qty, role: 'taker' });
+    await this.applyFill({ marketId: fill.marketId, orderId: fill.makerOrderId, sequence: fill.sequence, price, qty, role: 'maker' });
   }
 
   /**
@@ -1197,11 +1295,11 @@ export class MatchedFuturesOrders {
   /**
    * One order's share of one fill.
    *
-   * TX1 (intent): lock the order, decide the position it grows or opens, store the amount, commit.
-   * POST: `futuresOrderMarginApply` under the fill key.
-   * TX2 (apply): lock the position and the order, mark the intent applied, move the row, commit.
+   * TX1 (intent): lock the order, decide the position it grows or opens, store the amount and the fee, commit.
+   * POST: `futuresOrderMarginApply` under the fill key, which pays the fee from the order's hold in the same posting.
+   * TX2 (apply): lock the position and the order, mark the intent applied, move the row, count the fee, commit.
    */
-  private async applyFill(input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount }): Promise<void> {
+  private async applyFill(input: FillShare): Promise<void> {
     const [kind] = await this.deps.sql<{ reduce_only: boolean }[]>`
       SELECT reduce_only FROM trade.futures_orders WHERE id = ${input.orderId}
     `;
@@ -1224,6 +1322,7 @@ export class MatchedFuturesOrders {
           positionId: intent.position_id,
           fillId: intent.fill_key,
           amount: intent.amount,
+          ...(intent.fee > 0n ? { fee: intent.fee } : {}),
         }),
       );
     }
@@ -1244,12 +1343,13 @@ export class MatchedFuturesOrders {
 
   private async recordIntent(
     tx: TransactionSql,
-    input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount },
+    input: FillShare,
   ): Promise<{
     fill_key: string;
     position_id: string;
     user_id: string;
     amount: Amount;
+    fee: Amount;
     state: 'pending' | 'applied';
     order: OrderRow;
   }> {
@@ -1268,6 +1368,7 @@ export class MatchedFuturesOrders {
         position_id: prior.position_id,
         user_id: order.user_id,
         amount: parseAmount(prior.amount),
+        fee: parseAmount(prior.fee),
         state: prior.state,
         order,
       };
@@ -1318,19 +1419,33 @@ export class MatchedFuturesOrders {
     }
 
     const step = fillMargin({ filled: filledBefore, adverseNum: BigInt(order.adverse_num) }, { side, qty, price, mark, leverage });
-    assertWithinHold(order, step.need, parseAmount(order.released_amount));
+    // The fee at this fill's own price and side, paid from what is left of the order's fee reserve. A fill that moves
+    // no margin posts nothing, so its fee (a rounding unit at most) is recorded as waived.
+    const feeCharged = parseAmount(order.fee_charged);
+    const fee = fillFee({ qty, price, role: input.role, rates: ratesOf(order) });
+    const split = feeSplit(fee, step.amount > 0n ? feeReserveOf(order) - feeCharged : 0n);
+    assertWithinHold(order, step.need, feeCharged + split.charged, parseAmount(order.released_amount));
     const fillKey = `${input.marketId}:${input.sequence}:${positionId}`;
     await tx`
       INSERT INTO trade.futures_order_fills (
         fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount,
-        new_filled, new_adverse, new_applied, state
+        new_filled, new_adverse, new_applied, state, fee, fee_waived, fee_role
       ) VALUES (
         ${fillKey}, ${order.id}, ${order.market_id}, ${input.sequence}, ${positionId},
         ${formatAmount(qty)}, ${formatAmount(price)}, ${formatAmount(step.amount)},
-        ${formatAmount(step.filled)}, ${step.adverseNum.toString()}, ${formatAmount(step.need)}, 'pending'
+        ${formatAmount(step.filled)}, ${step.adverseNum.toString()}, ${formatAmount(step.need)}, 'pending',
+        ${formatAmount(split.charged)}, ${formatAmount(split.waived)}, ${input.role}
       )
     `;
-    return { fill_key: fillKey, position_id: positionId, user_id: order.user_id, amount: step.amount, state: 'pending', order };
+    return {
+      fill_key: fillKey,
+      position_id: positionId,
+      user_id: order.user_id,
+      amount: step.amount,
+      fee: split.charged,
+      state: 'pending',
+      order,
+    };
   }
 
   private async applyIntent(
@@ -1396,6 +1511,7 @@ export class MatchedFuturesOrders {
          SET filled_qty = ${fill.new_filled},
              adverse_num = ${fill.new_adverse},
              applied_amount = ${fill.new_applied},
+             fee_charged = fee_charged + ${fill.fee}::numeric,
              status = CASE WHEN status IN ('held', 'submitting', 'open', 'filled', 'submit_unknown') THEN ${orderStatus} ELSE status END,
              updated_at = now()
        WHERE id = ${order.id}
@@ -1422,7 +1538,7 @@ export class MatchedFuturesOrders {
    * A crash anywhere after TX1 leaves the intent pending; the retry finds it and replays the same keys with the same
    * amounts, so every leg posts once, and the row moves once.
    */
-  private async applyReduceFill(input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount }): Promise<void> {
+  private async applyReduceFill(input: FillShare): Promise<void> {
     const fill = await this.deps.sql.begin(async (tx) => this.recordReduceIntent(tx, input));
     if (fill.state === 'applied') return;
     const [order] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id}`;
@@ -1451,6 +1567,7 @@ export class MatchedFuturesOrders {
         fromInsurance: parseAmount(fill.loss_from_insurance ?? '0'),
         release: parseAmount(fill.margin_release ?? '0'),
       },
+      fee: parseAmount(fill.fee),
     });
     if (legs.loss) await this.deps.ledger.post(legs.loss);
     if (legs.release) await this.deps.ledger.post(legs.release);
@@ -1465,10 +1582,7 @@ export class MatchedFuturesOrders {
     }
   }
 
-  private async recordReduceIntent(
-    tx: TransactionSql,
-    input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount },
-  ): Promise<FillRow> {
+  private async recordReduceIntent(tx: TransactionSql, input: FillShare): Promise<FillRow> {
     const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`;
     if (!order) refuse('trade.futures_order_not_found', `futures order ${input.orderId} is not known`, 404);
     if (order.market_id !== input.marketId) refuse('trade.futures_market_mismatch', 'a fill names an order on another market', 500);
@@ -1533,6 +1647,12 @@ export class MatchedFuturesOrders {
       }
     }
 
+    // The fill's fee comes out of the margin share it returns, so the margin left on the position is untouched and
+    // what leaves the pot is the same. A share smaller than the fee (a loss took the rest) pays what it has; the rest
+    // is recorded as waived. A liquidation order pays no trading fee (engine spec LQ-1).
+    const fee =
+      order.liquidation_rung_id != null ? 0n : fillFee({ qty: input.qty, price: input.price, role: input.role, rates: ratesOf(order) });
+    const split = feeSplit(fee, plan.release);
     const fillKey = `${input.marketId}:${input.sequence}:${position.id}`;
     const filledNow = parseAmount(order.filled_qty) + input.qty;
     const [inserted] = await tx<FillRow[]>`
@@ -1540,14 +1660,15 @@ export class MatchedFuturesOrders {
         fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount,
         new_filled, new_adverse, new_applied, state, kind,
         realized_pnl, loss_from_margin, loss_from_insurance, loss_unbooked, profit, margin_release,
-        pot_out, initial_out, closes_position, liquidation_rung_id
+        pot_out, initial_out, closes_position, liquidation_rung_id, fee, fee_waived, fee_role
       ) VALUES (
         ${fillKey}, ${order.id}, ${order.market_id}, ${input.sequence}, ${position.id},
         ${formatAmount(input.qty)}, ${formatAmount(input.price)}, '0',
         ${formatAmount(filledNow)}, ${order.adverse_num}, ${order.applied_amount}, 'pending', 'reduce',
         ${formatAmount(plan.realizedPnl)}, ${formatAmount(plan.fromMargin)}, ${formatAmount(plan.fromInsurance)},
-        ${formatAmount(plan.unbooked)}, ${formatAmount(plan.profit)}, ${formatAmount(plan.release)},
-        ${formatAmount(plan.potOut)}, ${formatAmount(plan.initialOut)}, ${plan.closes}, ${order.liquidation_rung_id}
+        ${formatAmount(plan.unbooked)}, ${formatAmount(plan.profit)}, ${formatAmount(plan.release - split.charged)},
+        ${formatAmount(plan.potOut)}, ${formatAmount(plan.initialOut)}, ${plan.closes}, ${order.liquidation_rung_id},
+        ${formatAmount(split.charged)}, ${formatAmount(split.waived)}, ${input.role}
       )
       RETURNING *
     `;
@@ -2275,8 +2396,10 @@ export class MatchedFuturesOrders {
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${orderId} AND state = 'pending' LIMIT 1
     `;
     if (pending) return;
-    assertWithinHold(order, parseAmount(order.applied_amount), 0n);
-    const remainder = holdOf(order) - parseAmount(order.applied_amount);
+    const applied = parseAmount(order.applied_amount);
+    const feeCharged = parseAmount(order.fee_charged);
+    assertWithinHold(order, applied, feeCharged, 0n);
+    const remainder = holdOf(order) - applied - feeCharged;
     if (remainder <= 0n) return;
     if (remainder === parseAmount(order.released_amount)) return;
     await this.deps.ledger.post(

@@ -11,6 +11,7 @@ const principal = { userId: USER, scopes: ['trade:read', 'trade:write'], tier: 2
 const order: FuturesOrderWire = {
   orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   marketId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  clientOrderId: 'open:jd:1',
   userId: USER,
   side: 'buy',
   type: 'limit',
@@ -23,6 +24,7 @@ const order: FuturesOrderWire = {
   filledQty: '0',
   appliedAmount: '0',
   releasedAmount: '0',
+  feesPaid: '0',
   status: 'open',
   refusalCode: null,
   reduceOnly: false,

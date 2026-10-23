@@ -239,6 +239,16 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.futuresMarginAdd({ positionId: 'pos1', userId: U, assetId: 'USDT', amount: AMT, sequence: 1 }),
     },
     { name: 'futuresMarginRelease', post: recipes.futuresMarginRelease({ positionId: 'pos1', userId: U, assetId: 'USDT', amount: AMT }) },
+    // A reducing futures fill pays its trading fee from the position pot in the release posting, or from what the
+    // pot holds when the loss took the rest of the margin (amount zero).
+    {
+      name: 'futuresMarginRelease',
+      post: recipes.futuresMarginRelease({ positionId: 'pos1', userId: U, assetId: 'USDT', amount: AMT, fee: AMT }),
+    },
+    {
+      name: 'futuresMarginRelease',
+      post: recipes.futuresMarginRelease({ positionId: 'pos1', userId: U, assetId: 'USDT', amount: 0n, fee: AMT }),
+    },
     {
       name: 'futuresOrderMarginHold',
       post: recipes.futuresOrderMarginHold({ orderId: 'o1', userId: U, assetId: 'USDT', amount: AMT }),
@@ -268,6 +278,32 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         fillId: 'm1:1:pos1',
         amount: AMT,
         releaseAmount: AMT,
+      }),
+    },
+    // An opening futures fill pays its trading fee from the order hold in the fill posting.
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o1',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos1',
+        fillId: 'm1:1:pos1',
+        amount: AMT,
+        fee: AMT,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o1',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos1',
+        fillId: 'm1:1:pos1',
+        amount: AMT,
+        releaseAmount: AMT,
+        fee: AMT,
       }),
     },
     {
@@ -899,6 +935,28 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'futuresMarginRelease',
+      post: recipes.futuresMarginRelease({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        fee: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresMarginRelease',
+      post: recipes.futuresMarginRelease({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        amount: 0n,
+        fee: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
       name: 'futuresOrderMarginHold',
       post: recipes.futuresOrderMarginHold({ orderId: 'o-sub', userId: U, assetId: 'USDT', amount: AMT, subAccountId: S1 }),
     },
@@ -928,6 +986,33 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         fillId: 'm1:1:pos-sub',
         amount: AMT,
         releaseAmount: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o-sub',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos-sub',
+        fillId: 'm1:1:pos-sub',
+        amount: AMT,
+        fee: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o-sub',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos-sub',
+        fillId: 'm1:1:pos-sub',
+        amount: AMT,
+        releaseAmount: AMT,
+        fee: AMT,
         subAccountId: S1,
       }),
     },

@@ -1,7 +1,7 @@
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
 import { applyMark } from './trailing-stop.js';
-import type { BookState, CancelledRef, Fill, MarketId, TriggerOutcome } from './types.js';
+import type { BookState, CancelledRef, Fill, MarketId, TriggerFact, TriggerOutcome } from './types.js';
 import type { JournalRecord } from './journal-codec.js';
 import { fromWire, fromWireAmend } from './journal-wire.js';
 
@@ -45,16 +45,37 @@ export interface ReplayHoldCancel {
   readonly cancellation: CancelledRef;
 }
 
+/** A stop that fired. Re-announced on the next boot with the same sequence key, like the fills it led to. */
+export interface ReplayTrigger {
+  readonly marketId: MarketId;
+  readonly at: string;
+  readonly orderId: string;
+  readonly sequence: number;
+  readonly trigger: TriggerFact;
+}
+
 function collectFills(
   marketId: MarketId,
   at: string,
   result: { readonly fills: readonly Fill[]; readonly triggered: readonly TriggerOutcome[] },
   into: ReplayFill[],
+  triggers: ReplayTrigger[],
 ): void {
   const chunk: ReplayFill[] = [];
-  for (const fill of result.fills) chunk.push({ marketId, at, fill });
+  // An amend that fires its own stop reports those fills twice (on the result and on its trigger outcome): one each.
+  // (the same objects, so identity is the test: one sequence can carry several fills, as an exercise does).
+  const seen = new Set<Fill>();
+  const add = (fill: Fill): void => {
+    if (seen.has(fill)) return;
+    seen.add(fill);
+    chunk.push({ marketId, at, fill });
+  };
+  for (const fill of result.fills) add(fill);
   for (const triggered of result.triggered) {
-    for (const fill of triggered.fills) chunk.push({ marketId, at, fill });
+    if (triggered.trigger) {
+      triggers.push({ marketId, at, orderId: triggered.orderId, sequence: triggered.sequence, trigger: triggered.trigger });
+    }
+    for (const fill of triggered.fills) add(fill);
   }
   chunk.sort((a, b) => a.fill.sequence - b.fill.sequence);
   into.push(...chunk);
@@ -68,10 +89,12 @@ export function replayJournal(records: readonly JournalRecord[]): {
   readonly books: Map<MarketId, OrderBook>;
   readonly fills: readonly ReplayFill[];
   readonly holdCancels: readonly ReplayHoldCancel[];
+  readonly triggers: readonly ReplayTrigger[];
 } {
   const books = new Map<MarketId, OrderBook>();
   const fills: ReplayFill[] = [];
   const holdCancels: ReplayHoldCancel[] = [];
+  const triggers: ReplayTrigger[] = [];
   const deadSessions = new Set<string>();
 
   const bookFor = (marketId: MarketId): OrderBook => {
@@ -93,7 +116,7 @@ export function replayJournal(records: readonly JournalRecord[]): {
       if (submitSessionDead(record.order, deadSessions)) continue;
       const book = bookFor(record.marketId);
       const result = book.submit(fromWire(record.order), journalClock(record.at));
-      collectFills(record.marketId, record.at, result, fills);
+      collectFills(record.marketId, record.at, result, fills, triggers);
       // Reject-only and IOC/market-remainder opens must not survive replay
       // either — same honesty as live dropIfNeverTraded (print or rest, or drop).
       if (book.isNeverPrintedEmpty) books.delete(record.marketId);
@@ -136,7 +159,7 @@ export function replayJournal(records: readonly JournalRecord[]): {
     if (!existing) continue;
     if (record.kind === 'amend') {
       const result = existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch), journalClock(record.at));
-      collectFills(record.marketId, record.at, result, fills);
+      collectFills(record.marketId, record.at, result, fills, triggers);
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
       continue;
     }
@@ -157,7 +180,7 @@ export function replayJournal(records: readonly JournalRecord[]): {
     }
   }
 
-  return { books, fills, holdCancels };
+  return { books, fills, holdCancels, triggers };
 }
 
 export function replay(records: readonly JournalRecord[]): Map<MarketId, OrderBook> {

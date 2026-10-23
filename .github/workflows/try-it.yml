@@ -1,0 +1,197 @@
+# Try it: the latest main on TEST money behind a password, for a few hours (owner decision 48, 23 Oct 2026). It boots the
+# local test stack exactly as Real-app journeys does, puts tooling/scripts/try-it.mjs (a password gate) in front of the
+# Customer app, and opens a temporary Cloudflare quick-tunnel link to the gate. Started by hand only (workflow_dispatch),
+# never on push or pull requests, and not a required check. The run's data is gone when it ends.
+#
+# What the owner accepted (docs/adr/2026-08-08-staging-deploy-path.md, amendment of 23 Oct 2026): the link's address
+# shows in this public log; the stack is the labelled dev/TEST profile with the screening stand-in, as in the journeys
+# run; the protection is the TRY_PASSWORD secret, TEST-only money, no partner credentials, and the end of the run.
+name: Try it
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: How long the link stays up (max is about 5 h 45 min after the run starts)
+        type: choice
+        options: ['max', '1', '2', '3', '4', '5']
+        default: 'max'
+
+# One copy at a time. A second press waits for the running one to end; cancel the running one to start fresh.
+concurrency:
+  group: try-it
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  # cloudflare/cloudflared 2026.9.3, linux/amd64, pinned by digest.
+  CLOUDFLARED_IMAGE: cloudflare/cloudflared@sha256:2fa795d0271a71c133a8f17c19a2a625e1976ad716329e0e61789f9fd8ee0091
+  TRY_GATE_PORT: 8088
+
+jobs:
+  try-it:
+    name: Try it
+    runs-on: ubuntu-24.04
+    # GitHub's limit for one job is 6 hours; the link ends at 5 h 45 min so the stack stops cleanly.
+    timeout-minutes: 360
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths and end time
+        env:
+          HOURS: ${{ inputs.hours }}
+        run: |
+          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          start=$(date -u +%s)
+          if [ "$HOURS" = "max" ]; then ends=$((start + 345 * 60)); else ends=$((start + 15 * 60 + HOURS * 3600)); fi
+          max=$((start + 345 * 60))
+          [ "$ends" -gt "$max" ] && ends=$max
+          echo "TRY_ENDS_EPOCH=$ends" >> "$GITHUB_ENV"
+          echo "TRY_ENDS_AT=$(date -u -d "@$ends" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      # Refuse before anything boots: no password, no link.
+      - name: Password and screening placeholder are set
+        env:
+          TRY_PASSWORD: ${{ secrets.TRY_PASSWORD }}
+        run: |
+          if [ -z "$TRY_PASSWORD" ]; then
+            msg="Blocked: the repository secret TRY_PASSWORD is unset, so there is no password to put in front of the link. An admin sets it once (Settings, Secrets and variables, Actions, New repository secret, name TRY_PASSWORD)."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"; echo "::error::$msg"; exit 1
+          fi
+          if [ "${#TRY_PASSWORD}" -lt 12 ] || [ "${#TRY_PASSWORD}" -gt 200 ]; then
+            msg="Blocked: TRY_PASSWORD must be 12 to 200 characters."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"; echo "::error::$msg"; exit 1
+          fi
+          if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
+            msg="Blocked: the repository secrets INTAFACED_SANCTIONS_REGIONS and INTAFACED_SANCTIONS_LIST_SOURCE are unset, so Edge would refuse every money read (edge.screening_unset)."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"; echo "::error::$msg"; exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          df -h /
+
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Get a nats-server binary and the tunnel
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+          docker pull "$CLOUDFLARED_IMAGE"
+
+      # The demo account signs up in Chromium, as a person would.
+      - name: Install the browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start the local test stack (TEST funds only)
+        run: node tooling/scripts/local-test-stack.mjs start
+
+      # The same order as Real-app journeys (see that workflow for why each step is where it is).
+      - name: Open the TEST markets, write TEST chart history, start the TEST market maker
+        run: |
+          node tooling/scripts/local-test-stack.mjs restart matching
+          node tooling/scripts/local-test-gates.mjs apply
+          node tooling/scripts/local-test-market.mjs
+          for _ in $(seq 1 30); do
+            grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
+            sleep 2
+          done
+          node tooling/scripts/local-test-market.mjs stop
+          node tooling/scripts/local-test-gates.mjs verify
+          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs
+
+      - name: Demo account (verified, TEST USDT)
+        env:
+          TRY_PASSWORD: ${{ secrets.TRY_PASSWORD }}
+        run: node tooling/scripts/try-it.mjs demo
+
+      # The tunnel forwards only to the gate. The gate forwards only to the Customer server, which serves the app and
+      # passes /api to Edge. Nothing else on the runner is reachable through the link.
+      - name: Open the link
+        run: |
+          docker run -d --name try-tunnel --network host "$CLOUDFLARED_IMAGE" tunnel --no-autoupdate --url "http://127.0.0.1:$TRY_GATE_PORT"
+          for _ in $(seq 1 60); do
+            url=$(docker logs try-tunnel 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | head -1)
+            [ -n "$url" ] && break
+            sleep 2
+          done
+          if [ -z "$url" ]; then echo "::error::the tunnel gave no address within 2 minutes"; docker logs try-tunnel 2>&1 | tail -30; exit 1; fi
+          echo "TRY_PUBLIC_ORIGIN=$url" >> "$GITHUB_ENV"
+
+      - name: Start the password gate
+        env:
+          TRY_PASSWORD: ${{ secrets.TRY_PASSWORD }}
+        run: |
+          nohup node tooling/scripts/try-it.mjs gate > "$RUNNER_TEMP/gate.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/gate.pid"
+          for _ in $(seq 1 20); do grep -q 'try-it gate on' "$RUNNER_TEMP/gate.log" && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/gate.log"; exit 1
+
+      # Proves the link before posting it: no password, wrong password, right password, the app, a sign-in, a balance.
+      - name: Check the link
+        env:
+          TRY_PASSWORD: ${{ secrets.TRY_PASSWORD }}
+        run: |
+          for i in $(seq 1 12); do
+            node tooling/scripts/try-it.mjs check "$TRY_PUBLIC_ORIGIN" && exit 0
+            echo "the tunnel may still be warming up; trying again in 10 s ($i/12)"
+            sleep 10
+          done
+          exit 1
+
+      - name: The link
+        run: |
+          {
+            echo "## Try it: $TRY_PUBLIC_ORIGIN"
+            echo
+            echo "Open the link and enter the password (the TRY_PASSWORD secret). TEST money only."
+            echo "It ends at $TRY_ENDS_AT. Cancel this run to end it sooner."
+            echo
+            echo "Demo account: try-demo@local-test.invalid, with the same password. It is verified and holds TEST USDT."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Try it::$TRY_PUBLIC_ORIGIN until $TRY_ENDS_AT"
+
+      # Keeps the run alive until the end time. If the gate or the tunnel stops, the run ends and says which.
+      - name: Up until the end time
+        run: |
+          while [ "$(date -u +%s)" -lt "$TRY_ENDS_EPOCH" ]; do
+            if ! kill -0 "$(cat "$RUNNER_TEMP/gate.pid")" 2> /dev/null; then echo "::error::the password gate stopped"; tail -40 "$RUNNER_TEMP/gate.log"; exit 1; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' try-tunnel)" != "true" ]; then echo "::error::the tunnel stopped"; docker logs try-tunnel 2>&1 | tail -30; exit 1; fi
+            sleep 60
+          done
+          echo "The end time ($TRY_ENDS_AT) is reached; stopping."
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          for f in "$LOCAL_STACK_STATE"/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+          if [ -f "$RUNNER_TEMP/gate.log" ]; then echo "::group::password gate"; tail -80 "$RUNNER_TEMP/gate.log"; echo "::endgroup::"; fi
+          docker logs try-tunnel 2>&1 | tail -40 || true
+
+      - name: Stop
+        if: always()
+        run: |
+          docker rm -f try-tunnel 2>/dev/null || true
+          [ -f "$RUNNER_TEMP/gate.pid" ] && kill "$(cat "$RUNNER_TEMP/gate.pid")" 2> /dev/null || true
+          node tooling/scripts/local-test-stack.mjs stop || true

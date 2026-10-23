@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { journeyState } from './stack.mjs';
+import { EDGE, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-algo-dev-01, in the running app (docs/roadmap/journeys.json): build a first strategy, save it and backtest it on
@@ -286,4 +287,321 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   await expect(home.getByRole('row')).toHaveCount(2);
   await expect(home).toContainText('Version 2');
   run.write({ strategy: 'TEST first strategy' });
+});
+
+/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
+function utcMinute(minutesAgo) {
+  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
+  return new Date(at).toISOString().slice(0, 16);
+}
+
+/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
+async function closedBarsSince(minute) {
+  const since = Date.parse(`${minute}:00Z`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
+}
+
+// The window both backtest steps run on: the last hour of the TEST tape, fixed once so #6 repeats #5's inputs exactly.
+const WINDOW_MINUTES = 60;
+
+test(`${J} #5 sets cash, a window, the fee, slippage and delay, and runs with slippage blank: a refusal names slippage and nothing runs; the published fee rates show`, async ({
+  page,
+}) => {
+  await signIn(page, developer());
+  // The strategy now trades by signal rules: TEST inputs on 1 minute bars of the local TEST market, saved as version 3.
+  await page.goto('/quant/studio');
+  // This browser holds no draft: the saved version 2 is opened from the library.
+  await page.getByRole('button', { name: 'Open TEST first strategy' }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 2.');
+  await page.getByLabel('How the strategy trades').selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Symbol').fill('BTC/USDT');
+  await builder.getByLabel('Bar size').selectOption('1m');
+  await builder.getByLabel('Fast average (bars)').fill('1');
+  await builder.getByLabel('Slow average (bars)').fill('2');
+  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 3.');
+
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 3: BTC/USDT, 1m bars.');
+  // The published schedule is read before anything runs: the rates the run will charge, with the schedule version.
+  await expect(room.getByTestId('quant-fee-ledger')).toContainText(
+    /Published fee schedule .+ for BTC\/USDT: taker \d+ basis points, maker \d+ basis points\./,
+  );
+  // The saved starting cash is offered; the developer keeps it.
+  await expect(room.getByLabel('Starting cash')).toHaveValue('1000');
+  const from = utcMinute(WINDOW_MINUTES);
+  const to = utcMinute(0);
+  run.write({ window: { from, to } });
+  await room.getByLabel('From (UTC)').fill(from);
+  await room.getByLabel('To (UTC)').fill(to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+
+  const started = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
+  });
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-backtest-refusal')).toHaveText('Fill in Slippage (basis points) first. Nothing ran.');
+  await expect(room.getByLabel('Slippage (basis points)')).toHaveAttribute('aria-invalid', 'true');
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  expect(started).toEqual([400]);
+  // Nothing ran: the quick start's backtest step is still open.
+  await page.goto('/quant');
+  await expect(page.getByTestId('quant-quick-start-count')).toHaveText('1 of 3 steps done');
+});
+
+test(`${J} #6 runs on the TEST tape: sided trades, equity moving with them, fees subtracted from gross, no fill inside a gap; the same inputs again read back the same stored run`, async ({
+  page,
+}) => {
+  test.setTimeout(15 * 60_000);
+  const { window } = run.read();
+  if (!window) throw new Error(`${J} #5 fixed no window, so this step has nothing to repeat`);
+  // The TEST market maker trades about once a minute. Wait until the window holds enough closed bars for the averages.
+  await expect
+    .poll(async () => (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length, {
+      timeout: 12 * 60_000,
+      intervals: [15_000],
+      message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
+    })
+    .toBeGreaterThanOrEqual(8);
+
+  await signIn(page, developer());
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('5');
+
+  // The first reply is lost after the service stored the run; Run again with the same inputs reads it back.
+  await loseNextReply(page, 'backtest.start');
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.locator('.failure')).toBeVisible();
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  const runId = await result.getAttribute('data-run-id');
+  expect(runId).toMatch(/^run_/);
+  // The run lists how it was modelled, so nobody reads a choice the engine made as a fact about the market.
+  await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="long_only"]')).toHaveCount(1);
+  await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="averages_over_traded_bars"]')).toHaveCount(1);
+
+  // Coverage: how many bar intervals traded, and each gap with no trade on the market.
+  await expect(result.getByTestId('quant-bar-coverage')).toHaveText(/^\d+ of \d+ bars traded in the window\.$/);
+  const gaps = await result
+    .getByTestId('quant-bar-gap')
+    .evaluateAll((rows) => rows.map((row) => [Date.parse(row.dataset.from), Date.parse(row.dataset.to)]));
+
+  // Sided trades: the long-only rules alternate, buy first; none fills inside a gap.
+  await result.getByRole('button', { name: 'Orders and trades' }).click();
+  const trades = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.side, row.dataset.ts]));
+  expect(trades.length).toBeGreaterThan(0);
+  trades.forEach(([side], i) => expect(side).toBe(i % 2 === 0 ? 'buy' : 'sell'));
+  for (const [, ts] of trades) {
+    const at = Date.parse(ts);
+    expect(gaps.some(([a, b]) => at >= a && at < b)).toBe(false);
+  }
+
+  // Fees are taken off the result before costs, with slippage: net = gross - fees - slippage, exactly.
+  await result.getByRole('button', { name: 'Summary' }).click();
+  const total = async (key) => (await result.getByTestId(`quant-bar-total-${key}`).getAttribute('data-value')) ?? '';
+  const [gross, fees, slip, net] = await Promise.all(['gross', 'fees', 'slippageTotal', 'net'].map(total));
+  expect(toUnits(fees)).toBeGreaterThan(0n);
+  expect(toUnits(net)).toBe(toUnits(gross) - toUnits(fees) - toUnits(slip));
+
+  // Equity moves with the position: it changes from bar to bar while the strategy holds BTC.
+  await result.getByRole('button', { name: 'Charts' }).click();
+  const equity = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.equity));
+  expect(new Set(equity).size).toBeGreaterThan(1);
+
+  // The same inputs again: the same stored run, not a second one.
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(result).toHaveAttribute('data-run-id', runId);
+  run.write({ backtest: { runId, net, trades: trades.length } });
+  await page.goto('/quant');
+  await expect(page.getByTestId('quant-quick-start-count')).toHaveText('2 of 3 steps done');
+});
+
+/** Fills the backtest form with the inputs #6 ran, for a window, and presses Run. */
+async function runBacktest(page, window) {
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: 'TEST first strategy' });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('5');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  return result;
+}
+
+test(`${J} #7 opens the Metrics tab: net, drawdown, run-up, profit factor and trade statistics from the run's own trades; win rate reads "no trades" on an empty run and Sharpe is not set while the risk-free rate is blank`, async ({
+  page,
+}) => {
+  const { window, backtest } = run.read();
+  if (!window || !backtest) throw new Error(`${J} #6 stored no run, so this step has no metrics to read`);
+  await signIn(page, developer());
+
+  // The same inputs read back #6's stored run; its Metrics tab reports on that run's own trades.
+  const result = await runBacktest(page, window);
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+  await result.getByRole('button', { name: 'Metrics' }).click();
+  const metrics = result.getByTestId('quant-bar-metrics');
+  const figure = (key) => metrics.getByTestId(`quant-metric-${key}`);
+  await expect(figure('net')).toHaveAttribute('data-value', backtest.net);
+  for (const key of ['maxDrawdown', 'maxDrawdownPercent', 'maxRunUp', 'maxRunUpPercent']) {
+    await expect(figure(key)).toHaveAttribute('data-value', /^\d/);
+  }
+  const roundTrips = Math.floor(backtest.trades / 2);
+  await expect(figure('roundTrips')).toHaveAttribute('data-value', String(roundTrips));
+  const wins = Number(await figure('wins').getAttribute('data-value'));
+  const losses = Number(await figure('losses').getAttribute('data-value'));
+  expect(wins + losses).toBeLessThanOrEqual(roundTrips);
+  // Profit factor is gross profit over gross loss, or "not defined" with its reason when nothing lost.
+  await expect(figure('profitFactor')).toHaveAttribute(losses ? 'data-value' : 'data-reason', losses ? /^\d/ : 'no_losing_trades');
+  // Sharpe and Sortino need the owner's risk-free rate, which is blank: they say so, and nothing reads 0.
+  for (const key of ['sharpe', 'sortino']) {
+    await expect(figure(key)).toHaveAttribute('data-reason', 'quant.risk_free_unset');
+    await expect(figure(key)).toContainText('Not set: the risk-free rate is not published');
+  }
+
+  // An empty run: a window of the first two closed bars has no cross, so no trade. Win rate reads "no trades", not 0.
+  const [first] = await closedBarsSince(window.from);
+  if (!first) throw new Error('the TEST tape has no closed bar in the window');
+  const from = new Date(first[0]).toISOString().slice(0, 16);
+  const to = new Date(first[0] + 2 * 60_000).toISOString().slice(0, 16);
+  const empty = await runBacktest(page, { from, to });
+  await expect(empty).not.toHaveAttribute('data-run-id', backtest.runId);
+  await empty.getByRole('button', { name: 'Orders and trades' }).click();
+  await expect(empty.getByTestId('quant-bar-trades')).toContainText('The rules made no trade in this window.');
+  await expect(empty.getByTestId('quant-bar-trade')).toHaveCount(0);
+  await empty.getByRole('button', { name: 'Metrics' }).click();
+  const winRate = empty.getByTestId('quant-metric-winRate');
+  await expect(winRate).toHaveAttribute('data-reason', 'no_trades');
+  await expect(winRate.locator('dd').first()).toHaveText('No trades');
+});
+
+test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the equity curve with a marker on each fill, the trades with their side, and a CSV of one row per trade with formula cells neutralised`, async ({
+  page,
+}) => {
+  const { window, backtest } = run.read();
+  if (!window || !backtest) throw new Error(`${J} #6 stored no run, so this step has nothing to chart`);
+  await signIn(page, developer());
+  const result = await runBacktest(page, window);
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+
+  // Orders and trades: every fill with its side.
+  await result.getByRole('button', { name: 'Orders and trades' }).click();
+  const shown = await result.getByTestId('quant-bar-trade').evaluateAll((rows) => rows.map((row) => [row.dataset.ts, row.dataset.side]));
+  expect(shown).toHaveLength(backtest.trades);
+
+  // Download CSV: one row per trade, in order, with its side. (The neutralising of formula cells is proved on crafted
+  // cells in backtest-chart.test.ts; the TEST run's cells are times, sides and decimals, none of which contains a comma.)
+  const [download] = await Promise.all([page.waitForEvent('download'), result.getByTestId('quant-bar-csv').click()]);
+  expect(download.suggestedFilename()).toBe(`backtest-${backtest.runId}-trades.csv`);
+  const csv = readFileSync(await download.path(), 'utf8')
+    .trimEnd()
+    .split('\r\n');
+  expect(csv[0]).toBe('time_utc,side,reason,quantity,bar_price,fill_price,fee,slippage');
+  const rows = csv.slice(1).map((line) => line.split(','));
+  expect(rows.map(([ts, side]) => [ts, side])).toEqual(shown);
+
+  // Charts: the equity curve, with a marker on the bar of each fill and the same side.
+  await result.getByRole('button', { name: 'Charts' }).click();
+  await expect(result.getByTestId('quant-bar-equity-chart').locator('polyline')).toHaveCount(1);
+  const markers = await result.getByTestId('quant-bar-marker').evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side]));
+  expect(markers).toEqual(shown);
+  await expect(result.getByText(/^Equity by bar\. A triangle pointing up marks a buy/)).toBeVisible();
+});
+
+test(`${J} #9 opens run history, renames a run, compares two side by side and filters the log to warnings: newest first with label, version and outcome; the result stays the same; no ranking by return; only warning lines show`, async ({
+  page,
+}) => {
+  const { backtest } = run.read();
+  if (!backtest) throw new Error(`${J} #6 stored no run, so the history has nothing to show`);
+  await signIn(page, developer());
+  await page.goto('/quant/backtest');
+  const history = page.getByTestId('quant-run-history');
+  const rows = history.getByTestId('quant-run-row');
+  // #6 stored a run and #7 an empty one: newest first, each with a version and an outcome.
+  await expect(rows).toHaveCount(2);
+  const started = await rows.evaluateAll((list) => list.map((row) => row.dataset.started));
+  expect([...started].sort().reverse()).toEqual(started);
+  for (const row of await rows.all()) {
+    await expect(row.locator('td').nth(2)).toHaveText(/^v\d+$/);
+    await expect(row.locator('td').nth(3)).toHaveText('Finished');
+    await expect(row.getByTestId('quant-run-label')).toHaveText('Unnamed run');
+  }
+
+  // Rename #6's run: the label shows, and opening it reads the same stored result, figure for figure.
+  const mine = history.locator(`[data-testid="quant-run-row"][data-run-id="${backtest.runId}"]`);
+  const totals = (from) =>
+    from
+      .getByTestId('quant-bar-totals')
+      .locator('[data-value]')
+      .evaluateAll((list) => list.map((row) => [row.dataset.testid, row.dataset.value]));
+  await mine.getByRole('button', { name: 'Open' }).click();
+  await expect(page.getByTestId('quant-bar-result')).toHaveAttribute('data-run-id', backtest.runId);
+  const before = await totals(page.getByTestId('quant-bar-result'));
+  await mine.getByRole('button', { name: 'Rename' }).click();
+  await mine.getByLabel('Label').fill('TEST hourly cross');
+  await mine.getByRole('button', { name: 'Save label' }).click();
+  await expect(mine.getByTestId('quant-run-label')).toHaveText('TEST hourly cross');
+  await mine.getByRole('button', { name: 'Open' }).click();
+  const result = page.getByTestId('quant-bar-result');
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+  await expect(result.getByTestId('quant-bar-total-net')).toHaveAttribute('data-value', backtest.net);
+  expect(await totals(result)).toEqual(before);
+
+  // Compare the two: the same figures side by side, columns in the list's order (newest first), never by return.
+  const ids = await rows.evaluateAll((list) => list.map((row) => row.dataset.runId));
+  for (const id of ids) await history.locator(`[data-run-id="${id}"] input[type="checkbox"]`).check();
+  const compare = history.getByTestId('quant-run-compare');
+  await expect(compare.getByTestId('quant-compare-row').first().locator('td[data-run-id]')).toHaveCount(2);
+  const columns = await compare
+    .getByTestId('quant-compare-row')
+    .first()
+    .locator('td[data-run-id]')
+    .evaluateAll((cells) => cells.map((cell) => cell.dataset.runId));
+  expect(columns).toEqual(ids);
+  const figures = await compare.getByTestId('quant-compare-row').evaluateAll((list) => list.map((row) => row.dataset.metric));
+  expect(figures).toEqual([
+    'net',
+    'netPercent',
+    'profitFactor',
+    'expectedPayoff',
+    'maxDrawdown',
+    'maxDrawdownPercent',
+    'maxRunUp',
+    'roundTrips',
+    'winRate',
+  ]);
+
+  // The log, then warnings only: every line left is a warning, and as many as the full log holds.
+  await result.getByRole('button', { name: 'Log' }).click();
+  const lines = result.getByTestId('quant-log-line');
+  const levels = await lines.evaluateAll((list) => list.map((line) => line.dataset.level));
+  expect(levels.filter((level) => level === 'info').length).toBeGreaterThan(0);
+  await result.getByRole('combobox', { name: /^Show/ }).selectOption('warn');
+  // The TEST tape has quiet minutes and the strategy sets risk limits, so the run always carries warnings.
+  const warnings = levels.filter((level) => level === 'warn').length;
+  expect(warnings).toBeGreaterThan(0);
+  await expect(lines).toHaveCount(warnings);
+  expect(new Set(await lines.evaluateAll((list) => list.map((line) => line.dataset.level)))).toEqual(new Set(['warn']));
 });

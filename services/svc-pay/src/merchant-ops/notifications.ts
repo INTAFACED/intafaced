@@ -138,12 +138,18 @@ export class NotificationService {
   /** Every kind, with the merchant's choice or the on-by-default. */
   async preferences(caller: MerchantCaller) {
     assertPermission(caller, 'notifications.read');
-    const rows = await this.sql<Array<{ kind: string; in_app: boolean; threshold: string | null; updated_at: Date }>>`
-      SELECT kind, in_app, threshold, updated_at FROM pay.merchant_notification_preferences WHERE merchant_id = ${caller.merchantId}`;
+    const rows = await this.sql<Array<{ kind: string; in_app: boolean; threshold: string | null; updated_by: string; updated_at: Date }>>`
+      SELECT kind, in_app, threshold, updated_by, updated_at FROM pay.merchant_notification_preferences WHERE merchant_id = ${caller.merchantId}`;
     const byKind = new Map(rows.map((r) => [r.kind, r]));
     return NOTIFICATION_KINDS.map((kind) => {
       const r = byKind.get(kind);
-      return { kind, inApp: r ? r.in_app : true, threshold: r?.threshold ?? null, updatedAt: r ? iso(r.updated_at) : null };
+      return {
+        kind,
+        inApp: r ? r.in_app : true,
+        threshold: r?.threshold ?? null,
+        updatedBy: r ? r.updated_by : null,
+        updatedAt: r ? iso(r.updated_at) : null,
+      };
     });
   }
 
@@ -151,11 +157,50 @@ export class NotificationService {
     assertPermission(caller, 'notifications.manage');
     if (input.threshold != null && input.kind !== 'limit_threshold')
       throw new MerchantOpsError('pay.notification_threshold_unsupported', 'bad_request');
-    await this.sql`
-      INSERT INTO pay.merchant_notification_preferences (merchant_id, kind, in_app, threshold, updated_by)
-      VALUES (${caller.merchantId}, ${input.kind}, ${input.inApp}, ${input.threshold ?? null}, ${caller.userId})
-      ON CONFLICT (merchant_id, kind) DO UPDATE
-        SET in_app = EXCLUDED.in_app, threshold = EXCLUDED.threshold, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+    const threshold = input.threshold ?? null;
+    // The current choice and its history row commit together, so the history never misses a change.
+    await this.sql.begin(async (tx) => {
+      await tx`
+        INSERT INTO pay.merchant_notification_preferences (merchant_id, kind, in_app, threshold, updated_by)
+        VALUES (${caller.merchantId}, ${input.kind}, ${input.inApp}, ${threshold}, ${caller.userId})
+        ON CONFLICT (merchant_id, kind) DO UPDATE
+          SET in_app = EXCLUDED.in_app, threshold = EXCLUDED.threshold, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+      await tx`
+        INSERT INTO pay.merchant_notification_preference_events (merchant_id, kind, in_app, threshold, actor_id)
+        VALUES (${caller.merchantId}, ${input.kind}, ${input.inApp}, ${threshold}, ${caller.userId})`;
+    });
     return (await this.preferences(caller)).find((p) => p.kind === input.kind)!;
+  }
+
+  /** Every preference change, newest first: what was set, by whom and when. Changes before migration 0130 are not recorded. */
+  async preferenceHistory(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string }) {
+    assertPermission(caller, 'notifications.read');
+    const limit = requireLimit(input.limit);
+    const after = decodeCursor(input.cursor);
+    // A key past bigint would fail inside Postgres; refuse it here by name like any other forged cursor.
+    if (after && !(/^[0-9]{1,19}$/.test(after.key) && BigInt(after.key) <= 9223372036854775807n))
+      throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
+    const sql = this.sql;
+    type Row = { seq_text: string; kind: string; in_app: boolean; threshold: string | null; actor_id: string; created_at: Date };
+    const rows = await sql<Row[]>`
+      SELECT seq::text AS seq_text, kind, in_app, threshold, actor_id, created_at
+        FROM pay.merchant_notification_preference_events
+       WHERE merchant_id = ${caller.merchantId}
+         ${after ? sql`AND seq < ${after.key}::bigint` : sql``}
+       ORDER BY seq DESC
+       LIMIT ${limit + 1}`;
+    return toPage(
+      rows,
+      limit,
+      (r) => ({
+        seq: r.seq_text,
+        kind: r.kind as NotificationKind,
+        inApp: r.in_app,
+        threshold: r.threshold,
+        actorId: r.actor_id,
+        createdAt: iso(r.created_at),
+      }),
+      (r) => encodeCursor('1970-01-01T00:00:00.000000Z', r.seq_text),
+    );
   }
 }

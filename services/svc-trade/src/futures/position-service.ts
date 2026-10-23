@@ -54,6 +54,7 @@ import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForEntry,
@@ -77,6 +78,7 @@ import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
 import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
@@ -323,6 +325,8 @@ export interface PositionServiceDeps {
     enabled: boolean;
     priceBand: Amount | null;
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
+    /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
+    feeRates?: ((userId: string) => Promise<FeeRates>) | null;
   };
 }
 
@@ -378,8 +382,15 @@ interface PresentExtras {
   markPrice?: string | null;
   markReason?: 'mark_missing' | 'mark_unusable' | 'mark_not_read' | null;
   realizedPnl?: string | null;
+  /** A closed matched position: the summed quantity of its applied reduce fills. */
+  closedSize?: string | null;
+  /** The fees the position's fills through the book paid; null when it has none. Omitted when not read. */
+  fees?: string | null;
   maintenanceMargin?: string | null;
   maintenanceReason?: string | null;
+  /** The ladder's liquidation price at today's depth (`liquidation-price.ts`); shown only, never stored. */
+  liquidationPrice?: string | null;
+  liquidationReason?: string | null;
   replayed?: boolean;
 }
 
@@ -438,6 +449,7 @@ export class PositionService {
       },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
+      feeRates: matchedOrders?.feeRates ?? null,
     });
   }
 
@@ -446,6 +458,17 @@ export class PositionService {
       throw new FuturesError('listing leverage cap is unset — refusing to invent a production leverage limit', LEVERAGE_CAP_UNSET, 503);
     }
     return this.maxLeverage;
+  }
+
+  /** The plane refusal an opening action would meet now, or null. The gated list shows it without throwing. */
+  futuresExposureRefusal(): { code: string; message: string } | null {
+    try {
+      this.refuseIfFuturesExposureOff();
+      return null;
+    } catch (err) {
+      if (err instanceof FuturesError) return { code: err.code, message: err.message };
+      throw err;
+    }
   }
 
   /**
@@ -998,7 +1021,8 @@ export class PositionService {
             AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
   }
 
   /**
@@ -1055,7 +1079,68 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
+  }
+
+  /**
+   * What a position's fills through the book say about it (migrations 0096 and 0099).
+   *
+   * FEES. Every applied fill on the position, opening or reducing, paid its fee into house fees; the position reports
+   * their sum. A position with no fill through the book (an older at-mark row) reports none, with the reason.
+   *
+   * A CLOSED POSITION realised its result fill by fill: the sum of its applied reduce fills, each the amount that was
+   * paid, owed or booked. The row's accepted mark is only the last reduce's price, so it would report the last fill
+   * alone. The sums are used only when the reduce fills close exactly what the opening fills opened. A position whose
+   * fills do not cover its whole history reports its result as unknown, since neither the sum nor the row's last figure
+   * is the whole of it: one opened through the book but also shrunk some other way (auto-deleveraging, or an at-mark
+   * close while the book was off), and one with reduce fills but no opening fill (opened at the mark before the book).
+   * A position with no fill through the book keeps the row's own figures. Liquidated rows keep theirs: a liquidation
+   * hands part to ADL.
+   */
+  private async matchedFigures(rows: readonly PositionRow[]): Promise<Map<string, PresentExtras>> {
+    const ids = rows.map((row) => row.id);
+    if (ids.length === 0) return new Map();
+    const sums = await this.sql<
+      { position_id: string; realized: string | null; closed: string | null; opened: string | null; fees: string }[]
+    >`
+      SELECT position_id::text AS position_id,
+             (CASE WHEN count(*) FILTER (WHERE kind = 'reduce') = count(realized_pnl) FILTER (WHERE kind = 'reduce')
+                   THEN sum(realized_pnl) FILTER (WHERE kind = 'reduce') END)::text AS realized,
+             (sum(qty) FILTER (WHERE kind = 'reduce'))::text AS closed,
+             (sum(qty) FILTER (WHERE kind = 'open'))::text AS opened,
+             sum(fee)::text AS fees
+      FROM trade.futures_order_fills
+      WHERE state = 'applied' AND position_id IN ${this.sql(ids)}
+      GROUP BY position_id
+    `;
+    const byId = new Map(sums.map((row) => [row.position_id, row]));
+    const out = new Map<string, PresentExtras>();
+    for (const row of rows) {
+      const sum = byId.get(row.id);
+      if (!sum) {
+        out.set(row.id, { fees: null });
+        continue;
+      }
+      const extras: { fees: string; realizedPnl?: string | null; closedSize?: string } = { fees: formatAmount(parseAmount(sum.fees)) };
+      // A fill with no recorded result leaves the sum unknown, never zero (the table refuses one, migration 0096).
+      if (row.status === 'closed' && sum.closed != null) {
+        if (sum.opened != null && parseAmount(sum.closed) === parseAmount(sum.opened)) {
+          extras.realizedPnl = sum.realized == null ? null : formatAmount(parseAmount(sum.realized));
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        } else {
+          // Its fills do not cover its whole history: opened at the mark before orders went through the book (no
+          // opening fill, and it may have been partly closed at the mark too), or shrunk by auto-deleveraging, which
+          // leaves no fill row. The reduce fills are part of its result and so is what happened outside them, and the
+          // row's own figure is only its last remainder. Unknown, never partial. The size closed through the book is
+          // what its fills record.
+          extras.realizedPnl = null;
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        }
+      }
+      out.set(row.id, extras);
+    }
+    return out;
   }
 
   /**
@@ -1075,7 +1160,8 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    return this.presentListed(row);
+    const figures = await this.matchedFigures([row]);
+    return this.presentListed(row, figures.get(row.id));
   }
 
   /**
@@ -2816,18 +2902,26 @@ export class PositionService {
     }
     let maintenanceMargin = extras?.maintenanceMargin;
     let maintenanceReason = extras?.maintenanceReason ?? null;
+    let liquidationPrice = extras?.liquidationPrice;
+    let liquidationReason = extras?.liquidationReason ?? null;
     // A settled row has no maintenance requirement. Do not read depth for it.
     if (row.status === 'closed' || row.status === 'liquidated') {
       maintenanceMargin = null;
       maintenanceReason = 'position_closed';
+      liquidationPrice = null;
+      liquidationReason = 'position_closed';
     } else if (maintenanceMargin === undefined) {
       if (markPrice == null) {
         maintenanceMargin = null;
         maintenanceReason = markReason;
+        liquidationPrice = null;
+        liquidationReason = markReason;
       } else {
         const maint = await this.maintenanceAt(row, parseAmount(markPrice));
         maintenanceMargin = maint.amount;
         maintenanceReason = maint.reason;
+        liquidationPrice = maint.liquidationPrice;
+        liquidationReason = maint.liquidationReason;
       }
     }
     return presentPosition(row, {
@@ -2836,22 +2930,43 @@ export class PositionService {
       markReason,
       maintenanceMargin,
       maintenanceReason,
+      ...(liquidationPrice === undefined ? {} : { liquidationPrice, liquidationReason }),
     });
   }
 
-  /** Same `planLadderRung` the liquidation tick plans with. No copied ladder. */
-  private async maintenanceAt(row: PositionRow, markPrice: Amount): Promise<{ amount: string | null; reason: string | null }> {
+  /**
+   * Same `planLadderRung` the liquidation tick plans with. No copied ladder. The liquidation price is read from the
+   * same policy and depth (`liquidation-price.ts`), so the two figures describe one ladder.
+   */
+  private async maintenanceAt(
+    row: PositionRow,
+    markPrice: Amount,
+  ): Promise<{ amount: string | null; reason: string | null; liquidationPrice: string | null; liquidationReason: string | null }> {
+    const none = (reason: string) => ({ amount: null, reason, liquidationPrice: null, liquidationReason: reason });
     const ladder = this.deps.ladder;
-    if (!ladder?.policy) return { amount: null, reason: 'maintenance_policy_unset' };
+    if (!ladder?.policy) return none('maintenance_policy_unset');
     let depthNotional: Amount | null;
     try {
       depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
-      return { amount: null, reason: 'depth_unknown' };
+      if (err instanceof FuturesLadderError) return none(err.code);
+      return none('depth_unknown');
     }
-    if (depthNotional == null || depthNotional <= 0n) return { amount: null, reason: 'depth_unknown' };
+    if (depthNotional == null || depthNotional <= 0n) return none('depth_unknown');
     try {
+      const margin = parseAmount(row.margin_current ?? row.margin_initial);
+      const liq = liquidationPriceFor({
+        side: row.side,
+        size: parseAmount(row.size),
+        entryPrice: parseAmount(row.entry_price),
+        margin,
+        depthNotional,
+        policy: ladder.policy,
+      });
+      const liquidation =
+        liq.price === null
+          ? { liquidationPrice: null, liquidationReason: liq.reason }
+          : { liquidationPrice: formatAmount(liq.price), liquidationReason: null };
       const rung = planLadderRung({
         position: {
           positionId: row.id,
@@ -2866,10 +2981,10 @@ export class PositionService {
         depthNotional,
         policy: ladder.policy,
       });
-      if (rung.action === 'refuse') return { amount: null, reason: rung.reason };
-      return { amount: formatAmount(rung.maintenanceRequired), reason: null };
+      if (rung.action === 'refuse') return { amount: null, reason: rung.reason, ...liquidation };
+      return { amount: formatAmount(rung.maintenanceRequired), reason: null, ...liquidation };
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      if (err instanceof FuturesLadderError) return none(err.code);
       throw err;
     }
   }
@@ -2904,7 +3019,9 @@ function isoOf(value: Date | string | null | undefined): string | null {
 
 /** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
 export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
-  const size = parseAmount(row.size);
+  // A position closed by reduce fills through the book keeps the size of its last remainder on the row; what it closed
+  // in all is the sum of those fills, which is the size a closed position reports.
+  const size = extras?.closedSize != null ? parseAmount(extras.closedSize) : parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);
   // W4 R6: collateral = residual margin; initialMargin stays the open stake.
@@ -2915,7 +3032,8 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const SCALE = 10n ** 18n;
   const notional = (size * entry) / SCALE;
   const opened = row.opened_at instanceof Date ? row.opened_at : new Date(row.opened_at);
-  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null;
+  // A stored price wins; otherwise the ladder's price at today's depth, when the caller read one.
+  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : (extras?.liquidationPrice ?? null);
 
   const markPrice = extras?.markPrice === undefined ? null : extras.markPrice;
   let markReason = extras?.markReason ?? null;
@@ -2982,11 +3100,16 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const fieldReasons: Record<string, string> = {};
   if (markPrice == null && markReason) fieldReasons.markPrice = markReason;
   if (maintenanceMargin == null && maintenanceReason) fieldReasons.maintenanceMargin = maintenanceReason;
+  if (liq == null) {
+    const liquidationReason = settled ? 'position_closed' : (extras?.liquidationReason ?? maintenanceReason);
+    if (liquidationReason) fieldReasons.liquidationPrice = liquidationReason;
+  }
   if (unrealized == null && unrealizedReason) fieldReasons.unrealizedPnl = unrealizedReason;
   if (percentage == null && percentageReason) fieldReasons.percentage = percentageReason;
   if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;
   if (realizedPnl == null && realizedReason) fieldReasons.realizedPnl = realizedReason;
   if (closedAt == null && closedReason) fieldReasons.closedAt = closedReason;
+  if (extras?.fees === null) fieldReasons.fees = 'fees_not_recorded';
   if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
 
   return {
@@ -3016,6 +3139,7 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
     percentage,
     closedAt,
     updatedAt,
+    ...(extras?.fees !== undefined ? { fees: extras.fees } : {}),
     ...(extras?.replayed === true ? { replayed: true } : {}),
     fieldReasons,
   };

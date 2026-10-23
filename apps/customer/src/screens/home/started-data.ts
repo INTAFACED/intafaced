@@ -139,7 +139,11 @@ export function useGetStarted({ portfolio }: StartedInputs, enabled: boolean): S
  * remembered per person on this device; it is a view choice, not a step). Its reads run unless the person hid it: with
  * no stored tick, only they can tell that every step is still done.
  */
-export function useStartedTile(portfolio: Loadable<HomePortfolio>): { show: boolean; steps: Step[]; hide: () => void } {
+export function useStartedTile(
+  portfolio: Loadable<HomePortfolio>,
+  /** False while the person has the tile hidden in Customise Home: then nothing is read. */
+  allowed = true,
+): { show: boolean; steps: Step[]; hide: () => void } {
   const { userId } = useSession();
   const [dismissed, setDismissed] = useState(() => readDismissed(userId));
   useEffect(() => setDismissed(readDismissed(userId)), [userId]);
@@ -147,7 +151,7 @@ export function useStartedTile(portfolio: Loadable<HomePortfolio>): { show: bool
     writeDismissed(userId);
     setDismissed(true);
   }, [userId]);
-  const on = userId !== null && !dismissed;
+  const on = allowed && userId !== null && !dismissed;
   const steps = useGetStarted({ portfolio }, on);
   return { show: on && !progress(steps).complete, steps, hide };
 }

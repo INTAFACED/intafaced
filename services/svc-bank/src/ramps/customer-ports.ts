@@ -6,7 +6,8 @@
  * a checkout URL from a rail id.
  */
 
-export const ONRAMP_METHODS = ['card', 'bank_transfer', 'wallet_pay'] as const;
+/** `pay_by_bank` is a hosted bank-payment page, like card and wallet: the partner returns where to pay. */
+export const ONRAMP_METHODS = ['card', 'bank_transfer', 'pay_by_bank', 'wallet_pay'] as const;
 export type OnrampMethod = (typeof ONRAMP_METHODS)[number];
 
 export interface OnrampQuoteTerms {
@@ -15,6 +16,8 @@ export interface OnrampQuoteTerms {
   rate: string;
   payCurrency: string;
   expiresAt: Date;
+  /** How long the money takes to arrive, in the source's words. Absent: the source did not say, and none is made up. */
+  deliveryEstimate?: string | null;
 }
 
 export interface OnrampQuoteSource {
