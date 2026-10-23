@@ -8,6 +8,7 @@ import {
   assertLateSettlementsListLimit,
   assertOfferListLimit,
   assertTradeListLimit,
+  P2pError,
   type P2pService,
 } from './p2p-service.js';
 import {
@@ -957,10 +958,20 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
       },
     });
     const ctx = signed(principal({ userId: STRANGER, sub: STRANGER, scopes: ['p2p:read'] }));
-    await expect(createP2pRouter(p2p, stubInstruments()).createCaller(ctx).trades.get({ tradeId })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-      message: 'Trade not found',
-    });
+    const hidden = await createP2pRouter(p2p, stubInstruments()).createCaller(ctx).trades.get({ tradeId }).catch((err: unknown) => err);
+    const missing = await createP2pRouter(
+      stubP2p({
+        getTrade: async () => {
+          throw new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+        },
+      }),
+      stubInstruments(),
+    )
+      .createCaller(ctx)
+      .trades.get({ tradeId })
+      .catch((err: unknown) => err);
+    expect(hidden).toMatchObject({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
+    expect(missing).toMatchObject({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
     expect(reads).toBe(1);
   });
 
@@ -994,10 +1005,23 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
       getDispute: async () => dispute,
     });
     const ctx = signed(principal({ userId: STRANGER, sub: STRANGER, scopes: ['p2p:read'] }));
-    await expect(createP2pRouter(p2p, stubInstruments()).createCaller(ctx).disputes.get({ tradeId })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-      message: 'Dispute not found',
-    });
+    const hidden = await createP2pRouter(p2p, stubInstruments())
+      .createCaller(ctx)
+      .disputes.get({ tradeId })
+      .catch((err: unknown) => err);
+    const missing = await createP2pRouter(
+      stubP2p({
+        getTrade: async () => {
+          throw new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+        },
+      }),
+      stubInstruments(),
+    )
+      .createCaller(ctx)
+      .disputes.get({ tradeId })
+      .catch((err: unknown) => err);
+    expect(hidden).toMatchObject({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
+    expect(missing).toMatchObject({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
     expect(reads).toBe(1);
   });
 });

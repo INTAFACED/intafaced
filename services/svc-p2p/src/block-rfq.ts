@@ -391,6 +391,9 @@ export class BlockRfqService {
   async accept(principal: Principal, input: { quoteId: string; assertedPrice?: string }): Promise<BlockQuoteWire> {
     this.assertLive();
     const stored = await this.requireQuote(input.quoteId);
+    if (stored.makerId !== principal.userId && stored.takerId !== principal.userId) {
+      throw new BlockRfqError('Block/RFQ quote not found', 'p2p.rfq_not_found');
+    }
     if (stored.takerId !== principal.userId) {
       throw new BlockRfqError('Only the named taker may accept a block/RFQ', 'p2p.rfq_not_a_party');
     }
@@ -406,7 +409,7 @@ export class BlockRfqService {
   async expire(principal: Principal, input: { quoteId: string }): Promise<BlockQuoteWire> {
     const stored = await this.requireQuote(input.quoteId);
     if (stored.makerId !== principal.userId && stored.takerId !== principal.userId) {
-      throw new BlockRfqError('Only a party may expire a block/RFQ', 'p2p.rfq_not_a_party');
+      throw new BlockRfqError('Block/RFQ quote not found', 'p2p.rfq_not_found');
     }
     const expired = expireBlockQuote({ quote: stored, now: this.now() });
     if (expired !== stored) await this.store.save(expired);

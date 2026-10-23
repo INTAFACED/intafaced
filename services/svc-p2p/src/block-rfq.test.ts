@@ -229,8 +229,15 @@ describe('block/RFQ — quote / accept / expire', () => {
   it('stranger cannot accept; maker cannot accept their own quote', async () => {
     const svc = service();
     const quoted = await svc.quote(maker, quoteBody());
-    await expect(svc.accept(stranger, { quoteId: quoted.quoteId })).rejects.toMatchObject({ code: 'p2p.rfq_not_a_party' });
+    const missing = await svc.accept(stranger, { quoteId: 'missing-quote' }).catch((err: unknown) => err);
+    const foreign = await svc.accept(stranger, { quoteId: quoted.quoteId }).catch((err: unknown) => err);
+    expect(foreign).toMatchObject({ code: 'p2p.rfq_not_found', message: 'Block/RFQ quote not found' });
+    expect(missing).toMatchObject({ code: 'p2p.rfq_not_found', message: 'Block/RFQ quote not found' });
     await expect(svc.accept(maker, { quoteId: quoted.quoteId })).rejects.toMatchObject({ code: 'p2p.rfq_not_a_party' });
+    await expect(svc.expire(stranger, { quoteId: quoted.quoteId })).rejects.toMatchObject({
+      code: 'p2p.rfq_not_found',
+      message: 'Block/RFQ quote not found',
+    });
   });
 
   it('self-quote refuses', async () => {

@@ -689,7 +689,12 @@ describe('svc-p2p escrow', () => {
 
     it('lets nobody outside the trade cancel it', async () => {
       const trade = await escrowedTrade('100');
-      await expect(p2p.cancelTrade(trade.id, OTHER)).rejects.toMatchObject({ code: 'p2p.not_a_party' });
+      const missing = await p2p.cancelTrade(crypto.randomUUID(), OTHER).catch((err: unknown) => err);
+      const foreign = await p2p.cancelTrade(trade.id, OTHER).catch((err: unknown) => err);
+      expect(foreign).toMatchObject({ code: 'p2p.trade_not_found', message: `Trade ${trade.id} not found` });
+      expect(missing).toMatchObject({ code: 'p2p.trade_not_found' });
+      expect((foreign as P2pError).message).toBe(`Trade ${trade.id} not found`);
+      expect((missing as P2pError).code).toBe((foreign as P2pError).code);
       expect(await escrowOf(MAKER)).toBe('100');
     });
   });
@@ -844,7 +849,8 @@ describe('svc-p2p escrow', () => {
     it('lets only a party open a dispute', async () => {
       const trade = await escrowedTrade('100');
       await expect(p2p.openDispute({ tradeId: trade.id, openedBy: OTHER, reason: 'nosy' })).rejects.toMatchObject({
-        code: 'p2p.not_a_party',
+        code: 'p2p.trade_not_found',
+        message: `Trade ${trade.id} not found`,
       });
     });
 
@@ -1110,7 +1116,8 @@ describe('svc-p2p escrow', () => {
     it('lets only a party append', async () => {
       const trade = await disputedTrade();
       await expect(p2p.appendDisputeEvidence({ tradeId: trade.id, actorId: OTHER, evidence: ['x'] })).rejects.toMatchObject({
-        code: 'p2p.not_a_party',
+        code: 'p2p.trade_not_found',
+        message: `Trade ${trade.id} not found`,
       });
     });
 

@@ -210,6 +210,17 @@ export class P2pError extends Error {
   }
 }
 
+/**
+ * Absent and not-yours are this one error.
+ *
+ * The id is the one the caller already typed. A missing row and a trade the
+ * caller is not a party to must produce the same code and the same sentence,
+ * or a probe can tell them apart. A party still gets the specific refusal.
+ */
+export function unknownTrade(tradeId: string): P2pError {
+  return new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+}
+
 /** Owner-published offers.list page size. Blank / non-finite / <1 refuses. Never invent 50. */
 export function assertOfferListLimit(limit: number | undefined): number {
   if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit)) {
@@ -1359,7 +1370,7 @@ export class P2pService {
       async (tx) => {
         const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
         const row = rows[0];
-        if (!row) throw new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+        if (!row) throw unknownTrade(tradeId);
         if (row.status !== 'created') return toTrade(row);
 
         const now = await txNow(tx);
@@ -1414,6 +1425,7 @@ export class P2pService {
         this.sql,
         async (tx) => {
           const trade = await this.lockTrade(tx, tradeId);
+          if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(trade.id);
           if (trade.buyerId !== actorId) {
             throw new P2pError('Only the buyer can mark the fiat as sent', 'p2p.not_the_buyer');
           }
@@ -1443,6 +1455,7 @@ export class P2pService {
   async confirmFiatReceived(tradeId: string, actorId: string): Promise<TradeRecord> {
     return withMoneySpan('p2p.release', { operation: 'escrow.release', tradeId }, async () => {
       const trade = await this.getTrade(tradeId);
+      if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(trade.id);
       if (trade.sellerId !== actorId) {
         throw new P2pError('Only the seller can confirm the fiat was received', 'p2p.not_the_seller');
       }
@@ -1475,9 +1488,7 @@ export class P2pService {
   async cancelTrade(tradeId: string, actorId: string, reason = 'cancelled'): Promise<TradeRecord> {
     return withMoneySpan('p2p.cancel', { operation: 'escrow.refund', tradeId }, async () => {
       const current = await this.getTrade(tradeId);
-      if (current.sellerId !== actorId && current.buyerId !== actorId) {
-        throw new P2pError('Only a party to the trade can cancel it', 'p2p.not_a_party');
-      }
+      if (current.sellerId !== actorId && current.buyerId !== actorId) throw unknownTrade(current.id);
       if (current.status === 'fiat_sent' && current.sellerId !== actorId) {
         throw new P2pError('The buyer has declared the fiat sent — open a dispute rather than cancelling', 'p2p.not_the_seller');
       }
@@ -1560,7 +1571,7 @@ export class P2pService {
         const trade = await this.lockTrade(tx, input.tradeId);
 
         if (origin === 'party' && trade.sellerId !== input.openedBy && trade.buyerId !== input.openedBy) {
-          throw new P2pError('Only a party to the trade can open a dispute', 'p2p.not_a_party');
+          throw unknownTrade(trade.id);
         }
         assertTransition(trade.status, 'disputed');
 
@@ -1650,9 +1661,7 @@ export class P2pService {
         this.sql,
         async (tx) => {
           const trade = await this.lockTrade(tx, input.tradeId);
-          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) {
-            throw new P2pError('Only a party to the trade can add evidence to its dispute', 'p2p.not_a_party');
-          }
+          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(trade.id);
 
           const rows = await tx<DisputeRow[]>`
             SELECT * FROM p2p.p2p_disputes WHERE trade_id = ${input.tradeId} FOR UPDATE
@@ -2509,7 +2518,7 @@ export class P2pService {
   async getTrade(tradeId: string): Promise<TradeRecord> {
     const rows = await this.sql<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId}`;
     const row = rows[0];
-    if (!row) throw new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+    if (!row) throw unknownTrade(tradeId);
     return toTrade(row);
   }
 
@@ -2618,7 +2627,7 @@ export class P2pService {
   private async lockTrade(tx: Sql, tradeId: string): Promise<TradeRecord> {
     const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
     const row = rows[0];
-    if (!row) throw new P2pError(`Trade ${tradeId} not found`, 'p2p.trade_not_found');
+    if (!row) throw unknownTrade(tradeId);
     return toTrade(row);
   }
 

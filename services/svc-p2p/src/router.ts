@@ -15,6 +15,7 @@ import {
   MAX_EVIDENCE_PER_CALL,
   P2pError,
   PricingError,
+  unknownTrade,
   TradeStateError,
   evidenceVisibleTo,
   type DisputeRecord,
@@ -790,7 +791,7 @@ export function createP2pRouter(
             const trade = await p2p.getTrade(input.tradeId);
             // L2-7: any p2p:read holder could previously read any trade by id.
             if (trade.buyerId !== ctx.principal.userId && trade.sellerId !== ctx.principal.userId) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: 'Trade not found' });
+              throw unknownTrade(input.tradeId);
             }
             return toTradeOut(trade);
           }),
@@ -1377,7 +1378,7 @@ export function createP2pRouter(
             const isParty = trade.buyerId === ctx.principal.userId || trade.sellerId === ctx.principal.userId;
             const moderator = isModerator(ctx.principal, moderatorUserIds);
             if (!isParty && !moderator) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: 'Dispute not found' });
+              throw unknownTrade(input.tradeId);
             }
 
             // A moderator's read is STAMPED. That stamp is what makes "has a
