@@ -3,7 +3,7 @@ import type { OpsAlertHealth, OpsAlertState } from '@intafaced/contracts';
 import { opsAlertBusinessKey } from '@intafaced/contracts';
 import type { InstanceState, StepResult } from './evaluate.js';
 
-export type AlertEventName = 'coreOpsAlertRuleUpdated' | 'coreOpsAlertOpened' | 'coreOpsAlertResolved';
+export type AlertEventName = 'coreOpsAlertRuleUpdated' | 'coreOpsAlertOpened' | 'coreOpsAlertResolved' | 'coreOpsAlertPolicyUpdated';
 
 export interface OutboxRow {
   readonly id: number;

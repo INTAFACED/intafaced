@@ -6,9 +6,13 @@ import {
   OPS_ALERT_RULE_RETIRED,
   OPS_ALERT_RULE_VERSION_STALE,
   OPS_ALERT_SIGNAL_UNKNOWN,
+  OPS_ALERT_STORAGE_UNCONFIGURED,
   OPS_ALERT_THRESHOLD_UNSET,
+  OPS_SILENCE_NOT_FOUND,
   OpsError,
 } from '../codes.js';
+import { matchersHold, silenceActive } from './notify.js';
+import type { AlertNotifyStore, ContactSave, GroupInput, RouteSave, SendInput, SilenceSave } from './notify-store.js';
 
 export type RuleChange = 'created' | 'updated' | 'paused' | 'resumed' | 'retired' | 'restored';
 
@@ -262,5 +266,74 @@ export class AlertRules {
   }
   versions(id: string, limit: number) {
     return this.store.versions(id, limit);
+  }
+
+  /** Routing, silences and contact points share the alert desk. Absent means nothing is saved. */
+  notify(): AlertNotifyStore {
+    const gate = this.quality as (AlertQualityGate & Partial<AlertNotifyStore>) | undefined;
+    if (!gate || typeof gate.saveRoute !== 'function') {
+      throw new OpsError(OPS_ALERT_STORAGE_UNCONFIGURED, 'No durable storage is configured for alert routing. Nothing was saved.');
+    }
+    return gate as AlertNotifyStore;
+  }
+
+  saveRoute(input: Omit<RouteSave, 'actor' | 'reason' | 'at'>, who: Actor) {
+    return this.notify().saveRoute({ ...input, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  getRoute() {
+    return this.notify().getRoute();
+  }
+
+  resolve(labels: Readonly<Record<string, string>>) {
+    return this.notify().resolve(labels);
+  }
+
+  createSilence(input: Omit<SilenceSave, 'actor' | 'reason' | 'at'>, who: Actor) {
+    return this.notify().createSilence({ ...input, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  async getSilence(id: string) {
+    const found = await this.notify().getSilence(id);
+    if (!found) throw new OpsError(OPS_SILENCE_NOT_FOUND, 'No such silence.');
+    return found;
+  }
+
+  async previewSilence(
+    id: string,
+    firing: readonly { ruleId: string; name: string; instance: string; labels: Readonly<Record<string, string>>; state: string }[],
+  ) {
+    const silence = await this.getSilence(id);
+    const active = silenceActive(silence, this.now());
+    const alerts = active ? firing.filter((row) => matchersHold(silence.matchers, row.labels)) : [];
+    return { endsAt: silence.endsAt, active, alerts };
+  }
+
+  saveContact(input: Omit<ContactSave, 'actor' | 'reason' | 'at'>, who: Actor) {
+    return this.notify().saveContact({ ...input, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  getContact(id: string) {
+    return this.notify().getContact(id);
+  }
+
+  listContacts(limit: number) {
+    return this.notify().listContacts(limit);
+  }
+
+  retireContact(id: string, who: Actor) {
+    return this.notify().retireContact({ id, key: who.key, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  testChannel(input: Omit<SendInput, 'actor' | 'reason' | 'at'>, who: Actor) {
+    return this.notify().testChannel({ ...input, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  groupingSend(input: Omit<GroupInput, 'actor' | 'reason' | 'at'>, who: Actor) {
+    return this.notify().groupingSend({ ...input, actor: who.id, reason: who.reason, at: this.now() });
+  }
+
+  attempts(contactId: string, limit: number) {
+    return this.notify().attempts(contactId, limit);
   }
 }

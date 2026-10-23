@@ -986,6 +986,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       epoch: 0,
       resolvedAt: ts(),
     },
+    coreOpsAlertPolicyUpdated: { version: 1, actor: uid(), changedAt: ts() },
     coreOpsAlertGroupOpened: { groupId: 'g1', chainId: null, labels: ['team:ops'], openedAt: ts() },
     coreOpsAlertGroupUpdated: { groupId: 'g1', action: 'acknowledged', sequence: 1, actor: uid(), changedAt: ts() },
     coreOpsAlertGroupResolved: { groupId: 'g1', sequence: 1, actor: 'auto', resolvedAt: ts() },
