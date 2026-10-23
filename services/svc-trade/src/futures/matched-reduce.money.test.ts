@@ -1020,6 +1020,27 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       await assertBooksAgree();
     });
 
+    it('a taker fill past what the reserve has left pays the rest of the reserve and waives the difference', async () => {
+      await publishFees();
+      // Bob rests a sell at mark 100 (reserve 2 × 105 × 0.2% = 0.42), and Alice rests a buy at 110 once the mark is 110.
+      const sell = await place(BOB, 'sell', A('2'), { limitPrice: A('100') });
+      mark = A('110');
+      const buy = await place(ALICE, 'buy', A('2'), { limitPrice: A('110') });
+      // Bob takes both fills (taker 0.2%): 1 × 110 × 0.2% = 0.22 each. The first leaves 0.2 of the reserve; the second
+      // pays that 0.2 and records 0.02 waived. Nothing comes from his free balance.
+      const before = await bal(userAvailable(BOB, USDT));
+      await settle(buy, sell, A('110'), A('1'));
+      await settle(buy, sell, A('110'), A('1'));
+      const bobFills = await fillFees(sell.orderId);
+      expect(bobFills.map((f) => [f.fee_role, parseAmount(f.fee), parseAmount(f.fee_waived)])).toEqual([
+        ['taker', A('0.22'), 0n],
+        ['taker', A('0.2'), A('0.02')],
+      ]);
+      expect(await bal(futuresOrderMarginAccount(BOB, USDT, sell.orderId))).toBe(0n);
+      expect(await bal(userAvailable(BOB, USDT))).toBe(before);
+      await assertBooksAgree();
+    });
+
     it('a reducing fill pays its fee from the margin share it returns: the margin left and what leaves the pot are unchanged', async () => {
       await publishFees();
       const { alice, bob } = await aliceLongBobShort();
@@ -1194,7 +1215,7 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect(closed!.fieldReasons).toMatchObject({ realizedPnl: 'realized_pnl_not_recorded' });
     });
 
-    it('a closed position whose fills do not cover its whole history reports its own row, not a partial sum', async () => {
+    it('a closed position with no opening fill (opened at the mark) reports its result as unknown, not its last remainder', async () => {
       const { alice } = await aliceLongBobShort();
       mark = A('102');
       const aR = await reduce(ALICE, 'sell', A('2'), { limitPrice: A('102') });
@@ -1210,14 +1231,11 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
         maxLeverage: A('10'),
         now: () => NOW,
       });
-      // Not the summed 7 over 2: the row's own figures, its last remainder at the mark the row accepted.
-      const [row] = await sql<{ accepted_mark: string; entry_price: string }[]>`
-        SELECT accepted_mark, entry_price FROM trade.positions WHERE id = ${alice.id}
-      `;
-      const own = unrealizedPnl('long', A('1.5'), parseAmount(row!.entry_price), parseAmount(row!.accepted_mark));
+      // Neither the summed 7 (it may have been partly closed at the mark first) nor the row's last remainder of 1.5.
       const [closed] = await positions.listClosed(ALICE, { limit: 10 });
-      expect(closed).toMatchObject({ contracts: '1.5', realizedPnl: formatAmount(own) });
-      expect(closed!.realizedPnl).not.toBe('7');
+      expect(closed!.realizedPnl).toBeNull();
+      expect(closed!.fieldReasons).toMatchObject({ realizedPnl: 'realized_pnl_not_recorded' });
+      expect(closed!.contracts).toBe('2');
     });
   });
 

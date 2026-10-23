@@ -1123,14 +1123,18 @@ export class PositionService {
       }
       const extras: { fees: string; realizedPnl?: string | null; closedSize?: string } = { fees: formatAmount(parseAmount(sum.fees)) };
       // A fill with no recorded result leaves the sum unknown, never zero (the table refuses one, migration 0096).
-      if (row.status === 'closed' && sum.closed != null && sum.opened != null) {
-        if (parseAmount(sum.closed) === parseAmount(sum.opened)) {
+      if (row.status === 'closed' && sum.closed != null) {
+        if (sum.opened != null && parseAmount(sum.closed) === parseAmount(sum.opened)) {
           extras.realizedPnl = sum.realized == null ? null : formatAmount(parseAmount(sum.realized));
           extras.closedSize = formatAmount(parseAmount(sum.closed));
         } else {
-          // Opened through the book but not closed only through it (auto-deleveraging shrinks a position with no fill
-          // row): the reduce fills are part of its result, and so is the row's last remainder. Unknown, not partial.
+          // Its fills do not cover its whole history: opened at the mark before orders went through the book (no
+          // opening fill, and it may have been partly closed at the mark too), or shrunk by auto-deleveraging, which
+          // leaves no fill row. The reduce fills are part of its result and so is what happened outside them, and the
+          // row's own figure is only its last remainder. Unknown, never partial. The size closed through the book is
+          // what its fills record.
           extras.realizedPnl = null;
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
         }
       }
       out.set(row.id, extras);
