@@ -233,6 +233,7 @@ describe('svc-blueprint mount — a real session, on the real router', () => {
       matchRuns: [],
       mentorMatches: [],
       mentoringOthers: [],
+      shares: [],
     };
     // Counted so `mentors` can be shown NOT to route through the export — see
     // the assertion after the calls.
@@ -287,8 +288,26 @@ describe('svc-blueprint mount — a real session, on the real router', () => {
         erase: async () => ({
           userId: USER,
           erasedAt: new Date().toISOString(),
-          removed: { blueprints: 0, crewMemberships: 0, matchRuns: 0, mentorMatches: 0, emptiedCrews: 0 },
+          removed: { blueprints: 0, crewMemberships: 0, matchRuns: 0, mentorMatches: 0, emptiedCrews: 0, shares: 0, cardOpens: 0 },
         }),
+        createShare: async () => ({
+          id: '44444444-4444-4444-8444-444444444444',
+          size: 'portrait' as const,
+          createdAt: new Date().toISOString(),
+          revokedAt: null,
+          state: 'active' as const,
+          openCount: 0,
+        }),
+        listShares: async () => [],
+        revokeShare: async () => ({
+          id: '44444444-4444-4444-8444-444444444444',
+          size: 'portrait' as const,
+          createdAt: new Date().toISOString(),
+          revokedAt: new Date().toISOString(),
+          state: 'revoked' as const,
+          openCount: 0,
+        }),
+        shareOpeners: async () => [],
       }),
     ).createCaller(await loggedIn());
 
@@ -301,6 +320,12 @@ describe('svc-blueprint mount — a real session, on the real router', () => {
     await expect(caller.mentors()).resolves.toEqual([]);
     await expect(caller.export()).resolves.toBeDefined();
     await expect(caller.erase()).resolves.toMatchObject({ userId: USER });
+    await expect(caller.shares.create({ size: 'portrait' })).resolves.toMatchObject({ state: 'active' });
+    await expect(caller.shares.list()).resolves.toEqual([]);
+    await expect(caller.shares.openers({ shareId: '44444444-4444-4444-8444-444444444444' })).resolves.toEqual([]);
+    await expect(caller.shares.revoke({ shareId: '44444444-4444-4444-8444-444444444444' })).resolves.toMatchObject({
+      state: 'revoked',
+    });
 
     // Exactly one — the `export()` call above. A shortlist must not drag six
     // table reads and an external rasterizer behind it.

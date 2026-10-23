@@ -1075,6 +1075,11 @@ services:
       BLUEPRINT_CREW_CAPACITY: ${BLUEPRINT_CREW_CAPACITY:-}
       BLUEPRINT_MENTOR_SHORTLIST_SIZE: ${BLUEPRINT_MENTOR_SHORTLIST_SIZE:-}
       BLUEPRINT_SEASON: ${BLUEPRINT_SEASON:-}
+      # Active shares per account and opener-list page size (MC-blueprint-01).
+      # Empty pass-through. Blank stays refuse-closed. 0 is a deliberate cap
+      # or an empty page. Never invent a count.
+      BLUEPRINT_SHARES_PER_OWNER: ${BLUEPRINT_SHARES_PER_OWNER:-}
+      BLUEPRINT_OPENS_LIST_LIMIT: ${BLUEPRINT_OPENS_LIST_LIMIT:-}
       # The card rasterizer. DELIBERATELY has no default: unset means this
       # deployment has no renderer, and the service says so with a typed code
       # while still serving the full vector card. A default pointing at a host

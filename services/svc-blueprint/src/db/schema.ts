@@ -1,4 +1,5 @@
-import { bigint, boolean, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, boolean, check, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -132,4 +133,42 @@ export const mentorMatches = blueprint.table(
   ],
 );
 
-export const schema = { blueprints, crews, crewMembers, matchRuns, mentorMatches };
+/** One share of one card size (MC-blueprint-01). The id is the shared-card route parameter. */
+export const cardShares = blueprint.table(
+  'card_shares',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerUserId: uuid('owner_user_id').notNull(),
+    size: text('size').notNull(),
+    createdAt: createdAt(),
+    revokedAt: tstz('revoked_at'),
+  },
+  (t) => [
+    check('card_shares_size_chk', sql`${t.size} IN ('portrait', 'landscape')`),
+    uniqueIndex('card_shares_owner_size_active_idx')
+      .on(t.ownerUserId, t.size)
+      .where(sql`${t.revokedAt} IS NULL`),
+    index('card_shares_owner_idx').on(t.ownerUserId, t.createdAt),
+  ],
+);
+
+/** One row per share and viewer. The viewer id is stored for counting and erase, and is not returned. */
+export const cardOpens = blueprint.table(
+  'card_opens',
+  {
+    shareId: uuid('share_id')
+      .notNull()
+      .references(() => cardShares.id, { onDelete: 'cascade' }),
+    viewerUserId: uuid('viewer_user_id').notNull(),
+    firstOpened: tstz('first_opened').notNull().defaultNow(),
+    lastOpened: tstz('last_opened').notNull().defaultNow(),
+    openCount: integer('open_count').notNull().default(1),
+  },
+  (t) => [
+    uniqueIndex('card_opens_pk').on(t.shareId, t.viewerUserId),
+    check('card_opens_count_chk', sql`${t.openCount} >= 1`),
+    index('card_opens_viewer_idx').on(t.viewerUserId),
+  ],
+);
+
+export const schema = { blueprints, crews, crewMembers, matchRuns, mentorMatches, cardShares, cardOpens };
