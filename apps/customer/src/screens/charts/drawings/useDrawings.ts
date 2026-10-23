@@ -476,10 +476,15 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       window.addEventListener('pointerup', onUp);
     };
 
-    // A pan of the chart ends in a click too: a gesture that travelled is never a placement.
+    // A click is taken on release, not from the chart's click event: the chart drops a click that follows another within
+    // a moment, and a placed point must not depend on that. A pan or a drag is never a click.
     const onAnyUp = (e: PointerEvent) => {
-      if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > PAN_SLOP_PX) suppressClickRef.current = true;
+      const pressed = downAt;
       downAt = null;
+      if (!pressed || e.button !== 0) return;
+      if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) > PAN_SLOP_PX) suppressClickRef.current = true;
+      const { x, y } = local(e);
+      handleClick(x, y);
     };
     element.addEventListener('pointerdown', onDown);
     window.addEventListener('pointerup', onAnyUp);
@@ -498,17 +503,12 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   useEffect(() => {
     const chart = host?.chart;
     if (!chart) return;
-    const onClick = (param: { point?: { x: number; y: number } }) => {
-      if (param.point) handleClick(param.point.x, param.point.y);
-    };
     const onMoveChart = (param: { point?: { x: number; y: number } }) => {
       cursorRef.current = param.point ? { x: param.point.x, y: param.point.y } : null;
       if (draftRef.current.length > 0) refreshPrimitive();
     };
-    chart.subscribeClick(onClick);
     chart.subscribeCrosshairMove(onMoveChart);
     return () => {
-      chart.unsubscribeClick(onClick);
       chart.unsubscribeCrosshairMove(onMoveChart);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
