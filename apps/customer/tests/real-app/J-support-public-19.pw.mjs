@@ -797,6 +797,19 @@ test(`${J} #9 an announcement with a kind and a category: off the list refused, 
     const shown = (await publishedNotices()).filter((n) => n.title === TITLE);
     expect(shown).toHaveLength(1);
     expect(shown[0]).toMatchObject({ kind: 'announcement', category: { id: 'j19-listings', name: 'TEST new listings' } });
+
+    // A signed-out visitor reads it on /notice, /announcement and its own page, filed under its category.
+    const visitor = await browser.newPage({ baseURL: ORIGIN });
+    try {
+      for (const path of ['/notice', '/announcement', `/notice/${shown[0].id}`]) {
+        await visitor.goto(path);
+        const entry = visitor.getByTestId(`notice-${shown[0].id}`);
+        await expect(entry).toContainText(TITLE);
+        await expect(entry.getByTestId('notice-category')).toHaveText('TEST new listings');
+      }
+    } finally {
+      await visitor.context().close();
+    }
   } finally {
     const now = await statusDefinition();
     if (JSON.stringify(now.noticeCategories ?? null) !== JSON.stringify(before))
