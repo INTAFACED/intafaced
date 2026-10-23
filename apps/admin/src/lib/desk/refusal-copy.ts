@@ -383,6 +383,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Updates go on a published incident, never on a draft or on another update. Nothing was saved.',
     next: 'Publish the incident first, then post the update.',
   },
+  'status.rate_limit_unset': {
+    title: 'The subscribe rate limit is blank',
+    body: 'svc-notify takes no subscriber, from /status or an import, until a founder sets how many requests an address may make an hour. Nothing was stored.',
+    next: 'Set the rate limit under Safeguards, then try again.',
+  },
+  'status.challenge_unset': {
+    title: 'The subscribe safeguards are not set',
+    body: 'The proof of work strength is blank, or this deployment has no link key, so svc-notify takes no subscriber. Nothing was stored.',
+    next: 'Set the proof of work strength under Safeguards. A missing link key is a deployment setting.',
+  },
+  'status.rate_limited': {
+    title: 'Too many requests for that address',
+    body: 'The address asked more often this hour than the rate limit allows. Nothing more was sent to it.',
+    next: 'Wait for the hour to pass.',
+  },
+  'status.import_invalid': {
+    title: 'That import is not complete',
+    body: 'An import names its source (lowercase letters, digits and dashes) and holds 1 to 500 addresses. Nothing was stored.',
+    next: 'Correct it and import again.',
+  },
+  'status.notice_unknown': {
+    title: 'That notice is not published',
+    body: 'Only a published notice has deliveries to send again. Nothing was sent.',
+    next: 'Read the desk again and pick a published notice.',
+  },
   'status.template_invalid': {
     title: 'That template is not complete',
     body: 'A template needs an id (lowercase letters, digits and dashes), a name, a title and a message. Nothing was saved.',
