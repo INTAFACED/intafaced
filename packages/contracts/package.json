@@ -101,6 +101,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./api-keys": {
+      "types": "./dist/api-keys.d.ts",
+      "default": "./dist/api-keys.js"
     }
   },
   "scripts": {

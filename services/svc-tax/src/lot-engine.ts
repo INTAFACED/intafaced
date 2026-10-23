@@ -1,4 +1,4 @@
-import type { Amount } from '@intafaced/ledger-client';
+import { mul, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_UNDERFLOW } from './codes.js';
 
 /**
@@ -63,6 +63,8 @@ export interface LotMatch {
   readonly costUsd: Amount | null;
   readonly proceedsUsd: Amount | null;
   readonly realizedUsd: Amount | null;
+  /** The cost of this part came from a price the customer entered. Absent otherwise. */
+  readonly customerEntered?: true;
 }
 
 export interface EngineSale {
@@ -93,6 +95,8 @@ export interface EngineLot {
   /** Basis of what is left; null when unknown. */
   readonly remainingCostUsd: Amount | null;
   readonly valuedAt: ValuedAt | null;
+  /** The arrival's cost came from a price the customer entered. Absent otherwise. */
+  readonly customerEntered?: true;
 }
 
 export interface EngineRun {
@@ -110,9 +114,10 @@ export function lotIdOf(acquireTxId: string, assetId: string): string {
 }
 
 interface OpenLot {
-  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd'>;
+  readonly lot: Omit<EngineLot, 'remaining' | 'remainingCostUsd' | 'customerEntered'>;
   remaining: Amount;
   remainingCost: Amount | null;
+  customerEntered: boolean;
 }
 
 /** total * take / qty, floored at the ledger's places; the whole when all is taken. */
@@ -134,7 +139,12 @@ function pick(open: readonly OpenLot[], method: EngineMethod): number | null {
   return best;
 }
 
-export function runLotEngine(movements: readonly EngineMovement[], method: EngineMethod): EngineRun {
+export function runLotEngine(
+  movements: readonly EngineMovement[],
+  method: EngineMethod,
+  /** Price per unit, in dollars, for a lot whose own cost is null. Keyed by the lot id this function assigns. */
+  overridePricePerUnit?: ReadonlyMap<string, Amount>,
+): EngineRun {
   const byAsset = new Map<string, EngineMovement[]>();
   for (const m of movements) {
     if (m.qty <= 0n) continue;
@@ -159,6 +169,9 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
         let id = lotIdOf(m.txId, m.assetId);
         for (let n = 2; usedIds.has(id); n++) id = `${lotIdOf(m.txId, m.assetId)}:${n}`;
         usedIds.add(id);
+        const price = m.costUsd === null ? overridePricePerUnit?.get(id) : undefined;
+        const entered = price !== undefined && price > 0n;
+        const costUsd = entered ? mul(price, m.qty) : m.costUsd;
         const entry: OpenLot = {
           lot: {
             id,
@@ -168,11 +181,12 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
             source: m.source,
             reason: m.reason,
             qty: m.qty,
-            costUsd: m.costUsd,
+            costUsd,
             valuedAt: m.valuedAt,
           },
           remaining: m.qty,
-          remainingCost: m.costUsd,
+          remainingCost: costUsd,
+          customerEntered: entered,
         };
         open.push(entry);
         all.push(entry);
@@ -181,7 +195,12 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
       sales.push(dispose(m, open, method, residuals));
     }
     for (const entry of all) {
-      lots.push({ ...entry.lot, remaining: entry.remaining, remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost });
+      lots.push({
+        ...entry.lot,
+        remaining: entry.remaining,
+        remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost,
+        ...(entry.customerEntered ? { customerEntered: true as const } : {}),
+      });
       if (entry.remaining > 0n && entry.remainingCost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     }
   }
@@ -208,6 +227,7 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
     }
     averagePool = { qty, cost };
   }
+  const poolEntered = averagePool !== null && averagePool.cost !== null && open.some((lot) => lot.customerEntered);
 
   while (remaining > 0n && open.length > 0) {
     let idx = pick(open, method);
@@ -234,12 +254,14 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
       unknown = true;
       residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     }
+    const fromCustomer = cost !== null && (lot.customerEntered || poolEntered);
     matches.push({
       lotId: lot.lot.id,
       qty: take,
       costUsd: cost,
       proceedsUsd: proceeds,
       realizedUsd: cost === null || proceeds === null ? null : proceeds - cost,
+      ...(fromCustomer ? { customerEntered: true as const } : {}),
     });
     remaining -= take;
     if (proceedsLeft !== null && proceeds !== null) proceedsLeft -= proceeds;
@@ -260,6 +282,7 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
       open.forEach((lot, i) => {
         const part = i === open.length - 1 ? left : share(pool.cost, pool.qty, lot.remaining);
         lot.remainingCost = part;
+        if (poolEntered) lot.customerEntered = true;
         left -= part;
       });
     }

@@ -141,6 +141,7 @@ const SCHEMAS = [
   'market',
   'blueprint',
   'quant',
+  'tax',
   'mining_pool',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
@@ -887,6 +888,10 @@ function serviceDefs(secrets) {
         IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
         IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
         IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+        // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+        // J-developer-03 can show the fourth refused.
+        IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
         // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
         // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
         // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
@@ -1046,6 +1051,9 @@ function serviceDefs(secrets) {
         BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
+        // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
+        BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
+        BANK_WALLET_PROOF_VALID_DAYS: '180',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
@@ -1212,8 +1220,16 @@ function serviceDefs(secrets) {
       // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
       // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
       // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
+      // DATABASE_URL is this stack's svc_tax role. tax is in SCHEMAS, so db:migrate runs before the process listens.
+      // DATABASE_POOL_MAX is the stack's common setting, not a size invented here.
       name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger'), TRADE_URL: urlOf('trade'), TAX_DEPOSIT_BASIS: 'customer' }),
+      env: () => ({
+        ...c('svc-tax', PORTS.tax),
+        LEDGER_URL: urlOf('ledger'),
+        TRADE_URL: urlOf('trade'),
+        TAX_DEPOSIT_BASIS: 'customer',
+        DATABASE_URL: dbUrl('svc_tax', secrets),
+      }),
     },
     {
       // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and
