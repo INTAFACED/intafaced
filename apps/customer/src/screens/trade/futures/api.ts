@@ -348,6 +348,41 @@ export interface OpenInput {
   clientOpenId: string;
 }
 
+/**
+ * One-tap reverse (J-derivatives-03 #9): one request closes the position through the book and opens the other side at
+ * the same size and leverage. `closing` and `opening` are still working (the same request id sent again carries it on);
+ * `closed_only` means the close stands and the open was refused or not sent, with `refusalCode`; never a silent half.
+ */
+export const reverseSchema = z.object({
+  clientRequestId: z.string(),
+  positionId: z.string(),
+  symbol: z.string(),
+  from: z.enum(['long', 'short']),
+  to: z.enum(['long', 'short']),
+  size: decimalSchema,
+  leverage: decimalSchema,
+  status: z.enum(['closing', 'opening', 'done', 'opened_part', 'closed_only', 'close_incomplete', 'refused']),
+  closeClientOrderId: z.string(),
+  openClientOrderId: z.string(),
+  closeOrderId: z.string().nullable(),
+  openOrderId: z.string().nullable(),
+  closedQuantity: decimalSchema.nullable(),
+  openedQuantity: decimalSchema.nullable(),
+  newPositionId: z.string().nullable(),
+  refusalCode: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Reverse = z.infer<typeof reverseSchema>;
+
+export interface ReverseRequest {
+  positionId: string;
+  symbol: string;
+  clientRequestId: string;
+  /** The margin tier the trader accepted for the open in the review. */
+  confirmTier?: number;
+}
+
 /** A reduce-only order from the ticket. A sell lowers a long and a buy lowers a short; with none open it is refused. */
 export interface ReduceInput {
   symbol: string;
@@ -451,6 +486,12 @@ export function createFuturesApi(api: ApiClient) {
     },
     conditionalOrder: (id: string, signal?: AbortSignal) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { signal }),
+    /** Reverse a position: the same request id carries a working reverse on, or answers how it ended. */
+    reverse: (input: ReverseRequest) =>
+      api.rest(`/positions/${encodeURIComponent(input.positionId)}/reverse`, reverseSchema, {
+        method: 'POST',
+        body: { clientRequestId: input.clientRequestId, ...(input.confirmTier !== undefined ? { confirmTier: input.confirmTier } : {}) },
+      }),
     /** Arm one stop. The same client id replays the order already armed under it. */
     createConditional: (input: StopInput) =>
       api.rest('/futures/conditional-orders', conditionalOrderSchema, {

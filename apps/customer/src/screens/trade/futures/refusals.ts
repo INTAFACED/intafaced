@@ -364,6 +364,31 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'The margin hold was not confirmed',
     body: 'The book could not confirm the margin held for this order, so it was not placed. Nothing was taken. Try again in a moment.',
   },
+  'trade.reverse_open_not_sent': {
+    title: 'The other side was not opened',
+    body: 'The close went through, but the opening order was not sent within two minutes, so it was not placed. Open a position from the ticket if you still want one.',
+    retryable: false,
+  },
+  'trade.reverse_close_not_sent': {
+    title: 'The close was not sent',
+    body: 'The closing order was not sent within two minutes, so nothing was placed and your position is unchanged. Reverse again to try once more.',
+    retryable: false,
+  },
+  'trade.reverse_position_closed_elsewhere': {
+    title: 'Closed by another order',
+    body: 'Another order, such as a stop, a take profit or a liquidation, closed the position before the reverse did, so nothing was opened.',
+    retryable: false,
+  },
+  'trade.reverse_already_requested': {
+    title: 'Already being reversed',
+    body: 'An earlier request is still reversing this position. Wait for it to finish, then check your positions.',
+    retryable: false,
+  },
+  'trade.reverse_leverage_unknown': {
+    title: 'Leverage not recorded',
+    body: 'This position has no recorded leverage, so the other side cannot be opened at the same leverage.',
+    retryable: false,
+  },
   'trade.futures_reduce_only_no_position': {
     title: 'No open position to reduce',
     body: 'A reduce-only order needs an open position on the other side. Refresh your positions.',

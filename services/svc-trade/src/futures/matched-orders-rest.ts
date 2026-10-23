@@ -15,6 +15,7 @@ import { presentFuturesErrorWire } from './futures-error-wire.js';
 import { MatchedOrderError, type MatchedOrderView, type PlaceMatchedOrderInput } from './matched-orders.js';
 import { FuturesError } from './position-service.js';
 import type { EntryProtectionInput, EntryProtectionView } from './conditional-orders/service.js';
+import type { ReverseInput, ReverseView } from './reverse.js';
 import { CONFIRM_TIER_INVALID, readConfirmTier } from './risk-tier-confirm.js';
 
 /** The largest page one read may ask for; a blank or larger limit refuses rather than picking one. */
@@ -51,6 +52,11 @@ export interface MatchedOrdersRestDeps {
   readonly entryProtection?: {
     record(userId: string, input: EntryProtectionInput): Promise<EntryProtectionView | null>;
   };
+  /**
+   * One-tap reverse (`reverse.ts`): one request closes the position through the book and opens the other side at the
+   * same size. Absent answers 503 like `place`.
+   */
+  readonly reverse?: (principal: Principal, input: ReverseInput, context: { readonly region?: string | null }) => Promise<ReverseView>;
 }
 
 export interface MatchedOrdersRestGates {
@@ -220,6 +226,32 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
         );
       }
       return reply.code(200).send(await deps.placeSplit(principal, read.input, { region: gates.regionOf(req) ?? null }));
+    } catch (err) {
+      const sent = sendFuturesFailure(reply, err, gates);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // The same request id sent again carries the reverse on, or answers how it ended; it never places a leg twice.
+  app.post<{ Params: { id: string } }>('/api/v1/positions/:id/reverse', async (req, reply) => {
+    const principal = gates.requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!gates.requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.reverse) return reply.code(503).send(UNMOUNTED);
+    try {
+      requireScope(principal, 'trade:write');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const clientRequestId = typeof body.clientRequestId === 'string' ? body.clientRequestId.trim() : '';
+      if (!clientRequestId) return bad(reply, 'trade.client_request_id_required', 'clientRequestId is required');
+      const tier = readConfirmTier(body.confirmTier);
+      if (!tier.ok) return bad(reply, CONFIRM_TIER_INVALID, 'confirmTier is the margin tier you accept, a whole number from 1');
+      const view = await deps.reverse(
+        principal,
+        { positionId: req.params.id, clientRequestId, ...(tier.tier !== undefined ? { confirmTier: tier.tier } : {}) },
+        { region: gates.regionOf(req) ?? null },
+      );
+      return reply.code(200).send(view);
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;

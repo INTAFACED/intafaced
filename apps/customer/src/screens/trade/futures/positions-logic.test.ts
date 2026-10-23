@@ -102,6 +102,7 @@ describe('gateActions', () => {
     expect(g.leverage).toBe('liquidating');
     expect(g.protect).toBe('liquidating');
     expect(g.stop).toBe('liquidating');
+    expect(g.reverse).toBe('liquidating');
     expect(g.close).toBe('liquidating');
   });
   it('a stale read blocks mark-priced actions but not adding margin, and not retrying a close', () => {
@@ -109,6 +110,7 @@ describe('gateActions', () => {
     expect(open.add).toBeNull();
     expect(open.protect).toBe('stale');
     expect(open.stop).toBe('stale');
+    expect(open.reverse).toBe('stale');
     expect(open.close).toBe('stale');
     expect(gate({ stale: true }, { status: 'closing' }).close).toBeNull();
   });

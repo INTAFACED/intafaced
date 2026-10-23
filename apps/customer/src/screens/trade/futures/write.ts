@@ -21,6 +21,8 @@ import type {
   PlaceOrderInput,
   ReduceInput,
   Protection,
+  Reverse,
+  ReverseRequest,
   ProtectionInput,
   StopInput,
 } from './api';
@@ -41,7 +43,9 @@ export type Intent =
   /** Cancel one armed take profit, stop loss or stop. The order's own id names it, so a second send changes nothing. */
   | { op: 'cancel-trigger'; input: { symbol: string; id: string } }
   /** Arm one stop on a position. Its client id names it, so a second send replays the one armed. */
-  | { op: 'place-trigger'; input: StopInput };
+  | { op: 'place-trigger'; input: StopInput }
+  /** Reverse a position under one request id: a second send carries it on or answers how it ended, never twice. */
+  | { op: 'reverse'; input: ReverseRequest };
 
 export type Operation = Intent['op'];
 
@@ -59,6 +63,8 @@ export function intentId(intent: Intent): string {
       return `cancel-trigger:${intent.input.id}`;
     case 'place-trigger':
       return intent.input.clientOrderId;
+    case 'reverse':
+      return intent.input.clientRequestId;
     default:
       return intent.input.clientAdjustmentId;
   }
@@ -186,7 +192,15 @@ export interface WriteResult {
   protection?: Protection;
   /** A cancelled take profit, stop loss or stop, or a stop just armed, as it now stands. */
   trigger?: ConditionalOrder;
+  /** A reverse as it stands: finished, or still working after a few sends. */
+  reverse?: Reverse;
 }
+
+/** A reverse still working is sent again a few times, a moment apart, while its close settles. */
+const REVERSE_WORKING = new Set<Reverse['status']>(['closing', 'opening']);
+const REVERSE_RESENDS = 4;
+const REVERSE_RESEND_MS = 750;
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function sendAdjustment(
   api: FuturesApi,
@@ -204,6 +218,14 @@ async function sendAdjustment(
     const armed = await api.createConditional(intent.input);
     return armed.ok ? { ok: true, data: { trigger: armed.data } } : armed;
   }
+  if (intent.op === 'reverse') {
+    let answer = await api.reverse(intent.input);
+    for (let sent = 1; answer.ok && REVERSE_WORKING.has(answer.data.status) && sent <= REVERSE_RESENDS; sent += 1) {
+      await pause(REVERSE_RESEND_MS);
+      answer = await api.reverse(intent.input);
+    }
+    return answer.ok ? { ok: true, data: { reverse: answer.data } } : answer;
+  }
   const result = await sendPosition(api, intent);
   return result.ok ? { ok: true, data: { position: result.data } } : result;
 }
@@ -214,7 +236,7 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteRe
 
 function sendPosition(
   api: FuturesApi,
-  intent: Exclude<Intent, { op: 'open' | 'reduce' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' }>,
+  intent: Exclude<Intent, { op: 'open' | 'reduce' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' | 'reverse' }>,
 ): Promise<ApiResult<Position>> {
   switch (intent.op) {
     case 'leverage':
@@ -236,6 +258,7 @@ export type WriteOutcome =
       stopped?: FuturesSplit['stopped'];
       protection?: Protection;
       trigger?: ConditionalOrder;
+      reverse?: Reverse;
     }
   | { kind: 'refused'; refusal: FuturesRefusal }
   /**

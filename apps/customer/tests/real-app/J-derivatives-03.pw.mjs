@@ -637,3 +637,102 @@ test(`${J} #8 a reduce-only order with nothing open is refused; a linked take pr
     'no open position after the close',
   );
 });
+
+test(`${J} #9 presses one-tap reverse: a reviewed close and an open on the other side, under one request`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const me = await api(account());
+  // A short left by an earlier run of this step that stopped part way is closed first.
+  const left = (await me.get('/api/v1/positions')).body.find((p) => p.symbol === SYMBOL && p.side === 'short' && p.status === 'open');
+  if (left) {
+    const flat = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: left.contracts,
+      reduceOnly: true,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-flat-9-${Date.now()}`,
+    });
+    expect(flat.status, JSON.stringify(flat.body)).toBeLessThan(300);
+    await until(
+      async () => (await me.get('/api/v1/positions')).body.filter((p) => p.symbol === SYMBOL && p.status === 'open'),
+      (open) => open.length === 0,
+      'no open position before the reverse',
+    );
+  }
+  const position = await openPosition(me);
+  const size = position.contracts;
+  await desk(page);
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await page.getByRole('button', { name: `Manage ${SYMBOL}` }).click();
+  await page.getByRole('menuitem', { name: 'Reverse' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Reverse position' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(`Closes your Long ${size} on ${SYMBOL} at market, then opens a Short ${size} at market`);
+
+  // The review prices the short from the service's own preview; a margin tier it moves into is accepted first.
+  const review = dialog.getByRole('region', { name: 'The Short it opens' });
+  await expect(review.getByText('Initial margin')).toBeVisible();
+  await expect(review.getByText('Liquidation price')).toBeVisible();
+  const accept = review.getByRole('checkbox');
+  if ((await accept.count()) > 0) await accept.click();
+
+  const sent = page.waitForResponse((r) => r.url().endsWith(`/positions/${position.id}/reverse`) && r.request().method() === 'POST');
+  await dialog.getByRole('button', { name: 'Reverse to Short' }).click();
+  const first = await sent;
+  const { clientRequestId } = first.request().postDataJSON();
+  expect(clientRequestId).toMatch(/^reverse:/);
+  const outcome = dialog.locator('[data-reverse]');
+  await expect(outcome).toHaveAttribute('data-reverse', 'done', { timeout: 30_000 });
+  await expect(outcome).toContainText(`Reversed: now Short ${size} at ${LEVERAGE}x.`);
+
+  // Through the API: the long closed, a short of the same size open, and exactly two legs under the one request.
+  const positions = await until(
+    async () => (await me.get('/api/v1/positions')).body.filter((p) => p.symbol === SYMBOL && p.status === 'open'),
+    (open) => open.length === 1 && open[0].side === 'short',
+    'the short after the reverse',
+  );
+  expect(positions[0]).toMatchObject({ side: 'short', contracts: size });
+  // The long has left the positions list, and the outcome is still on screen.
+  await page.waitForResponse(async (r) => {
+    if (r.request().method() !== 'GET' || !/\/positions(\?|$)/.test(r.url())) return false;
+    const body = await r.json().catch(() => null);
+    return Array.isArray(body) && !body.some((p) => p.id === position.id && p.status === 'open');
+  });
+  await expect(page.locator('[data-reverse="done"]')).toContainText(`Reversed: now Short ${size} at ${LEVERAGE}x.`);
+  const legsOf = async () => {
+    const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
+    return (body.orders ?? body)
+      .filter((o) => (o.clientOrderId ?? '').endsWith(clientRequestId))
+      .map((o) => [o.clientOrderId, o.side, o.reduceOnly, o.status, o.filledQty])
+      .sort();
+  };
+  const legs = await legsOf();
+  expect(legs).toEqual([
+    [`rv:c:${clientRequestId}`, 'sell', true, 'filled', size],
+    [`rv:o:${clientRequestId}`, 'sell', false, 'filled', size],
+  ]);
+
+  // The same request again answers the same reverse and places nothing.
+  const again = await me.post(`/api/v1/positions/${position.id}/reverse`, { clientRequestId });
+  expect(again.status).toBe(200);
+  expect(again.body).toMatchObject({ status: 'done', from: 'long', to: 'short', size, newPositionId: positions[0].id });
+  expect(await legsOf()).toEqual(legs);
+
+  // Back to nothing open.
+  const close = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'market',
+    amount: size,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-9-${Date.now()}`,
+  });
+  expect(close.status, JSON.stringify(close.body)).toBeLessThan(300);
+  await until(
+    async () => (await me.get('/api/v1/positions')).body.filter((p) => p.symbol === SYMBOL && p.status === 'open'),
+    (open) => open.length === 0,
+    'no open position after the close',
+  );
+});
