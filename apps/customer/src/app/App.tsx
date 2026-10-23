@@ -60,6 +60,8 @@ function DevRibbon({ feature }: { feature: Feature }) {
   );
 }
 
+const isAcademyPath = (path: string) => path === '/academy' || path.startsWith('/academy/');
+
 function legacyArea(room: Room): LegacyArea | undefined {
   return room.area === 'money' || room.area === 'trade' || room.area === 'pay' || room.area === 'more' || room.area === 'person'
     ? room.area
@@ -133,7 +135,9 @@ export function App() {
     event.preventDefault();
     navigate(url.pathname + url.search + url.hash);
   }
-  const needsSession = room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout';
+  // The Academy opens for a visitor with no account too (J-academy-01): its signed-out view reads only published content.
+  const needsSession =
+    room && ['home', 'money', 'pay', 'more', 'person'].includes(room.area) && path !== '/pay/checkout' && !isAcademyPath(path);
   const ribbon = dev && hidden && !devFeatures && !isMerchantArea(path) ? <DevRibbon feature={hidden} /> : null;
   const fallback = (
     <div className="legacy-room">

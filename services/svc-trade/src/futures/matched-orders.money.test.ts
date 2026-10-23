@@ -28,7 +28,7 @@ import type { Principal } from '@intafaced/auth';
 import type { EngineCancelResult, EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
-import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { MatchedFuturesOrders, splitRequestTag, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
 import type { FeeRates } from './matched-order-plan.js';
 import { PositionService } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
@@ -1324,6 +1324,259 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         leverage: A('10'),
       });
       expect(parseAmount(applied)).toBe(expected);
+      await assertBooksAgree();
+    });
+  });
+
+  describe('size and price controls (D-orders-06): slippage cap, price correction, split', () => {
+    const saved: Record<string, string | undefined> = {};
+    const ENV = ['TRADE_MAX_ORDER', 'TRADE_MAX_POSITION', 'TRADE_MAX_LOSS'] as const;
+    beforeEach(() => {
+      for (const key of ENV) {
+        saved[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+    afterEach(() => {
+      for (const key of ENV) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    async function held(userId: string): Promise<bigint> {
+      return A('1000') - (await bal(userAvailable(userId, USDT)));
+    }
+
+    it('a blank slippage cap refuses a market open before any hold, and a limit open still places', async () => {
+      const svc = build({ slippageCapBps: async () => null });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-blank' })),
+      ).rejects.toMatchObject({ code: 'trade.slippage_cap_unset', status: 503 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+      // Out of the cap's own range is not a cap either: it never means "no cap".
+      const odd = build({ slippageCapBps: async () => 0 });
+      await expect(
+        odd.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-zero' })),
+      ).rejects.toMatchObject({ code: 'trade.slippage_cap_unset' });
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'cap-blank-limit' }));
+      expect(engine.submits).toHaveLength(1);
+    });
+
+    it('a set cap tighter than the band sends and holds a market open at the cap, not the band edge', async () => {
+      const svc = build({ slippageCapBps: async () => 50 });
+      const buy = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-buy' }),
+      );
+      expect(buy.limitPrice).toBe('100.5');
+      expect(engine.submits[0]!.price).toBe('100.5');
+      const hold = orderHoldAmount({ side: 'buy', qty: A('1'), limit: A('100.5'), mark: A('100'), leverage: A('10') });
+      expect(buy.holdAmount).toBe(formatAmount(hold));
+      expect(await held(ALICE)).toBe(hold);
+      const sell = await svc.place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', type: 'market', qty: A('1'), clientOrderId: 'cap-sell' }),
+      );
+      expect(sell.limitPrice).toBe('99.5');
+      // The same request again is the same order: no second submit, no second hold.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-buy' }));
+      expect(engine.submits).toHaveLength(2);
+      expect(await held(ALICE)).toBe(hold);
+    });
+
+    it('a limit outside the band refuses naming both edges; adjust moves it to the edge and a retry replays it', async () => {
+      const svc = build();
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('120'), clientOrderId: 'pc-reject' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('95 to 105') });
+      await expect(
+        svc.place(
+          principal(ALICE),
+          order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('120'), priceCorrection: 'nudge', clientOrderId: 'pc-bad' }),
+        ),
+      ).rejects.toMatchObject({ code: 'trade.price_correction_invalid' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+
+      const asked = order({
+        userId: ALICE,
+        side: 'buy',
+        qty: A('1'),
+        limitPrice: A('120'),
+        priceCorrection: 'adjust',
+        clientOrderId: 'pc-adj',
+      });
+      const placed = await svc.place(principal(ALICE), asked);
+      expect(placed.limitPrice).toBe('105');
+      expect(engine.submits[0]!.price).toBe('105');
+      // The mark moved since: the retry still names the same order (it is moved with the band it was stored with).
+      mark = A('102');
+      const again = await svc.place(principal(ALICE), asked);
+      expect(again.orderId).toBe(placed.orderId);
+      expect(engine.submits).toHaveLength(1);
+      // A limit inside the band is never moved by adjust.
+      const inside = await svc.place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', qty: A('1'), limitPrice: A('101'), priceCorrection: 'adjust', clientOrderId: 'pc-in' }),
+      );
+      expect(inside.limitPrice).toBe('101');
+    });
+
+    it('an order above the max-order is placed as children keyed :1..N within the cap, and the same request never places twice', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const big = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'split-a' });
+      // One order of 25 at 100 is 2500 against a max-order of 1050; children are sized at the band's high edge (105).
+      await expect(svc.place(principal(ALICE), big)).rejects.toMatchObject({ code: 'trade.limit_max_order' });
+      expect(engine.submits).toHaveLength(0);
+
+      const out = await svc.placeSplit(principal(ALICE), big);
+      expect(out.parts).toBe(3);
+      expect(out.stopped).toBeNull();
+      const tag = splitRequestTag(big);
+      expect(tag).toMatch(/^[0-9a-f]{8}$/);
+      expect(out.orders.map((o) => [o.clientOrderId, o.qty])).toEqual([
+        [`split-a:1:${tag}`, '10'],
+        [`split-a:2:${tag}`, '10'],
+        [`split-a:3:${tag}`, '5'],
+      ]);
+      const hold = out.orders.reduce((sum, o) => sum + A(o.holdAmount), 0n);
+      expect(await held(ALICE)).toBe(hold);
+      await assertBooksAgree();
+
+      // The same request after the mark moved: the same three children, nothing sent or held again.
+      mark = A('125');
+      const again = await svc.placeSplit(principal(ALICE), big);
+      expect(again.orders.map((o) => o.orderId)).toEqual(out.orders.map((o) => o.orderId));
+      expect(engine.submits).toHaveLength(3);
+      expect(await held(ALICE)).toBe(hold);
+    });
+
+    it('the mark rising inside the band between the plan and a child does not refuse that child for size', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      // The plan reads 100; every child's own check reads 104, still inside the 5 percent band.
+      let reads = 0;
+      const svc = build({ markFor: async () => (reads++ === 0 ? A('100') : A('104')) });
+      const out = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('20'), clientOrderId: 'drift' }));
+      expect(out.orders.map((o) => [o.qty, o.markPrice])).toEqual([
+        ['10', '104'],
+        ['10', '104'],
+      ]);
+    });
+
+    it('a crash after child 2 of 3: the same request places only child 3', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const whole = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'crash' });
+      const tag = splitRequestTag(whole);
+      // What a crashed attempt left behind: the first two children, placed by key.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `crash:1:${tag}` }));
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `crash:2:${tag}` }));
+      const out = await svc.placeSplit(principal(ALICE), whole);
+      expect(out.orders.map((o) => o.qty)).toEqual(['10', '10', '5']);
+      expect(engine.submits).toHaveLength(3);
+      expect(engine.submits[2]!.qty).toBe('5');
+      await assertBooksAgree();
+    });
+
+    it('children that would not all pass together place none: free balance, max-position', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      // 120 at 100 and 10x holds 1200 together; each child of 10 holds about 100, and 1000 is free.
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('120'), clientOrderId: 'too-much' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_margin_insufficient' });
+      process.env.TRADE_MAX_POSITION = '5000';
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('60'), clientOrderId: 'too-big' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_position' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+      expect(await sql`SELECT 1 FROM trade.futures_orders`).toHaveLength(0);
+    });
+
+    it('a split refuses what it cannot split: reduce-only, a lot over the cap, too many children, no key', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'sell', qty: A('25'), reduceOnly: true, clientOrderId: 'ro' })),
+      ).rejects.toMatchObject({ code: 'trade.split_opening_only' });
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: '  ' })),
+      ).rejects.toMatchObject({ code: 'trade.client_order_id_required' });
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), leverage: A('0'), clientOrderId: 'lev0' })),
+      ).rejects.toMatchObject({ code: 'trade.leverage_invalid' });
+      // 260 is 26 children of 10 (1050 at 105): more than one request places.
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('260'), clientOrderId: 'many' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_order', message: expect.stringContaining('26 orders') });
+      process.env.TRADE_MAX_ORDER = '0';
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'zero' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_order', message: expect.stringContaining('one lot') });
+      expect(await held(ALICE)).toBe(0n);
+    });
+
+    it('an order within the max-order through the split door is one order under its own key', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const small = order({ userId: ALICE, side: 'buy', qty: A('5'), clientOrderId: 'small' });
+      const out = await svc.placeSplit(principal(ALICE), small);
+      expect(out).toMatchObject({ parts: 1, orders: [{ clientOrderId: `small:1:${splitRequestTag(small)}`, qty: '5' }], stopped: null });
+    });
+
+    it('a key names one request: another size, price or side under it, or a single order under it, refuses before anything', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      // A crash after child 1 of a 25 split; then the same key with 40, a new price, or the other side.
+      const first = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'k' });
+      await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `k:1:${splitRequestTag(first)}` }),
+      );
+      for (const other of [
+        { ...first, qty: A('40') },
+        { ...first, limitPrice: A('99') },
+        { ...first, priceCorrection: 'adjust' },
+        { ...first, side: 'sell' as const },
+      ]) {
+        await expect(svc.placeSplit(principal(ALICE), other)).rejects.toMatchObject({
+          code: 'trade.client_order_id_conflict',
+          status: 409,
+        });
+      }
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'single' }));
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'single' })),
+      ).rejects.toMatchObject({ code: 'trade.client_order_id_conflict' });
+      expect(engine.submits).toHaveLength(2);
+      // A key that only shares the prefix is not a child: `k:x` is its own request.
+      const prefixed = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('5'), clientOrderId: 'k:x' }));
+      expect(prefixed.orders).toHaveLength(1);
+      // And the first request finishes: child 1 replays, children 2 and 3 are placed.
+      const done = await svc.placeSplit(principal(ALICE), first);
+      expect(done.orders.map((o) => o.qty)).toEqual(['10', '10', '5']);
+      expect(engine.submits).toHaveLength(5);
+    });
+
+    it('a whole order off the lot step refuses before any child; a child refused later names the children already live', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25.00005'), clientOrderId: 'off-lot' })),
+      ).rejects.toMatchObject({ code: 'trade.close_quantity_lot_step' });
+      expect(engine.submits).toHaveLength(0);
+
+      // Child 2's own check reads a mark past the band its size was planned at (100 at the plan, 110 after child 1).
+      let reads = 0;
+      const drifting = build({ markFor: async () => (reads++ < 2 ? A('100') : A('110')) });
+      const out = await drifting.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'stops' }));
+      expect(out.orders.map((o) => o.qty)).toEqual(['10']);
+      expect(out.stopped).toMatchObject({ child: 2, code: expect.stringMatching(/^trade\./) });
+      expect(await held(ALICE)).toBe(A(out.orders[0]!.holdAmount));
       await assertBooksAgree();
     });
   });
