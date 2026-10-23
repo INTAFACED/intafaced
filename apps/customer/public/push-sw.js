@@ -2,14 +2,18 @@
 // device" in notification preferences. It shows a pushed notice and, when pressed, opens its room on this site. A link
 // that resolves to any other origin is never opened: the notice opens the inbox instead.
 
-/** The notice's own room on this site, or the inbox. */
+/**
+ * The notice's own room on this site as a whole URL, or the inbox. The checked URL itself is what is kept and opened: a
+ * path such as "/..//evil.example" resolves to this site, but its pathname "//evil.example" would leave it if read again.
+ */
 function sameSite(href) {
-  if (typeof href !== 'string' || !href.startsWith('/')) return '/notifications';
+  const inbox = new URL('/notifications', self.location.origin).href;
+  if (typeof href !== 'string') return inbox;
   try {
     const url = new URL(href, self.location.origin);
-    return url.origin === self.location.origin ? url.pathname + url.search + url.hash : '/notifications';
+    return url.origin === self.location.origin ? url.href : inbox;
   } catch {
-    return '/notifications';
+    return inbox;
   }
 }
 
@@ -27,6 +31,5 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const href = sameSite(event.notification.data?.href);
-  event.waitUntil(self.clients.openWindow(new URL(href, self.location.origin).href));
+  event.waitUntil(self.clients.openWindow(sameSite(event.notification.data?.href)));
 });
