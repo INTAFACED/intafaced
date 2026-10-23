@@ -97,6 +97,9 @@ export function assertAssessmentCatalog(
     if (def.passMark !== null && (!Number.isInteger(def.passMark) || def.passMark < 0)) {
       throw new AssessmentCatalogError(`assessment ${def.slug} pass mark is not a non-negative integer`);
     }
+    if (def.passMark !== null && def.passMark > def.questions.reduce((sum, q) => sum + q.points, 0)) {
+      throw new AssessmentCatalogError(`assessment ${def.slug} pass mark is more than the questions' points, so no one could pass`);
+    }
     if (def.attemptLimit !== null && (!Number.isInteger(def.attemptLimit) || def.attemptLimit < 1)) {
       throw new AssessmentCatalogError(`assessment ${def.slug} attempt limit is not a positive integer`);
     }

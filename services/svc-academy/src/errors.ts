@@ -180,7 +180,9 @@ export type AcademyErrorCode =
   /** The attempt is finished or past its deadline, so it takes no more answers. */
   | 'academy.attempt_closed'
   /** The attempt is still open, so there is nothing to review. */
-  | 'academy.attempt_open';
+  | 'academy.attempt_open'
+  /** A timed or staff-published quiz is taken with Start, not sent in one go. */
+  | 'academy.attempt_required';
 
 export class AcademyError extends Error {
   constructor(
@@ -289,6 +291,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.attempt_not_found',
   'academy.attempt_closed',
   'academy.attempt_open',
+  'academy.attempt_required',
 ] as const;
 
 /** L3 — catalog size. */

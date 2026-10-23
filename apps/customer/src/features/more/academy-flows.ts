@@ -156,7 +156,8 @@ export type RefusalKey =
   | 'refRequestReused'
   | 'refAttemptClosed'
   | 'refAttemptNotFound'
-  | 'refAttemptOpen';
+  | 'refAttemptOpen'
+  | 'refAttemptRequired';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -218,6 +219,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refAttemptNotFound';
     case 'academy.attempt_open':
       return 'refAttemptOpen';
+    case 'academy.attempt_required':
+      return 'refAttemptRequired';
     default:
       return null;
   }

@@ -420,8 +420,14 @@ export const quizAttempts = academy.table(
     score: integer('score'),
     maxScore: integer('max_score'),
     passed: boolean('passed'),
+    quiz: jsonb('quiz').notNull(),
   },
-  (t) => [uniqueIndex('quiz_attempts_number_uq').on(t.userId, t.slug, t.number)],
+  (t) => [
+    uniqueIndex('quiz_attempts_number_uq').on(t.userId, t.slug, t.number),
+    uniqueIndex('quiz_attempts_open_uq')
+      .on(t.userId, t.slug)
+      .where(sql`${t.finishedAt} IS NULL`),
+  ],
 );
 
 export const itemPrerequisites = academy.table(

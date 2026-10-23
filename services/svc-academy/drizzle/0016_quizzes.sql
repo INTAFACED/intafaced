@@ -7,7 +7,9 @@
 -- refuses scoring, no attempt limit or time limit applies none.
 --
 -- `quiz_attempts`: one row per started attempt. The deadline is the server's,
--- set at start. Answers save as they are chosen. Finishing scores the saved
+-- set at start, and `quiz` keeps the quiz as it was at start (key included),
+-- so a later edit or take-down changes neither scoring nor review. Answers
+-- save as they are chosen. Finishing scores the saved
 -- answers once and writes the score row into assessment_attempts, which
 -- progress, certificates and the attempt list already read.
 
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS "academy"."quiz_attempts" (
   "score"        integer,
   "max_score"    integer,
   "passed"       boolean,
+  "quiz"         jsonb NOT NULL,
   CONSTRAINT "quiz_attempts_finished_chk" CHECK (("finished_at" IS NULL) = ("score" IS NULL))
 );
 

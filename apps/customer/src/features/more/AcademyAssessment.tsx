@@ -292,6 +292,9 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
   const inFlight = useRef(false);
   const live = useRef(true);
   const clockEnd = useRef<number | null>(null);
+  // Answers save one after another, in the order chosen, and Finish waits for them: the last choice is the one scored.
+  const saves = useRef<Promise<void>>(Promise.resolve());
+  const latestSave = useRef(0);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -349,6 +352,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
 
   const finish = (attemptId: string, byClock = false) =>
     run(async () => {
+      await saves.current;
       let done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
       // Finishing twice scores once, so a lost reply is settled by asking again.
       if (!done.ok && done.reason === 'uncertain')
@@ -389,27 +393,29 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
       show(started.data);
     });
 
-  const answer = async (questionId: string, choiceId: string) => {
+  const answer = (questionId: string, choiceId: string) => {
     if (!attempt || attempt.result) return;
+    const { attemptId } = attempt;
     setAttempt({ ...attempt, answers: { ...attempt.answers, [questionId]: choiceId } });
     setSaving('saving');
     setProblem(null);
-    const saved = await api.mutate(
-      'academy',
-      'assessment.answer',
-      { attemptId: attempt.attemptId, questionId, choiceId },
-      academyQuizAttemptSchema,
-    );
-    if (!live.current) return;
-    if (saved.ok) {
-      setSaving('saved');
-      setAttempt((now) => (now && now.attemptId === saved.data.attemptId ? { ...now, answers: saved.data.answers } : now));
-      return;
-    }
-    setSaving('idle');
-    setProblem(saved);
-    // A closed attempt (its time ran out): read its result rather than leave the answers editable.
-    if (academyCodeOf(saved) === 'academy.attempt_closed') void finish(attempt.attemptId, true);
+    const mine = ++latestSave.current;
+    saves.current = saves.current.then(async () => {
+      const saved = await api.mutate('academy', 'assessment.answer', { attemptId, questionId, choiceId }, academyQuizAttemptSchema);
+      if (!live.current) return;
+      if (saved.ok) {
+        // Only the newest save's reply speaks for the screen; an earlier one would show answers from before it.
+        if (mine === latestSave.current) {
+          setSaving('saved');
+          setAttempt((now) => (now && now.attemptId === saved.data.attemptId ? { ...now, answers: saved.data.answers } : now));
+        }
+        return;
+      }
+      setSaving('idle');
+      setProblem(saved);
+      // A closed attempt (its time ran out): read its result rather than leave the answers editable.
+      if (academyCodeOf(saved) === 'academy.attempt_closed') void finish(attemptId, true);
+    });
   };
 
   return (
@@ -426,7 +432,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
       problem={problem}
       history={history}
       onStart={() => void start()}
-      onAnswer={(q, c) => void answer(q, c)}
+      onAnswer={answer}
       onMove={setPosition}
       onFinish={() => attempt && void finish(attempt.attemptId)}
       onRetryHistory={() => void refresh()}

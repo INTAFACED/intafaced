@@ -92,6 +92,7 @@ const en = {
   refAttemptClosed: 'This attempt is finished, so it takes no more answers.',
   refAttemptNotFound: 'Academy has no attempt of yours with this reference.',
   refAttemptOpen: 'This attempt is still open. Finish it to see the review.',
+  refAttemptRequired: 'This quiz is taken one question at a time. Press Start quiz to begin.',
   refAttemptLimit: 'You have used every attempt this assessment allows.',
   refAttemptCooldown: 'The wait this assessment requires between attempts has not passed. Try again later.',
   // certificates
@@ -419,6 +420,7 @@ const es: Record<keyof typeof en, string> = {
   refAttemptClosed: 'Este intento está terminado, así que no admite más respuestas.',
   refAttemptNotFound: 'Academy no tiene ningún intento tuyo con esta referencia.',
   refAttemptOpen: 'Este intento sigue abierto. Termínalo para ver la revisión.',
+  refAttemptRequired: 'Este cuestionario se responde pregunta a pregunta. Pulsa Empezar cuestionario para comenzar.',
   refAttemptLimit: 'Has usado todos los intentos que permite esta evaluación.',
   refAttemptCooldown: 'No ha pasado la espera que esta evaluación exige entre intentos. Inténtalo más tarde.',
   shelfTitle: 'Tus certificados',
@@ -751,6 +753,7 @@ const fr: Record<keyof typeof en, string> = {
   refAttemptClosed: 'Cette tentative est terminée, elle n’accepte plus de réponses.',
   refAttemptNotFound: 'Academy n’a aucune tentative de votre part avec cette référence.',
   refAttemptOpen: 'Cette tentative est toujours ouverte. Terminez-la pour voir la correction.',
+  refAttemptRequired: 'Ce quiz se fait une question à la fois. Appuyez sur Commencer le quiz pour démarrer.',
   refAttemptLimit: 'Vous avez utilisé toutes les tentatives que cette évaluation autorise.',
   refAttemptCooldown: 'L’attente exigée entre deux tentatives n’est pas écoulée. Réessayez plus tard.',
   shelfTitle: 'Vos certificats',

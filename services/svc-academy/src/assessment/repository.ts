@@ -143,30 +143,17 @@ export class AssessmentRepository {
       if (!def) {
         throw new AcademyError(`academy.assessment_unpublished slug=${input.slug}`, 'academy.assessment_unpublished');
       }
+      // A staff-published or timed quiz is taken through Start, so its clock and its one open attempt cannot be skipped.
+      if (!assessmentBySlug(def.slug, this.catalog) || (def.timeLimitSeconds ?? null) !== null) {
+        throw new AcademyError(`academy.attempt_required slug=${def.slug} is taken with Start`, 'academy.attempt_required');
+      }
       if (def.passMark === null) {
         throw new AcademyError(`academy.pass_mark_unset slug=${def.slug}`, 'academy.pass_mark_unset');
       }
-      if (def.attemptLimit !== null) {
-        const count = await tx<Array<{ n: number }>>`
-          SELECT COUNT(*)::int AS n FROM academy.assessment_attempts
-           WHERE user_id = ${input.userId} AND slug = ${def.slug}
-        `;
-        if ((count[0]?.n ?? 0) >= def.attemptLimit) {
-          throw new AcademyError(`academy.attempt_limit slug=${def.slug}`, 'academy.attempt_limit');
-        }
-      }
-      if (def.cooldownSeconds !== null) {
-        const last = await tx<Array<{ submitted_at: Date }>>`
-          SELECT submitted_at FROM academy.assessment_attempts
-           WHERE user_id = ${input.userId} AND slug = ${def.slug}
-           ORDER BY submitted_at DESC
-           LIMIT 1
-        `;
-        const at = last[0]?.submitted_at;
-        if (at && now.getTime() - at.getTime() < def.cooldownSeconds * 1000) {
-          throw new AcademyError(`academy.attempt_cooldown slug=${def.slug}`, 'academy.attempt_cooldown');
-        }
-      }
+      const open =
+        await tx`SELECT 1 FROM academy.quiz_attempts WHERE user_id = ${input.userId} AND slug = ${def.slug} AND finished_at IS NULL`;
+      if (open.length > 0) throw new AcademyError(`academy.attempt_open slug=${def.slug}`, 'academy.attempt_open');
+      await this.assertMayAttempt(tx, def, input.userId, now);
       const scored = scoreAssessment(def, input.answers);
       const rows = await tx<AttemptSql[]>`
         INSERT INTO academy.assessment_attempts (
@@ -199,37 +186,38 @@ export class AssessmentRepository {
   /**
    * Start a timed attempt (AC-quizzes-03), or return the one already open: a refresh or a lost reply gets the same
    * attempt, deadline and saved answers. An open attempt past its deadline is finished with what was saved first. At
-   * the attempt limit (finished attempts, including ones sent through `submit`) Start refuses `academy.attempt_limit`.
+   * the attempt limit (finished attempts, including ones sent through `submit`) Start refuses `academy.attempt_limit`,
+   * and inside a cooldown `academy.attempt_cooldown`. The attempt keeps a copy of the quiz as it was at Start, so a
+   * later staff edit or take-down changes neither its scoring nor its review.
    */
   async start(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
-    return this.underQuizLock(input.userId, input.slug, async (tx, def) => {
-      const open = await this.settleOpen(tx, def, input.userId, now);
+    return this.underQuizLock(input.userId, async (tx) => {
+      const open = await this.settleOpen(tx, input.userId, input.slug, now);
       if (open) return attemptView(open, now);
+      const def = await this.definition(input.slug, tx);
+      if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${input.slug}`, 'academy.assessment_unpublished');
       if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${def.slug}`, 'academy.pass_mark_unset');
-      const used = await tx<Array<{ n: number }>>`
-        SELECT COUNT(*)::int AS n FROM academy.assessment_attempts WHERE user_id = ${input.userId} AND slug = ${def.slug}
-      `;
-      const count = used[0]?.n ?? 0;
-      if (def.attemptLimit !== null && count >= def.attemptLimit) {
-        throw new AcademyError(`academy.attempt_limit slug=${def.slug} limit=${def.attemptLimit}`, 'academy.attempt_limit');
-      }
+      const count = await this.assertMayAttempt(tx, def, input.userId, now);
       const limit = def.timeLimitSeconds ?? null;
       const deadline = limit === null ? null : new Date(now.getTime() + limit * 1000);
       const rows = await tx<AttemptRowSql[]>`
-        INSERT INTO academy.quiz_attempts (user_id, slug, number, started_at, deadline_at)
-        VALUES (${input.userId}, ${def.slug}, ${count + 1}, ${now}, ${deadline})
+        INSERT INTO academy.quiz_attempts (user_id, slug, number, started_at, deadline_at, quiz)
+        VALUES (${input.userId}, ${def.slug}, ${count + 1}, ${now}, ${deadline}, ${tx.json(def as never)})
         RETURNING ${tx.unsafe(ATTEMPT_COLUMNS)}
       `;
       return attemptView(rows[0]!, now);
     });
   }
 
-  /** The caller's open attempt on this quiz, or null. One past its deadline is finished here and is not open. */
+  /**
+   * The caller's open attempt on this quiz, or null. One past its deadline is finished here and is not open: its score
+   * was fixed at the deadline by what was saved, so settling it on a read records an outcome, it does not choose one.
+   */
   async current(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt | null> {
     const now = input.now ?? new Date();
-    return this.underQuizLock(input.userId, input.slug, async (tx, def) => {
-      const open = await this.settleOpen(tx, def, input.userId, now);
+    return this.underQuizLock(input.userId, async (tx) => {
+      const open = await this.settleOpen(tx, input.userId, input.slug, now);
       return open ? attemptView(open, now) : null;
     });
   }
@@ -244,12 +232,12 @@ export class AssessmentRepository {
   }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
     const slug = await this.attemptSlug(input.userId, input.attemptId);
-    return this.underQuizLock(input.userId, slug, async (tx, def) => {
-      const open = await this.settleOpen(tx, def, input.userId, now);
+    return this.underQuizLock(input.userId, async (tx) => {
+      const open = await this.settleOpen(tx, input.userId, slug, now);
       if (!open || open.id !== input.attemptId) {
         throw new AcademyError('academy.attempt_closed this attempt is finished', 'academy.attempt_closed');
       }
-      const question = def.questions.find((q) => q.id === input.questionId);
+      const question = open.quiz.questions.find((q) => q.id === input.questionId);
       if (!question || !question.choices.some((c) => c.id === input.choiceId)) {
         throw new AcademyError('answer does not match a published question', 'academy.assessment_invalid');
       }
@@ -265,14 +253,14 @@ export class AssessmentRepository {
   /** Finish and score the saved answers once. Finishing again answers with the same result; nothing is scored twice. */
   async finish(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
-    const slug = await this.attemptSlug(input.userId, input.attemptId);
-    return this.underQuizLock(input.userId, slug, async (tx, def) => {
+    await this.attemptSlug(input.userId, input.attemptId);
+    return this.underQuizLock(input.userId, async (tx) => {
       const rows = await tx<AttemptRowSql[]>`
         SELECT ${tx.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts WHERE id = ${input.attemptId} AND user_id = ${input.userId}
       `;
       const row = rows[0]!;
       if (row.finished_at) return attemptView(row, now);
-      return attemptView(await this.finishRow(tx, def, row, now), now);
+      return attemptView(await this.finishRow(tx, row, now), now);
     });
   }
 
@@ -284,8 +272,8 @@ export class AssessmentRepository {
     const row = rows[0];
     if (!row) throw new AcademyError('academy.attempt_not_found', 'academy.attempt_not_found');
     if (!row.finished_at) throw new AcademyError('academy.attempt_open finish the attempt to review it', 'academy.attempt_open');
-    const def = await this.definition(row.slug);
-    if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${row.slug}`, 'academy.assessment_unpublished');
+    // Reviewed against the quiz as it was at Start, the same version it was scored against.
+    const def = row.quiz;
     const mode = def.reviewMode ?? 'score_only';
     return {
       attemptId: row.id,
@@ -322,33 +310,52 @@ export class AssessmentRepository {
     return rows[0].slug;
   }
 
-  private async underQuizLock<T>(userId: string, slug: string, fn: (tx: Sql, def: AssessmentDefinition) => Promise<T>): Promise<T> {
+  private async underQuizLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
     return transaction(this.sql, async (tx) => {
       // The same key `submit` takes, so a timed attempt and a direct submit never count the limit apart.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:assessment`}, 0))`;
-      const def = await this.definition(slug, tx);
-      if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
-      return fn(tx, def);
+      return fn(tx);
     });
   }
 
+  /**
+   * The attempt limit and the cooldown, for `submit` and Start alike. Counts finished attempts (timed ones write their
+   * score row when they finish) and returns that count.
+   */
+  private async assertMayAttempt(tx: Sql, def: AssessmentDefinition, userId: string, now: Date): Promise<number> {
+    const rows = await tx<Array<{ n: number; last: Date | null }>>`
+      SELECT COUNT(*)::int AS n, MAX(submitted_at) AS last FROM academy.assessment_attempts
+       WHERE user_id = ${userId} AND slug = ${def.slug}
+    `;
+    const count = rows[0]?.n ?? 0;
+    if (def.attemptLimit !== null && count >= def.attemptLimit) {
+      throw new AcademyError(`academy.attempt_limit slug=${def.slug} limit=${def.attemptLimit}`, 'academy.attempt_limit');
+    }
+    const last = rows[0]?.last ?? null;
+    if (def.cooldownSeconds !== null && last && now.getTime() - last.getTime() < def.cooldownSeconds * 1000) {
+      throw new AcademyError(`academy.attempt_cooldown slug=${def.slug}`, 'academy.attempt_cooldown');
+    }
+    return count;
+  }
+
   /** The open attempt, unless its deadline has passed: then it is finished with the answers saved by the deadline. */
-  private async settleOpen(tx: Sql, def: AssessmentDefinition, userId: string, now: Date): Promise<AttemptRowSql | null> {
+  private async settleOpen(tx: Sql, userId: string, slug: string, now: Date): Promise<AttemptRowSql | null> {
     const rows = await tx<AttemptRowSql[]>`
       SELECT ${tx.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts
-       WHERE user_id = ${userId} AND slug = ${def.slug} AND finished_at IS NULL
+       WHERE user_id = ${userId} AND slug = ${slug} AND finished_at IS NULL
     `;
     const open = rows[0];
     if (!open) return null;
     if (open.deadline_at && now.getTime() >= open.deadline_at.getTime()) {
-      await this.finishRow(tx, def, open, open.deadline_at);
+      await this.finishRow(tx, open, open.deadline_at);
       return null;
     }
     return open;
   }
 
-  private async finishRow(tx: Sql, def: AssessmentDefinition, row: AttemptRowSql, at: Date): Promise<AttemptRowSql> {
-    // An answer saved under an earlier version of the quiz no longer matches a question; it scores nothing.
+  /** Score the saved answers against the attempt's own copy of the quiz, and write its score row once. */
+  private async finishRow(tx: Sql, row: AttemptRowSql, at: Date): Promise<AttemptRowSql> {
+    const def = row.quiz;
     const answers = Object.entries(row.answers)
       .filter(([questionId, choiceId]) => def.questions.some((q) => q.id === questionId && q.choices.some((c) => c.id === choiceId)))
       .map(([questionId, choiceId]) => ({ questionId, choiceId }));
@@ -390,7 +397,7 @@ function quizFromRow(row: QuizSql): AssessmentDefinition {
   };
 }
 
-const ATTEMPT_COLUMNS = 'id, user_id, slug, number, started_at, deadline_at, answers, finished_at, score, max_score, passed';
+const ATTEMPT_COLUMNS = 'id, user_id, slug, number, started_at, deadline_at, answers, finished_at, score, max_score, passed, quiz';
 type AttemptRowSql = {
   id: string;
   user_id: string;
@@ -403,6 +410,8 @@ type AttemptRowSql = {
   score: number | null;
   max_score: number | null;
   passed: boolean | null;
+  /** The quiz as it was at Start, answer key included; it never leaves the service. */
+  quiz: AssessmentDefinition;
 };
 
 function attemptView(row: AttemptRowSql, now: Date): AcademyQuizAttempt {

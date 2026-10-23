@@ -161,8 +161,71 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
     });
     await expect(academy.startQuizAttempt({ userId: USER, slug: SLUG, now })).rejects.toMatchObject({ code: 'academy.attempt_limit' });
 
+    // The review is of the quiz as it was at Start: a later switch to score only does not hide this attempt's answers.
     await publish(academy, { ...TIMED, attemptLimit: 1, reviewMode: 'score_only' });
-    expect((await academy.reviewQuizAttempt({ userId: USER, attemptId })).questions).toBeNull();
+    expect((await academy.reviewQuizAttempt({ userId: USER, attemptId })).reviewMode).toBe('answers');
+  });
+
+  it('an attempt keeps the quiz it started with: an edit or a take-down changes neither its scoring nor its review', async () => {
+    const academy = service();
+    await publish(academy);
+    const now = new Date();
+    const { attemptId } = await academy.startQuizAttempt({ userId: USER, slug: SLUG, now });
+    await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q1', choiceId: 'b', now });
+    // Staff change the key on q1, then take the quiz down, while the attempt is open.
+    await academy.setQuiz({
+      slug: SLUG,
+      quiz: { ...TIMED, questions: [{ ...QUESTIONS[0]!, correctChoiceId: 'a' }, QUESTIONS[1]!] },
+      reason: 'TEST',
+      operatorId: STAFF,
+    });
+    await publish(academy, null);
+    await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q2', choiceId: 'c', now });
+    const done = await academy.finishQuizAttempt({ userId: USER, attemptId, now });
+    expect(done.result).toMatchObject({ score: 2, maxScore: 2, pass: true });
+    const review = await academy.reviewQuizAttempt({ userId: USER, attemptId });
+    expect(review.questions?.map((q) => [q.id, q.correctChoiceId, q.correct])).toEqual([
+      ['q1', 'b', true],
+      ['q2', 'c', true],
+    ]);
+  });
+
+  it('a staff quiz is taken with Start only: a direct submit refuses, and so does one while an attempt is open', async () => {
+    const academy = service();
+    await publish(academy, { ...TIMED, timeLimitSeconds: null });
+    await expect(
+      academy.submitAssessment({ userId: USER, slug: SLUG, clientAttemptId: 'direct-1', answers: [{ questionId: 'q1', choiceId: 'b' }] }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_required' });
+    expect(await academy.assessmentAttempts(USER, SLUG)).toHaveLength(0);
+  });
+
+  it('a pass mark above the questions’ points is refused, since no one could pass', async () => {
+    const academy = service();
+    await expect(publish(academy, { ...TIMED, passMark: 3 })).rejects.toMatchObject({ code: 'academy.assessment_invalid' });
+  });
+
+  it('Start keeps the cooldown and the attempt limit that a direct submit keeps, and a submit refuses while an attempt is open', async () => {
+    const coded = {
+      slug: SLUG,
+      kind: 'quiz' as const,
+      passMark: 2,
+      attemptLimit: 3,
+      cooldownSeconds: 3600,
+      questions: QUESTIONS.map((q) => ({ ...q, kind: 'single' as const })),
+    };
+    const academy = service({ assessmentCatalog: [coded] });
+    const t0 = new Date('2026-10-23T10:00:00.000Z');
+    const { attemptId } = await academy.startQuizAttempt({ userId: USER, slug: SLUG, now: t0 });
+    await expect(
+      academy.submitAssessment({ userId: USER, slug: SLUG, clientAttemptId: 'direct-1', answers: [], now: t0 }),
+    ).rejects.toMatchObject({ code: 'academy.attempt_open' });
+    await academy.finishQuizAttempt({ userId: USER, attemptId, now: t0 });
+    await expect(academy.startQuizAttempt({ userId: USER, slug: SLUG, now: new Date(t0.getTime() + 60_000) })).rejects.toMatchObject({
+      code: 'academy.attempt_cooldown',
+    });
+    expect(await academy.startQuizAttempt({ userId: USER, slug: SLUG, now: new Date(t0.getTime() + 3_601_000) })).toMatchObject({
+      number: 2,
+    });
   });
 
   it('an attempt past its deadline is finished with the answers saved by then, and takes no more', async () => {

@@ -247,6 +247,7 @@ describe('timed quiz after an attempt', () => {
       ['academy.attempt_closed', 'refAttemptClosed'],
       ['academy.attempt_open', 'refAttemptOpen'],
       ['academy.attempt_not_found', 'refAttemptNotFound'],
+      ['academy.attempt_required', 'refAttemptRequired'],
     ] as const) {
       const page = quiz({ problem: failure(code) });
       expect(page).toContain(academyLmsCopy.forLocale('en').t(key));

@@ -788,6 +788,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.request_reused':
     case 'academy.attempt_closed':
     case 'academy.attempt_open':
+    case 'academy.attempt_required':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_not_found':
@@ -2687,13 +2688,13 @@ export function createAcademyRouter(
         .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
         .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
 
-      /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
       /** AC-quizzes-03: publish or take down the quiz on one curriculum item. The answer key never leaves the service. */
       setQuiz: scopedProcedure('admin:write', { module: 'academy' })
         .input(academySetQuizInputSchema)
         .output(z.object({ slug: z.string(), published: z.boolean() }))
         .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
 
+      /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
       setCourseStart: scopedProcedure('admin:write', { module: 'academy' })
         .input(
           z
