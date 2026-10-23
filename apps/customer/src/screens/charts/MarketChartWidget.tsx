@@ -3,6 +3,7 @@ import { usePreferences } from '../../shared/preferences';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
 import { zoneName } from '../trade/desk/time';
 import type { DeskMarket } from '../trade/desk/market';
+import type { Candle } from '../../data/types';
 import type { ChartHost } from './chart-host';
 import {
   BASIS_UNPUBLISHED,
@@ -34,7 +35,7 @@ export interface WidgetProps {
   /** Tests hand in a socket; the page uses the browser's. */
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
-  addons?: (host: ChartHost | null) => ReactNode;
+  addons?: (host: ChartHost | null, bars: readonly Candle[]) => ReactNode;
   onHost?: (host: ChartHost | null) => void;
   /** The markets that can be compared on this chart; no compare tools without them. */
   markets?: readonly DeskMarket[];
