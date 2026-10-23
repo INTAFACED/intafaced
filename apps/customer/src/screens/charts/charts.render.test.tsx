@@ -14,6 +14,7 @@ const world = vi.hoisted(() => ({
   owner: {} as Record<string, unknown>,
   ownerStatus: 'ready' as 'ready' | 'loading' | 'error',
   lifecycle: { status: 'ready', data: { state: 'OPEN', effectiveAt: 0, evidenceRefs: [] }, asOf: 0 } as unknown,
+  bookHalt: { status: 'ready', data: { halted: false, venueHalted: false }, asOf: 0 } as unknown,
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -36,7 +37,16 @@ vi.mock('./WorkbenchChart', () => ({
 // The market's state and newest trade: read as open and fresh unless a case says otherwise.
 vi.mock('./market-state', async (original) => ({
   ...(await original<typeof import('./market-state')>()),
-  useMarketLifecycle: () => world.lifecycle,
+  // A read is stamped when the chart asks: a read older than the state poll allows is not current.
+  useMarketLifecycle: () => {
+    const life = world.lifecycle as { status: string };
+    return life.status === 'ready' ? { ...life, asOf: Date.now() } : life;
+  },
+  useBookHalt: () => {
+    const book = world.bookHalt as { status: string };
+    return book.status === 'ready' ? { ...book, asOf: Date.now() } : book;
+  },
+  useServerClock: () => ({ status: 'ready', data: 0, asOf: Date.now() }),
   useLastTrade: () => ({ status: 'ready', data: Date.now() - 5_000, asOf: 0 }),
 }));
 vi.mock('./history', async (original) => ({

@@ -28,9 +28,11 @@ export function PriceLines({
       setRefusal(
         checked.reason === 'blank'
           ? t('Price line blank')
-          : checked.reason === 'off-tick'
-            ? t('Price line off tick', { tick: tickSize })
-            : t('Price line not positive'),
+          : checked.reason === 'tick-unset'
+            ? t('Price line tick unset')
+            : checked.reason === 'off-tick'
+              ? t('Price line off tick', { tick: tickSize })
+              : t('Price line not positive'),
       );
       return;
     }

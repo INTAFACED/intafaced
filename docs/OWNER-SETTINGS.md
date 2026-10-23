@@ -8,7 +8,7 @@ Every value below is blank on purpose until the owners publish it. A blank one r
 
 ## TEST profile
 
-`tooling/profiles/test-owner-values.json` holds 31 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
+`tooling/profiles/test-owner-values.json` holds 30 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
 
 ## Env settings
 

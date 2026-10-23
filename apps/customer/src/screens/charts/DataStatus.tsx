@@ -4,14 +4,14 @@
  * the page: a state the rules do not name is never guessed.
  */
 import type { ReactNode } from 'react';
-import type { Loadable } from '../../data/types';
-import type { DataStatus, LifecycleView } from './data-status';
+import type { DataStatus, TradeRefusal } from './data-status';
 import { chartsCopy } from './copy';
 
 type Words = ReturnType<typeof chartsCopy.useCopy>['t'];
 
 const CHIP_KEY = {
   live: 'Status live',
+  quiet: 'Status quiet',
   delayed: 'Status delayed',
   end_of_day: 'Status end of day',
   stale: 'Status stale',
@@ -19,6 +19,7 @@ const CHIP_KEY = {
   halted: 'Status halted',
   not_open: 'Status not open',
   lifecycle_unavailable: 'Status lifecycle unavailable',
+  book_unavailable: 'Status book unavailable',
   no_data: 'Status no data',
   class_unset: 'Status class unset',
   class_unread: 'Status class unread',
@@ -30,7 +31,7 @@ const CHIP_KEY = {
 /** The chip's words, with the age of the newest trade where the state judges one. */
 export function chipText(status: DataStatus, t: Words): string {
   const word = t(CHIP_KEY[status.chip]);
-  const showsAge = ['live', 'delayed', 'stale', 'down', 'threshold_unset'].includes(status.chip);
+  const showsAge = ['live', 'quiet', 'delayed', 'stale', 'down', 'threshold_unset'].includes(status.chip);
   if (!showsAge) return word;
   return status.ageSeconds === null
     ? `${word} · ${t('Status no age')}`
@@ -84,6 +85,16 @@ export function StatusBanner({ status, format }: { status: DataStatus; format: (
   } else if (status.chip === 'lifecycle_unavailable') {
     kind = 'lifecycle';
     body = t('Banner lifecycle');
+  } else if (status.chip === 'book_unavailable') {
+    kind = 'book';
+    body = t('Banner book');
+  } else if (status.chip === 'quiet' && status.ageSeconds !== null) {
+    kind = 'quiet';
+    body = t('Banner quiet', {
+      seconds: String(status.ageSeconds),
+      threshold: String(status.thresholdSeconds ?? 0),
+      tick,
+    });
   } else if (status.chip === 'down') {
     kind = 'down';
     body = t('Banner down', { tick });
@@ -116,14 +127,12 @@ export function SourceLine() {
   );
 }
 
-/**
- * The order-entry refusal for a market whose state says it cannot take orders now, naming the reason. A state still
- * loading is not refused here (the desk checks the state again before any order); an unreadable state is refused.
- */
-export function lifecycleRefusal(lifecycle: Loadable<LifecycleView>, t: Words): string | null {
-  if (lifecycle.status === 'loading') return null;
-  if (lifecycle.status !== 'ready') return t('Refused lifecycle');
-  if (lifecycle.data.state === 'HALTED') return t('Refused halted');
-  if (lifecycle.data.state !== 'OPEN') return t('Refused not open', { state: lifecycle.data.state });
-  return null;
+/** The words for a refusal of order entry, from the one rule (tradeRefusal) the chip and the trade link share. */
+export function refusalText(refusal: { code: TradeRefusal; state: string | null } | null, t: Words): string | null {
+  if (refusal === null) return null;
+  if (refusal.code === 'loading') return t('Refused loading');
+  if (refusal.code === 'lifecycle_unavailable') return t('Refused lifecycle');
+  if (refusal.code === 'book_unavailable') return t('Refused book');
+  if (refusal.code === 'halted' || refusal.code === 'book_halted') return t('Refused halted');
+  return t('Refused not open', { state: refusal.state ?? '' });
 }

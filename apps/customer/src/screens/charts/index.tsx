@@ -14,8 +14,9 @@ import type { WidgetProps } from './MarketChartWidget';
 import { DrawingsLayer } from './drawings/DrawingsLayer';
 import type { DrawingLimits } from './drawings/model';
 import { ownerValue, useChartOwnerValues } from './owner-values';
-import { useMarketLifecycle } from './market-state';
-import { lifecycleRefusal } from './DataStatus';
+import { useBookHalt, useMarketLifecycle } from './market-state';
+import { refusalText } from './DataStatus';
+import { tradeRefusal } from './data-status';
 import {
   DEFAULT_SETTING,
   chartsHref,
@@ -61,7 +62,10 @@ function MarketSelect({
  */
 function TradeLink({ symbol }: { symbol: string }) {
   const { t } = chartsCopy.useCopy();
-  const refusal = lifecycleRefusal(useMarketLifecycle(symbol), t);
+  // The link is disabled until the state and the book are read, and while either is refused: one rule, the chart's own.
+  const lifecycle = useMarketLifecycle(symbol);
+  const bookHalt = useBookHalt(symbol);
+  const refusal = refusalText(tradeRefusal(lifecycle, bookHalt, Date.now()), t);
   if (refusal !== null)
     return (
       <span className="cw-link-refused">

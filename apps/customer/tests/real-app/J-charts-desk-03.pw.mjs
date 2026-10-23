@@ -179,6 +179,8 @@ test('J-charts-desk-03 #7 opens chart settings: the sections are there, a change
   await expect(dialog.getByRole('link', { name: 'Open price alerts' })).toHaveAttribute('href', '/notifications?view=alerts');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('chart-legend').first()).not.toContainText(/\d{1,2} [A-Za-z]{3} \d{4}/);
+  // The legend's time element is gone, not just empty.
+  await expect(page.locator('.wc-time')).toHaveCount(0);
   await expect(host(page)).toHaveAttribute('data-log', 'on');
   await expect(host(page)).toHaveAttribute('data-grid', 'off');
   // Saved for this device, read back after a reload.
@@ -200,9 +202,14 @@ test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that 
   await openChart(page);
   await page.getByRole('button', { name: 'Price line', exact: true }).click();
   const form = page.getByRole('form', { name: 'Add a price line' });
-  // A price off the tick grid is refused by name and draws nothing.
-  // One decimal place finer than the tick: a price the market cannot take.
-  const off = level.includes('.') ? `${level}5` : `${level}.5`;
+  // A price off the tick grid is refused by name and draws nothing. Built from the tick's own scale: the level with one
+  // more decimal place than the tick, ending in 5 (level + tick/2), so it is never a whole multiple of the tick.
+  const places = (tick.split('.')[1] ?? '').length;
+  const off = `${level.split('.')[0]}.${(level.split('.')[1] ?? '').padEnd(places, '0')}5`;
+  const decimals = (v) => (v.split('.')[1] ?? '').length;
+  const common = Math.max(decimals(off), decimals(tick));
+  const units = (v) => BigInt(v.split('.')[0] + (v.split('.')[1] ?? '').padEnd(common, '0'));
+  expect(units(off) % units(tick)).not.toBe(0n);
   expect(tick).toBe('0.01');
   await form.getByLabel('Price', { exact: true }).fill(off);
   await form.getByRole('button', { name: 'Add line' }).click();

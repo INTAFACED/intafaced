@@ -11,7 +11,7 @@ export interface PriceLine {
   label: string;
 }
 
-export type PriceLineCheck = { ok: true; price: string } | { ok: false; reason: 'blank' | 'not-positive' | 'off-tick' };
+export type PriceLineCheck = { ok: true; price: string } | { ok: false; reason: 'blank' | 'not-positive' | 'off-tick' | 'tick-unset' };
 
 const DECIMAL = /^\d+(\.\d+)?$/;
 export const PRICE_LABEL_LIMIT = 32;
@@ -30,7 +30,9 @@ function units(a: string, b: string): [bigint, bigint] {
 export function checkPriceLine(input: string, tickSize: string): PriceLineCheck {
   const price = input.trim();
   if (price === '') return { ok: false, reason: 'blank' };
-  if (!DECIMAL.test(price) || !DECIMAL.test(tickSize)) return { ok: false, reason: 'not-positive' };
+  // A market with no tick size (the owner has not set one, or the read did not give one) cannot be checked: nothing is drawn.
+  if (!DECIMAL.test(tickSize) || BigInt(tickSize.replace('.', '')) === 0n) return { ok: false, reason: 'tick-unset' };
+  if (!DECIMAL.test(price)) return { ok: false, reason: 'not-positive' };
   const [value, tick] = units(price, tickSize);
   if (value <= 0n) return { ok: false, reason: 'not-positive' };
   if (tick <= 0n || value % tick !== 0n) return { ok: false, reason: 'off-tick' };

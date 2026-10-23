@@ -131,6 +131,8 @@ const messages = {
   // The data status: one chip for what the chart's data is, and a banner for the states that stop it reading as live.
   'Status label': 'Data status: {status}',
   'Status live': 'Real-time',
+  'Status quiet': 'Quiet',
+  'Status book unavailable': 'Book halt unavailable',
   'Status delayed': 'Delayed',
   'Status end of day': 'End of day',
   'Status stale': 'Stale',
@@ -138,7 +140,7 @@ const messages = {
   'Status halted': 'Halted',
   'Status not open': 'Not open',
   'Status lifecycle unavailable': 'Market state unavailable',
-  'Status no data': 'No candles yet',
+  'Status no data': 'No candles read',
   'Status class unset': 'Class not set',
   'Status class unread': 'Class not read',
   'Status threshold unset': 'Threshold not set',
@@ -158,10 +160,15 @@ const messages = {
   'Banner down': 'Data is down. The candles shown are the last ones read and are not live. Last trade {tick}.',
   'Banner stale': 'Data is stale. The candles shown were last read {seconds} s ago and are not live. Last trade {tick}.',
   'Banner delayed': 'Delayed. The last trade was {seconds} s ago, past the {threshold} s boundary. Last trade {tick}.',
+  'Banner quiet': 'Quiet. No trade for {seconds} s, past the {threshold} s boundary on a real-time market. Last trade {tick}.',
+  'Banner book': 'The matching book’s halt state can’t be read. Order entry is refused until it can.',
   'Banner time unknown': 'time unknown',
   'Refused halted': 'Order entry is off: this market is halted.',
   'Refused not open': 'Order entry is off: this market is not open (state {state}).',
   'Refused lifecycle': 'Order entry is refused: the market state can’t be read.',
+  'Refused book': 'Order entry is refused: the matching book’s halt state can’t be read.',
+  'Refused loading': 'Checking the market state before order entry.',
+  'Price line tick unset': 'The tick size is not set, so a price cannot be checked. Nothing is drawn.',
   'Source line':
     'Source: executed trades on this venue; seeded fills are not counted. A quiet interval is drawn as a flat bar at the previous close, marked filled: no trade happened in it.',
   // The chart's settings, kept on this device.
@@ -203,3 +210,5 @@ const messages = {
 } as const;
 
 export const chartsCopy = defineCopy('charts.workbench', messages);
+/** The English source catalogue, for the copy guard in copy-yet.test.ts. */
+export const chartsMessages: Readonly<Record<string, string>> = messages;

@@ -18,6 +18,12 @@ describe('checkPriceLine: a price is a decimal on the tick grid, or it is refuse
     }
   });
 
+  it('refuses every price when the tick size is not set, and says so by name', () => {
+    expect(checkPriceLine('64500', '')).toEqual({ ok: false, reason: 'tick-unset' });
+    expect(checkPriceLine('64500', '0.00')).toEqual({ ok: false, reason: 'tick-unset' });
+    expect(checkPriceLine('64500', 'x')).toEqual({ ok: false, reason: 'tick-unset' });
+  });
+
   it('refuses a price that is not a whole multiple of the tick size, exactly (no float rounding)', () => {
     expect(checkPriceLine('64500.005', '0.01')).toEqual({ ok: false, reason: 'off-tick' });
     expect(checkPriceLine('64500.3', '0.5')).toEqual({ ok: false, reason: 'off-tick' });

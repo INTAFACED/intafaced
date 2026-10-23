@@ -566,6 +566,11 @@ async function signInPair(ctx, ops, saveSteps) {
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
 async function twoPerson(ctx, sessions, proposal) {
+  // Two different people, or the approval proves nothing: refuse when the proposer and approver are the same operator
+  // or cannot be told apart.
+  const who = (s) => s.op?.handle ?? s.op?.email ?? null;
+  if (who(sessions.a) === null || who(sessions.b) === null || who(sessions.a) === who(sessions.b))
+    throw new Error('two-person approval needs two different operators: the proposer and the approver must differ');
   const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await sessions.a.approvalToken());
   const row = data(proposed);
   if (!row?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${refusalText(proposed)}`);
@@ -1382,6 +1387,9 @@ async function main() {
       const [symbol, dataClass] = process.argv.slice(3);
       if (!symbol || !CHART_DATA_CLASSES_ALLOWED.includes(dataClass))
         die('usage: local-test-gates.mjs chart-class <SYMBOL> real_time|delayed|end_of_day', 2);
+      // Only the TEST markets the stack lists for the charts journeys (never IFC/USDT or any real market).
+      if (!Object.hasOwn(TEST_CHART_DATA_CLASSES, symbol))
+        die(`chart-class refuses ${symbol}: only the TEST markets (${Object.keys(TEST_CHART_DATA_CLASSES).join(', ')}) can be changed`, 2);
       const [d] = await publishChartDataClasses(ctx, null, { [symbol]: dataClass });
       say(
         `  charts    ${d.symbol.padEnd(24)} ${d.changed ? `data class ${d.dataClass} (TEST), approval ${d.approvalId}` : `already ${d.dataClass} (TEST)`}`,

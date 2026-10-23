@@ -5,7 +5,7 @@ import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type 
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import { dataStatus as computeStatus } from './data-status';
-import { useLastTrade, useMarketLifecycle } from './market-state';
+import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
 import { useChartOwnerValues } from './owner-values';
 import { StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
@@ -96,9 +96,20 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const now = useNow(2_000);
   // The data status: the market's state, its newest trade and the owner's class and boundary, judged against the candles.
   const lifecycle = useMarketLifecycle(market.symbol);
+  const bookHalt = useBookHalt(market.symbol);
+  const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
   const owner = useChartOwnerValues(market.symbol);
-  const status = computeStatus({ now, owner, lifecycle, candles: polled, lastTrade, pollIntervalMs: CANDLE_POLL_MS });
+  const status = computeStatus({
+    now,
+    serverClock,
+    owner,
+    lifecycle,
+    bookHalt,
+    candles: polled,
+    lastTrade,
+    pollIntervalMs: CANDLE_POLL_MS,
+  });
   // Settings and price lines are this device's own display choices.
   const [storedSettings, setStoredSettings] = useDeviceSetting<ChartSettings>(
     chartSettingsKey(userId),

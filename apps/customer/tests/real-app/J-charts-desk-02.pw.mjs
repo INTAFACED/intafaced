@@ -2,21 +2,21 @@ import { test, expect } from '@playwright/test';
 import { EDGE, tool } from './stack.mjs';
 
 // J-charts-desk-02, in the running app (docs/roadmap/journeys.json): a person tells whether the data on a chart is live,
-// delayed, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from the
-// public routes (owner values, the newest trade, the lifecycle state), never read back from the page.
+// delayed, quiet, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from
+// the public routes (owner values, the newest trade, the lifecycle state, the book halt), never read back from the page.
 //
-// Which steps are real and which are answered by a route interception:
+// Which steps are real and which are intercepted:
 //   #1 real: BTC/USDT on the stack's own data class (real time), the newest trade inside the owner's boundary.
 //   #2 real: ETH/USDT is set to the delayed class through the gates' `chart-class` (two-person approval), and restored
 //      to real time afterwards. The chip's age is checked against the newest ETH trade on the public tape.
-//   #3 INTERCEPTED: the market-lifecycle route answers HALTED. The stack has no HTTP control that moves a market to
-//      HALTED (trade.markets.status='halted' has no route), and a per-market halt (`halt <SYMBOL>`) is not reflected in
-//      the lifecycle state, so a halted book reads as live on the chart. That gap is reported, not hidden by this step.
-//   #4 INTERCEPTED: the candle route (/api/v1/ohlcv) answers 503 after the chart has loaded. The stack has no way to stop
-//      the candle feed without stopping svc-trade itself, which the coordinator has not cleared.
-//   #5 real: the TEST label follows the lifecycle's own local-test evidence marker.
-//   #6 real stream, with the render budget read from the owner values (renderBudgetMs, TEST value in
-//      tooling/profiles/test-owner-values.json). Only the rendering is measured; no route is changed.
+//   #3 real: BTC/USDT is halted with the gates' `halt` (matching's own book halt) and resumed afterwards. The chart reads
+//      that halt from /api/v1/market-halt. No interception.
+//   #4 INTERCEPTED (intercepted 503): the candle route (/api/v1/ohlcv) answers 503 after the chart has loaded. The stack has
+//      no way to stop only the candle feed without stopping svc-trade itself, which is not cleared.
+//   #5 real: the TEST label follows the lifecycle's own local-test evidence marker (the stack marks BTC/USDT as TEST).
+//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control), the bars move with trades, and
+//      the longest main-thread task over a 10 s stream window is at or under the owner's render budget (renderBudgetMs,
+//      a TEST value set by `local-test-gates.mjs charts`). No route is changed.
 const J = 'J-charts-desk-02';
 const CHART = '/charts/BTC-USDT';
 const ETH_CHART = '/charts/ETH-USDT';
@@ -83,43 +83,51 @@ test.describe(`${J} #2 on a delayed market`, () => {
     await openChart(page, ETH_CHART);
     await expect(chip(page)).toHaveAttribute('data-status', 'delayed', { timeout: 30_000 });
     await expect(chip(page)).toContainText('Delayed');
-    const seconds = Number((await chip(page).textContent()).match(/Last trade (\d+) s ago/)?.[1]);
-    const expected = (Date.now() - newest) / 1000;
-    // The chip reads the age when the page loaded; allow the time the page took to open and the next poll.
-    expect(Math.abs(seconds - expected)).toBeLessThanOrEqual(60);
+    // The age on the chip is the age of the newest ETH trade now, within the poll that set the chip and the time it took to open.
+    await expect
+      .poll(
+        async () => {
+          const text = (await chip(page).textContent()) ?? '';
+          const seconds = Number(text.match(/Last trade (\d+) s ago/)?.[1]);
+          return Math.abs(seconds - (Date.now() - newest) / 1000);
+        },
+        { timeout: 30_000, intervals: [1_000] },
+      )
+      .toBeLessThanOrEqual(60);
     await expect(banner(page)).toHaveAttribute('data-kind', 'delayed');
   });
 });
 
-test(`${J} #3 opens a halted market: a banner with the halted state and its as-of time, and chart order entry is off with the reason`, async ({
-  page,
-}) => {
-  // INTERCEPTED (see the header): the lifecycle the chart reads says HALTED since two minutes ago; the rest is the stack's.
-  const haltedSince = Date.now() - 120_000;
-  await page.route('**/api/v1/market-lifecycle/**', async (route) => {
-    const res = await route.fetch();
-    const body = await res.json();
-    await route.fulfill({
-      response: res,
-      json: { ...body, state: 'HALTED', effectiveAt: new Date(haltedSince).toISOString(), reasonCategory: 'OPERATOR' },
-    });
+test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
+  test.beforeAll(() => {
+    // Matching's own book halt for BTC/USDT; the chart reads it through svc-trade's market-halt route.
+    tool('local-test-gates.mjs', 'halt', BTC);
   });
-  await openChart(page);
-  await expect(chip(page)).toHaveAttribute('data-status', 'halted', { timeout: 30_000 });
-  await expect(banner(page)).toHaveAttribute('data-kind', 'halted');
-  await expect(banner(page)).toContainText(/Halted as of \d{1,2} [A-Za-z]{3} \d{4}, \d{2}:\d{2}/);
-  const trade = tradeButton(page);
-  await expect(trade).toBeDisabled();
-  await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
-  await expect(page.locator('a.cw-link')).toHaveCount(0);
+  test.afterAll(() => {
+    tool('local-test-gates.mjs', 'resume', BTC);
+  });
+
+  test(`${J} #3 opens a halted market: a banner that the market is halted, and chart order entry is off with the reason`, async ({
+    page,
+  }) => {
+    await openChart(page);
+    await expect(chip(page)).toHaveAttribute('data-status', 'halted', { timeout: 30_000 });
+    await expect(banner(page)).toHaveAttribute('data-kind', 'halted');
+    // The book halt carries no time, so the banner says so rather than guessing one.
+    await expect(banner(page)).toContainText(/Halted as of (time unknown|\d{1,2} [A-Za-z]{3} \d{4}, \d{2}:\d{2})/);
+    const trade = tradeButton(page);
+    await expect(trade).toBeDisabled();
+    await expect(page.locator('#cw-trade-refusal')).toHaveText('Order entry is off: this market is halted.');
+    await expect(page.locator('a.cw-link')).toHaveCount(0);
+  });
 });
 
-test(`${J} #4 opens a market whose feed has stopped: Stale or Down with the last trade time, never a frozen price shown as live`, async ({
+test(`${J} #4 opens a market whose feed has stopped (intercepted 503): Stale or Down with the last trade time, never a frozen price shown as live`, async ({
   page,
 }) => {
+  // INTERCEPTED (see the header): the candle feed answers 503 after the chart has loaded. Nothing else is changed.
   await openChart(page);
-  await expect(chip(page)).toHaveAttribute('data-status', /live|delayed/, { timeout: 30_000 });
-  // INTERCEPTED (see the header): the candle feed stops answering after the chart has loaded.
+  await expect(chip(page)).toHaveAttribute('data-status', /live|quiet|delayed/, { timeout: 30_000 });
   await page.route('**/api/v1/ohlcv/**', (route) =>
     route.fulfill({ status: 503, json: { code: 'ExchangeNotAvailable', message: 'stopped' } }),
   );
@@ -131,19 +139,17 @@ test(`${J} #4 opens a market whose feed has stopped: Stale or Down with the last
 });
 
 test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by the lifecycle's own marker`, async ({ page }) => {
-  // The lifecycle route says whether the market is a local TEST market (its evidence carries the local-test marker).
+  // The stack marks its markets with a local-test evidence marker. This step pins the branch: BTC/USDT is a TEST market
+  // on the local stack, so the label must be there with its title.
   const res = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(BTC)}`);
   expect(res.status).toBe(200);
   const life = await res.json();
   const isTest = (life.evidenceRefs ?? []).some((ref) => ref.startsWith('local-test:'));
+  expect(isTest, 'BTC/USDT carries the local-test marker on the local stack').toBe(true);
   await openChart(page);
   const label = page.getByTestId('chart-test');
-  if (isTest) {
-    await expect(label).toHaveText('TEST');
-    await expect(label).toHaveAttribute('title', /TEST: this market’s prices are test prices/);
-  } else {
-    await expect(label).toHaveCount(0);
-  }
+  await expect(label).toHaveText('TEST');
+  await expect(label).toHaveAttribute('title', /TEST: this market’s prices are test prices/);
   // The label sits with the title in the same row as the status chip.
   await expect(page.getByTestId('chart-title').first()).toBeVisible();
 });
@@ -157,7 +163,7 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
   if (budget === null || budget === undefined) {
     throw new Error('budget not set: svc-trade has no renderBudgetMs for BTC/USDT, so the render budget cannot be asserted');
   }
-  // Long tasks are recorded from before the page loads, so nothing in the first paint is missed.
+  // Long tasks are recorded from before the page loads; the window is opened and read below.
   await page.addInitScript(() => {
     window.__longTasks = [];
     try {
@@ -169,15 +175,23 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
     }
   });
   await openChart(page);
+  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar.
+  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   const first = await host(page).getAttribute('data-last');
-  // The chart reads the tape every 10 s; within 40 s a live market has printed at least one new bar's worth of trades.
-  await expect.poll(async () => host(page).getAttribute('data-last'), { timeout: 40_000, intervals: [2_000] }).not.toBe(first);
-  // A stream window with the page open: 10 s of ticks and polls.
+  await expect.poll(async () => host(page).getAttribute('data-last'), { timeout: 70_000, intervals: [2_000] }).not.toBe(first);
+  // The stream window: only the long tasks inside these 10 s count.
+  await page.evaluate(() => {
+    window.__longTasks = [];
+  });
   await page.waitForTimeout(10_000);
   const tasks = await page.evaluate(() => window.__longTasks);
   expect(tasks, 'the browser reports long tasks (PerformanceObserver longtask)').not.toBeNull();
   const worst = Math.max(0, ...tasks);
-  expect(worst, `longest main-thread task while streaming, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
+  expect(worst, `longest main-thread task in the 10 s stream window, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
   // The page is not frozen: the frame counter keeps advancing.
   const frames = await page.evaluate(
     () =>

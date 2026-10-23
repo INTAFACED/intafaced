@@ -150,11 +150,6 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
-    },
-    "TRADE_CHART_RENDER_BUDGET_MS": {
-      "service": "trade",
-      "value": "500",
-      "note": "TEST longest main-thread task in ms the charts may hold while ticks stream (J-charts-desk-02 #6). Stored in svc-trade (trade.chart_owner_values.render_budget_ms) by local-test-gates.mjs charts, not read from an env var; the blank value refuses by name."
     }
   }
 }
