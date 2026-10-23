@@ -647,3 +647,11 @@ Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE
 ## Service keys: inbound doors
 
 The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## LOCAL TEST tape history
+
+A wiped local stack has no past trades, so charts have no history. `TRADE_LOCAL_TEST_TAPE_RETIME=on` adds `POST /internal/local-test/tape-retime` (body-bound service auth), which spreads a market's TEST trades back over past buckets: the trade at engine sequence position `i` gets `ts = startMs + i * stepMs`, both legs together. The trades themselves are real: the local tooling places them through the normal order path, with ledger holds, engine matches and fees. Only `trade.fills.ts` changes. Prices, quantities, fees, orders, ledger postings and the `trade.fill` events already published keep what they were.
+
+It refuses (typed `trade.local_test_tape_*` errors) unless every fill on the market belongs to orders whose client id starts `LTEST-TAPE-` and that are not seeded, so a live print is never moved and the public tape's sequence order still matches its time order. Times must be in the past and at most 31 days back, with at most 5000 trades per call.
+
+Unset, blank or `off` means the route does not exist. `on` outside an explicit `APP_ENV` of `dev` or `test` stops svc-trade at startup, before it opens the database. Any other value also stops startup. Code: `src/spot/local-test-tape.ts`.
