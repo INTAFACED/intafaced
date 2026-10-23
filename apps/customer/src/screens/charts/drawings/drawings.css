@@ -197,6 +197,19 @@
   .dw-slot-note {
     margin: 0;
   }
+  /* The row's group checkbox has no size of its own in the page's reset: give it one a person can tick. */
+  .dw-check {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .dw-check input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--if-lime);
+    cursor: pointer;
+  }
 }
 @media (max-width: 720px) {
   .dw-row {

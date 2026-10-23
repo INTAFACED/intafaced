@@ -51,7 +51,9 @@ test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
   await clickPlot(page, 0.25, 0.9);
   // The text is stored with the drawing and shown in the object tree.
   await expect(page.locator('[data-drawing-id][data-kind="text"]')).toHaveCount(1);
-  await expect(page.locator('[data-kind="text"] input')).toHaveValue('Support');
+  await expect(page.locator('[data-drawing-id][data-kind="text"]').getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue(
+    'Support',
+  );
   // Font size and colour are not offered in this build: the text takes the default size and the neutral tone.
 });
 
@@ -74,24 +76,31 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
 });
 
 test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () => {
-  const trend = rowNamed(page, /^Trend line \d+$/);
-  await trend.getByRole('button', { name: /^Trend line \d+$/ }).click();
-  await pick(page, 'Lock');
-  await expect(trend).toHaveAttribute('data-selected', 'true');
-  const before = await pointText(trend).textContent();
+  // Step 4 moved the first line, so this step draws its own line on points it knows, and works on that selected drawing.
+  await pick(page, 'Trend line');
   const a = await plot(page, 0.3, 0.4);
   const b = await plot(page, 0.6, 0.5);
+  await clickPlot(page, 0.3, 0.4);
+  await clickPlot(page, 0.6, 0.5);
+  const line = page.locator('[data-drawing-id][data-selected]');
+  await expect(line).toHaveCount(1);
+  const before = await pointText(line).textContent();
+  const actions = page.getByRole('group', { name: 'Drawing actions' });
+  await actions.getByRole('button', { name: 'Lock', exact: true }).click();
   const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   await page.mouse.move(middle.x, middle.y);
   await page.mouse.down();
   await page.mouse.move(middle.x + 60, middle.y, { steps: 6 });
   await page.mouse.up();
-  await expect(pointText(trend)).toHaveText(before);
+  await expect(pointText(line)).toHaveText(before);
   await expect(page.getByRole('alert').filter({ hasText: 'locked' })).toBeVisible();
   // Magnet snaps a placed point to the open, high, low or close of the nearest bar: it is switched on here.
   await pick(page, 'Magnet off');
   await expect(page.getByRole('button', { name: 'Magnet on', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await pick(page, 'Unlock');
+  // Unlock and delete the line this step drew, so step 6 lists the five drawings of this journey.
+  await actions.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await actions.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(rows(page)).toHaveCount(5);
 });
 
 test(`${J} #6 lists every drawing in the object tree, and hides a group together`, async () => {
