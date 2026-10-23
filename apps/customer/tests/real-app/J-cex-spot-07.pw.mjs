@@ -75,8 +75,11 @@ test(`${J} #1 arms the switch with a timeout the owner has published: armed, wit
   const fires = Date.parse(state.triggerTime) - before;
   expect(fires).toBeGreaterThan(110_000);
   expect(fires).toBeLessThan(130_000);
+  // The desk's own button (behind the open dialog) says when it fires.
+  await box.getByRole('button', { name: 'Close' }).click();
   await expect(switchButton(page)).toHaveText(/^Auto-cancel at \d\d:\d\d:\d\d$/);
   // Off again, so nothing fires during the next steps.
+  await openSwitch(page);
   await box.getByRole('button', { name: 'Turn off' }).click();
   await expect(box.getByText('Off. Nothing will be cancelled.')).toBeVisible();
 });
@@ -88,7 +91,7 @@ test(`${J} #2 arms it with an unpublished timeout: refused with a typed reason, 
   await openSwitch(page);
   const box = dialog(page);
   await box.getByRole('radio', { name: 'Other' }).check();
-  await box.getByLabel('Seconds').fill('7');
+  await box.getByRole('textbox', { name: 'Seconds', exact: true }).fill('7');
   const answer = page.waitForResponse((r) => r.url().includes('/api/v1/orders/cancel-all-after') && r.request().method() === 'POST');
   await box.getByRole('button', { name: 'Turn on' }).click();
   const res = await answer;
