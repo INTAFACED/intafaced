@@ -31,16 +31,18 @@ export function localTestDatabaseUrl(url) {
 }
 
 export async function insertSpotTestListing(sql, l) {
+  // `markets_test_fixture_ck`: a TEST row keeps the explicit values it was seeded with.
+  const fixture = { kind: 'spot', label: 'LOCAL TEST', ...l };
   const rows = await sql`
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
-      maker_bps, taker_bps, status, display_name, listed_at, "test"
+      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture
     ) VALUES (
       ${l.symbol}, ${l.baseAsset}, ${l.quoteAsset}, 'spot', ${l.tickSize}::numeric, ${l.lotSize}::numeric,
       ${l.minQty}::numeric, ${l.minNotional}::numeric, ${l.makerBps}::numeric, ${l.takerBps}::numeric,
-      'active', ${l.displayName}, now(), true
+      'active', ${l.displayName}, now(), true, ${sql.json(fixture)}
     )
-    ON CONFLICT (symbol) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()
+    ON CONFLICT (symbol) DO UPDATE SET display_name = EXCLUDED.display_name, test_fixture = EXCLUDED.test_fixture, updated_at = now()
     WHERE trade.markets."test" = true
     RETURNING id, symbol
   `;
