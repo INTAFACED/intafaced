@@ -15,10 +15,13 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { downloadCsv } from '../more/depth-csv';
 import { utcInput } from '../more/quant-analysis';
 import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
+import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
+import './algo.css';
 import { STRATEGY_PAGE } from './StrategyTable';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -261,7 +264,9 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'charts', 'trades'] as const;
+const CHART_W = 1000;
+const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
 
 function BacktestResult({ result }: { result: QuantBacktestResult }) {
@@ -276,9 +281,12 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
         value={tab}
         onChange={(next) => setTab(next as ResultTab)}
         label={t('resultTabs')}
-        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics') }}
+        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics'), charts: t('tabCharts'), trades: t('tabTrades') }}
       />
-      {tab === 'summary' ? <ResultSummary result={result} /> : <MetricsTab metrics={result.metrics} />}
+      {tab === 'summary' && <ResultSummary result={result} />}
+      {tab === 'metrics' && <MetricsTab metrics={result.metrics} />}
+      {tab === 'charts' && <ResultCharts result={result} />}
+      {tab === 'trades' && <ResultTrades result={result} />}
     </section>
   );
 }
@@ -380,8 +388,30 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           </div>
         ))}
       </dl>
+    </>
+  );
+}
+
+/** The run's fills with their side, and the orders that did not fill (AL-report-02), with a CSV of the fills. */
+function ResultTrades({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const [saved, setSaved] = useState<boolean | null>(null);
+  return (
+    <div data-testid="quant-bar-trades">
+      <Button
+        type="button"
+        data-testid="quant-bar-csv"
+        disabled={!result.trades.length}
+        onClick={() => setSaved(downloadCsv(tradesCsvName(result.runId), tradesCsv(result)))}
+      >
+        {t('downloadCsv')}
+      </Button>
+      {saved === false && <p className="error-text">{t('csvFailed')}</p>}
       {result.trades.length ? (
-        <DataTable headers={[t('time'), t('side'), t('reason'), t('qty'), t('barPrice'), t('price'), t('fee')]} label={t('tradesTitle')}>
+        <DataTable
+          headers={[t('time'), t('side'), t('reason'), t('qty'), t('barPrice'), t('price'), t('fee'), t('slippageTotal')]}
+          label={t('tradesTitle')}
+        >
           {result.trades.map((trade, i) => (
             <tr key={`${trade.ts}:${i}`} data-testid="quant-bar-trade" data-ts={trade.ts} data-side={trade.side}>
               <td lang="zxx">{trade.ts.slice(0, 16).replace('T', ' ')}</td>
@@ -391,6 +421,7 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
               <td lang="zxx">{trade.barPrice}</td>
               <td lang="zxx">{trade.price}</td>
               <td lang="zxx">{trade.fee}</td>
+              <td lang="zxx">{trade.slippage}</td>
             </tr>
           ))}
         </DataTable>
@@ -408,6 +439,60 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       )}
+    </div>
+  );
+}
+
+/** The equity curve with a marker on each fill (green buy, red sell); the table under it carries the same numbers. */
+function ResultCharts({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const geometry = equityGeometry(result, CHART_W, CHART_H);
+  return (
+    <div data-testid="quant-bar-charts">
+      {geometry ? (
+        <figure className="quant-equity-chart">
+          <svg
+            viewBox={`-8 -8 ${CHART_W + 16} ${CHART_H + 16}`}
+            role="img"
+            aria-label={t('chartLabel')}
+            data-testid="quant-bar-equity-chart"
+          >
+            <polyline
+              points={geometry.line}
+              fill="none"
+              style={{ stroke: 'var(--if-lime)' }}
+              strokeWidth="2"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            {geometry.markers.map((marker, i) => {
+              // Shape carries the side, not colour alone: a triangle up for a buy, down for a sell.
+              const x = Number(marker.x);
+              const y = Number(marker.y);
+              const points =
+                marker.side === 'buy'
+                  ? `${x - 9},${y + 8} ${x + 9},${y + 8} ${x},${y - 8}`
+                  : `${x - 9},${y - 8} ${x + 9},${y - 8} ${x},${y + 8}`;
+              return (
+                <polygon
+                  key={`${marker.ts}:${i}`}
+                  points={points}
+                  style={{ fill: marker.side === 'buy' ? 'var(--if-up-text)' : 'var(--if-down-text)' }}
+                  data-testid="quant-bar-marker"
+                  data-side={marker.side}
+                  data-ts={marker.ts}
+                >
+                  <title>{t('markerTitle', { side: t(marker.side), time: marker.ts.slice(0, 16).replace('T', ' ') })}</title>
+                </polygon>
+              );
+            })}
+          </svg>
+          <figcaption className="muted">{t('chartCaption')}</figcaption>
+          {geometry.unmatched > 0 && <p className="error-text">{t('chartUnmatched', { count: geometry.unmatched })}</p>}
+        </figure>
+      ) : (
+        <p className="muted">{t('chartTooFew')}</p>
+      )}
       <details>
         <summary>{t('equityTitle')}</summary>
         <DataTable headers={[t('time'), t('equity')]} label={t('equityTitle')}>
@@ -419,6 +504,6 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       </details>
-    </>
+    </div>
   );
 }
