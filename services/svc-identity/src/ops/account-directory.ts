@@ -171,7 +171,7 @@ export async function searchAccounts(
       (${key.kind} = 'email' AND u.email = ${key.kind === 'email' ? key.value : ''})
       OR (${key.kind} = 'handle' AND u.handle LIKE ${pattern ?? ''} ESCAPE '\\')
     )
-    AND (${after === null} OR (u.created_at, u.id) > (${after?.createdAt ?? null}::timestamptz, ${after?.id ?? null}::uuid))
+    AND (${after === null} OR (u.created_at, u.id) > (${after?.createdAt ?? null}::text::timestamptz, ${after?.id ?? null}::uuid))
     ORDER BY u.created_at ASC, u.id ASC
     LIMIT ${SEARCH_CAP + 1}
   `;

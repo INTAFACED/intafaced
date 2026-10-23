@@ -215,7 +215,7 @@ if (!databaseUrl) {
         const handle = `pgq${String(i).padStart(2, '0')}`;
         await db.sql`
           INSERT INTO users (handle, email, password_hash, created_at)
-          VALUES (${handle}, ${`${handle}@example.com`}, 'x', ${i >= 15 ? '2026-10-22T10:00:00.123456Z' : new Date(Date.UTC(2026, 9, 21, 0, i)).toISOString()})
+          VALUES (${handle}, ${`${handle}@example.com`}, 'x', ${i >= 15 ? '2026-10-22T10:00:00.123456Z' : new Date(Date.UTC(2026, 9, 21, 0, i)).toISOString()}::text::timestamptz)
         `;
       }
       const first = await searchAccounts(db.sql, reader, { handle: 'pgq' });
