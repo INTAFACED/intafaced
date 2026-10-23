@@ -161,3 +161,25 @@ export const academyAccessGrantSchema = z.object({
   expiresAt: isoInstant.nullable(),
 });
 export type AcademyAccessGrant = z.infer<typeof academyAccessGrantSchema>;
+
+/**
+ * AC-course-structure-02: the outline beside an open item, for the signed-in learner. Each item carries the caller's
+ * own release state; a locked item says why (`prerequisite` with the missing items, or `window` with when it opens,
+ * null when the window has closed) and its body is never part of the outline.
+ */
+export const ACADEMY_ITEM_STATES = ['locked', 'unlocked', 'started', 'completed'] as const;
+export const academyCourseOutlineItemSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+  state: z.enum(ACADEMY_ITEM_STATES),
+  lock: z.enum(['prerequisite', 'window']).nullable(),
+  missing: z.array(z.string().min(1)),
+  opensAt: isoInstant.nullable(),
+});
+export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
+export const academyCourseOutlineSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  items: z.array(academyCourseOutlineItemSchema).min(1),
+});
+export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;

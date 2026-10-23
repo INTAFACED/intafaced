@@ -12,7 +12,7 @@ import { useApi, useSession } from '../session/session';
 import { Details } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
-import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
+import { AcademyRefusal, ProgressBar, pathLabel } from './AcademyLmsParts';
 
 const itemHref = (slug: string) => `/academy/${encodeURIComponent(slug)}`;
 const SECTIONS = [
@@ -76,10 +76,9 @@ export function MyLearningView({ courses }: { courses: readonly AcademyMyCourse[
                         )}
                       </time>
                     </span>
-                    <progress
-                      max={row.items}
-                      value={row.completed}
-                      aria-label={t('myProgress', { completed: row.completed, items: row.items })}
+                    <ProgressBar
+                      percent={(row.completed / row.items) * 100}
+                      label={t('myProgress', { completed: row.completed, items: row.items })}
                     />
                     {row.status !== 'future_start' && (
                       <a className="button button--secondary" href={itemHref(row.resumeItemSlug ?? row.firstItemSlug)}>

@@ -7,10 +7,11 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import type { AcademyCourseEnrolment } from '@intafaced/contracts/academy-catalogue';
+import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intafaced/contracts/academy-catalogue';
 import { SessionProvider } from '../session/session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
 import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
+import { CourseOutlineView, neighbours } from './AcademyCourseOutline';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const terms: AcademyCourseEnrolment = {
@@ -103,5 +104,44 @@ describe('My learning and course access (AC-catalogue-02, AC-access-grants-01)',
     expect(out).toContain('Free enrolment');
     expect(out).toContain('No expiry');
     expect(html(<AccessGrantsView grants={[]} />)).toContain('You have no course access records.');
+  });
+});
+
+const row = (slug: string, over: Partial<AcademyCourseOutlineItem> = {}): AcademyCourseOutlineItem => ({
+  slug,
+  title: slug.toUpperCase(),
+  kind: 'lesson',
+  state: 'unlocked',
+  lock: null,
+  missing: [],
+  opensAt: null,
+  ...over,
+});
+
+describe('course outline (AC-course-structure-02)', () => {
+  const items = [
+    row('a', { state: 'completed' }),
+    row('b'),
+    row('c', { state: 'locked', lock: 'prerequisite', missing: ['b'] }),
+    row('d', { state: 'locked', lock: 'window', opensAt: '2026-11-02T00:00:00.000Z' }),
+    row('e'),
+  ];
+
+  it('Next and Previous skip locked items and count them', () => {
+    expect(neighbours(items, 'b')).toEqual({ previous: { item: items[0], skipped: 0 }, next: { item: items[4], skipped: 2 } });
+    expect(neighbours(items, 'a').previous).toEqual({ item: null, skipped: 0 });
+    expect(neighbours(items, 'e').next).toEqual({ item: null, skipped: 0 });
+  });
+
+  it('types each item, gives a locked one its reason as text and no link, and marks the open one', () => {
+    const out = html(<CourseOutlineView outline={{ slug: 'markets', items }} current="b" />);
+    expect(out).toMatch(/<a href="\/academy\/b" aria-current="page"/);
+    expect(out).not.toContain('href="/academy/c"');
+    expect(out).not.toContain('href="/academy/d"');
+    expect(out).toContain('Locked: complete B first.');
+    expect(out).toContain('Locked: opens November 2, 2026.');
+    expect(out).toContain('Completed');
+    expect(out).toContain('Locked items skipped: 2');
+    expect(out).toMatch(/href="\/academy\/e" rel="next"/);
   });
 });

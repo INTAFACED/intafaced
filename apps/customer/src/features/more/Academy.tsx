@@ -24,6 +24,7 @@ import {
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCourse, AcademyHub } from './AcademyHub';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
+import { AcademyCourseOutline } from './AcademyCourseOutline';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 
@@ -95,6 +96,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : tab === 'Learning' ? (
         <>
           {!slug && <AcademyMyLearning />}
+          {slug && <AcademyCourseOutline itemSlug={slug} />}
           <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
         </>
       ) : tab === 'Certificates' ? (

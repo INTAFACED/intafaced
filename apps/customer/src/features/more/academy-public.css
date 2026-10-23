@@ -49,3 +49,19 @@
   height: 14px;
   margin: 0;
 }
+
+.academy-outline {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.25em;
+}
+.academy-outline a[aria-current='page'] {
+  font-weight: 600;
+}
+.academy-outline-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}

@@ -280,6 +280,32 @@ describe('academy customer learning reads and writes', () => {
     expect((await caller.myAccessGrants()).map((row) => row.source)).toEqual(['free']);
   });
 
+  it('the course outline gives each item its own release state, locks with the reason, and Start course skips a locked first item', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    await academy.setItemPrerequisites({ itemSlug: items[2]!.slug, prerequisites: [items[1]!.slug] });
+    const outline = await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug });
+    expect(outline.slug).toBe('markets');
+    expect(outline.items.map((row) => row.slug)).toEqual(items.map((row) => row.slug));
+    expect(outline.items[2]).toMatchObject({ state: 'locked', lock: 'prerequisite', missing: [items[1]!.slug], opensAt: null });
+    expect(outline.items[0]).toMatchObject({ state: 'unlocked', lock: null, missing: [] });
+    expect(JSON.stringify(outline)).not.toContain('body');
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug });
+    const after = await academy.courseOutline({ userId: USER, itemSlug: items[2]!.slug });
+    expect(after.items[1]!.state).toBe('completed');
+    expect(after.items[2]).toMatchObject({ lock: null, missing: [] });
+    expect((await academy.courseOutline({ userId: OTHER, itemSlug: items[2]!.slug })).items[2]!.lock).toBe('prerequisite');
+
+    await academy.setItemPrerequisites({ itemSlug: items[0]!.slug, prerequisites: [items[2]!.slug] });
+    await academy.enrolCourse({ userId: OTHER, slug: 'markets', track: 'audit' });
+    expect((await academy.myLearning(OTHER))[0]!.firstItemSlug).toBe(items[1]!.slug);
+    await expect(academy.courseOutline({ userId: USER, itemSlug: 'no-such-item' })).rejects.toMatchObject({
+      code: 'academy.curriculum_not_found',
+    });
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({

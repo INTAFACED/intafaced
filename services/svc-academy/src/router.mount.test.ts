@@ -242,6 +242,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'courseEnrolment',
         'myLearning',
         'myAccessGrants',
+        'courseOutline',
         'markCurriculumComplete',
         'itemRelease',
         'admin.setFeatured',

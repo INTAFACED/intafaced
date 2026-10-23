@@ -5,7 +5,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // J-academy-02, in the running app (docs/roadmap/journeys.json): enrol in a free course and start learning. One test per
 // step, titled "J-academy-02 #<n>", run in order. The learner is a verified TEST account signed up in the browser; the
 // courses are what svc-academy publishes, nothing is seeded by hand.
-// Not here yet: #4 (a course that starts next week) and #6 (Start course and the outline sidebar); their slices come next.
+// Not here yet: #4 (a course that starts next week); its slice comes next. In #6 staff set one TEST prerequisite through
+// Academy's own admin door, as an operator would, and take it off again at the end.
 const J = 'J-academy-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -130,6 +131,53 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
     await expect(card.getByText(/^Enrolled since /)).toBeVisible();
     await expect(card.getByRole('link', { name: 'Continue' })).toHaveCount(0);
     await expect(card.getByRole('link', { name: 'Start course' })).toHaveAttribute('href', `/academy/${items[0]}`);
+  }
+});
+
+/** Staff set an item's prerequisites through Academy's admin door, with the stack's TEST founder session. */
+async function setPrerequisites(itemSlug, prerequisites) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  // The founder's own session with the operator write scope, the same door the ops desk uses.
+  const token = await founders.a.tradeOpsToken();
+  const res = await ctx.edge.mutate('academy', 'admin.setItemPrerequisites', { itemSlug, prerequisites }, token);
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+}
+
+test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({
+  page,
+}) => {
+  const { who, second } = state('who', 'second');
+  const items = await syllabus(second);
+  expect(items.length, 'the course needs four items to lock the third').toBeGreaterThanOrEqual(4);
+  await setPrerequisites(items[2], [items[1]]);
+  try {
+    await signIn(page, who);
+    await page.goto('/academy/learning');
+    await myCourse(page, second).getByRole('link', { name: 'Start course' }).click();
+    await expect(page).toHaveURL(`/academy/${items[0]}`);
+    const outline = page.locator(`[data-academy-outline="${second}"]`);
+    await expect(outline.locator('[data-outline-item]')).toHaveCount(items.length);
+    await expect(outline.locator(`[data-outline-item="${items[0]}"] a`)).toHaveAttribute('aria-current', 'page');
+    await expect(outline.locator(`[data-outline-item="${items[0]}"] .academy-lms-meta`)).toContainText(/Playbook|Workbook|Lesson/);
+    const locked = outline.locator(`[data-outline-item="${items[2]}"]`);
+    await expect(locked).toHaveAttribute('data-outline-state', 'locked');
+    await expect(locked.getByRole('link')).toHaveCount(0);
+    const before = await outline.locator(`[data-outline-item="${items[1]}"] a`).innerText();
+    await expect(locked).toContainText(`Locked: complete ${before} first.`);
+    await expect(outline.getByText('This is the first item you can open.')).toBeVisible();
+
+    await outline.getByRole('link', { name: 'Next', exact: true }).click();
+    await expect(page).toHaveURL(`/academy/${items[1]}`);
+    await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
+    await outline.getByRole('link', { name: 'Next', exact: true }).click();
+    await expect(page).toHaveURL(`/academy/${items[3]}`);
+    await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
+    await outline.getByRole('link', { name: 'Previous', exact: true }).click();
+    await expect(page).toHaveURL(`/academy/${items[1]}`);
+  } finally {
+    await setPrerequisites(items[2], []);
   }
 });
 

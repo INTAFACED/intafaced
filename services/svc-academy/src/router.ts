@@ -15,6 +15,7 @@ import {
   academyEnrolCourseInputSchema,
   academyMyCourseSchema,
   academyAccessGrantSchema,
+  academyCourseOutlineSchema,
   academyPublicHubSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -2210,6 +2211,12 @@ export function createAcademyRouter(
     myLearning: scopedProcedure('academy:read', { module: 'academy' })
       .output(z.array(academyMyCourseSchema))
       .query(({ ctx }) => guard(() => academy.myLearning(ctx.principal.userId))),
+
+    /** AC-course-structure-02: the outline of an item's course, with the caller's own release state per item. */
+    courseOutline: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }).strict())
+      .output(academyCourseOutlineSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseOutline({ userId: ctx.principal.userId, itemSlug: input.itemSlug }))),
 
     /** AC-access-grants-01: the caller's access records, with source and expiry. */
     myAccessGrants: scopedProcedure('academy:read', { module: 'academy' })

@@ -42,7 +42,13 @@ import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
-import type { AcademyAccessGrant, AcademyCourseEnrolment, AcademyEnrolmentTrack, AcademyMyCourse } from '@intafaced/contracts';
+import type {
+  AcademyAccessGrant,
+  AcademyCourseEnrolment,
+  AcademyCourseOutline,
+  AcademyEnrolmentTrack,
+  AcademyMyCourse,
+} from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -1687,7 +1693,51 @@ export class AcademyService {
     const enrolments = await this.publishedEnrolments(userId);
     if (enrolments.length === 0) return [];
     const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
-    return enrolments.map((row) => myCourseView(row.pathSlug as CurriculumPath, row, completed, state.lastItemSlug));
+    return Promise.all(
+      enrolments.map(async (row) => {
+        const path = row.pathSlug as CurriculumPath;
+        return myCourseView(path, row, completed, state.lastItemSlug, await this.firstOpenItem(userId, path));
+      }),
+    );
+  }
+
+  /**
+   * AC-course-structure-02: the outline of the course an item belongs to, with the caller's own release state per item.
+   * Only titles, kinds and lock reasons: no body, and no staff name or reason from an extension.
+   */
+  async courseOutline(input: { userId: string; itemSlug: string; now?: Date }): Promise<AcademyCourseOutline> {
+    const item = getCurriculumItem(input.itemSlug.trim());
+    if (!item) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const path = item.path as CurriculumPath;
+    const now = input.now ?? new Date();
+    const rows = listCurriculum({ path });
+    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId: input.userId, itemSlug: row.slug, now })));
+    return {
+      slug: path,
+      items: rows.map((row, i) => {
+        const view = views[i]!;
+        const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
+        return {
+          slug: row.slug,
+          title: row.title,
+          kind: row.kind,
+          state: view.state,
+          lock: view.lock,
+          missing: [...view.missing],
+          opensAt: opensLater ? view.availableFrom!.toISOString() : null,
+        };
+      }),
+    };
+  }
+
+  /** The first item of a course the caller may open now, for Start course; the first item when every one is locked. */
+  private async firstOpenItem(userId: string, path: CurriculumPath): Promise<string> {
+    const rows = listCurriculum({ path });
+    for (const row of rows) {
+      const view = await this.release.itemRelease({ userId, itemSlug: row.slug });
+      if (view.lock === null) return row.slug;
+    }
+    return rows[0]!.slug;
   }
 
   /** AC-access-grants-01: the caller's access records, one per active enrolment. */

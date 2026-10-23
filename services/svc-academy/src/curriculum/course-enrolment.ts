@@ -64,6 +64,7 @@ export function myCourseView(
   enrolment: EnrollmentRow,
   completed: ReadonlySet<string>,
   lastItemSlug: string | null,
+  firstOpenItemSlug: string,
 ): AcademyMyCourse {
   const items = listCurriculum({ path });
   const done = items.filter((row) => completed.has(row.slug)).length;
@@ -77,7 +78,7 @@ export function myCourseView(
     startsAt: null,
     items: items.length,
     completed: done,
-    firstItemSlug: items[0]!.slug,
+    firstItemSlug: firstOpenItemSlug,
     resumeItemSlug: started ? resume : null,
   };
 }
