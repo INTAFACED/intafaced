@@ -165,6 +165,7 @@ const write = (lotId: string, price: string): BasisWrite => ({
   qty: null,
 });
 
+// skipIf runs the block when Postgres is up and skips only when it is absent.
 describe.skipIf(!db)('tax.basis_overrides', () => {
   afterAll(async () => {
     await db?.drop();
