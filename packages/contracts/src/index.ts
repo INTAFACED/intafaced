@@ -73,6 +73,7 @@ export * from './home-work-items.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './outreach-public.js';
+export * from './status-page.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './support-survey.js';
