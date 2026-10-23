@@ -211,6 +211,17 @@ still spends an identity four-eyes approval (`notify.notice.publish`) and the ap
   components it names (each must be defined on the page; an incident template naming components must name its impact).
   None is seeded. At most 100 active (`status.template_cap_reached`); the same wording defined again is a replay, and a
   retired id defined again comes back.
+- `statusPage.postmortems.*` (migration 0031): one postmortem per incident, written on its first entry only once a
+  published entry has resolved it (`status.postmortem_requires_resolved` while open). `write` (`admin:write`) names the
+  version it read (0 for none): the same words again are a replay, an edit over a newer version is
+  `status.postmortem_version_stale`. `proposal` is the identity approval (`notify.postmortem.publish`, target
+  `postmortem:<incident>`, bound to the version and wording) a second founder approves; `publish` spends it once, with a
+  request id made from the approval so a retry after a lost reply is answered by identity, and records the use with the
+  publish in one transaction. An approval for another action, or the approver publishing
+  (`status.postmortem_publish_same_operator`), is spent and publishes nothing; identity not answering is
+  `status.postmortem_approval_unreachable` and leaves the approval usable. A published postmortem is never edited.
+  `forIncidents` (up to 200 ids) is the founders' desk; `published` is signed-out and carries no author. The customer
+  `/status` page does not show postmortems yet.
 
 ### Status badge (SP-status-05)
 

@@ -163,6 +163,20 @@ export type FundingNotices = {
   readonly maintenance: readonly NoticeWire[];
 };
 
+/**
+ * Whether a consumed approval fails the four-eyes rule for this publisher: no second founder approved it, the approver is
+ * the one publishing or the one who asked, it was a same-person approval, or it is not in a spendable state.
+ */
+export function fourEyesRefused(approval: ActionApproval, publisherId: string): boolean {
+  return (
+    approval.approverId == null ||
+    approval.approverId === publisherId ||
+    approval.approverId === approval.requesterId ||
+    approval.kind === 'same_person' ||
+    (approval.status !== 'CONSUMED' && approval.status !== 'APPROVED')
+  );
+}
+
 export interface NoticeApprovalConsumer {
   consume(input: ActionApprovalConsumeInput): Promise<ActionApproval>;
 }
@@ -559,6 +573,13 @@ export class NoticeBoard {
     return row && row.status === 'published' ? row : null;
   }
 
+  /** An incident as a postmortem needs it: unknown unless it is a published first entry, then open or resolved. */
+  async incidentState(id: string): Promise<'unknown' | 'open' | 'resolved'> {
+    const row = await this.store.findById(id);
+    if (!row || row.kind !== 'incident' || row.parentId !== null || row.status !== 'published') return 'unknown';
+    return (await this.resolvedIncident(id)) ? 'resolved' : 'open';
+  }
+
   async notice(id: string): Promise<NoticeWire> {
     const row = await this.store.findById(id);
     if (!row || row.status !== 'published') throw new NoticeError('notify.notice_not_found');
@@ -677,13 +698,7 @@ export class NoticeBoard {
     } catch {
       return fail('notify.notice_approval_spent');
     }
-    const sameOperator =
-      approval.approverId == null ||
-      approval.approverId === publisherId ||
-      approval.approverId === approval.requesterId ||
-      approval.kind === 'same_person' ||
-      (approval.status !== 'CONSUMED' && approval.status !== 'APPROVED');
-    if (sameOperator) {
+    if (fourEyesRefused(approval, publisherId)) {
       await this.store.recordApproval(input.approvalId, row.id, publisherId, 'refused_same_operator');
       return fail('notify.notice_publish_same_operator');
     }

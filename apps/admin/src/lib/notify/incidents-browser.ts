@@ -11,7 +11,11 @@ export async function fetchIncidentDesk(): Promise<IncidentDeskView | null> {
     const res = await fetch('/api/notify-incidents', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.notices) && isRecord(body.approvals)
+    return isRecord(body) &&
+      typeof body.asOf === 'string' &&
+      isRecord(body.notices) &&
+      isRecord(body.postmortems) &&
+      isRecord(body.approvals)
       ? (body as unknown as IncidentDeskView)
       : null;
   } catch {
