@@ -1139,7 +1139,6 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           return token.governanceHome(userId, asAdmin);
         }),
       ),
-
   });
 }
 
