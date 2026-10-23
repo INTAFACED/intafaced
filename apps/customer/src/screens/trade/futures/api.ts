@@ -244,9 +244,13 @@ export interface OpenInput {
   leverage: string;
   /** Absent is cash. Another class is sent as chosen, and the service refuses it on its own code. */
   collateralClass?: string;
-  /** Market (IOC at the band edge) or limit (rests GTC at `price`). */
+  /** Market (IOC up to the slippage cap or the band edge) or limit (rests GTC at `price`). */
   type: 'market' | 'limit';
   price?: string;
+  /** A limit outside the price band is moved to the nearer edge instead of refused. Absent refuses it. */
+  priceCorrection?: 'adjust';
+  /** Above the max-order: placed as children of at most the cap (`POST /futures/orders/split`), keyed `<clientOpenId>:1..N`. */
+  split?: true;
   clientOpenId: string;
 }
 
@@ -260,7 +264,28 @@ export interface PlaceOrderInput {
   reduceOnly?: boolean;
   clientOrderId: string;
   collateralClass?: string;
+  priceCorrection?: 'adjust';
 }
+
+/** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */
+export interface PreviewInput {
+  symbol: string;
+  side: 'long' | 'short';
+  size: string;
+  leverage: string;
+  collateralClass?: string;
+  type?: 'market' | 'limit';
+  limitPrice?: string;
+  priceCorrection?: 'adjust';
+}
+
+export const futuresSplitSchema = z.object({
+  parts: z.number().int(),
+  orders: z.array(futuresOrderSchema),
+  /** The child a typed refusal stopped at; the children before it are live. */
+  stopped: z.object({ child: z.number().int(), code: z.string(), message: z.string() }).nullable(),
+});
+export type FuturesSplit = z.infer<typeof futuresSplitSchema>;
 
 export function createFuturesApi(api: ApiClient) {
   return {
@@ -268,10 +293,8 @@ export function createFuturesApi(api: ApiClient) {
     ticker: (symbol: string, signal?: AbortSignal) => api.rest('/futures/ticker', tickerStripSchema, { query: { symbol }, signal }),
     fundingRate: (symbol: string, signal?: AbortSignal) =>
       api.rest(`/funding-rate/${encodeURIComponent(symbol)}`, fundingRateSchema, { signal }),
-    preview: (
-      input: { symbol: string; side: 'long' | 'short'; size: string; leverage: string; collateralClass?: string },
-      signal?: AbortSignal,
-    ) => api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
+    preview: (input: PreviewInput, signal?: AbortSignal) =>
+      api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
     collateral: (signal?: AbortSignal) => api.rest('/futures/collateral', collateralSchema, { signal }),
     tiers: (symbol: string, signal?: AbortSignal) => api.rest('/futures/tiers', riskTiersSchema, { query: { symbol }, signal }),
     calculate: (input: CalculatorInput) =>
@@ -279,9 +302,14 @@ export function createFuturesApi(api: ApiClient) {
     /** Futures orders go through the book (futures ADR): an open is an order, a close is a reduce-only order. */
     placeOrder: (input: PlaceOrderInput) =>
       api.rest('/futures/orders', futuresOrderSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
+    /** An opening order above the max-order as children of at most the cap; the same request again places none twice. */
+    placeSplit: (input: PlaceOrderInput) =>
+      api.rest('/futures/orders/split', futuresSplitSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' } }),
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),
+    /** Every recent order on one contract, up to the service's page cap: where a split's children are looked up. */
+    ordersOn: (symbol: string) => api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope: 'all', limit: 500, symbol } }),
     orderTypes: (signal?: AbortSignal) => api.rest('/futures/order-types', orderTypeCatalogueSchema, { query: { limit: 50 }, signal }),
     gatedList: (signal?: AbortSignal) => api.rest('/account/gated-list', gatedListSchema, { signal }),
     agreements: (signal?: AbortSignal) => api.rest('/account/agreements', agreementsSchema, { signal }),
