@@ -205,9 +205,9 @@ describe('academy stored video — grant and signed URL', () => {
     ];
     const caller = { userId: USER, tier: 'basic' as const };
     const gate = { minTier: 'full', minStake: '0' };
-    await expect(
-      grantAcademyVideoCaptions({ deps: deps({ gate }), slug: 'foundations-risk-first', caller, spine }),
-    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    await expect(grantAcademyVideoCaptions({ deps: deps({ gate }), slug: 'foundations-risk-first', caller, spine })).rejects.toMatchObject({
+      code: 'academy.video_grant_required',
+    });
     await expect(
       grantAcademyVideoTranscript({
         deps: deps({ gate }),
@@ -235,9 +235,9 @@ describe('academy stored video — grant and signed URL', () => {
     const caller = { userId: USER, tier: 'full' as const };
     const gate = { minTier: 'full', minStake: '1' };
     const low = deps({ gate, stakeOf: async () => parseAmount('0') });
-    await expect(
-      grantAcademyVideoCaptions({ deps: low, slug: 'foundations-risk-first', caller, spine }),
-    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    await expect(grantAcademyVideoCaptions({ deps: low, slug: 'foundations-risk-first', caller, spine })).rejects.toMatchObject({
+      code: 'academy.video_grant_required',
+    });
     await expect(
       grantAcademyVideoTranscript({
         deps: low,
