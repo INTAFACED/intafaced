@@ -672,11 +672,11 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'loanReserveFund', post: recipes.loanReserveFund({ fundingId: 'f1', debtAssetId: 'USDT', amount: AMT }) },
     {
       name: 'bankTransfer',
-      post: recipes.bankTransfer({ transferId: 'tr1', occurrence: 0, from: fromAvail, to: toAvail, amount: AMT, kind: 'manual' }),
+      post: recipes.bankTransfer({ transferId: 'tr1', occurrence: 0, from: fromAvail, to: toAvail, amount: AMT, kind: 'manual', lane: 'p2p' }),
     },
     {
       name: 'bankTransfer',
-      post: recipes.bankTransfer({ transferId: 'tr1', occurrence: 1, from: fromAvail, to: toAvail, amount: AMT, kind: 'scheduled' }),
+      post: recipes.bankTransfer({ transferId: 'tr1', occurrence: 1, from: fromAvail, to: toAvail, amount: AMT, kind: 'scheduled', lane: 'sched' }),
     },
     { name: 'earnDeposit', post: recipes.earnDeposit(earn) },
     { name: 'earnWithdraw', post: recipes.earnWithdraw(earn) },
@@ -952,6 +952,7 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
             to,
             amount: AMT,
             kind,
+            lane: kind === 'scheduled' ? 'sched' : 'p2p',
           }),
         });
       }

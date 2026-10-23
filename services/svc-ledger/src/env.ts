@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { assertIdempotencyConflictBoot, DEFAULT_IDEMPOTENCY_CONFLICT_MODE } from './idempotency-conflict-mode.js';
 import { assertDistinctCallerSecrets, CALLER_SECRET_ENV_NAMES, type CallerSecretEnvName } from './caller-allowlist.js';
 import {
   DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
@@ -57,12 +58,11 @@ const schema = serviceEnvSchema
 
       /**
        * What happens when a key that already booked a movement is posted again with a DIFFERENT body.
-       * `detect` answers with the original and logs `ledger.idempotency_mismatch` (rollout mode: several jobs rebuild
-       * their body from live state when re-run, and refusing them first would wedge crash recovery). `refuse` answers
-       * 409 `ledger.idempotency_conflict`. Flip to `refuse` once the mismatch log is quiet and the call sites are fixed.
-       * A stricter-direction default is not available yet: refusing today would stop liquidations after a crash.
+       * `refuse` (default) answers 409 `ledger.idempotency_conflict` and posts nothing new.
+       * `detect` answers with the original transaction and logs `ledger.idempotency_mismatch`.
+       * detect boots only when APP_ENV is exactly dev or test. Any other APP_ENV, including unset, refuses to boot.
        */
-      LEDGER_IDEMPOTENCY_CONFLICT_MODE: z.enum(['detect', 'refuse']).default('detect'),
+      LEDGER_IDEMPOTENCY_CONFLICT_MODE: z.enum(['detect', 'refuse']).default(DEFAULT_IDEMPOTENCY_CONFLICT_MODE),
 
       /**
        * OPS-0001. `report` (default) still accepts the shared internal secret and
@@ -172,4 +172,5 @@ const schema = serviceEnvSchema
   });
 
 export const env = loadEnv(schema);
+assertIdempotencyConflictBoot(env.LEDGER_IDEMPOTENCY_CONFLICT_MODE, process.env.APP_ENV);
 export type Env = typeof env;

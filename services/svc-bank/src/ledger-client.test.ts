@@ -85,6 +85,7 @@ const transfer = (amount: string, transferId = 't-1'): PostRequest =>
     to: subAccountAvailable(SPACE, 'USDT'),
     amount: amt(amount),
     kind: 'manual',
+    lane: 'own',
   });
 
 const ACK = { txId: 'tx-1', hash: 'h1', postedAt: '2026-07-27T12:00:00.000Z' };
@@ -125,7 +126,7 @@ describe('post — amounts leave as decimal strings', () => {
     respond = () => ({ status: 200, body: ACK });
     await client().post(transfer('1'));
     const body = sent[0]!.body as PostRequest;
-    expect(body.idempotencyKey).toBe('bank.transfer:t-1:0');
+    expect(body.idempotencyKey).toBe('bank.transfer.own:t-1:0');
     expect(body.module).toBe('bank');
     expect(body.reason).toBe('bank.transfer.manual');
   });
@@ -197,7 +198,7 @@ describe('post — amounts leave as decimal strings', () => {
     const tx = await client().post(transfer('1'));
     expect(tx.id).toBe('tx-1');
     expect(tx.hash).toBe('h1');
-    expect(tx.idempotencyKey).toBe('bank.transfer:t-1:0');
+    expect(tx.idempotencyKey).toBe('bank.transfer.own:t-1:0');
     expect(tx.postedAt).toEqual(new Date('2026-07-27T12:00:00.000Z'));
   });
 });

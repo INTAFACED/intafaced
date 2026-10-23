@@ -16,4 +16,5 @@ export * from './memory-ledger.js';
 export * from './sharding.js';
 export * from './http-errors.js';
 export * from './http-client.js';
+export * from './posted-movement.js';
 export * from './recipes/index.js';

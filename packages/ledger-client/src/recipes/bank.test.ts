@@ -144,6 +144,7 @@ describe('bankTransfer', () => {
       to: userAvailable(USER_B, 'USDT'),
       amount: amt('40'),
       kind: 'manual' as const,
+      lane: 'p2p' as const,
       occurrence: 0,
     };
     const first = await ledger.post(recipes.bankTransfer(body));
@@ -162,6 +163,7 @@ describe('bankTransfer', () => {
         to: userAvailable(USER_B, 'BTC'),
         amount: amt('1'),
         kind: 'manual',
+        lane: 'p2p',
         occurrence: 0,
       }),
     ).toThrow(/cannot change asset/);
@@ -173,6 +175,7 @@ describe('bankTransfer', () => {
         to: earnStakeAccount(USER_B, 'USDT', 'pos-1'),
         amount: amt('1'),
         kind: 'manual',
+        lane: 'p2p',
         occurrence: 0,
       }),
     ).toThrow(/available accounts only/);
@@ -185,6 +188,7 @@ describe('bankTransfer', () => {
       to: userAvailable(USER_B, 'USDT'),
       amount: amt('1'),
       kind: 'scheduled',
+      lane: 'sched',
       occurrence: 0,
     });
     const b = recipes.bankTransfer({
@@ -193,9 +197,22 @@ describe('bankTransfer', () => {
       to: userAvailable(USER_B, 'USDT'),
       amount: amt('1'),
       kind: 'scheduled',
+      lane: 'sched',
       occurrence: 1,
     });
-    expect(a.idempotencyKey).not.toBe(b.idempotencyKey);
+    expect(a.idempotencyKey).toBe('bank.transfer.sched:sched-1:0');
+    expect(b.idempotencyKey).toBe('bank.transfer.sched:sched-1:1');
+    const personal = recipes.bankTransfer({
+      transferId: 'sched-1',
+      from: userAvailable(USER, 'USDT'),
+      to: userAvailable(USER_B, 'USDT'),
+      amount: amt('1'),
+      kind: 'manual',
+      lane: 'personal',
+      occurrence: 0,
+    });
+    expect(personal.idempotencyKey).toBe('pay.personal.request:sched-1:0');
+    expect(personal.idempotencyKey).not.toBe(a.idempotencyKey);
   });
 });
 

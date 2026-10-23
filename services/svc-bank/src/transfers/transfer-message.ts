@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
+import { oneOffTransferBooked } from './book-bank-transfer.js';
 
 /**
  * The note and payment reference on one transfer, stored before the ledger
@@ -41,8 +42,7 @@ export async function bindTransferMessage(sql: Sql, ledger: LedgerKey, input: Tr
         }
         return;
       }
-      const posted = await ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
-      if (posted) {
+      if (await oneOffTransferBooked(ledger, input.transferId)) {
         throw new BankError('This transfer already completed without this note or reference', 'bank.transfer_message_conflict');
       }
       await tx`

@@ -1,4 +1,5 @@
-import { railBoundary, recipes, type AccountRef, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import { bankTransferIdempotencyKey, railBoundary, type AccountRef, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import { postBankTransfer } from '../transfers/book-bank-transfer.js';
 
 /**
  * Move a space's available balance to a named rail boundary, or back.
@@ -15,16 +16,15 @@ export async function postToRail(
   railId: string,
   amount: Amount,
 ): Promise<LedgerTx> {
-  return ledger.post(
-    recipes.bankTransfer({
-      transferId,
-      occurrence: 0,
-      from,
-      to: railBoundary(railId, from.assetId),
-      amount,
-      kind: 'manual',
-    }),
-  );
+  return postBankTransfer(ledger, {
+    transferId,
+    occurrence: 0,
+    from,
+    to: railBoundary(railId, from.assetId),
+    amount,
+    kind: 'manual',
+    lane: 'rail',
+  });
 }
 
 export async function reverseFromRail(
@@ -34,18 +34,17 @@ export async function reverseFromRail(
   railId: string,
   amount: Amount,
 ): Promise<LedgerTx> {
-  return ledger.post(
-    recipes.bankTransfer({
-      transferId,
-      occurrence: 1,
-      from: railBoundary(railId, to.assetId),
-      to,
-      amount,
-      kind: 'manual',
-    }),
-  );
+  return postBankTransfer(ledger, {
+    transferId,
+    occurrence: 1,
+    from: railBoundary(railId, to.assetId),
+    to,
+    amount,
+    kind: 'manual',
+    lane: 'rail',
+  });
 }
 
 export function forwardKey(transferId: string): string {
-  return `bank.transfer:${transferId}:0`;
+  return bankTransferIdempotencyKey('rail', transferId, 0);
 }

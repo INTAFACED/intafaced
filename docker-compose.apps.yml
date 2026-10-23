@@ -172,9 +172,10 @@ services:
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}
-      # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
-      # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
-      LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
+      # refuse (default) = 409 ledger.idempotency_conflict when a reused key carries a different body.
+      # detect returns the original transaction as success and is refused at boot unless APP_ENV is exactly dev or test.
+      # LOCALWORKERS: set LEDGER_IDEMPOTENCY_CONFLICT_MODE=refuse (or leave it unset). Do not set detect on a shared stack.
+      LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-refuse}
       # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
       # still posts. Every shared-secret post is counted as unbound, and a
       # recipe or module outside the claim is counted too. The warning is

@@ -9,9 +9,19 @@
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  alertLedgerIdempotencyMismatch,
+  formatAmount,
+  IDEMPOTENCY_CONFLICT_CODE,
+  LedgerError,
+  parseAmount,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import { findBankTransfer } from './book-bank-transfer.js';
 import type { TransferService } from './transfer-service.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
@@ -264,7 +274,22 @@ export class PersonalPayService {
         amount: input.amount,
         now,
       });
-      ledgerTxId = posted.ledgerTxId;
+      const tx = await this.ledger.getTx(posted.ledgerTxId);
+      if (!tx || !(await this.bookedSendMatches(tx, input.fromSpaceId, toUserId, from.assetId, input.amount))) {
+        alertLedgerIdempotencyMismatch({
+          idempotencyKey: `pay.personal.request:${input.transferId}:0`,
+          module: 'bank',
+          reason: 'bank.transfer.manual',
+          ...(tx ? { ledgerTxId: tx.id } : {}),
+          detail: 'personal pay receipt does not match the request',
+        });
+        await this.abandon(input.transferId, requestId);
+        throw new LedgerError(
+          `Transfer ${input.transferId} returned a different movement`,
+          IDEMPOTENCY_CONFLICT_CODE,
+        );
+      }
+      ledgerTxId = tx.id;
     } catch (err) {
       // A typed refusal proved this send did not post. Looking the key up would
       // adopt whatever else is booked under it, including an own-space move.
@@ -274,9 +299,16 @@ export class PersonalPayService {
       }
       // Timeout, network, or 5xx: the post may still land. Keep the reservation
       // and the request claim. Adopt the key only when its entries are this send.
-      const already = await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
+      const already = await findBankTransfer(this.ledger, 'personal', input.transferId, 0);
       if (!already) throw err;
       if (!(await this.bookedSendMatches(already, input.fromSpaceId, toUserId, from.assetId, input.amount))) {
+        alertLedgerIdempotencyMismatch({
+          idempotencyKey: already.idempotencyKey,
+          module: already.module,
+          reason: already.reason,
+          ledgerTxId: already.id,
+          detail: 'lost reply is not this personal pay',
+        });
         throw new BankError(
           `Transfer ${input.transferId} is not this send (bank.personal_transfer_conflict)`,
           'bank.personal_transfer_conflict',
@@ -724,7 +756,7 @@ export class PersonalPayService {
        WHERE from_user_id = ${userId} AND status = 'reserved' AND created_at < ${cutoff}
     `;
     for (const row of rows) {
-      const posted = await this.ledger.getTxByKey(`bank.transfer:${row.transfer_id}:0`);
+      const posted = await findBankTransfer(this.ledger, 'personal', row.transfer_id, 0);
       if (!posted) {
         await this.abandon(row.transfer_id, row.request_id);
         continue;

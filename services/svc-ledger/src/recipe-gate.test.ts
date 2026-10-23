@@ -407,6 +407,7 @@ describe('recipe-gate', () => {
         to: subAccountAvailable(SUB2, 'USDT'),
         amount: amt('10'),
         kind: 'manual',
+        lane: 'own',
       }),
     );
     accept(
@@ -468,6 +469,7 @@ describe('recipe-gate', () => {
         to: userAvailable(USER2, 'USDT'),
         amount: amt('10'),
         kind: 'scheduled',
+        lane: 'sched',
       }),
     );
 

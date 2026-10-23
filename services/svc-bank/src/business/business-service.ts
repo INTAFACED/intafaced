@@ -3,7 +3,9 @@ import { transaction } from '@intafaced/db';
 import {
   IDEMPOTENCY_CONFLICT_CODE,
   LedgerError,
+  bankTransferIdempotencyKey,
   formatAmount,
+  legacyBankTransferKey,
   parseAmount,
   recipes,
   type Amount,
@@ -464,7 +466,8 @@ export class BusinessService {
       // A retry of a proposal that already booked must resume it, not be refused.
       alreadyBooked: async () =>
         (await this.approvalExists(input.clientId)) ||
-        (await this.ledger.getTxByKey(`bank.transfer:${input.clientId}:0`)) !== null ||
+        (await this.ledger.getTxByKey(bankTransferIdempotencyKey('business', input.clientId, 0))) !== null ||
+        (await this.ledger.getTxByKey(legacyBankTransferKey(input.clientId, 0))) !== null ||
         (await this.ledger.getTxByKey(`bank.business.hold:${input.clientId}`)) !== null,
     });
     if (from.assetId !== account.assetId || to.assetId !== account.assetId) {
@@ -487,7 +490,7 @@ export class BusinessService {
     // Recover pre-claim legacy receipts before choosing a mode. Neither ledger
     // key may be rebound to different economic terms or a second money path.
     const [previousTransfer, previousHold] = await Promise.all([
-      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`).then((tx) => this.withEntries(tx)),
+      this.businessTransferTx(clientId).then((tx) => this.withEntries(tx)),
       this.ledger.getTxByKey(`bank.business.hold:${clientId}`).then((tx) => this.withEntries(tx)),
     ]);
     const fromAcct = accountForSpace(from);
@@ -1143,6 +1146,13 @@ export class BusinessService {
    * by id (the ledger's txById door returns them). A transaction the ledger then
    * cannot show is unavailable, never "different".
    */
+  private async businessTransferTx(clientId: string): Promise<LedgerTx | null> {
+    return (
+      (await this.ledger.getTxByKey(bankTransferIdempotencyKey('business', clientId, 0))) ??
+      (await this.ledger.getTxByKey(legacyBankTransferKey(clientId, 0)))
+    );
+  }
+
   private async withEntries(tx: LedgerTx): Promise<LedgerTx>;
   private async withEntries(tx: LedgerTx | null): Promise<LedgerTx | null>;
   private async withEntries(tx: LedgerTx | null): Promise<LedgerTx | null> {
@@ -1271,13 +1281,15 @@ export class BusinessService {
       fromSpaceId: approval.fromSpaceId,
       toSpaceId: approval.toSpaceId,
       amount: approval.amount,
+      lane: 'business',
     });
     const receipt = await this.ledger.getTx(posted.ledgerTxId);
     if (!receipt) throw new LedgerError('Business transfer receipt is unavailable', 'ledger.unavailable');
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.get(approval.toSpaceId);
     if (
-      receipt.idempotencyKey !== `bank.transfer:${approval.id}:0` ||
+      (receipt.idempotencyKey !== bankTransferIdempotencyKey('business', approval.id, 0) &&
+        receipt.idempotencyKey !== legacyBankTransferKey(approval.id, 0)) ||
       !(await this.postedPayrollMatches(receipt, accountForSpace(from), [{ amount: approval.amount, acct: accountForSpace(to) }]))
     ) {
       throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');

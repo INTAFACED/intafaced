@@ -358,7 +358,7 @@ describe('personal send and request (Postgres)', () => {
         requestId: opened.requestId,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:pay-request-'))).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('pay.personal.request:pay-request-'))).toHaveLength(1);
   });
 
   async function bobPots(namedId: string) {
@@ -427,7 +427,7 @@ describe('personal send and request (Postgres)', () => {
     const afterSelf = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(afterSelf.status).toBe('open');
     expect(afterSelf.ledgerTxId).toBeNull();
-    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${selfId}:0`)).toBe(false);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `pay.personal.request:${selfId}:0`)).toBe(false);
     expect(await bobPots(named.id)).toEqual(before);
 
     await bank.spaces.ensurePrimary(CY, 'USDT');
@@ -448,7 +448,7 @@ describe('personal send and request (Postgres)', () => {
     const afterThird = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(afterThird.status).toBe('open');
     expect(afterThird.ledgerTxId).toBeNull();
-    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${thirdId}:0`)).toBe(false);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `pay.personal.request:${thirdId}:0`)).toBe(false);
     expect(await bobPots(named.id)).toEqual(before);
     expect(formatAmount((await ledger.balance(userAvailable(CY, 'USDT'))).amount)).toBe('0');
   });
@@ -578,13 +578,13 @@ describe('personal send and request (Postgres)', () => {
       message: expect.stringContaining('bank.personal_request_claim_held'),
     });
 
-    const booked = ledger.journal().find((tx) => tx.idempotencyKey === `bank.transfer:${transferId}:0`);
+    const booked = ledger.journal().find((tx) => tx.idempotencyKey === `pay.personal.request:${transferId}:0`);
     const again = await personal.send(sendInput);
     expect(again.ledgerTxId).toBe(booked?.id);
     const paid = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(paid.status).toBe('paid');
     expect(paid.ledgerTxId).toBe(booked?.id);
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:'))).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('pay.personal.request:'))).toHaveLength(1);
   });
 
   it('refuses a session that lacks the procedure scope', async () => {

@@ -36,6 +36,34 @@ function requirePositive(name: string, value: Amount): void {
 
 // ── Internal transfer (spaces) ───────────────────────────────────────────────
 
+/**
+ * Which operation booked the movement. The caller chooses this. A client-supplied
+ * id is never the whole key and never selects the prefix, so an own-space
+ * transfer and a personal payment cannot share a key by reusing the same text.
+ */
+export const BANK_TRANSFER_LANES = ['own', 'p2p', 'personal', 'sched', 'rail', 'business'] as const;
+export type BankTransferLane = (typeof BANK_TRANSFER_LANES)[number];
+
+const BANK_TRANSFER_PREFIX: Record<BankTransferLane, string> = {
+  own: 'bank.transfer.own',
+  p2p: 'bank.transfer.p2p',
+  personal: 'pay.personal.request',
+  sched: 'bank.transfer.sched',
+  rail: 'bank.transfer.rail',
+  business: 'bank.transfer.business',
+};
+
+export function bankTransferIdempotencyKey(lane: BankTransferLane, transferId: string, occurrence: number): string {
+  const prefix = BANK_TRANSFER_PREFIX[lane];
+  if (!prefix) throw new InvalidEntryError(`Unknown bank transfer lane ${String(lane)}`);
+  return `${prefix}:${transferId}:${occurrence}`;
+}
+
+/** Key written before lanes existed. Lookups still read it so a retry does not post twice. */
+export function legacyBankTransferKey(transferId: string, occurrence: number): string {
+  return `bank.transfer:${transferId}:${occurrence}`;
+}
+
 export interface BankTransferInput {
   /** Business identity of the movement — a schedule id, or a one-off transfer id. */
   transferId: string;
@@ -55,6 +83,8 @@ export interface BankTransferInput {
   amount: Amount;
   /** Machine-readable reason suffix, e.g. 'scheduled' or 'manual'. */
   kind: 'manual' | 'scheduled';
+  /** Server-chosen operation. Not a field a client may set. */
+  lane: BankTransferLane;
 }
 
 /**
@@ -89,9 +119,18 @@ export function bankTransfer(input: BankTransferInput): PostRequest {
   if (!Number.isInteger(input.occurrence) || input.occurrence < 0) {
     throw new InvalidEntryError(`Occurrence must be a non-negative integer, got ${input.occurrence}`);
   }
+  if (!BANK_TRANSFER_PREFIX[input.lane]) {
+    throw new InvalidEntryError('A bank transfer needs a server-chosen lane');
+  }
+  if (input.kind === 'scheduled' && input.lane !== 'sched') {
+    throw new InvalidEntryError('A scheduled transfer uses the sched lane');
+  }
+  if (input.kind === 'manual' && input.lane === 'sched') {
+    throw new InvalidEntryError('A manual transfer cannot use the sched lane');
+  }
 
   return {
-    idempotencyKey: `bank.transfer:${input.transferId}:${input.occurrence}`,
+    idempotencyKey: bankTransferIdempotencyKey(input.lane, input.transferId, input.occurrence),
     module: 'bank',
     reason: input.kind === 'scheduled' ? 'bank.transfer.scheduled' : 'bank.transfer.manual',
     meta: { transferId: input.transferId, occurrence: input.occurrence },

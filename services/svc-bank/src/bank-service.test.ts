@@ -707,7 +707,7 @@ describe('svc-bank money PG-hard', () => {
 
       // ORDER BY next_run_at ASC, then id implicitly by insert — poison A so
       // if isolation is missing B never settles when A throws first.
-      const poisonPrefix = `bank.transfer:${scheduleA.id}:`;
+      const poisonPrefix = `bank.transfer.sched:${scheduleA.id}:`;
       const real = ledger;
       const isolating: LedgerClient = {
         post: async (request) => {
@@ -770,7 +770,7 @@ describe('svc-bank money PG-hard', () => {
         startsAt: new Date('2026-01-01T09:00:00Z'),
       });
 
-      const poisonPrefix = `bank.transfer:${poison.id}:`;
+      const poisonPrefix = `bank.transfer.sched:${poison.id}:`;
       const real = ledger;
       const isolating: LedgerClient = {
         post: async (request) => {
@@ -946,6 +946,7 @@ describe('svc-bank money PG-hard', () => {
           to: accountForSpace(to),
           amount: amt('50'),
           kind: 'scheduled',
+          lane: 'sched',
         }),
       );
       expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('50');
@@ -3245,6 +3246,7 @@ describe('svc-bank money PG-hard', () => {
           to: userAvailable(USER_B, 'EUR'),
           amount: amt('1'),
           kind: 'manual',
+          lane: 'p2p',
         }),
       ).toThrow(/cannot change asset/i);
     });
@@ -3258,6 +3260,7 @@ describe('svc-bank money PG-hard', () => {
           to: userStake(USER_A, 'USDT', 'bank:earn:guard'),
           amount: amt('1'),
           kind: 'manual',
+          lane: 'own',
         }),
       ).toThrow(/available accounts only/i);
     });
@@ -3271,6 +3274,7 @@ describe('svc-bank money PG-hard', () => {
           to: userAvailable(USER_A, 'USDT'),
           amount: amt('1'),
           kind: 'manual',
+          lane: 'own',
         }),
       ).toThrow(/two different accounts/i);
     });
@@ -3284,8 +3288,9 @@ describe('svc-bank money PG-hard', () => {
           to: userAvailable(USER_B, 'USDT'),
           amount: amt('1'),
           kind: 'scheduled',
+          lane: 'sched',
         }).idempotencyKey;
-      expect(build()).toBe('bank.transfer:sched-x:7');
+      expect(build()).toBe('bank.transfer.sched:sched-x:7');
       expect(build()).toBe(build());
     });
 

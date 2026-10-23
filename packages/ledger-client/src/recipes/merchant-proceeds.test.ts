@@ -426,7 +426,15 @@ describe('personal exits cannot spend proceeds', () => {
       ['sched-1', 'scheduled'],
       ['handle-1', 'manual'],
     ] as const) {
-      const request = recipes.bankTransfer({ transferId, occurrence: 0, from, to, amount: amt('10'), kind });
+      const request = recipes.bankTransfer({
+        transferId,
+        occurrence: 0,
+        from,
+        to,
+        amount: amt('10'),
+        kind,
+        lane: kind === 'scheduled' ? 'sched' : 'p2p',
+      });
       expect(namesProceeds(request)).toBe(false);
       expect(request.entries[0]?.account).toEqual(from);
       await expect(ledger.post(request)).rejects.toBeInstanceOf(InsufficientFundsError);

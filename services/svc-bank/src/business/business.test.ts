@@ -489,7 +489,7 @@ describe('maker/checker dual control with ledger holds', () => {
     let pause = true;
     ledger.post = async (request) => {
       const posted = await originalPost(request);
-      if (pause && request.idempotencyKey === `bank.transfer:${clientId}:0`) {
+      if (pause && request.idempotencyKey === `bank.transfer.business:${clientId}:0`) {
         pause = false;
         arrived();
         await gate;
@@ -517,7 +517,7 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(await availableOf(MAKER, 'USDT')).toBe('990');
     expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
     expect(formatAmount(await bank.spaces.balanceOf(other))).toBe('0');
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${clientId}:0`)).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.business:${clientId}:0`)).toHaveLength(1);
   });
 
   it.each(['400', '20'])('claims over-threshold terms before a concurrent changed proposal of %s', async (conflictingAmount) => {
@@ -680,7 +680,7 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(await bank.business.proposeTransfer(input)).toEqual(results[0]);
     expect(await availableOf(MAKER, 'USDT')).toBe('990');
     expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.business:${input.clientId}:0`)).toHaveLength(1);
   });
 
   it.each([false, true])('identical approval proposals recover an unknown hold outcome: committed=%s', async (committed) => {
@@ -772,7 +772,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const originalPost = ledger.post.bind(ledger);
     ledger.post = async (request) => {
       const posted = await originalPost(request);
-      if (request.idempotencyKey === `bank.transfer:${input.clientId}:0`)
+      if (request.idempotencyKey === `bank.transfer.business:${input.clientId}:0`)
         throw new LedgerError('transfer acknowledgement lost', 'ledger.unavailable');
       return posted;
     };
@@ -787,7 +787,7 @@ describe('maker/checker dual control with ledger holds', () => {
     const recovered = await bank.business.proposeTransfer(input);
     expect(await bank.business.proposeTransfer(input)).toEqual(recovered);
     expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('10');
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.business:${input.clientId}:0`)).toHaveLength(1);
   });
 
   it('a legacy approval hold without a row refuses changed terms and recovers one reserved amount', async () => {
@@ -842,7 +842,7 @@ describe('maker/checker dual control with ledger holds', () => {
       transferId: input.clientId,
       ledgerTxId: original.ledgerTxId,
     });
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${input.clientId}:0`)).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.business:${input.clientId}:0`)).toHaveLength(1);
   });
 
   it('a failing settle posts the release once and a second approve does not settle', async () => {
