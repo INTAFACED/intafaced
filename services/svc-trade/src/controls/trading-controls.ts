@@ -44,6 +44,9 @@ export interface LiveTradingOperatorPort {
   check(context: Context & { principal: Principal }): Promise<'enabled' | 'denied' | 'unavailable'>;
 }
 export type TradingOperationKind = Extract<IdentityOperationIntent['operation'], { service: 'svc-trade' }>['kind'];
+/** Who vouches for a standing instruction: svc-bank's schedules, or svc-trade's own armed conditional orders. */
+export type StandingInstructionOwner = 'svc-bank' | 'svc-trade';
+
 export interface TradingAdmissionPort {
   admit(
     principal: Principal,
@@ -54,11 +57,17 @@ export interface TradingAdmissionPort {
     subAccountId?: string,
   ): Promise<CommittedOperationAdmission>;
   /**
-   * An unattended schedule (svc-bank auto-invest) has no session or key. The
-   * caller proves its own instruction is active; identity still checks the user.
-   * Only ever a spot `order.place`.
+   * An unattended instruction has no session or key: an svc-bank schedule (auto-invest), or a futures stop or
+   * take-profit armed here (`ownerService` svc-trade) placing its one reduce-only order. The caller proves its own
+   * instruction is live; identity still checks the user. Only ever an `order.place`.
    */
-  admitStanding(userId: string, instructionId: string, businessId: string, payload: unknown): Promise<CommittedOperationAdmission>;
+  admitStanding(
+    userId: string,
+    instructionId: string,
+    businessId: string,
+    payload: unknown,
+    ownerService?: StandingInstructionOwner,
+  ): Promise<CommittedOperationAdmission>;
   original(
     userId: string,
     businessId: string,
@@ -310,13 +319,19 @@ export class TradingControls implements TradingAdmissionPort {
     });
   }
 
-  async admitStanding(userId: string, instructionId: string, businessId: string, payload: unknown): Promise<CommittedOperationAdmission> {
+  async admitStanding(
+    userId: string,
+    instructionId: string,
+    businessId: string,
+    payload: unknown,
+    ownerService: StandingInstructionOwner = 'svc-bank',
+  ): Promise<CommittedOperationAdmission> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(instructionId))
       throw new TradingControlError('auth.credential_denied');
     return this.admitWith(userId, 'order.place', businessId, payload, async () => ({
       kind: 'standing_instruction',
       instructionId: instructionId.toLowerCase(),
-      ownerService: 'svc-bank',
+      ownerService,
     }));
   }
 

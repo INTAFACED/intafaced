@@ -3,6 +3,12 @@
  *
  * A trigger claims the row under a unique key before it closes or places.
  * A second worker updates zero rows. A failed close is written on the row.
+ *
+ * While futures orders go through the book (`placeReduce` wired), a fired order
+ * closes through one reduce-only order in the book, the same path as a manual
+ * reduce, on the trader's standing instruction. Its quantity is fixed on the row
+ * before it is placed, and its client id is the conditional order's own, so a
+ * retry after a crash finds the same order and never places a second one.
  */
 import { randomUUID } from 'node:crypto';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -44,7 +50,33 @@ export interface ConditionalOrderView {
   readonly status: ConditionalStatus;
   readonly cancelReason: string | null;
   readonly failureReason: string | null;
+  /** The price a trigger is judged against. Only the published mark is wired. */
+  readonly triggerSource: 'mark';
+  /** The order a fired conditional order placed in the book, once placed. */
+  readonly closeOrderId: string | null;
+  /** The quantity the fired order closes: its own, or for a position's take-profit or stop-loss the size when it fired. */
+  readonly firedQuantity: string | null;
   readonly createdAt: string;
+}
+
+/** A reduce-only order a fired conditional order places in the book. */
+export interface ReduceOnInstruction {
+  readonly userId: string;
+  readonly symbol: string;
+  readonly side: ConditionalSide;
+  readonly type: 'market' | 'limit';
+  readonly qty: Amount;
+  readonly limitPrice?: Amount;
+  readonly clientOrderId: string;
+}
+
+/** What the book order became, as far as the caller knows on return. */
+export interface ReducePlaced {
+  readonly orderId: string;
+  readonly status: string;
+  readonly qty: string;
+  readonly filledQty: string;
+  readonly refusalCode: string | null;
 }
 
 export interface ProtectionView {
@@ -70,7 +102,35 @@ export interface ConditionalOrderDeps {
   publishedMark(marketId: string, symbol: string): Promise<string | null>;
   closeQuantity(userId: string, positionId: string, input: { quantity: Amount; clientCloseId: string }): Promise<unknown>;
   placeLimit(input: RestingLimitInput): Promise<{ orderId: string }>;
+  /**
+   * While futures orders go through the book, where the at-mark close and `placeLimit` are retired: places a fired
+   * order's one reduce-only order on the trader's standing instruction (the conditional order's id). Null or absent
+   * keeps `closeQuantity` and `placeLimit`.
+   */
+  readonly placeReduce?: ((input: ReduceOnInstruction, instructionId: string) => Promise<ReducePlaced>) | null;
 }
+
+interface FireResult {
+  readonly qty?: string;
+  readonly orderId?: string;
+  readonly restingOrderId?: string;
+  readonly filledQty?: string;
+}
+
+/** A book reduce-only refusal for a position that is no longer there to reduce. */
+const REDUCE_NO_POSITION = 'trade.futures_reduce_only_no_position';
+/**
+ * Refusals that pass on their own: the position is mid-fill or mid-margin-change, the engine has not answered, or
+ * admission could not be reached. The row stays `triggered` and the next tick places again on the same client id.
+ */
+const PASSING_REFUSALS = new Set([
+  'trade.futures_fill_in_progress',
+  'trade.margin_adjustment_in_progress',
+  'trade.futures_submit_unknown',
+  'authority.unavailable',
+]);
+/** Book order states still working: the fired order stays `triggered` until the order settles. */
+const WORKING = new Set(['pending', 'held', 'submitting', 'open', 'submit_unknown']);
 
 interface OrderRow {
   id: string;
@@ -115,8 +175,13 @@ function money(raw: string | null): string | null {
   return formatAmount(parseAmount(raw));
 }
 
+function fireResult(raw: unknown): FireResult {
+  return raw != null && typeof raw === 'object' ? (raw as FireResult) : {};
+}
+
 function present(row: OrderRow): ConditionalOrderView {
   const created = row.created_at instanceof Date ? row.created_at : new Date(row.created_at);
+  const fired = fireResult(row.result);
   return {
     id: row.id,
     market: row.symbol,
@@ -134,6 +199,9 @@ function present(row: OrderRow): ConditionalOrderView {
     status: row.status,
     cancelReason: row.cancel_reason,
     failureReason: row.failure_reason,
+    triggerSource: 'mark',
+    closeOrderId: fired.orderId ?? fired.restingOrderId ?? null,
+    firedQuantity: fired.qty == null ? null : formatAmount(parseAmount(fired.qty)),
     createdAt: created.toISOString(),
   };
 }
@@ -141,6 +209,19 @@ function present(row: OrderRow): ConditionalOrderView {
 function failureCode(err: unknown): string {
   if (err instanceof FuturesError) return err.code;
   return 'trade.conditional_close_failed';
+}
+
+/** The typed code of a refusal from the book path (FuturesError, MatchedOrderError, TradingControlError). */
+function refusalCode(err: unknown): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[a-z_]+\.[a-z0-9_.]+$/.test(code) ? code : null;
+}
+
+function passes(err: unknown, code: string | null): boolean {
+  if (code != null && PASSING_REFUSALS.has(code)) return true;
+  const status = (err as { status?: unknown } | null)?.status;
+  // An error with no typed code (a dropped connection, a query that failed) is not a refusal: try again.
+  return code == null || (typeof status === 'number' && status >= 500);
 }
 
 function optionalPrice(field: string, raw: unknown): Amount | null {
@@ -491,8 +572,131 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     `;
   }
 
+  async function cancelPositionGone(id: string, key: string): Promise<void> {
+    await sql`
+      UPDATE trade.futures_conditional_orders
+      SET status = 'cancelled', cancel_reason = 'position_gone', updated_at = now()
+      WHERE id = ${id} AND trigger_key = ${key} AND status = 'triggered'
+    `;
+  }
+
+  /**
+   * The quantity a fired order closes, fixed on the row once so every retry asks the book for the same order. A
+   * position's take-profit or stop-loss closes the whole position as it is when it fires; any other order closes its
+   * own quantity. Null when the position is no longer open.
+   */
+  async function fireQuantity(row: OrderRow, key: string): Promise<Amount | null> {
+    const stored = fireResult(row.result).qty;
+    if (stored != null) return parseAmount(stored);
+    let qty = parseAmount(row.quantity);
+    if (row.attachment != null) {
+      const [pos] = await sql<{ size: string; status: string }[]>`
+        SELECT size, status FROM trade.positions WHERE id = ${row.position_id} AND user_id = ${row.user_id}
+      `;
+      if (!pos || pos.status !== 'open') return null;
+      qty = parseAmount(pos.size);
+    }
+    const [fixed] = await sql<{ result: unknown }[]>`
+      UPDATE trade.futures_conditional_orders
+      SET result = ${sql.json({ qty: formatAmount(qty) })}, updated_at = now()
+      WHERE id = ${row.id} AND trigger_key = ${key} AND status = 'triggered' AND result IS NULL
+      RETURNING result
+    `;
+    if (fixed) return qty;
+    // Another worker fixed it first: use theirs.
+    const [again] = await sql<{ result: unknown }[]>`SELECT result FROM trade.futures_conditional_orders WHERE id = ${row.id}`;
+    const theirs = fireResult(again?.result).qty;
+    return theirs == null ? null : parseAmount(theirs);
+  }
+
+  /** A fired order through the book: one reduce-only order on the trader's standing instruction. Safe to run again. */
+  async function executeThroughBook(
+    row: OrderRow,
+    key: string,
+    place: (input: ReduceOnInstruction, instructionId: string) => Promise<ReducePlaced>,
+  ): Promise<void> {
+    if (row.kind === 'stop_limit' && row.limit_price == null) {
+      await markFailed(row.id, key, new FuturesError('limitPrice is required', 'trade.conditional_field_required', 400));
+      return;
+    }
+    const qty = await fireQuantity(row, key);
+    if (qty == null) {
+      await cancelPositionGone(row.id, key);
+      return;
+    }
+    let placed: ReducePlaced;
+    try {
+      placed = await place(
+        {
+          userId: row.user_id,
+          symbol: row.symbol,
+          side: row.side,
+          type: row.kind === 'stop_limit' ? 'limit' : 'market',
+          qty,
+          ...(row.kind === 'stop_limit' ? { limitPrice: parseAmount(row.limit_price!) } : {}),
+          clientOrderId: `cond:${row.id}`,
+        },
+        row.id,
+      );
+    } catch (err) {
+      const code = refusalCode(err);
+      if (code === REDUCE_NO_POSITION) await cancelPositionGone(row.id, key);
+      else if (!passes(err, code)) await setOutcome(row.id, key, 'failed', code, { qty: formatAmount(qty) });
+      return;
+    }
+    const result: FireResult = { qty: formatAmount(qty), orderId: placed.orderId, filledQty: placed.filledQty };
+    if (placed.status === 'rejected' || placed.status === 'refused') {
+      await setOutcome(row.id, key, 'failed', placed.refusalCode ?? 'trade.futures_engine_refused', result);
+      return;
+    }
+    // A stop-limit's work is done once its limit is in the book; the order then lives in the orders list.
+    if (row.kind === 'stop_limit') {
+      await setOutcome(row.id, key, 'filled', null, result);
+      return;
+    }
+    if (placed.status === 'filled') {
+      // A whole-position leg has closed the position, and closing it cancels the other leg (`position_closed`).
+      await setOutcome(row.id, key, 'filled', null, result);
+      return;
+    }
+    if (placed.status === 'cancelled') {
+      // The book had less than the whole size inside the band: the rest came off. The other leg stays armed.
+      const code = parseAmount(placed.filledQty) > 0n ? 'trade.conditional_partial_fill' : 'trade.conditional_no_fill';
+      await setOutcome(row.id, key, 'failed', code, result);
+      return;
+    }
+    if (WORKING.has(placed.status)) {
+      // Fills still settling: stays triggered with its order named, and the next tick reads it again.
+      await sql`
+        UPDATE trade.futures_conditional_orders SET result = ${sql.json(result as never)}, updated_at = now()
+        WHERE id = ${row.id} AND trigger_key = ${key} AND status = 'triggered'
+      `;
+      return;
+    }
+    await setOutcome(row.id, key, 'failed', `trade.conditional_order_${placed.status}`, result);
+  }
+
+  /** The last word on a fired order. */
+  async function setOutcome(
+    id: string,
+    key: string,
+    status: 'filled' | 'failed',
+    reason: string | null,
+    result: FireResult,
+  ): Promise<void> {
+    await sql`
+      UPDATE trade.futures_conditional_orders
+      SET status = ${status}, failure_reason = ${reason}, result = ${sql.json(result as never)}, updated_at = now()
+      WHERE id = ${id} AND trigger_key = ${key} AND status = 'triggered'
+    `;
+  }
+
   async function executeClaimed(row: OrderRow): Promise<void> {
     const key = `fire:${row.id}`;
+    if (deps.placeReduce) {
+      await executeThroughBook(row, key, deps.placeReduce);
+      return;
+    }
     const [pos] = await sql<{ id: string; status: string }[]>`
       SELECT id, status FROM trade.positions
       WHERE id = ${row.position_id} AND user_id = ${row.user_id}
@@ -555,6 +759,18 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
 
   async function evaluate(input: { enabled: boolean }): Promise<{ fired: number }> {
     if (input.enabled !== true) return { fired: 0 };
+    if (deps.placeReduce) {
+      // Fired orders not settled yet: a crash before the order was placed, a passing refusal, or fills still landing.
+      // Placing again on the same client id finds the same order.
+      const fired = await sql<OrderRow[]>`
+        SELECT o.*, m.symbol
+        FROM trade.futures_conditional_orders o
+        JOIN trade.markets m ON m.id = o.market_id
+        WHERE o.status = 'triggered'
+        ORDER BY o.updated_at, o.id
+      `;
+      for (const row of fired) await executeClaimed(row);
+    }
     const rows = await sql<OrderRow[]>`
       SELECT o.*, m.symbol
       FROM trade.futures_conditional_orders o

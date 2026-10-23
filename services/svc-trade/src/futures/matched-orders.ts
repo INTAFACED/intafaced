@@ -976,7 +976,15 @@ export class MatchedFuturesOrders {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
     const inForce = await this.bandInForce(market.id, band);
-    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, inForce);
+    if (input.reduceOnly === true) {
+      return this.placeReduceOnly(
+        (admission, businessId, payload) => admission.admit(principal, 'order.place', businessId, payload),
+        input,
+        clientOrderId,
+        market,
+        inForce,
+      );
+    }
 
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
@@ -1241,8 +1249,51 @@ export class MatchedFuturesOrders {
    * once cannot both claim the same size. Leverage and the leverage cap are not checked: reducing is always allowed,
    * and the order carries its position's leverage.
    */
+  /**
+   * The one reduce-only order a fired conditional order places for its trader (D-orders-04, J-derivatives-03). No
+   * session or key is behind it: the trader armed the conditional order, and admission names that order as a standing
+   * instruction owned by svc-trade (`admitStanding`), whose caller has claimed it as fired. Everything after admission
+   * is the reduce-only path a trader's own order takes: the position's own bound, the band, the reduce room left by
+   * its other reduce-only orders, and a retry on the same `clientOrderId` that finds the same order. It never opens.
+   */
+  async placeOnInstruction(input: PlaceMatchedOrderInput, instructionId: string): Promise<MatchedOrderView> {
+    if (!this.deps.enabled) {
+      refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
+    }
+    if (input.reduceOnly !== true) refuse('trade.conditional_would_increase', 'a conditional order only ever places a reduce-only order');
+    const clientOrderId = input.clientOrderId?.trim() ?? '';
+    if (clientOrderId.length === 0 || clientOrderId.length > 64) {
+      refuse('trade.client_order_id_required', 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry');
+    }
+    refuseMalformedOrder(input);
+    const existing = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
+    if (existing) {
+      if (!sameRequest(existing, input)) {
+        refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
+      }
+      return this.resume(existing);
+    }
+    const market = await this.loadMarket(input.symbol);
+    const band = this.deps.priceBand;
+    if (band === null) {
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    }
+    const inForce = await this.bandInForce(market.id, band);
+    return this.placeReduceOnly(
+      (admission, businessId, payload) => {
+        if (typeof admission.admitStanding !== 'function')
+          refuse('authority.unavailable', 'standing-instruction admission is not configured', 503);
+        return admission.admitStanding(input.userId, instructionId, businessId, payload, 'svc-trade');
+      },
+      input,
+      clientOrderId,
+      market,
+      inForce,
+    );
+  }
+
   private async placeReduceOnly(
-    principal: Principal,
+    admit: (admission: TradingAdmissionPort, businessId: string, payload: Record<string, unknown>) => Promise<unknown>,
     input: PlaceMatchedOrderInput,
     clientOrderId: string,
     market: MarketRow,
@@ -1336,7 +1387,7 @@ export class MatchedFuturesOrders {
         }
       }
 
-      await admission.admit(principal, 'order.place', `futures.order:${orderId}`, {
+      await admit(admission, `futures.order:${orderId}`, {
         orderId,
         userId: input.userId,
         marketId: market.id,

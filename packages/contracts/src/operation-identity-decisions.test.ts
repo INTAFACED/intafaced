@@ -75,13 +75,21 @@ describe('identity operation decision wire shapes', () => {
     ).toBe(false);
   });
 
-  it('binds a standing customer instruction to svc-bank and one spot order placement', () => {
+  it('binds a standing customer instruction to its owning service and one order placement', () => {
     const standing = {
       ...tradeIntent,
       businessId: 'auto-invest:plan-42:2026-10-19',
       authority: { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-bank' },
     } as const;
     expect(identityOperationIntentSchema.safeParse(standing).success).toBe(true);
+    // A futures stop or take-profit armed in svc-trade is the other owner.
+    expect(
+      identityOperationIntentSchema.safeParse({
+        ...standing,
+        businessId: 'futures.order:1',
+        authority: { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-trade' },
+      }).success,
+    ).toBe(true);
     for (const authority of [
       { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-pay' },
       { kind: 'standing_instruction', instructionId: 'not-a-uuid', ownerService: 'svc-bank' },
