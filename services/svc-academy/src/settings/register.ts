@@ -47,6 +47,7 @@ export interface SettingsEnv {
   readonly ACADEMY_VIDEO_S3_REGION?: string | undefined;
   readonly ACADEMY_VIDEO_URL_TTL_SECONDS?: number | undefined;
   readonly ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS?: number | undefined;
+  readonly ACADEMY_VIDEO_POSITION_SAVE_SECONDS?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_MAX?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS?: number | undefined;
   readonly ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON?: string | undefined;
@@ -142,6 +143,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.watch_threshold_unset',
+    },
+    {
+      // Blank refuses nothing: the player saves on pause and on leaving only, and says so.
+      key: 'video_position_save',
+      state: state(positiveInt(env.ACADEMY_VIDEO_POSITION_SAVE_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: null,
     },
     {
       // Both halves or nothing: index.ts wires the limiter only when both are set.

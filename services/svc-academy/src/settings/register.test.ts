@@ -20,6 +20,7 @@ const FULL: SettingsEnv = {
   ACADEMY_VIDEO_S3_REGION: 'r',
   ACADEMY_VIDEO_URL_TTL_SECONDS: 11,
   ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: 15,
+  ACADEMY_VIDEO_POSITION_SAVE_SECONDS: 5,
   ACADEMY_CERT_VERIFY_RATE_MAX: 2,
   ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: 13,
   ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON: '{"published":true}',
@@ -90,6 +91,7 @@ describe('settingsRegister (AC-order-02)', () => {
     expect(row({ ...FULL, ACADEMY_PAPER_MARKETS_LIMIT: -1 }, 'paper_markets_limit').state).toBe('not_set');
     expect(row({ ...FULL, ACADEMY_VIDEO_URL_TTL_SECONDS: 1.5 }, 'video_url_ttl').state).toBe('not_set');
     expect(row({ ...FULL, ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: 0 }, 'watch_threshold').state).toBe('not_set');
+    expect(row({ ...FULL, ACADEMY_VIDEO_POSITION_SAVE_SECONDS: 0 }, 'video_position_save').state).toBe('not_set');
   });
 
   it('video storage needs all four parts', () => {

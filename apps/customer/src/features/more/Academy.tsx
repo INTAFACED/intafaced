@@ -57,8 +57,8 @@ export function AcademyRoom({
 function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: string; initialPath?: string }) {
   const { userId } = useSession(),
     action = useAcademyAction();
-  // A finished quiz can meet an item's course rule: the outline beside it reads itself again.
-  const [quizzesFinished, setQuizzesFinished] = useState(0);
+  // A finished quiz or a watched video can meet an item's course rule: the outline beside it reads itself again.
+  const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
   const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
@@ -99,14 +99,14 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : tab === 'Learning' ? (
         <>
           {!slug && <AcademyMyLearning />}
-          {slug && <AcademyCourseOutline key={slug} itemSlug={slug} refresh={action.result} progress={quizzesFinished} />}
+          {slug && <AcademyCourseOutline key={slug} itemSlug={slug} refresh={action.result} progress={progressMade} />}
           <AcademyLearning
             slug={slug}
             initialPath={initialPath}
             certId={selected}
             chooseCertificate={chooseCertificate}
             action={action}
-            onQuizFinished={() => setQuizzesFinished((n) => n + 1)}
+            onProgress={() => setProgressMade((n) => n + 1)}
           />
         </>
       ) : tab === 'Certificates' ? (

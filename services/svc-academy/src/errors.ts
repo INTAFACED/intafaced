@@ -192,7 +192,9 @@ export type AcademyErrorCode =
   /** No to-do item of the caller's with this id. */
   | 'academy.todo_not_found'
   /** The goal is out of bounds, or there is no goal with its reminder on to send. */
-  | 'academy.goal_invalid';
+  | 'academy.goal_invalid'
+  /** A caption file is not WebVTT, or two tracks of one video share a language. */
+  | 'academy.captions_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -307,6 +309,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.planner_full',
   'academy.todo_not_found',
   'academy.goal_invalid',
+  'academy.captions_invalid',
 ] as const;
 
 /** L3 — catalog size. */

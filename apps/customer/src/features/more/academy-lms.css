@@ -242,3 +242,50 @@
     padding: 48px;
   }
 }
+
+/* AC-videos-01 player: the file, our own controls under it, and a transcript that follows playback. */
+.academy-video {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+.academy-video-frame {
+  display: grid;
+  gap: 0.5rem;
+  background: var(--color-surface, transparent);
+}
+.academy-video-frame:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+.academy-video-frame:fullscreen {
+  align-content: center;
+  padding: 1rem;
+}
+.academy-video-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem 1rem;
+}
+.academy-video-controls input[type='range'] {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+.academy-video-transcript {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+.academy-video-transcript button {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  padding: 0.25rem 0.5rem;
+}
+.academy-video-transcript button:focus-visible {
+  outline: 2px solid var(--color-accent);
+}
+.academy-video-transcript li[aria-current='true'] {
+  border-left: 3px solid var(--color-accent);
+  font-weight: 600;
+}
