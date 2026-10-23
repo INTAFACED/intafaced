@@ -144,6 +144,20 @@ const en = {
   aSaved: '{label} was saved to your address book.',
   aNoAssetsTitle: 'No asset is open for withdrawals',
   aNoAssetsBody: 'No asset is published for withdrawals, so there is nothing to save an address for.',
+  aAddressChecksum:
+    'Some letters in this address are in the wrong case, so a character may have been changed. Copy it again from where it came from.',
+  aChecking: 'Checking the address…',
+  aCheckFailed: 'The address could not be checked, so nothing was saved. Try again.',
+  aLookalikeTitle: 'This address looks like one you saved',
+  aLookalikeBody:
+    'It starts and ends like your saved address {saved} ({address}) but is a different address. Scammers send small amounts from addresses made to look like yours, so that the one you copy is theirs. Check every character against where you got it.',
+  aLookalikeBodyUnnamed:
+    'It starts and ends like your saved address {address} but is a different address. Scammers send small amounts from addresses made to look like yours, so that the one you copy is theirs. Check every character against where you got it.',
+  aLookalikeConfirm: 'I checked every character. This is a different address and I want to save it.',
+  aLookalikeUnticked: 'Tick the box once you have checked the address, or change it.',
+  aLookalikeChecked: 'You confirmed the look-alike warning · {time}',
+  aLookalikeRefused:
+    'This address looks like one you saved, so it was not saved. Close this, check every character, and tick the box to save it.',
 } as const;
 
 const es = {
@@ -290,6 +304,20 @@ const es = {
   aSaved: '{label} se guardó en tu libreta de direcciones.',
   aNoAssetsTitle: 'Ningún activo está abierto a retiros',
   aNoAssetsBody: 'No hay ningún activo publicado para retiros, así que no hay nada para lo que guardar una dirección.',
+  aAddressChecksum:
+    'Algunas letras de esta dirección están en mayúscula o minúscula incorrecta, así que puede que haya cambiado un carácter. Cópiala de nuevo desde su origen.',
+  aChecking: 'Comprobando la dirección…',
+  aCheckFailed: 'No se pudo comprobar la dirección, así que no se guardó nada. Inténtalo de nuevo.',
+  aLookalikeTitle: 'Esta dirección se parece a una que guardaste',
+  aLookalikeBody:
+    'Empieza y termina como tu dirección guardada {saved} ({address}), pero es otra dirección. Los estafadores envían pequeñas cantidades desde direcciones hechas para parecerse a las tuyas, para que la que copies sea la suya. Comprueba cada carácter con el origen.',
+  aLookalikeBodyUnnamed:
+    'Empieza y termina como tu dirección guardada {address}, pero es otra dirección. Los estafadores envían pequeñas cantidades desde direcciones hechas para parecerse a las tuyas, para que la que copies sea la suya. Comprueba cada carácter con el origen.',
+  aLookalikeConfirm: 'He comprobado cada carácter. Es otra dirección y quiero guardarla.',
+  aLookalikeUnticked: 'Marca la casilla cuando hayas comprobado la dirección, o cámbiala.',
+  aLookalikeChecked: 'Confirmaste el aviso de dirección parecida · {time}',
+  aLookalikeRefused:
+    'Esta dirección se parece a una que guardaste, así que no se guardó. Cierra esto, comprueba cada carácter y marca la casilla para guardarla.',
 } as const;
 
 const fr = {
@@ -438,6 +466,20 @@ const fr = {
   aSaved: '{label} a été enregistrée dans ton carnet d’adresses.',
   aNoAssetsTitle: 'Aucun actif n’est ouvert aux retraits',
   aNoAssetsBody: 'Aucun actif n’est publié pour les retraits, il n’y a donc rien pour quoi enregistrer une adresse.',
+  aAddressChecksum:
+    'Certaines lettres de cette adresse ne sont pas dans la bonne casse, un caractère a donc peut-être été modifié. Copie-la à nouveau depuis sa source.',
+  aChecking: 'Vérification de l’adresse…',
+  aCheckFailed: 'L’adresse n’a pas pu être vérifiée, rien n’a donc été enregistré. Réessaie.',
+  aLookalikeTitle: 'Cette adresse ressemble à une adresse enregistrée',
+  aLookalikeBody:
+    'Elle commence et finit comme ton adresse enregistrée {saved} ({address}), mais c’est une autre adresse. Des escrocs envoient de petits montants depuis des adresses faites pour ressembler aux tiennes, afin que celle que tu copies soit la leur. Vérifie chaque caractère avec sa source.',
+  aLookalikeBodyUnnamed:
+    'Elle commence et finit comme ton adresse enregistrée {address}, mais c’est une autre adresse. Des escrocs envoient de petits montants depuis des adresses faites pour ressembler aux tiennes, afin que celle que tu copies soit la leur. Vérifie chaque caractère avec sa source.',
+  aLookalikeConfirm: 'J’ai vérifié chaque caractère. C’est une autre adresse et je veux l’enregistrer.',
+  aLookalikeUnticked: 'Coche la case une fois l’adresse vérifiée, ou modifie-la.',
+  aLookalikeChecked: 'Tu as confirmé l’avertissement de ressemblance · {time}',
+  aLookalikeRefused:
+    'Cette adresse ressemble à une adresse enregistrée, elle n’a donc pas été enregistrée. Ferme ceci, vérifie chaque caractère et coche la case pour l’enregistrer.',
 } as const;
 
 export const withdrawalCopy = defineCopy('customer.money.withdrawals', en, { es, fr });

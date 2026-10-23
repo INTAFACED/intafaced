@@ -41,9 +41,29 @@ const defaults = {
   passkeys: () => passkeyList(1),
   alerts: () => alertList(),
   activity: () => establishedActivity(),
+  // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
+  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  'work:identity': () => ({ items: [] }),
+  'work:bank': () => ({ items: [] }),
+  'work:pay': () => ({ items: [] }),
 };
 // The service calls (/api/<module>/trpc/<procedure>) the checklist and the activity list make.
-const procedures = { 'kyc.status': 'kyc', 'webauthn.list': 'passkeys', 'notify.alerts': 'alerts', 'activity.list': 'activity' };
+const procedures = {
+  'kyc.status': 'kyc',
+  'webauthn.list': 'passkeys',
+  'notify.alerts': 'alerts',
+  'activity.list': 'activity',
+  'home.config': 'homeConfig',
+};
+/** An item identity answers for a person who has not verified yet. */
+const verifyItem = {
+  id: 'verification:u-new',
+  kind: 'verification',
+  source: 'identity',
+  severity: 'action',
+  titleKey: 'identity.verification.start',
+  link: '/verification',
+};
 /** A brand-new account: nothing done anywhere. */
 const newAccount = {
   balance: emptyBalances,
@@ -51,6 +71,7 @@ const newAccount = {
   passkeys: () => passkeyList(0),
   alerts: () => alertList([]),
   activity: () => activityPage([]),
+  'work:identity': () => ({ items: [verifyItem] }),
 };
 /** A history page as the bank answers `input`: only the kinds asked for, at most `limit` lines. */
 function asked(page, input) {
@@ -75,8 +96,10 @@ async function mock(page, overrides = {}) {
     return route.fulfill({ status: 200, json: wrap(typeof value === 'function' ? value(arg) : value) });
   };
   await page.route('**/api/*/trpc/**', async (route) => {
-    const procedure = decodeURIComponent(new URL(route.request().url()).pathname.split('/trpc/')[1]);
-    const name = procedures[procedure];
+    const [prefix, rest] = new URL(route.request().url()).pathname.split('/trpc/');
+    const procedure = decodeURIComponent(rest);
+    // Every owner mounts the same work list procedure, so it is told apart by the module it was asked of.
+    const name = procedure === 'workItems.list' ? `work:${prefix.split('/').at(-1)}` : procedures[procedure];
     seen.push(procedure);
     if (!name || !(name in served)) return route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } });
     // The bank filters the history by kind and cuts it at the limit, as Get started's one-line reads ask it to.
@@ -635,6 +658,72 @@ test('a failed activity list says so, with Try again, and does not touch the res
   await mock(page, newAccount);
   await page.locator('.home-main').getByRole('button', { name: 'Try again' }).click();
   await expect(page.locator('.home-main')).toContainText('No activity');
+});
+
+test('Needs you lists each owner’s item, opening its room, in the owner’s order and within the cap', async ({ page }) => {
+  const card = {
+    id: 'card_frozen:c1',
+    kind: 'card_frozen',
+    source: 'bank',
+    severity: 'warning',
+    titleKey: 'bank.card.frozen',
+    link: '/bank/cards',
+    reasonCode: 'card.frozen_by_owner',
+  };
+  const payout = {
+    id: 'payout_waiting:p1',
+    kind: 'payout_waiting',
+    source: 'pay',
+    severity: 'info',
+    titleKey: 'pay.payout.waiting',
+    link: '/pay',
+  };
+  await mock(page, {
+    homeConfig: () => ({
+      workListCap: 2,
+      workListOrder: ['payout_waiting', 'verification', 'card_frozen'],
+      searchResultCap: null,
+      revision: 3,
+    }),
+    'work:identity': () => ({ items: [verifyItem] }),
+    'work:bank': () => ({ items: [card] }),
+    'work:pay': () => ({ items: [payout] }),
+  });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.locator('.home-work__row');
+  await expect(rows).toHaveCount(2);
+  expect(await rows.evaluateAll((nodes) => nodes.map((node) => [node.dataset.kind, node.getAttribute('href')]))).toEqual([
+    ['payout_waiting', '/pay'],
+    ['verification', '/verification'],
+  ]);
+  await expect(rows.nth(1)).toContainText('Verify your identity');
+  await expect(work).toContainText('1 more not shown.');
+  await page.screenshot({ path: join(shots, 'home-work-list.png') });
+});
+
+test('Needs you never says "nothing" on a missing answer: a blank cap is refused with its code, an owner not answering is named', async ({
+  page,
+}) => {
+  await mock(page, { homeConfig: () => ({ workListCap: null, workListOrder: null, searchResultCap: null, revision: 1 }) });
+  await open(page);
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  await expect(work).toContainText('List size not set');
+  await expect(work).toContainText('home.work_list_cap_unset');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  await page.unrouteAll();
+  await mock(page, { 'work:bank': { status: 404, json: { error: { message: 'No procedure found on path "workItems.list"' } } } });
+  await page.reload();
+  await expect(work).toContainText('Nothing so far from the services that answered.');
+  await expect(work).toContainText('Not connected here: Bank.');
+  await expect(work).not.toContainText('Nothing needs you');
+
+  // A row from another owner, or not in the contract, drops that owner's whole answer.
+  await page.unrouteAll();
+  await mock(page, { 'work:pay': () => ({ items: [{ ...verifyItem }] }) });
+  await page.reload();
+  await expect(work).toContainText('Couldn’t check: Pay.');
 });
 
 test('unpriced assets are named, not counted, and never shown as zero', async ({ page }) => {

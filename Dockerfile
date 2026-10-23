@@ -77,6 +77,7 @@ COPY packages/greeks-adapter/package.json    packages/greeks-adapter/
 COPY packages/i18n/package.json              packages/i18n/
 COPY packages/ledger-client/package.json     packages/ledger-client/
 COPY packages/market-data/package.json       packages/market-data/
+COPY packages/money-math/package.json        packages/money-math/
 COPY packages/portfolio-view/package.json    packages/portfolio-view/
 COPY packages/quant-honesty/package.json     packages/quant-honesty/
 COPY packages/safe-regex/package.json        packages/safe-regex/

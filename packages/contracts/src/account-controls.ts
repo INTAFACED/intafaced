@@ -135,6 +135,148 @@ export const accountControlResultSchema = z
   });
 export type AccountControlResult = z.infer<typeof accountControlResultSchema>;
 
+/**
+ * Staff close and reopen of one account (J-ops-console-04 #7), svc-identity only. Both are four-eyes: the actor runs it
+ * with an approval a second person gave (`identity.account_close` or `identity.account_reopen`), bound to the account,
+ * the reason and `expectedVersion` (the same identity control version a freeze moves). A close needs a reason code from
+ * this list. Only a customer-closed account can be reopened: one the customer closed through the closure flow, or that
+ * staff closed with `customer_request`. A close for any other reason (fraud, negative balance, bank reason, other) stays
+ * closed. No money moves here; the balance at close is the closure sweep's, and a close refuses while the closure checks
+ * report open products or balances.
+ */
+export const accountCloseReasonCodes = ['fraud', 'negative_balance', 'bank_reason', 'customer_request', 'other'] as const;
+export const accountCloseReasonCodeSchema = z.enum(accountCloseReasonCodes);
+export type AccountCloseReasonCode = z.infer<typeof accountCloseReasonCodeSchema>;
+
+const closureReason = z.string().trim().min(3).max(255);
+
+export const accountClosureInputSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      requestId: id,
+      userId: id,
+      action: z.literal('close'),
+      reasonCode: accountCloseReasonCodeSchema,
+      reason: closureReason,
+      expectedVersion: version,
+      approvalId: z.string().trim().min(1).max(128).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: id,
+      userId: id,
+      action: z.literal('reopen'),
+      reason: closureReason,
+      expectedVersion: version,
+      approvalId: z.string().trim().min(1).max(128).optional(),
+    })
+    .strict(),
+]);
+export type AccountClosureInput = z.infer<typeof accountClosureInputSchema>;
+
+/** `closedBy`: who closed it, `customer` (the closure flow, or staff with `customer_request`) or `staff`; null while open. */
+export const accountClosureStateSchema = z
+  .object({
+    userId: id,
+    version,
+    status: z.enum(['active', 'frozen', 'closed']),
+    closedBy: z.enum(['customer', 'staff']).nullable(),
+    closeReasonCode: accountCloseReasonCodeSchema.nullable(),
+    reopenable: z.boolean(),
+  })
+  .strict();
+export type AccountClosureState = z.infer<typeof accountClosureStateSchema>;
+
+export const accountClosureLookupInputSchema = z.object({ userId: id }).strict();
+export const accountClosureHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const closureAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  action: z.enum(['close', 'reopen']),
+  reasonCode: accountCloseReasonCodeSchema.nullable(),
+  reason: closureReason,
+  occurredAt: timestamp,
+};
+const closureBlockerSchema = z.object({ code: z.string().min(1).max(128), count: z.number().int().min(0) }).strict();
+
+export const accountClosureResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id,
+        before: accountClosureStateSchema,
+        after: accountClosureStateSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.close_founder_forbidden',
+          'identity.close_self_forbidden',
+          'identity.close_already_closed',
+          'identity.reopen_not_closed',
+          'identity.reopen_not_allowed',
+          'identity.close_requires_approver',
+          'identity.close_approval_mismatch',
+          'identity.close_approval_consumed',
+          'identity.close_blocked',
+          'identity.close_check_unavailable',
+        ]),
+        current: accountClosureStateSchema.nullable(),
+        blockers: z.array(closureBlockerSchema).max(50).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountClosureStateSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'before' in result ? [result.before, result.after] : result.current === null ? [] : [result.current];
+    if (states.some((state) => state.userId !== result.userId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'State belongs to a different account' });
+    }
+    if (result.outcome === 'changed') {
+      const closed = result.action === 'close';
+      const coherent =
+        (result.after.status === 'closed') === closed &&
+        (result.before.status === 'closed') !== closed &&
+        version.safeParse(result.before.version).success &&
+        version.safeParse(result.after.version).success &&
+        BigInt(result.after.version) === BigInt(result.before.version) + 1n &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, action and state versions disagree' });
+    }
+    if ((result.action === 'close') !== (result.reasonCode !== null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reasonCode'], message: 'A close carries a reason code and a reopen does not' });
+    }
+  });
+export type AccountClosureResult = z.infer<typeof accountClosureResultSchema>;
+
 export const accountCredentialReferenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: id }).strict(),
   z.object({ kind: z.literal('api_key'), apiKeyId: id }).strict(),

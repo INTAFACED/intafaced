@@ -1,0 +1,82 @@
+@layer components {
+  .orders-room {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+  }
+  .orders-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .orders-field {
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .orders-field select,
+  .orders-field input {
+    min-height: 40px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line, currentColor);
+    border-radius: var(--if-r-sm, 8px);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+  .orders-note {
+    margin: 0;
+  }
+  .orders-note--good,
+  .orders-note--bad {
+    padding: 8px 12px;
+    border-radius: var(--if-r-sm, 8px);
+    border: 1px solid var(--if-line, currentColor);
+  }
+  .orders-table {
+    overflow-x: auto;
+  }
+  .orders-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+  }
+  .orders-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 200px) 1fr;
+    gap: 12px;
+  }
+  .orders-row dt {
+    color: var(--if-text-secondary);
+  }
+  .orders-row dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .orders-section {
+    display: grid;
+    gap: 8px;
+  }
+  .orders-section h2 {
+    margin: 0;
+  }
+  .orders-fills,
+  .orders-changes {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+  }
+  .orders-fill summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  .orders-fill .orders-list {
+    padding: 8px 0 8px 16px;
+  }
+}

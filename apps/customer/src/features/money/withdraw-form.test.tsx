@@ -161,6 +161,12 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
     expect(html).toContain('No label');
     expect(html).toContain('DE8937…3000');
   });
+  it('says on an entry that the customer checked it is not a look-alike, and says nothing on any other', () => {
+    const checked = renderToStaticMarkup(<AddressTable rows={[row({ lookalikeConfirmedAt: '2026-10-17T12:00:00Z' })]} now={NOW} />);
+    expect(checked).toContain('You confirmed the look-alike warning');
+    expect(renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />)).not.toContain('look-alike');
+  });
+
   it('states the cooling-off only from what the bank returned', () => {
     const ends = renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />);
     expect(ends).toMatch(/Ends [^<]*19 Oct/);

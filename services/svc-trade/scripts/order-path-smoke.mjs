@@ -11,6 +11,8 @@
  * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md
  */
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { readLatestEmailConfirmToken } from '../../../tooling/scripts/local-test-state.mjs';
 
 const TRADE = process.env.TRADE_HTTP_URL ?? 'http://127.0.0.1:4004';
 const MATCHING = process.env.MATCHING_HTTP_URL ?? 'http://127.0.0.1:4005';
@@ -378,11 +380,36 @@ async function openMarketInMatching(contracts, marketId) {
   log(`SEED matching open (local-test founders ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
 }
 
-/** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run. */
+/**
+ * New custodial orders need a proved email (RC-identity-01). Proves it the way a person does: ask identity for a
+ * confirmation, read the LOCAL-TEST link the rig's identity wrote to CX8_MAIL_OUTBOX, and open it. Nothing writes
+ * `email_verified_at` itself.
+ */
+async function proveEmail(contracts, trader, waitMs = 15_000) {
+  const outbox = process.env.CX8_MAIL_OUTBOX?.trim();
+  if (!outbox) throw new Error('CX8_MAIL_OUTBOX is not set: run through order-path-cx8-boot.mjs, which starts identity with it');
+  await identityCall(contracts, 'auth.requestEmailConfirmation', {}, await principalOf(trader.accessToken));
+  const until = Date.now() + waitMs;
+  let token = null;
+  while (!token) {
+    try {
+      token = readLatestEmailConfirmToken(readFileSync(outbox, 'utf8'), trader.email);
+    } catch {
+      token = null;
+    }
+    if (token) break;
+    if (Date.now() >= until) throw new Error(`no LOCAL-TEST confirm link reached ${trader.email} in ${outbox}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  await identityCall(contracts, 'auth.confirmEmail', { token }, null);
+}
+
+/** SMOKE DATA: the buyer and seller are real identity users (handles `localtest_cx8_*`), created per run, emails proved. */
 async function registerLocalTestTraders(contracts) {
   if (process.env.TRADE_SMOKE_USER_ID || process.env.TRADE_SMOKE_MAKER_ID) return;
   const buyer = await registerLocalTestOperator(contracts, 'buy');
   const seller = await registerLocalTestOperator(contracts, 'sel');
+  for (const trader of [buyer, seller]) await proveEmail(contracts, trader);
   for (const trader of [buyer, seller]) SESSION_IDS.set(trader.userId, (await principalOf(trader.accessToken)).sid);
   USER = buyer.userId;
   MAKER = seller.userId;

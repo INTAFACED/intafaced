@@ -52,6 +52,9 @@ export const TRADING_RESTRICT_TARGET_SERVICE = 'svc-identity';
  * no money); identity's own restore door still admits only a live founder and spends the row there.
  */
 export const IDENTITY_UNFREEZE_ACTION_TYPE = 'identity.account_unfreeze';
+/** Staff close and reopen of one account (J-ops-console-04 #7). Operator-level, like the freeze: svc-identity is an operator target. */
+export const IDENTITY_CLOSE_ACTION_TYPE = 'identity.account_close';
+export const IDENTITY_REOPEN_ACTION_TYPE = 'identity.account_reopen';
 /**
  * Trade-ops operator permission. The trade desk's operator token is `admin:write` plus MFA.
  * There is no separate `trade:ops` scope. `market:ops` and `support:ops` are not this permission.

@@ -314,9 +314,20 @@ export const preferenceSchema = z.object({
   kind: z.enum(notificationKinds),
   inApp: z.boolean(),
   threshold: z.string().nullable(),
+  updatedBy: z.string().nullable(),
   updatedAt: timestamp.nullable(),
 });
 export type Preference = z.infer<typeof preferenceSchema>;
+/** One change to a notification preference (`merchantOps.notifications.preferences.history`): what it was set to, by whom. */
+export const preferenceChangeSchema = z.object({
+  seq: z.string(),
+  kind: z.enum(notificationKinds),
+  inApp: z.boolean(),
+  threshold: z.string().nullable(),
+  actorId: z.string(),
+  createdAt: timestamp,
+});
+export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
 export const unreadSchema = z.object({ unread: z.number().int() });
 

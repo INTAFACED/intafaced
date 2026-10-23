@@ -313,6 +313,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
 
   // ── Order lifecycle ───────────────────────────────
   'trade.order_not_found': { ccxt: 'OrderNotFound', status: 404 },
+  'trade.invalid_cursor': { ccxt: 'BadRequest', status: 400 },
   /**
    * Cancelling an order that already filled or cancelled. CCXT venues answer
    * InvalidOrder here rather than OrderNotFound, because the order does exist

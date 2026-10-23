@@ -3,7 +3,16 @@
  * on Alt+Enter, and sync by colour group (symbol and interval follow through the settings; crosshair and date range
  * follow through the charts themselves). The first chart is the address's market and the workbench's own setting.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useSession } from '../../features/session/session';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import type { ChartInterval } from '../trade/chart/candles';
@@ -35,7 +44,10 @@ import {
   type LimitRead,
   type SyncSet,
 } from './grid';
-import { MarketChartWidget, type WidgetProps } from './MarketChartWidget';
+import { MarketChartWidget, type AddonView, type WidgetProps } from './MarketChartWidget';
+import { joinedNonce, type GroupCommands } from './group-commands';
+import { StudiesBar } from './studies/StudiesBar';
+import type { StudyKind } from './studies/catalogue';
 import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerValues } from './owner-values';
 import { chartsHref, type WorkbenchSetting } from './workbench';
 
@@ -88,6 +100,16 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const [maximised, setMaximised] = useState<number | null>(null);
   const [help, setHelp] = useState(false);
   const [commands, setCommands] = useState<Record<number, { kind: 'replay'; nonce: number }>>({});
+  // A study added to one sync group goes to every chart in it. The latest command of each group is kept until the next
+  // one, so a chart whose studies bar mounts later still applies it. `applied` is the nonce each grid slot has applied.
+  const [groupCommands, setGroupCommands] = useState<GroupCommands>({});
+  const commandSeq = useRef(0);
+  const applied = useRef<Record<number, number>>({});
+  const applyToGroup = useCallback((group: Group, kind: StudyKind) => {
+    commandSeq.current += 1;
+    const nonce = commandSeq.current;
+    setGroupCommands((now) => ({ ...now, [group]: { kind, nonce } }));
+  }, []);
   // The first chart's colour group is kept beside the grid (its market and interval are the workbench's own).
   const [firstTag, setFirstTag] = useDeviceSetting<Group | 'none'>(
     `${gridKey(userId, workbench)}:first`,
@@ -109,6 +131,18 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
     () => cellsFor(layout, first, grid.cells),
     [layout, first.symbol, first.interval, first.mode, first.group, grid.cells],
   ); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A slot that joins a group (or is shown in one for the first time) counts the group's current command as applied, so
+  // it never replays a command issued before it joined. Layout effects run before any studies bar's effect in a commit.
+  const slotGroups = useRef<Array<Group | null | undefined>>([]);
+  useLayoutEffect(() => {
+    cells.forEach((cell, i) => {
+      if (slotGroups.current[i] === cell.group) return;
+      slotGroups.current[i] = cell.group;
+      applied.current[i] = joinedNonce(groupCommands, cell.group);
+    });
+    slotGroups.current.length = cells.length;
+  }, [cells, groupCommands]);
 
   const chooseLayout = (next: LayoutId) => {
     if (reasonFor(next, limit) !== null) {
@@ -405,9 +439,35 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   onScheme={i === 0 ? setScheme : undefined}
                   openSocket={openSocket}
                   onHost={(host) => onHost(i, host)}
-                  addons={i === 0 ? mainAddons : undefined}
                   command={commands[i] ?? null}
                   markets={markets}
+                  addons={(host, bars, view: AddonView) => (
+                    <>
+                      {i === 0 ? mainAddons?.(host, bars, view) : null}
+                      <StudiesBar
+                        host={host}
+                        market={cellMarket}
+                        interval={cell.interval}
+                        bars={bars}
+                        percent={view.percent}
+                        replaying={view.replaying}
+                        workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                        group={
+                          cell.group
+                            ? {
+                                size: cells.filter((c) => c.group === cell.group).length,
+                                command: groupCommands[cell.group] ?? null,
+                                appliedNonce: () => applied.current[i] ?? 0,
+                                onApplied: (nonce) => {
+                                  applied.current[i] = nonce;
+                                },
+                                onApplyToGroup: (kind) => applyToGroup(cell.group!, kind),
+                              }
+                            : undefined
+                        }
+                      />
+                    </>
+                  )}
                 />
               ) : (
                 <StateBlock kind="empty" title={t('Market not found title')} body={t('Market not found body')} />

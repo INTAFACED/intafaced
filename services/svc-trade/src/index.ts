@@ -1015,6 +1015,7 @@ registerPrivateRest(app, {
   adminOpenOrders: (principal, limit) => trade.adminOpenOrders(principal, limit),
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
+  orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   placeOrder: (principal, input) =>
     trade.placeOrder(

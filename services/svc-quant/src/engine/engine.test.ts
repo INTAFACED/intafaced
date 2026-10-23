@@ -173,6 +173,17 @@ describe('bar loop', () => {
     expect(spent > parseAmount('499.99')).toBe(true);
   });
 
+  it('alternates buy and sell, starting with a buy: the shape the round-trip pairing in metrics.ts relies on', () => {
+    // roundTripsOf pairs each sell with the one buy before it. If the engine ever adds to a position (pyramiding) or
+    // sells part of one, this fails first, before the metrics quietly mis-pair.
+    const closes = ['100', '101', '99', '104', '98', '107', '95', '110', '90', '120', '85', '130'];
+    const sides = run(closes).trades.map((t) => t.side);
+    expect(sides.length).toBeGreaterThan(3);
+    sides.forEach((side, i) => expect(side).toBe(i % 2 === 0 ? 'buy' : 'sell'));
+    const sized = run(closes, { rules: { ...RULES, sizing: { kind: 'cash', value: '500' } } }).trades;
+    for (let i = 1; i < sized.length; i += 2) expect(sized[i]!.qty).toBe(sized[i - 1]!.qty);
+  });
+
   it('gives the same result for the same inputs', () => {
     const closes = ['100', '101', '99', '104', '98', '107', '95', '110'];
     expect(JSON.stringify(run(closes, { slippageBps: parseAmount('3.5') }))).toBe(

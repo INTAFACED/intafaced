@@ -121,3 +121,33 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   expect(rows.length).toBeLessThanOrEqual(shown);
   for (const row of rows) expect(row).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z,[\d.]+,[\d.]+,[\d.]+,[\d.]+,[\d.]+,(yes|no)$/);
 });
+
+test(`${J} #3 adds an indicator pane to a chart with compared markets: the pane sits under the main pane and the compare lines stay`, async ({
+  page,
+}) => {
+  // 1m: RSI 14 needs 15 bars at the chart's interval; the stack's 15m history is still short.
+  await openChart(page, '/charts/BTC-USDT?interval=1m');
+  const [symbol] = await others(page);
+  await tools(page)
+    .getByRole('combobox', { name: /Compare with/ })
+    .selectOption(symbol);
+  await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
+  const list = tools(page).getByRole('list', { name: 'Compared markets' });
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect(list.getByRole('listitem').first()).toHaveAttribute('data-state', /ready|empty/);
+  await page.getByRole('button', { name: 'Indicators' }).first().click();
+  await page.getByRole('searchbox', { name: 'Search indicators' }).fill('rsi');
+  await page.getByRole('button', { name: 'Add Relative Strength Index', exact: true }).click();
+  await expect(page.locator('[data-study="rsi-1"]')).toHaveAttribute('data-pane', 'sub');
+  // The indicator pane is the second pane of the chart, so it sits under the main pane: its canvas is lower.
+  const host = canvas(page);
+  // Volume is the default sub-pane, so RSI makes two indicator panes.
+  await expect(host).toHaveAttribute('data-study-panes', '2');
+  const main = await host.locator('canvas').first().boundingBox();
+  const sub = await host.locator('canvas').last().boundingBox();
+  expect(sub.y).toBeGreaterThan(main.y + main.height / 2);
+  // The compare line is still there, with its state, after the pane was added.
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect(list.getByRole('listitem').first()).toHaveAttribute('data-state', /ready|empty/);
+  await expect(list.getByRole('button', { name: /^Remove / })).toBeVisible();
+});

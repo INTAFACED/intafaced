@@ -53,6 +53,8 @@ const baseSettingsApi = ({ query, mutate, list }: PortalTools) => ({
   markRead: (notificationIds: string[]) => mutate('merchantOps.notifications.markRead', { notificationIds }, p.markedSchema),
   markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
   preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(p.preferenceSchema), signal),
+  preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
+    list('merchantOps.notifications.preferences.history', p.preferenceChangeSchema, { ...(cursor ? { cursor } : {}) }, signal),
   setPreference: (input: { kind: p.NotificationKind; inApp: boolean; threshold?: string | null }) =>
     mutate('merchantOps.notifications.preferences.set', input, p.preferenceSchema),
 });

@@ -21,3 +21,11 @@
   background: var(--if-panel);
   border-radius: var(--if-r-sm);
 }
+
+/* The app resets native inputs to appearance: none; the compare tick keeps the browser's own checkbox. */
+.quant-run-check {
+  appearance: auto;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--if-lime);
+}
