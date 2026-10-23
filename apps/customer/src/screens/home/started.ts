@@ -3,10 +3,9 @@
  * the person has put the list away. Pure logic: the screen reads the real answers (identity, security, balances,
  * activity, alerts) and hands them in; nothing here calls a service.
  */
-import type { ActivityItem } from './deps';
 import { HOME_LINKS } from './links';
 
-export type StepId = 'verify' | 'secure' | 'deposit' | 'trade' | 'alert';
+export type StepId = 'register' | 'verify' | 'secure' | 'deposit' | 'trade' | 'alert';
 
 /**
  * done      the real data says so
@@ -24,7 +23,7 @@ export interface Step {
   href: string;
 }
 
-export const STEP_ORDER: readonly StepId[] = ['verify', 'secure', 'deposit', 'trade', 'alert'];
+export const STEP_ORDER: readonly StepId[] = ['register', 'verify', 'secure', 'deposit', 'trade', 'alert'];
 
 /** Verification: a held level above "none" is done; a submitted record still pending is "in review". */
 export function verificationStatus(answer: { tier: string; records: ReadonlyArray<{ status: string }> }): StepStatus {
@@ -39,35 +38,28 @@ export const securityStatus = (passkeys: number): StepStatus => (passkeys > 0 ? 
 export const alertStatus = (alerts: ReadonlyArray<{ kind: string; status: string }>): StepStatus =>
   alerts.some((alert) => alert.kind === 'price' && alert.status !== 'cancelled') ? 'done' : 'todo';
 
-const MONEY_IN = new Set<ActivityItem['kind']>(['deposit', 'welcome_funds', 'transfer_in']);
-export const hasMoneyIn = (items: readonly ActivityItem[]): boolean =>
-  items.some((item) => MONEY_IN.has(item.kind) && item.direction === 'in');
-export const hasTrade = (items: readonly ActivityItem[]): boolean => items.some((item) => item.kind === 'trade');
-
 /**
- * Add money: done when the account holds anything now, or ever received money (a person who moved everything out
- * has still added money once). While the balance is loading nothing is claimed.
+ * Whether the money history holds at least one line of a kind, from a kind-filtered read of one line (so an old
+ * deposit counts however long the history is). `none` also covers a bank that will not read the history of an account
+ * that is not verified yet: no money can have moved there.
  */
-export function depositStatus(balance: 'loading' | 'failed' | 'held' | 'none', history: 'loading' | 'failed' | 'in' | 'none'): StepStatus {
-  if (balance === 'held' || history === 'in') return 'done';
+export type EverRead = 'loading' | 'failed' | 'found' | 'none';
+
+export function depositStatus(balance: 'loading' | 'failed' | 'held' | 'none', history: EverRead): StepStatus {
+  if (balance === 'held' || history === 'found') return 'done';
   if (balance === 'loading' || (balance === 'none' && history === 'loading')) return 'checking';
   if (balance === 'none' && history === 'none') return 'todo';
   return 'unknown';
 }
 
-/** First trade, from the money history (newest first). More pages are read until a trade turns up or the cap is hit. */
-export function tradeStatus(history: 'loading' | 'failed' | 'empty' | { trade: boolean; hasMore: boolean; read: number }): StepStatus {
-  if (history === 'loading') return 'checking';
-  if (history === 'failed') return 'unknown';
-  if (history === 'empty') return 'todo';
-  if (history.trade) return 'done';
-  return history.hasMore && history.read < PAGES_CAP ? 'checking' : 'todo';
+/** First trade: one trade line anywhere in the history. */
+export function tradeStatus(history: EverRead): StepStatus {
+  return history === 'found' ? 'done' : history === 'none' ? 'todo' : history === 'loading' ? 'checking' : 'unknown';
 }
-/** How many history rows are read looking for a first trade before the answer is "not yet". */
-export const PAGES_CAP = 250;
 
 export function buildSteps(statuses: Record<StepId, StepStatus>): Step[] {
   const hrefs: Record<StepId, string> = {
+    register: HOME_LINKS.account,
     verify: HOME_LINKS.verification,
     secure: HOME_LINKS.security,
     deposit: HOME_LINKS.deposit,
