@@ -296,6 +296,12 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, openTradeIds: ['not a trade'] }))).toBeUndefined();
     expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, cap: '2', note: 'internal' }))).toEqual({ until: null, cap: '2' });
     expect(p2pLimitOf(refused('p2p.quote_expired', { until: null }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'regulation' }))).toEqual({
+      until: null,
+      reason: 'regulation',
+    });
+    expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'the bank said so' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, reason: 'regulation' }))).toBeUndefined();
     expect(p2pLimitOf(undefined)).toBeUndefined();
   });
 });

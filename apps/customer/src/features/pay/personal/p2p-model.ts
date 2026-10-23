@@ -338,6 +338,7 @@ export type TakeFailure =
   | 'pairLimit'
   | 'verificationLimit'
   | 'limitsUnset'
+  | 'methodRetired'
   | 'ownOffer'
   | 'unavailable'
   | 'blocked'
@@ -373,6 +374,8 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.verification_limit_currency',
   'p2p.verification_limits_invalid',
   'p2p.verification_level_unwired',
+  // A retired payment method is refused before the take reserves anything.
+  'p2p.method_delisted',
   'p2p.invalid_amount',
   'p2p.amount_below_min',
   'p2p.amount_above_max',
@@ -449,6 +452,8 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.verification_limits_invalid':
     case 'p2p.verification_level_unwired':
       return 'limitsUnset';
+    case 'p2p.method_delisted':
+      return 'methodRetired';
     case 'pay.take_own_offer':
     case 'p2p.self_trade':
       return 'ownOffer';

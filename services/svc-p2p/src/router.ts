@@ -26,7 +26,7 @@ import {
 import { InstrumentError, parseFieldSpecs } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
-import type { InstrumentService } from './instrument-service.js';
+import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
@@ -563,6 +563,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.verification_daily_limit':
       case 'p2p.verification_lifetime_limit':
       case 'p2p.pair_limit_exceeded':
+      // The ad lists a method the operator retired: choose another method or ad.
+      case 'p2p.method_delisted':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -1760,6 +1762,8 @@ export function createP2pRouter(
               methodId: z.string().min(1).max(64),
               country: z.string().min(1).max(2),
               enabled: z.boolean(),
+              /** Required when retiring (`enabled: false`); the customer is told it on a take. */
+              reason: z.enum(DELIST_REASONS).optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -1777,12 +1781,21 @@ export function createP2pRouter(
                 throw err;
               }
               void requireUser(ctx);
+              // Checked here as well as in the service so a refused change never spends the approval.
+              if (!input.enabled && !input.reason) {
+                throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
+              }
+              if (input.enabled && input.reason) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: 'A payment method switched on has no retirement reason' });
+              }
+              const reason = input.enabled ? undefined : input.reason;
               const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_set_enabled', {
                 methodId: input.methodId,
                 country: input.country,
                 enabled: input.enabled ? 'true' : 'false',
+                ...(reason ? { reason } : {}),
               });
-              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled);
+              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled, reason);
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),
           ),
