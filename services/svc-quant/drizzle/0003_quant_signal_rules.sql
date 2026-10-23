@@ -1,3 +1,4 @@
+-- intafaced:destructive drops and replaces the order-block check constraint only; no row or column is removed
 -- svc-quant · signal rules from the no-code builder (AL-editor-02)
 -- Reversal: 0003_quant_signal_rules.down.sql
 --
