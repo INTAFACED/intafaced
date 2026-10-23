@@ -377,6 +377,33 @@ export const cashOutRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+/** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
+export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+export const railRequirementsSchema = z.object({
+  rails: z.array(
+    z.object({
+      rail: z.enum(BANK_RAILS),
+      fields: z.array(z.object({ name: z.string(), required: z.boolean(), choices: z.array(z.string()).nullable() })),
+      // Null while no banking partner carries the rail; the blocker names what is missing.
+      partner: z.string().nullable(),
+      blocker: z.string().nullable(),
+    }),
+  ),
+});
+export type RailRequirements = z.infer<typeof railRequirementsSchema>;
+export const railSendSchema = z.object({
+  requestId: z.string(),
+  fromSpaceId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  rail: z.enum(BANK_RAILS),
+  recipient: z.string(),
+  status: z.literal('refused'),
+  refusalCode: z.string(),
+  createdAt: z.string(),
+});
+export type RailSend = z.infer<typeof railSendSchema>;
+export const railSendCheckSchema = z.object({ assetId: z.string(), amount: money, available: money });
 /** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
 export const incomingLineSchema = z.object({
   id: z.string(),
@@ -407,6 +434,8 @@ export const bankReads = {
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
+  'railSends.requirements': railRequirementsSchema,
+  'railSends.list': z.array(railSendSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),

@@ -426,6 +426,12 @@ export type BankErrorCode =
   | 'bank.recipient_check_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
+  /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */
+  | 'bank.rail_send_invalid'
+  /** A send-over-a-bank-rail request id already kept on other terms, or by someone else. Nothing changed. */
+  | 'bank.rail_send_conflict'
+  /** A send over a bank rail for more than the space's available balance, read from the ledger. Nothing kept. */
+  | 'bank.rail_send_over_available'
   /**
    * Standing-order runner kill switch (`SCHEDULED_TRANSFERS_ENABLED=false`).
    *
