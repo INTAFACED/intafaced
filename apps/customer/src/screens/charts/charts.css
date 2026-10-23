@@ -252,6 +252,41 @@
   .cw-option[aria-pressed='true'] {
     background: var(--if-field);
   }
+  .cw-compare-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font: 500 13px/18px var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .cw-compare-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .cw-compare-list button {
+    border: 0;
+    background: transparent;
+    color: var(--if-fg-2);
+    font: inherit;
+    cursor: pointer;
+  }
+  .cw-compare-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cw-compare .cw-note {
+    flex-basis: 100%;
+    padding: 0;
+    border: 0;
+  }
   .cw-replay {
     display: flex;
     flex-wrap: wrap;
