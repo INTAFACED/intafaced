@@ -841,6 +841,7 @@ export function createPayRouter(
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
               maxUses: input.maxUses,
               idempotencyKey: input.idempotencyKey,
+              ...(input.confirmation ? { confirmation: input.confirmation } : {}),
             });
             return { ...link, expiresAt: link.expiresAt.toISOString() };
           }),
@@ -872,12 +873,19 @@ export function createPayRouter(
         ),
 
       deactivateLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid(), linkId: z.string().uuid() }))
+        .input(
+          z.object({
+            merchantId: z.string().uuid(),
+            linkId: z.string().uuid(),
+            /** Shown to the holder of a deactivated link. Omit or blank stores none. */
+            message: z.string().max(500).optional(),
+          }),
+        )
         .output(z.object({ deactivated: z.boolean() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.deactivateLink');
-            return pay.deactivatePaymentLink(input.merchantId, input.linkId);
+            return pay.deactivatePaymentLink(input.merchantId, input.linkId, input.message);
           }),
         ),
 

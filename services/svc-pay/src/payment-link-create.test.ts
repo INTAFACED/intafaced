@@ -30,6 +30,8 @@ describe('payment link create key and checkout path', () => {
     expect(paymentLinkCreateFingerprint({ ...base, profileId: merchantId.toUpperCase() })).toBe(
       paymentLinkCreateFingerprint({ ...base, profileId: merchantId }),
     );
+    expect(paymentLinkCreateFingerprint(base)).toBe(paymentLinkCreateFingerprint({ ...base, confirmation: undefined }));
+    expect(paymentLinkCreateFingerprint(base)).not.toBe(paymentLinkCreateFingerprint({ ...base, confirmation: 'message:Paid' }));
   });
 
   it('builds a checkout path and does not invent a host', () => {
