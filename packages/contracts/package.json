@@ -105,6 +105,10 @@
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
+    },
+    "./academy-catalogue": {
+      "types": "./dist/academy-catalogue.d.ts",
+      "default": "./dist/academy-catalogue.js"
     }
   },
   "scripts": {
