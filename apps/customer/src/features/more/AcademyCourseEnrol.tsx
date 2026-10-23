@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
+import type { z } from 'zod';
 import {
+  academyAuthoredCourseEnrolmentSchema,
   academyCourseEnrolmentSchema,
-  type AcademyCourseEnrolment,
+  type AcademyAuthoredCourseEnrolment,
   type AcademyEnrolmentClosedReason,
   type AcademyEnrolmentTrack,
 } from '@intafaced/contracts/academy-catalogue';
@@ -26,6 +28,7 @@ const CLOSED_KEYS = {
   window_not_started: 'closedWindowNotStarted',
   window_ended: 'closedWindowEnded',
   full: 'closedFull',
+  payments_off: 'closedPaymentsOff',
 } as const satisfies Record<AcademyEnrolmentClosedReason, string>;
 const TRACK_KEYS = { audit: 'trackAudit', certificate: 'trackCertificate' } as const satisfies Record<AcademyEnrolmentTrack, string>;
 
@@ -36,12 +39,24 @@ export const closedReasonText = (t: T, reason: AcademyEnrolmentClosedReason) => 
  * reasons, the start date, seats only when a cap exists. One press sends one request and the button stays off until
  * the stored state has been read again, so the page shows what Academy recorded rather than what was asked.
  */
-export function AcademyCourseEnrol({ slug }: { slug: string }) {
+export function AcademyCourseEnrol({
+  slug,
+  source = 'path',
+  onSettled,
+}: {
+  slug: string;
+  /** A curriculum path, or a course staff made (AC-catalogue-03). */
+  source?: 'path' | 'authored';
+  /** Called once an enrol or leave has settled, so the page can read what it opens again. */
+  onSettled?: () => void;
+}) {
   const api = useApi();
   const { userId } = useSession();
+  const authored = source === 'authored';
+  const schema: z.ZodType<AcademyAuthoredCourseEnrolment> = authored ? academyAuthoredCourseEnrolmentSchema : academyCourseEnrolmentSchema;
   const terms = useResource(
-    (signal) => api.query('academy', 'courseEnrolment', { slug }, academyCourseEnrolmentSchema, { signal }),
-    `course-enrolment:${slug}`,
+    (signal) => api.query('academy', authored ? 'authoredCourseEnrolment' : 'courseEnrolment', { slug }, schema, { signal }),
+    `course-enrolment:${source}:${slug}`,
   );
   const [sending, setSending] = useState(false);
   // A second press before React re-renders still finds the first one in flight: one press, one request.
@@ -52,26 +67,32 @@ export function AcademyCourseEnrol({ slug }: { slug: string }) {
     inFlight.current = true;
     setSending(true);
     setRefusal(null);
+    let settled = false;
     try {
       const sent = await request();
       if (!sent.ok) setRefusal({ kind, failure: sent });
+      settled = sent.ok;
     } finally {
       inFlight.current = false;
       setSending(false);
       terms.reload();
+      // Only a stored change changes what the page opens; a refusal keeps its reason on screen.
+      if (settled) onSettled?.();
     }
   };
   const enrol = (track: AcademyEnrolmentTrack) =>
-    send('enrol', () => api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema));
+    send('enrol', () => api.mutate('academy', authored ? 'enrolAuthoredCourse' : 'enrolCourse', { slug, track }, schema));
   // The business key of this leave is the enrolment it ends: a resend after a lost reply is the same leave, never a second.
   const leave = (enrolledAt: string) =>
     send('leave', () =>
-      api.mutate(
-        'academy',
-        'leaveCertPath',
-        { pathSlug: slug, clientRequestId: `leave:${slug}:${enrolledAt}` },
-        leaveReceipt(userId, slug),
-      ),
+      authored
+        ? api.mutate('academy', 'leaveAuthoredCourse', { slug, enrolledAt }, schema)
+        : api.mutate(
+            'academy',
+            'leaveCertPath',
+            { pathSlug: slug, clientRequestId: `leave:${slug}:${enrolledAt}` },
+            leaveReceipt(userId, slug),
+          ),
     );
   if (terms.resource.status === 'loading') return <Loading />;
   if (terms.resource.status === 'failed')
@@ -93,7 +114,7 @@ export function CourseEnrolView({
   onEnrol,
   onLeave,
 }: {
-  terms: AcademyCourseEnrolment;
+  terms: AcademyAuthoredCourseEnrolment;
   sending: boolean;
   refusal: { kind: 'enrol' | 'leave'; failure: Failure } | null;
   onEnrol: (track: AcademyEnrolmentTrack) => void;

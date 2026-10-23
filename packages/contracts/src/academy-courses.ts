@@ -505,6 +505,7 @@ export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsI
  * is not published (nobody can enrol yet, or any more). A subheader is a label and has none.
  */
 export const ACADEMY_LEARNER_ITEM_LOCKS = ['enrol', 'enrolment_closed', 'not_released'] as const;
+// An enrolled reader (`authoredCourse`, signed in) sees no `enrol` lock on what is released.
 export type AcademyLearnerItemLock = (typeof ACADEMY_LEARNER_ITEM_LOCKS)[number];
 export const academyCourseLearnerViewSchema = z.object({
   slug: z.string().min(1),
@@ -577,3 +578,30 @@ export type AcademyRevokePrivateLinkInput = z.infer<typeof academyRevokePrivateL
  */
 export const academyCourseByLinkInputSchema = z.object({ slug: z.string().min(1).max(120), key: z.string().min(1).max(200) }).strict();
 export type AcademyCourseByLinkInput = z.infer<typeof academyCourseByLinkInputSchema>;
+
+/**
+ * AC-catalogue-03: the published courses staff made, as the public catalogue lists them (most recently published first). Published is
+ * listed; a course reached before that is unlisted and opens only through a private link. The page size is the
+ * caller's to send.
+ */
+export const academyPublishedCoursesInputSchema = z.object({ limit: z.number().int().positive().max(200) }).strict();
+export const academyPublishedCourseCardSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  pricing: z.enum(ACADEMY_COURSE_PRICING),
+  price: z.string().nullable(),
+  priceAsset: z.string().nullable(),
+  /** Items released to learners, which an enrolled learner can open (subheaders are labels and are not counted). */
+  items: z.number().int().nonnegative(),
+});
+export type AcademyPublishedCourseCard = z.infer<typeof academyPublishedCourseCardSchema>;
+export const academyPublishedCourseListSchema = z.array(academyPublishedCourseCardSchema);
+
+/** `publicAuthoredCourse`, `authoredCourse`, `authoredCourseEnrolment`: one course staff made, by its address. */
+export const academyAuthoredCourseInputSchema = z.object({ slug: z.string().min(1).max(120) }).strict();
+
+/** `leaveAuthoredCourse`: the enrolment that began at `enrolledAt` ends; a repeat after a lost reply is the same leave. */
+export const academyLeaveAuthoredCourseInputSchema = z.object({ slug: z.string().min(1).max(120), enrolledAt: isoInstant }).strict();
+export type AcademyLeaveAuthoredCourseInput = z.infer<typeof academyLeaveAuthoredCourseInputSchema>;

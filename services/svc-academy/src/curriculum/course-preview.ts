@@ -124,12 +124,15 @@ export class CoursePreview {
     return linkOf(stored);
   }
 
-  /** The course row and its outline from one snapshot, so a save in between never mixes two versions. */
-  private view(courseId: string): Promise<AcademyCourseLearnerView | null> {
-    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId));
+  /**
+   * The course row and its outline from one snapshot, so a save in between never mixes two versions. With a reader who
+   * holds an open enrolment in the course, what is released carries no lock.
+   */
+  view(courseId: string, readerId: string | null = null): Promise<AcademyCourseLearnerView | null> {
+    return this.sql.begin('isolation level repeatable read read only', (tx) => this.viewIn(tx, courseId, readerId));
   }
 
-  private async viewIn(tx: TransactionSql, courseId: string): Promise<AcademyCourseLearnerView | null> {
+  private async viewIn(tx: TransactionSql, courseId: string, readerId: string | null): Promise<AcademyCourseLearnerView | null> {
     const [course] = await tx<
       Array<{
         slug: string;
@@ -146,6 +149,13 @@ export class CoursePreview {
       FROM academy.courses WHERE id = ${courseId}
     `;
     if (!course) return null;
+    const enrolled =
+      readerId !== null &&
+      (
+        await tx`
+        SELECT 1 FROM academy.course_enrolments WHERE course_id = ${courseId} AND user_id = ${readerId} AND left_at IS NULL
+      `
+      ).length > 0;
     const rows = await tx<
       Array<{
         section_id: string;
@@ -180,9 +190,11 @@ export class CoursePreview {
             ? null
             : r.kind !== 'link' && r.live_revision === null
               ? 'not_released'
-              : course.state === 'published'
-                ? 'enrol'
-                : 'enrolment_closed',
+              : enrolled
+                ? null
+                : course.state === 'published'
+                  ? 'enrol'
+                  : 'enrolment_closed',
       });
     }
     return {
