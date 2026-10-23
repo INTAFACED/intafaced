@@ -143,6 +143,7 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
   const sales: EngineSale[] = [];
   const residuals = new Set<string>();
 
+  const usedIds = new Set<string>();
   for (const list of byAsset.values()) {
     // Same instant: arrivals before departures, so a fill that buys and a sale in one transaction keep their order.
     list.sort(
@@ -153,9 +154,13 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
     const all: OpenLot[] = [];
     for (const m of list) {
       if (m.side === 'acquire') {
+        // Two arrivals of one coin in one transaction get `:2`, `:3` in history order, so ids stay unique and repeatable.
+        let id = lotIdOf(m.txId, m.assetId);
+        for (let n = 2; usedIds.has(id); n++) id = `${lotIdOf(m.txId, m.assetId)}:${n}`;
+        usedIds.add(id);
         const entry: OpenLot = {
           lot: {
-            id: lotIdOf(m.txId, m.assetId),
+            id,
             assetId: m.assetId,
             acquiredAt: m.postedAt,
             acquireTxId: m.txId,
@@ -237,8 +242,20 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
     if (lot.remaining === 0n) open.splice(idx, 1);
   }
   if (averagePool !== null) {
-    // The average is unchanged by a sale: every lot still open is restated at that cost per coin.
-    for (const lot of open) lot.remainingCost = averagePool.cost === null ? null : share(averagePool.cost, averagePool.qty, lot.remaining);
+    // The average is unchanged by a sale: every lot still open is restated at that cost per coin. The pool's cost left is
+    // exactly what it had less what this sale took, so the rounding remainder goes to the last lot and nothing drifts.
+    if (averagePool.cost === null) {
+      for (const lot of open) lot.remainingCost = null;
+    } else {
+      const taken = matches.reduce((sum, x) => sum + (x.costUsd ?? 0n), 0n);
+      let left = averagePool.cost - taken;
+      const pool = { qty: averagePool.qty, cost: averagePool.cost };
+      open.forEach((lot, i) => {
+        const part = i === open.length - 1 ? left : share(pool.cost, pool.qty, lot.remaining);
+        lot.remainingCost = part;
+        left -= part;
+      });
+    }
   }
   if (remaining > 0n && open.length === 0) residuals.add(TAX_LOT_UNDERFLOW);
 

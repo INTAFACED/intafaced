@@ -244,34 +244,31 @@ export class TaxService {
       }
       return hit;
     };
-    const out: Inflow[] = [];
-    for (const line of lines) {
-      if (PAR_ASSETS.has(line.assetId.toUpperCase())) continue;
-      const price = await priceAt(line.assetId, line.postedAt);
-      if (price === null) residuals.add(TAX_PRICE_AT_TIME_UNAVAILABLE);
-      const valuedAt: ValuedAt | null =
-        price === null
-          ? null
-          : {
-              usd: mul(line.amount, price.price),
-              market: price.market,
-              timeframe: price.timeframe,
-              candleAt: price.candleAt,
-              price: price.price,
-            };
-      if (this.depositBasis === undefined) residuals.add(TAX_DEPOSIT_BASIS_POLICY_UNSET);
-      out.push({
-        txId: line.txId,
-        postedAt: line.postedAt,
-        assetId: line.assetId,
-        amount: line.amount,
-        reason: line.reason,
-        source: inflowSource(line.reason),
-        costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
-        valuedAt,
-      });
+    if (this.depositBasis === undefined && lines.some((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()))) {
+      residuals.add(TAX_DEPOSIT_BASIS_POLICY_UNSET);
     }
-    return out;
+    // Prices are read side by side; the cache keeps one read per coin and minute.
+    const coins = lines.filter((line) => !PAR_ASSETS.has(line.assetId.toUpperCase()));
+    return Promise.all(
+      coins.map(async (line): Promise<Inflow> => {
+        const price = await priceAt(line.assetId, line.postedAt);
+        if (price === null) residuals.add(TAX_PRICE_AT_TIME_UNAVAILABLE);
+        const valuedAt: ValuedAt | null =
+          price === null
+            ? null
+            : { usd: mul(line.amount, price.price), market: price.market, timeframe: price.timeframe, candleAt: price.candleAt, price: price.price };
+        return {
+          txId: line.txId,
+          postedAt: line.postedAt,
+          assetId: line.assetId,
+          amount: line.amount,
+          reason: line.reason,
+          source: inflowSource(line.reason),
+          costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
+          valuedAt,
+        };
+      }),
+    );
   }
 
   private requireMethod(raw: string): LotMethod {

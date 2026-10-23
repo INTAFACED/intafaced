@@ -259,6 +259,9 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
               {t('Cost')}
             </th>
             <th scope="col" className="money-num">
+              {t('Cost of what is left')}
+            </th>
+            <th scope="col" className="money-num">
               {t('Value on arrival')}
             </th>
             <th scope="col" className="money-num">
@@ -279,6 +282,13 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
               </td>
               <td className="money-num" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
+              </td>
+              <td className="money-num" data-col="cost-left">
+                {lot.remainingCostUsd === null ? (
+                  <span>{t('Cost unknown')}</span>
+                ) : (
+                  <Amount value={usd(lot.remainingCostUsd, copy)} hidden={hidden} />
+                )}
               </td>
               <td className="money-num" data-col="arrival">
                 {lot.valuedAt === null ? (

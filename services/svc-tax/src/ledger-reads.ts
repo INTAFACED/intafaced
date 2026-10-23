@@ -217,6 +217,8 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   'token.unstake',
   // An earn position's principal leaves the customer's own stake account and comes back here: their coins, not new ones.
   'bank.earn.withdrawn',
+  // An overcharged trading fee given back: coins the customer already had.
+  'trade.fill.fee.correction',
 ]);
 /** Order hold reads run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;

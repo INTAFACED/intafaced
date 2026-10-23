@@ -94,4 +94,19 @@ describe('runLotEngine', () => {
     expect(s(run.sales[0]!.realizedUsd)).toBe('15');
     expect(run.lots[0]).toMatchObject({ remaining: amt('3'), remainingCostUsd: amt('75'), costUsd: amt('100') });
   });
+
+  it('two arrivals of one coin in one transaction get distinct, repeatable ids', () => {
+    const run = runLotEngine([buy('t1', 1, '1', null, 'deposit'), buy('t1', 1, '2', null, 'deposit')], 'FIFO');
+    expect(run.lots.map((l) => l.id).sort()).toEqual(['lot:t1:BTC', 'lot:t1:BTC:2']);
+  });
+
+  it('AVERAGE: many small sales never make the cost left drift from the pool', () => {
+    // TEST: 3 bought for 100 (33.33... each), then ten sales of 0.1 for 10 each.
+    const sales = Array.from({ length: 10 }, (_, i) => sell(`s${i}`, 3 + i, '0.1', '10'));
+    const run = runLotEngine([buy('b1', 1, '1', '10'), buy('b2', 2, '2', '90'), ...sales], 'AVERAGE');
+    const taken = run.sales.reduce((sum, x) => sum + (x.costUsd ?? 0n), 0n);
+    const left = run.lots.reduce((sum, l) => sum + (l.remainingCostUsd ?? 0n), 0n);
+    expect(taken + left).toBe(amt('100'));
+    expect(run.lots.reduce((sum, l) => sum + l.remaining, 0n)).toBe(amt('2'));
+  });
 });
