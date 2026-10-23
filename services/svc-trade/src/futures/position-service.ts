@@ -1091,11 +1091,12 @@ export class PositionService {
    *
    * A CLOSED POSITION realised its result fill by fill: the sum of its applied reduce fills, each the amount that was
    * paid, owed or booked. The row's accepted mark is only the last reduce's price, so it would report the last fill
-   * alone. The sums are used only when the reduce fills close exactly what the opening fills opened. A position opened
-   * through the book but also shrunk some other way (auto-deleveraging, or an at-mark close while the book was off)
-   * reports its result as unknown: neither the sum nor the row's last figure is the whole of it. A position with no
-   * opening fill (opened at mark before the book) keeps the row's own figures. Liquidated rows keep theirs: a
-   * liquidation hands part to ADL.
+   * alone. The sums are used only when the reduce fills close exactly what the opening fills opened. A position whose
+   * fills do not cover its whole history reports its result as unknown, since neither the sum nor the row's last figure
+   * is the whole of it: one opened through the book but also shrunk some other way (auto-deleveraging, or an at-mark
+   * close while the book was off), and one with reduce fills but no opening fill (opened at the mark before the book).
+   * A position with no fill through the book keeps the row's own figures. Liquidated rows keep theirs: a liquidation
+   * hands part to ADL.
    */
   private async matchedFigures(rows: readonly PositionRow[]): Promise<Map<string, PresentExtras>> {
     const ids = rows.map((row) => row.id);
