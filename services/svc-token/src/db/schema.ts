@@ -206,7 +206,11 @@ export const buybackRuns = token.table(
 export const proposals = token.table(
   'proposals',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    /**
+     * `gov:proposal:<space>:<author>:<ordinal>`. Not a client uuid.
+     * List, get, vote, and close address this value.
+     */
+    id: text('id').primaryKey(),
     kind: proposalKindEnum('kind').notNull(),
     /**
      * The proposal payload — the listing to add, the parameter to change, the
@@ -282,7 +286,7 @@ export const governanceVotes = token.table(
   'governance_votes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    proposalId: uuid('proposal_id')
+    proposalId: text('proposal_id')
       .notNull()
       .references(() => proposals.id),
     userId: text('user_id').notNull(),

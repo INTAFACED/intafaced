@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -100,6 +101,24 @@ describe('proposer rule decisions', () => {
     expect(proposalSearchPattern('  ')).toBeNull();
     expect(proposalSearchPattern('100%_off')).toBe('%100\\%\\_off%');
   });
+
+  it('does not mint a proposal id or read stake before the author lock', () => {
+    const home = readFileSync(join(here, 'governance-home.ts'), 'utf8');
+    const insert = home.slice(home.indexOf('export async function insertGovernanceProposal'));
+    expect(insert).not.toMatch(/randomUUID/);
+    expect(insert).not.toMatch(/::uuid/);
+    expect(insert).toMatch(/lockedStake\(tx\)/);
+
+    const router = readFileSync(join(here, 'router.ts'), 'utf8');
+    const door = router.slice(router.indexOf('createProposal:'), router.indexOf('castVote:'));
+    expect(door).not.toMatch(/proposalId/);
+    expect(door).toMatch(/handle: input\.handle/);
+
+    const service = readFileSync(join(here, 'token-service.ts'), 'utf8');
+    const create = service.slice(service.indexOf('async createProposal('), service.indexOf('async editProposal('));
+    expect(create).not.toMatch(/this\.stakeOf\(/);
+    expect(create).toMatch(/lockedActiveStake/);
+  });
 });
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
@@ -166,17 +185,17 @@ describe('MC-token-01 governance home', () => {
     delete process.env.TOKEN_PROPOSAL_LIMIT;
   });
 
-  async function fundStake(userId: string, amount: string) {
+  async function fundStake(userId: string, amount: string, stakeId = crypto.randomUUID()) {
     await ledger.post(
       recipes.deposit({
         userId,
         assetId: 'IFC',
         amount: amt(amount),
         rail: 'test',
-        railRef: `${userId}:${amount}:gov`,
+        railRef: `${userId}:${amount}:${stakeId}`,
       }),
     );
-    await token.stake({ userId, amount: amt(amount), tier: 'flex', stakeId: crypto.randomUUID() });
+    await token.stake({ userId, amount: amt(amount), tier: 'flex', stakeId });
   }
 
   it('follows the one space once, and a second follow changes nothing', async () => {
@@ -217,7 +236,15 @@ describe('MC-token-01 governance home', () => {
   it('refuses a stake under the published minimum and stores one row for one handle', async () => {
     await fundStake(USER_A, '999');
     await expect(
-      token.createProposal({ kind: 'listing', createdBy: USER_A, opensAt: OPENS, closesAt: CLOSES, now: NOW, title: 'Too small' }),
+      token.createProposal({
+        kind: 'listing',
+        createdBy: USER_A,
+        opensAt: OPENS,
+        closesAt: CLOSES,
+        now: NOW,
+        handle: 'too-small',
+        title: 'Too small',
+      }),
     ).rejects.toMatchObject({ code: 'token.proposal_not_allowed' });
 
     await fundStake(USER_A, '1');
@@ -244,8 +271,10 @@ describe('MC-token-01 governance home', () => {
     });
     expect(second.id).toBe(first.id);
     expect(second.title).toBe('Alpha');
-    expect(first.businessKey).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:1`);
+    expect(first.id).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:1`);
+    expect(first.businessKey).toBe(first.id);
     expect(first.revision).toBe(1);
+    expect((await token.getProposal(first.id)).title).toBe('Alpha');
     expect(await sql`SELECT id FROM token.proposals`).toHaveLength(1);
 
     const other = await token.createProposal({
@@ -257,33 +286,53 @@ describe('MC-token-01 governance home', () => {
       handle: 'draft-2',
       title: 'Beacon',
     });
-    expect(other.businessKey).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:2`);
+    expect(other.id).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:2`);
+    expect(other.businessKey).toBe(other.id);
+    const listed = await token.listProposals({ limit: 50 });
+    expect(listed.map((row) => row.id).sort()).toEqual([first.id, other.id].sort());
   });
 
-  it('keeps the caller proposal id as the row id and still mints the business key', async () => {
-    await fundStake(USER_A, '1000');
-    const proposalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  it('refuses a missing handle and does not store a client uuid as the proposal id', async () => {
+    await expect(
+      token.createProposal({ kind: 'listing', createdBy: USER_A, opensAt: OPENS, closesAt: CLOSES, now: NOW, title: 'No handle' }),
+    ).rejects.toMatchObject({ code: 'token.proposal_handle_invalid' });
+    await expect(
+      token.createProposal({
+        kind: 'listing',
+        createdBy: USER_A,
+        opensAt: OPENS,
+        closesAt: CLOSES,
+        now: NOW,
+        handle: '   ',
+      }),
+    ).rejects.toMatchObject({ code: 'token.proposal_handle_invalid' });
+    expect(await sql`SELECT id FROM token.proposals`).toHaveLength(0);
+
+    await fundStake(USER_A, '1000', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2');
+    const clientUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
     const created = await token.createProposal({
       kind: 'curriculum',
       createdBy: USER_A,
-      proposalId,
+      handle: clientUuid,
       opensAt: OPENS,
       closesAt: CLOSES,
       now: NOW,
+      title: 'Kept',
     });
-    expect(created.id).toBe(proposalId);
-    expect(created.businessKey).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:1`);
+    expect(created.id).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:1`);
+    expect(created.id).not.toBe(clientUuid);
     const retry = await token.createProposal({
       kind: 'grant',
       createdBy: USER_A,
-      proposalId,
+      handle: clientUuid,
       opensAt: OPENS,
       closesAt: CLOSES,
       now: NOW,
       title: 'Ignored',
     });
-    expect(retry.id).toBe(proposalId);
-    expect(retry.title).toBeNull();
+    expect(retry.id).toBe(created.id);
+    expect(retry.title).toBe('Kept');
+    expect(await sql`SELECT id FROM token.proposals`).toHaveLength(1);
   });
 
   it('edits a draft once per change, then the open job makes a repeat a no-op', async () => {
@@ -296,10 +345,12 @@ describe('MC-token-01 governance home', () => {
       opensAt: futureOpen,
       closesAt: futureClose,
       now: NOW,
+      handle: 'draft-edit',
       title: 'Alpha',
       bodyMd: 'First',
     });
     expect(draft.status).toBe('draft');
+    expect(draft.id).toBe(`gov:proposal:${GOVERNANCE_SPACE_ID}:${USER_A}:1`);
     const edited = await token.editProposal({ proposalId: draft.id, authorId: USER_A, title: 'Alpha revised', bodyMd: 'Second' });
     expect(edited.revision).toBe(2);
     expect(edited.status).toBe('draft');
@@ -329,13 +380,22 @@ describe('MC-token-01 governance home', () => {
   it('searches by title and returns ballot counts, not weights', async () => {
     await fundStake(USER_A, '1000');
     await fundStake(USER_B, '2000');
-    await token.createProposal({ kind: 'listing', createdBy: USER_A, opensAt: OPENS, closesAt: CLOSES, now: NOW, title: 'Alpha' });
+    await token.createProposal({
+      kind: 'listing',
+      createdBy: USER_A,
+      opensAt: OPENS,
+      closesAt: CLOSES,
+      now: NOW,
+      handle: 'alpha',
+      title: 'Alpha',
+    });
     const beacon = await token.createProposal({
       kind: 'grant',
       createdBy: USER_A,
       opensAt: OPENS,
       closesAt: CLOSES,
       now: NOW,
+      handle: 'beacon',
       title: 'Beacon',
       bodyMd: 'notes',
     });
@@ -374,12 +434,84 @@ describe('MC-token-01 governance home', () => {
     expect(await sql`SELECT id FROM token.proposals`).toHaveLength(1);
   });
 
+  it('refuses the create when unstake commits the stake row the insert is waiting on', async () => {
+    // The row is locked and marked unstaking, and that commit has not landed.
+    // The create is inside its insert transaction, blocked by this one, which
+    // is before the locked stake re-read. Committing here is the gap a
+    // pre-lock total would miss. The re-read must see unstaking and refuse.
+    const stakeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa19';
+    await fundStake(USER_A, '1000', stakeId);
+    const holder = postgres(db.url, {
+      max: 1,
+      onnotice: () => undefined,
+      connection: { search_path: 'token,public' },
+    });
+    let pending: Promise<unknown> | undefined;
+    try {
+      await holder.begin(async (tx) => {
+        await tx`SELECT id FROM token.stakes WHERE id = ${stakeId}::uuid FOR UPDATE`;
+        const updated = await tx`
+          UPDATE token.stakes SET status = 'unstaking'
+           WHERE id = ${stakeId}::uuid AND status = 'active'
+          RETURNING id
+        `;
+        if (updated.length !== 1) throw new Error('stake row was not active');
+        let settled: string | null = null;
+        pending = token
+          .createProposal({
+            kind: 'listing',
+            createdBy: USER_A,
+            opensAt: OPENS,
+            closesAt: CLOSES,
+            now: NOW,
+            handle: 'race-1',
+            title: 'Race',
+          })
+          .then(
+            (row) => {
+              settled = `ok:${row.id}`;
+              return row;
+            },
+            (err: { code?: string; message?: string }) => {
+              settled = `err:${err.code ?? err.message ?? 'unknown'}`;
+              throw err;
+            },
+          );
+        let saw = false;
+        for (let i = 0; i < 80 && !saw && settled === null; i += 1) {
+          for (let step = 0; step < 5; step += 1) await new Promise((resolve) => setImmediate(resolve));
+          const rows = await tx<Array<{ n: number }>>`
+            SELECT count(*)::int AS n
+              FROM pg_stat_activity
+             WHERE pg_backend_pid() = ANY (pg_blocking_pids(pid))
+          `;
+          saw = Number(rows[0]?.n ?? 0) > 0;
+        }
+        if (!saw) throw new Error(`proposal create did not wait on the open stake transaction (${settled ?? 'still running'})`);
+      });
+      await expect(pending).rejects.toMatchObject({ code: 'token.proposal_not_allowed' });
+      expect(await sql`SELECT id FROM token.proposals`).toHaveLength(0);
+      const status = await sql<Array<{ status: string }>>`SELECT status FROM token.stakes WHERE id = ${stakeId}`;
+      expect(status[0]?.status).toBe('unstaking');
+    } finally {
+      if (pending) await pending.catch(() => undefined);
+      await holder.end({ timeout: 1 });
+    }
+  }, 30_000);
+
   it('uses the stored row when env names a different rule', async () => {
     process.env.TOKEN_PROPOSER_RULE = 'stake:1';
     process.env.TOKEN_PROPOSAL_LIMIT = '100:1000';
     await fundStake(USER_A, '1000');
     await expect(
-      token.createProposal({ kind: 'listing', createdBy: USER_B, opensAt: OPENS, closesAt: CLOSES, now: NOW }),
+      token.createProposal({
+        kind: 'listing',
+        createdBy: USER_B,
+        opensAt: OPENS,
+        closesAt: CLOSES,
+        now: NOW,
+        handle: 'other-author',
+      }),
     ).rejects.toMatchObject({ code: 'token.proposal_not_allowed' });
     const home = await token.governanceHome(USER_A, false);
     expect(home.proposal.code).toBeNull();

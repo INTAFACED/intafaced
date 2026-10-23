@@ -215,7 +215,7 @@ export class TokenError extends Error {
       | 'token.proposal_not_editable'
       /** Title was sent and it is empty. Omitting the title is the legacy create. */
       | 'token.proposal_title_invalid'
-      /** Request handle or proposal id is not a usable retry key. */
+      /** Stored request handle missing or not usable. The proposal id is not a client uuid. */
       | 'token.proposal_handle_invalid',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
@@ -969,6 +969,35 @@ export class TokenService {
   private async stakeOfOn(sql: Sql, userId: string): Promise<Amount> {
     const rows = await sql<Array<{ id: string; amount: string }>>`
       SELECT id, amount FROM token.stakes WHERE user_id = ${userId} AND status = 'active' ORDER BY id
+    `;
+    let total: Amount = 0n;
+    for (const row of rows) {
+      const recorded = parseAmount(row.amount);
+      const book = (await this.ledger.balance(tokenStakeAccount(userId, this.assetId, row.id))).amount;
+      if (book !== recorded) {
+        throw new TokenError(
+          `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
+          'token.stake_ledger_mismatch',
+        );
+      }
+      total += book;
+    }
+    return total;
+  }
+
+  /**
+   * Author's active stake inside the proposal insert. `FOR UPDATE` is the
+   * lock `unstake` already takes on `token.stakes`, so a commit that marks
+   * the row `unstaking` cannot land between this read and the insert.
+   */
+  private async lockedActiveStake(sql: Sql, userId: string): Promise<Amount> {
+    const rows = await sql<Array<{ id: string; amount: string }>>`
+      SELECT id, amount
+        FROM token.stakes
+       WHERE user_id = ${userId}
+         AND status = 'active'
+       ORDER BY id
+       FOR UPDATE
     `;
     let total: Amount = 0n;
     for (const row of rows) {
@@ -2558,6 +2587,10 @@ export class TokenService {
    *
    * A future `opensAt` stays `draft` until `openDueProposals`. A window that
    * already contains `now` is inserted `open`.
+   *
+   * The stored id is `gov:proposal:<space>:<author>:<ordinal>`. The client
+   * sends one request handle. Stake for the rule is read in that insert,
+   * after the author lock, not from a total taken before it.
    */
   async createProposal(input: {
     kind: ProposalKind;
@@ -2567,8 +2600,7 @@ export class TokenService {
     asAdmin?: boolean;
     opensAt?: Date;
     closesAt?: Date;
-    proposalId?: string;
-    /** Stored retry handle. When omitted, `proposalId` is that handle. */
+    /** Stored retry handle. Required. A missing handle is `token.proposal_handle_invalid`. */
     handle?: string;
     title?: string;
     bodyMd?: string;
@@ -2592,22 +2624,20 @@ export class TokenService {
         peeked.code,
       );
     }
-    const staked = asAdmin || peeked.minStake == null ? 0n : await this.stakeOf(input.createdBy);
 
     return insertGovernanceProposal(this.sql, {
       kind: input.kind,
       body: input.body ?? {},
       authorId: input.createdBy,
       asAdmin,
-      staked,
       opensAt,
       closesAt,
       now,
-      proposalId: input.proposalId,
       handle: input.handle,
       title: input.title,
       bodyMd: input.bodyMd,
       discussionLink: input.discussionLink,
+      lockedStake: (tx) => this.lockedActiveStake(tx, input.createdBy),
     });
   }
 

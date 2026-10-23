@@ -7,7 +7,6 @@ import { TokenError, type ProposalKind, type ProposalRecord, type ProposalStatus
 export const GOVERNANCE_SPACE_ID = 'ifc';
 
 const HANDLE_MAX = 200;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ProposerKind = 'stake' | 'authors' | 'listed';
 
@@ -307,24 +306,14 @@ function optionalText(value: string | undefined): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-function requestHandle(handle: string | undefined, proposalId: string | undefined): string | null {
-  const raw = handle !== undefined ? handle : proposalId;
-  if (raw === undefined) return null;
-  const trimmed = raw.trim();
-  if (trimmed === '') {
-    if (handle !== undefined) throw new TokenError('That proposal request is not valid', 'token.proposal_handle_invalid');
-    return null;
-  }
-  if (trimmed.length > HANDLE_MAX || /[\u0000-\u001f]/.test(trimmed)) {
+function requestHandle(handle: string | undefined): string {
+  if (handle === undefined) {
     throw new TokenError('That proposal request is not valid', 'token.proposal_handle_invalid');
   }
-  return trimmed;
-}
-
-function proposalUuid(proposalId: string | undefined): string | null {
-  if (proposalId === undefined) return null;
-  const trimmed = proposalId.trim();
-  if (!UUID_RE.test(trimmed)) throw new TokenError('That proposal request is not valid', 'token.proposal_handle_invalid');
+  const trimmed = handle.trim();
+  if (trimmed === '' || trimmed.length > HANDLE_MAX || /[\u0000-\u001f]/.test(trimmed)) {
+    throw new TokenError('That proposal request is not valid', 'token.proposal_handle_invalid');
+  }
   return trimmed;
 }
 
@@ -507,23 +496,25 @@ export async function insertGovernanceProposal(
     body: Record<string, unknown>;
     authorId: string;
     asAdmin: boolean;
-    staked: Amount;
     opensAt: Date;
     closesAt: Date;
     now: Date;
-    proposalId?: string;
     handle?: string;
     title?: string;
     bodyMd?: string;
     discussionLink?: string;
+    /**
+     * Author's active stake, read on this transaction after the author lock.
+     * `unstake` locks the same `token.stakes` rows. A total from before the
+     * lock is not this figure.
+     */
+    lockedStake: (tx: Sql) => Promise<Amount>;
   },
 ): Promise<ProposalRecord> {
   const title = normalizeProposalTitle(input.title);
   const bodyMd = optionalText(input.bodyMd);
   const discussionLink = optionalText(input.discussionLink);
-  const handle = requestHandle(input.handle, input.proposalId);
-  const id = input.proposalId === undefined ? crypto.randomUUID() : proposalUuid(input.proposalId);
-  if (id == null) throw new TokenError('That proposal request is not valid', 'token.proposal_handle_invalid');
+  const handle = requestHandle(input.handle);
 
   return transaction(
     sql,
@@ -535,11 +526,7 @@ export async function insertGovernanceProposal(
           FROM token.proposals
          WHERE space_id = ${GOVERNANCE_SPACE_ID}
            AND author_id = ${input.authorId}
-           AND (
-             (${handle}::text IS NOT NULL AND request_handle = ${handle})
-             OR (${id}::uuid IS NOT NULL AND id = ${id}::uuid)
-           )
-         ORDER BY CASE WHEN ${handle}::text IS NOT NULL AND request_handle = ${handle} THEN 0 ELSE 1 END
+           AND request_handle = ${handle}
          LIMIT 1
       `;
       if (existing[0]) {
@@ -548,17 +535,13 @@ export async function insertGovernanceProposal(
         return loaded;
       }
 
-      const taken = await tx<Array<{ id: string }>>`
-        SELECT id FROM token.proposals WHERE id = ${id}::uuid
-      `;
-      if (taken[0]) throw new TokenError('You do not have access to this', 'token.proposal_not_allowed');
-
       const loaded = await loadGate(tx);
       if (!loaded.ok) throw accessError(loaded.code);
       const existingCount = await countRecent(tx, input.authorId, input.now, loaded.gate.periodMs);
+      const staked = input.asAdmin || loaded.gate.kind !== 'stake' ? 0n : await input.lockedStake(tx);
       const access = decideProposer(loaded.gate, {
         userId: input.authorId,
-        staked: input.staked,
+        staked,
         asAdmin: input.asAdmin,
         existing: existingCount,
       });
@@ -571,7 +554,7 @@ export async function insertGovernanceProposal(
       `;
       const ordinal = asNonNegativeInt(ordinalRows[0]?.n, 'Proposal ordinal');
       if (ordinal == null || ordinal < 1) throw invalid('Proposal ordinal is missing');
-      const businessKey = `gov:proposal:${GOVERNANCE_SPACE_ID}:${input.authorId}:${ordinal}`;
+      const id = `gov:proposal:${GOVERNANCE_SPACE_ID}:${input.authorId}:${ordinal}`;
       const status: ProposalStatus =
         input.opensAt.getTime() <= input.now.getTime() && input.closesAt.getTime() > input.now.getTime() ? 'open' : 'draft';
 
@@ -581,8 +564,8 @@ export async function insertGovernanceProposal(
           author_id, title, body_md, discussion_link, business_key, request_handle, revision, ordinal, space_id
         )
         VALUES (
-          ${id}::uuid, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${input.opensAt}, ${input.closesAt},
-          ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${businessKey}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID}
+          ${id}, ${input.kind}, ${tx.json(input.body as never)}, ${status}, ${input.opensAt}, ${input.closesAt},
+          ${input.authorId}, ${title}, ${bodyMd}, ${discussionLink}, ${id}, ${handle}, 1, ${ordinal}, ${GOVERNANCE_SPACE_ID}
         )
         RETURNING ${tx.unsafe(PROPOSAL_RETURNING)}
       `;

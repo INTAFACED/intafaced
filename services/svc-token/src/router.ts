@@ -107,6 +107,9 @@ const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
 const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']);
 const voteChoice = z.enum(['for', 'against', 'abstain']);
 
+/** Stored id `gov:proposal:<space>:<author>:<n>`. Not a client uuid. */
+const proposalIdWire = z.string().min(1).max(512);
+
 const proposalCountsOutput = z.object({
   votes: z.number().int().nonnegative(),
   for: z.number().int().nonnegative(),
@@ -115,7 +118,7 @@ const proposalCountsOutput = z.object({
 });
 
 const proposalOutput = z.object({
-  id: z.string().uuid(),
+  id: proposalIdWire,
   kind: proposalKind,
   body: z.record(z.unknown()),
   status: proposalStatus,
@@ -604,7 +607,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         z.object({
           items: z.array(
             z.object({
-              proposalId: z.string().uuid(),
+              proposalId: proposalIdWire,
               title: z.string().nullable(),
               titleReason: z.literal('proposal_title_unset').nullable(),
               choice: voteChoice,
@@ -928,7 +931,6 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           body: z.record(z.unknown()).default({}),
           opensAt: z.string().datetime({ offset: true }).optional(),
           closesAt: z.string().datetime({ offset: true }).optional(),
-          proposalId: z.string().uuid().optional(),
           handle: z.string().optional(),
           title: z.string().optional(),
           bodyMd: z.string().optional(),
@@ -956,7 +958,6 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             asAdmin,
             opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
             closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
-            proposalId: input.proposalId,
             handle: input.handle,
             title: input.title,
             bodyMd: input.bodyMd,
@@ -969,14 +970,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     castVote: scopedProcedure('token:stake', { module: 'token' })
       .input(
         z.object({
-          proposalId: z.string().uuid(),
+          proposalId: proposalIdWire,
           choice: voteChoice,
         }),
       )
       .output(
         z.object({
           id: z.string().uuid(),
-          proposalId: z.string().uuid(),
+          proposalId: proposalIdWire,
           userId: z.string().uuid(),
           weight: z.string(),
           choice: voteChoice,
@@ -1030,7 +1031,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       ),
 
     getProposal: scopedProcedure('token:read')
-      .input(z.object({ proposalId: z.string().uuid() }))
+      .input(z.object({ proposalId: proposalIdWire }))
       .output(proposalOutput.extend({ tally: tallyOutput }))
       .query(async ({ input }) =>
         guard(async () => {
@@ -1049,7 +1050,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       ),
 
     closeProposal: scopedProcedure('token:stake', { module: 'token' })
-      .input(z.object({ proposalId: z.string().uuid() }))
+      .input(z.object({ proposalId: proposalIdWire }))
       .output(
         proposalOutput.extend({
           tally: tallyOutput,
@@ -1076,7 +1077,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     editProposal: protectedProcedure
       .input(
         z.object({
-          proposalId: z.string().uuid(),
+          proposalId: proposalIdWire,
           title: z.string().optional(),
           bodyMd: z.string().optional(),
           discussionLink: z.string().optional(),
