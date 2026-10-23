@@ -20,6 +20,7 @@ import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplayRefusal, 
 import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from './live-candles';
 import { intervalLabel, type ChartMode } from './workbench';
 import { WorkbenchChart } from './WorkbenchChart';
+import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 
 export interface WidgetProps {
@@ -35,6 +36,8 @@ export interface WidgetProps {
   /** Add-ons drawn on the chart (studies, drawings). */
   addons?: (host: ChartHost | null) => ReactNode;
   onHost?: (host: ChartHost | null) => void;
+  /** The markets that can be compared on this chart; no compare tools without them. */
+  markets?: readonly DeskMarket[];
   /** A command from the workbench's keys (open the replay panel), new each time by its nonce. */
   command?: { kind: 'replay'; nonce: number } | null;
 }
@@ -66,6 +69,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   addons,
   onHost,
   command,
+  markets,
 }: WidgetProps) {
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
@@ -80,6 +84,14 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const candles = useMemo(
     () => (recent ? withHistory(recent, history.state.status === 'loaded' ? history.state.bars : []) : null),
     [recent, history.state],
+  );
+  const [host, setHost] = useState<ChartHost | null>(null);
+  const reportHost = useCallback(
+    (next: ChartHost | null) => {
+      setHost(next);
+      onHost?.(next);
+    },
+    [onHost],
   );
   const all = candles ?? (polled.status === 'ready' ? polled.data : []);
   const replay = useReplay();
@@ -196,7 +208,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         labels={labels}
         onReachStart={() => void history.load()}
         focus={replay.replay ? null : focus}
-        onHost={onHost}
+        onHost={reportHost}
       >
         {addons}
       </WorkbenchChart>
@@ -294,6 +306,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           <button type="submit">{t('Go')}</button>
         </form>
       </div>
+      {markets && <CompareTools host={host} market={market} markets={markets} interval={interval} style={mode} bars={all} />}
       {basisRefused && (
         <p className="cw-note" role="status" data-code={BASIS_UNPUBLISHED}>
           {t('Basis refused', { basis: t(BASIS_LABEL[basisRefused]) })}

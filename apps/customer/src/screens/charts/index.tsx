@@ -23,7 +23,7 @@ import {
   type ChartMode,
   type WorkbenchSetting,
 } from './workbench';
-import type { ColourScheme } from './chart-style';
+import { isChartStyle, type ColourScheme } from './chart-style';
 
 function MarketSelect({
   label,
@@ -66,11 +66,18 @@ function Page({
   const id = workbenchId(search);
   const [setting, setSetting] = useDeviceSetting<WorkbenchSetting>(settingKey(userId, id), DEFAULT_SETTING, isWorkbenchSetting);
   // An interval in the address opens the workbench at that interval, once; after that the person's choice stands.
+  // A shared link also names the style (`?style=line`), applied the same way.
   const fromAddress = useRef(intervalFromSearch(search));
+  const styleFromAddress = useRef(new URLSearchParams(search).get('style'));
   useEffect(() => {
     const wanted = fromAddress.current;
+    const style = styleFromAddress.current;
     fromAddress.current = undefined;
-    if (wanted && wanted !== setting.interval) setSetting({ ...setting, interval: wanted });
+    styleFromAddress.current = null;
+    const next = { ...setting };
+    if (wanted) next.interval = wanted;
+    if (isChartStyle(style)) next.mode = style;
+    if (next.interval !== setting.interval || next.mode !== setting.mode) setSetting(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const setInterval = useCallback((interval: ChartInterval) => setSetting((now) => ({ ...now, interval })), [setSetting]);
