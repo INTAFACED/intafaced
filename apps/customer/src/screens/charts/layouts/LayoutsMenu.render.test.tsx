@@ -130,7 +130,9 @@ describe('LayoutsMenu', () => {
     await act(async () => undefined);
     const commit = state.layouts.commit as ReturnType<typeof vi.fn>;
     expect(commit).toHaveBeenCalledTimes(1);
-    const next = commit.mock.calls[0]![0] as LayoutsValue;
+    // The menu commits an updater: it runs on the record as it stands when the write is sent.
+    const update = commit.mock.calls[0]![0] as (latest: LayoutsValue) => LayoutsValue;
+    const next = update(state.layouts.value as LayoutsValue);
     expect(next.layouts).toHaveLength(1);
     expect(next.layouts[0]).toMatchObject({ id: 'layout-scalp', name: 'scalp' });
   });

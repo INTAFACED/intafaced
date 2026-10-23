@@ -182,19 +182,23 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
         return;
       }
       if (json === baseline.current) return;
-      const next = withSnapshot(now.layouts.value, now.activeId, snapshot.data, new Date().toISOString());
-      if (!next) return;
+      const id = now.activeId;
+      const at = new Date().toISOString();
+      if (!findLayout(now.layouts.value, id)) return;
       baseline.current = json;
       flight.current = true;
       setAutosave('saving');
-      void now.layouts.commit(next).then((result) => {
-        flight.current = false;
-        if (result.ok) setAutosave('saved');
-        else if (result.code === 'preferences.version_conflict') {
-          resync.current = true;
-          setAutosave('conflict');
-        } else setAutosave('failed');
-      });
+      // An updater: it runs on the record as it stands when the write is sent, so a write queued behind another keeps its change.
+      void now.layouts
+        .commit((latest) => withSnapshot(latest, id, snapshot.data, at) ?? latest)
+        .then((result) => {
+          flight.current = false;
+          if (result.ok) setAutosave('saved');
+          else if (result.code === 'preferences.version_conflict') {
+            resync.current = true;
+            setAutosave('conflict');
+          } else setAutosave('failed');
+        });
     }, AUTOSAVE_MS);
     return () => window.clearInterval(timer);
   }, [activeId]);
@@ -207,7 +211,8 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
     const snapshot = shoot();
     if (!snapshot) return setStatus(refusal('not-saved'));
     const now = new Date().toISOString();
-    const outcome = replace ? replaceNamed(record, name, snapshot, now) : saveNamed(record, name, snapshot, now, newRecordId('layout'));
+    const id = newRecordId('layout');
+    const outcome = replace ? replaceNamed(record, name, snapshot, now) : saveNamed(record, name, snapshot, now, id);
     if (!outcome.ok) {
       if (outcome.why === 'name-taken') {
         setTaken(cleanName(name));
@@ -216,15 +221,20 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
       return setStatus({ text: t('Name needed') });
     }
     const saved = outcome.layout;
-    void layouts.commit(outcome.record).then((result) => {
-      if (!result.ok) return setStatus(refusal(result.code));
-      setActiveId(saved.id);
-      setName('');
-      setTaken(null);
-      setAutosave('idle');
-      setStatus({ text: t(replace ? 'Layout replaced' : 'Layout saved', { name: saved.name }) });
-      return undefined;
-    });
+    void layouts
+      .commit((latest) => {
+        const next = replace ? replaceNamed(latest, name, snapshot, now) : saveNamed(latest, name, snapshot, now, id);
+        return next.ok ? next.record : latest;
+      })
+      .then((result) => {
+        if (!result.ok) return setStatus(refusal(result.code));
+        setActiveId(saved.id);
+        setName('');
+        setTaken(null);
+        setAutosave('idle');
+        setStatus({ text: t(replace ? 'Layout replaced' : 'Layout saved', { name: saved.name }) });
+        return undefined;
+      });
   };
 
   const openLayout = (layout: SavedLayout) => {
@@ -242,10 +252,15 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
   };
 
   const copy = (layout: SavedLayout) => {
-    const outcome = copyLayout(record, layout.id, newRecordId('layout'), new Date().toISOString());
+    const id = newRecordId('layout');
+    const at = new Date().toISOString();
+    const outcome = copyLayout(record, layout.id, id, at);
     if (!outcome || !outcome.ok) return;
     void layouts
-      .commit(outcome.record)
+      .commit((latest) => {
+        const next = copyLayout(latest, layout.id, id, at);
+        return next && next.ok ? next.record : latest;
+      })
       .then((result) => setStatus(result.ok ? { text: t('Layout copied', { name: outcome.layout.name }) } : refusal(result.code)));
   };
 
@@ -266,13 +281,14 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
   };
 
   const remove = (layout: SavedLayout) => {
-    const next = deleteLayout(record, layout.id, new Date().toISOString());
-    if (!next) return;
-    void layouts.commit(next).then((result) => {
-      if (!result.ok) return setStatus(refusal(result.code));
-      if (activeId === layout.id) setActiveId(null);
-      return setStatus({ text: t('Layout deleted', { name: layout.name }) });
-    });
+    if (!findLayout(record, layout.id)) return;
+    void layouts
+      .commit((latest) => deleteLayout(latest, layout.id, new Date().toISOString()) ?? latest)
+      .then((result) => {
+        if (!result.ok) return setStatus(refusal(result.code));
+        if (activeId === layout.id) setActiveId(null);
+        return setStatus({ text: t('Layout deleted', { name: layout.name }) });
+      });
   };
 
   const recover = (id: string) => {
@@ -282,13 +298,16 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
       return;
     }
     void layouts
-      .commit(outcome.record)
+      .commit((latest) => {
+        const next = recoverLayout(latest, id);
+        return next.ok ? next.record : latest;
+      })
       .then((result) => setStatus(result.ok ? { text: t('Layout recovered', { name: outcome.layout.name }) } : refusal(result.code)));
   };
 
   const emptyList = () => {
     void layouts
-      .commit(emptyRecentlyDeleted(record))
+      .commit((latest) => emptyRecentlyDeleted(latest))
       .then((result) => setStatus(result.ok ? { text: t('Emptied recently deleted') } : refusal(result.code)));
   };
 
@@ -313,31 +332,32 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
     const snapshot = shoot();
     if (!snapshot) return setStatus(refusal('not-saved'));
     const first = snapshot.studies[0];
-    const outcome = saveTemplate(
-      templates.value,
-      templateName,
-      {
-        symbol: snapshot.symbol,
-        interval: snapshot.interval,
-        mode: snapshot.mode,
-        studies: first === null || first === undefined ? [] : [first],
-        drawings: snapshot.drawings,
-      },
-      new Date().toISOString(),
-      newRecordId('template'),
-      replace,
-    );
+    const body = {
+      symbol: snapshot.symbol,
+      interval: snapshot.interval,
+      mode: snapshot.mode,
+      studies: first === null || first === undefined ? [] : [first],
+      drawings: snapshot.drawings,
+    };
+    const at = new Date().toISOString();
+    const id = newRecordId('template');
+    const outcome = saveTemplate(templates.value, templateName, body, at, id, replace);
     if (!outcome.ok) {
       if (outcome.why === 'name-taken') setTemplateTaken(cleanName(templateName));
       else setStatus({ text: t('Name needed') });
       return;
     }
-    void templates.commit(outcome.templates).then((result) => {
-      if (!result.ok) return setStatus(refusal(result.code));
-      setTemplateName('');
-      setTemplateTaken(null);
-      return setStatus({ text: t('Template saved', { name: outcome.template.name }) });
-    });
+    void templates
+      .commit((latest) => {
+        const next = saveTemplate(latest, templateName, body, at, id, replace);
+        return next.ok ? next.templates : latest;
+      })
+      .then((result) => {
+        if (!result.ok) return setStatus(refusal(result.code));
+        setTemplateName('');
+        setTemplateTaken(null);
+        return setStatus({ text: t('Template saved', { name: outcome.template.name }) });
+      });
   };
 
   /**
@@ -636,9 +656,11 @@ export function LayoutsMenu({ workbench, symbol, markets, setting, desk, setDesk
                         className="cw-option"
                         aria-label={t('Delete template', { name: entry.name })}
                         onClick={() => {
-                          void templates.commit(removeTemplate(templates.value, entry.id)).then((result) => {
-                            if (!result.ok) setStatus(refusal(result.code));
-                          });
+                          void templates
+                            .commit((latest) => removeTemplate(latest, entry.id))
+                            .then((result) => {
+                              if (!result.ok) setStatus(refusal(result.code));
+                            });
                         }}
                       >
                         {t('Delete')}
