@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { keccak_256 } from '@noble/hashes/sha3.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { BankError } from './errors.js';
@@ -130,6 +131,45 @@ export function isEvmAddressRef(ref: string): boolean {
 }
 
 /**
+ * EIP-55: a mixed-case EVM address carries a checksum in its letter case, so a changed character shows. All lower or
+ * all upper case carries none and passes. Only meaningful on an `isEvmAddressRef` shape.
+ */
+export function evmChecksumMatches(ref: string): boolean {
+  const hex = ref.trim().slice(2);
+  if (hex === hex.toLowerCase() || hex === hex.toUpperCase()) return true;
+  const hash = keccak_256(new TextEncoder().encode(hex.toLowerCase()));
+  for (let i = 0; i < hex.length; i++) {
+    const char = hex[i]!;
+    if (char >= '0' && char <= '9') continue;
+    // The i-th nibble of the hash: upper case when it is 8 or more.
+    const nibble = (hash[i >> 1]! >> (i % 2 === 0 ? 4 : 0)) & 0x0f;
+    if (nibble >= 8 !== (char >= 'A' && char <= 'F')) return false;
+  }
+  return true;
+}
+
+/**
+ * Address poisoning sends a customer dust from an address made to start and end like one they use, so that the copy
+ * from their history is the wrong one. Two addresses look the same here when they agree on what the address book shows
+ * (`0x` and the first four characters, then the last four, ignoring case; the customer app's `shortenAddress` and the
+ * bank's `maskRef` show the same) and differ anywhere else. Returns the first saved entry the address could be mistaken
+ * for, or null. An address already in the book is not new, so it is never a look-alike: the customer saved it already
+ * (after confirming, when it was one), and saving it again on another network or as the same entry asks nothing more.
+ */
+export function lookalikeOf<T extends { ref: string }>(ref: string, saved: readonly T[]): T | null {
+  const address = ref.trim().toLowerCase();
+  if (!isEvmAddressRef(address)) return null;
+  if (saved.some((row) => row.ref.trim().toLowerCase() === address)) return null;
+  const shown = (value: string) => `${value.slice(0, 6)}${value.slice(-4)}`;
+  return (
+    saved.find((row) => {
+      const other = row.ref.trim().toLowerCase();
+      return isEvmAddressRef(other) && other !== address && shown(other) === shown(address);
+    }) ?? null
+  );
+}
+
+/**
  * IBAN structural check: country + check digits + BBAN, length 15–34, mod-97 = 1.
  * Spaces ignored. Does not prove the account exists or is reachable.
  */
@@ -188,6 +228,12 @@ export function assertPersistableWithdrawDestination(destination: { kind: string
       throw new BankError(
         `Crypto withdraw dest must be a 20-byte EVM address (0x + 40 hex), got '${ref.slice(0, 24)}${ref.length > 24 ? '…' : ''}'`,
         'bank.ramp_invalid_destination',
+      );
+    }
+    if (!evmChecksumMatches(ref)) {
+      throw new BankError(
+        "This address's upper and lower case letters do not match its checksum, so a character may have been changed. Copy it again from where it came from",
+        'bank.address_checksum_mismatch',
       );
     }
     return { kind, ref };

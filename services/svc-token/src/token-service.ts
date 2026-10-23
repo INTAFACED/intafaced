@@ -29,6 +29,7 @@ import { distributeYield, splitBuyback, type BuybackParams } from './economics/b
 import { cumulativeEmission, epochReward, type EmissionParams } from './economics/emission.js';
 import { withMoneySpan } from './tracing.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
+import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
 
 /**
  * svc-token — THE NATIVE ECONOMY (§4.3).
@@ -177,11 +178,28 @@ export class TokenError extends Error {
        * A payout row has no matching ledger transaction, or the transaction
        * disagrees with the stored id. The table amount is not a substitute.
        */
-      | 'token.ledger_tx_unread',
+      | 'token.ledger_tx_unread'
+      /** Delegate target omitted or blank. Not stored as a self-delegation. */
+      | 'token.delegation_delegatee_unset'
+      /** Target is not a member id. A chain address is not accepted in its place. */
+      | 'token.delegation_delegatee_invalid'
+      /**
+       * No chain service and no on-chain delegate registry (`no_chain_service`).
+       * Nothing is written, including when the target is the caller.
+       * `blocker` names that protocol blocker.
+       */
+      | 'token.delegation_unavailable'
+      /**
+       * A treasury total was blank, negative, or paired with a count that
+       * does not match. Not replaced with zero.
+       */
+      | 'token.treasury_figure_unreadable',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
     readonly config?: string,
+    /** Set on `token.delegation_unavailable`: the protocol blocker. Not a sentence. */
+    readonly blocker?: 'no_chain_service',
   ) {
     super(message);
     this.name = 'TokenError';
@@ -2163,6 +2181,91 @@ export class TokenService {
   /** Tokens permanently removed from circulation. */
   async burnedSupply(): Promise<Amount> {
     return (await this.ledger.balance(burnAccount(this.assetId))).amount;
+  }
+
+  /**
+   * Treasury view.
+   *
+   * `burned` is `burnedSupply` (the burn-account balance), so it cannot
+   * disagree with that read. Lifetime minted, bought, toRewards and
+   * distributed stay sums of closed epochs, settled buybacks, and yield
+   * payouts with a ledger transaction id. `lastBuyback` is the latest settled
+   * run. Pending claims are not included. No rows on those sums, or no
+   * settled run, is null. Does not post a recipe and does not quote a market.
+   */
+  async treasuryView(): Promise<TokenTreasuryView> {
+    const rows = await this.sql<
+      Array<{
+        minted: string | null;
+        minted_count: string;
+        bought: string | null;
+        to_rewards: string | null;
+        settled_count: string;
+        distributed: string | null;
+        distributed_count: string;
+        last_bought: string | null;
+        last_burned: string | null;
+        last_to_rewards: string | null;
+        last_executed_at: Date | string | null;
+      }>
+    >`
+      SELECT
+        (SELECT SUM(mined_amount)::text FROM token.emission_epochs WHERE closed = true) AS minted,
+        (SELECT COUNT(*)::text FROM token.emission_epochs WHERE closed = true) AS minted_count,
+        (SELECT SUM(tokens_bought)::text FROM token.buyback_runs WHERE status = 'settled') AS bought,
+        (SELECT SUM(tokens_to_rewards)::text FROM token.buyback_runs WHERE status = 'settled') AS to_rewards,
+        (SELECT COUNT(*)::text FROM token.buyback_runs WHERE status = 'settled') AS settled_count,
+        (SELECT SUM(amount)::text FROM token.yield_payouts WHERE ledger_tx_id IS NOT NULL AND btrim(ledger_tx_id) <> '') AS distributed,
+        (SELECT COUNT(*)::text FROM token.yield_payouts WHERE ledger_tx_id IS NOT NULL AND btrim(ledger_tx_id) <> '') AS distributed_count,
+        last.bought AS last_bought,
+        last.burned AS last_burned,
+        last.to_rewards AS last_to_rewards,
+        last.executed_at AS last_executed_at
+      FROM (SELECT 1) AS anchor
+      LEFT JOIN LATERAL (
+        SELECT tokens_bought::text AS bought,
+               tokens_burned::text AS burned,
+               tokens_to_rewards::text AS to_rewards,
+               executed_at
+          FROM token.buyback_runs
+         WHERE status = 'settled'
+         ORDER BY executed_at DESC, id DESC
+         LIMIT 1
+      ) AS last ON true
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new TokenError('The treasury read returned no row', 'token.treasury_figure_unreadable');
+    }
+    const sums: TreasurySums = {
+      minted: row.minted,
+      mintedCount: row.minted_count,
+      bought: row.bought,
+      boughtCount: row.settled_count,
+      toRewards: row.to_rewards,
+      toRewardsCount: row.settled_count,
+      distributed: row.distributed,
+      distributedCount: row.distributed_count,
+    };
+    const reported = reportTreasury(sums);
+    if (!reported.ok) {
+      throw new TokenError('A treasury figure this service recorded could not be read', reported.code);
+    }
+    const lastRow: LastBuybackRow = {
+      bought: row.last_bought,
+      burned: row.last_burned,
+      toRewards: row.last_to_rewards,
+      executedAt: row.last_executed_at,
+    };
+    const last = reportLastBuyback(lastRow);
+    if (!last.ok) {
+      throw new TokenError('A treasury figure this service recorded could not be read', last.code);
+    }
+    return {
+      ...reported.view,
+      burned: formatAmount(await this.burnedSupply()),
+      lastBuyback: last.last,
+    };
   }
 
   // ── Emissions (§4.3) ───────────────────────────────────────────────────────

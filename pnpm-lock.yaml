@@ -955,6 +955,9 @@ importers:
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1

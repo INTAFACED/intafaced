@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, signUpInBrowser } from './stack.mjs';
+import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-04, in the running app (docs/roadmap/journeys.json): I turn on two-factor sign-in and check my Security
@@ -237,7 +237,7 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   await expect(recovery).toHaveCount(0);
 });
 
-test(`${J}, part of #8: the anti-phishing code sets with a confirmation, shows in the email preview, refuses the handle, changes and goes`, async ({
+test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides on an account email, refuses the handle, changes and goes`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -249,8 +249,8 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, shows i
   await page.goto('/uc/safe');
   const card = page.locator('.security__anti-phishing');
   await expect(card).toContainText('No anti-phishing code is set');
-  // Mail does not carry the code on this service, and the card says so rather than promising it.
-  await expect(card).toContainText('Our security emails do not show this code');
+  // The card says which emails carry the code.
+  await expect(card).toContainText('Every email we send to your account’s confirmed address about your account shows this code');
   await expect(card.locator('.security__mail-preview')).toContainText('You have not set an anti-phishing code.');
 
   // Each save confirms with a fresh authenticator code, bound to the code typed.
@@ -285,6 +285,24 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, shows i
   await page.reload();
   await expect(card).toContainText(`Your code: ${code}`);
 
+  // Someone signing up again with this address (from a signed-out page) sends the owner a notice; it carries the code.
+  async function noticeMail() {
+    const before = mailedLines(who.email, 'signup-existing').length;
+    const other = await page.context().browser().newPage({ baseURL: PASSKEY_ORIGIN });
+    await other.goto('/register');
+    await other.getByLabel('Email address').fill(who.email);
+    await other.getByLabel('Handle').fill(`${who.handle}x`);
+    await other.getByLabel('Password').fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
+    await other.getByLabel('Country you live in').selectOption('DE');
+    await other.getByLabel('Date of birth').fill('1990-05-01');
+    await other.getByRole('button', { name: 'Create account' }).click();
+    await other.getByRole('heading', { name: 'Check your email' }).waitFor();
+    await other.close();
+    await expect.poll(() => mailedLines(who.email, 'signup-existing').length, { timeout: 30_000 }).toBeGreaterThan(before);
+    return mailedLines(who.email, 'signup-existing').at(-1);
+  }
+  expect(await noticeMail()).toMatch(new RegExp(` anti_phishing=${code}$`));
+
   const changed = `Heron${randomBytes(3).toString('hex')}`;
   await card.getByRole('button', { name: 'Change the code' }).click();
   await save(changed);
@@ -296,4 +314,42 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, shows i
   await save(null, 'Remove with code');
   await expect(card.getByRole('status')).toHaveText('Anti-phishing code removed.');
   await expect(card).toContainText('No anti-phishing code is set');
+  // With the code removed, the next mail carries none.
+  expect(await noticeMail()).not.toContain('anti_phishing=');
+});
+
+test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or says codes should work and offers replace; a new phone is a guided replace`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('ck');
+  await signUpInBrowser(page, who);
+  await addAuthenticator(page, totp);
+
+  // With the right time: codes should work, and Replace is offered.
+  await page.goto('/uc/safe');
+  const real = page.locator('.security__card[aria-label="Authenticator app"]');
+  await real.getByRole('button', { name: 'My codes do not work' }).click();
+  const ok = real.getByRole('region', { name: 'When codes do not work' });
+  await expect(ok.getByRole('status')).toContainText('so codes should work');
+  await expect(ok).toContainText('Apps that sync codes');
+  await expect(ok.getByRole('listitem')).toHaveCount(4);
+  // Moving to a new phone starts the card's own replace, which first confirms it is you.
+  await ok.getByRole('button', { name: 'Move to a new phone' }).click();
+  await expect(ok).toHaveCount(0);
+  await expect(real.getByRole('heading', { name: 'Confirm it is you' })).toBeVisible();
+
+  // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
+  await page.context().clock.install({ time: new Date(Date.now() + 90_000) });
+  await page.context().clock.resume();
+  const skewed = await page.context().newPage();
+  await skewed.goto('/uc/safe');
+  const card = skewed.locator('.security__card[aria-label="Authenticator app"]');
+  await card.getByRole('button', { name: 'My codes do not work' }).click();
+  const help = card.getByRole('region', { name: 'When codes do not work' });
+  await expect(help).toContainText('Codes depend on the clock.');
+  await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
+  await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
+  await skewed.close();
 });

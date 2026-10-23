@@ -969,6 +969,47 @@ describe('W15 merchant operations (Postgres)', () => {
       ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     });
 
+    it('every preference change is kept: what was set, by whom and when, newest first, append-only', async () => {
+      const c = as(owner);
+      type Change = { seq: string; kind: string; inApp: boolean; threshold: string | null; actorId: string; createdAt: string };
+      type Changes = { items: Change[]; nextCursor: string | null };
+      const before = (await c.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes;
+      await c.merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false });
+      await c.merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: true });
+      await c.merchantOps.notifications.preferences.set({ kind: 'limit_threshold', inApp: true, threshold: '90' });
+      const first = (await c.merchantOps.notifications.preferences.history({ limit: 2 })) as Changes;
+      expect(first.items.map((e) => [e.kind, e.inApp, e.threshold, e.actorId])).toEqual([
+        ['limit_threshold', true, '90', owner],
+        ['export_ready', true, null, owner],
+      ]);
+      expect(first.nextCursor).not.toBeNull();
+      const second = (await c.merchantOps.notifications.preferences.history({ limit: 1, cursor: first.nextCursor! })) as Changes;
+      expect(second.items.map((e) => [e.kind, e.inApp])).toEqual([['export_ready', false]]);
+      const all = (await c.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes;
+      expect(all.items).toHaveLength(before.items.length + 3);
+      // The current row names who changed it last.
+      const prefs = (await c.merchantOps.notifications.preferences.list({})) as Array<{ kind: string; updatedBy: string | null }>;
+      expect(prefs.find((p) => p.kind === 'export_ready')?.updatedBy).toBe(owner);
+      expect(prefs.find((p) => p.kind === 'operator_pause')?.updatedBy).toBeNull();
+      // A refused change records nothing.
+      await refusal(() => c.merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: true, threshold: '5' }));
+      expect(((await c.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes).items).toHaveLength(all.items.length);
+      // Nobody else's business shows up, and blank limits and forged cursors are refused by name.
+      const stranger = id();
+      await sql`INSERT INTO pay.merchants (user_id) VALUES (${stranger})`;
+      expect(((await as(stranger).merchantOps.notifications.preferences.history({ limit: 200 })) as Changes).items).toEqual([]);
+      expect((await refusal(() => c.merchantOps.notifications.preferences.history({}))).cause).toBe('pay.merchant_ops_list_limit_unset');
+      for (const key of ['x; DROP', '9999999999999999999']) {
+        const forged = Buffer.from(JSON.stringify(['1970-01-01T00:00:00.000000Z', key])).toString('base64url');
+        expect((await refusal(() => c.merchantOps.notifications.preferences.history({ limit: 1, cursor: forged }))).cause).toBe(
+          'pay.cursor_invalid',
+        );
+      }
+      await expect(sql`DELETE FROM pay.merchant_notification_preference_events WHERE merchant_id = ${merchant}`).rejects.toThrow(
+        /append-only/,
+      );
+    });
+
     it('cursor pagination walks every row once, read state works, bad cursors are refused', async () => {
       const c = as(owner);
       for (let i = 0; i < 5; i += 1) {

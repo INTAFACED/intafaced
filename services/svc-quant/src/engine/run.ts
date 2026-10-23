@@ -20,6 +20,7 @@ import {
 } from '../errors.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { barSpanMs, coverageOf, type Bar, type BarSize } from './bars.js';
+import { logOf } from './log.js';
 import { metricsOf } from './metrics.js';
 import type { FeePort, HistoryPort } from './ports.js';
 import { simulateSignalRules } from './simulate.js';
@@ -34,6 +35,19 @@ export const ENGINE_VERSION = 2;
 
 /** A delay longer than this many bars is refused as out of range: it would outlast most windows the history holds. */
 export const MAX_DELAY_BARS = 100;
+
+/** The most runs one history page lists. */
+export const BACKTEST_HISTORY_PAGE_MAX = 50;
+
+/**
+ * Every bar backtest's run key starts with this. The older fills-language `backtest.run` stores kind 'backtest' too,
+ * under a key the caller chose, and has no bar result to open, so history and rename keep to this prefix.
+ */
+export const BAR_BACKTEST_KEY_PREFIX = 'algo:bt:';
+
+export function isBarBacktest(run: { readonly kind: string; readonly idempotencyKey: string }): boolean {
+  return run.kind === 'backtest' && run.idempotencyKey.startsWith(BAR_BACKTEST_KEY_PREFIX);
+}
 
 const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:\d{2})$/i;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
@@ -153,7 +167,7 @@ export async function prepareBacktest(
   const windowHash = hash([fromMs, toMs]);
   const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
-  return { ...prepared, key: `algo:bt:${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
+  return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
 
 /** The window's closed bars. An empty window refuses; no bar is invented. */
@@ -170,12 +184,12 @@ export async function readWindowBars(prepared: PreparedBacktest, history: Histor
 }
 
 /** Runs the engine on bars already read. The result holds only what this run computed. */
-/** What a run stores: everything but its row id and the report, which is derived from it on every read. */
-export type StoredBacktest = Omit<QuantBacktestResult, 'runId' | 'metrics'>;
+/** What a run stores: everything but its row id, the report and the log, which are derived from it on every read. */
+export type StoredBacktest = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log'>;
 
-/** A stored run as the caller reads it: its row id and the report computed from its own trades and equity. */
+/** A stored run as the caller reads it: its row id, and the report and log computed from what it stored. */
 export function presentBacktest(stored: StoredBacktest, runId: string): QuantBacktestResult {
-  return { ...stored, runId, metrics: metricsOf(stored) };
+  return { ...stored, runId, metrics: metricsOf(stored), log: logOf(stored) };
 }
 
 export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[]): StoredBacktest {

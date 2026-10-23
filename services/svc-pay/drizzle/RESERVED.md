@@ -63,7 +63,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0123      | invoice duplicate action (M-bill-07)                  | used                                            |
 | 0125      | team-wide require-MFA rule (M-plat-org-06)            | used                                            |
 | 0129      | wallet lane (custody transaction policy)              | used                                            |
-| 0130+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0130      | notification preference history (M-plat-org-11)       | used                                            |
+| 0131      | customer email settings (M-plat-org-10)               | used                                            |
+| 0132+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 

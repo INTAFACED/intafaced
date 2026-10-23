@@ -166,6 +166,7 @@ export function createCoreMock(ctx) {
       },
     ],
     prefs: new Map(),
+    prefChanges: [],
   });
   const KINDS = [
     'payout_awaiting_approval',
@@ -346,12 +347,25 @@ export function createCoreMock(ctx) {
               kind,
               inApp: state.prefs.get(kind)?.inApp ?? true,
               threshold: state.prefs.get(kind)?.threshold ?? null,
-              updatedAt: null,
+              updatedBy: state.prefs.get(kind)?.updatedBy ?? null,
+              updatedAt: state.prefs.get(kind)?.updatedAt ?? null,
             })),
           );
-        case 'merchantOps.notifications.preferences.set':
-          state.prefs.set(input.kind, { inApp: input.inApp, threshold: input.threshold ?? null });
-          return ok(route, { kind: input.kind, inApp: input.inApp, threshold: input.threshold ?? null, updatedAt: iso(Date.now()) });
+        case 'merchantOps.notifications.preferences.set': {
+          const saved = { inApp: input.inApp, threshold: input.threshold ?? null, updatedBy: USER_ID, updatedAt: iso(Date.now()) };
+          state.prefs.set(input.kind, saved);
+          state.prefChanges.unshift({
+            seq: String(state.prefChanges.length + 1),
+            kind: input.kind,
+            inApp: saved.inApp,
+            threshold: saved.threshold,
+            actorId: USER_ID,
+            createdAt: saved.updatedAt,
+          });
+          return ok(route, { kind: input.kind, ...saved });
+        }
+        case 'merchantOps.notifications.preferences.history':
+          return ok(route, page(state.prefChanges, input));
         default:
           return NOT_MINE;
       }

@@ -357,6 +357,18 @@ if (!available) {
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE user_id = ${target}`)[0]!.revoked).toBe(true);
     });
 
+    it('refuses an unspent unfreeze approval given at an earlier control version', async () => {
+      await controls.change(first, command());
+      const early = await approvedRestore(first, second.principal!.userId, '1');
+      // The account moved on (refrozen after a later restore) before the old approval was used.
+      await db.sql`UPDATE users SET identity_control_version = 3 WHERE id = ${target}`;
+      expect(await controls.change(first, { ...early, requestId: randomUUID(), expectedVersion: '3' })).toMatchObject({
+        outcome: 'refused',
+        code: 'restriction_approval_mismatch',
+      });
+      expect(await state()).toEqual({ status: 'frozen', version: '3' });
+    });
+
     it("lifts a freeze only with a second person's approval, spent once, and the history names both", async () => {
       const lookup = { target: { area: 'identity' as const, userId: target } };
       await controls.change(first, command());

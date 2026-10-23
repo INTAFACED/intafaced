@@ -43,6 +43,9 @@ import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createLedgerClient } from './ledger-client.js';
 import { fakeLedgerDoor, type DoorCall } from './ledger-door-fake.js';
 
+/** Who moves KYB in these tests; `merchant_kyb_events` records it. */
+const KYB_ACTOR = { id: 'kyb-test-actor', scope: 'pay:onboard' };
+
 /**
  * svc-pay money paths.
  *
@@ -84,6 +87,8 @@ const migrations = [
   '0002_pay_payment_links.sql',
   '0003_pay_checkout_sessions.sql',
   '0005_pay_merchant_kyb.sql',
+  // submitKyb and every KYB decision write their history row.
+  '0013_pay_merchant_kyb_history.sql',
   '0006_pay_merchant_status_history.sql',
   // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
   '0009_pay_submerchant_tree.sql',
@@ -4495,20 +4500,64 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(m.kybStatus).toBe('none');
       expect(m.kybRef).toBeNull();
 
-      const pending = await pay.submitKyb({ merchantId: m.id, kybRef: 'case-abc' });
+      const pending = await pay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-abc' });
       expect(pending.kybStatus).toBe('pending');
       expect(pending.kybRef).toBe('case-abc');
 
-      const approved = await pay.decideKybStub({ merchantId: m.id, decision: 'approved' });
+      const approved = await pay.decideKybStub({ actor: KYB_ACTOR, merchantId: m.id, decision: 'approved' });
       expect(approved.kybStatus).toBe('approved');
       expect(approved.kybRef).toBe('case-abc');
+    });
+
+    it('every KYB move writes its history row with who made it; a refused move writes none', async () => {
+      const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
+      const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
+      const operator = { id: 'op-compliance-1', scope: 'admin:compliance' };
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-h1' });
+      await expect(livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-h1b' })).rejects.toMatchObject({
+        code: 'pay.kyb_invalid',
+      });
+      await expect(livePay.decideKybStub({ actor: KYB_ACTOR, merchantId: m.id, decision: 'approved' })).rejects.toMatchObject({
+        code: 'pay.kyb_operator_required',
+      });
+      await livePay.decideKyb({ actor: operator, merchantId: m.id, decision: 'rejected', identityHash: await identityHashOf(m.id) });
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-h2' });
+      await livePay.decideKyb({ actor: operator, merchantId: m.id, decision: 'approved', identityHash: await identityHashOf(m.id) });
+      const events = await sql<
+        Array<{ from_status: string; to_status: string; kyb_ref: string | null; actor_id: string; actor_scope: string }>
+      >`
+        SELECT from_status, to_status, kyb_ref, actor_id, actor_scope FROM pay.merchant_kyb_events WHERE merchant_id = ${m.id} ORDER BY seq`;
+      expect(events.map((e) => [e.from_status, e.to_status, e.kyb_ref, e.actor_id, e.actor_scope])).toEqual([
+        ['none', 'pending', 'case-h1', KYB_ACTOR.id, KYB_ACTOR.scope],
+        ['pending', 'rejected', 'case-h1', operator.id, operator.scope],
+        ['rejected', 'pending', 'case-h2', KYB_ACTOR.id, KYB_ACTOR.scope],
+        ['pending', 'approved', 'case-h2', operator.id, operator.scope],
+      ]);
+      // If the history row cannot be written, the status move rolls back with it.
+      const r = await pay.createMerchant({ userId: '33333333-3333-4333-8333-333333333333', pricing: { feeBps: 100 } });
+      const noActor = { id: null as unknown as string, scope: 'pay:onboard' };
+      await expect(pay.submitKyb({ actor: noActor, merchantId: r.id, kybRef: 'case-rollback' })).rejects.toThrow();
+      expect(await pay.getMerchant(r.id)).toMatchObject({ kybStatus: 'none', kybRef: null });
+      await pay.submitKyb({ actor: KYB_ACTOR, merchantId: r.id, kybRef: 'case-rollback' });
+      await expect(pay.decideKybStub({ actor: noActor, merchantId: r.id, decision: 'approved' })).rejects.toThrow();
+      expect((await pay.getMerchant(r.id)).kybStatus).toBe('pending');
+      // The sandbox stub records its decision too.
+      const s = await merchant();
+      await pay.submitKyb({ actor: KYB_ACTOR, merchantId: s.id, kybRef: 'case-h3' });
+      await pay.decideKybStub({ actor: { id: 'owner-stub', scope: 'pay:write' }, merchantId: s.id, decision: 'approved' });
+      const stub = await sql<Array<{ to_status: string; actor_id: string; reason: string }>>`
+        SELECT to_status, actor_id, reason FROM pay.merchant_kyb_events WHERE merchant_id = ${s.id} ORDER BY seq`;
+      expect(stub.map((e) => [e.to_status, e.actor_id, e.reason])).toEqual([
+        ['pending', KYB_ACTOR.id, 'Verification reference sent'],
+        ['approved', 'owner-stub', 'Approved through the sandbox stub, not reviewed'],
+      ]);
     });
 
     it('refuses decideKybStub under live-only (no invented operator KYB)', async () => {
       const livePay = new PayService(sql, ledger, rails, { valueMovement: 'live-only' });
       const m = await livePay.createMerchant({ userId: OTHER_USER, pricing: { feeBps: 100 } });
-      await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-live' });
-      await expect(livePay.decideKybStub({ merchantId: m.id, decision: 'approved' })).rejects.toMatchObject({
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-live' });
+      await expect(livePay.decideKybStub({ actor: KYB_ACTOR, merchantId: m.id, decision: 'approved' })).rejects.toMatchObject({
         code: 'pay.kyb_operator_required',
       });
     });
@@ -4548,17 +4597,18 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         code: 'pay.kyb_required',
       });
 
-      await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-live-ops' });
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-live-ops' });
       expect((await livePay.getMerchant(m.id)).kybStatus).toBe('pending');
       await expect(livePay.createPayment(createArgs)).rejects.toMatchObject({ code: 'pay.kyb_required' });
       await expect(livePay.openCheckoutSession(openArgs)).rejects.toMatchObject({
         code: 'pay.kyb_required',
       });
-      await expect(livePay.decideKybStub({ merchantId: m.id, decision: 'rejected' })).rejects.toMatchObject({
+      await expect(livePay.decideKybStub({ actor: KYB_ACTOR, merchantId: m.id, decision: 'rejected' })).rejects.toMatchObject({
         code: 'pay.kyb_operator_required',
       });
 
       const rejected = await livePay.decideKyb({
+        actor: KYB_ACTOR,
         merchantId: m.id,
         decision: 'rejected',
         identityHash: await identityHashOf(m.id),
@@ -4569,8 +4619,9 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         code: 'pay.kyb_required',
       });
 
-      await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-live-ops-2' });
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-live-ops-2' });
       const approved = await livePay.decideKyb({
+        actor: KYB_ACTOR,
         merchantId: m.id,
         decision: 'approved',
         identityHash: await identityHashOf(m.id),
@@ -4598,8 +4649,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
         }),
       ).rejects.toMatchObject({ code: 'pay.kyb_required' });
 
-      await livePay.submitKyb({ merchantId: m.id, kybRef: 'case-p10' });
-      await livePay.decideKyb({ merchantId: m.id, decision: 'approved', identityHash: await identityHashOf(m.id) });
+      await livePay.submitKyb({ actor: KYB_ACTOR, merchantId: m.id, kybRef: 'case-p10' });
+      await livePay.decideKyb({ actor: KYB_ACTOR, merchantId: m.id, decision: 'approved', identityHash: await identityHashOf(m.id) });
       const payment = await livePay.createPayment({
         merchantId: m.id,
         amount: amt('10'),

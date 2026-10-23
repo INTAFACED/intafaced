@@ -276,6 +276,26 @@ describe('recipe-gate', () => {
     ).toThrow(expect.objectContaining({ name: 'LedgerError', code: RECIPE_REQUIRED_CODE }));
   });
 
+  it('accepts a futures fill and a futures release that pay a trading fee, and refuses the fee to another pot', () => {
+    const accept = (req: PostRequest) => {
+      expect(() => assertKnownRecipePost(toWire(req))).not.toThrow();
+    };
+    const apply = { orderId: 'o9', userId: USER, assetId: 'USDT', positionId: 'pos9', fillId: 'm9:3:pos9', amount: amt('12') };
+    accept(recipes.futuresOrderMarginApply({ ...apply, fee: amt('0.02') }));
+    accept(recipes.futuresOrderMarginApply({ ...apply, releaseAmount: amt('1'), fee: amt('0.02') }));
+    accept(recipes.futuresOrderMarginApply({ ...apply, releaseAmount: amt('1'), fee: amt('0.02'), subAccountId: SUB }));
+    const release = { positionId: 'pos9', userId: USER, assetId: 'USDT' };
+    accept(recipes.futuresMarginRelease({ ...release, amount: amt('5'), fee: amt('0.02') }));
+    accept(recipes.futuresMarginRelease({ ...release, amount: 0n, fee: amt('0.02') }));
+    accept(recipes.futuresMarginRelease({ ...release, amount: amt('5'), fee: amt('0.02'), subAccountId: SUB }));
+
+    // The same shape with the fee paid to the rewards engine instead of house fees is not a recipe.
+    const wire = toWire(recipes.futuresMarginRelease({ ...release, amount: amt('5'), fee: amt('0.02') }));
+    const feeLeg = wire.entries.findIndex((e) => e.account.ownerType === 'house');
+    const forged = { ...wire, entries: wire.entries.map((e, i) => (i === feeLeg ? { ...e, account: rewardsEngine('USDT') } : e)) };
+    expect(() => assertKnownRecipePost(forged)).toThrow(expect.objectContaining({ name: 'LedgerError', code: RECIPE_REQUIRED_CODE }));
+  });
+
   it('accepts registry recipe posts for reasons whose leg shape varies', () => {
     const fill = {
       fillId: 'f1',
