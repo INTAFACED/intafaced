@@ -1508,8 +1508,10 @@ export class PayService {
   /**
    * KYB stub — merchant submits a dossier reference. Moves `none|rejected → pending`.
    * Does NOT invent a partner decision. Digital KYB / KYB vendors are `pay.psp`.
+   * Records the change in `merchant_kyb_events` in the same transaction, so the portal's
+   * verification history shows it.
    */
-  async submitKyb(input: { merchantId: string; kybRef: string }): Promise<MerchantRecord> {
+  async submitKyb(input: { merchantId: string; kybRef: string; actor: KybActor }): Promise<MerchantRecord> {
     const ref = input.kybRef.trim();
     if (!ref || ref.length > 128) {
       throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
@@ -1539,6 +1541,14 @@ export class PayService {
           kybStatus: merchant.kybStatus,
         });
       }
+      await recordKybEvent(tx, {
+        merchantId: input.merchantId,
+        from: merchant.kybStatus,
+        to: 'pending',
+        kybRef: ref,
+        reason: 'Verification reference sent',
+        actor: input.actor,
+      });
       return toMerchant(updated);
     });
   }
@@ -1558,8 +1568,9 @@ export class PayService {
      * the founder approval here so a mismatch refuses without consuming it.
      */
     beforeWrite?: () => Promise<void>;
+    actor: KybActor;
   }): Promise<MerchantRecord> {
-    return this.writeKybDecision(input.merchantId, input.decision, {
+    return this.writeKybDecision(input.merchantId, input.decision, input.actor, kybDecisionReason(input.decision), {
       identityHash: input.identityHash,
       beforeWrite: input.beforeWrite,
     });
@@ -1570,19 +1581,23 @@ export class PayService {
    * Under live-only this refuses: use `merchant.decideKyb` (operator `admin:compliance`).
    * Never invents an external KYB vendor response.
    */
-  async decideKybStub(input: { merchantId: string; decision: 'approved' | 'rejected' }): Promise<MerchantRecord> {
+  async decideKybStub(input: { merchantId: string; decision: 'approved' | 'rejected'; actor: KybActor }): Promise<MerchantRecord> {
     if (this.valueMovement === 'live-only') {
       throw new PayError(
         'KYB decide stub is disabled under live-only; use merchant.decideKyb (operator admin:compliance) or kyb.decide',
         'pay.kyb_operator_required',
       );
     }
-    return this.writeKybDecision(input.merchantId, input.decision);
+    // Says what it was: the merchant's own sandbox decision, not a review, so the history never reads it as one.
+    const reason = input.decision === 'approved' ? 'Approved through the sandbox stub, not reviewed' : 'Rejected through the sandbox stub';
+    return this.writeKybDecision(input.merchantId, input.decision, input.actor, reason);
   }
 
   private async writeKybDecision(
     merchantId: string,
     decision: 'approved' | 'rejected',
+    actor: KybActor,
+    reason: string,
     binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
   ): Promise<MerchantRecord> {
     return transaction(this.sql, async (tx) => {
@@ -1617,6 +1632,14 @@ export class PayService {
           kybStatus: merchant.kybStatus,
         });
       }
+      await recordKybEvent(tx, {
+        merchantId,
+        from: merchant.kybStatus,
+        to: decision,
+        kybRef: merchant.kybRef,
+        reason,
+        actor,
+      });
       return toMerchant(updated);
     });
   }
@@ -6669,6 +6692,35 @@ function railPayload(result: RailResult): Record<string, unknown> {
     failureReason: result.failureReason ?? null,
   };
 }
+
+/**
+ * Who moved a merchant's KYB, as `merchant_kyb_events` records it. The scope says which door: a `pay:*` scope is
+ * the merchant (or the sandbox stub), anything else is INTAFACED. The portal history reads it that way.
+ */
+export interface KybActor {
+  readonly id: string;
+  readonly scope: string;
+}
+
+/** One `merchant_kyb_events` row, written inside the transaction that moved `kyb_status`. */
+async function recordKybEvent(
+  tx: Sql,
+  e: {
+    merchantId: string;
+    from: MerchantRecord['kybStatus'];
+    to: MerchantRecord['kybStatus'];
+    kybRef: string | null;
+    reason: string;
+    actor: KybActor;
+  },
+): Promise<void> {
+  await tx`
+    INSERT INTO pay.merchant_kyb_events (merchant_id, from_status, to_status, kyb_ref, reason, actor_id, actor_scope)
+    VALUES (${e.merchantId}, ${e.from}::pay.kyb_status, ${e.to}::pay.kyb_status, ${e.kybRef}, ${e.reason}, ${e.actor.id}, ${e.actor.scope})`;
+}
+
+const kybDecisionReason = (decision: 'approved' | 'rejected') =>
+  decision === 'approved' ? 'Verification approved' : 'Verification rejected';
 
 function toMerchant(row: MerchantRow): MerchantRecord {
   let feeBps: number | null;
