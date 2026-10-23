@@ -189,9 +189,10 @@ export const features: readonly Feature[] = [
   {
     id: 'bank-ramps',
     label: 'Add money and cash out',
-    paths: ['/bank/ramps', '/bank/ramps/new'],
+    paths: ['/bank/ramps', '/bank/ramps/new', '/bank/ramps/accounts', '/bank/ramps/cash-out'],
     status: 'blocked',
-    reason: 'No payment partner is connected (rail.bank, rail.card); J-bank-02 proves only the refused ending',
+    reason:
+      'No payment partner is connected (rail.bank, rail.card), so no linked bank account can be verified; J-bank-02 proves only the refused ending',
     unlock: 'a payment partner, then J-bank-02 and J-bank-03 passing with money credited and paid out',
     tab: 'money',
   },

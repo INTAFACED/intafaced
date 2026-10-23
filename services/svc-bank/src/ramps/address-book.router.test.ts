@@ -221,7 +221,10 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
     }
     expect(await stepped.ramps.destinations.list()).toHaveLength(1);
     const confirmed = await stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike', confirmLookalike: true });
-    expect(confirmed).toMatchObject({ label: 'Look-alike', refMasked: '0xabcd…ef01' });
+    // The confirmation is recorded on the new entry, not on the one it looks like.
+    expect(confirmed).toMatchObject({ label: 'Look-alike', refMasked: '0xabcd…ef01', lookalikeConfirmedAt: expect.any(String) });
+    const rows = await stepped.ramps.destinations.list();
+    expect(rows.find((row) => row.label === 'Cold wallet')).toMatchObject({ lookalikeConfirmedAt: null });
     expect(await stepped.ramps.destinations.list()).toHaveLength(2);
     // Saved once after confirming, the same entry again is that entry, not a new warning.
     await expect(stepped.ramps.destinations.save({ ...entry, ref: LOOKALIKE, label: 'Look-alike' })).resolves.toMatchObject({
@@ -231,6 +234,17 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
       address: 'ok',
       lookalike: null,
     });
+  });
+
+  it('records a look-alike confirmation only from its own check, never from what a caller passes in', async () => {
+    const destinations = book();
+    const ramps = new RampService({} as Sql, {} as LedgerClient, { destinations, addressBookCap: '5', withdrawNetworks: REGISTRY });
+    const plain = await ramps.saveDestination({
+      userId: USER,
+      ...entry,
+      lookalikeOf: '33333333-3333-4333-8333-333333333333',
+    });
+    expect(plain.lookalikeConfirmedAt).toBeNull();
   });
 
   it('does not call the same address in another case, or saved again, a look-alike', async () => {

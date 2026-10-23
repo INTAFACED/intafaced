@@ -8,7 +8,7 @@ import { fmtAmount } from '../../../data/format';
 import { stateOf } from './model';
 
 /** Columns of the history export, in the order they are drawn on screen. */
-export const HISTORY_CSV_HEADER = ['Contract', 'Side', 'Size', 'Entry', 'Exit', 'Realised PnL', 'Status', 'Opened at'] as const;
+export const HISTORY_CSV_HEADER = ['Contract', 'Side', 'Size', 'Entry', 'Exit', 'Realised PnL', 'Fees', 'Status', 'Opened at'] as const;
 
 /**
  * One CSV cell. A cell a spreadsheet would read as a formula (starts with = + - @, or a tab or carriage return) gets a
@@ -27,7 +27,9 @@ export function csvLine(cells: readonly (string | null | undefined)[]): string {
 
 /** The rows exactly as shown: exact decimal strings from the service, an empty cell where a figure is unknown. */
 export function historyCsv(rows: readonly Position[]): string {
-  const lines = rows.map((p) => csvLine([p.symbol, p.side, p.contracts, p.entryPrice, p.markPrice, p.realizedPnl, stateOf(p), p.datetime]));
+  const lines = rows.map((p) =>
+    csvLine([p.symbol, p.side, p.contracts, p.entryPrice, p.markPrice, p.realizedPnl, p.fees, stateOf(p), p.datetime]),
+  );
   return [csvLine(HISTORY_CSV_HEADER), ...lines].join('\r\n') + '\r\n';
 }
 

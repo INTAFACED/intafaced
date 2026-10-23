@@ -24,6 +24,7 @@ const order: FuturesOrderWire = {
   filledQty: '0',
   appliedAmount: '0',
   releasedAmount: '0',
+  feesPaid: '0',
   status: 'open',
   refusalCode: null,
   reduceOnly: false,

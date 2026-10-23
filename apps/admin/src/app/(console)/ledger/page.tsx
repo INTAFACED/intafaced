@@ -2,13 +2,15 @@ import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
+import { LedgerLookup } from '@/components/ledger-lookup';
 import { PayHaltsDesk } from '@/components/pay-halts-desk';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
 import { loadPayHalts } from '@/lib/pay-halts/server';
 
 /**
- * Ledger operations (§4.2 / §14.6): the posting freeze, and the payments halts that stop one operation.
+ * Ledger operations (§4.2 / §14.6): the posting freeze, the transaction lookup (J-ops-console-03), and the payments halts
+ * that stop one operation.
  *
  * Server-loads the real freeze state through `readFreeze()` — the same client `/api/ledger-freeze` uses — so the
  * first paint is svc-ledger's answer and not a default. This page previously rendered `operator-commands.ts` stubs
@@ -32,6 +34,7 @@ export default async function LedgerOpsPage() {
   return (
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
+      <LedgerLookup />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
       <p>
         <Link href="/restore">Joint restore</Link>

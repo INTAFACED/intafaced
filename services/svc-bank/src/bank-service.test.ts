@@ -3096,6 +3096,8 @@ describe('svc-bank money PG-hard', () => {
         'customer_onramps.rate': 'the rate copied onto that instruction; written once',
         'add_money_requests.amount':
           'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
+        'cash_out_requests.amount':
+          'the amount the customer asked to cash out on one request; kept refused, never held or posted from here',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.

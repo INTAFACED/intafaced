@@ -44,6 +44,7 @@ import {
   type PriceAlert,
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
+import { PUSH_KEY_UNSET, pushKeyPolicy } from './push-key.js';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
@@ -644,6 +645,21 @@ export function createNotifyRouter(
        * runtime credentials; use `channels` for configured vs unprobed.
        */
       channelsPolicy: publicProcedure.query(() => describeChannelsPolicy()),
+
+      /**
+       * The push gateway's public application key, which a browser needs to create a device subscription
+       * (HM-notifications-02). Public by design; null with `notify.push_key_unset` until the owner configures push
+       * delivery (key, gateway URL and token), so the app shows the permission state and never registers a device that
+       * nothing could reach.
+       */
+      pushKey: publicProcedure
+        .output(
+          z.union([
+            z.object({ publicKey: z.string(), unsetCode: z.null() }),
+            z.object({ publicKey: z.null(), unsetCode: z.literal(PUSH_KEY_UNSET) }),
+          ]),
+        )
+        .query(() => pushKeyPolicy(process.env)),
 
       /**
        * v22.alerts refuse honesty — price watch core, unpublished kinds, dark marks.

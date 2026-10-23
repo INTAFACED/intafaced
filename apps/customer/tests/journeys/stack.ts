@@ -1,10 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inject } from 'vitest';
 import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
-import { formatAmount, parseAmount, recipes } from '@intafaced/ledger-client';
-import { claimsOf, hashOf, identityCall, randomHandle, totpCode, type Claims, type Issued } from './identity';
+import { claimsOf, hashOf, identityCall, proveEmail, randomHandle, totpCode, type Claims, type Issued } from './identity';
 import { createApiClient } from '../../src/shared/api';
 import { createTradeApi } from '../../src/features/trade/trade-api';
+import { fundJourneyCustomer } from '../../../../tooling/scripts/journey-fund.mjs';
 
 export { stack } from './env';
 import { stack } from './env';
@@ -66,7 +66,7 @@ export type Onboarding = 'signed_up' | 'kyc_pending' | 'kyc_approved';
  * access token identity issued. Nothing is forwarded or forced.
  */
 export async function newCustomer(
-  opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding; kycTier?: 'basic' | 'full' } = {},
+  opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding; kycTier?: 'basic' | 'full'; emailProved?: boolean } = {},
 ) {
   const onboarding = opts.onboarding ?? 'kyc_approved';
   const handle = randomHandle('journey');
@@ -74,6 +74,8 @@ export async function newCustomer(
   const password = randomBytes(18).toString('base64url');
   const issued = await identityCall<Issued>('auth.register', { handle, email, password, region: stack.region() }, null);
   let claims = claimsOf(issued.accessToken);
+  // A proved email, as every sign-up now ends with; `emailProved: false` keeps an unproved one for the refusal journeys.
+  if (opts.emailProved !== false) await proveEmail(email, claims);
   let recordId: string | null = null;
   if (onboarding !== 'signed_up') {
     const record = await identityCall<{ id: string }>(
@@ -181,7 +183,8 @@ function signedIn(session: Session, opts: Parameters<typeof customerFetch>[1], a
 }
 export type Customer = Awaited<ReturnType<typeof newCustomer>>;
 
-async function ledgerCall(path: string, body: unknown): Promise<unknown> {
+/** A signed read from the journey stack's ledger. The app's journeys never post to it; funding goes through fund(). */
+async function ledgerRead(path: string, body: unknown): Promise<unknown> {
   const raw = JSON.stringify(body);
   const response = await fetch(stack.ledger() + path, {
     method: 'POST',
@@ -193,24 +196,14 @@ async function ledgerCall(path: string, body: unknown): Promise<unknown> {
   return JSON.parse(text);
 }
 
-/** Put TEST funds on a journey customer's account through the ledger deposit recipe. Business key, so a rerun adds nothing. */
+/** Put TEST funds on a journey customer's account through the ledger deposit recipe (tooling/scripts/journey-fund.mjs). */
 export async function fund(userId: string, assetId: string, amount: string): Promise<void> {
-  const request = recipes.deposit({
-    userId,
-    assetId,
-    amount: parseAmount(amount),
-    rail: 'journey-test',
-    railRef: `journey:${assetId}:${userId}`,
-  });
-  await ledgerCall('/trpc/post', {
-    ...request,
-    entries: request.entries.map((e) => ({ ...e, amount: typeof e.amount === 'bigint' ? formatAmount(e.amount) : e.amount })),
-  });
+  await fundJourneyCustomer({ ledgerUrl: stack.ledger(), internalSecret: stack.internalSecret(), userId, assetId, amount });
 }
 
 /** The ledger's own available balance, read directly: the proof that does not go through trade. */
 export async function ledgerAvailable(userId: string, assetId: string): Promise<string> {
-  const json = (await ledgerCall('/trpc/balance', { ownerType: 'user', ownerId: userId, assetId, kind: 'available' })) as {
+  const json = (await ledgerRead('/trpc/balance', { ownerType: 'user', ownerId: userId, assetId, kind: 'available' })) as {
     amount?: string;
   };
   return String(json.amount ?? '0');

@@ -72,6 +72,8 @@ export const futuresOrderSchema = z.object({
   filledQty: decimalSchema,
   appliedAmount: decimalSchema,
   releasedAmount: decimalSchema,
+  /** What the order's fills paid in trading fees from its hold. */
+  feesPaid: decimalSchema.optional(),
   status: z.string(),
   refusalCode: z.string().nullable(),
   reduceOnly: z.boolean(),

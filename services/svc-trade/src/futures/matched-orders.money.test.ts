@@ -29,10 +29,11 @@ import type { EngineCancelResult, EngineSubmitRequest, EngineSubmitResult, Match
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
 import { PositionService } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
 import { matchedOrderIdFor } from './ids.js';
-import { orderHoldAmount, marginNeed } from './matched-order-plan.js';
+import { orderFeeReserve, orderHoldAmount, marginNeed } from './matched-order-plan.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -146,9 +147,14 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
   let engine: FakeEngine;
   let mark: bigint;
   let admission: TradingAdmissionPort;
+  /** The perpetual rates the injected schedule gives every account. */
+  let feeRates: FeeRates;
 
   beforeEach(async () => {
     await sql`TRUNCATE trade.futures_order_fills, trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts, trade.futures_fill_waits, trade.account_position_modes RESTART IDENTITY CASCADE`;
+    // The listing row's maker_bps/taker_bps are not a fee schedule and are never charged: the rates come from `feeRates`
+    // (the owner's perpetual schedule in production). They are zero here, so these tests prove the margin path and a zero
+    // fee posts exactly what it did before fees; the trading-fee tests publish rates themselves.
     await sql`
       INSERT INTO trade.markets (
         id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
@@ -161,6 +167,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     engine = new FakeEngine();
     mark = A('100');
     admission = { admit: vi.fn(async () => ({})) } as unknown as TradingAdmissionPort;
+    feeRates = { makerBps: 0, takerBps: 0 };
     for (const userId of [ALICE, BOB, CAROL]) {
       await ledger.post(
         recipes.deposit({ userId, assetId: USDT, amount: A('1000'), rail: 'test', railRef: `fund-${userId}-${randomUUID()}` }),
@@ -182,6 +189,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       lifecycleProof: async () => PROOF,
       admission,
       emailProof: { get: async () => 'accepted' },
+      feeRates: async () => feeRates,
       ...overrides,
     });
   }
@@ -251,23 +259,39 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         leverage: string;
         applied_amount: string;
         released_amount: string;
+        band_high: string;
+        maker_fee_bps: string;
+        taker_fee_bps: string;
+        fee_charged: string;
+        reduce_only: boolean;
       }[]
     >`
-      SELECT id, user_id, side, qty, limit_price, mark_price, leverage, applied_amount, released_amount
+      SELECT id, user_id, side, qty, limit_price, mark_price, leverage, applied_amount, released_amount,
+             band_high, maker_fee_bps::text, taker_fee_bps::text, fee_charged, reduce_only
         FROM trade.futures_orders WHERE market_id = ${MARKET}
     `;
     for (const o of orders) {
       const held = await bal(futuresOrderMarginAccount(o.user_id, USDT, o.id));
-      // The hold an order locked is a function of its terms; nothing stores it as a figure.
-      const locked = orderHoldAmount({
-        side: o.side,
-        qty: parseAmount(o.qty),
-        limit: parseAmount(o.limit_price),
-        mark: parseAmount(o.mark_price),
-        leverage: parseAmount(o.leverage),
-      });
-      expect(held, `hold of ${o.id} is what it locked less applied and released`).toBe(
-        locked - parseAmount(o.applied_amount) - parseAmount(o.released_amount),
+      // The hold an order locked is a function of its terms; nothing stores it as a figure. It is the margin part
+      // and the fee reserve at the rates the order kept (a reduce-only order locks neither).
+      const locked = o.reduce_only
+        ? 0n
+        : orderHoldAmount({
+            side: o.side,
+            qty: parseAmount(o.qty),
+            limit: parseAmount(o.limit_price),
+            mark: parseAmount(o.mark_price),
+            leverage: parseAmount(o.leverage),
+          }) +
+          orderFeeReserve({
+            side: o.side,
+            qty: parseAmount(o.qty),
+            limit: parseAmount(o.limit_price),
+            bandHigh: parseAmount(o.band_high),
+            rates: { makerBps: Number(o.maker_fee_bps), takerBps: Number(o.taker_fee_bps) },
+          });
+      expect(held, `hold of ${o.id} is what it locked less applied, fees paid and released`).toBe(
+        locked - parseAmount(o.applied_amount) - parseAmount(o.fee_charged) - parseAmount(o.released_amount),
       );
     }
   }
