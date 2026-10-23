@@ -680,11 +680,13 @@ export class BlueprintService implements BlueprintContract {
    * hitting `cardOf` cannot stamp `card_asset_url`. Denied and missing throw
    * the same `blueprint.not_found` — a private row is not enumerable.
    *
-   * A `shareId` (MC-blueprint-01) names one share. The revoked check and the
-   * open-log write commit together, with no cached card, so a revoke that
-   * commits first is `blueprint.not_found` on that read. The card is composed
-   * after the transaction so a slow rasterizer does not hold the row lock.
-   * The share's stored size is the card that is returned.
+   * A `shareId` (MC-blueprint-01) names one share. The revoked check, the
+   * open-log write and the card render commit together, with no cached card.
+   * The share stays `FOR UPDATE` through the render. After the card is
+   * composed, `revoked_at` is read again under that lock. If it is revoked,
+   * this throws `blueprint.not_found` and the transaction rolls back, so no
+   * new open row remains. A revoke that commits first is the same
+   * `blueprint.not_found`. The share's stored size is the card that is returned.
    *
    * This is still authenticated. It is not a public unfurl URL (those need a
    * revocable token + object storage — ops.social-promotion / Class X).
@@ -692,11 +694,7 @@ export class BlueprintService implements BlueprintContract {
   async cardFor(input: { viewerId: string; subjectUserId?: string; size: CardSize; shareId?: string }): Promise<CardRender> {
     return withBlueprintSpan('blueprint.cardFor', { stage: 'card', userId: input.viewerId }, async (span) => {
       if (input.shareId) {
-        const opened = await this.openThroughShare(input.viewerId, input.shareId, input.subjectUserId);
-        const render =
-          input.viewerId === opened.blueprint.userId
-            ? await this.card({ userId: input.viewerId, size: opened.size })
-            : await this.renderCard(opened.blueprint, opened.size);
+        const render = await this.openThroughShare(input.viewerId, input.shareId, input.subjectUserId);
         setBlueprintSpanAttribute(span, 'cardRaster', render.raster.status);
         return render;
       }
@@ -864,15 +862,16 @@ export class BlueprintService implements BlueprintContract {
    * Split out of `card()` so `export()` can carry the same artifact without
    * inheriting the side effect. `export` is a tRPC `.query()` — retried,
    * prefetched, and cached by any sane client — and a read path that persists a
-   * column on every call is a write path wearing a read's clothes. `card()` is
-   * the one place `card_asset_url` is written, because it is the one call a
-   * caller makes *in order to* get an asset.
+   * column on every call is a write path wearing a read's clothes. `card()` writes
+   * `card_asset_url`, and so does an owner's read of their own share (a real
+   * portrait render only, inside that share transaction). A stranger's read does not.
    */
-  private async renderCard(blueprint: BlueprintRecord, size: CardSize): Promise<CardRender> {
+  private async renderCard(blueprint: BlueprintRecord, size: CardSize, sql?: Sql): Promise<CardRender> {
+    const db = sql ?? this.sql;
     // The crew name is the only thing on the card this service does not already
     // hold in the profile. Absent rows mean "unplaced", which is a real state
     // the card renders honestly rather than a reason to fail.
-    const placed = await this.sql<Array<{ name: string; season: number }>>`
+    const placed = await db<Array<{ name: string; season: number }>>`
       SELECT c.name, c.season
         FROM blueprint.crew_members m
         JOIN blueprint.crews c ON c.id = m.crew_id
@@ -1160,15 +1159,14 @@ export class BlueprintService implements BlueprintContract {
    * crew-visibility is never visible to anyone else.
    */
   /**
-   * Lock the share, refuse a revoked or invisible card, and record the open
-   * in the same transaction. The owner is not an opener of their own share.
-   * A failed open write aborts the transaction, so the card is not returned.
+   * Lock the share, refuse a revoked or invisible card, render it, and record
+   * the open in the same transaction. The share stays FOR UPDATE through the
+   * render. revoked_at is read again after the card is composed. If it is
+   * revoked, the transaction rolls back and the card is not returned. The
+   * owner is not an opener of their own share. A failed open write aborts the
+   * transaction, so the card is not returned.
    */
-  private async openThroughShare(
-    viewerId: string,
-    shareId: string,
-    subjectUserId: string | undefined,
-  ): Promise<{ blueprint: BlueprintRecord; size: CardSize }> {
+  private async openThroughShare(viewerId: string, shareId: string, subjectUserId: string | undefined): Promise<CardRender> {
     return transaction(this.sql, async (tx) => {
       const shares = await tx<ShareRow[]>`
         SELECT id, owner_user_id, size, created_at, revoked_at
@@ -1231,7 +1229,23 @@ export class BlueprintService implements BlueprintContract {
         }
       }
 
-      return { blueprint, size: share.size };
+      const render = await this.renderCard(blueprint, share.size, tx);
+      const again = await tx<Array<{ revoked_at: Date | null }>>`
+        SELECT revoked_at
+          FROM blueprint.card_shares
+         WHERE id = ${share.id}
+         FOR UPDATE
+      `;
+      if (!again[0] || again[0].revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+
+      if (viewerId === share.owner_user_id && render.raster.status === 'rendered' && share.size === 'portrait') {
+        await tx`
+          UPDATE blueprint.blueprints SET card_asset_url = ${render.raster.url}, updated_at = now()
+           WHERE user_id = ${blueprint.userId}
+        `;
+      }
+
+      return render;
     });
   }
 

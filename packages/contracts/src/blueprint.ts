@@ -374,10 +374,11 @@ export const blueprintExportSchema = z.object({
   /**
    * The caller's shares and each share's opener rows (MC-blueprint-01).
    * Opener rows carry a kind, times and a count. They do not carry an account id.
-   * Empty when the caller has no shares. Schema version stays 2: the customer
-   * export parser still requires that literal and drops keys it does not know.
+   * Empty when the caller has no shares. An omitted key is an empty array.
+   * Schema version stays 2: the customer export parser still requires that
+   * literal and drops keys it does not know.
    */
-  shares: z.array(cardShareExportSchema),
+  shares: z.array(cardShareExportSchema).default([]),
 });
 export type BlueprintExport = z.infer<typeof blueprintExportSchema>;
 

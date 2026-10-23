@@ -10,7 +10,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { BlueprintProfile } from '@intafaced/contracts';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { UnconfiguredCardRenderer } from './card/card-renderer.js';
+import { UnconfiguredCardRenderer, type CardRenderer } from './card/card-renderer.js';
 import { BlueprintError, BlueprintService } from './blueprint-service.js';
 import { MockNeuralEngine } from './engine/mock-engine.js';
 
@@ -249,6 +249,67 @@ if (!available) {
         await db.sql`DROP FUNCTION IF EXISTS blueprint.mc_blueprint_01_fail_open()`;
       }
       expect(await db.sql`SELECT 1 FROM blueprint.card_opens WHERE share_id = ${share.id}`).toHaveLength(0);
+    });
+
+    it('a revoke that commits after the open insert would have been written, and before the response, returns blueprint.not_found and leaves no open row', async () => {
+      await seed('public');
+      const opening = service();
+      const share = await opening.createShare({ userId: OWNER, size: 'portrait' });
+      // The share is FOR UPDATE for the whole read, so another connection cannot
+      // commit a revoke until this transaction ends. The trigger revokes in that
+      // same transaction, after the open insert and before the response. The
+      // re-read must roll the open back. rendered proves the insert ran first.
+      let rendered = false;
+      const renderer: CardRenderer = {
+        id: 'revoke-during-open',
+        async rasterize() {
+          rendered = true;
+          return {
+            status: 'unavailable',
+            code: 'blueprint.card_renderer_unconfigured',
+            reason: 'Share revoked during render',
+          };
+        },
+      };
+      const blueprint = new BlueprintService(db.sql, new MockNeuralEngine(), new MemoryEventBus('svc-blueprint'), renderer, {
+        crewCapacity: 4,
+        mentorShortlistSize: 3,
+        season: 1,
+        sharesPerOwner: 2,
+        opensListLimit: 20,
+      });
+      await db.sql`DROP TRIGGER IF EXISTS mc_blueprint_01_revoke_during_open ON blueprint.card_opens`;
+      await db.sql`DROP FUNCTION IF EXISTS blueprint.mc_blueprint_01_revoke_during_open()`;
+      await db.sql`
+        CREATE FUNCTION blueprint.mc_blueprint_01_revoke_during_open() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          UPDATE blueprint.card_shares
+             SET revoked_at = now()
+           WHERE id = NEW.share_id AND revoked_at IS NULL;
+          RETURN NEW;
+        END $$
+      `;
+      await db.sql`
+        CREATE TRIGGER mc_blueprint_01_revoke_during_open
+        AFTER INSERT ON blueprint.card_opens
+        FOR EACH ROW EXECUTE FUNCTION blueprint.mc_blueprint_01_revoke_during_open()
+      `;
+      try {
+        await expect(blueprint.cardFor({ viewerId: VIEWER, shareId: share.id, size: 'portrait' })).rejects.toMatchObject({
+          code: 'blueprint.not_found',
+          message: 'No Blueprint to render a card for — run the Blueprint session first',
+        });
+      } finally {
+        await db.sql`DROP TRIGGER IF EXISTS mc_blueprint_01_revoke_during_open ON blueprint.card_opens`;
+        await db.sql`DROP FUNCTION IF EXISTS blueprint.mc_blueprint_01_revoke_during_open()`;
+      }
+      expect(rendered).toBe(true);
+      expect(await db.sql`SELECT 1 FROM blueprint.card_opens WHERE share_id = ${share.id}`).toHaveLength(0);
+      const stored = await db.sql<Array<{ revoked_at: Date | null }>>`
+        SELECT revoked_at FROM blueprint.card_shares WHERE id = ${share.id}
+      `;
+      expect(stored[0]?.revoked_at).toBeNull();
     });
 
     it('exports the shares, then erase removes the viewer row and the owner shares', async () => {
