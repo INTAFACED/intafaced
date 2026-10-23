@@ -141,17 +141,16 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
                 {t('Dead man not published')}
               </p>
             ) : (
-              <fieldset className="dk-deadman">
-                <legend>{t('Dead man after')}</legend>
+              <fieldset className="dk-scopes" aria-label={t('Dead man after')}>
                 {choices.map((s) => (
-                  <label key={s} className="dk-deadman-choice">
+                  <label key={s} className="dk-scope">
                     <input type="radio" name="dead-man" checked={picked === s && choice !== 'other'} onChange={() => setChoice(s)} />
-                    {t('Dead man seconds', { count: s })}
+                    <span>{t('Dead man seconds', { count: s })}</span>
                   </label>
                 ))}
-                <label className="dk-deadman-choice">
+                <label className="dk-scope">
                   <input type="radio" name="dead-man" checked={choice === 'other'} onChange={() => setChoice('other')} />
-                  {t('Dead man other')}
+                  <span>{t('Dead man other')}</span>
                 </label>
                 {choice === 'other' ? (
                   <input
@@ -162,9 +161,9 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
                     onChange={(event) => setOther(event.target.value)}
                   />
                 ) : null}
-                <label className="dk-deadman-choice">
+                <label className="dk-scope">
                   <input type="checkbox" checked={keepAlive} onChange={(event) => setKeepAlive(event.target.checked)} />
-                  {t('Dead man keep alive')}
+                  <span>{t('Dead man keep alive')}</span>
                 </label>
               </fieldset>
             )}

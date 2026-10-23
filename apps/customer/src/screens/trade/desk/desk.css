@@ -987,25 +987,6 @@
     outline: 2px solid var(--if-lime);
     outline-offset: 2px;
   }
-  .dk-deadman {
-    display: grid;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    font: 400 13px/18px var(--if-font-ui);
-    color: var(--if-fg);
-  }
-  .dk-deadman legend {
-    margin-bottom: 4px;
-    color: var(--if-fg-2);
-  }
-  .dk-deadman-choice {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-  }
   .dk-deadman-other {
     width: 120px;
     height: 32px;
