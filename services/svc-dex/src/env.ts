@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
 import { externalVenueConfigSchema } from './quote/external-venue.js';
+import {
+  dexOrderKeeperIntervalField,
+  dexOrderMinSizeField,
+  dexOrderOracleMaxAgeField,
+  dexOrderRestrictedTokensField,
+  dexOrderSlippageField,
+  dexOrderWarnTokensField,
+} from './order/trigger-settings.js';
 
 /**
  * svc-dex environment.
@@ -177,6 +185,19 @@ const schema = baseEnvSchema
           }
           return result.data;
         }),
+
+      /**
+       * Price-trigger owner bounds (D-limit-dca-02). Each one is blank until published.
+       * Blank does not become 10, an empty restricted list, 50 bps, or a freshness window.
+       */
+      // `.optional()` is the mark the service map reads. Blank stays unset inside the field too.
+      DEX_ORDER_MIN_SIZE: dexOrderMinSizeField.optional(),
+      DEX_ORDER_RESTRICTED_TOKENS: dexOrderRestrictedTokensField.optional(),
+      DEX_ORDER_WARN_TOKENS: dexOrderWarnTokensField.optional(),
+      DEX_ORDER_SLIPPAGE_BPS: dexOrderSlippageField.optional(),
+      DEX_ORDER_ORACLE_MAX_AGE_MS: dexOrderOracleMaxAgeField.optional(),
+      /** Blank does not start the keeper. There is no default interval. */
+      DEX_ORDER_KEEPER_INTERVAL_MS: dexOrderKeeperIntervalField.optional(),
     }),
   )
   .superRefine((parsed, ctx) => {

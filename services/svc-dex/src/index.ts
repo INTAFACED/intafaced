@@ -3,6 +3,9 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { buildEdgeContext } from './edge-context.js';
 import { env } from './env.js';
 import { createDexRouter } from './router.js';
+import { OrderBook } from './order/order-book.js';
+import { unwiredFillPort, unwiredPricePort } from './order/trigger-ports.js';
+import { startTriggerKeeper } from './order/trigger-keeper.js';
 import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
 import { venuesFor as venuesForEnv } from './quote/venue-set.js';
 import { clobCostsFromOptional } from './quote/clob-costs.js';
@@ -55,6 +58,16 @@ const venuesFor = (region: string) => venuesForEnv(env, region);
 const ammVenueWired = env.DEX_EXTERNAL_VENUES.some((v) => v.kind === 'amm');
 const externalVenueWired = env.DEX_EXTERNAL_VENUES.length > 0;
 
+// One book for the router and the keeper. Ports stay unwired: no key, no node, no service call.
+const triggerBook = new OrderBook();
+const triggerSettings = {
+  minSize: env.DEX_ORDER_MIN_SIZE,
+  restrictedTokens: env.DEX_ORDER_RESTRICTED_TOKENS,
+  warnTokens: env.DEX_ORDER_WARN_TOKENS,
+  slippageBps: env.DEX_ORDER_SLIPPAGE_BPS,
+  oracleMaxAgeMs: env.DEX_ORDER_ORACLE_MAX_AGE_MS,
+};
+
 export const appRouter = createDexRouter({
   venues: venuesFor,
   maxAgeMs: env.QUOTE_MAX_AGE_MS,
@@ -66,10 +79,19 @@ export const appRouter = createDexRouter({
   internalBookEnabled: env.DEX_INTERNAL_BOOK_ENABLED,
   ammVenueWired,
   externalVenueWired,
+  triggerOrders: { settings: triggerSettings, price: unwiredPricePort, fill: unwiredFillPort, book: triggerBook },
 });
 export type AppRouter = typeof appRouter;
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+
+// Blank interval does not start a loop and does not invent one. The ports never broadcast.
+const stopKeeper = startTriggerKeeper({
+  book: triggerBook,
+  deps: { now: () => new Date(), settings: triggerSettings, price: unwiredPricePort, fill: unwiredFillPort },
+  intervalMs: env.DEX_ORDER_KEEPER_INTERVAL_MS,
+  onError: (err) => app.log.error({ err }, 'trigger keeper tick failed'),
+});
 
 // Built before the listener opens. The edge secret is required: quote may
 // ignore a principal, but limitOrder requires one, and a signed principal
@@ -113,6 +135,7 @@ app.log.info(
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
+    stopKeeper();
     void (async () => {
       await app.close();
       process.exit(0);
