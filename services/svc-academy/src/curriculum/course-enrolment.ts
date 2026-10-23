@@ -55,22 +55,23 @@ export function assertTrackOpen(track: AcademyEnrolmentTrack): void {
 
 /**
  * AC-catalogue-02: one My learning row. A course is started once an item in it is completed (the reading position is
- * one per learner, not per course, so it cannot say a course was started). Continue then goes to the last item opened
- * when that is in this course, else the first item not completed; before that there is only Start course. No course
- * has a start date yet, so nothing is a future start.
+ * one per learner, not per course, so it cannot say a course was started). Start course and Continue only ever point
+ * at an item the caller may open now (`open`, in course order): Continue goes to the last item opened when that is
+ * open, else the first open item not completed. With every item locked they point at the first item, whose page says
+ * why. No course has a start date yet, so nothing is a future start.
  */
 export function myCourseView(
   path: CurriculumPath,
   enrolment: EnrollmentRow,
   completed: ReadonlySet<string>,
   lastItemSlug: string | null,
-  firstOpenItemSlug: string,
+  open: readonly string[],
 ): AcademyMyCourse {
   const items = listCurriculum({ path });
   const done = items.filter((row) => completed.has(row.slug)).length;
-  const opened = lastItemSlug !== null && items.some((row) => row.slug === lastItemSlug) ? lastItemSlug : null;
-  const started = done > 0;
-  const resume = opened ?? items.find((row) => !completed.has(row.slug))?.slug ?? items[items.length - 1]!.slug;
+  const first = open[0] ?? items[0]!.slug;
+  const resume =
+    (lastItemSlug !== null && open.includes(lastItemSlug) ? lastItemSlug : null) ?? open.find((slug) => !completed.has(slug)) ?? first;
   return {
     slug: path,
     status: done === items.length ? 'completed' : 'in_progress',
@@ -78,8 +79,8 @@ export function myCourseView(
     startsAt: null,
     items: items.length,
     completed: done,
-    firstItemSlug: firstOpenItemSlug,
-    resumeItemSlug: started ? resume : null,
+    firstItemSlug: first,
+    resumeItemSlug: done > 0 ? resume : null,
   };
 }
 

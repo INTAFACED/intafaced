@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import {
   academyCourseOutlineSchema,
   type AcademyCourseOutline,
@@ -15,7 +16,7 @@ const itemHref = (slug: string) => `/academy/${encodeURIComponent(slug)}`;
 const opens = (row: AcademyCourseOutlineItem) => row.lock === null;
 
 /** Previous and Next from the open item: the nearest item each way the learner may open, and how many locked ones lie between. */
-export function neighbours(items: readonly AcademyCourseOutlineItem[], current: string) {
+export function outlineNeighbours(items: readonly AcademyCourseOutlineItem[], current: string) {
   const at = items.findIndex((row) => row.slug === current);
   const step = (dir: -1 | 1) => {
     let skipped = 0;
@@ -29,7 +30,7 @@ export function neighbours(items: readonly AcademyCourseOutlineItem[], current: 
 }
 
 /** The outline beside an open item (AC-course-structure-02), signed in: typed items, locks with their reason, Previous and Next. */
-export function AcademyCourseOutline({ itemSlug }: { itemSlug: string }) {
+export function AcademyCourseOutline({ itemSlug, refresh }: { itemSlug: string; refresh?: unknown }) {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
@@ -37,6 +38,13 @@ export function AcademyCourseOutline({ itemSlug }: { itemSlug: string }) {
     (signal) => api.query('academy', 'courseOutline', { itemSlug }, academyCourseOutlineSchema, { signal }),
     `course-outline:${userId}:${itemSlug}`,
   );
+  // A completion recorded in the reader beside it can unlock items: read the outline again.
+  // `reload` is a new function each render, so the effect follows only the completion it is told about.
+  const reload = useRef(outline.reload);
+  reload.current = outline.reload;
+  useEffect(() => {
+    if (refresh) reload.current();
+  }, [refresh]);
   return (
     <Panel title={t('outlineTitle')}>
       {outline.resource.status === 'loading' ? (
@@ -65,7 +73,7 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
         : row.state === 'completed'
           ? t('outlineCompleted')
           : null;
-  const { previous, next } = neighbours(outline.items, current);
+  const { previous, next } = outlineNeighbours(outline.items, current);
   const navLink = (side: typeof previous, label: 'outlinePrevious' | 'outlineNext', none: 'outlineNoPrevious' | 'outlineNoNext') => (
     <div>
       {side.item ? (

@@ -96,7 +96,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : tab === 'Learning' ? (
         <>
           {!slug && <AcademyMyLearning />}
-          {slug && <AcademyCourseOutline itemSlug={slug} />}
+          {slug && <AcademyCourseOutline itemSlug={slug} refresh={action.result} />}
           <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
         </>
       ) : tab === 'Certificates' ? (

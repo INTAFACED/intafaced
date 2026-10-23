@@ -11,7 +11,7 @@ import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intaface
 import { SessionProvider } from '../session/session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
 import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
-import { CourseOutlineView, neighbours } from './AcademyCourseOutline';
+import { CourseOutlineView, outlineNeighbours } from './AcademyCourseOutline';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const terms: AcademyCourseEnrolment = {
@@ -128,9 +128,9 @@ describe('course outline (AC-course-structure-02)', () => {
   ];
 
   it('Next and Previous skip locked items and count them', () => {
-    expect(neighbours(items, 'b')).toEqual({ previous: { item: items[0], skipped: 0 }, next: { item: items[4], skipped: 2 } });
-    expect(neighbours(items, 'a').previous).toEqual({ item: null, skipped: 0 });
-    expect(neighbours(items, 'e').next).toEqual({ item: null, skipped: 0 });
+    expect(outlineNeighbours(items, 'b')).toEqual({ previous: { item: items[0], skipped: 0 }, next: { item: items[4], skipped: 2 } });
+    expect(outlineNeighbours(items, 'a').previous).toEqual({ item: null, skipped: 0 });
+    expect(outlineNeighbours(items, 'e').next).toEqual({ item: null, skipped: 0 });
   });
 
   it('types each item, gives a locked one its reason as text and no link, and marks the open one', () => {

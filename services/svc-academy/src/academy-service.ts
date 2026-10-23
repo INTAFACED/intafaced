@@ -1689,14 +1689,15 @@ export class AcademyService {
   }
 
   /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
-  async myLearning(userId: string): Promise<AcademyMyCourse[]> {
+  async myLearning(userId: string, now: Date = new Date()): Promise<AcademyMyCourse[]> {
     const enrolments = await this.publishedEnrolments(userId);
     if (enrolments.length === 0) return [];
     const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
     return Promise.all(
       enrolments.map(async (row) => {
         const path = row.pathSlug as CurriculumPath;
-        return myCourseView(path, row, completed, state.lastItemSlug, await this.firstOpenItem(userId, path));
+        const open = (await this.courseReleases(userId, path, now)).filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
+        return myCourseView(path, row, completed, state.lastItemSlug, open);
       }),
     );
   }
@@ -1710,12 +1711,10 @@ export class AcademyService {
     if (!item) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
     const path = item.path as CurriculumPath;
     const now = input.now ?? new Date();
-    const rows = listCurriculum({ path });
-    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId: input.userId, itemSlug: row.slug, now })));
+    const releases = await this.courseReleases(input.userId, path, now);
     return {
       slug: path,
-      items: rows.map((row, i) => {
-        const view = views[i]!;
+      items: releases.map(({ row, view }) => {
         const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
         return {
           slug: row.slug,
@@ -1730,14 +1729,14 @@ export class AcademyService {
     };
   }
 
-  /** The first item of a course the caller may open now, for Start course; the first item when every one is locked. */
-  private async firstOpenItem(userId: string, path: CurriculumPath): Promise<string> {
+  /**
+   * The caller's release decision for every item of one course, at one `now`, so the outline, Start course and Continue
+   * agree. A course is a curriculum path of a handful of items.
+   */
+  private async courseReleases(userId: string, path: CurriculumPath, now: Date) {
     const rows = listCurriculum({ path });
-    for (const row of rows) {
-      const view = await this.release.itemRelease({ userId, itemSlug: row.slug });
-      if (view.lock === null) return row.slug;
-    }
-    return rows[0]!.slug;
+    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now })));
+    return rows.map((row, i) => ({ row, view: views[i]! }));
   }
 
   /** AC-access-grants-01: the caller's access records, one per active enrolment. */
