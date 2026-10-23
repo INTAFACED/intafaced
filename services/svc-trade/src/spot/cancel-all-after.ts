@@ -44,6 +44,8 @@ export interface CancelAllAfterHost {
     graceMs?: number,
   ): Promise<ArmedCountdown>;
   sweepCancelAllAfter(): Promise<CancelAllAfterSweep>;
+  /** The caller's own countdown, as stored: armed with its deadline, or not armed. */
+  readCancelAllAfter(principal: Principal): Promise<ArmedCountdown>;
 }
 
 export interface CancelAllAfterSweep {
@@ -104,6 +106,18 @@ async function arm(
   return { armed: true, timeoutSec, deadline };
 }
 
+async function read(host: Host, principal: Principal): Promise<ArmedCountdown> {
+  requireScope(principal, 'trade:read');
+  const rows = await host.sql<Array<{ timeout_sec: number; deadline_at: Date }>>`
+    SELECT timeout_sec, deadline_at FROM trade.cancel_all_after WHERE user_id = ${principal.userId}
+  `;
+  const row = rows[0];
+  // A deadline already past stays armed until the sweep has cancelled and dropped it: the orders are being cancelled.
+  return row
+    ? { armed: true, timeoutSec: Number(row.timeout_sec), deadline: new Date(row.deadline_at) }
+    : { armed: false, timeoutSec: 0, deadline: null };
+}
+
 async function sweep(host: Host): Promise<CancelAllAfterSweep> {
   const now = host.now();
   const rows = await host.sql<Array<{ user_id: string; deadline_at: Date; grant_claims: unknown; grant_expires_at: Date }>>`
@@ -152,6 +166,7 @@ export function installCancelAllAfter(ctor: typeof TradeService): void {
   const proto = ctor.prototype as unknown as {
     armCancelAllAfter?: unknown;
     sweepCancelAllAfter?: unknown;
+    readCancelAllAfter?: unknown;
     [FLAG]?: true;
   };
   if (proto[FLAG]) return;
@@ -167,6 +182,9 @@ export function installCancelAllAfter(ctor: typeof TradeService): void {
   };
   proto.sweepCancelAllAfter = function (this: TradeService) {
     return sweep(this as unknown as Host);
+  };
+  proto.readCancelAllAfter = function (this: TradeService, principal: Principal) {
+    return read(this as unknown as Host, principal);
   };
 }
 
