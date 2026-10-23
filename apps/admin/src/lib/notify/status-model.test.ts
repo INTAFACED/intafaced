@@ -36,12 +36,10 @@ describe('status page desk model', () => {
   });
 
   it('enters a reading by hand only for a component with an outside source', () => {
-    const at = new Date('2026-10-23T12:00:00.000Z');
-    expect(readingFor({ id: 'trading', name: 'Trading', group: null, source: null }, 'degraded', at)).toBeNull();
-    expect(readingFor({ id: 'card-network', name: 'Card network', group: null, source: 'TEST card scheme' }, 'degraded', at)).toEqual({
+    expect(readingFor({ id: 'trading', name: 'Trading', group: null, source: null }, 'degraded')).toBeNull();
+    expect(readingFor({ id: 'card-network', name: 'Card network', group: null, source: 'TEST card scheme' }, 'degraded')).toEqual({
       componentId: 'card-network',
       state: 'degraded',
-      observedAt: '2026-10-23T12:00:00.000Z',
       source: 'TEST card scheme',
     });
   });
@@ -76,6 +74,9 @@ describe('status page desk model', () => {
     };
     expect(readDefinition(good)).toEqual(good);
     expect(readDefinition({ ...good, componentCap: '5' })).toBeNull();
+    const { publicOrigin: _absent, ...older } = good;
+    expect(readDefinition(older)).toEqual(good);
+    expect(readDefinition({ ...good, publicOrigin: 5 })).toBeNull();
     expect(readDefinition({ ...good, components: [{ id: 'x' }] })).toBeNull();
     expect(readDefinition(null)).toBeNull();
   });

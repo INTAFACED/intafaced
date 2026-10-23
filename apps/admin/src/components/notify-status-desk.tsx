@@ -48,7 +48,7 @@ function Outcome({ reply }: { reply: StatusDeskReply | null }) {
     return (
       <div className="adm-callout" role="status" data-tone="ok" data-testid="status-desk-outcome">
         <strong>{reply.what === 'configured' ? 'Saved' : 'Reading stored'}</strong>
-        <p>svc-notify stored it. The page below is read again from the service.</p>
+        <p>svc-notify stored it.</p>
       </div>
     );
   return (
@@ -193,7 +193,7 @@ function ReadingForm({
               className="adm-btn"
               disabled={busy}
               onClick={() => {
-                const reading = readingFor(chosen, state, new Date());
+                const reading = readingFor(chosen, state);
                 if (reading) onSubmit({ op: 'record', ...reading });
               }}
             >
@@ -377,7 +377,7 @@ function Badges({ definition, page }: { definition: StatusDefinition; page: Stat
             longer than the staleness window. The console does not load images from another site, so the image opens on the public site.
           </p>
           {targets.map((t) => {
-            const s = badgeSnippets(origin, t.id, t.name === 'Whole page' ? 'Platform' : t.name);
+            const s = badgeSnippets(origin, t.id, t.id === null ? 'Platform' : t.name);
             const state = t.id === null ? page?.overall : page?.components.find((c) => c.id === t.id)?.state;
             return (
               <div key={t.id ?? '_page'} className="dk-stack" data-testid={`status-badge-${t.id ?? 'page'}`}>
@@ -437,10 +437,9 @@ export function NotifyStatusDesk({ initial }: { initial: StatusDeskView }) {
   // Remounts the forms on every fresh read, so they start from what the service holds now.
   const [generation, setGeneration] = useState(0);
 
-  const refresh = useCallback(async () => {
-    setBusy(true);
+  /** Reads the desk again; the caller holds `busy`. */
+  const reread = useCallback(async () => {
     const next = await fetchStatusDesk();
-    setBusy(false);
     setLoadFailed(next === null);
     if (next) {
       setView(next);
@@ -448,16 +447,24 @@ export function NotifyStatusDesk({ initial }: { initial: StatusDeskView }) {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    setReply(null);
+    await reread();
+    setBusy(false);
+  }, [reread]);
+
   const submit = useCallback(
     async (body: Record<string, unknown>) => {
       setBusy(true);
       const result = await postStatusChange(body);
       setReply(result);
+      // A stored change, or an outcome nobody can be sure of, both change what the page should say: read it again before
+      // any control is enabled again, so a second click cannot act on the old revision.
+      if (result.ok || result.changed === 'unknown') await reread();
       setBusy(false);
-      // A stored change, or an outcome nobody can be sure of, both change what the page should say: read it again.
-      if (result.ok || result.changed === 'unknown') await refresh();
     },
-    [refresh],
+    [reread],
   );
 
   const { definition, page } = view;

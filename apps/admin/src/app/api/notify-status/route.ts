@@ -10,7 +10,8 @@ import { configureStatusPage, loadStatusDesk, recordStatusReading } from '@/lib/
  *
  *   GET                                    the definition, the page a visitor reads now, and the read time
  *   POST { op: 'configure', ...change }    replace the components and owner values from the revision read, with a reason
- *   POST { op: 'record', ...reading }      one reading of one component, entered by hand with its source and time
+ *   POST { op: 'record', componentId, state, source }   one reading of one component, entered by hand; this server stamps
+ *                                                       its time, never the founder's browser
  *
  * Founder-only. svc-notify records the founder from their own token; this console never names an actor. No money moves.
  */
@@ -47,8 +48,8 @@ export async function POST(request: Request) {
       return Response.json(reply, { status, headers: NO_STORE });
     }
     if (op === 'record') {
-      const input = statusReadingInputSchema.safeParse(rest);
-      if (!input.success) return incomplete('A reading needs a component, a state, a time and a source.');
+      const input = statusReadingInputSchema.safeParse({ ...rest, observedAt: new Date().toISOString() });
+      if (!input.success) return incomplete('A reading needs a component, a state and a source.');
       const { status, reply } = await recordStatusReading(session, input.data);
       return Response.json(reply, { status, headers: NO_STORE });
     }

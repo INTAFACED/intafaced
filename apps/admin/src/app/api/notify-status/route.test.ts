@@ -158,17 +158,28 @@ describe('status page desk BFF', () => {
   it('a reading that is not complete is refused before any service call', async () => {
     configure();
     const c = upstream({});
-    const res = await POST(post({ op: 'record', componentId: 'card-network', state: 'operational' }));
+    const res = await POST(post({ op: 'record', componentId: 'card-network', state: 'operational', source: '' }));
     expect(res.status).toBe(400);
     expect(calls(c)).toHaveLength(0);
   });
 
-  it('stores a reading entered by hand', async () => {
+  it('stores a reading entered by hand, stamped by the console server and not by the browser', async () => {
     configure();
-    const reading = { componentId: 'card-network', state: 'degraded', observedAt: '2026-10-23T12:00:00.000Z', source: 'TEST card scheme' };
-    const c = upstream({ 'statusPage.record': () => ok(reading) });
-    expect(await (await POST(post({ op: 'record', ...reading }))).json()).toEqual({ ok: true, what: 'recorded' });
-    expect(JSON.parse(String(calls(c)[0]!.init.body))).toEqual(reading);
+    const c = upstream({ 'statusPage.record': (init) => ok(JSON.parse(String(init.body))) });
+    const before = Date.now();
+    const res = await POST(
+      post({
+        op: 'record',
+        componentId: 'card-network',
+        state: 'degraded',
+        source: 'TEST card scheme',
+        observedAt: '2001-01-01T00:00:00.000Z',
+      }),
+    );
+    expect(await res.json()).toEqual({ ok: true, what: 'recorded' });
+    const sent = JSON.parse(String(calls(c)[0]!.init.body));
+    expect(sent).toMatchObject({ componentId: 'card-network', state: 'degraded', source: 'TEST card scheme' });
+    expect(Date.parse(sent.observedAt)).toBeGreaterThanOrEqual(before);
   });
 
   it('a dropped connection on a change is an unknown outcome, not a failure', async () => {
@@ -178,7 +189,7 @@ describe('status page desk BFF', () => {
         throw new TypeError('fetch failed');
       },
     });
-    const reading = { componentId: 'card-network', state: 'degraded', observedAt: '2026-10-23T12:00:00.000Z', source: 'TEST card scheme' };
+    const reading = { componentId: 'card-network', state: 'degraded', source: 'TEST card scheme' };
     expect(await (await POST(post({ op: 'record', ...reading }))).json()).toMatchObject({ ok: false, changed: 'unknown' });
   });
 });

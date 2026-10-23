@@ -44,7 +44,9 @@ export function readDefinition(raw: unknown): StatusDefinition | null {
     if (!isRecord(c) || typeof c.id !== 'string' || typeof c.name !== 'string' || !strOrNull(c.group) || !strOrNull(c.source)) return null;
     components.push({ id: c.id, name: c.name, group: c.group, source: c.source });
   }
-  const { componentCap, stalenessSeconds, uptimeDays, challengeBits, subscribeRatePerHour, revision, updatedAt, publicOrigin } = raw;
+  const { componentCap, stalenessSeconds, uptimeDays, challengeBits, subscribeRatePerHour, revision, updatedAt } = raw;
+  // An svc-notify from before the address was added answers without it: no address, not an unreadable definition.
+  const publicOrigin = raw.publicOrigin ?? null;
   if (
     !intOrNull(componentCap) ||
     !intOrNull(stalenessSeconds) ||
@@ -205,10 +207,13 @@ export function checkDefinition(
   };
 }
 
-/** A reading entered by hand for an outside component: its state, now, and the source the definition names. */
-export function readingFor(component: StatusComponentDefinition, state: ReadingState, at: Date) {
+/**
+ * A reading entered by hand for an outside component: its state and the source the definition names. The console server
+ * stamps the time when it sends it, so a founder's own clock never decides it.
+ */
+export function readingFor(component: StatusComponentDefinition, state: ReadingState) {
   if (component.source === null) return null;
-  return { componentId: component.id, state, observedAt: at.toISOString(), source: component.source };
+  return { componentId: component.id, state, source: component.source };
 }
 
 const escapeAttr = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
