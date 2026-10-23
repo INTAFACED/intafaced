@@ -55,6 +55,8 @@ import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import {
   INCIDENT_PHASES,
+  MAINTENANCE_REMINDER_MINUTES_MAX,
+  MAINTENANCE_REMINDERS_MAX,
   NOTICE_ASSET_PATTERN,
   NOTICE_NETWORK_PATTERN,
   NoticeError,
@@ -1284,6 +1286,11 @@ export function createNotifyRouter(
             network: noticeNetwork.nullable().optional(),
             phase: z.enum(INCIDENT_PHASES).nullable().optional(),
             changelog: changelogInput.nullable().optional(),
+            reminderOffsets: z
+              .array(z.number().int().min(1).max(MAINTENANCE_REMINDER_MINUTES_MAX))
+              .max(MAINTENANCE_REMINDERS_MAX)
+              .nullable()
+              .optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

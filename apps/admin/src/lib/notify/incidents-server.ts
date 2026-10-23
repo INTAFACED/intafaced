@@ -24,7 +24,7 @@ import {
  * holds the approvals (`actionApproval.*`). Every call carries the founder's own token, so each service records who acted.
  */
 
-const NOTIFY: PartLabels = {
+export const NOTIFY: PartLabels = {
   service: 'svc-notify',
   forbiddenMessage:
     'svc-notify did not accept your founder session. The incident desk needs the operator write permission (admin:write) on a signed-in session with a second factor.',
@@ -67,24 +67,30 @@ async function postmortemsOf(ctx: FounderCallContext, notices: readonly Operator
   return { kind: 'ok', data: reads.flatMap((r) => (r.kind === 'ok' ? r.data : [])) };
 }
 
-export async function loadIncidentDesk(ctx: FounderCallContext): Promise<IncidentDeskView> {
-  const [notices, templates, definition, pending, mine] = await Promise.all([
-    founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
-    founderCall(ctx, 'notify', 'statusPage.templates.list', 'GET', undefined, readTemplates),
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
+/**
+ * The svc-notify publish approvals this founder can see: pending ones of the other founders and their own, one row per
+ * approval. Either identity view failing fails the part: half a list would hide one.
+ */
+export async function loadPublishApprovals(ctx: FounderCallContext): Promise<Part<readonly PublishApproval[]>> {
+  const [pending, mine] = await Promise.all([
     founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
     founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'mine', limit: APPROVALS_LIMIT }, readApprovals),
   ]);
-  // Both views, notice and postmortem publish approvals only, one row per approval. Either view failing fails the part: half a list would hide one.
-  const failed = pending.kind !== 'ok' ? pending : mine.kind !== 'ok' ? mine : null;
-  let approvals: Part<readonly PublishApproval[]>;
-  if (failed || pending.kind !== 'ok' || mine.kind !== 'ok') approvals = partFrom(failed ?? pending, () => [], IDENTITY);
-  else {
-    const rows = new Map<string, PublishApproval>();
-    for (const a of [...pending.data, ...mine.data])
-      if (DESK_ACTIONS.includes(a.actionType) && a.targetService === 'svc-notify') rows.set(a.approvalId, publishApprovalOf(a)!);
-    approvals = { kind: 'ok', data: [...rows.values()] };
-  }
+  if (pending.kind !== 'ok') return partFrom(pending, () => [], IDENTITY);
+  if (mine.kind !== 'ok') return partFrom(mine, () => [], IDENTITY);
+  const rows = new Map<string, PublishApproval>();
+  for (const a of [...pending.data, ...mine.data])
+    if (DESK_ACTIONS.includes(a.actionType) && a.targetService === 'svc-notify') rows.set(a.approvalId, publishApprovalOf(a)!);
+  return { kind: 'ok', data: [...rows.values()] };
+}
+
+export async function loadIncidentDesk(ctx: FounderCallContext): Promise<IncidentDeskView> {
+  const [notices, templates, definition, approvals] = await Promise.all([
+    founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
+    founderCall(ctx, 'notify', 'statusPage.templates.list', 'GET', undefined, readTemplates),
+    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
+    loadPublishApprovals(ctx),
+  ]);
   return {
     notices: partFrom(notices, (d) => d, NOTIFY),
     postmortems: await postmortemsOf(ctx, notices.kind === 'ok' ? notices.data : null),
@@ -96,7 +102,7 @@ export async function loadIncidentDesk(ctx: FounderCallContext): Promise<Inciden
   };
 }
 
-function reply<T>(result: FounderCallResult<T>, what: string): { status: number; reply: IncidentDeskReply } {
+export function reply<T>(result: FounderCallResult<T>, what: string): { status: number; reply: IncidentDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => {
     const view = explainRefusal(code, status, uncertain);
     return { status: status >= 400 && status < 600 ? status : 502, reply: { ok: false as const, ...view } };
@@ -117,7 +123,7 @@ function reply<T>(result: FounderCallResult<T>, what: string): { status: number;
   }
 }
 
-const anyData = (raw: unknown) => (raw === undefined ? null : raw);
+export const anyData = (raw: unknown) => (raw === undefined ? null : raw);
 
 /**
  * The draft's key is its content and the newest entry the founder saw when writing it (`basis`): a lost reply sent again

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { draftNotice, publishAs, publishNotice } from './notices.mjs';
+import { draftNotice, openNotices, publishAs, publishNotice } from './notices.mjs';
 import {
   configureStatusPage,
   incidentTemplates,
@@ -579,6 +579,145 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
     }),
     `j19-open-resolve:${RUN}`,
   );
+  await a.context().close();
+  await b.context().close();
+});
+
+/** Founder `key` on the console's maintenance desk, in UTC so the window's times are typed as they are stored. */
+async function maintenanceDesk(browser, key) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 }, timezoneId: 'UTC' });
+  const page = await context.newPage();
+  await founderSignIn(page, key);
+  await page.goto('/notify/maintenance');
+  await expect(page.getByRole('heading', { level: 1, name: 'Maintenance' })).toBeVisible();
+  return page;
+}
+
+const maintenanceOutcome = (page) => page.getByTestId('maintenance-desk-outcome');
+const maintenanceWindow = (page, title) =>
+  page.getByTestId('maintenance-window').filter({ has: page.getByRole('heading', { name: title }) });
+/** An instant as a `datetime-local` value in UTC, to the minute. */
+const localUtc = (ms) => new Date(ms).toISOString().slice(0, 16);
+
+test(`${J} #8 a maintenance window: scheduled, in progress from its start, verified and completed, a reopen refused, one reminder per offset`, async ({
+  browser,
+}) => {
+  test.setTimeout(8 * 60_000);
+  // A subscriber who gets the reminders, confirmed by the emailed link, as in #5.
+  const READER = `j19-maint-${RUN}@example.com`;
+  await configureStatusPage(TEST_SAFEGUARDS, `TEST journey ${J} #8: subscription safeguards`);
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  const form = visitor.getByTestId('status-subscribe');
+  await form.getByLabel('Email address').fill(READER);
+  await form.getByRole('button', { name: 'Subscribe' }).click();
+  await expect(form.getByTestId('status-subscribe-sent')).toContainText('Check your inbox');
+  await visitor.goto(/(\/status\/confirm\?token=\S+)/.exec(statusMail(READER)[0].text)[1]);
+  await visitor.getByRole('button', { name: 'Confirm' }).click();
+  await expect(visitor.getByTestId('status-subscription-state')).toHaveText('Active');
+
+  const a = await maintenanceDesk(browser, 'a');
+  const b = await maintenanceDesk(browser, 'b');
+  const schedule = a.getByTestId('maintenance-schedule');
+  const TITLE = `TEST journey ${J}: card payments upgrade (run ${RUN})`;
+  // Starts three whole minutes from now, so two reminders (2 and 1 minute before) come due while it is scheduled.
+  const start = Math.ceil(Date.now() / 60_000) * 60_000 + 3 * 60_000;
+
+  // With no offsets, none: a draft written without them lists no reminder.
+  const QUIET = `TEST journey ${J}: no reminders (run ${RUN})`;
+  await schedule.getByLabel('Title').fill(QUIET);
+  await schedule.getByLabel('What happens').fill('TEST A window with no reminders.');
+  await schedule.getByLabel('Starts').fill(localUtc(start + 60 * 60_000));
+  await schedule.getByLabel('Planned end').fill(localUtc(start + 90 * 60_000));
+  await schedule.getByRole('button', { name: 'Save draft' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: drafted');
+  await expect(maintenanceWindow(a, QUIET).getByTestId('maintenance-reminders')).toHaveText('No reminders.');
+
+  await schedule.getByLabel('Title').fill(TITLE);
+  await schedule.getByLabel('What happens').fill('TEST We upgrade the card payment service.');
+  await schedule.getByLabel('Starts').fill(localUtc(start));
+  await schedule.getByLabel('Planned end').fill(localUtc(start + 30 * 60_000));
+  await schedule.getByRole('checkbox', { name: 'Payments' }).check();
+  await schedule.getByLabel('Reminders, minutes before the start').fill('1, 2');
+  await schedule.getByRole('button', { name: 'Save draft' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: drafted');
+  const card = maintenanceWindow(a, TITLE);
+  await expect(card).toHaveAttribute('data-state', 'draft');
+  await expect(card.getByTestId('maintenance-reminder')).toHaveText([
+    '2 minutes before: after it is published',
+    '1 minute before: after it is published',
+  ]);
+
+  // A asks, B approves, A publishes.
+  await card.getByRole('button', { name: 'Ask for approval' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: requested');
+  await b.getByRole('button', { name: 'Read again' }).click();
+  await maintenanceWindow(b, TITLE).getByRole('button', { name: 'Approve' }).click();
+  await expect(maintenanceOutcome(b)).toContainText('Done: approved');
+  await expect(maintenanceWindow(b, TITLE).getByRole('button', { name: 'Publish' })).toHaveCount(0);
+  await a.getByRole('button', { name: 'Read again' }).click();
+  await card.getByRole('button', { name: 'Publish' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: published');
+  await expect(card).toHaveAttribute('data-state', 'scheduled');
+  const id = await card.getAttribute('data-window-id');
+
+  // Scheduled: it cannot be verified before it has started.
+  await card.getByLabel('Reason for a move').fill('TEST checking early');
+  await card.getByRole('button', { name: 'Mark verifying' }).click();
+  await expect(maintenanceOutcome(a)).toHaveAttribute('data-code', 'status.maintenance_illegal_move');
+  await expect(card).toHaveAttribute('data-state', 'scheduled');
+
+  // Each reminder goes out once, before the start.
+  const reminders = () => statusMail(READER).filter((m) => m.subject === `Scheduled maintenance: ${TITLE}`);
+  await expect
+    .poll(
+      async () => {
+        await a.getByRole('button', { name: 'Read again' }).click();
+        return card.locator('[data-testid="maintenance-reminder"][data-sent="yes"]').count();
+      },
+      { timeout: 4 * 60_000, intervals: [10_000] },
+    )
+    .toBe(2);
+  expect(reminders()).toHaveLength(2);
+  expect(reminders().every((m) => m.text.includes(new Date(start).toISOString()))).toBe(true);
+
+  // In progress from its start, and the component it touches shows maintenance on /status.
+  await expect
+    .poll(
+      async () => {
+        await a.getByRole('button', { name: 'Read again' }).click();
+        return card.getAttribute('data-state');
+      },
+      { timeout: 3 * 60_000, intervals: [10_000] },
+    )
+    .toBe('in_progress');
+  expect((await statusRead()).components.find((c) => c.id === 'payments')).toMatchObject({ state: 'maintenance' });
+  expect(reminders()).toHaveLength(2);
+
+  // Verified, then completed; a reopen is refused; it leaves the open maintenance at once.
+  await card.getByLabel('Reason for a move').fill('TEST upgrade applied, checking payments');
+  await card.getByRole('button', { name: 'Mark verifying' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: moved to verifying');
+  await expect(card).toHaveAttribute('data-state', 'verifying');
+  await card.getByLabel('Reason for a move').fill('TEST payments checked');
+  await card.getByRole('button', { name: 'Mark completed' }).click();
+  await expect(maintenanceOutcome(a)).toContainText('Done: moved to completed');
+  await expect(card).toHaveAttribute('data-state', 'completed');
+  await expect(card.getByTestId('maintenance-moves')).toContainText('TEST payments checked');
+  await card.getByLabel('Reason for a move').fill('TEST reopen');
+  await card.getByRole('button', { name: 'Reopen' }).click();
+  await expect(maintenanceOutcome(a)).toHaveAttribute('data-code', 'status.maintenance_reopen_refused');
+  await expect(card).toHaveAttribute('data-state', 'completed');
+  const page = await statusRead();
+  expect(page.components.find((c) => c.id === 'payments').state).not.toBe('maintenance');
+  expect((await openNotices()).maintenance.some((m) => m.id === id)).toBe(false);
+  expect(reminders()).toHaveLength(2);
+
+  // The reader leaves by the link in a reminder.
+  await visitor.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(reminders()[0].text)[1]);
+  await visitor.getByRole('button', { name: 'Unsubscribe' }).click();
+  await expect(visitor.getByTestId('status-subscription-left')).toBeVisible();
+  await visitor.context().close();
   await a.context().close();
   await b.context().close();
 });

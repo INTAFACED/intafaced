@@ -380,6 +380,26 @@ export class StatusSubscriptions {
     }
   }
 
+  /**
+   * A maintenance reminder (SP-status-03): one email per active subscriber the window concerns, keyed by the window and
+   * the offset, so a reminder sent again after a crash reaches no one twice.
+   */
+  async remind(
+    notice: Pick<NoticeWire, 'id' | 'title'> & { startsAt: Date | null; components: readonly string[] },
+    offsetMinutes: number,
+  ): Promise<void> {
+    const event = `${notice.id}:reminder:${offsetMinutes}`;
+    for (const subscriber of await this.deps.store.active()) {
+      const chosen = subscriber.componentIds;
+      if (chosen !== null && notice.components.length > 0 && !notice.components.some((c) => chosen.includes(c))) continue;
+      const token = encodeURIComponent(this.manageToken(subscriber));
+      await this.deliverEmail(subscriber, event, {
+        subject: `Scheduled maintenance: ${notice.title}`,
+        text: `${notice.title}\n\nScheduled to start at ${notice.startsAt?.toISOString() ?? 'a time not set'} (UTC).\n\nChoose what you get: ${this.deps.mailer.origin}/status/manage?token=${token}\nStop these updates: ${this.deps.mailer.origin}/status/unsubscribe?token=${token}`,
+      });
+    }
+  }
+
   private updateMail(subscriber: Subscriber, notice: Pick<NoticeWire, 'title' | 'body'>): { subject: string; text: string } {
     const token = encodeURIComponent(this.manageToken(subscriber));
     return {

@@ -19,6 +19,8 @@ import { buildStatusPage, uptimeStart } from './page.js';
 import type { StatusSubscriptions } from './subscriptions.js';
 import { TEMPLATE_ID_PATTERN, TemplateError, type IncidentTemplate, type IncidentTemplates } from './templates.js';
 import { statusSubscriptionsRouter } from './subscriptions-router.js';
+import { MaintenanceError, type MaintenanceLifecycle, type MaintenanceWindow } from '../notices/maintenance.js';
+import { toOperatorNotice } from '../notices/board.js';
 import { POSTMORTEM_BODY_MAX, POSTMORTEMS_LIST_MAX, PostmortemError, type Postmortem, type Postmortems } from './postmortems.js';
 
 export type StatusPageDeps = {
@@ -29,6 +31,8 @@ export type StatusPageDeps = {
   templates?: IncidentTemplates;
   /** Incident postmortems (SP-status-02). Absent, the postmortem calls answer `notify.status_page_unavailable`. */
   postmortems?: Postmortems;
+  /** Scheduled maintenance lifecycle (SP-status-03). Absent, its calls answer `notify.status_page_unavailable`. */
+  maintenance?: MaintenanceLifecycle;
   /** NOTIFY_PUBLIC_ORIGIN: the site address badge and subscription links use. Unset, the founders' read says so. */
   publicOrigin?: string | null;
   now?: () => Date;
@@ -101,6 +105,41 @@ const postmortemProposalOutput = z.object({
   payloadHash: z.string(),
 });
 
+const maintenanceWindowOutput = z.object({
+  notice: z.object({
+    id: z.string(),
+    title: z.string(),
+    body: z.string(),
+    status: z.enum(['draft', 'published']),
+    publishedAt: z.string().nullable(),
+    startsAt: z.string().nullable(),
+    endsAt: z.string().nullable(),
+    version: z.number().int(),
+    components: z.array(z.string()),
+    reminderOffsets: z.array(z.number().int()),
+    authorId: z.string(),
+    createdAt: z.string(),
+  }),
+  state: z.enum(['scheduled', 'in_progress', 'verifying', 'completed', 'cancelled']).nullable(),
+  moves: z.array(z.object({ state: z.string(), movedBy: z.string(), reason: z.string(), movedAt: z.string() })),
+  reminders: z.array(
+    z.object({ offsetMinutes: z.number().int(), dueAt: z.string(), sentAt: z.string().nullable(), skipped: z.string().nullable() }),
+  ),
+});
+
+const maintenanceWire = (w: MaintenanceWindow) =>
+  maintenanceWindowOutput.parse({
+    notice: toOperatorNotice(w.notice),
+    state: w.state,
+    moves: w.moves.map((m) => ({ state: m.state, movedBy: m.movedBy, reason: m.reason, movedAt: m.movedAt.toISOString() })),
+    reminders: w.reminders.map((r) => ({
+      offsetMinutes: r.offsetMinutes,
+      dueAt: r.dueAt.toISOString(),
+      sentAt: r.sentAt?.toISOString() ?? null,
+      skipped: r.skipped,
+    })),
+  });
+
 const incidentIdInput = z.object({ incidentId: z.string().uuid() }).strict();
 
 const postmortemWire = (p: Postmortem) => postmortemOutput.parse(p);
@@ -155,6 +194,15 @@ export function statusPageRouter(deps?: StatusPageDeps) {
           message: err.code,
           cause: err,
         });
+      if (err instanceof MaintenanceError) {
+        const code =
+          err.code === 'status.maintenance_unknown'
+            ? 'NOT_FOUND'
+            : err.code === 'status.maintenance_reason_unset'
+              ? 'BAD_REQUEST'
+              : 'CONFLICT';
+        throw new TRPCError({ code, message: err.code, cause: err });
+      }
       if (err instanceof PostmortemError) {
         const code =
           err.code === 'status.postmortem_not_found' || err.code === 'status.postmortem_incident_unknown'
@@ -295,6 +343,44 @@ export function statusPageRouter(deps?: StatusPageDeps) {
         .output(postmortemOutput)
         .mutation(({ ctx, input }) =>
           call(async ({ postmortems }) => postmortemWire(await requirePostmortems(postmortems).publish(ctx.principal.userId, input))),
+        ),
+    }),
+
+    /**
+     * Scheduled maintenance (SP-status-03): the founders' desk of windows with their derived state, moves and reminders,
+     * and the operator's moves. Drafting and the four-eyes publish are the notice board's (`notify.draftNotice` and on).
+     */
+    maintenance: router({
+      windows: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z
+            .object({ limit: z.number().int().min(1).max(50).default(50) })
+            .strict()
+            .optional(),
+        )
+        .output(z.array(maintenanceWindowOutput))
+        .query(({ input }) =>
+          call(async ({ notices, maintenance }) => {
+            if (!notices || !maintenance) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
+            return (await maintenance.windows(await notices.maintenanceRows(input?.limit ?? 50))).map(maintenanceWire);
+          }),
+        ),
+      move: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z
+            .object({
+              id: z.string().uuid(),
+              to: z.enum(['verifying', 'completed', 'cancelled', 'in_progress']),
+              reason: z.string().min(1).max(500),
+            })
+            .strict(),
+        )
+        .output(maintenanceWindowOutput)
+        .mutation(({ ctx, input }) =>
+          call(async ({ maintenance }) => {
+            if (!maintenance) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
+            return maintenanceWire(await maintenance.move(ctx.principal.userId, input));
+          }),
         ),
     }),
 
