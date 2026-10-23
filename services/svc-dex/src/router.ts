@@ -16,11 +16,12 @@ import {
   type HideListReader,
 } from './quote/hide-list.js';
 import { withRouteSpan } from './tracing.js';
+import { limitOrderProcedure } from './order/limit-order.js';
 
 /**
  * svc-dex — the Protocol Plane's front door (§17.5).
  *
- * **Every procedure here is permissionless.** No login, no KYC tier, no account
+ * `quote` and `routePreview` are permissionless. No login, no KYC tier, no account
  * gate beyond a wallet. That is not a relaxation, it is §503:
  *
  *   "No-KYC exists on the Protocol Plane because there is nothing to KYC — the
@@ -36,6 +37,13 @@ import { withRouteSpan } from './tracing.js';
  * with `minTier: 'basic'`, because that service holds the user's balance. Same
  * platform, two planes, and the difference is visible in one line of each
  * router.
+ *
+ * `limitOrder` is the exception. svc-identity issues the wallet session; Edge
+ * forwards that principal. A missing principal refuses
+ * `dex.order.principal_required`. This procedure does not issue a nonce, call
+ * svc-identity, or store a session. A blank price, size, or window refuses.
+ * A complete order still refuses `dex.order.not_placed`: this service holds
+ * no vault and calls no one.
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * `quote` USED TO BE A CALCULATOR. IT IS NOW A QUOTE.
@@ -305,6 +313,12 @@ export function createDexRouter(deps: DexRouterDeps) {
           executable: false,
         });
       }),
+
+    /**
+     * A limit order for the signed-in wallet. The principal is the session
+     * Edge forwarded. See `order/limit-order.ts` — this does not place it.
+     */
+    limitOrder: limitOrderProcedure(deps.now ? { now: deps.now } : {}),
   });
 }
 
