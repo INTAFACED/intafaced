@@ -84,7 +84,8 @@ describe('catalog — the key set is closed and complete', () => {
     // The rating request inbox notice (SP-csat-01) adds a title and a body key.
     // Money received and payment sent notices (PP-send-request-18) add four title/body keys.
     // User spend caps (AG-spend-01) add seven refusal keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(261);
+    // A blank hold age refuses (AG-spend-01) and adds one more refusal key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(262);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
