@@ -246,6 +246,7 @@ export function TopBar({
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const moreTab = tabs.find((tab) => tab.door === 'More')!;
+  const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
@@ -270,7 +271,8 @@ export function TopBar({
           </ul>
         </nav>
         <div className="tb-right">
-          <ShellSwitch current="exchange" here={path} className="max-[1000px]:hidden" />
+          {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
+          <ShellSwitch current="exchange" here={here} className="max-[1279px]:hidden" />
           <TopSearch />
           {session ? (
             <>
@@ -295,6 +297,11 @@ export function TopBar({
         </div>
         {children}
       </header>
+      {session || restoring ? null : (
+        <div className="tb-switch-row min-[1280px]:hidden">
+          <ShellSwitch current="exchange" here={here} />
+        </div>
+      )}
     </>
   );
 }
