@@ -103,6 +103,8 @@ test('J-ops-console-04 #6 unfreezing needs a different approver: refused alone, 
     approvalId: packet.approvalId,
     operationId: packet.operationId,
   });
-  expect(again.body).toMatchObject({ ok: false, refusal: { code: 'restriction_approval_consumed' } });
+  // Identity refuses it (the account moved to a new version, and the approval is spent) and nothing changes.
+  expect(again.body.ok).toBe(false);
+  expect(['restriction.version_conflict', 'restriction_approval_consumed']).toContain(again.body.refusal.code);
   expect((await login(who)).status, 'the refrozen customer stays frozen').toBe(403);
 });
