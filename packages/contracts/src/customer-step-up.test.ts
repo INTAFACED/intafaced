@@ -91,7 +91,7 @@ describe('customer step-up binding', () => {
         target: 'user-2',
         fields: { ...fields, ...extra },
       });
-    const withNote = begin({ note: 'Lunch', reference: 'INV-1', requestId: 'req-1' });
+    const withNote = begin({ note: 'Lunch', reference: 'INV-1', requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' });
     expect(withNote).toMatchObject({
       ok: true,
       payloadHash: customerStepUpPayloadHash('bank.step_up.transfers.toUser', {
@@ -99,11 +99,23 @@ describe('customer step-up binding', () => {
         ...fields,
         note: 'Lunch',
         reference: 'INV-1',
-        requestId: 'req-1',
+        requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       }),
     });
     expect(begin({})).toMatchObject({ ok: true, payloadHash: 'sha256:ed94a0f0e49b1c63f030f1b90ba43575e859339a9ce3e63783f546024d22d406' });
-    expect(begin({ note: '' })).toEqual({ ok: false, code: 'step_up.fields' });
+    // Only the shape the bank keeps after its own trimming: anything else would hash bytes the bank never hashes.
+    for (const extra of [
+      { note: '' },
+      { note: '   ' },
+      { note: ' Lunch ' },
+      { note: 'x'.repeat(141) },
+      { note: 'line\nbreak' },
+      { reference: 'INV-1 ' },
+      { reference: 'Café' },
+      { reference: 'r'.repeat(65) },
+      { requestId: 'req-1' },
+    ])
+      expect(begin(extra), JSON.stringify(extra)).toEqual({ ok: false, code: 'step_up.fields' });
     expect(begin({ memo: 'x' })).toEqual({ ok: false, code: 'step_up.fields' });
     // An own-space-style door keeps its exact field list: a request id is not one of its fields.
     expect(
