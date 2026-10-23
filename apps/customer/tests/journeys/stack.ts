@@ -4,7 +4,7 @@ import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from 
 import { claimsOf, hashOf, identityCall, randomHandle, totpCode, type Claims, type Issued } from './identity';
 import { createApiClient } from '../../src/shared/api';
 import { createTradeApi } from '../../src/features/trade/trade-api';
-import { journeyDepositWire } from '../../../../tooling/scripts/journey-fund.mjs';
+import { fundJourneyCustomer } from '../../../../tooling/scripts/journey-fund.mjs';
 
 export { stack } from './env';
 import { stack } from './env';
@@ -181,7 +181,8 @@ function signedIn(session: Session, opts: Parameters<typeof customerFetch>[1], a
 }
 export type Customer = Awaited<ReturnType<typeof newCustomer>>;
 
-async function ledgerCall(path: string, body: unknown): Promise<unknown> {
+/** A signed read from the journey stack's ledger. The app's journeys never post to it; funding goes through fund(). */
+async function ledgerRead(path: string, body: unknown): Promise<unknown> {
   const raw = JSON.stringify(body);
   const response = await fetch(stack.ledger() + path, {
     method: 'POST',
@@ -195,12 +196,12 @@ async function ledgerCall(path: string, body: unknown): Promise<unknown> {
 
 /** Put TEST funds on a journey customer's account through the ledger deposit recipe (tooling/scripts/journey-fund.mjs). */
 export async function fund(userId: string, assetId: string, amount: string): Promise<void> {
-  await ledgerCall('/trpc/post', await journeyDepositWire({ userId, assetId, amount }));
+  await fundJourneyCustomer({ ledgerUrl: stack.ledger(), internalSecret: stack.internalSecret(), userId, assetId, amount });
 }
 
 /** The ledger's own available balance, read directly: the proof that does not go through trade. */
 export async function ledgerAvailable(userId: string, assetId: string): Promise<string> {
-  const json = (await ledgerCall('/trpc/balance', { ownerType: 'user', ownerId: userId, assetId, kind: 'available' })) as {
+  const json = (await ledgerRead('/trpc/balance', { ownerType: 'user', ownerId: userId, assetId, kind: 'available' })) as {
     amount?: string;
   };
   return String(json.amount ?? '0');
