@@ -140,6 +140,11 @@
       "service": "bank",
       "value": "EUR,GBP,USD",
       "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "TRADE_CHART_RENDER_BUDGET_MS": {
+      "service": "trade",
+      "value": "500",
+      "note": "TEST longest main-thread task in ms the charts may hold while ticks stream (J-charts-desk-02 #6). Stored in svc-trade (trade.chart_owner_values.render_budget_ms) by local-test-gates.mjs charts, not read from an env var; the blank value refuses by name."
     }
   }
 }

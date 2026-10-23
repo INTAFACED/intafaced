@@ -14,6 +14,7 @@
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -1056,7 +1057,9 @@ export const TEST_CHART_COUNTS = Object.freeze({
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  renderBudgetMs: 500,
 });
+export const CHART_DATA_CLASSES_ALLOWED = Object.freeze(['real_time', 'delayed', 'end_of_day']);
 export const TEST_CHART_DATA_CLASSES = Object.freeze({ 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
 export const CHART_DATA_CLASS_ACTION = 'trade.chart_data_class_set';
 
@@ -1121,12 +1124,16 @@ export async function publishChartCounts(ctx, sessions = null) {
   return out;
 }
 
-/** Set each TEST data class that differs. Two operators: A proposes the exact change, B approves it, A writes it. */
-export async function publishChartDataClasses(ctx, sessions = null) {
+/**
+ * Set each data class that differs from `classes` (the TEST map by default). Two operators: A proposes the exact change,
+ * B approves it, A writes it. A journey step that needs a class other than the default (J-charts-desk-02 #2 sets a
+ * market to delayed) calls this through `chart-class`, and sets it back afterwards the same way.
+ */
+export async function publishChartDataClasses(ctx, sessions = null, classes = TEST_CHART_DATA_CLASSES) {
   const pair = sessions ?? (await approverSessions(ctx));
   let view = await readChartValues(ctx, await pair.a.tradeOpsToken());
   const out = [];
-  for (const [symbol, dataClass] of Object.entries(TEST_CHART_DATA_CLASSES)) {
+  for (const [symbol, dataClass] of Object.entries(classes)) {
     const row = view.dataClasses.find((r) => r.symbol === symbol);
     if (!row) throw new Error(`no market ${symbol} is listed on this stack, so it has no data class to set`);
     if (row.dataClass === dataClass) {
@@ -1370,6 +1377,15 @@ async function main() {
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
     } else if (cmd === 'charts') {
       sayCharts(await publishCharts(ctx));
+    } else if (cmd === 'chart-class') {
+      // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
+      const [symbol, dataClass] = process.argv.slice(3);
+      if (!symbol || !CHART_DATA_CLASSES_ALLOWED.includes(dataClass))
+        die('usage: local-test-gates.mjs chart-class <SYMBOL> real_time|delayed|end_of_day', 2);
+      const [d] = await publishChartDataClasses(ctx, null, { [symbol]: dataClass });
+      say(
+        `  charts    ${d.symbol.padEnd(24)} ${d.changed ? `data class ${d.dataClass} (TEST), approval ${d.approvalId}` : `already ${d.dataClass} (TEST)`}`,
+      );
     } else if (cmd === 'risk') {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];
@@ -1388,7 +1404,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

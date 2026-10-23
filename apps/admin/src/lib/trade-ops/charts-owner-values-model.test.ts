@@ -13,7 +13,14 @@ const wire = (over: Record<string, unknown> = {}, scalarOver: Record<string, unk
   canWrite: true,
   scalars: {
     version: null,
-    values: { compareCap: null, chartCountLimit: null, drawingCap: null, brushPointCap: null, delayedBoundarySeconds: null },
+    values: {
+      compareCap: null,
+      chartCountLimit: null,
+      drawingCap: null,
+      brushPointCap: null,
+      delayedBoundarySeconds: null,
+      renderBudgetMs: null,
+    },
     operatorId: null,
     reason: null,
     updatedAt: null,
@@ -56,7 +63,17 @@ describe('parseChartOwnerValuesView', () => {
             },
           ],
         },
-        { version: '3', values: { compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 } },
+        {
+          version: '3',
+          values: {
+            compareCap: 3,
+            chartCountLimit: 4,
+            drawingCap: 50,
+            brushPointCap: 2000,
+            delayedBoundarySeconds: 30,
+            renderBudgetMs: 500,
+          },
+        },
       ),
     ) as ChartOwnerValuesView;
     expect(view.scalars.values).toEqual({
@@ -65,6 +82,7 @@ describe('parseChartOwnerValuesView', () => {
       drawingCap: 50,
       brushPointCap: 2000,
       delayedBoundarySeconds: 30,
+      renderBudgetMs: 500,
     });
     expect(view.dataClasses[0]).toMatchObject({ dataClass: 'delayed', version: '2', approverId: 'a' });
   });
@@ -113,8 +131,16 @@ describe('typed text and labels', () => {
       drawingCap: null,
       brushPointCap: null,
       delayedBoundarySeconds: 30,
+      renderBudgetMs: 500,
     });
-    expect(text).toEqual({ compareCap: '3', chartCountLimit: '', drawingCap: '', brushPointCap: '', delayedBoundarySeconds: '30' });
+    expect(text).toEqual({
+      compareCap: '3',
+      chartCountLimit: '',
+      drawingCap: '',
+      brushPointCap: '',
+      delayedBoundarySeconds: '30',
+      renderBudgetMs: '500',
+    });
   });
 
   it('says "Not set" for a blank value and never a number for it', () => {

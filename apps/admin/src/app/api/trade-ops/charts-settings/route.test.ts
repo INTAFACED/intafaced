@@ -18,7 +18,14 @@ const blankView = (over: Record<string, unknown> = {}) => ({
   canWrite: true,
   scalars: {
     version: null,
-    values: { compareCap: null, chartCountLimit: null, drawingCap: null, brushPointCap: null, delayedBoundarySeconds: null },
+    values: {
+      compareCap: null,
+      chartCountLimit: null,
+      drawingCap: null,
+      brushPointCap: null,
+      delayedBoundarySeconds: null,
+      renderBudgetMs: null,
+    },
     operatorId: null,
     reason: null,
     updatedAt: null,
@@ -104,7 +111,14 @@ describe('charts settings route', () => {
   it('writes a count under a business key, with the reason trimmed and the value as a number', async () => {
     const stored = {
       version: '1',
-      values: { compareCap: 3, chartCountLimit: null, drawingCap: null, brushPointCap: null, delayedBoundarySeconds: null },
+      values: {
+        compareCap: 3,
+        chartCountLimit: null,
+        drawingCap: null,
+        brushPointCap: null,
+        delayedBoundarySeconds: null,
+        renderBudgetMs: null,
+      },
       operatorId: ME,
       reason: REASON,
       updatedAt: '2026-10-22T09:00:00.000Z',
