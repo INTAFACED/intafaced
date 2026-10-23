@@ -13,6 +13,7 @@ describe('account search term', () => {
     expect(searchTerm('pg')).toMatchObject({ error: expect.stringContaining('three characters') });
     expect(searchTerm('ana@')).toMatchObject({ error: expect.stringContaining('whole email') });
     expect(searchTerm('a b c')).toMatchObject({ error: expect.any(String) });
+    expect(searchTerm('pg-q')).toMatchObject({ error: expect.stringContaining('letters, digits and underscores') });
   });
   it('passes identity’s page marker through untouched, and refuses anything that could not be one', () => {
     expect(searchCursor(null)).toBeNull();

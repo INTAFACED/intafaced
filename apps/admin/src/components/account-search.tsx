@@ -73,7 +73,12 @@ export function AccountSearch() {
         onSubmit={(event) => {
           event.preventDefault();
           const parsed = searchTerm(query);
-          if ('error' in parsed) return setProblem({ title: 'Search not run', message: parsed.error, code: null });
+          if ('error' in parsed) {
+            // The results below must always belong to the box: an unrun search clears the last one.
+            setShown(null);
+            setTerm(null);
+            return setProblem({ title: 'Search not run', message: parsed.error, code: null });
+          }
           setTerm(query.trim());
           setShown(null);
           void run(query.trim(), null);

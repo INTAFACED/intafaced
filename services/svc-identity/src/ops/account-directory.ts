@@ -66,8 +66,17 @@ type SearchInput = { email?: string | undefined; handle?: string | undefined; cu
 type Cursor = { readonly createdAt: string; readonly id: string };
 
 const CURSOR_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CURSOR_AT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})\.\d{6}Z$/;
 
-/** The page marker is the last row's sign-up time (as Postgres printed it, full precision) and id. */
+/** A real UTC instant in the marker's own format: a date the calendar does not have (February 30) is refused here, not by Postgres. */
+function cursorInstant(raw: string): boolean {
+  const match = CURSOR_AT.exec(raw);
+  if (!match) return false;
+  const ms = Date.parse(`${match[1]}T${match[2]}Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === `${match[1]}T${match[2]}`;
+}
+
+/** The page marker is the last row's sign-up time (UTC, to the microsecond, in one fixed format) and id. */
 function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify([cursor.createdAt, cursor.id]), 'utf8').toString('base64url');
 }
@@ -91,7 +100,7 @@ function decodeCursor(raw: string | undefined): Cursor | null {
     typeof parsed[0] !== 'string' ||
     typeof parsed[1] !== 'string' ||
     !CURSOR_ID.test(parsed[1]) ||
-    Number.isNaN(Date.parse(parsed[0]))
+    !cursorInstant(parsed[0])
   ) {
     throw invalid();
   }
@@ -147,7 +156,7 @@ export async function searchAccounts(
            u.handle::text AS handle,
            u.status,
            u.created_at,
-           u.created_at::text AS created_key,
+           to_char(u.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_key,
            u.email::text AS email,
            COALESCE((
              SELECT k.tier::text FROM kyc_records k

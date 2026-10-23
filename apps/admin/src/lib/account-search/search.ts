@@ -9,7 +9,8 @@ import type { Column, ReadSpec } from '@/lib/ops-desk/types';
 export type AccountSearchTerm = { readonly kind: 'email'; readonly value: string } | { readonly kind: 'handle'; readonly value: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const HANDLE = /^[A-Za-z0-9_.-]{3,32}$/;
+/** Identity's own handle shape (`users_handle_check`); a prefix outside it could never match. */
+const HANDLE = /^[A-Za-z0-9_]{3,32}$/;
 const CURSOR = /^[A-Za-z0-9_-]{1,512}$/;
 
 /** What the operator typed, as identity takes it: an address is an exact email, anything else the start of a handle. */
@@ -21,7 +22,7 @@ export function searchTerm(raw: string): AccountSearchTerm | { readonly error: s
       : { error: 'That is not a whole email address.' };
   }
   if ([...value].length < 3) return { error: 'Type at least the first three characters of a handle, or a whole email address.' };
-  return HANDLE.test(value) ? { kind: 'handle', value } : { error: 'A handle has only letters, digits, dots, dashes and underscores.' };
+  return HANDLE.test(value) ? { kind: 'handle', value } : { error: 'A handle has only letters, digits and underscores.' };
 }
 
 export function searchCursor(raw: string | null): string | null | undefined {
