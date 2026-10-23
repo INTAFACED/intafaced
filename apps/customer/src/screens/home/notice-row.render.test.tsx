@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { NoticeRow } from './Notices';
-import type { HomeNotice } from './notices';
+import type { HomeNotice } from './notice-model';
 
 const notice = (over: Partial<HomeNotice>): HomeNotice => ({
   id: '00000000-0000-4000-8000-000000000001',

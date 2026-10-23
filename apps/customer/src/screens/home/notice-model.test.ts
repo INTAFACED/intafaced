@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Notice } from '../../features/public/notices-api';
-import { homeNotices } from './notices';
+import { homeNotices } from './notice-model';
 
 const notice = (over: Partial<Notice>): Notice => ({
   id: '00000000-0000-4000-8000-000000000001',
