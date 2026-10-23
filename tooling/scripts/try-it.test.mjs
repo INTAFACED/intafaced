@@ -105,6 +105,9 @@ assert.deepEqual(readOutbox(path.join(dir, 'email-outbox.log')), [
   { purpose: 'signup-code', email: 'p@x.test', code: '123456', link: null },
 ]);
 assert.ok(!startPage({ endsAt: null, outbox: [{ purpose: 'x', email: '<script>', code: null, link: null }] }).includes('<script>'));
+// The tunnel's email obfuscation hid the demo address on the first live run; the page opts out.
+const start = startPage({ endsAt: null, outbox: [] });
+assert.ok(/<!--email_off-->[\s\S]*try-demo@local-test\.invalid[\s\S]*<!--\/email_off-->/.test(start));
 
 // ── The gate in front of a fake Customer server ─────────────────────────────
 
@@ -175,6 +178,7 @@ try {
   const wrong = await raw('/__try/login', form({ password: 'nope' }));
   assert.equal(wrong.status, 401);
   assert.equal(wrong.headers['set-cookie'], undefined);
+  assert.match(wrong.headers['cache-control'], /no-transform/);
   assert.match(wrong.text, /That password is not right/);
   for (let i = 1; i < MAX_FAILURES_PER_MINUTE; i++) await raw('/__try/login', form({ password: 'nope' }));
   const locked = await raw('/__try/login', form({ password: PASSWORD }));
