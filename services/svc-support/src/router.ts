@@ -1,13 +1,11 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import type { Principal } from '@intafaced/auth';
 import {
   createTicketInputSchema,
   escalateTicketInputSchema,
   getKbArticleInputSchema,
   setKbAudienceInputSchema,
   type SupportAttachment,
-  type SupportKbViewer,
   publicProcedure,
   router,
   scopedProcedure,
@@ -39,11 +37,13 @@ import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
+import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
+import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
 import { kbFeedbackProcedures } from './kb-feedback-router.js';
 import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
-import { SupportError, SupportService, requireSupportOps } from './support-service.js';
+import { SupportError, SupportService, kbViewerOf, requireSupportOps } from './support-service.js';
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
@@ -158,14 +158,6 @@ const deskGroupSchema = z.object({
 /** Desk scope for the doors that page the whole queue. Left out, every operator sees the queue. */
 export type DeskScopeReader = Pick<SupportService, 'deskIsRestricted' | 'listAllTicketsInScope'>;
 
-/**
- * The reader of a help door, from the signed principal and nothing else. A visitor has no principal;
- * the desk is a `support:ops` principal. Never read from the request body.
- */
-function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
-  return { signedIn: Boolean(principal), staff: Boolean(principal?.scopes.includes('support:ops')) };
-}
-
 /** The wire form of a stored file: the scan state is public, the store key is not. */
 function attachmentWire(meta: AttachmentMeta): SupportAttachment {
   const { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt } = meta;
@@ -181,12 +173,15 @@ export function createSupportRouter(
   attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
   surveys: SurveyBook = new MemorySurveyBook(),
   surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
+  helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
 ) {
+  const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
-    ...kbFeedbackProcedures(support, mapError),
+    ...helpCentreProcedures(helpCentre, support),
+    ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -501,6 +496,7 @@ export function createSupportRouter(
       .output(z.array(supportKbArticleSchema))
       .query(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           return await support.listKb({ limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
@@ -526,6 +522,7 @@ export function createSupportRouter(
       .output(z.array(supportKbArticleSchema))
       .query(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           const found = await support.searchKb(input?.q ?? '', { limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
           if (found.length > 0) loop?.markKbSearchSuccess();
           return found;
@@ -540,6 +537,7 @@ export function createSupportRouter(
       .output(supportKbArticleSchema.nullable())
       .query(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           const article = await support.getKbArticle({ id: input.id, version: input.version }, { viewer: kbViewerOf(ctx.principal) });
           if (article) loop?.markKbGetSuccess();
           return article;
@@ -941,6 +939,7 @@ export function createSupportRouter(
       )
       .mutation(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           return await support.kbFeedback({ userId: ctx.principal!.userId, ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
@@ -953,6 +952,7 @@ export function createSupportRouter(
       .output(z.array(supportKbArticleSchema))
       .query(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           return await support.kbRelated({ ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);

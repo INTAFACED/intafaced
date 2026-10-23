@@ -74,6 +74,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-help-centre": {
+      "types": "./dist/support-help-centre.d.ts",
+      "default": "./dist/support-help-centre.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"

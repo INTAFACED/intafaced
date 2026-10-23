@@ -8,6 +8,7 @@ import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
+import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from '../more/support-desk';
 import { deskCopy } from '../more/support-desk-copy';
 import './help.css';
@@ -56,10 +57,14 @@ export function PublicHelp() {
   const [read, setRead] = useState<Read | null>(null);
   const [category, setCategory] = useState<KbCategory>('all');
   const desk = deskCopy.useCopy();
+  const helpCentre = useHelpCentre();
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
   const visible = read?.context === context && location.href === context.url ? read : null;
+  const switchedOff = helpCentreSwitchedOff(helpCentre, visible?.status === 'failed' ? visible.failure : null);
+  // The switch is read before any answer is drawn, so a switched-off help centre never flashes its answers first.
+  const settingsLoading = helpCentre.status === 'loading';
   const same = (captured: Context) => mounted.current && contextRef.current === captured && location.href === captured.url;
   useEffect(() => {
     mounted.current = true;
@@ -136,20 +141,23 @@ export function PublicHelp() {
     selection.kind === 'article' && selection.version !== undefined && visible?.status === 'failed' && missingHelpVersion(visible.failure);
   const invalid = selection.kind === 'invalid';
   const readyNull = visible?.status === 'ready' && visible.value.kind === 'article' && visible.value.article === null;
-  const title = invalid
-    ? t('invalid')
-    : selection.kind === 'browse'
-      ? t('title')
-      : article
-        ? (rendered(article).title ?? t('textUnavailable'))
-        : missing
-          ? t('versionMissing')
-          : readyNull
-            ? t('notReturned')
-            : visible?.status === 'failed'
-              ? t('unavailable')
-              : t('loadingArticle');
-  const titleLanguage = article ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
+  const title = switchedOff
+    ? t('title')
+    : invalid
+      ? t('invalid')
+      : selection.kind === 'browse'
+        ? t('title')
+        : article
+          ? (rendered(article).title ?? t('textUnavailable'))
+          : missing
+            ? t('versionMissing')
+            : readyNull
+              ? t('notReturned')
+              : visible?.status === 'failed'
+                ? t('unavailable')
+                : t('loadingArticle');
+  const titleLanguage =
+    article && !switchedOff ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
   const original = selection.kind === 'article' && (
     <div className="help__original">
       <p className="muted">{t('requestedArticle')}</p>
@@ -179,7 +187,7 @@ export function PublicHelp() {
   );
   return (
     <div className="help" lang={languageFor('title')}>
-      {selection.kind !== 'browse' && (
+      {selection.kind !== 'browse' && !switchedOff && (
         <a href="/help" className="help__link text-link">
           {t('back')}
         </a>
@@ -188,8 +196,8 @@ export function PublicHelp() {
         <h1 ref={heading} tabIndex={-1} lang={titleLanguage}>
           {title}
         </h1>
-        {selection.kind === 'browse' && <p className="muted">{t('description')}</p>}
-        {article && (
+        {selection.kind === 'browse' && !switchedOff && <p className="muted">{t('description')}</p>}
+        {article && !switchedOff && (
           <p className="help__caption muted">
             {helpVersion(article) === undefined ? (
               t('publishedAnswer')
@@ -204,9 +212,24 @@ export function PublicHelp() {
             </span>
           </p>
         )}
-        {article && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
+        {article && !switchedOff && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
       </header>
-      {invalid ? (
+      {settingsLoading ? (
+        <Loading label={t('loadingCatalogue')} />
+      ) : switchedOff ? (
+        <>
+          <section className="help__card help__measure" role="status" data-testid="help-centre-off">
+            <h2 lang={languageFor('switchedOffTitle')}>{t('switchedOffTitle')}</h2>
+            <p className="muted" lang={languageFor('switchedOffBody')}>
+              {t('switchedOffBody')}
+            </p>
+          </section>
+          <div className="help__request">
+            <RequestEntry />
+          </div>
+          {support()}
+        </>
+      ) : invalid ? (
         <>
           <section className="help__card help__measure">
             <p>{t('invalidBody')}</p>
