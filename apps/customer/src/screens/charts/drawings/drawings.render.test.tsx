@@ -29,10 +29,12 @@ const bars: Candle[] = Array.from({ length: BAR_COUNT }, (_, i) => ({
 interface Clicks {
   click: Array<(param: { point?: { x: number; y: number } }) => void>;
   move: Array<(param: { point?: { x: number; y: number } }) => void>;
+  element: HTMLElement;
 }
 
 function fakeHost(): { host: ChartHost; handlers: Clicks; attach: ReturnType<typeof vi.fn> } {
-  const handlers: Clicks = { click: [], move: [] };
+  const element = document.createElement('div');
+  const handlers: Clicks = { click: [], move: [], element };
   const attach = vi.fn();
   const timeScale = {
     coordinateToLogical: (x: number) => x / 10,
@@ -52,7 +54,6 @@ function fakeHost(): { host: ChartHost; handlers: Clicks; attach: ReturnType<typ
     attachPrimitive: attach,
     detachPrimitive: vi.fn(),
   };
-  const element = document.createElement('div');
   const host = {
     lib: {},
     chart,
@@ -114,9 +115,12 @@ async function mount(chart: ChartHost, options: DrawingsOptions) {
 const button = (label: string) =>
   [...host.querySelectorAll('button')].find((node) => node.textContent?.trim() === label || node.getAttribute('aria-label') === label);
 const press = (label: string) => act(async () => button(label)?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+// A click is a press and a release on the chart element, as a person makes it: placement is taken on the release.
 const clickChart = (handlers: Clicks, x: number, y: number) =>
   act(async () => {
-    for (const h of [...handlers.click]) h({ point: { x, y } });
+    const init = { clientX: x, clientY: y, button: 0, bubbles: true };
+    handlers.element.dispatchEvent(new MouseEvent('pointerdown', init));
+    window.dispatchEvent(new MouseEvent('pointerup', init));
   });
 const key = (k: string, extra: KeyboardEventInit = {}) =>
   act(async () => {
