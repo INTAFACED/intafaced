@@ -17,6 +17,7 @@ import { TopSearch } from './TopSearch';
 import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
+import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -269,6 +270,7 @@ export function TopBar({
           </ul>
         </nav>
         <div className="tb-right">
+          <ShellSwitch current="exchange" here={path} className="max-[1000px]:hidden" />
           <TopSearch />
           {session ? (
             <>
