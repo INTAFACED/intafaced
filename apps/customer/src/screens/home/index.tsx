@@ -37,6 +37,7 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
@@ -320,6 +321,8 @@ function HomeSimple() {
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {
+              case 'work':
+                return <WorkList key={id} hidden={hideBalances} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
                   <HoldingsSkeleton key={id} />

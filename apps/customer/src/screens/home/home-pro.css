@@ -195,6 +195,14 @@
   .hp-activity .home-activity__row {
     margin: 0;
   }
+  /* Needs you sits in a panel on Pro, so its list drops its own card. */
+  .hp-work .home-work__rows {
+    padding: 0;
+    background: transparent;
+  }
+  .hp-work .home-work__row {
+    margin: 0;
+  }
   .hp-started {
     margin-top: 24px;
   }
