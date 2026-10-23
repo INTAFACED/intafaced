@@ -485,16 +485,8 @@ export class AgentRuntime {
           );
         }
         // An in-flight hold for this request id is the reservation. Reuse that
-        // row. A new key would be a second hold, and calling the provider on
-        // the old row would be a completion the hold did not authorize.
-        if (held.replayed && held.status === 'held') {
-          throw new AgentError(
-            `Request id "${input.requestId}" is already held on session ${session.id}`,
-            'agents.spend_reservation_conflict',
-            'agents.refused.spend_reservation_conflict',
-            { requestId: input.requestId },
-          );
-        }
+        // row and finish the call on it. A new key would be a second hold, and
+        // refusing here would leave the crashed run held forever.
         // A committed row is a finished call. Metering-off must not invent
         // agents.request_id_replay. A new reservation is decided against the
         // committed total. If it does not fit, reserve throws agents.spend_limit

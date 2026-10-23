@@ -1511,14 +1511,18 @@ if (!available) {
         spend: store,
       });
       const before = provider.callCount;
-      await expect(
-        unbilled.think({ sessionId: session.id, requestId: 'off-inflight', task: 'plan', messages: MESSAGES }),
-      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
-      expect(provider.callCount).toBe(before);
+      const finished = await unbilled.think({
+        sessionId: session.id,
+        requestId: 'off-inflight',
+        task: 'plan',
+        messages: MESSAGES,
+      });
+      expect(finished.metered).toBe(false);
+      expect(provider.callCount).toBe(before + 1);
       const rows = await sql<Array<{ status: string; n: string }>>`
         SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
       `;
-      expect(rows).toEqual([{ status: 'held', n: '1' }]);
+      expect(rows).toEqual([{ status: 'committed', n: '1' }]);
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {
