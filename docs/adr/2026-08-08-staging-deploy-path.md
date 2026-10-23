@@ -68,3 +68,17 @@
 2. Owner buys host + stores secrets (Class X2).
 3. One manual dispatch smoke.
 4. Only then consider promote paths.
+
+---
+
+## Amendment, 23 Oct 2026: temporary Try-it runs (owner decision 48)
+
+The owner chose a free, temporary way for people to click through the app before any host is bought: the `Try it` workflow (`.github/workflows/try-it.yml`, `tooling/scripts/try-it.mjs`).
+
+- **What it is.** A run started by hand on GitHub's runner. It boots the local test stack exactly as Real-app journeys does: the labelled dev/TEST profile with the screening stand-in, TEST money only, and no partner credentials. It puts a password gate in front of the Customer app and opens a temporary Cloudflare quick-tunnel link to it. The run ends after at most about 5 h 45 min, and its data goes with it.
+- **What the owner accepted.**
+  - The link's random address shows in the public Actions log.
+  - The dev profile is reachable while the run lasts.
+  - The protection is the `TRY_PASSWORD` secret, which only an admin sets and no agent sees. Wrong guesses are rate-limited.
+  - TEST-only money, and the end of the run.
+- **What does not change.** This is not a staging host. A permanent or always-on host still follows this ADR in full: `APP_ENV=staging` stays fail-closed, and setting `APP_ENV=dev` on a reachable host to make it boot stays forbidden. `Try it` is `workflow_dispatch` only, is not a deploy, and has no `push`, `schedule` or `pull_request` trigger.
