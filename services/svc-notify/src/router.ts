@@ -2,7 +2,15 @@ import { z } from 'zod';
 import { guestNotificationsRouter } from './guests/router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import type { GuestNotificationService } from './guests/service.js';
-import { router, publicProcedure, scopedProcedure, TRPCError, STATUS_COMPONENTS_MAX } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  TRPCError,
+  STATUS_COMPONENTS_MAX,
+  NOTICE_CATEGORY_ID,
+  noticeCategorySchema,
+} from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
@@ -422,6 +430,7 @@ const noticeWireOutput = z.object({
   network: z.string().nullable(),
   phase: z.enum(INCIDENT_PHASES).nullable(),
   changelog: changelogOutput.nullable(),
+  category: noticeCategorySchema.nullable(),
 });
 
 const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
@@ -1291,6 +1300,8 @@ export function createNotifyRouter(
               .max(MAINTENANCE_REMINDERS_MAX)
               .nullable()
               .optional(),
+            /** One id from the founders' category list (statusPage.configure noticeCategories). */
+            category: z.string().regex(NOTICE_CATEGORY_ID).nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

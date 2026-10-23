@@ -34,6 +34,9 @@ export default async function NotifyPage() {
         <Link href="/notify/maintenance" className="adm-link">
           Maintenance
         </Link>
+        <Link href="/notify/notices" className="adm-link">
+          Announcements
+        </Link>
         <Link href="/notify/subscribers" className="adm-link">
           Status subscribers
         </Link>

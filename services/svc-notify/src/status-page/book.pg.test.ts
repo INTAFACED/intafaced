@@ -34,6 +34,28 @@ afterAll(async () => {
 });
 
 describe.skipIf(!URL || !available)('status page book on the shared test database', () => {
+  it('stores the notice category list as an owner value, cleared with null', async () => {
+    const book = new SqlStatusPageBook(client!);
+    const before = await book.definition();
+    const change = (noticeCategories: unknown, expectedRevision: number) =>
+      book.configure({
+        input: statusPageConfigureInputSchema.parse({ reason: 'TEST pg categories', expectedRevision, noticeCategories }),
+        by: FOUNDER,
+        at: new Date().toISOString(),
+      });
+    const list = [{ id: 'pg-test-listings', name: 'TEST listings' }];
+    const set = await change(list, before.revision);
+    try {
+      expect(set.noticeCategories).toEqual(list);
+      expect((await book.definition()).noticeCategories).toEqual(list);
+      expect((await change(null, set.revision)).noticeCategories).toBeNull();
+    } finally {
+      const now = await book.definition();
+      if (JSON.stringify(now.noticeCategories) !== JSON.stringify(before.noticeCategories))
+        await change(before.noticeCategories, now.revision);
+    }
+  });
+
   it('defines, replays, refuses a stale revision, stores one reading per instant, and keeps the log append-only', async () => {
     const book = new SqlStatusPageBook(client!);
     const before = await book.definition();

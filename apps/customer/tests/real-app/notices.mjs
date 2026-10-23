@@ -48,6 +48,7 @@ export async function draftNotice({
   resolves = false,
   startsAt = null,
   endsAt = null,
+  category = null,
 }) {
   if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
@@ -65,6 +66,7 @@ export async function draftNotice({
       ...(components.length ? { components } : {}),
       ...(parentId ? { parentId } : {}),
       ...(resolves ? { resolves } : {}),
+      ...(category ? { category } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
@@ -114,6 +116,12 @@ export async function openNotices() {
   // None published answers notify.announcement_unset; any other failure is not an empty board.
   if (current.json?.error?.data?.cause?.code === 'notify.announcement_unset') return { ...status, announcement: null };
   return { ...status, announcement: data(current, 'notify.announcement') };
+}
+
+/** The public notice board as a signed-out visitor reads it: published notices, newest first. */
+export async function publishedNotices() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'notify.notices', { limit: 50 }), 'notify.notices');
 }
 
 /** Founder `key` ('a' or 'b') publishes a draft with an approval it holds. Returns the refusal code, or null when published. */

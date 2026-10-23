@@ -40,7 +40,7 @@ export const postIncidentChange = (body: Record<string, unknown>) => postNotifyC
  * repeats the change with a new key.
  */
 export async function postNotifyChange(
-  path: '/api/notify-incidents' | '/api/notify-maintenance',
+  path: '/api/notify-incidents' | '/api/notify-maintenance' | '/api/notify-notices',
   body: Record<string, unknown>,
 ): Promise<IncidentDeskReply> {
   let headers: Record<string, string>;

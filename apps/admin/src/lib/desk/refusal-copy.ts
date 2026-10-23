@@ -408,6 +408,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
   },
+  'status.category_unknown': {
+    title: 'That category is not on the list',
+    body: "An announcement may name only a category on the founders' list, and none while no list is set. Nothing was saved.",
+    next: 'Choose a category from the list, or none, or set the list first.',
+  },
   'status.maintenance_illegal_move': {
     title: 'That move does not follow',
     body: 'A window goes from in progress to verifying, then to completed, and is cancelled only before it is verifying. Scheduled and in progress follow from its start. Nothing was changed.',
