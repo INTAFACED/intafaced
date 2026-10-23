@@ -19,6 +19,7 @@ import {
   isFuturesListing,
   type AdlDisclosure,
   type AdlEvent,
+  type Collateral,
   type FundingRate,
   type FuturesApi,
   type FuturesListing,
@@ -28,6 +29,7 @@ import {
   type Eligibility,
   type MarginCall,
   type OrderTypeCatalogue,
+  type RiskTiers,
   type TickerStrip,
 } from './api';
 import { isLive } from './model';
@@ -43,6 +45,8 @@ export const FUTURES_INTERVALS = {
   orders: 5_000,
   orderTypes: 300_000,
   access: 60_000,
+  tiers: 60_000,
+  collateral: 30_000,
 } as const;
 
 /** How old a read may be before the room calls it stale and disables actions that need a fresh mark. */
@@ -113,6 +117,35 @@ export function useFundingRate(symbol: string | null): Loadable<FundingRate> {
             })
           : constantSource<FundingRate>(OFF),
       [env, api, symbol],
+    ),
+  );
+}
+
+/** What counts as margin for the account, read while the Collateral tab is open. Private: keyed by the signed-in user. */
+export function useCollateral(enabled: boolean): Loadable<Collateral> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () => privateSource<Collateral>(env, 'futures-collateral', (signal) => api.collateral(signal), FUTURES_INTERVALS.collateral, enabled),
+      [env, api, enabled],
+    ),
+  );
+}
+
+/** The maintenance tiers for one contract, read while the Margin tiers tab is open (the depth moves, so it polls). */
+export function useRiskTiers(symbol: string | null, enabled: boolean): Loadable<RiskTiers> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        symbol && enabled
+          ? env.poller.source<RiskTiers>(`futures-tiers:${symbol}`, (signal) => api.tiers(symbol, signal), {
+              intervalMs: FUTURES_INTERVALS.tiers,
+            })
+          : constantSource<RiskTiers>(OFF),
+      [env, api, symbol, enabled],
     ),
   );
 }

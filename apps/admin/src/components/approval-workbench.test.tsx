@@ -185,3 +185,19 @@ describe('what the page says happened', () => {
     expect(html).toContain('nobody yet');
   });
 });
+
+describe('two desks on one page', () => {
+  it('give each workbench its own ids, so every label names its own field', () => {
+    const html = renderToStaticMarkup(
+      <>
+        <ApprovalWorkbenchView {...base} />
+        <ApprovalWorkbenchView {...base} />
+      </>,
+    );
+    const ids = [...html.matchAll(/ id="([^"]*dk-packet)"/g)].map((m) => m[1]);
+    const fors = [...html.matchAll(/ for="([^"]*dk-packet)"/g)].map((m) => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(fors).toEqual(ids);
+  });
+});
