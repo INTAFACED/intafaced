@@ -7,9 +7,10 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { assetsListOutputSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
+import type { WithdrawNetworkSource } from './ramps/withdraw-networks.js';
 
 /**
  * Budgets for svc-ledger calls.
@@ -175,6 +176,21 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
         })),
         nextCursor: result.nextCursor,
       };
+    },
+  };
+}
+
+/**
+ * svc-ledger's asset and network registry (`/trpc/assetsList`), filtered to active assets that allow withdrawals.
+ * Same signing and read budget as a balance read. The answer is parsed with the registry's own wire schema, so a row
+ * that does not fit it is refused here rather than offered as a network. A failure is thrown, never an empty list.
+ */
+export function createLedgerAssetRegistry(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): WithdrawNetworkSource {
+  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...READ_BUDGET });
+  return {
+    async withdrawable() {
+      const answer = await call<unknown>('/trpc/assetsList', { state: 'active', action: 'withdraw' });
+      return assetsListOutputSchema.parse(answer).assets;
     },
   };
 }

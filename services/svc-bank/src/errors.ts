@@ -349,6 +349,10 @@ export type BankErrorCode =
    */
   | 'bank.ramp_invalid_asset'
   | 'bank.ramp_invalid_destination'
+  /** svc-ledger's asset and network registry could not be read, or is not connected. Nothing was saved. */
+  | 'bank.asset_registry_unavailable'
+  /** The asset does not allow withdrawals, or the network is not listed for it in the registry. Nothing was saved. */
+  | 'bank.withdraw_network_unsupported'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.

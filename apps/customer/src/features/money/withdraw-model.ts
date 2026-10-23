@@ -45,3 +45,28 @@ export function coolingOf(row: { coolingOffEndsAt: string | null }, now: number)
   if (row.coolingOffEndsAt === null || !Number.isFinite(end)) return { state: 'unset' };
   return { state: end > now ? 'ends' : 'ended', at: row.coolingOffEndsAt };
 }
+
+/**
+ * The checks the bank makes on a new address-book entry, made here first so a mistyped entry is refused with its reason
+ * before any call. The bank sends to EVM addresses only today (0x and 40 hex digits; the checksum is not checked), on
+ * a network its asset list names; it checks the same rules again.
+ */
+export type EntryCheck = 'ok' | 'empty' | 'invalid';
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f]/;
+export function checkAddress(input: string): EntryCheck {
+  const value = input.trim();
+  if (!value) return 'empty';
+  return EVM_ADDRESS.test(value) ? 'ok' : 'invalid';
+}
+/** A label is 1 to 64 characters with no spaces at either end and no control characters, as the bank stores it. */
+export function checkLabel(input: string): EntryCheck {
+  if (!input.trim()) return 'empty';
+  return input.trim() === input && input.length <= 64 && !CONTROL.test(input) ? 'ok' : 'invalid';
+}
+/** A memo or tag is optional; when given it follows the label's rule. */
+export function checkTag(input: string): EntryCheck {
+  if (input === '') return 'ok';
+  return input.trim() === input && input.length <= 64 && !CONTROL.test(input) ? 'ok' : 'invalid';
+}

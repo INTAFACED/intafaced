@@ -1,9 +1,11 @@
+import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
 import {
+  assertBookEntry,
   isBankDestinationRef,
   isEvmAddressRef,
   type SaveDestinationInput,
@@ -32,6 +34,7 @@ export interface CustomerRampDeps {
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
+  networks: WithdrawNetworkSource | null;
   coolingRaw: () => string | undefined;
 }
 
@@ -353,6 +356,10 @@ export async function listDestinations(deps: CustomerRampDeps, userId: string): 
 }
 
 export async function saveDestination(deps: CustomerRampDeps, input: SaveDestinationInput): Promise<DestinationView> {
+  // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
+  // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
+  const entry = assertBookEntry(input);
+  await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
   return viewOf(await deps.destinations.save(input), readOfframpCoolingHours(deps.coolingRaw()));
 }
 
