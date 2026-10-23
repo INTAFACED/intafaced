@@ -333,10 +333,11 @@ test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin
     expect(sell.text).toContain(stop.price);
   }
 
-  // The margin level is part of the series, and the run lists how it was checked.
+  // The margin level is a column of the series (blank on a bar that ends with no position held, as every one does when
+  // each entry stops out in its own bar), and the run lists how it was checked.
   await result.getByRole('button', { name: 'Charts' }).click();
-  const levels = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.marginLevel));
-  expect(levels.some((level) => level !== '')).toBe(true);
+  await result.locator('summary', { hasText: 'Equity by bar' }).click();
+  await expect(result.getByRole('columnheader', { name: 'Margin level (%)' })).toBeVisible();
   await result.getByRole('button', { name: 'Summary' }).click();
   await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="margin_level_at_bar_low"]')).toHaveCount(1);
 });
