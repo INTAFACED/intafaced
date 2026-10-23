@@ -67,8 +67,9 @@ describe('course page Enrol now (AC-enrolment-01)', () => {
     expect(out).toContain('data-not-connected="vendor.email"');
     expect(out).toContain('The activation mail needs an email delivery provider. It is switched off in this build.');
     expect(out).not.toContain('Enrol now');
+    // Leaving asks first: the first press only shows the confirmation.
     expect(out).toContain('Leave course');
-    expect(out).toContain('Your progress is kept if you enrol again.');
+    expect(out).not.toContain('Confirm leave');
   });
 });
 

@@ -240,6 +240,7 @@ describe('academy customer learning reads and writes', () => {
     expect(await academy.myLearning(USER)).toEqual([]);
     expect(await academy.myAccessGrants(USER)).toEqual([]);
     const enrolled = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    await academy.touchLesson({ userId: USER, slug: items[0]!.slug, clientRequestId: 'touch-0' });
     const [fresh] = await academy.myLearning(USER);
     expect(fresh).toEqual({
       slug: 'markets',
@@ -257,9 +258,13 @@ describe('academy customer learning reads and writes', () => {
 
     await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
     const [started] = await academy.myLearning(USER);
-    expect(started).toMatchObject({ completed: 1, resumeItemSlug: items[1]?.slug ?? items[0]!.slug });
+    // Continue goes back to the item last opened in this course.
+    expect(started).toMatchObject({ completed: 1, resumeItemSlug: items[0]!.slug });
     await academy.touchLesson({ userId: USER, slug: items[items.length - 1]!.slug, clientRequestId: 'touch-1' });
     expect((await academy.myLearning(USER))[0]!.resumeItemSlug).toBe(items[items.length - 1]!.slug);
+    // The reading position is one per learner: opening a lesson elsewhere sends Continue back to the first item not done.
+    await academy.touchLesson({ userId: USER, slug: listCurriculum({ path: 'builder' })[0]!.slug, clientRequestId: 'touch-2' });
+    expect((await academy.myLearning(USER))[0]!.resumeItemSlug).toBe(items[1]?.slug ?? items[0]!.slug);
     expect(await academy.myLearning(OTHER)).toEqual([]);
 
     await academy.leaveCertPath({ userId: USER, pathSlug: 'markets', clientRequestId: 'leave-ml' });

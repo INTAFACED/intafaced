@@ -88,20 +88,6 @@ test(`${J} #2 pressing Enrol now twice with the reply lost sends one request, re
   expect(sent).toHaveLength(1);
 });
 
-test(`${J} #8 with a mail address and no mail provider for Academy, enrolment works and the activation mail says it needs one`, async ({
-  page,
-}) => {
-  const { who, first } = state('who', 'first');
-  expect(who.email).toMatch(/@/);
-  await signIn(page, who);
-  await page.goto(`/academy/learning/course/${first}`);
-  const block = enrolBlock(page);
-  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
-  await expect(block.locator('[data-not-connected="vendor.email"]')).toHaveText(
-    'The activation mail needs an email delivery provider. It is switched off in this build. vendor.email',
-  );
-});
-
 /** The courses' first items, as their public course pages list them. */
 async function syllabus(slug) {
   const res = await fetch(`${EDGE}/api/academy/trpc/publicCourse?input=${encodeURIComponent(JSON.stringify({ slug }))}`, {
@@ -113,6 +99,19 @@ async function syllabus(slug) {
 }
 
 const myCourse = (page, slug) => page.locator(`[data-my-learning-section] [data-my-course="${slug}"]`);
+
+test(`${J} #3 /academy/progress shows a free access record with no expiry for each enrolled course`, async ({ page }) => {
+  const { who, first, second } = state('who', 'first', 'second');
+  await signIn(page, who);
+  await page.goto('/academy/progress');
+  for (const slug of [first, second]) {
+    const grant = page.locator(`[data-access-grant="${slug}"]`);
+    await expect(grant).toBeVisible();
+    await expect(grant.getByText('Free enrolment')).toBeVisible();
+    await expect(grant.getByText('No expiry')).toBeVisible();
+  }
+  await expect(page.locator('[data-access-grant]')).toHaveCount(2);
+});
 
 test(`${J} #5 Learning shows My learning by state with real progress, and Start course until something is read`, async ({ page }) => {
   const { who, first, second } = state('who', 'first', 'second');
@@ -134,19 +133,6 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
   }
 });
 
-test(`${J} #3 /academy/progress shows a free access record with no expiry for each enrolled course`, async ({ page }) => {
-  const { who, first, second } = state('who', 'first', 'second');
-  await signIn(page, who);
-  await page.goto('/academy/progress');
-  for (const slug of [first, second]) {
-    const grant = page.locator(`[data-access-grant="${slug}"]`);
-    await expect(grant).toBeVisible();
-    await expect(grant.getByText('Free enrolment')).toBeVisible();
-    await expect(grant.getByText('No expiry')).toBeVisible();
-  }
-  await expect(page.locator('[data-access-grant]')).toHaveCount(2);
-});
-
 test(`${J} #7 leaving a course keeps its progress, and enrolling again restores it`, async ({ page }) => {
   const { who, first } = state('who', 'first');
   const items = await syllabus(first);
@@ -163,6 +149,8 @@ test(`${J} #7 leaving a course keeps its progress, and enrolling again restores 
 
   await page.goto(`/academy/learning/course/${first}`);
   await enrolBlock(page).getByRole('button', { name: 'Leave course', exact: true }).click();
+  await expect(enrolBlock(page).getByText('Your progress is kept if you enrol again.')).toBeVisible();
+  await enrolBlock(page).getByRole('button', { name: 'Confirm leave', exact: true }).click();
   await expect(enrolBlock(page).getByRole('button', { name: 'Enrol now', exact: true })).toBeVisible();
   await page.goto('/academy/learning');
   await expect(page.locator('[data-academy-my-learning="true"]')).toBeVisible();
@@ -175,4 +163,18 @@ test(`${J} #7 leaving a course keeps its progress, and enrolling again restores 
   await page.goto('/academy/learning');
   await expect(myCourse(page, first).getByText(`1 of ${items.length} items done`)).toBeVisible();
   await expect(myCourse(page, first).getByRole('link', { name: 'Continue' })).toBeVisible();
+});
+
+test(`${J} #8 with a mail address and no mail provider for Academy, enrolment works and the activation mail says it needs one`, async ({
+  page,
+}) => {
+  const { who, first } = state('who', 'first');
+  expect(who.email).toMatch(/@/);
+  await signIn(page, who);
+  await page.goto(`/academy/learning/course/${first}`);
+  const block = enrolBlock(page);
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  await expect(block.locator('[data-not-connected="vendor.email"]')).toHaveText(
+    'The activation mail needs an email delivery provider. It is switched off in this build. vendor.email',
+  );
 });

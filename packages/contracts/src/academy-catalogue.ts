@@ -131,7 +131,7 @@ export type AcademyEnrolCourseInput = z.infer<typeof academyEnrolCourseInputSche
 
 /**
  * AC-catalogue-02: My learning, one row per course the caller is enrolled in. `completed` counts the course's items the
- * caller has completed; `resumeItemSlug` is null until they have opened or completed something in it, and then names
+ * caller has completed; `resumeItemSlug` is null until they have completed something in it, and then names
  * where Continue goes. `firstItemSlug` is where Start course goes.
  */
 export const ACADEMY_MY_COURSE_STATUSES = ['in_progress', 'completed', 'future_start'] as const;

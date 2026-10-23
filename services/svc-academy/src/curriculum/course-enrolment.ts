@@ -54,9 +54,10 @@ export function assertTrackOpen(track: AcademyEnrolmentTrack): void {
 }
 
 /**
- * AC-catalogue-02: one My learning row. Continue resumes at the last item opened in this course, else the first item
- * not completed; with nothing opened or completed there is no Continue, only Start course. No course has a start date
- * yet, so nothing is a future start.
+ * AC-catalogue-02: one My learning row. A course is started once an item in it is completed (the reading position is
+ * one per learner, not per course, so it cannot say a course was started). Continue then goes to the last item opened
+ * when that is in this course, else the first item not completed; before that there is only Start course. No course
+ * has a start date yet, so nothing is a future start.
  */
 export function myCourseView(
   path: CurriculumPath,
@@ -67,7 +68,7 @@ export function myCourseView(
   const items = listCurriculum({ path });
   const done = items.filter((row) => completed.has(row.slug)).length;
   const opened = lastItemSlug !== null && items.some((row) => row.slug === lastItemSlug) ? lastItemSlug : null;
-  const started = opened !== null || done > 0;
+  const started = done > 0;
   const resume = opened ?? items.find((row) => !completed.has(row.slug))?.slug ?? items[items.length - 1]!.slug;
   return {
     slug: path,

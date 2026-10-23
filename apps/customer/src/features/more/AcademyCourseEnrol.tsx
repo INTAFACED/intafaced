@@ -8,10 +8,10 @@ import {
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { Loading } from '../../shared/ui';
+import { Button, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
-import { leaveReceipt, newLeaveId } from './academy-flows';
+import { leaveReceipt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
@@ -63,10 +63,15 @@ export function AcademyCourseEnrol({ slug }: { slug: string }) {
   };
   const enrol = (track: AcademyEnrolmentTrack) =>
     send('enrol', () => api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema));
-  // One reference per leave press: the service answers a repeat of it with the first leave, so a resend cannot leave twice.
-  const leave = () =>
+  // The business key of this leave is the enrolment it ends: a resend after a lost reply is the same leave, never a second.
+  const leave = (enrolledAt: string) =>
     send('leave', () =>
-      api.mutate('academy', 'leaveCertPath', { pathSlug: slug, clientRequestId: newLeaveId() }, leaveReceipt(userId, slug)),
+      api.mutate(
+        'academy',
+        'leaveCertPath',
+        { pathSlug: slug, clientRequestId: `leave:${slug}:${enrolledAt}` },
+        leaveReceipt(userId, slug),
+      ),
     );
   if (terms.resource.status === 'loading') return <Loading />;
   if (terms.resource.status === 'failed')
@@ -92,11 +97,12 @@ export function CourseEnrolView({
   sending: boolean;
   refusal: { kind: 'enrol' | 'leave'; failure: Failure } | null;
   onEnrol: (track: AcademyEnrolmentTrack) => void;
-  onLeave: () => void;
+  onLeave: (enrolledAt: string) => void;
 }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
   const openTracks = terms.tracks.filter((row) => row.closed === null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [picked, setPicked] = useState<AcademyEnrolmentTrack | null>(null);
   // A track that has closed since it was picked is no longer the choice; the first open one is.
   const chosen = openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
@@ -142,17 +148,35 @@ export function CourseEnrolView({
             </time>
           </p>
           {terms.activationMail && <ServiceOffNotice code={terms.activationMail} action={t('enrolActivationMail')} role="status" />}
-          <GuardedButton
-            variant="secondary"
-            reason={sending ? t('courseLeaving') : null}
-            reasonId={`academy-leave-${terms.slug}-reason`}
-            onClick={onLeave}
-          >
-            <Copy k="courseLeave" />
-          </GuardedButton>
-          <small className="muted">
-            <Copy k="courseLeaveNote" />
-          </small>
+          {confirmingLeave ? (
+            <div className="academy-lms-stack" role="group" aria-label={t('courseLeave')}>
+              <p>
+                <Copy k="courseLeaveNote" />
+              </p>
+              <GuardedButton
+                reason={sending ? t('courseLeaving') : null}
+                reasonId={`academy-leave-${terms.slug}-reason`}
+                onClick={() => {
+                  setConfirmingLeave(false);
+                  onLeave(enrolled.enrolledAt);
+                }}
+              >
+                <Copy k="courseLeaveConfirm" />
+              </GuardedButton>
+              <Button variant="secondary" onClick={() => setConfirmingLeave(false)}>
+                <Copy k="courseLeaveKeep" />
+              </Button>
+            </div>
+          ) : (
+            <GuardedButton
+              variant="secondary"
+              reason={sending ? t('courseLeaving') : null}
+              reasonId={`academy-leave-${terms.slug}-reason`}
+              onClick={() => setConfirmingLeave(true)}
+            >
+              <Copy k="courseLeave" />
+            </GuardedButton>
+          )}
         </>
       ) : (
         <>

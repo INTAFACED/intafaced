@@ -1684,9 +1684,7 @@ export class AcademyService {
 
   /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
   async myLearning(userId: string): Promise<AcademyMyCourse[]> {
-    const enrolments = (await this.customer.myEnrollments(userId)).filter(
-      (row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0,
-    );
+    const enrolments = await this.publishedEnrolments(userId);
     if (enrolments.length === 0) return [];
     const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
     return enrolments.map((row) => myCourseView(row.pathSlug as CurriculumPath, row, completed, state.lastItemSlug));
@@ -1694,7 +1692,12 @@ export class AcademyService {
 
   /** AC-access-grants-01: the caller's access records, one per active enrolment. */
   async myAccessGrants(userId: string): Promise<AcademyAccessGrant[]> {
-    return (await this.customer.myEnrollments(userId)).map(accessGrantView);
+    return (await this.publishedEnrolments(userId)).map(accessGrantView);
+  }
+
+  /** Active enrolments in courses that are still published: My learning and the access records list the same set. */
+  private async publishedEnrolments(userId: string) {
+    return (await this.customer.myEnrollments(userId)).filter((row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0);
   }
 
   myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {
