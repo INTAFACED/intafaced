@@ -5,23 +5,27 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Fastify from 'fastify';
 import { afterAll, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import type { Context } from '@intafaced/contracts';
+import { actionApprovalSchema, type Context } from '@intafaced/contracts';
 import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db/testing';
 import {
   OPS_CONTROL_MARGIN_UNSET,
   OPS_CONTROL_POLICY_UNSET,
   LEDGER_RECONCILE_ASOF_INVALID,
   LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
+  LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { createLedgerRouter } from '../router.js';
-import { stubApprovalConsumer } from './action-approval-consume.js';
+import { registerOperatorHttp } from '../operator-http.js';
+import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { withJournalGuardsOff } from '../db/journal-guards.testkit.js';
 import { ReconciliationControlError } from './reconciliation-control-error.js';
 import {
   defineReconciliationControl,
   listReconciliationControls,
+  runDueReconciliationControls,
   runReconciliationControl,
   updateReconciliationControl,
   type ReconciliationSources,
@@ -267,5 +271,198 @@ if (!available) {
         reason: REASON,
       }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('inserts the run when identity already consumed this operation id', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      margin: '0',
+      reason: REASON,
+      activate: true,
+    });
+    const operationId = nextOp();
+    let requestId: string | undefined;
+    const replay: ActionApprovalConsumer = {
+      async consume(input) {
+        requestId = input.requestId;
+        return actionApprovalSchema.parse({
+          approvalId: input.approvalId,
+          operationId: input.operationId,
+          payloadHash: input.payloadHash,
+          targetService: input.targetService,
+          targetId: input.targetId,
+          expectedVersion: input.expectedVersion,
+          actionType: 'ledger.reconciliation_control.run',
+          requesterId: 'founder-a',
+          approverId: 'founder-b',
+          policyVersion: 'v1',
+          createdAt: '2026-09-09T12:00:00.000Z',
+          expiresAt: '2026-09-09T12:10:00.000Z',
+          status: 'CONSUMED',
+          consumption: 'already_consumed_by_this_request',
+        });
+      },
+    };
+    const run = await runReconciliationControl(db.sql, replay, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-replay',
+      operationId,
+    });
+    expect(requestId).toBe(operationId);
+    expect(run.status).not.toBe('started');
+    const stored = await db.sql<Array<{ status: string }>>`
+      SELECT status FROM reconciliation_control_runs WHERE operation_id = ${operationId}
+    `;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.status).toBe(run.status);
+  });
+
+  it('finishes a started run as ERROR when evaluate throws, and a later retry stays on that row', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'warning',
+      tolerance: { default: '0' },
+      threshold: { bound: 'min', byAsset: { USDT: '0' } },
+      margin: '0',
+      reason: REASON,
+      activate: true,
+    });
+    const operationId = nextOp();
+    const first = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-started',
+      operationId,
+    });
+    expect(first.status).not.toBe('started');
+    await db.sql`
+      UPDATE reconciliation_control_runs
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL
+       WHERE id = ${first.id}
+    `;
+    await db.sql`
+      UPDATE reconciliation_controls
+         SET account_set = '{"mode":"nope"}'::jsonb
+       WHERE id = ${defined.id}
+    `;
+    const resumed = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-started-again',
+      operationId,
+    });
+    expect(resumed.id).toBe(first.id);
+    expect(resumed.status).toBe('ERROR');
+    expect(resumed.phase).toEqual({ status: 'set', value: 'accounts' });
+    expect(resumed.errorCode).toEqual({ status: 'set', value: LEDGER_RECONCILE_SOURCE_UNAVAILABLE });
+    const again = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-started-third',
+      operationId,
+    });
+    expect(again).toMatchObject({ id: first.id, status: 'ERROR' });
+  });
+
+  it('resumes a started schedule row and skips a terminal one', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      threshold: { bound: 'max', byAsset: { USDT: '1000' } },
+      margin: '0',
+      reason: REASON,
+      activate: true,
+    });
+    await runDueReconciliationControls(db.sql);
+    const opened = await db.sql<Array<{ id: string; status: string; finished_at: Date }>>`
+      SELECT id, status, finished_at FROM reconciliation_control_runs WHERE control_id = ${defined.id}
+    `;
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.status).not.toBe('started');
+    const finishedAt = opened[0]!.finished_at.toISOString();
+    await runDueReconciliationControls(db.sql);
+    const skipped = await db.sql<Array<{ status: string; finished_at: Date }>>`
+      SELECT status, finished_at FROM reconciliation_control_runs WHERE id = ${opened[0]!.id}
+    `;
+    expect(skipped[0]!.status).toBe(opened[0]!.status);
+    expect(skipped[0]!.finished_at.toISOString()).toBe(finishedAt);
+    await db.sql`
+      UPDATE reconciliation_control_runs
+         SET status = 'started', phase = '', error_code = '', finished_at = NULL
+       WHERE id = ${opened[0]!.id}
+    `;
+    await db.sql`
+      UPDATE reconciliation_controls
+         SET account_set = '{"mode":"nope"}'::jsonb
+       WHERE id = ${defined.id}
+    `;
+    await runDueReconciliationControls(db.sql);
+    const resumed = await db.sql<Array<{ status: string; phase: string; error_code: string }>>`
+      SELECT status, phase, error_code FROM reconciliation_control_runs WHERE id = ${opened[0]!.id}
+    `;
+    expect(resumed[0]).toEqual({ status: 'ERROR', phase: 'accounts', error_code: LEDGER_RECONCILE_SOURCE_UNAVAILABLE });
+  });
+
+  it('reaches define and run on the operator port', async () => {
+    const app = Fastify({ logger: false });
+    registerOperatorHttp(app, { sql: db.sql } as unknown as LedgerService, authConfig, approvals);
+    await app.ready();
+    const treasury = await issueAccessToken(
+      { userId: ACTOR, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', scopes: ['admin:treasury'], tier: 'basic', mfa: true },
+      authConfig,
+    );
+    const headers = { authorization: `Bearer ${treasury.token}` };
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls',
+      headers,
+      payload: {
+        template: 'threshold',
+        accountSet: { mode: 'query', assetId: 'USDT' },
+        reason: REASON,
+        activate: true,
+      },
+    });
+    expect(refused.statusCode).toBe(412);
+    expect(refused.json()).toMatchObject({ code: OPS_CONTROL_POLICY_UNSET });
+    const defined = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls',
+      headers,
+      payload: {
+        template: 'threshold',
+        accountSet: { mode: 'query', assetId: 'USDT' },
+        schedule: { cadence: 'daily', hour: 1, minute: 0 },
+        severity: 'info',
+        tolerance: { default: '0' },
+        threshold: { bound: 'min', byAsset: { USDT: '0' } },
+        reason: REASON,
+        activate: true,
+      },
+    });
+    expect(defined.statusCode).toBe(200);
+    const controlId = (defined.json() as { id: string }).id;
+    const run = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/run',
+      headers,
+      payload: { controlId, reason: REASON, approvalId: 'appr-http', operationId: nextOp() },
+    });
+    expect(run.statusCode).toBe(200);
+    expect(run.json()).toMatchObject({ controlId, status: 'PASS' });
+    const anonymous = await app.inject({ method: 'GET', url: '/operator/reconciliation/controls' });
+    expect(anonymous.statusCode).toBe(401);
+    await app.close();
   });
 }

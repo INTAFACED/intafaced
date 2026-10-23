@@ -758,6 +758,14 @@ const RUN_COLUMNS = `
   id, control_id, status, phase, error_code, as_of, read_at, margin, sources, evidence, outside_side, period_start, period_end
 `;
 
+function isUniqueViolation(err: unknown, depth = 0): boolean {
+  if (!err || typeof err !== 'object' || depth > 3) return false;
+  if ((err as { code?: unknown }).code === '23505') return true;
+  const cause = (err as { cause?: unknown }).cause;
+  return cause !== undefined && cause !== err && isUniqueViolation(cause, depth + 1);
+}
+
+/** A started row is the only one a later pass may finish. A terminal row is returned as stored. */
 async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
   const rows = await sql<RunRow[]>`
     UPDATE reconciliation_control_runs
@@ -768,12 +776,57 @@ async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: s
            evidence = ${sql.json(asJson({ accounts: accountIds, assets: verdict.assets }))},
            outside_side = ${verdict.outsideSide},
            finished_at = clock_timestamp()
-     WHERE id = ${runId}
+     WHERE id = ${runId} AND status = 'started'
      RETURNING ${sql.unsafe(RUN_COLUMNS)}
   `;
-  const row = rows[0];
-  if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
-  return row;
+  if (rows[0]) return rows[0];
+  const current = await sql<RunRow[]>`
+    SELECT ${sql.unsafe(RUN_COLUMNS)}
+      FROM reconciliation_control_runs
+     WHERE id = ${runId}
+  `;
+  const row = current[0];
+  if (row && row.status !== 'started') return row;
+  throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+}
+
+function unavailableVerdict(phase: string, readAt: Date): Verdict {
+  return {
+    status: 'ERROR',
+    phase,
+    errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+    assets: [],
+    outsideSide: 'not_applicable',
+    sources: {
+      ledger: { asOf: readAt.toISOString() },
+      outside: { asOf: 'unset' },
+      parity: { asOf: 'unset' },
+    },
+  };
+}
+
+/**
+ * Finish a started row. A throw from the account read or from evaluate is stored as ERROR
+ * with that phase, so the same operation id does not stay `started` forever.
+ */
+async function resumeRun(
+  sql: Sql,
+  row: ControlRow,
+  opened: RunRow,
+  sources: ReconciliationSources,
+  past: boolean,
+): Promise<ReconciliationControlRunView> {
+  let phase = 'accounts';
+  try {
+    const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
+    const accounts = await accountsInSet(sql, accountSet, opened.read_at);
+    const accountIds = accounts.map((account) => account.id).sort();
+    phase = 'evaluate';
+    const verdict = await evaluate(sql, row, opened.read_at, opened.read_at.toISOString(), sources, past);
+    return toRun(await finishRun(sql, opened.id, verdict, accountIds));
+  } catch {
+    return toRun(await finishRun(sql, opened.id, unavailableVerdict(phase, opened.read_at), []));
+  }
 }
 
 async function openRun(
@@ -872,11 +925,10 @@ export async function runReconciliationControl(
   if (prior) {
     if (prior.fingerprint !== fp) throw new ReconciliationControlError('ledger.idempotency_conflict');
     if (prior.status !== 'started') return toRun(prior);
-    const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
-    const accounts = await accountsInSet(sql, accountSet, prior.read_at);
-    const verdict = await evaluate(sql, row, prior.read_at, prior.read_at.toISOString(), sources, past);
-    return toRun(await finishRun(sql, prior.id, verdict, accounts.map((account) => account.id).sort()));
+    return resumeRun(sql, row, prior, sources, past);
   }
+  // operationId is the consume request id, so a retry after a lost reply is
+  // `already_consumed_by_this_request` and can still insert or resume this run.
   await consumeLedgerApproval(
     approvals,
     parsed,
@@ -889,12 +941,9 @@ export async function runReconciliationControl(
       margin,
       reason,
     },
+    parsed.operationId,
   );
-  const schedule = row.schedule ? reconciliationScheduleSchema.parse(row.schedule) : null;
-  const periodName = row.period ?? (schedule ? periodForSchedule(schedule) : null);
-  if (!periodName) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
-  const period = periodBounds(periodName, readAt);
-  const opened = await openRun(
+  return openOrResumeRun(
     sql,
     row,
     { actorId: who, requestId: actor.requestId },
@@ -904,18 +953,44 @@ export async function runReconciliationControl(
     asOf,
     readAt,
     margin,
-    period,
+    past,
+    sources,
   );
-  const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
-  let accountIds: string[] = [];
+}
+
+async function openOrResumeRun(
+  sql: Sql,
+  row: ControlRow,
+  actor: ControlActor,
+  reason: string,
+  operationId: string,
+  fp: string,
+  asOf: Date,
+  readAt: Date,
+  margin: string,
+  past: boolean,
+  sources: ReconciliationSources,
+): Promise<ReconciliationControlRunView> {
+  const adopt = async (existing: RunRow & { fingerprint: string }): Promise<ReconciliationControlRunView> => {
+    if (existing.fingerprint !== fp) throw new ReconciliationControlError('ledger.idempotency_conflict');
+    if (existing.status !== 'started') return toRun(existing);
+    return resumeRun(sql, row, existing, sources, past);
+  };
+  const found = await existingRun(sql, operationId);
+  if (found) return adopt(found);
+  const schedule = row.schedule ? reconciliationScheduleSchema.parse(row.schedule) : null;
+  const periodName = row.period ?? (schedule ? periodForSchedule(schedule) : null);
+  if (!periodName) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
+  const period = periodBounds(periodName, readAt);
   try {
-    const accounts = await accountsInSet(sql, accountSet, readAt);
-    accountIds = accounts.map((account) => account.id).sort();
-  } catch {
-    accountIds = [];
+    const opened = await openRun(sql, row, actor, reason, operationId, fp, asOf, readAt, margin, period);
+    return resumeRun(sql, row, opened, sources, past);
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const raced = await existingRun(sql, operationId);
+    if (!raced) throw err;
+    return adopt(raced);
   }
-  const verdict = await evaluate(sql, row, readAt, readAt.toISOString(), sources, past);
-  return toRun(await finishRun(sql, opened.id, verdict, accountIds));
 }
 
 export async function runDueControls(sql: Sql, sources: ReconciliationSources = unsetReconciliationSources()): Promise<void> {
@@ -934,7 +1009,13 @@ export async function runDueControls(sql: Sql, sources: ReconciliationSources = 
     const due = dueInstant(schedule, bounds.start);
     if (!due || at.getTime() < due.getTime()) continue;
     const operationId = `schedule:${row.id}:${bounds.start.toISOString()}`;
-    if (await existingRun(sql, operationId)) continue;
+    const existing = await existingRun(sql, operationId);
+    // A terminal row for this period is done. A started row is a crash between open and finish: resume it.
+    if (existing && existing.status !== 'started') continue;
+    if (existing) {
+      await resumeScheduled(sql, row, existing, sources);
+      continue;
+    }
     const margin = row.margin;
     if (margin === null || margin.trim() === '') {
       await openRun(
@@ -988,11 +1069,33 @@ export async function runDueControls(sql: Sql, sources: ReconciliationSources = 
       margin,
       periodBounds(periodName, readAt),
     );
-    const verdict = await evaluate(sql, row, readAt, readAt.toISOString(), sources, true);
-    const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
-    const accounts = await accountsInSet(sql, accountSet, readAt);
-    await finishRun(sql, opened.id, verdict, accounts.map((account) => account.id).sort());
+    await resumeRun(sql, row, opened, sources, true);
   }
+}
+
+async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sources: ReconciliationSources): Promise<void> {
+  const margin = row.margin;
+  if ((margin === null || margin.trim() === '') && existing.margin === 'unset') {
+    await finishRun(
+      sql,
+      existing.id,
+      {
+        status: 'ERROR',
+        phase: 'margin',
+        errorCode: OPS_CONTROL_MARGIN_UNSET,
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: {
+          ledger: { asOf: existing.read_at.toISOString() },
+          outside: { asOf: 'unset' },
+          parity: { asOf: 'unset' },
+        },
+      },
+      [],
+    );
+    return;
+  }
+  await resumeRun(sql, row, existing, sources, true);
 }
 
 export async function runDueReconciliationControls(sql: Sql): Promise<void> {

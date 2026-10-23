@@ -155,4 +155,63 @@ describe('admin ops back end on the edge', () => {
     expect(queue.json().items).toHaveLength(1);
     await app.close();
   });
+
+  it('forwards reconciliation control list, define and run, and refuses a run with no approval', async () => {
+    const seen: Array<{ path: string; method: string; bearer: string; body?: unknown }> = [];
+    const ledger: LedgerOperatorCall = async (path, method, bearerHeader, body) => {
+      seen.push({ path, method, bearer: bearerHeader, body });
+      return { status: 200, body: { ok: true, path } };
+    };
+    const app = Fastify({ logger: false });
+    const admin = createAdminApi(new KillSwitchState(), { tokens, ledger, approvals: stubApprovalConsumer(APPROVER) });
+    registerAdminRoutes(app, admin);
+    await app.ready();
+    const treasury = { authorization: await bearer(['admin:treasury']) };
+    const compliance = { authorization: await bearer(['admin:compliance']) };
+    const listed = await app.inject({ method: 'GET', url: '/admin/ledger/reconciliation/controls', headers: compliance });
+    expect(listed.statusCode).toBe(200);
+    const defined = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls',
+      headers: treasury,
+      payload: {
+        template: 'threshold',
+        accountSet: { mode: 'query', assetId: 'USDT' },
+        reason: 'set the reconciliation control',
+      },
+    });
+    expect(defined.statusCode).toBe(200);
+    const ran = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls/run',
+      headers: treasury,
+      payload: {
+        controlId: '11111111-1111-4111-8111-111111111111',
+        reason: 'run the reconciliation control',
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      },
+    });
+    expect(ran.statusCode).toBe(200);
+    expect(seen.map((call) => `${call.method} ${call.path}`)).toEqual([
+      'GET /operator/reconciliation/controls',
+      'POST /operator/reconciliation/controls',
+      'POST /operator/reconciliation/controls/run',
+    ]);
+    expect(seen[2]?.bearer).toBe(treasury.authorization);
+    expect(seen[2]?.body).toMatchObject({ approvalId: 'appr-1', operationId: 'op-1' });
+    const before = seen.length;
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls/run',
+      headers: treasury,
+      payload: { controlId: '11111111-1111-4111-8111-111111111111', reason: 'run the reconciliation control' },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({ code: 'edge.invalid_reconciliation_control' });
+    expect(seen).toHaveLength(before);
+    const anonymous = await app.inject({ method: 'POST', url: '/admin/ledger/reconciliation/controls/run', payload: {} });
+    expect(anonymous.statusCode).toBe(401);
+    await app.close();
+  });
 });
