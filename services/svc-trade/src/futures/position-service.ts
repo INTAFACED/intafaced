@@ -1155,6 +1155,11 @@ export class PositionService {
     return this.matched.place(principal, input, context);
   }
 
+  /** The reduce-only order a fired conditional order places for its trader (`MatchedFuturesOrders.placeOnInstruction`). */
+  async placeMatchedOnInstruction(input: PlaceMatchedOrderInput, instructionId: string) {
+    return this.matched.placeOnInstruction(input, instructionId);
+  }
+
   /** An opening order above the max-order, placed as children of at most the cap (`MatchedFuturesOrders.placeSplit`). */
   async placeMatchedSplit(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
     return this.matched.placeSplit(principal, input, context);

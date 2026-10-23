@@ -254,6 +254,39 @@ describe('futures conditional orders', () => {
     await expect(orders.cancel(BOB, created.order.id)).rejects.toMatchObject({ code: 'trade.conditional_not_found' });
   });
 
+  it('lists every live order and only the most recent finished ones', async () => {
+    await openAlice('open-list');
+    const short = createConditionalOrderService({
+      sql,
+      triggerScheduled: true,
+      publishedMark: async () => mark,
+      closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
+      placeLimit: async () => ({ orderId: 'unused' }),
+      listFinishedLimit: 2,
+    });
+    const ids: string[] = [];
+    for (const [i, price] of ['49000', '48000', '47000', '46000'].entries()) {
+      const created = await short.create(ALICE, {
+        market: 'BTC/USDT:USDT',
+        kind: 'stop_market',
+        side: 'sell',
+        quantity: '0.1',
+        triggerPrice: price,
+        clientOrderId: `list-${i}`,
+      });
+      ids.push(created.order.id);
+      await sql`UPDATE trade.futures_conditional_orders SET created_at = ${new Date(NOW.getTime() + i * 1000)} WHERE id = ${created.order.id}`;
+    }
+    // The oldest stays armed; the other three are cancelled, and only the two newest of those are listed.
+    for (const id of ids.slice(1)) await short.cancel(ALICE, id);
+    expect((await short.list(ALICE)).map((o) => [o.id, o.status])).toEqual([
+      [ids[0], 'armed'],
+      [ids[2], 'cancelled'],
+      [ids[3], 'cancelled'],
+    ]);
+    expect(await short.list(BOB)).toEqual([]);
+  });
+
   it('does not fire while the flag is off, and two workers fire a crossed stop once', async () => {
     await openAlice('open-fire');
     const created = await orders.create(ALICE, {

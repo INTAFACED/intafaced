@@ -139,7 +139,7 @@ export class MatchedOrderError extends Error {
  * adjusted, an earlier fill on the same order or position is still being recorded, or a reduce loss past the bound
  * waits for the insurance fund. A fill refused with one of these waits in `trade.futures_fill_waits`.
  */
-const FILL_WAIT_CODES: readonly string[] = [
+export const FILL_WAIT_CODES: readonly string[] = [
   'trade.liquidation_in_progress',
   'trade.position_under_review',
   'trade.futures_fill_in_progress',
@@ -681,7 +681,7 @@ async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, position
  * settled, or, once it has left the book, what the engine says it filled less what has settled (a fill printed
  * before a cancel still arrives). Refused and rejected orders claim nothing.
  */
-async function reservedReduceQty(tx: TransactionSql, positionId: string): Promise<Amount> {
+export async function reservedReduceQty(tx: Sql | TransactionSql, positionId: string): Promise<Amount> {
   const rows = await tx<{ qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]>`
     SELECT qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
      WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
@@ -694,6 +694,15 @@ async function reservedReduceQty(tx: TransactionSql, positionId: string): Promis
     if (left > 0n) reserved += left;
   }
   return reserved;
+}
+
+/**
+ * What a book order has closed so far (`settled`) and what the engine says it filled in all (`engine`, null while
+ * that is not known). A fill printed before a cancel can still be settling, so the two agree only once it has landed.
+ */
+export async function orderFills(tx: Sql | TransactionSql, orderId: string): Promise<{ settled: Amount; engine: Amount | null } | null> {
+  const [row] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+  return row ? { settled: parseAmount(row.filled_qty), engine: engineFilled(row) } : null;
 }
 
 function oppositeSide(side: PositionSide): PositionSide {
@@ -976,7 +985,15 @@ export class MatchedFuturesOrders {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
     const inForce = await this.bandInForce(market.id, band);
-    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, inForce);
+    if (input.reduceOnly === true) {
+      return this.placeReduceOnly(
+        (admission, businessId, payload) => admission.admit(principal, 'order.place', businessId, payload),
+        input,
+        clientOrderId,
+        market,
+        inForce,
+      );
+    }
 
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
@@ -1234,6 +1251,45 @@ export class MatchedFuturesOrders {
   }
 
   /**
+   * The one reduce-only order a fired conditional order places for its trader (D-orders-04, J-derivatives-03). No
+   * session or key is behind it: the trader armed the conditional order, and admission names that order as a standing
+   * instruction owned by svc-trade (`admitStanding`), whose caller has claimed it as fired. Everything after admission
+   * is the reduce-only path a trader's own order takes: the position's own bound, the band, the reduce room left by
+   * its other reduce-only orders, and a retry on the same `clientOrderId` that finds the same order. It never opens.
+   */
+  async placeOnInstruction(input: PlaceMatchedOrderInput, instructionId: string): Promise<MatchedOrderView> {
+    if (!this.deps.enabled) {
+      refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
+    }
+    if (input.reduceOnly !== true) refuse('trade.conditional_would_increase', 'a conditional order only ever places a reduce-only order');
+    const clientOrderId = input.clientOrderId?.trim() ?? '';
+    if (clientOrderId.length === 0 || clientOrderId.length > 64) {
+      refuse('trade.client_order_id_required', 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry');
+    }
+    refuseMalformedOrder(input);
+    const existing = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
+    if (existing) {
+      if (!sameRequest(existing, input)) {
+        refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
+      }
+      return this.resume(existing);
+    }
+    const market = await this.loadMarket(input.symbol);
+    const band = this.deps.priceBand;
+    if (band === null) {
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    }
+    const inForce = await this.bandInForce(market.id, band);
+    return this.placeReduceOnly(
+      (admission, businessId, payload) => admission.admitStanding(input.userId, instructionId, businessId, payload, 'svc-trade'),
+      input,
+      clientOrderId,
+      market,
+      inForce,
+    );
+  }
+
+  /**
    * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
    * position's size less its other live reduce-only orders, and never past its bankruptcy price.
    *
@@ -1242,7 +1298,7 @@ export class MatchedFuturesOrders {
    * and the order carries its position's leverage.
    */
   private async placeReduceOnly(
-    principal: Principal,
+    admit: (admission: TradingAdmissionPort, businessId: string, payload: Record<string, unknown>) => Promise<unknown>,
     input: PlaceMatchedOrderInput,
     clientOrderId: string,
     market: MarketRow,
@@ -1281,6 +1337,13 @@ export class MatchedFuturesOrders {
       if (!position || position.status !== 'open') {
         refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
       }
+      // The same request placed at once twice: the one that wrote its row first holds the room, and this one is its
+      // replay (below), not a second claim on the same size refused as too large.
+      const [same] = await tx<{ id: string }[]>`
+        SELECT id FROM trade.futures_orders
+         WHERE user_id = ${input.userId} AND market_id = ${market.id} AND client_order_id = ${clientOrderId}
+      `;
+      if (same) return false;
       // The bound below is priced from the margin; one that is mid-change would price it from a figure about to move.
       if (position.margin_adjust_request != null) {
         refuse(
@@ -1336,7 +1399,7 @@ export class MatchedFuturesOrders {
         }
       }
 
-      await admission.admit(principal, 'order.place', `futures.order:${orderId}`, {
+      await admit(admission, `futures.order:${orderId}`, {
         orderId,
         userId: input.userId,
         marketId: market.id,
