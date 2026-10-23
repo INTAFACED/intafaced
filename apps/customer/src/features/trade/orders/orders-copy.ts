@@ -40,7 +40,7 @@ const messages = {
 
   loading: 'Reading your order history',
   none: 'No orders match these filters.',
-  noneAtAll: 'You have no past orders yet.',
+  noneAtAll: 'You have no past orders.',
   shownCount: '{count} orders shown',
   older: 'Show older orders',
   olderLoading: 'Reading older orders…',

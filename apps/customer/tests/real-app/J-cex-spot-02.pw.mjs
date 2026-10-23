@@ -273,7 +273,8 @@ test(`${J} #8 an operator halts a market: a new order is refused with the halted
       .getByRole('button', { name: /Cancel/ })
       .first()
       .click();
-    const sure = page.getByRole('button', { name: /cancel order|yes|confirm/i });
+    // Only a confirm dialog's button: the desk's "Cancel orders…" control also reads "cancel order".
+    const sure = page.getByRole('dialog').getByRole('button', { name: /cancel order|yes|confirm/i });
     if (await sure.count()) await sure.first().click();
     await expect(row).toHaveCount(0);
     expect((await openOrders(who, HALTED)).map((o) => o.id)).not.toContain(resting.id);
