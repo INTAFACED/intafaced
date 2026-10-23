@@ -405,7 +405,7 @@ async function main() {
   await uiController.capture(Object.assign({}, contact, { interests: ['investor'] }));
   await uiController.saveUi({
     forms: { investor: Object.assign({}, forms.investor, { timing: '', message: 'Unsent context' }) },
-    groups: { investor: 1 },
+    groups: { investor: 6 },
     remember: true,
   });
   let restoredUi = intake.createIntake(
@@ -414,7 +414,8 @@ async function main() {
     }),
   );
   assert.equal(restoredUi.state.ui.forms.investor.message, 'Unsent context');
-  assert.equal(restoredUi.state.ui.groups.investor, 1);
+  assert.equal(restoredUi.state.ui.groups.investor, 6, 'focused-question review position survives local recovery');
+  assert.throws(() => uiController.saveUi({ forms: {}, groups: { investor: 7 }, remember: true }), /invalid_input/);
   assert.equal(restoredUi.state.draft, null, 'stored forms never imply backend-confirmed answers');
   await assert.rejects(uiController.addInterests(['academy']));
   await uiController.resume();

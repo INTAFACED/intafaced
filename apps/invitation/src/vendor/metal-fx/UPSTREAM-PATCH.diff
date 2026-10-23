@@ -1,0 +1,83 @@
+--- a/metal-fx@2.0.11/dist/index.es.js
++++ b/apps/invitation/src/vendor/metal-fx/index.js
+@@ -709,9 +709,9 @@
+   }
+   if (!a) throw new Error("metal-fx: WebGL2 not supported");
+   const { program: i, buffer: r, uniforms: l, dummyTexture: s } = yo(a), c = (d) => {
+-    d.preventDefault(), x && (x.contextLost = !0);
++    d.preventDefault(), x && x.glCanvas === o && (x.contextLost = !0);
+   }, u = () => {
+-    if (!x) return;
++    if (!x || x.glCanvas !== o) return;
+     const d = yo(x.gl);
+     x.program = d.program, x.buffer = d.buffer, x.uniforms = d.uniforms, x.dummyTexture = d.dummyTexture, x.presetDirty = !0, x.contextLost = !1, en == null || en();
+   };
+@@ -2678,6 +2678,11 @@
+   ...M
+ }, y) {
+   const C = vt(null), N = vt(null), E = vt(null), P = vt(null), G = vt(null), at = vt(null), F = vt(null), S = vt(null), B = vt("dark"), K = vt(0), [nt, U] = sa(!1), _ = ls(a), T = xo(() => mr(), []);
++  const runtimeFailedRef = vt(!1), [runtimeFailed, setRuntimeFailed] = sa(!1);
++  const failRuntime = () => {
++    runtimeFailedRef.current = !0;
++    setRuntimeFailed(!0);
++  };
+   B.current = _;
+   const V = n === "circle" ? "circle" : "pill", Z = !d;
+   Ya(y, () => C.current, []);
+@@ -2695,7 +2700,13 @@
+     return Math.min(D, Math.min(L, O) / 2);
+   };
+   _t(() => {
+-    T && Ar(o, _);
++    if (T && !runtimeFailedRef.current) {
++      try {
++        Ar(o, _);
++      } catch {
++        failRuntime();
++      }
++    }
+   }, [o, _, T]), _t(() => {
+     const L = F.current;
+     L && pe(L, { mask: v ?? null });
+@@ -2709,7 +2720,7 @@
+     f !== void 0 && (O.shaderScale = f), p !== void 0 && (O.ringCssPx = p), g !== void 0 && (O.scale = g), Object.keys(O).length > 0 && pe(L, O);
+   }, [f, p, g]), ja(() => {
+     const L = N.current, O = C.current, D = E.current;
+-    if (!L || !O || !T) return;
++    if (!L || !O || !T || runtimeFailedRef.current) return;
+     {
+       const I = getComputedStyle(O), z = parseFloat(I.borderTopLeftRadius);
+       K.current = Number.isFinite(z) ? z : 0;
+@@ -2718,7 +2729,8 @@
+       const I = O.getBoundingClientRect(), z = Math.max(1, Math.round(I.width)), J = Math.max(1, Math.round(I.height));
+       return { cssWidth: z, cssHeight: J, cornerRadius: Y(z, J) };
+     }, W = $();
+-    F.current = yr({
++    try {
++      F.current = yr({
+       onComposite: () => {
+         const I = F.current, z = S.current;
+         I && z && vi(z, I.deform);
+@@ -2736,7 +2748,12 @@
+       scale: g,
+       mask: v ?? null,
+       onFirstCopy: () => U(!0)
+-    }), O.style.setProperty("--mfx-radius", `${W.cornerRadius}px`), O.style.borderRadius = `${W.cornerRadius}px`;
++      });
++    } catch {
++      failRuntime();
++      return;
++    }
++    O.style.setProperty("--mfx-radius", `${W.cornerRadius}px`), O.style.borderRadius = `${W.cornerRadius}px`;
+     const et = (I, z) => {
+       if (!v || m === "ring") return {};
+       const J = window.devicePixelRatio || 1, mt = document.createElement("canvas");
+@@ -2847,7 +2864,7 @@
+     }),
+     [w, i, nt]
+   );
+-  return T ? /* @__PURE__ */ ia(
++  return T && !runtimeFailed ? /* @__PURE__ */ ia(
+     "div",
+     {
+       ...M,

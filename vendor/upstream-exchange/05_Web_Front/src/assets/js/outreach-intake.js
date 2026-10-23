@@ -279,6 +279,7 @@ function validDraft(data) {
   }
 }
 function errorCopy(code) {
+  if (code === 'answer_pending') return 'Your last send is not confirmed. Retry it before adding an interest. Your answers remain here.';
   if (/continuation_invalid/.test(code))
     return 'This saved enquiry can no longer be reopened here. You can start a new enquiry; previously saved information remains with the team.';
   if (/revision_conflict|answers_already_preserved/.test(code))
@@ -362,7 +363,7 @@ function validUi(ui) {
       });
     }) &&
     Object.keys(ui.groups).every(function (a) {
-      return AUDIENCES.includes(a) && Number.isInteger(ui.groups[a]) && ui.groups[a] >= 0 && ui.groups[a] <= 2;
+      return AUDIENCES.includes(a) && Number.isInteger(ui.groups[a]) && ui.groups[a] >= 0 && ui.groups[a] < QUESTIONS[a].length + 4;
     })
   );
 }
@@ -406,7 +407,9 @@ function createIntake(options) {
   }
   function read() {
     function discardStored() {
-      Promise.resolve(options.storage.removeItem(STORAGE_KEY)).catch(function () { state.storageAvailable = false; });
+      Promise.resolve(options.storage.removeItem(STORAGE_KEY)).catch(function () {
+        state.storageAvailable = false;
+      });
     }
     try {
       let raw = options.storage.getItem(STORAGE_KEY);

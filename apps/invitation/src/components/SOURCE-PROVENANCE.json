@@ -1,0 +1,95 @@
+[
+  {
+    "component": "halo-field",
+    "originalSha256": "ef0234cff8e75ea37ec39863c9e14f35ac3301b790bd54601043e74ade3d1258",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://www.cult-ui.com/r/halo-field.json"
+  },
+  {
+    "component": "halo-input",
+    "originalSha256": "4a7a48c35f916285c2f2f03dcae577831b3ed44cd127928c75f11fb82332bf85",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://www.cult-ui.com/r/halo-input.json"
+  },
+  {
+    "component": "halo-toggle-group",
+    "originalSha256": "79f7873a7829e3d9e573f6a087fdb79b7eb22addb90d74d14d5bf398b9c557e3",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://www.cult-ui.com/r/halo-toggle-group.json"
+  },
+  {
+    "component": "halo-progress",
+    "originalSha256": "1ded8f484c68d9986771b2190e86044be629425d78a01b1ae1e32bf7d0e92ef9",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://www.cult-ui.com/r/halo-progress.json"
+  },
+  {
+    "component": "shimmer-button",
+    "originalSha256": "c85ffda63ba086d2078a8dacffdfc25f0b106e1566362fa251888a214ee3c010",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://magicui.design/r/shimmer-button.json"
+  },
+  {
+    "component": "blur-fade",
+    "originalSha256": "99a8e83aa8817f48e26d921e959ff9abefb5c2f1f0b72b166ed95e88e015949f",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://magicui.design/r/blur-fade.json"
+  },
+  {
+    "component": "text-animate",
+    "originalSha256": "0ebece79c412661f57bc0489416b55a376e9f006e0f558162bb6e91f814a99a6",
+    "localChanges": ["relative local import paths; further calm-motion/colour changes tracked by git"],
+    "registry": "https://magicui.design/r/text-animate.json"
+  },
+  {
+    "component": "field",
+    "originalSha256": "4a4d17fcb933513f637f9f7e2daf5d8348f7de086b29738337dec7e6dd1819a0",
+    "registry": "https://ui.shadcn.com/r/styles/new-york-v4/field.json",
+    "localChanges": ["relative cn/import paths; exact individual Radix primitive packages instead of aggregate radix-ui"]
+  },
+  {
+    "component": "label",
+    "originalSha256": "344bde38b8531615dbf8e14af3895517c24d8ef6ce56ddeda7e2e6fe4b5d0c00",
+    "registry": "https://ui.shadcn.com/r/styles/new-york-v4/label.json",
+    "localChanges": ["relative cn/import paths; exact individual Radix primitive packages instead of aggregate radix-ui"]
+  },
+  {
+    "component": "separator",
+    "originalSha256": "ad7d5403fe337160e41dbf04147896e448ae3a747b8d06660d627d74d60021bc",
+    "registry": "https://ui.shadcn.com/r/styles/new-york-v4/separator.json",
+    "localChanges": ["relative cn/import paths; exact individual Radix primitive packages instead of aggregate radix-ui"]
+  },
+  {
+    "component": "gradient-button-group",
+    "originalSha256": "c73068d496dd802b1de03124d00453853b90adcdbd70a4d623a41814fc4e3f3e",
+    "registry": "https://www.cult-ui.com/r/gradient-button-group.json",
+    "localChanges": [
+      "Original React tray/rim/well/ring/channel/raised surface retained; controlled public multi-choice values, text labels and keyboard semantics replace hardcoded app nav/icons/theme. Static graphite/lime; reduced motion disables transitions."
+    ]
+  },
+  {
+    "component": "metal-button",
+    "registry": "https://www.cult-ui.com/r/metal-button.json",
+    "originalSha256": "54a91e7e9404b1762117341fe3b3fece9c91296153130a973d8f3bc44a178c47",
+    "localChanges": [
+      "relative import paths; original MetalFx wrapper and native Button prop routing retained; shared app wrapper supplies silver/dark preset"
+    ]
+  },
+  {
+    "component": "button",
+    "registry": "https://ui.shadcn.com/r/styles/new-york-v4/button.json",
+    "originalSha256": "79dd6f75f8136394442202d6b8b922fb269eaad0a5dba579397c9d5b41f893bb",
+    "localChanges": ["relative cn import; original Slot.Root mapped to the same individual Radix Slot package"]
+  },
+  {
+    "component": "metal-fx",
+    "version": "2.0.11",
+    "license": "MIT",
+    "localChanges": [
+      "Published original ESM/type surface copied into src/vendor/metal-fx; lost/restored handlers mutate shared renderer only when the event canvas is the current renderer canvas",
+      "Native dark surface remains visible independently of decorative first-copy readiness",
+      "Allocation or shader initialization failure selects the existing original MetalFx fallback branch; per-instance failure ref prevents further initialization effects"
+    ],
+    "originalRuntimeSha256": "4d904d0a17e8139f655a98bb6fb3a8e38f394d293bb847eb460ccb32618bf495"
+  }
+]
