@@ -42,6 +42,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
+import { profileEnvFor } from './owner-settings.mjs';
 import {
   FOUNDER_VAULT_NAME,
   enrolledFounderPair,
@@ -1027,6 +1028,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
         // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
         // blocked (bank.offramp_cooling_unset).
+        // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
+        // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
+        BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
@@ -1114,6 +1118,8 @@ function serviceDefs(secrets) {
       env: () => ({
         ...c('svc-notify', PORTS.notify),
         DATABASE_URL: dbUrl('svc_notify', secrets),
+        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
+        IDENTITY_URL: urlOf('identity'),
         TRADE_URL: urlOf('trade'),
         MATCHING_URL: urlOf('matching'),
         // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
@@ -1170,7 +1176,13 @@ function serviceDefs(secrets) {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
       // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
+      // The out-of-sample criteria and the holdout are the TEST profile's labelled values (tooling/profiles/test-owner-values.json).
+      env: () => ({
+        ...c('svc-quant', PORTS.quant),
+        DATABASE_URL: dbUrl('svc_quant', secrets),
+        TRADE_URL: urlOf('trade'),
+        ...profileEnvFor('quant', 'dev'),
+      }),
     },
     {
       name: 'execution',

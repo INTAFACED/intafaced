@@ -386,6 +386,12 @@ export type BankErrorCode =
   | 'bank.eligibility_unset'
   /** The address book holds as many entries as the owner allows. */
   | 'bank.address_book_full'
+  /** A linked bank account's IBAN, name or holder name is not usable. Nothing was linked. */
+  | 'bank.linked_account_invalid'
+  /** The customer has as many linked bank accounts as the owner's address-book cap allows. */
+  | 'bank.linked_accounts_full'
+  /** No linked bank account of this customer has this id. */
+  | 'bank.linked_account_not_found'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */

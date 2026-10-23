@@ -110,7 +110,6 @@ const messages = {
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
   'Create an account ↗': 'Create an account ↗',
   'Contact support': 'Contact support',
-  'No public announcements service is connected': 'No public announcements service is connected',
   'Account notifications belong to your private inbox. They are not public announcements.':
     'Account notifications belong to your private inbox. They are not public announcements.',
   'Open account inbox': 'Open account inbox',
@@ -243,7 +242,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
     'Create an account ↗': 'Crear una cuenta ↗',
     'Contact support': 'Contactar con soporte',
-    'No public announcements service is connected': 'No hay un servicio de anuncios públicos conectado',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Las notificaciones de cuenta pertenecen a tu bandeja de entrada privada. No son anuncios públicos.',
     'Open account inbox': 'Abrir bandeja de entrada',
@@ -374,7 +372,6 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
       'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
     'Create an account ↗': 'Créer un compte ↗',
     'Contact support': 'Contacter l’assistance',
-    'No public announcements service is connected': 'Aucun service d’annonces publiques n’est connecté',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Les notifications du compte appartiennent à votre boîte de réception privée. Ce ne sont pas des annonces publiques.',
     'Open account inbox': 'Ouvrir la boîte de réception',

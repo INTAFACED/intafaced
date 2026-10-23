@@ -7,6 +7,7 @@ import type { ExecuteReply } from '@/lib/desk/approval-types';
 import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
 import { failureRefusal } from '@/lib/ops-desk/execute';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { describeBlockers } from './closure-blockers';
 
 /**
  * Run an approved staff close or reopen (J-ops-console-04 #7) against identity, as the signed-in founder.
@@ -29,7 +30,9 @@ export function closureReply(request: ClosureRequest, result: AccountClosureResu
       ok: true,
       detail: `Identity ${action === 'close' ? 'closed' : 'reopened'} ${request.userId} at version ${result.after.version}, approved by ${result.approverUserId.slice(0, 8)}.`,
     };
-  return { ok: false, refusal: explainRefusal(result.code, 409, false) };
+  const refusal = explainRefusal(result.code, 409, false);
+  const still = result.outcome === 'refused' ? describeBlockers(result.blockers) : null;
+  return { ok: false, refusal: still ? { ...refusal, body: `${refusal.body} Still open: ${still}.` } : refusal };
 }
 
 export function closureExecute(ctx: FounderCallContext): ExecuteFn {

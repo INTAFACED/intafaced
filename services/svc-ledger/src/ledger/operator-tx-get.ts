@@ -4,7 +4,7 @@ import { recordLookup, type LookupActor, type LookupRecorder } from './operator-
 
 /**
  * Operator transaction detail (OPS-ledger-desk-01, ops-console-ledger-desk-001): one booked transaction by id, for a
- * founder session holding `admin:treasury` (second factor required). A read, never a post.
+ * founder's `admin:read` with a second factor, or `admin:treasury` (`requireLookupAuthority`). A read, never a post.
  *
  * Returns each posting (account id, asset, direction, amount, balance after) as decimal strings, the business key,
  * module, reason, ledger time and hash links. The lookup writes an access row first and is refused if it cannot

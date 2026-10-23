@@ -3,9 +3,15 @@ import {
   QUANT_BACKTEST_ASSUMPTIONS,
   QUANT_FEE_ROLES,
   QUANT_FILL_TIMINGS,
+  QUANT_SPLIT_PRESETS,
+  quantBacktestResultSchema,
+  quantOutOfSampleFrom,
+  quantVerdictCriteriaSchema,
   type QuantBacktestInput,
   type QuantBacktestResult,
   type QuantSignalRules,
+  type QuantSplitPreset,
+  type QuantVerdictCriteria,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
@@ -16,6 +22,8 @@ import {
   QUANT_CASH_UNSET,
   QUANT_COST_UNSET,
   QUANT_FILL_TIMING_UNSET,
+  QUANT_HOLDOUT_DATE_UNSET,
+  QUANT_HOLDOUT_OVERLAP,
   QuantError,
 } from '../errors.js';
 import { compileSignalRules } from '../studio/modules.js';
@@ -24,6 +32,8 @@ import { logOf } from './log.js';
 import { metricsOf } from './metrics.js';
 import type { FeePort, HistoryPort } from './ports.js';
 import { simulateSignalRules } from './simulate.js';
+import { sectionsOf, verdictOf } from './verdict.js';
+import { z } from 'zod';
 
 type FillTiming = (typeof QUANT_FILL_TIMINGS)[number];
 
@@ -32,6 +42,21 @@ type FillTiming = (typeof QUANT_FILL_TIMINGS)[number];
  * engine is never answered for a request the newer engine would compute differently.
  */
 export const ENGINE_VERSION = 2;
+
+/** Fields only the service may set (ENGINE MT-6, MT-7). A request that sends them is run, and they are ignored. */
+const SERVICE_ONLY_INPUTS = ['outOfSampleStatus', 'strategyVariantCount'] as const;
+
+/** The owner values a split run is judged against and kept clear of. Each is null while it is blank. */
+export interface Judgement {
+  readonly criteria: QuantVerdictCriteria;
+  /** An instant with its UTC offset, or an ISO duration read as that long before the request. */
+  readonly holdoutStart: string | null;
+}
+
+export const NO_JUDGEMENT: Judgement = {
+  criteria: { minTrades: null, minReturnPercent: null, maxDrawdownPercent: null, maxShortfallPercent: null },
+  holdoutStart: null,
+};
 
 /** A delay longer than this many bars is refused as out of range: it would outlast most windows the history holds. */
 export const MAX_DELAY_BARS = 100;
@@ -77,9 +102,13 @@ export interface PreparedBacktest {
   readonly slippageBps: Amount;
   readonly delayBars: number;
   readonly riskSet: boolean;
+  readonly split: { readonly preset: QuantSplitPreset; readonly outOfSampleFromMs: number } | null;
+  readonly criteria: QuantVerdictCriteria;
+  readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null };
+  readonly ignoredInputs: readonly string[];
 }
 
-function instant(name: 'from' | 'to', raw: string): number {
+function instantOf(name: string, raw: string): number {
   const text = raw.trim();
   const at = EXPLICIT_OFFSET.test(text) ? Date.parse(text) : Number.NaN;
   // Date.parse rolls an impossible day forward (31 February becomes 3 March); a date that does not read back is refused.
@@ -99,6 +128,57 @@ function offsetOf(text: string): number {
   return (match[1] === '-' ? -1 : 1) * minutes * 60_000;
 }
 
+/**
+ * The out-of-sample split of the window (ENGINE BT-9): the latest half, third or quarter, or a chosen start, moved up to
+ * the next bar open. Absent, the run is not split and its verdict says so.
+ */
+function splitOf(split: QuantBacktestInput['split'], fromMs: number, toMs: number, spanMs: number): PreparedBacktest['split'] {
+  if (!split) return null;
+  const preset = split.preset.trim();
+  if (!(QUANT_SPLIT_PRESETS as readonly string[]).includes(preset)) {
+    throw new QuantError(QUANT_BACKTEST_WINDOW_INVALID, `split — choose one of ${QUANT_SPLIT_PRESETS.join(', ')}`);
+  }
+  const customMs = preset === 'custom' ? instantOf('out-of-sample start', split.outOfSampleFrom ?? '') : undefined;
+  const at = quantOutOfSampleFrom({ fromMs, toMs }, preset as QuantSplitPreset, spanMs, customMs);
+  if (at === null) {
+    throw new QuantError(QUANT_BACKTEST_WINDOW_INVALID, 'split — each part must hold at least one whole bar inside the window');
+  }
+  return { preset: preset as QuantSplitPreset, outOfSampleFromMs: at };
+}
+
+const DURATION = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?$/i;
+
+/** Where the owner's holdout begins: a fixed instant, or a span back from the request. Null when blank or empty. */
+export function holdoutStartMs(setting: string | null, now: number): number | null {
+  if (!setting) return null;
+  const span = DURATION.exec(setting);
+  if (span) {
+    const ms = ((Number(span[1] ?? 0) * 24 + Number(span[2] ?? 0)) * 60 + Number(span[3] ?? 0)) * 60_000;
+    return ms > 0 ? now - ms : null;
+  }
+  const at = Date.parse(setting);
+  return Number.isFinite(at) ? at : null;
+}
+
+/**
+ * Keeps the in-sample part clear of the owner's holdout when the run asks to. The in-sample part ends where the
+ * out-of-sample part starts, or at the window's end when the run is not split. A run that does not ask says so.
+ */
+function holdoutOf(enforced: boolean, setting: string | null, inSampleEndMs: number, now: number): PreparedBacktest['holdout'] {
+  if (!enforced) return { enforced: false, fromMs: null };
+  const fromMs = holdoutStartMs(setting, now);
+  if (fromMs === null) {
+    throw new QuantError(QUANT_HOLDOUT_DATE_UNSET, 'holdout — the owner has not set where the holdout begins; nothing is assumed');
+  }
+  if (inSampleEndMs > fromMs) {
+    throw new QuantError(
+      QUANT_HOLDOUT_OVERLAP,
+      `holdout — the in-sample part runs to ${new Date(inSampleEndMs).toISOString()}, into the holdout that begins ${new Date(fromMs).toISOString()}`,
+    );
+  }
+  return { enforced: true, fromMs };
+}
+
 function hash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 12);
 }
@@ -112,6 +192,7 @@ export async function prepareBacktest(
   strategy: StrategyAtVersion,
   fees: FeePort,
   now: number,
+  judgement: Judgement = NO_JUDGEMENT,
 ): Promise<PreparedBacktest> {
   if (!strategy.modules) {
     throw new QuantError(QUANT_BACKTEST_RULES_REQUIRED, 'a bar backtest runs signal rules; this version trades by order blocks');
@@ -121,8 +202,8 @@ export async function prepareBacktest(
   if (!DECIMAL.test(cashText) || parseAmount(cashText) <= 0n) {
     throw new QuantError(QUANT_CASH_UNSET, 'cash — starting cash must be an amount above 0');
   }
-  const fromMs = instant('from', input.from);
-  const toMs = instant('to', input.to);
+  const fromMs = instantOf('from', input.from);
+  const toMs = instantOf('to', input.to);
   if (fromMs >= toMs) throw new QuantError(QUANT_BACKTEST_WINDOW_INVALID, 'from must be before to');
   if (toMs > now) throw new QuantError(QUANT_BACKTEST_WINDOW_OPEN, 'to is after now; a backtest reads closed bars only');
 
@@ -147,6 +228,8 @@ export async function prepareBacktest(
   }
 
   const rules = compileSignalRules(strategy.modules).rules;
+  const split = splitOf(input.split, fromMs, toMs, barSpanMs(rules.barSize as BarSize));
+  const holdout = holdoutOf(input.enforceHoldout === true, judgement.holdoutStart, split?.outOfSampleFromMs ?? toMs, now);
   const fee = await fees.fee(rules.symbol);
   const feeRole = role as PreparedBacktest['feeRole'];
   const prepared = {
@@ -163,9 +246,15 @@ export async function prepareBacktest(
     slippageBps: parseAmount(slippageText),
     delayBars: Number(delayText),
     riskSet: [strategy.risk.maxDrawdown, strategy.risk.maxNotional, strategy.risk.kill].some((value) => value.trim() !== ''),
+    split,
+    criteria: judgement.criteria,
+    holdout,
+    ignoredInputs: SERVICE_ONLY_INPUTS.filter((name) => input[name] !== undefined),
   };
-  const windowHash = hash([fromMs, toMs]);
-  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet]);
+  // The split and the holdout choice are part of the window; the criteria decide the verdict, so a changed one is a new run.
+  const windowHash = split || holdout.enforced ? hash([fromMs, toMs, split, holdout.enforced]) : hash([fromMs, toMs]);
+  const judged = split ? [prepared.criteria] : [];
+  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet, ...judged]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
   return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
@@ -184,15 +273,36 @@ export async function readWindowBars(prepared: PreparedBacktest, history: Histor
 }
 
 /** Runs the engine on bars already read. The result holds only what this run computed. */
-/** What a run stores: everything but its row id, the report and the log, which are derived from it on every read. */
-export type StoredBacktest = Omit<QuantBacktestResult, 'runId' | 'metrics' | 'log'>;
+/**
+ * What a run stores: everything but its row id and what is derived from it on every read (the report, the log, the
+ * split sections and the verdict), plus the owner's criteria as they stood when it ran. A run stored before the split
+ * existed reads as not split, not counted and not enforcing the holdout.
+ */
+const storedBacktestSchema = quantBacktestResultSchema
+  .omit({ runId: true, metrics: true, log: true, sections: true, verdict: true })
+  .extend({
+    split: quantBacktestResultSchema.shape.split.default(null),
+    variantCount: quantBacktestResultSchema.shape.variantCount.default(null),
+    holdout: quantBacktestResultSchema.shape.holdout.default({ enforced: false, from: null }),
+    ignoredInputs: quantBacktestResultSchema.shape.ignoredInputs.default([]),
+    criteria: quantVerdictCriteriaSchema.default(NO_JUDGEMENT.criteria),
+  });
+export type StoredBacktest = z.infer<typeof storedBacktestSchema>;
 
-/** A stored run as the caller reads it: its row id, and the report and log computed from what it stored. */
-export function presentBacktest(stored: StoredBacktest, runId: string): QuantBacktestResult {
-  return { ...stored, runId, metrics: metricsOf(stored), log: logOf(stored) };
+/** A stored bar backtest, or null when the response is not one (another run kind, or a run of the older fills form). */
+export function readStoredBacktest(response: unknown): StoredBacktest | null {
+  const parsed = storedBacktestSchema.safeParse(response);
+  return parsed.success ? parsed.data : null;
 }
 
-export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[]): StoredBacktest {
+/** A stored run as the caller reads it: its row id, and the report, log, sections and verdict computed from it. */
+export function presentBacktest(stored: StoredBacktest, runId: string): QuantBacktestResult {
+  const { criteria, ...rest } = stored;
+  const sections = stored.split ? sectionsOf(stored, stored.split.outOfSampleFrom) : null;
+  return { ...rest, runId, metrics: metricsOf(stored), log: logOf(stored), sections, verdict: verdictOf(sections, criteria) };
+}
+
+export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], variantCount: number | null = null): StoredBacktest {
   const barSize = prepared.rules.barSize as BarSize;
   const ran = simulateSignalRules({
     rules: prepared.rules,
@@ -225,6 +335,16 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[]): Sto
       (name) => ran.assumptions.includes(name) || (name === 'risk_limits_not_simulated' && prepared.riskSet),
     ),
     totals: ran.totals,
+    split: prepared.split
+      ? { preset: prepared.split.preset, outOfSampleFrom: new Date(prepared.split.outOfSampleFromMs).toISOString() }
+      : null,
+    variantCount,
+    holdout: {
+      enforced: prepared.holdout.enforced,
+      from: prepared.holdout.fromMs === null ? null : new Date(prepared.holdout.fromMs).toISOString(),
+    },
+    ignoredInputs: [...prepared.ignoredInputs],
+    criteria: prepared.criteria,
     simulated: true,
     live: false,
     claimLabel: 'Historical simulation — not a forecast',

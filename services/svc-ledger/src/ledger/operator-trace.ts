@@ -6,7 +6,7 @@ import { recordLookup, type LookupActor, type LookupRecorder } from './operator-
  * OPERATOR TRACE: a business key to the transaction it booked (OPS-ledger-desk-01, ops-console-ledger-desk-005).
  *
  * The service doors `txByKey` / `txById` answer services. An operator investigating "did this withdrawal book?" had no
- * read at all. This is that read, for a founder session holding `admin:treasury` (which requires a second factor).
+ * read at all. This is that read, for `admin:read` with a second factor (`requireLookupAuthority`).
  *
  * A read, never a post. Business keys are shown, never minted here. Amounts leave as decimal strings. A key with no
  * transaction is an honest `found: false`, never an invented row. The lookup writes an access row first and is refused

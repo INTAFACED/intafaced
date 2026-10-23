@@ -81,8 +81,19 @@ export const centreCopy = defineCopy('notifications-centre', {
   removed: 'Address removed.',
   notRemoved: 'There was nothing to remove.',
   actionFailed: 'That did not go through. Check your connection and try again.',
-  pushWhy:
-    'Phone notifications need a registered device. Registering one is not available from the web app, so there is nothing to add here.',
+  pushWhy: 'Phone and browser notifications need a registered device. Allow them on this device to register it.',
+  pushAllow: 'Allow notifications on this device',
+  pushUnsupported: 'This browser cannot receive push notifications. Your in-app inbox still works.',
+  pushStateAsk: 'This browser has not been asked to allow notifications.',
+  pushStateAllowed: 'Allowed on this device.',
+  pushStateAllowedNotRegistered: 'Allowed on this device, not registered.',
+  pushStateDenied: 'Blocked on this device.',
+  pushDeniedHow:
+    'No alert reaches this device while notifications are blocked; your in-app inbox still works. To allow them, open this site’s settings in your browser, allow notifications, then press the button again.',
+  pushDismissed: 'The browser was not given an answer, so nothing changed. Press the button again to be asked.',
+  pushNoGateway: 'Registering this device needs a push delivery gateway. It is switched off in this build.',
+  pushSubscribeFailed: 'This browser could not set up push for this site. Nothing was registered. Try again in a moment.',
+  pushCodeSent: 'We asked for a code to be sent to this device. Type it below to confirm it.',
   pushDevice: 'A device is registered.',
   // Topic table
   tableTopic: 'Category',
