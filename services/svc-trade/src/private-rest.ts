@@ -156,6 +156,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
   return (SPOT_ORDER_TYPES as readonly string[]).includes(type);
 }
 
+const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface PrivateRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
@@ -204,7 +206,7 @@ export interface PrivateRestDeps {
   /** Native matching PATCH. Qty-down same price only. */
   amendOrder?(principal: Principal, orderId: string, input: AmendOrderInput): Promise<AmendOrderOutcome>;
   /** Cancel every open/pending order (optional market). Sequential money path. */
-  cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]>;
+  cancelAllOrders(principal: Principal, marketId?: string, kind?: 'spot' | 'futures' | 'options'): Promise<OrderRecord[]>;
   /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
   armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
@@ -564,8 +566,14 @@ async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]
  * An open order carries what it still holds as `hold`; other orders carry `null` (nothing stated). The hold is shown
  * beside the order, never needed to act on it: a failed hold read states nothing rather than failing the orders read.
  */
-async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
-  const holds = deps.orderHolds && orders.length > 0 ? await deps.orderHolds(orders).catch(() => new Map<string, OrderHold>()) : null;
+async function withHold(deps: PrivateRestDeps, orders: readonly OrderRecord[], log: { warn: (obj: object, msg: string) => void }) {
+  const holds =
+    deps.orderHolds && orders.length > 0
+      ? await deps.orderHolds(orders).catch((err: unknown) => {
+          log.warn({ err, orders: orders.length }, 'order hold read failed; the orders read states no hold');
+          return new Map<string, OrderHold>();
+        })
+      : null;
   return <W extends object>(order: OrderRecord, wire: W): W => (holds ? { ...wire, hold: holds.get(order.id) ?? null } : wire);
 }
 
@@ -1273,7 +1281,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
-      const withHeld = await withHold(deps, orders);
+      const withHeld = await withHold(deps, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
         wire.push({ ...withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))), serverTime });
@@ -1335,7 +1343,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
-      const withHeld = await withHold(deps, orders);
+      const withHeld = await withHold(deps, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
         wire.push(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
@@ -2645,6 +2653,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         results.push({ ...base, status: 'refused', error: invalidOrder('order id repeated in this batch', 'trade.batch_duplicate').body });
         continue;
       }
+      // Order ids are uuids. Anything else is no order of the caller's: refused as not found, never sent to the cancel
+      // path, where the database would refuse the id and the item would read as an unknown outcome.
+      if (!ORDER_ID_SHAPE.test(orderId)) {
+        const notFound = toCcxtError(new TradeError(`order ${orderId} not found`, 'trade.order_not_found'));
+        results.push({ ...base, status: 'refused', error: notFound?.body });
+        continue;
+      }
       seen.add(orderId);
       try {
         const order = await deps.cancelOrder(principal, orderId);
@@ -2888,14 +2903,20 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   // ── Cancel all (static path — before :id is fine; Fastify matches exact) ──
 
   /**
-   * DELETE /api/v1/orders[?symbol=] → TradeService.cancelAllOrders.
+   * DELETE /api/v1/orders[?symbol=][&kind=spot|futures|options] → TradeService.cancelAllOrders.
    * Same money path as single cancel (engine first, finalize second), sequential.
    * trade:write is enforced inside TradeService; jurisdiction here matches create/cancel.
+   * `kind` keeps the cancel to one product ("spot only"); any other value is refused, never read as "all".
    */
-  app.delete<{ Querystring: { symbol?: string } }>('/api/v1/orders', async (req, reply) => {
+  app.delete<{ Querystring: { symbol?: string; kind?: string } }>('/api/v1/orders', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
+
+    const kindRaw = req.query.kind;
+    if (kindRaw !== undefined && kindRaw !== 'spot' && kindRaw !== 'futures' && kindRaw !== 'options') {
+      return sendCcxt(reply, badRequest('kind must be spot, futures or options', 'trade.invalid_filter'));
+    }
 
     let marketId: string | undefined;
     const symbolRaw = req.query.symbol;
@@ -2909,7 +2930,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
 
     try {
-      const cancelled = await deps.cancelAllOrders(principal, marketId);
+      const cancelled = await deps.cancelAllOrders(principal, marketId, kindRaw);
       const symbolByMarket = new Map<string, string>();
       const wire = [];
       for (const order of cancelled) {
@@ -3060,7 +3081,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        const withHeld = await withHold(deps, [order]);
+        const withHeld = await withHold(deps, [order], req.log);
         return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
@@ -3082,7 +3103,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const symbol = market?.symbol ?? order.marketId;
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
-        const withHeld = await withHold(deps, [order]);
+        const withHeld = await withHold(deps, [order], req.log);
         return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
@@ -3104,7 +3125,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      const withHeld = await withHold(deps, [order]);
+      const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -3140,7 +3161,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
-      const withHeld = await withHold(deps, [order]);
+      const withHeld = await withHold(deps, [order], req.log);
       return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
     } catch (err) {
       const sent = sendDomainError(reply, err);

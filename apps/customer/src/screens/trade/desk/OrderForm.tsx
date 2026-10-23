@@ -241,8 +241,11 @@ function SideForm({
     }
   }, [restingId, openOrders]);
 
+  // Set by Flatten until its review opens; any other edit of the form drops it.
+  const flattenPending = useRef(false);
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
+    flattenPending.current = false;
     apply();
     setReview(null);
     setFailure(null);
@@ -250,9 +253,24 @@ function SideForm({
     setHint(null);
   };
 
+  // Flatten (Assets): the sell form takes every free lot as a market sell and opens its review once the order check
+  // allows it. The review number comes from the order itself, so pressing Flatten again for the same amount is the same
+  // order, never a second one.
+  useEffect(() => {
+    if (!suggestion?.flatten || side !== 'sell') return;
+    edit(() => {
+      setTotalEdit(null);
+      const lots = floorToLot(suggestion.amount, market.lotSize);
+      setAmount(lots ?? '');
+      // Less than one lot is nothing to sell: no review is opened for it.
+      flattenPending.current = lots !== null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion?.nonce]);
+
   // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
   useEffect(() => {
-    if (!suggestion) return;
+    if (!suggestion || suggestion.flatten) return;
     edit(() => {
       setPrice(padDecimals(suggestion.price, pricePlaces));
       setTotalEdit(null);
@@ -361,6 +379,14 @@ function SideForm({
     busy,
   });
   const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
+
+  useEffect(() => {
+    if (!flattenPending.current || type !== 'market') return;
+    if (canSend) {
+      flattenPending.current = false;
+      void startReview();
+    } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
+  });
 
   async function startReview() {
     if (!canSend || busyRef.current || !checked.ok) return;
@@ -1064,11 +1090,11 @@ export const OrderPanel = memo(function OrderPanel({
   const env = useDataEnv();
   const attempts = useRef(0);
 
-  // A book click means a limit order at that price.
+  // A book click means a limit order at that price; Flatten means a market sell.
   useEffect(() => {
     if (suggestion && suggestion.nonce !== lastSuggestion.current) {
       lastSuggestion.current = suggestion.nonce;
-      setType('limit');
+      setType(suggestion.flatten ? 'market' : 'limit');
     }
   }, [suggestion]);
 
