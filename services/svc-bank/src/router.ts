@@ -63,6 +63,7 @@ import { createAccountDetailsRouter, createEligibilityRouter } from './account-d
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
+import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
@@ -157,6 +158,14 @@ const destinationViewOutput = z.object({
   coolingOffEndsAt: z.string().nullable(),
   coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
   lookalikeConfirmedAt: z.string().nullable(),
+  ownership: z
+    .object({
+      state: z.enum(['none', 'pending', 'verified', 'expired']),
+      verifiedAt: z.string().nullable(),
+      validUntil: z.string().nullable(),
+      offerExpiresAt: z.string().nullable(),
+    })
+    .strict(),
 });
 
 const balanceAccountsOutput = z.object({
@@ -449,6 +458,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_request_conflict':
       case 'bank.limit_request_decided':
       case 'bank.loan_product_conflict':
+      case 'bank.wallet_proof_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -482,6 +492,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.withdraw_network_unsupported':
       case 'bank.address_checksum_mismatch':
       case 'bank.address_lookalike':
+      case 'bank.wallet_proof_expired':
+      case 'bank.wallet_proof_signature_invalid':
+      case 'bank.wallet_proof_wrong_signer':
       case 'bank.ramp_conflict':
       case 'bank.business_payroll_empty':
       case 'bank.earn_resume_pending_limit_unset':
@@ -541,6 +554,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
+      case 'bank.wallet_proof_not_found':
       case 'bank.linked_account_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.limit_request_self_decision':
@@ -577,7 +591,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
+      case 'bank.wallet_proof_window_unset':
+      case 'bank.wallet_proof_validity_unset':
       case 'bank.linked_accounts_full':
+      case 'bank.cash_out_over_available':
+      case 'bank.linked_account_unverified':
       case 'rail.bank':
       case 'bank.account_details_currencies_unset':
       case 'bank.eligibility_unset':
@@ -3914,6 +3932,43 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           ),
         ),
 
+      /**
+       * Prove the customer controls a saved wallet by signing a message with its key (W-withdraw-17; EIP-191, EVM).
+       * `start` offers the message to sign, open for the owner's `BANK_WALLET_PROOF_WINDOW_MINUTES`; `verify` recovers the
+       * signer and marks the entry proved for the owner's `BANK_WALLET_PROOF_VALID_DAYS`. Another signer is refused by
+       * name and the offer stays open. `bank:write`: nothing here adds an address or moves money, and a signature only
+       * the wallet's key can make is the proof.
+       */
+      ownership: router({
+        start: scopedProcedure('bank:write', { module: 'bank' })
+          .input(z.object({ destinationId: z.string().uuid() }).strict())
+          .output(
+            z.object({ proofId: z.string().uuid(), destinationId: z.string().uuid(), message: z.string(), expiresAt: z.string() }).strict(),
+          )
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => bank.ramps.startWalletProof({ userId: ctx.principal.userId, destinationId: input.destinationId })),
+          ),
+        verify: scopedProcedure('bank:write', { module: 'bank' })
+          .input(z.object({ proofId: z.string().uuid(), signature: z.string().min(1).max(200) }).strict())
+          .output(
+            z
+              .object({
+                proofId: z.string().uuid(),
+                destinationId: z.string().uuid(),
+                state: z.enum(['none', 'pending', 'verified', 'expired']),
+                verifiedAt: z.string().nullable(),
+                validUntil: z.string().nullable(),
+                offerExpiresAt: z.string().nullable(),
+              })
+              .strict(),
+          )
+          .mutation(async ({ ctx, input }) =>
+            guard(async () =>
+              bank.ramps.verifyWalletProof({ userId: ctx.principal.userId, proofId: input.proofId, signature: input.signature }),
+            ),
+          ),
+      }),
+
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(z.object({ destinationId: z.string().uuid(), idempotencyKey: z.string().min(1).max(128) }))
@@ -4935,6 +4990,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     workItems: createWorkItemsRouter(() => bank.transferOps.sql, guard),
     eligibility: createEligibilityRouter(bank, guard),
     linkedAccounts: createLinkedAccountsRouter(bank, guard),
+    cashOut: createCashOutRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
     bills: createBillsRouter(bank, stepUp),

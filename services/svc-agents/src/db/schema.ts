@@ -309,4 +309,62 @@ export const usageRecords = agents.table(
   ],
 );
 
-export const schema = { agentDefinitions, agentSessions, agentActions, usageWindows, usageRecords };
+/**
+ * Caps the user set. One row per user. Absence is unset, not zero and not unlimited.
+ * Amounts are numeric(38,18). The service does not invent a cap.
+ */
+export const userSpendLimits = agents.table('user_spend_limits', {
+  userId: text('user_id').primaryKey(),
+  assetId: text('asset_id').notNull(),
+  perCall: amount('per_call').notNull(),
+  perSession: amount('per_session').notNull(),
+  perPeriod: amount('per_period').notNull(),
+  period: text('period').notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** One stored set-request. The same key and body do not write the cap twice. */
+export const spendLimitRequests = agents.table(
+  'spend_limit_requests',
+  {
+    userId: text('user_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    digest: text('digest').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.idempotencyKey] })],
+);
+
+/**
+ * A hold against the user's caps. Not a balance and not a ledger post.
+ * `committed_amount` is the real cost, never a made-up figure, and only while committed.
+ */
+export const spendReservations = agents.table(
+  'spend_reservations',
+  {
+    userId: text('user_id').notNull(),
+    reservationKey: text('reservation_key').notNull(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => agentSessions.id),
+    assetId: text('asset_id').notNull(),
+    amount: amount('amount').notNull(),
+    committedAmount: amount('committed_amount'),
+    status: text('status').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.reservationKey] }), index('spend_reservations_session_idx').on(t.userId, t.sessionId)],
+);
+
+export const schema = {
+  agentDefinitions,
+  agentSessions,
+  agentActions,
+  usageWindows,
+  usageRecords,
+  userSpendLimits,
+  spendLimitRequests,
+  spendReservations,
+};

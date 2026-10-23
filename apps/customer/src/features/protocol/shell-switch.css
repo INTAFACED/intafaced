@@ -20,4 +20,11 @@
     background: var(--tb-hover);
     color: var(--tb-fg);
   }
+  /* Signed out below 1280 px there is no account menu, so the switch sits in a row of its own under the bar. */
+  .tb-switch-row {
+    display: flex;
+    padding: 8px 16px;
+    background: var(--tb-bg);
+    border-bottom: 1px solid var(--tb-line);
+  }
 }

@@ -73,7 +73,7 @@ describe('freeze and unfreeze take two founders', () => {
     const html = render();
     expect(html).toContain('Unfreeze the ledger');
     expect(html).toContain(`<code>${UNFREEZE_CONFIRM_PHRASE}</code>`);
-    expect(html).not.toContain('id="dk-reason"');
+    expect(html).not.toMatch(/id="[^"]*dk-reason"/);
     expect(html).toContain('Two different current founders must agree');
   });
   it('a read that returns no version switches the whole control off and says exactly why', () => {

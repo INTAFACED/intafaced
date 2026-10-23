@@ -78,6 +78,9 @@ export const SCOPES = [
 
   // Tax export — read-only lot packs over the caller's own ledger books.
   'tax:read',
+  // Tax settings — the caller's own cost-basis choices (matching method, lot
+  // picks, a price they enter for a lot). Never a ledger write.
+  'tax:write',
 
   // Ops business systems (CRM / team / revenue / projects). Non-custodial.
   'ops:read',
@@ -287,6 +290,11 @@ const SESSION_SCOPE_LIST = [
   // Issued with the service that mounts it — a scope for a router nobody can
   // call is the outage this table exists to stop.
   'tax:read',
+  // The caller's own cost-basis choices for that view: which matching method,
+  // which lot a sale used, a price they enter for a lot with no cost. Writes
+  // only svc-tax's own settings rows for the caller, moves no value and posts
+  // nothing to the ledger, so `minTier: 'none'` like the read.
+  'tax:write',
   // CRM / team directory / warehouse revenue / projects (ops.business-systems).
   // Non-custodial, minTier none. Issued with svc-ops — a scope for a router
   // nobody can call is the outage this table exists to stop. Payroll is not a

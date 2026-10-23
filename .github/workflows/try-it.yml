@@ -186,6 +186,8 @@ jobs:
         if: failure()
         run: |
           for f in "$LOCAL_STACK_STATE"/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+          if [ -f "$RUNNER_TEMP/gate.log" ]; then echo "::group::password gate"; tail -80 "$RUNNER_TEMP/gate.log"; echo "::endgroup::"; fi
+          docker logs try-tunnel 2>&1 | tail -40 || true
 
       - name: Stop
         if: always()

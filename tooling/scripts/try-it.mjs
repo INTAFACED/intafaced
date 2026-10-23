@@ -134,10 +134,12 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;p
 .error{color:#e5484d}.ok{color:#30a46c}
 </style>`;
 
+// The tunnel's edge rewrites email addresses in HTML into a script-decoded link (email obfuscation), which hid the demo
+// account's address from the link check on the first live run. `email_off` comments and `no-transform` turn that off.
 const page = (title, body) =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
   `<meta name="robots" content="noindex"><title>${escapeHtml(title)}</title>${STYLE}</head><body>` +
-  `<div class="test" role="status">TEST · LOCAL TEST STACK · NOT REAL MONEY</div><main>${body}</main></body></html>`;
+  `<div class="test" role="status">TEST · LOCAL TEST STACK · NOT REAL MONEY</div><main><!--email_off-->${body}<!--/email_off--></main></body></html>`;
 
 export function loginPage({ error = null, next = '/' } = {}) {
   return page(
@@ -301,7 +303,7 @@ export function createGate({ password, publicOrigin, port = 8088, endsAt = null,
     res.writeHead(status, {
       'content-type': type,
       'content-length': Buffer.byteLength(body),
-      'cache-control': 'no-store',
+      'cache-control': 'no-store, no-transform',
       'referrer-policy': 'same-origin',
       'x-robots-tag': 'noindex',
       'x-frame-options': 'DENY',
@@ -316,6 +318,14 @@ export function createGate({ password, publicOrigin, port = 8088, endsAt = null,
   };
 
   return http.createServer(async (req, res) => {
+    // One line per refusal or redirect, for the run log: status, method, path, and whether a gate cookie came and is
+    // known. Never the cookie, a query string or a body.
+    res.on('finish', () => {
+      if (res.statusCode < 300) return;
+      const t = gateToken(req.headers.cookie);
+      const path = String(req.url ?? '').split('?')[0];
+      console.log(`gate ${res.statusCode} ${req.method} ${path} cookie=${t === null ? 'none' : sessions.has(t) ? 'known' : 'unknown'}`);
+    });
     // Only these names are served (the same DNS-rebinding guard the Customer server keeps).
     if (!hosts.has(req.headers.host ?? '')) return send(res, 403, 'forbidden', 'text/plain');
     // A request that names an origin must come from the link itself; a cross-site request stops here.
@@ -444,9 +454,12 @@ async function cmdCheck(base) {
   const password = readPassword();
   const origin = new URL(base).origin;
   const steps = [];
-  const step = (ok, what) => {
+  // On a failure it prints what came back (status, Location, the first part of a body), never a cookie or a token.
+  const step = (ok, what, res, body) => {
     steps.push(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
     if (!ok) {
+      if (res) steps.push(`     got HTTP ${res.status}${res.headers.get('location') ? ` -> ${res.headers.get('location')}` : ''}`);
+      if (typeof body === 'string') steps.push(`     body: ${body.replace(/\s+/g, ' ').slice(0, 300)}`);
       console.log(steps.join('\n'));
       fail(`check failed: ${what}`);
     }
@@ -472,19 +485,26 @@ async function cmdCheck(base) {
   const cookie = right.headers.get('set-cookie')?.split(';')[0];
   step(right.status === 303 && cookie?.startsWith(`${GATE_COOKIE}=`), 'the right password sets the gate cookie');
   const start = await get('/__try/', cookie);
-  step(start.status === 200 && (await start.text()).includes(DEMO.email), 'the start page names the demo account');
+  const startText = await start.text();
+  step(start.status === 200 && startText.includes(DEMO.email), 'the start page names the demo account', start, startText);
   const shell = await get('/', cookie);
-  step(shell.status === 200 && (await shell.text()).includes('local-test-stack-banner'), "the app's own page loads, with the TEST banner");
+  const shellText = await shell.text();
+  step(
+    shell.status === 200 && shellText.includes('local-test-stack-banner'),
+    "the app's own page loads, with the TEST banner",
+    shell,
+    shellText,
+  );
   const signIn = await fetch(`${origin}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin, cookie, 'content-type': 'application/json' },
     body: JSON.stringify({ identifier: DEMO.email, password }),
   });
   const token = (await signIn.json())?.result?.data?.accessToken;
-  step(signIn.status === 200 && Boolean(token), 'the demo account signs in through the link');
+  step(signIn.status === 200 && Boolean(token), 'the demo account signs in through the link', signIn);
   const bal = await fetch(`${origin}/api/v1/account/balance`, { headers: { origin, cookie, authorization: `Bearer ${token}` } });
   const usdt = bal.status === 200 ? (await bal.json()).balances?.[TEST_CREDIT.asset]?.free : null;
-  step(typeof usdt === 'string' && usdt.length > 0, `the demo account reads its TEST ${TEST_CREDIT.asset} through the link`);
+  step(typeof usdt === 'string' && usdt.length > 0, `the demo account reads its TEST ${TEST_CREDIT.asset} through the link`, bal);
   console.log(steps.join('\n'));
 }
 

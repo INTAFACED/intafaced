@@ -16,7 +16,12 @@ export interface PlacementOptions {
 }
 
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
-const ENGINE_STP_MODE = 'cancel_maker';
+export const ENGINE_STP_MODE = 'cancel_maker';
+
+/** True for the one self-trade mode the engine applies, whether or not the caller says it. */
+export function isEngineStpMode(value: unknown): boolean {
+  return value === ENGINE_STP_MODE;
+}
 
 /**
  * `replay` is true when the caller's clientOrderId already names an order. A deadline means "do not create this after
@@ -30,7 +35,7 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
   if (!replay && options.requestDeadline !== undefined && Date.parse(options.requestDeadline) <= now.getTime()) {
     throw new TradeError('the request deadline has passed; nothing was placed', 'trade.request_expired');
   }
-  if (options.stpMode !== undefined && options.stpMode !== ENGINE_STP_MODE) {
+  if (options.stpMode !== undefined && !isEngineStpMode(options.stpMode)) {
     throw new TradeError(
       `self-trade mode ${options.stpMode} is not supported; the engine cancels the resting order`,
       'trade.stp_mode_unsupported',

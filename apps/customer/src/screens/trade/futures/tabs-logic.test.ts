@@ -8,6 +8,7 @@ import {
   liquidatedRows,
   nextFundingAt,
   pastCallCap,
+  percentOfBps,
   sameContract,
   signedAmount,
 } from './tabs-logic';
@@ -64,10 +65,11 @@ describe('historyRows and historyCsv', () => {
     expect(liquidatedRows(rows).map((p) => p.id)).toEqual(['b']);
   });
   it('builds the csv with a header, protected negative cells and blanks for unknowns', () => {
-    const csv = historyCsv([row({ realizedPnl: '-30', markPrice: null })]);
-    const [head, line] = csv.split('\r\n');
-    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Status,Opened at');
-    expect(line).toBe('BTC/USDT:USDT,long,1.5,100,,-30,closed,2026-01-01T00:00:00.000Z');
+    const csv = historyCsv([row({ realizedPnl: '-30', markPrice: null }), row({ realizedPnl: '7', fees: '0.4' })]);
+    const [head, line, paid] = csv.split('\r\n');
+    expect(head).toBe('Contract,Side,Size,Entry,Exit,Realised PnL,Fees,Status,Opened at');
+    expect(line).toBe('BTC/USDT:USDT,long,1.5,100,,-30,,closed,2026-01-01T00:00:00.000Z');
+    expect(paid).toBe('BTC/USDT:USDT,long,1.5,100,110,7,0.4,closed,2026-01-01T00:00:00.000Z');
   });
 });
 
@@ -113,5 +115,14 @@ describe('sameContract', () => {
     expect(sameContract('BTC/USDT:USDT', 'btc-usdt-usdt')).toBe(true);
     expect(sameContract('BTC/USDT', 'ETH/USDT')).toBe(false);
     expect(sameContract(null, null)).toBe(false);
+  });
+});
+
+describe('percentOfBps', () => {
+  it('writes whole bps as a percent by place value, with no float', () => {
+    expect(percentOfBps(500)).toBe('5.00');
+    expect(percentOfBps(2_000)).toBe('20.00');
+    expect(percentOfBps(5)).toBe('0.05');
+    expect(percentOfBps(0)).toBe('0.00');
   });
 });
