@@ -558,6 +558,7 @@ function toTrpcError(err: unknown): TRPCError {
 
       case 'bank.limit_request_not_found':
       case 'bank.wallet_proof_not_found':
+      case 'bank.payee_not_found':
       case 'bank.linked_account_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.limit_request_self_decision':
@@ -599,6 +600,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.linked_accounts_full':
       case 'bank.cash_out_over_available':
       case 'bank.rail_send_over_available':
+      case 'bank.payee_cooling_unset':
+      case 'bank.payee_cooling_active':
+      case 'bank.payee_invite_unwired':
       case 'bank.linked_account_unverified':
       case 'rail.bank':
       case 'bank.account_details_currencies_unset':

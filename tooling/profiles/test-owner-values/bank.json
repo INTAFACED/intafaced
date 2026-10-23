@@ -46,6 +46,11 @@
       "value": "24",
       "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
     },
+    "BANK_PAYEE_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved bank recipient waits before money may go to it (J-bank-04 #2)."
+    },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "30",

@@ -14,6 +14,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { BankError } from '../errors.js';
 import type { SpaceRecord, SpaceService } from '../spaces/space-service.js';
 import { isIbanRef } from '../withdraw-destination.js';
+import type { PayeeService } from './payees.js';
 
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
 export type BankRail = (typeof BANK_RAILS)[number];
@@ -45,12 +46,14 @@ export interface RailRequirement {
   readonly blocker: 'rail.bank';
 }
 
-export interface RailSendAsk {
+/** A send to details typed for this send, or to a saved recipient (`./payees.ts`) once its cooling-off has passed. */
+export type RailSendAsk = {
   readonly fromSpaceId: string;
   readonly amount: string;
-  readonly rail: BankRail;
-  readonly recipient: Readonly<Record<string, string>>;
-}
+} & (
+  | { readonly rail: BankRail; readonly recipient: Readonly<Record<string, string>>; readonly payeeId?: undefined }
+  | { readonly payeeId: string; readonly rail?: undefined; readonly recipient?: undefined }
+);
 
 export interface RailSendCheck {
   readonly assetId: string;
@@ -176,6 +179,7 @@ export class RailSendService {
   constructor(
     private readonly sql: Sql,
     private readonly spaces: Pick<SpaceService, 'find' | 'balanceOf'>,
+    private readonly payees: Pick<PayeeService, 'find' | 'assertCooled'>,
   ) {}
 
   requirements(): RailRequirement[] {
@@ -192,30 +196,33 @@ export class RailSendService {
    * The screen asks this before the person spends a code, so a typo is answered on the form.
    */
   async check(userId: string, ask: RailSendAsk): Promise<RailSendCheck> {
-    const { space, amount } = await this.entry(userId, ask);
+    const { space, amount, rail, recipient } = await this.entry(userId, ask);
+    await this.payees.assertCooled(userId, rail, recipient);
     const available = await this.available(space, amount);
     return { assetId: space.assetId, amount: formatAmount(amount), available: formatAmount(available) };
   }
 
   /** Ask to send. Kept `refused` with `rail.bank`; nothing is held or posted. */
   async send(userId: string, ask: RailSendAsk & { readonly requestId: string }): Promise<RailSendView> {
-    const { space, amount, recipient } = await this.entry(userId, ask);
+    const { space, amount, rail, recipient } = await this.entry(userId, ask);
     const fromSpaceId = space.id;
     const prior = await this.row(ask.requestId);
-    if (prior) return view(same(prior, userId, { fromSpaceId, amount, rail: ask.rail, recipient }));
+    // A send already kept is answered as kept: a later change to the recipient or the window does not undo it.
+    if (prior) return view(same(prior, userId, { fromSpaceId, amount, rail, recipient }));
+    await this.payees.assertCooled(userId, rail, recipient);
     await this.available(space, amount);
     const rows = await this.sql<IntentRow[]>`
       INSERT INTO bank.rail_send_intents (id, user_id, from_space_id, asset_id, amount, rail, recipient, status, refusal_code)
       VALUES (
         ${ask.requestId}::uuid, ${userId}, ${fromSpaceId}::uuid, ${space.assetId}, ${formatAmount(amount)}::numeric,
-        ${ask.rail}, ${this.sql.json(recipient)}, 'refused', 'rail.bank'
+        ${rail}, ${this.sql.json(recipient)}, 'refused', 'rail.bank'
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
     `;
     const row = rows[0] ?? (await this.row(ask.requestId));
     if (!row) throw new BankError('The send was not kept', 'bank.rail_send_conflict');
-    return view(same(row, userId, { fromSpaceId, amount, rail: ask.rail, recipient }));
+    return view(same(row, userId, { fromSpaceId, amount, rail, recipient }));
   }
 
   /** The customer's own sends over a bank rail, newest first. */
@@ -226,7 +233,10 @@ export class RailSendService {
     return rows.map(view);
   }
 
-  /** The amount, the rail's form, then the space: not found and not yours read the same, as every space door does. */
+  /**
+   * The amount, the rail's form (or the saved recipient's), then the space: not found and not yours read the same, as
+   * every space door does. The recipient's cooling-off comes after, in `check` and `send`.
+   */
   private async entry(userId: string, ask: RailSendAsk) {
     let amount: Amount;
     try {
@@ -235,12 +245,21 @@ export class RailSendService {
       throw invalid('Enter an amount with up to 18 decimals');
     }
     if (amount <= 0n) throw invalid('The amount to send must be above zero');
-    const recipient = checkRecipient(ask.rail, ask.recipient);
+    let rail: BankRail;
+    let recipient: Record<string, string>;
+    if (ask.payeeId !== undefined) {
+      const payee = await this.payees.find(userId, ask.payeeId);
+      rail = payee.rail;
+      recipient = checkRecipient(payee.rail, payee.recipient);
+    } else {
+      rail = ask.rail;
+      recipient = checkRecipient(ask.rail, ask.recipient);
+    }
     const fromSpaceId = ask.fromSpaceId.trim().toLowerCase();
     const space = await this.spaces.find(fromSpaceId);
     if (!space || space.userId !== userId) throw new BankError(`Space ${fromSpaceId} not found`, 'bank.space_not_found');
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
-    return { space, amount, recipient };
+    return { space, amount, rail, recipient };
   }
 
   /** The space's available balance from the ledger, refusing an amount above it. */

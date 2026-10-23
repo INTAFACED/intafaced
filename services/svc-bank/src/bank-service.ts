@@ -13,6 +13,7 @@ import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
 import { CashOutService } from './cash-out/cash-out.js';
 import { RailSendService } from './rail-sends/rail-sends.js';
+import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
@@ -83,6 +84,8 @@ export interface BankServices {
   readonly cashOut: CashOutService;
   /** BK-xfer-02: send to a bank account over a bank rail. Kept refused with `rail.bank`; nothing is held or posted. */
   readonly railSends: RailSendService;
+  /** BK-xfer-06: the recipient book for bank rails, with the owner's cooling-off on a new recipient. */
+  readonly railPayees: PayeeService;
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
@@ -102,6 +105,8 @@ export interface BankServices {
 }
 
 export interface BankServiceOptions {
+  /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
+  payeeCoolingHours?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
   nativeAssetId?: string;
   /**
@@ -260,6 +265,10 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
       options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
   });
   const deposits = new DepositService(sql, options.deposits ?? {});
+  // The owner's window for a new recipient: a value passed in wins, otherwise the live env. Blank refuses a send.
+  const railPayees = new PayeeService(sql, () =>
+    options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
+  );
   const business = new BusinessService(
     sql,
     ledger,
@@ -302,7 +311,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     addMoney,
     linkedAccounts,
     cashOut: new CashOutService(sql, { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts }),
-    railSends: new RailSendService(sql, spaces),
+    railSends: new RailSendService(sql, spaces, railPayees),
+    railPayees,
     deposits,
     autoInvest,
     business,
