@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
@@ -485,4 +485,87 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
   });
   expect(close.status, JSON.stringify(close.body)).toBe(200);
   await until(positionSize, (s) => s === '0', 'no open position after the close');
+});
+
+test(`${J} #7 opens beyond the open-interest share and with no limit published: refused with the room left, then refused by name`, async ({
+  page,
+}) => {
+  const who = account();
+  const me = await api(who);
+  const SIZE_OVER = '0.2';
+  const order = (amount, key) =>
+    me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-7-${key}-${Date.now()}`,
+      // The tier step is #6's; naming the top TEST tier keeps it out of the way here.
+      confirmTier: 4,
+    });
+  const preview = (size) => me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size, leverage: LEVERAGE });
+
+  // The stack publishes LOCAL TEST open-interest limits on the TEST perpetual (local-test-gates.mjs TEST_FUTURES_OI_LIMITS);
+  // the preview reads them back, with the room this account has.
+  const published = (await preview('0.001')).body.openInterest;
+  expect(published, 'the TEST perpetual publishes open-interest limits').toMatchObject({ binding: 'account' });
+  expect(published.accountCommitted).toBe('0');
+  const restore = [`oiLimit=${published.limit}`, `oiShareBps=${published.shareBps}`];
+  const ticket = page.getByRole('region', { name: 'Order ticket' });
+  const row = () =>
+    ticket
+      .locator('div')
+      .filter({ has: page.getByText('Open interest you can add', { exact: true }) })
+      .last();
+  async function review(size) {
+    await ticket.getByRole('textbox', { name: 'Size' }).fill(size);
+    await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+    await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+    await expect(ticket.getByText('Open interest you can add', { exact: true })).toBeVisible();
+  }
+  try {
+    // One basis point per account: with a TEST limit of 1000 BTC, one account may hold 0.1 BTC.
+    tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiShareBps=1');
+    await expect.poll(async () => (await preview('0.001')).body.openInterest?.accountCap).toBe('0.1');
+
+    // The review shows the room before Confirm, and names the rule when the size is past it; Open stays off.
+    await desk(page);
+    await review(SIZE_OVER);
+    await expect(row()).toContainText('0.1 BTC');
+    await expect(ticket.getByText('One account may hold up to 0.1 BTC', { exact: false })).toBeVisible();
+    const line = ticket.locator('[data-code="trade.oi_share_limit"]');
+    await expect(line).toContainText('room left 0.1 BTC');
+    await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+
+    // The service refuses on its own with the room left, before any hold.
+    const before = await me.balances();
+    const over = await order(SIZE_OVER, 'over');
+    expect(over.status, JSON.stringify(over.body)).toBe(422);
+    expect(over.body.error).toBe('trade.oi_share_limit');
+    expect(over.body.message).toContain(
+      `past the 0.1 BTC one account may hold (0.01% of the market's limit of ${published.limit} BTC); room left 0.1 BTC`,
+    );
+    expect(await me.balances()).toEqual(before);
+    expect((await me.get('/api/v1/futures/orders?scope=open&limit=10')).body).toEqual([]);
+
+    // With the limit unset, every open on the contract refuses by name; nothing is held.
+    tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiLimit=unset');
+    await expect.poll(async () => (await preview('0.001')).body.openInterest ?? null).toBeNull();
+    const blank = await preview('0.001');
+    expect(blank.body.refusals).toContainEqual(expect.objectContaining({ code: 'trade.oi_limit_unset', field: 'openInterest' }));
+    await review('0.001');
+    await expect(row()).toContainText('Not published');
+    await expect(ticket.locator('[data-code="trade.oi_limit_unset"]')).toBeVisible();
+    await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+    const unset = await order('0.001', 'unset');
+    expect(unset.status, JSON.stringify(unset.body)).toBe(503);
+    expect(unset.body.error).toBe('trade.oi_limit_unset');
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tool('local-test-gates.mjs', 'risk', SYMBOL, ...restore);
+  }
+  const back = (await preview('0.001')).body.openInterest;
+  expect([back?.limit, back?.shareBps]).toEqual([published.limit, published.shareBps]);
 });

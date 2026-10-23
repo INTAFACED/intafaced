@@ -58,6 +58,7 @@ function appWith(input: {
   slippageCapBps?: number | null;
   maxOrder?: number | null;
   riskTierFor?: Parameters<typeof registerPositionPreviewRest>[1]['riskTierFor'];
+  openInterestFor?: Parameters<typeof registerPositionPreviewRest>[1]['openInterestFor'];
 }) {
   const app = Fastify();
   const liquidation = input.liquidation;
@@ -73,6 +74,7 @@ function appWith(input: {
     maxOrder: () => (input.maxOrder === undefined ? 1000 : input.maxOrder),
     ...(liquidation === undefined ? {} : { liquidationPriceFor: async () => (liquidation === null ? null : parseAmount(liquidation)) }),
     ...(input.riskTierFor ? { riskTierFor: input.riskTierFor } : {}),
+    ...(input.openInterestFor ? { openInterestFor: input.openInterestFor } : {}),
   });
   return app;
 }
@@ -316,6 +318,89 @@ describe('POST /api/v1/positions/preview', () => {
     await broken.close();
     await unread.close();
     await markless.close();
+  });
+
+  it('shows the open-interest room before Confirm, and an order past it is refused on the open-interest line', async () => {
+    const asked: unknown[] = [];
+    const room = (accountCommitted: string) => ({
+      limit: parseAmount('1000'),
+      shareBps: 1000,
+      accountCap: parseAmount('100'),
+      marketCommitted: parseAmount('300'),
+      accountCommitted: parseAmount(accountCommitted),
+      room: parseAmount('100') - parseAmount(accountCommitted),
+      binding: 'account' as const,
+    });
+    const fits = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async (input) => {
+        asked.push({ userId: input.userId, market: input.market.id });
+        return room('97');
+      },
+    });
+    const ok = await fits.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(ok.json()).toMatchObject({
+      openInterest: {
+        limit: '1000',
+        shareBps: 1000,
+        accountCap: '100',
+        accountCommitted: '97',
+        marketCommitted: '300',
+        room: '3',
+        binding: 'account',
+      },
+      orderable: true,
+      refusals: [],
+    });
+    expect(asked).toEqual([{ userId: USER, market: MARKET.id }]);
+    const over = appWith({ mark: '100', cap: '5', liquidation: '80', openInterestFor: async () => room('99') });
+    const refused = await over.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(refused.json()).toMatchObject({
+      openInterest: { room: '1' },
+      orderable: false,
+      refusals: [{ code: 'trade.oi_share_limit', field: 'openInterest' }],
+    });
+    expect(refused.json().refusals[0].message).toContain(`room left 1 ${MARKET.baseAsset}`);
+    await fits.close();
+    await over.close();
+  });
+
+  it('a blank open-interest limit, or a room that cannot be read, is named on its line', async () => {
+    const { FuturesError } = await import('./position-service.js');
+    const blank = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async () => {
+        throw new FuturesError('no open-interest limit is published', 'trade.oi_limit_unset', 503);
+      },
+    });
+    const unset = await blank.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(unset.json()).toMatchObject({
+      openInterest: null,
+      orderable: false,
+      refusals: [{ code: 'trade.oi_limit_unset', field: 'openInterest', message: 'no open-interest limit is published' }],
+    });
+    const broken = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async () => {
+        throw new Error('connection reset');
+      },
+    });
+    const named = await broken.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({ openInterest: null, refusals: [{ code: 'trade.oi_room_unavailable', field: 'openInterest' }] });
+    // Unwired, the field is absent rather than a pretend null.
+    const unwired = appWith({ mark: '100', cap: '5', liquidation: '80' });
+    const absent = await unwired.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect('openInterest' in absent.json()).toBe(false);
+    await blank.close();
+    await broken.close();
+    await unwired.close();
   });
 
   it('refuses JSON-number money inputs', async () => {

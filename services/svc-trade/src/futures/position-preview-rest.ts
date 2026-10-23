@@ -22,10 +22,22 @@ import type { EdgeTrust } from '../edge-trust.js';
 import { bpsToRate } from '../public-rest.js';
 import { FuturesError } from './position-service.js';
 import { RISK_TIER_UNAVAILABLE, type RiskTierCrossing } from './risk-tier-confirm.js';
+import { OI_ROOM_UNAVAILABLE, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
 
 export interface PositionPreviewRefusal {
   code: string;
-  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral' | 'price' | 'slippage' | 'size' | 'tier';
+  field:
+    | 'symbol'
+    | 'markPrice'
+    | 'leverage'
+    | 'fee'
+    | 'liquidationPrice'
+    | 'collateral'
+    | 'price'
+    | 'slippage'
+    | 'size'
+    | 'tier'
+    | 'openInterest';
   message: string;
 }
 
@@ -68,6 +80,20 @@ export interface PositionPreviewWire {
     maintenanceRate: string;
     notional: string;
     confirmRequired: boolean;
+  } | null;
+  /**
+   * The market's open-interest limits and the room this account has left before this order
+   * (`open-interest-limits.ts`), in the base asset. Null while a limit is blank or the room unreadable (named in
+   * `refusals`); absent where the deployment does not wire it.
+   */
+  openInterest?: {
+    limit: string;
+    shareBps: number;
+    accountCap: string;
+    accountCommitted: string;
+    marketCommitted: string;
+    room: string;
+    binding: 'account' | 'market';
   } | null;
   orderable: boolean;
   refusals: PositionPreviewRefusal[];
@@ -116,6 +142,11 @@ export interface PositionPreviewRestDeps {
     size: Amount;
     markPrice: Amount;
   }): Promise<RiskTierCrossing>;
+  /**
+   * The open-interest room the caller has on this market, as the order path reads it
+   * (`PositionService.openInterestRoom`). A FuturesError (a blank limit) is named in the refusals.
+   */
+  openInterestFor?(input: { userId: string; market: Market }): Promise<OpenInterestRoom>;
 }
 
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
@@ -358,6 +389,27 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       }
     }
 
+    let openInterest: PositionPreviewWire['openInterest'] = null;
+    if (deps.openInterestFor) {
+      try {
+        const room = await deps.openInterestFor({ userId: principal.userId, market });
+        openInterest = {
+          limit: formatAmount(room.limit),
+          shareBps: room.shareBps,
+          accountCap: formatAmount(room.accountCap),
+          accountCommitted: formatAmount(room.accountCommitted),
+          marketCommitted: formatAmount(room.marketCommitted),
+          room: formatAmount(room.room),
+          binding: room.binding,
+        };
+        const over = openInterestRefusal(room, size, market.baseAsset);
+        if (over) refusals.push({ code: over.code, field: 'openInterest', message: over.message });
+      } catch (err) {
+        if (err instanceof FuturesError) refusals.push({ code: err.code, field: 'openInterest', message: err.message });
+        else refusals.push({ code: OI_ROOM_UNAVAILABLE, field: 'openInterest', message: 'the open-interest room could not be read' });
+      }
+    }
+
     if (liquidationPrice === null) {
       refusals.push({
         code: 'trade.position_preview_liquidation_unavailable',
@@ -387,6 +439,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       maxOrderNotional: maxOrder === null ? null : String(maxOrder),
       split,
       ...(deps.riskTierFor ? { riskTier } : {}),
+      ...(deps.openInterestFor ? { openInterest } : {}),
       orderable: refusals.length === 0,
       refusals,
     };

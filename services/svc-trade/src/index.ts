@@ -85,6 +85,7 @@ import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
+import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
   ADL_DISCLOSURE_VERSION,
   assertAdlDisclosureAcked,
@@ -101,7 +102,7 @@ import {
   readEligibilityState,
   sqlEligibilityStore,
 } from './futures/derivatives-eligibility.js';
-import { assertOperatorRiskOnPlace, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
+import { assertOperatorRiskOnPlace, currentRisk, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
 import {
   acceptAgreement,
@@ -576,6 +577,8 @@ const positions = new PositionService(sql, ledger, {
     feeRates: futuresFeeRates,
     // As spot reads it: the operator's per-market cap, else the owner's; both blank refuses every market open.
     slippageCapBps: futuresSlippageCapBps,
+    // The operator's open-interest limit and per-account share on the market's limits row; either blank refuses opens.
+    openInterestLimits: async (marketId) => readOpenInterestLimits(await currentRisk(sql, marketId)),
   },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
@@ -912,6 +915,9 @@ registerPositionPreviewRest(app, {
   }, // The tier the order path would rate this order into, and whether it would ask for confirmTier (D-orders-10).
   riskTierFor: ({ userId, market, side, size, markPrice }) =>
     positions.riskTierCrossing({ userId, marketId: market.id, symbol: market.symbol, side, qty: size, mark: markPrice }),
+  // The open-interest room the order path would size this open against (D-margin-05).
+  openInterestFor: ({ userId, market }) =>
+    positions.openInterestRoom({ userId, marketId: market.id, symbol: market.symbol, lotSize: market.lotSize }),
 });
 // The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
 // preview, and the same taker rate as the order path (`risk-calculator.ts`).

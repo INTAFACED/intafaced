@@ -77,6 +77,7 @@ import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
 import { unconfirmedTierRefusal, type RiskTierCrossing } from './risk-tier-confirm.js';
+import { OI_LIMIT_UNSET, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
 import { checkInsuranceBound, INSURANCE_UNDERFUNDED, recipeInsuranceAccount } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
@@ -336,6 +337,19 @@ export interface MatchedOrdersDeps {
     /** The depth an earlier rating in the same request read; absent reads it now. */
     readonly depthNotional?: Amount;
   }) => Promise<RiskTierCrossing>;
+  /**
+   * The open-interest room this account has on the market (`PositionService.openInterestRoom`), from the operator's
+   * per-market limits. Throws `trade.oi_limit_unset` when either limit is blank. Absent in tests that do not wire it;
+   * production always wires it.
+   */
+  readonly openInterest?: (input: {
+    readonly userId: string;
+    readonly marketId: string;
+    readonly symbol: string;
+    readonly lotSize: Amount | null;
+    /** Once the order's row is written: that row, left out of what is committed, since it is the order being rated. */
+    readonly excludeOrderId?: string;
+  }) => Promise<OpenInterestRoom>;
 }
 
 /** What an opening order's request said about margin tiers, carried to the rating after its row is written. */
@@ -426,6 +440,7 @@ interface MarketRow {
   symbol: string;
   kind: string;
   status: string;
+  base_asset: string;
   quote_asset: string;
   lot_size: string | null;
   futures_contract_style: 'perpetual' | 'dated' | null;
@@ -434,6 +449,10 @@ interface MarketRow {
 }
 
 const ORDER_TERMINAL = ['filled', 'cancelled', 'rejected'] as const;
+
+function lotOf(market: MarketRow): Amount | null {
+  return market.lot_size == null ? null : parseAmount(market.lot_size);
+}
 
 /**
  * A matched futures order id is a uuid. The engine also names orders that are not (spot OCO legs are
@@ -841,6 +860,8 @@ export class MatchedFuturesOrders {
       }
       // The children not yet placed, together, cross into the tier the trader must name before the first is placed.
       await this.refuseUnconfirmedTier(input, market, total, mark);
+      // The children not yet placed, together, must fit the room the open-interest limits leave.
+      await this.refuseOverOpenInterest(input.userId, market, total);
       const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
       const rates = await this.openingFeeRates(input.userId);
       const hold = waiting.reduce(
@@ -999,6 +1020,7 @@ export class MatchedFuturesOrders {
       throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
     }
     const rated = await this.refuseUnconfirmedTier(input, market, input.qty, mark);
+    await this.refuseOverOpenInterest(input.userId, market, input.qty);
 
     if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
     const proof = await this.deps.lifecycleProof(market.id);
@@ -1085,6 +1107,50 @@ export class MatchedFuturesOrders {
       ...(tier.depthNotional !== undefined ? { depthNotional: tier.depthNotional } : {}),
     });
     const refusal = unconfirmedTierRefusal(crossing, tier.confirmTier, parseAmount(row.leverage), this.deps.maxLeverage);
+    if (!refusal) return;
+    await this.deps.sql`
+      UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()
+       WHERE id = ${row.id} AND status = 'pending'
+    `;
+    refuse(refusal.code, refusal.message, refusal.status);
+  }
+
+  /**
+   * An opening order that would carry the account past its share of the market's open-interest limit, or the market
+   * past the limit, refuses with the room left (`open-interest-limits.ts`). Before anything is held or written.
+   */
+  private async refuseOverOpenInterest(userId: string, market: MarketRow, qty: Amount): Promise<void> {
+    if (!this.deps.openInterest) return;
+    const room = await this.deps.openInterest({ userId, marketId: market.id, symbol: market.symbol, lotSize: lotOf(market) });
+    const refusal = openInterestRefusal(room, qty, market.base_asset);
+    if (refusal) refuse(refusal.code, refusal.message, refusal.status);
+  }
+
+  /**
+   * The same check once the order's row is written, before its hold posts: the row counts from the moment it exists,
+   * so of two opens placed together near a limit the later check sees both, and at most one passes (when both checks
+   * run after both rows exist, both refuse: the safe way round). An order over the limit, or on a market whose limit
+   * was blanked meanwhile, is refused on its code and its row kept, refused; a read that fails leaves it pending for a
+   * retry, as the haircut does.
+   */
+  private async refuseOverOpenInterestOnRow(row: OrderRow, market: MarketRow): Promise<void> {
+    let refusal: { code: string; message: string; status: number } | null;
+    try {
+      const room = await this.deps.openInterest!({
+        userId: row.user_id,
+        marketId: market.id,
+        symbol: market.symbol,
+        lotSize: lotOf(market),
+        excludeOrderId: row.id,
+      });
+      refusal = openInterestRefusal(room, parseAmount(row.qty), market.base_asset);
+    } catch (err) {
+      // PositionService's FuturesError, matched by code since that module imports this one.
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code !== OI_LIMIT_UNSET) throw err;
+      const { message, status } = err as { message: string; status: number };
+      refusal = { code, message, status };
+    }
     if (!refusal) return;
     await this.deps.sql`
       UPDATE trade.futures_orders SET status = 'refused', refusal_code = ${refusal.code}, updated_at = now()
@@ -1353,6 +1419,7 @@ export class MatchedFuturesOrders {
       `;
     } else if (row.status === 'pending') {
       if (this.deps.riskTier) await this.refuseUnconfirmedTierOnRow(row, market, tier);
+      if (this.deps.openInterest) await this.refuseOverOpenInterestOnRow(row, market);
       if (this.deps.assertCollateralCredit) await this.refuseShortOfCredit(row);
       try {
         await this.deps.ledger.post(
@@ -2775,7 +2842,7 @@ export class MatchedFuturesOrders {
 
   private async loadMarket(symbol: string): Promise<MarketRow> {
     const [m] = await this.deps.sql<MarketRow[]>`
-      SELECT id, symbol, kind, status, quote_asset, lot_size,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE symbol = ${symbol} LIMIT 1
     `;
@@ -2802,7 +2869,7 @@ export class MatchedFuturesOrders {
 
   private async loadMarketById(marketId: string): Promise<MarketRow> {
     const [m] = await this.deps.sql<MarketRow[]>`
-      SELECT id, symbol, kind, status, quote_asset, lot_size,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
         FROM trade.markets WHERE id = ${marketId} LIMIT 1
     `;

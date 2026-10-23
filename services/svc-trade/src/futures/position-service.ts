@@ -56,6 +56,13 @@ import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { DEPTH_UNKNOWN, FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
 import { tierCrossing, type RiskTierCrossing } from './risk-tier-confirm.js';
+import {
+  openInterestRefusal,
+  openInterestRoom,
+  openInterestUnsetRefusal,
+  type OpenInterestLimits,
+  type OpenInterestRoom,
+} from './open-interest-limits.js';
 import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
@@ -339,6 +346,8 @@ export interface PositionServiceDeps {
     feeRates?: ((userId: string) => Promise<FeeRates>) | null;
     /** A market open's slippage cap in bps (operator per market, else the owner's); null refuses market opens. */
     slippageCapBps?: (marketId: string) => Promise<number | null>;
+    /** The operator's open-interest limits for a market (D-margin-05); null when either is blank, which refuses opens. */
+    openInterestLimits?: (marketId: string) => Promise<OpenInterestLimits | null>;
   };
 }
 
@@ -429,6 +438,7 @@ export class PositionService {
   private readonly afterMarginLedgerPost: ((request: string) => Promise<void>) | null;
   private readonly now: () => Date;
   private readonly matched: MatchedFuturesOrders;
+  private readonly openInterestLimits: ((marketId: string) => Promise<OpenInterestLimits | null>) | null;
 
   constructor(
     private readonly sql: Sql,
@@ -441,6 +451,7 @@ export class PositionService {
     this.afterMarginLedgerPost = deps.afterMarginLedgerPost ?? null;
     this.now = deps.now ?? (() => new Date());
     const matchedOrders = deps.matchedOrders;
+    this.openInterestLimits = matchedOrders?.openInterestLimits ?? null;
     this.matched = new MatchedFuturesOrders({
       sql,
       ledger,
@@ -465,6 +476,51 @@ export class PositionService {
       ...(matchedOrders?.slippageCapBps ? { slippageCapBps: matchedOrders.slippageCapBps } : {}),
       assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
       ...(deps.ladder ? { riskTier: (input) => this.riskTierCrossing(input) } : {}),
+      ...(matchedOrders?.openInterestLimits ? { openInterest: (input) => this.openInterestRoom(input) } : {}),
+    });
+  }
+
+  /**
+   * The open-interest room this account has on a market (`open-interest-limits.ts`): what every open (or closing)
+   * position and live opening order commits on the market, and on this account, against the operator's two limits. Either limit blank
+   * refuses `trade.oi_limit_unset`; unwired (tests that build the service by hand) refuses the same way.
+   */
+  async openInterestRoom(input: {
+    userId: string;
+    marketId: string;
+    symbol: string;
+    lotSize: Amount | null;
+    /** The order being checked once its own row is written: left out, since it is the order being sized. */
+    excludeOrderId?: string;
+  }): Promise<OpenInterestRoom> {
+    const limits = this.openInterestLimits ? await this.openInterestLimits(input.marketId) : null;
+    if (!limits) {
+      const unset = openInterestUnsetRefusal(input.symbol);
+      throw new FuturesError(unset.message, unset.code, unset.status);
+    }
+    const exclude = input.excludeOrderId ? this.sql`AND id <> ${input.excludeOrderId}` : this.sql``;
+    const [row] = await this.sql<
+      { market_positions: string | null; market_orders: string | null; account_positions: string | null; account_orders: string | null }[]
+    >`
+      SELECT
+        (SELECT sum(size) FROM trade.positions
+          WHERE market_id = ${input.marketId} AND status IN ('open', 'closing'))::text AS market_positions,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE market_id = ${input.marketId} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown') ${exclude})::text AS market_orders,
+        (SELECT sum(size) FROM trade.positions
+          WHERE market_id = ${input.marketId} AND user_id = ${input.userId} AND status IN ('open', 'closing'))::text AS account_positions,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE market_id = ${input.marketId} AND user_id = ${input.userId} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown') ${exclude})::text AS account_orders
+    `;
+    const sum = (a: string | null | undefined, b: string | null | undefined): Amount =>
+      (parseAmount(a ?? '0') + parseAmount(b ?? '0')) as Amount;
+    return openInterestRoom({
+      limits,
+      marketCommitted: sum(row?.market_positions, row?.market_orders),
+      accountCommitted: sum(row?.account_positions, row?.account_orders),
+      lotSize: input.lotSize,
     });
   }
 
@@ -1415,13 +1471,15 @@ export class PositionService {
         symbol: string;
         kind: string;
         status: string;
+        base_asset: string;
         quote_asset: string;
+        lot_size: string | null;
         futures_contract_style: 'perpetual' | 'dated' | null;
         futures_expiry_at: Date | null;
         futures_settlement_fixing: string | null;
       }[]
     >`
-      SELECT id, symbol, kind, status, quote_asset,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
       FROM trade.markets
       WHERE symbol = ${input.symbol}
@@ -1575,6 +1633,18 @@ export class PositionService {
         limitRefusal.code,
         limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
       );
+    // The open-interest limits an opening order through the book answers to (D-margin-05), wherever they are wired.
+    // There are no live orders while opens are at the mark, so the room is what open positions leave.
+    if (this.openInterestLimits) {
+      const room = await this.openInterestRoom({
+        userId: input.userId,
+        marketId: m.id,
+        symbol: m.symbol,
+        lotSize: m.lot_size == null ? null : parseAmount(m.lot_size),
+      });
+      const over = openInterestRefusal(room, input.size, m.base_asset);
+      if (over) throw new FuturesError(over.message, over.code, over.status);
+    }
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },

@@ -41,7 +41,7 @@ import {
 import { AgreementsAdmin } from './agreements.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
-import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
+import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimitsInput, type RiskVersion } from './risk.js';
 import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
 import { feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
 import { readMarketStatusHistory } from './status-history.js';
@@ -291,7 +291,7 @@ export class TradeOpsAdmin {
 
   async riskSet(
     principal: Principal,
-    input: { market: string; limits: RiskLimits; expectedVersion: string; reason: string; approvalId: string; operationId: string },
+    input: { market: string; limits: RiskLimitsInput; expectedVersion: string; reason: string; approvalId: string; operationId: string },
   ): Promise<RiskVersion> {
     requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
@@ -313,13 +313,16 @@ export class TradeOpsAdmin {
     const next = (BigInt(version) + 1n).toString();
     const id = randomUUID();
     const at = nowOf(this.deps);
+    // A write that leaves out the open-interest pair keeps the version it was approved against (`expectedVersion`).
+    const oiLimit = limits.oiLimit !== undefined ? limits.oiLimit : (current?.oiLimit ?? null);
+    const oiShareBps = limits.oiShareBps !== undefined ? limits.oiShareBps : (current?.oiShareBps ?? null);
     await this.deps.sql`INSERT INTO trade.operator_risk_limits (
-      id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
+      id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
       operator_id, approver_id, reason, approval_id, created_at
     ) VALUES (
       ${id}, ${input.market}, ${next}::bigint, ${limits.collar}, ${limits.fatFinger}, ${limits.slippageCap},
-      ${limits.throttle}, ${limits.circuitBreaker}, ${principal.userId}, ${consumed.approverId}, ${reason},
-      ${input.approvalId}, ${at.toISOString()}
+      ${limits.throttle}, ${limits.circuitBreaker}, ${oiLimit}, ${oiShareBps}, ${principal.userId}, ${consumed.approverId},
+      ${reason}, ${input.approvalId}, ${at.toISOString()}
     )`;
     await writeOperatorAudit(
       this.deps.sql,
