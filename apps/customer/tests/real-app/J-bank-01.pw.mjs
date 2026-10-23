@@ -135,6 +135,8 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await dialog.getByLabel('Space name').fill(SPACE);
   await dialog.getByRole('button', { name: 'Review' }).click();
   await dialog.getByRole('button', { name: 'Confirm' }).click();
+  // The review already shows the name, so wait for the service's own confirmation before reading the list.
+  await expect(dialog.getByText('Confirmed by the service')).toBeVisible();
   await expect(dialog).toContainText(SPACE);
   expect(named(await spaces(who), SPACE)).toBeTruthy();
 

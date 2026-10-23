@@ -1,5 +1,6 @@
 import {
   QUANT_FEE_ROLES,
+  quantAccountRulesSchema,
   QUANT_FILL_TIMINGS,
   QUANT_SPLIT_PRESETS,
   QUANT_VERDICT_CRITERIA,
@@ -36,7 +37,7 @@ const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStr
 
 /** The inputs a refusal can name, by the word the service puts first in its message. */
 const NAMED = { cash: 'cash', fees: 'feeRole', slippage: 'slippage', delay: 'delay', from: 'from', to: 'to' } as const;
-type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'oosFrom' | 'holdout';
+type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'oosFrom' | 'holdout' | 'leverage' | 'accountRule';
 type Refusal = { input: Named; detail: string; blank: boolean };
 
 /**
@@ -53,6 +54,15 @@ function namedRefusal(message: string): Refusal | null {
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
   const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
   if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
+  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|margin call level|stop-out level) — (.*)$/.exec(message);
+  if (account) {
+    const own = account[1] === 'leverage';
+    return {
+      input: own ? 'leverage' : 'accountRule',
+      detail: own ? account[2]!.trim() : message.split(' — ').slice(1).join(' — '),
+      blank: own && blank(account[2]!),
+    };
+  }
   const holdout = /^quant\.holdout_(?:overlap|date_unset) — holdout — (.*)$/.exec(message);
   if (holdout) return { input: 'holdout', detail: holdout[1]!.trim(), blank: false };
   return null;
@@ -81,6 +91,8 @@ export function BacktestRoom() {
   const [split, setSplit] = useState<QuantSplitPreset | ''>('');
   const [oosFrom, setOosFrom] = useState('');
   const [enforceHoldout, setEnforceHoldout] = useState(false);
+  const [onMargin, setOnMargin] = useState(false);
+  const [leverage, setLeverage] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -97,6 +109,8 @@ export function BacktestRoom() {
     split: t('split'),
     oosFrom: t('oosFrom'),
     holdout: t('holdout'),
+    leverage: t('leverage'),
+    accountRule: t('accountRule'),
   };
   // A refusal shows once, next to the input it names.
   const errorFor = (input: Named): ReactNode =>
@@ -135,6 +149,7 @@ export function BacktestRoom() {
         costs: { feeRole, slippageBps: slippage, delayBars: delay },
         ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
         ...(enforceHoldout ? { enforceHoldout: true } : {}),
+        ...(onMargin ? { simulatedAccount: { leverage } } : {}),
       },
       quantBacktestResultSchema,
     );
@@ -254,6 +269,34 @@ export function BacktestRoom() {
                     {t('holdout')}
                   </label>
                   {selectError('holdout')}
+                  <fieldset className="quant-account" data-testid="quant-account">
+                    <legend>{t('accountTitle')}</legend>
+                    <label className="quant-check-line">
+                      <input
+                        type="checkbox"
+                        className="quant-run-check"
+                        checked={onMargin}
+                        onChange={(e) => edited(setOnMargin)(e.target.checked)}
+                      />
+                      {t('onMargin')}
+                    </label>
+                    {onMargin ? (
+                      <>
+                        <Field
+                          label={t('leverage')}
+                          value={leverage}
+                          onChange={(e) => edited(setLeverage)(e.target.value)}
+                          inputMode="decimal"
+                          maxLength={8}
+                          error={errorFor('leverage')}
+                        />
+                        <AccountRules />
+                        {selectError('accountRule')}
+                      </>
+                    ) : (
+                      <p className="muted">{t('cashAccount')}</p>
+                    )}
+                  </fieldset>
                   <Select
                     label={t('fillTiming')}
                     value={fillTiming}
@@ -328,6 +371,34 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
     <p data-testid="quant-split-preview" data-oos-from={new Date(cut).toISOString()}>
       {t('splitPreview', { isFrom: minute(fromMs), isTo: minute(cut), oosFrom: minute(cut), oosTo: minute(toMs) })}
     </p>
+  );
+}
+
+/** The owner's published margin rules, read only; a blank one reads "not set" and a margin run refuses it by name. */
+function AccountRules() {
+  const api = useApi();
+  const { t } = backtestCopy.useCopy();
+  const rules = useResource(
+    (signal) => api.query('quant', 'backtest.accountRules', undefined, quantAccountRulesSchema, { signal }),
+    'quant-account-rules',
+  );
+  return (
+    <Read resource={rules.resource} retry={rules.reload}>
+      {(data) => (
+        <div data-testid="quant-account-rules">
+          <p className="muted">{t('accountRulesIntro')}</p>
+          <dl className="quant-bar-totals">
+            {(['maxLeverage', 'marginCallPercent', 'stopOutPercent'] as const).map((name) => (
+              <div key={name} data-rule={name} data-value={data[name] ?? ''}>
+                <dt>{t(`rule_${name}`)}</dt>
+                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notSet')}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>{t('accountMode')}</p>
+        </div>
+      )}
+    </Read>
   );
 }
 
@@ -599,6 +670,15 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           </li>
         ))}
       </ul>
+      <p data-testid="quant-bar-account" data-leverage={result.account?.leverage ?? ''}>
+        {result.account
+          ? t('marginAccount', {
+              leverage: result.account.leverage,
+              call: result.account.marginCallPercent ?? '',
+              stopOut: result.account.stopOutPercent ?? '',
+            })
+          : t('cashAccount')}
+      </p>
       <p lang="zxx" data-testid="quant-bar-run-id">
         {t('runId', { id: result.runId })}
       </p>
@@ -671,6 +751,34 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
       ) : (
         <p className="muted">{t('tradesNone')}</p>
       )}
+      {result.account && (
+        <>
+          <h4>{t('eventsTitle')}</h4>
+          {result.marginEvents.length ? (
+            <DataTable headers={[t('time'), t('eventKind'), t('price'), t('marginLevel')]} label={t('eventsTitle')}>
+              {result.marginEvents.map((event, i) => (
+                <tr
+                  key={`${event.ts}:${i}`}
+                  data-testid="quant-margin-event"
+                  data-kind={event.kind}
+                  data-ts={event.ts}
+                  data-level={event.marginLevelPercent}
+                  data-price={event.price}
+                >
+                  <td lang="zxx">{utcText(event.ts)}</td>
+                  <td>{t(event.kind)}</td>
+                  <td lang="zxx">{event.price}</td>
+                  <td lang="zxx">{event.marginLevelPercent}</td>
+                </tr>
+              ))}
+            </DataTable>
+          ) : (
+            <p className="muted" data-testid="quant-margin-events-none">
+              {t('eventsNone')}
+            </p>
+          )}
+        </>
+      )}
       {result.rejected.length > 0 && (
         <DataTable headers={[t('time'), t('side'), t('reason')]} label={t('rejectedTitle')}>
           {result.rejected.map((row, i) => (
@@ -738,11 +846,12 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
       )}
       <details>
         <summary>{t('equityTitle')}</summary>
-        <DataTable headers={[t('time'), t('equity')]} label={t('equityTitle')}>
+        <DataTable headers={[t('time'), t('equity'), ...(result.account ? [t('marginLevel')] : [])]} label={t('equityTitle')}>
           {result.equity.map((point) => (
-            <tr key={point.ts} data-testid="quant-bar-equity" data-equity={point.equity}>
+            <tr key={point.ts} data-testid="quant-bar-equity" data-equity={point.equity} data-margin-level={point.marginLevelPercent ?? ''}>
               <td lang="zxx">{utcText(point.ts)}</td>
               <td lang="zxx">{point.equity}</td>
+              {result.account && <td lang="zxx">{point.marginLevelPercent ?? '—'}</td>}
             </tr>
           ))}
         </DataTable>
@@ -758,6 +867,8 @@ const LOG_WORDS = new Set([
   'signal',
   'stop_loss',
   'take_profit',
+  'stop_out',
+  'margin_call',
   'insufficient_cash',
   'no_size',
   'unfilled_at_window_end',
@@ -765,6 +876,9 @@ const LOG_WORDS = new Set([
   'averages_over_traded_bars',
   'stop_loss_first',
   'take_profit_without_slippage',
+  'stop_out_before_exits',
+  'margin_level_at_bar_low',
+  'loss_beyond_margin',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
 ]);

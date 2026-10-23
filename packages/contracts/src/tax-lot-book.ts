@@ -1,0 +1,153 @@
+import { z } from 'zod';
+
+/**
+ * `tax.lotBook`: the customer's profit and loss indicator, built by svc-tax from their own ledger history. Shared by the
+ * service (its output) and the customer app (what it reads). Browser-safe: zod only.
+ *
+ * Every amount is a decimal string. A figure that cannot be known is null, never zero, and the reason is in `residuals`.
+ */
+
+/** Matching methods the lot book offers. AVERAGE keeps one running cost per coin for each asset. */
+export const LOT_BOOK_METHODS = ['FIFO', 'LIFO', 'HIFO', 'AVERAGE'] as const;
+export type LotBookMethod = (typeof LOT_BOOK_METHODS)[number];
+export const lotBookMethodSchema = z.enum(LOT_BOOK_METHODS);
+
+/** How a lot arrived: bought on the exchange, deposited, paid as a reward, or moved in from another account. */
+export const LOT_SOURCES = ['trade', 'deposit', 'reward', 'transfer_in', 'other_in'] as const;
+export type LotSourceKind = (typeof LOT_SOURCES)[number];
+
+export const lotBookInputSchema = z.object({ method: lotBookMethodSchema.optional() }).strict().optional();
+
+export const lotBookValuedAtSchema = z.object({
+  /** Value in dollars when it arrived: quantity times `price`. */
+  usd: z.string(),
+  price: z.string(),
+  /** The market whose candle gave the price, e.g. `BTC/USDT`. */
+  market: z.string(),
+  /** Candle size used: `1m`, then `1h`, then `1d` when a smaller one had no trade. */
+  timeframe: z.string().nullable(),
+  /** Start of that candle (ISO time). */
+  candleAt: z.string().nullable(),
+});
+
+export const lotBookLotSchema = z.object({
+  /** `lot:<acquireTxId>:<assetId>`: the same history gives the same id. */
+  id: z.string(),
+  assetId: z.string(),
+  acquiredAt: z.string(),
+  source: z.enum(LOT_SOURCES),
+  qty: z.string(),
+  remaining: z.string(),
+  costUsd: z.string().nullable(),
+  remainingCostUsd: z.string().nullable(),
+  valuedAt: lotBookValuedAtSchema.nullable(),
+  /** Whole days since it arrived, for a lot still open; null once all of it is sold. */
+  daysHeld: z.number().int().nonnegative().nullable(),
+  /** Short or long term is an owner tax rule that is not published, so it is always null. */
+  termClass: z.null(),
+  /** Present only when this lot's cost is a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
+});
+
+export const lotBookMatchSchema = z.object({
+  lotId: z.string(),
+  qty: z.string(),
+  costUsd: z.string().nullable(),
+  proceedsUsd: z.string().nullable(),
+  realizedUsd: z.string().nullable(),
+  /** Present only when this part's cost is a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
+});
+
+export const lotBookSaleSchema = z.object({
+  assetId: z.string(),
+  txId: z.string(),
+  disposedAt: z.string(),
+  qty: z.string(),
+  unmatchedQty: z.string(),
+  proceedsUsd: z.string().nullable(),
+  costUsd: z.string().nullable(),
+  realizedUsd: z.string().nullable(),
+  matches: z.array(lotBookMatchSchema),
+  /** Present when any part of this sale used a price the customer entered. */
+  basisSource: z.literal('customer-entered').optional(),
+});
+
+export const lotBookAssetSchema = z.object({
+  assetId: z.string(),
+  openQty: z.string(),
+  openCostUsd: z.string().nullable(),
+  held: z.string(),
+});
+
+export const lotBookSchema = z.object({
+  method: lotBookMethodSchema,
+  indicator: z.literal('indicator_not_tax_advice'),
+  assets: z.array(lotBookAssetSchema),
+  sales: z.array(lotBookSaleSchema),
+  lots: z.array(lotBookLotSchema),
+  realizedUsd: z.string().nullable(),
+  termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
+  residuals: z.array(z.string()),
+  /**
+   * Positions the customer typed that are not a balance and not a ledger lot. Absent when there are none, so a book
+   * with no manual position stays the same shape.
+   */
+  manualPositions: z
+    .array(
+      z.object({
+        id: z.string(),
+        assetId: z.string(),
+        acquiredAt: z.string(),
+        qty: z.string(),
+        costUsd: z.string(),
+        pricePerUnit: z.string(),
+        sourceNote: z.string(),
+        basisSource: z.literal('customer-entered'),
+        heldApart: z.literal(true),
+      }),
+    )
+    .optional(),
+});
+
+/** The effect row for a missing basis. A sentence, never a number. */
+export const UNKNOWN_SHARE = 'unknown share' as const;
+
+export const missingBasisItemSchema = z.object({
+  lotId: z.string().nullable(),
+  assetId: z.string(),
+  kind: z.enum(['open', 'disposal']),
+  qty: z.string(),
+  code: z.enum(['tax.cost_basis_unavailable', 'tax.lot_underflow']),
+  effect: z.literal(UNKNOWN_SHARE),
+  saleTxId: z.string().nullable(),
+});
+
+export const missingBasisSchema = z.object({
+  items: z.array(missingBasisItemSchema),
+});
+
+export const basisOverrideSetInputSchema = z
+  .object({
+    lotId: z.string(),
+    pricePerUnit: z.string(),
+    date: z.string(),
+    sourceNote: z.string(),
+    assetId: z.string().optional(),
+    qty: z.string().optional(),
+  })
+  .strict();
+
+export const basisOverrideRemoveInputSchema = z.object({ lotId: z.string() }).strict();
+
+export const basisWriteResultSchema = z.object({
+  businessKey: z.string(),
+  version: z.number().int().positive(),
+  lotId: z.string(),
+  kind: z.enum(['override', 'manual', 'tombstone']),
+  basisSource: z.literal('customer-entered').nullable(),
+});
+
+export type LotBookAnswer = z.infer<typeof lotBookSchema>;
+export type LotBookLot = z.infer<typeof lotBookLotSchema>;
+export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
