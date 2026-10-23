@@ -238,3 +238,22 @@ describe('card freeze and listing takedown requests', () => {
     expect(requestReason(takedown)).toBe('sells a forbidden product');
   });
 });
+
+describe('account unfreeze requests', () => {
+  const unfreeze = {
+    kind: 'identity.account.unfreeze',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    reason: 'Customer verified by phone',
+    version: '3',
+  } as const;
+  it('reads exactly the account, the reason and the version, and names the account in the phrase and the description', () => {
+    expect(readDeskRequest(unfreeze)).toEqual(unfreeze);
+    expect(readDeskRequest({ ...unfreeze, version: '-1' })).toBeNull();
+    expect(readDeskRequest({ ...unfreeze, userId: 'not-a-uuid' })).toBeNull();
+    expect(readDeskRequest({ ...unfreeze, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...unfreeze, extra: true })).toBeNull();
+    expect(confirmPhrase(unfreeze)).toBe('UNFREEZE ACCOUNT 0b6f7a3e');
+    expect(describeRequest(unfreeze)).toContain('stay revoked');
+    expect(requestReason(unfreeze)).toBe(unfreeze.reason);
+  });
+});

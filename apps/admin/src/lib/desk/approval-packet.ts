@@ -36,6 +36,8 @@ export type DeskRequest =
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
+  | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -129,6 +131,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind,userId') return null;
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId)) return null;
     return { kind: 'academy.ambassador.unfreeze', userId: raw.userId };
+  }
+  if (raw.kind === 'identity.account.unfreeze') {
+    if (keys !== 'kind,reason,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return { kind: 'identity.account.unfreeze', userId: raw.userId, reason: raw.reason, version: raw.version };
   }
   if (raw.kind === 'academy.ambassador.appoint') {
     if (keys !== 'kind,userId') return null;
@@ -312,6 +320,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'identity.account.unfreeze':
+      return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
     case 'protocol.pool.hide':
@@ -362,6 +372,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'identity.account.unfreeze':
+      return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':

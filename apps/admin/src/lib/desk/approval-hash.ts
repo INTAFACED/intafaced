@@ -14,7 +14,8 @@ import type { DeskRequest } from './approval-packet';
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
  *     and `('academy.residency.decide', { id, decision })`
  *   - svc-market takedown `marketActionPayloadHash('market.takedown', { listingId, reason })`
- *   - svc-identity key rotation `identityActionPayloadHash('identity.auth_key_rotate', { keyId })` / `('identity.auth_key_remove_old', { keyIds })`
+ *   - svc-identity key rotation `identityActionPayloadHash('identity.auth_key_rotate', { keyId })` / `('identity.auth_key_remove_old', { keyIds })`;
+ *     account unfreeze `identityUnfreezePayloadHash` = `identityActionPayloadHash(userId, { reason })`
  *     (`{ targetId, ...fields }`: the first key is `targetId`)
  *   - svc-bank card freeze `bankActionPayloadHash('bank.ops.setCardStatus', { cardId, status })` (sorted fields, nested under `fields`;
  *     the reason is NOT in this hash)
@@ -63,6 +64,8 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.freeze', { userId: request.userId, reason: request.reason });
     case 'academy.ambassador.unfreeze':
       return sha('academy.ambassador.unfreeze', { userId: request.userId });
+    case 'identity.account.unfreeze':
+      return shaIdentity(request.userId, { reason: request.reason });
     case 'academy.ambassador.appoint':
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
@@ -180,6 +183,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         targetService: 'svc-market',
         targetId: request.listingId,
         expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity's restore is bound to the account itself, at the control version the founder read.
+    case 'identity.account.unfreeze':
+      return {
+        actionType: 'identity.account_unfreeze',
+        targetService: 'svc-identity',
+        targetId: request.userId,
+        expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',
       };
