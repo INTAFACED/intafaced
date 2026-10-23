@@ -126,9 +126,10 @@ describe('Deployed contracts and supported networks', () => {
           contracts: [],
           routers: [router('v1', '2026-01-01T00:00:00.000Z', '0x' + 'a'.repeat(40)), router('v2', null, '0x' + 'b'.repeat(40))],
         },
+        fast: 'not_offered',
       },
-      { chainId: 31337, name: 'Local test chain', deployments: 'unrecorded' },
-      { chainId: 1337, name: 'Odd chain', deployments: 'unreadable' },
+      { chainId: 31337, name: 'Local test chain', deployments: 'unrecorded', fast: 'unknown' },
+      { chainId: 1337, name: 'Odd chain', deployments: 'unreadable', fast: 'unreadable' },
     ]);
     const html = renderToStaticMarkup(<SupportedNetworksPanel t={t} now={new Date('2026-10-20T00:00:00Z')} />);
     expect(html).toContain('>Sunset<');
@@ -136,6 +137,11 @@ describe('Deployed contracts and supported networks', () => {
     expect(html).toContain('No router recorded');
     expect(html).toContain('Local test chain (31337)');
     expect(html).toContain('Could not read the deployment record for this chain.');
+    // Every row carries its fast-confirmation status: "not offered" only from a probe that answered.
+    expect(html).toContain('>Fast confirmations<');
+    expect(html.match(/data-fast="not_offered">Not offered on this network</g)).toHaveLength(2);
+    expect(html).toContain('data-fast="unknown">Not confirmed<');
+    expect(html).toContain('data-fast="unreadable">Could not be read<');
   });
   it('keeps no hand copy of a deployment record in the app', () => {
     const root = join(__dirname, '..', '..');

@@ -154,6 +154,11 @@ const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
 
+function sameParams(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
 export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
   if (actions.length === 0) return null;
   return (
@@ -163,6 +168,11 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
         {actions.map((action) => {
           const found = blockersFor(action, snapshot);
           const first = found[0] as Blocker;
+          // Two checks can wait on the same source and read the same sentence (venue and finality both need the indexer):
+          // the list says it once.
+          const listed = found.filter(
+            (entry, index) => found.findIndex((other) => other.code === entry.code && sameParams(other.params, entry.params)) === index,
+          );
           const reason = t(first.key, first.params);
           // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
           const standalone = capital(reason);
@@ -181,12 +191,14 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
                   {t('blockedBy', { reason })}
                 </p>
               )}
-              {found.length > 1 && (
+              {listed.length > 1 && (
                 <details>
                   <summary>{t('allBlockers')}</summary>
                   <ol>
-                    {found.map((entry) => (
-                      <li key={`${entry.code}:${entry.params.source ?? ''}`}>{capital(t(entry.key, entry.params))}</li>
+                    {listed.map((entry) => (
+                      <li key={`${entry.code}:${JSON.stringify(entry.params)}`} data-blocker={entry.code}>
+                        {capital(t(entry.key, entry.params))}
+                      </li>
                     ))}
                   </ol>
                 </details>
