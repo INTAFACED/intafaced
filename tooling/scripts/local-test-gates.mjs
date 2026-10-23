@@ -879,11 +879,16 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
   const out = [];
   if (todo.length === 0) return out;
   const s = sessions ?? (await approverSessions(ctx));
+  let operators = null;
   for (const r of todo) {
     const who = users.find((u) => u.id === r.userId)?.handle ?? r.userId;
     try {
-      const ids = await twoPerson(ctx, s, kycApproveProposal(r.id));
-      const token = await s.a.complianceToken();
+      // Identity refuses a KYC decision by its own subject (auth.kyc_self_review), so a founder's own request is
+      // decided by the two TEST operators (kyc.* is an operator action), never by the founder pair it belongs to.
+      const own = r.userId === s.a.op.userId || r.userId === s.b.op.userId;
+      const pair = own ? (operators ??= await operatorSessions(ctx)) : s;
+      const ids = await twoPerson(ctx, pair, kycApproveProposal(r.id));
+      const token = await pair.a.complianceToken();
       const res = await ctx.edge.mutate(
         'identity',
         'kyc.approve',
@@ -894,7 +899,7 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
       out.push({ handle: who, recordId: r.id, tier: r.tier, ok, why: ok ? 'approved' : refusalText(res) });
       ctx.log(
         ok
-          ? `verify ${who}: ${r.tier} approved by ${s.a.op.handle}, confirmed by ${s.b.op.handle} (${MARKERS.label}); record ${r.id}`
+          ? `verify ${who}: ${r.tier} approved by ${pair.a.op.handle}, confirmed by ${pair.b.op.handle} (${MARKERS.label}); record ${r.id}`
           : `verify ${who}: REFUSED ${refusalText(res)}`,
       );
     } catch (err) {
