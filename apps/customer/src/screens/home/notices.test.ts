@@ -16,17 +16,18 @@ const notice = (over: Partial<Notice>): Notice => ({
   ...over,
 });
 
+const NOW = Date.parse('2026-10-23T04:00:00Z');
 const window = notice({ id: '00000000-0000-4000-8000-000000000002', kind: 'maintenance', endsAt: '2026-10-23T05:00:00Z' });
 const incident = notice({ id: '00000000-0000-4000-8000-000000000003', kind: 'incident' });
 
 describe('Home notices (HM-widgets-03)', () => {
   it('draws nothing when nothing is published or the reads failed', () => {
-    expect(homeNotices({ incidents: [], maintenance: [] }, null)).toEqual({ banner: [], strip: null });
-    expect(homeNotices(null, null)).toEqual({ banner: [], strip: null });
+    expect(homeNotices({ incidents: [], maintenance: [] }, null, NOW)).toEqual({ banner: [], strip: null });
+    expect(homeNotices(null, null, NOW)).toEqual({ banner: [], strip: null });
   });
 
   it('puts incidents before maintenance windows in the banner, each once', () => {
-    expect(homeNotices({ incidents: [incident], maintenance: [window, window] }, null).banner.map((row) => row.kind)).toEqual([
+    expect(homeNotices({ incidents: [incident], maintenance: [window, window] }, null, NOW).banner.map((row) => row.kind)).toEqual([
       'incident',
       'maintenance',
     ]);
@@ -34,12 +35,16 @@ describe('Home notices (HM-widgets-03)', () => {
 
   it('shows the current announcement once in the strip, and keeps the banner when the announcement read failed', () => {
     const announcement = notice({});
-    expect(homeNotices({ incidents: [], maintenance: [] }, announcement).strip).toEqual(announcement);
-    expect(homeNotices({ incidents: [], maintenance: [window] }, null)).toEqual({ banner: [window], strip: null });
+    expect(homeNotices({ incidents: [], maintenance: [] }, announcement, NOW).strip).toEqual(announcement);
+    expect(homeNotices({ incidents: [], maintenance: [window] }, null, NOW)).toEqual({ banner: [window], strip: null });
+  });
+
+  it('drops a window that closed since the read', () => {
+    expect(homeNotices({ incidents: [], maintenance: [window] }, null, Date.parse('2026-10-23T05:00:00Z')).banner).toEqual([]);
   });
 
   it('never draws a draft, whatever the read held', () => {
     const draft = notice({ status: 'draft' });
-    expect(homeNotices({ incidents: [], maintenance: [{ ...window, status: 'draft' }] }, draft)).toEqual({ banner: [], strip: null });
+    expect(homeNotices({ incidents: [], maintenance: [{ ...window, status: 'draft' }] }, draft, NOW)).toEqual({ banner: [], strip: null });
   });
 });

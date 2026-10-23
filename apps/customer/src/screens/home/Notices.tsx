@@ -1,21 +1,33 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import { StatusTag } from './deps';
-import { homeNotices } from './notices';
-import { readAnnouncement, readNoticeStatus, type Notice } from '../../features/public/notices-api';
+import { homeNotices, type HomeNotice } from './notices';
+import { readAnnouncement, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 
+/** Only an incident interrupts a screen reader; a planned window and an announcement are read when reached. */
 const KIND = {
-  incident: { status: 'failed', label: 'Notice kind incident' },
-  maintenance: { status: 'pending', label: 'Notice kind maintenance' },
-  announcement: { status: 'working', label: 'Notice kind announcement' },
+  incident: { status: 'failed', label: 'Notice kind incident', role: 'alert' },
+  maintenance: { status: 'pending', label: 'Notice kind maintenance', role: 'status' },
+  announcement: { status: 'working', label: 'Notice kind announcement', role: 'status' },
 } as const;
 
-const answer = <T,>(resource: Resource<T>): T | null => (resource.status === 'ready' ? resource.data : null);
+/** How often an open Home reads the board again, so a new window shows and a closed one goes. */
+const REREAD_MS = 60_000;
+
+/**
+ * The board's last answer. A re-read keeps it on screen while it loads; a failed read draws nothing, as on first load.
+ */
+function useLastAnswer<T>(resource: Resource<T>): T | null {
+  const last = useRef<T | null>(null);
+  if (resource.status === 'ready') last.current = resource.data;
+  else if (resource.status === 'failed') last.current = null;
+  return last.current;
+}
 
 /** A failed read draws nothing on Home; one line goes to the console so the gap is not silent. */
 function useLogged(resource: Resource<unknown>, what: string) {
@@ -36,10 +48,20 @@ export function HomeNotices() {
   const announcement = useResource((signal) => readAnnouncement(api, signal), 'home-announcement');
   useLogged(status.resource, 'notice status');
   useLogged(announcement.resource, 'announcement');
-  const { banner, strip } = useMemo(
-    () => homeNotices(answer(status.resource), answer(announcement.resource)),
-    [status.resource, announcement.resource],
-  );
+  const [now, setNow] = useState(() => Date.now());
+  const reread = useRef(() => {});
+  reread.current = () => {
+    setNow(Date.now());
+    status.reload();
+    announcement.reload();
+  };
+  useEffect(() => {
+    const timer = setInterval(() => reread.current(), REREAD_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const lastStatus = useLastAnswer(status.resource);
+  const lastAnnouncement = useLastAnswer(announcement.resource);
+  const { banner, strip } = useMemo(() => homeNotices(lastStatus, lastAnnouncement, now), [lastStatus, lastAnnouncement, now]);
   if (banner.length === 0 && strip === null) return null;
   return (
     <div className="home-notices">
@@ -51,15 +73,15 @@ export function HomeNotices() {
   );
 }
 
-export function NoticeRow({ notice, banner }: { notice: Notice; banner: boolean }) {
+export function NoticeRow({ notice, banner }: { notice: HomeNotice; banner: boolean }) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
-  const kind = notice.kind === 'changelog' ? KIND.announcement : KIND[notice.kind];
+  const kind = KIND[notice.kind];
   const until = notice.endsAt ? dayTime(notice.endsAt, timeZone) : null;
   return (
     <section
       className={banner ? 'home-notice home-notice--banner' : 'home-notice'}
-      role={banner ? 'alert' : 'status'}
+      role={kind.role}
       aria-label={t(kind.label)}
       data-kind={notice.kind}
     >

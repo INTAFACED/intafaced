@@ -9,7 +9,7 @@ import { ORIGIN } from './stack.mjs';
 // Step 5 (one shared service-off notice across the shell) belongs to HM-shell-03 and is not proven here.
 const J = 'J-home-ia-06';
 const RUN = Date.now().toString(36);
-const WINDOW_MINUTES = 4;
+const WINDOW_MINUTES = 6;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -62,6 +62,7 @@ test(`${J} #1 with nothing published, Home draws no strip and no banner`, async 
   await openHome();
   await expect(page.locator('.home-notices')).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.locator('.home-notice')).toHaveCount(0);
 });
 
 test(`${J} #4 a founder's draft never reaches the customer`, async () => {
@@ -107,7 +108,7 @@ test(`${J} #3 during an open maintenance window, a banner shows its title and en
   const published = await publishNotice(maintenance, `${J}:${RUN}:maintenance`);
   expect(published.status).toBe('published');
   await openHome();
-  const banner = page.getByRole('alert', { name: 'Maintenance' });
+  const banner = page.getByRole('status', { name: 'Maintenance' });
   await expect(banner).toHaveCount(1);
   await expect(banner).toContainText(`TEST maintenance ${RUN}`);
   await expect(banner).toContainText(`Until ${dayTime(published.endsAt)}`);

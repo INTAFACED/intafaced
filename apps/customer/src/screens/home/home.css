@@ -667,7 +667,6 @@
     white-space: nowrap;
   }
 
-  /* Needs you (work list) */
   /* The notice board (HM-widgets-03): open incidents and maintenance as banners, the current announcement as a strip. */
   .home-notices {
     display: flex;
@@ -712,6 +711,7 @@
   .home-notice__link:hover {
     color: var(--if-fg);
   }
+  /* Needs you (work list) */
   .home-work__rows {
     margin: 0;
     padding: 4px 0;

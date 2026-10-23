@@ -85,5 +85,7 @@ export async function openNotices() {
   const { ctx } = await founders();
   const status = data(await ctx.edge.query('notify', 'notify.noticeStatus'), 'notify.noticeStatus');
   const current = await ctx.edge.query('notify', 'notify.announcement');
-  return { ...status, announcement: current.json?.result?.data ?? null };
+  // None published answers notify.announcement_unset; any other failure is not an empty board.
+  if (current.json?.error?.data?.cause?.code === 'notify.announcement_unset') return { ...status, announcement: null };
+  return { ...status, announcement: data(current, 'notify.announcement') };
 }

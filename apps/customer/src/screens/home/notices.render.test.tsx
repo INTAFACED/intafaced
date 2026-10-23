@@ -8,9 +8,9 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { NoticeRow } from './Notices';
-import type { Notice } from '../../features/public/notices-api';
+import type { HomeNotice } from './notices';
 
-const notice = (over: Partial<Notice>): Notice => ({
+const notice = (over: Partial<HomeNotice>): HomeNotice => ({
   id: '00000000-0000-4000-8000-000000000001',
   kind: 'announcement',
   title: 'TEST <b>notice</b>',
@@ -36,7 +36,8 @@ describe('A notice on Home (HM-widgets-03)', () => {
 
   it('gives a maintenance window its end time, or says none was published', () => {
     const until = renderToString(<NoticeRow notice={notice({ kind: 'maintenance', endsAt: '2026-10-23T05:00:00Z' })} banner />);
-    expect(until).toContain('role="alert"');
+    expect(until).toContain('role="status"');
+    expect(renderToString(<NoticeRow notice={notice({ kind: 'incident' })} banner />)).toContain('role="alert"');
     expect(until).toContain('Until 23 Oct, 05:00 UTC');
     expect(until).not.toContain('href="/notice"');
     expect(renderToString(<NoticeRow notice={notice({ kind: 'maintenance' })} banner />)).toContain('No end time published');
