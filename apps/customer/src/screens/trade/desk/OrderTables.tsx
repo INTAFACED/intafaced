@@ -205,6 +205,7 @@ export function OrdersTable({
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
+  const detailsTitle = t('Order details open');
   return (
     <>
       <table className="dk-table">
@@ -254,7 +255,7 @@ export function OrdersTable({
                 </td>
               ) : null}
               <td className="if-num">
-                <a className="dk-order-link" href={`/trade/orders/${encodeURIComponent(order.id)}`} title={t('Order details open')}>
+                <a className="dk-order-link" href={`/trade/orders/${encodeURIComponent(order.id)}`} title={detailsTitle}>
                   {dayTime(order.timestamp, timeZone)}
                 </a>
               </td>
