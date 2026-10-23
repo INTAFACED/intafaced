@@ -18,6 +18,7 @@ import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
 import { createPgAlertDesk } from './alerts/desk-store.js';
 import { createPgRestoreStore } from './restore-store.js';
+import { probeRestoreArchive } from './restore/archive-probe.js';
 import { createRestoreDesk } from './restore/desk.js';
 import { createPgRestoreRunStore } from './restore/run-store.js';
 import { createWatermarkReader } from './restore/watermark-reader.js';
@@ -128,6 +129,7 @@ const appRouter = createOpsRouter(
   },
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
+    restoreArchiveProbe: (url) => probeRestoreArchive(url),
     restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
     restoreDesk: crmSql
       ? createRestoreDesk({

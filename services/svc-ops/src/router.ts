@@ -66,6 +66,7 @@ import type { ComplianceStore } from './compliance/store.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
+import type { RestoreArchiveProbeResult } from './restore/archive-probe.js';
 import type { RestoreDesk } from './restore/desk.js';
 import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
 import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, readRevenue } from './venue-economics.js';
@@ -201,6 +202,11 @@ const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 export interface OperatorDeskConfig {
   readonly now?: () => string;
   readonly restoreArchiveUrl?: string | null;
+  /**
+   * Reads the archive manifest for `restore.backups`. Absent means a configured URL stays
+   * `ops.restore_archive_unprobed` and the list stays empty.
+   */
+  readonly restoreArchiveProbe?: (url: string) => Promise<RestoreArchiveProbeResult>;
   readonly alertSourceUrl?: string | null;
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
@@ -614,10 +620,27 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      // The archive is not probed, so the list is empty and says why. Nothing is invented as a backup.
-      backups: scopedProcedure('admin:read', guards).query(() => {
+      // A blank URL is unconfigured. A probe that fails or is unwired stays unprobed. A manifest is listed as returned.
+      backups: scopedProcedure('admin:read', guards).query(async () => {
         const archive = archivePosture(desks.restoreArchiveUrl);
-        return { asOf: now(), archive, backups: [] as never[], reason: archive.code };
+        if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
+          return { asOf: now(), archive, backups: [] as const, reason: archive.code };
+        }
+        let probed: RestoreArchiveProbeResult;
+        try {
+          probed = await desks.restoreArchiveProbe(desks.restoreArchiveUrl);
+        } catch {
+          probed = { probed: false };
+        }
+        if (!probed.probed) {
+          return { asOf: now(), archive, backups: [] as const, reason: OPS_RESTORE_ARCHIVE_UNPROBED };
+        }
+        return {
+          asOf: now(),
+          archive: { configured: true as const, probed: true as const, code: null },
+          backups: probed.backups,
+          reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
+        };
       }),
       runs: scopedProcedure('admin:read', guards).query(async () => {
         try {
