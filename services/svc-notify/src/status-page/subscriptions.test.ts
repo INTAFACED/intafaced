@@ -391,7 +391,7 @@ describe('subscriber desk (SP-status-04 delivery rows and safeguards)', () => {
   it('a resend tries pending rows again once a sender is there, and leaves accepted ones', async () => {
     const store = new MemorySubscriptionStore();
     const at = new Date('2026-10-23T12:00:00.000Z');
-    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' }, at);
+    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' });
     expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(true);
     expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(false);
     await store.settleDelivery('k', 'pending', 'vendor.email', at);
@@ -441,7 +441,7 @@ describe('subscriber desk (SP-status-04 delivery rows and safeguards)', () => {
   it('a sender that lost its lease records nothing over the one that took the row', async () => {
     const store = new MemorySubscriptionStore();
     const at = new Date('2026-10-23T12:00:00.000Z');
-    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' }, at);
+    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' });
     const first = new Date(at.getTime() + 1000);
     expect(await store.takeDelivery('k', at, first)).toBe(true);
     const later = new Date(at.getTime() + 2000);
