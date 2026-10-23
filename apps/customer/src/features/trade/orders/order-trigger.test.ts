@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Order } from '../trade-api';
-import { orderTrigger, slippageOf } from './order-trigger';
+import { fillsAverage, orderTrigger, slippageOf } from './order-trigger';
 
 function stop(over: Partial<Order>): Order {
   return {
@@ -40,8 +40,9 @@ describe('a stop order’s trigger', () => {
       ...fired,
       slippage: { amount: '2', rate: '0.02' },
     });
-    // Fired, nothing filled yet: no slippage to state.
-    expect(orderTrigger(stop({ triggered: fired }), false)).toMatchObject({ kind: 'fired', slippage: null });
+    // Fired, nothing filled yet: no slippage to state; filled with no known average: not stated.
+    expect(orderTrigger(stop({ triggered: fired }), false)).toMatchObject({ kind: 'fired', slippage: 'not-filled' });
+    expect(orderTrigger(stop({ triggered: fired, filled: '1' }), false, null)).toMatchObject({ slippage: 'unknown' });
   });
 
   it('counts slippage against the person: below the stop for a sell, above it for a buy; better is negative', () => {
@@ -50,5 +51,19 @@ describe('a stop order’s trigger', () => {
     expect(slippageOf('sell', '100', '100.5')).toEqual({ amount: '-0.5', rate: '-0.005' });
     expect(slippageOf('sell', '100', null)).toBeNull();
     expect(slippageOf('sell', 'x', '99')).toBeNull();
+  });
+
+  it('reads the average from the fills when the wire has none, and only when they add up to the filled amount', () => {
+    const fills = [
+      { price: '100', amount: '0.5' },
+      { price: '102', amount: '0.5' },
+    ];
+    expect(fillsAverage(fills, '1')).toBe('101');
+    expect(fillsAverage(fills.slice(0, 1), '1')).toBeNull();
+    expect(fillsAverage([], '0')).toBeNull();
+    const fired = { at: '2026-10-23T03:00:00.000Z', by: 'last' as const, referencePrice: '100' };
+    expect(orderTrigger(stop({ side: 'buy', triggered: fired, filled: '1' }), true, fillsAverage(fills, '1'))).toMatchObject({
+      slippage: { amount: '1', rate: '0.01' },
+    });
   });
 });

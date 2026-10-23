@@ -293,7 +293,9 @@ test(`${J} #6 a stop that fired says why: its stop price, the price that reached
   const limit = fromUnits(((toUnits(ask) * 102n) / 100n / tick) * tick);
   const order = await place(who, { type: 'stop_limit', side: 'buy', amount: '0.001', price: limit, stopPrice, timeInForce: 'GTC' }, 'stop');
   expect(order).toMatchObject({ type: 'stop_limit', stopPrice });
-  const lift = await (await api(otherTrader())).post('/api/v1/orders', {
+  const lift = await (
+    await api(otherTrader())
+  ).post('/api/v1/orders', {
     symbol: SYMBOL,
     type: 'limit',
     side: 'buy',
@@ -318,12 +320,21 @@ test(`${J} #6 a stop that fired says why: its stop price, the price that reached
   await expect(rowValue(dl, 'Stop price')).toHaveText(`${usd(stopPrice)} USDT`);
   await expect(rowValue(dl, 'Trigger')).toContainText(`when the last trade price reached ${usd(fired.triggered.referencePrice)} USDT`);
   await expect(rowValue(dl, 'Trigger')).toContainText(/Fired \d{1,2} \w{3}, \d{1,2}:\d{2}/);
-  // Slippage: the average fill against the stop price, worse for a buy when above it.
-  const worse = toUnits(fired.average) - toUnits(stopPrice);
+  // Slippage: the average fill (from the order's fills) against the stop price, worse for a buy when above it.
+  const fills = await fillsOf(who, order.id);
+  const base = fills.reduce((sum, f) => sum + toUnits(f.amount), 0n);
+  const quote = fills.reduce((sum, f) => sum + (toUnits(f.price) * toUnits(f.amount)) / 10n ** 18n, 0n);
+  expect(fromUnits(base)).toBe('0.001');
+  const average = fromUnits((quote * 10n ** 18n) / base);
+  const worse = toUnits(average) - toUnits(stopPrice);
   await expect(rowValue(dl, 'Slippage')).toHaveText(
-    worse === 0n ? /None/ : worse > 0n ? new RegExp(`^${usd(fromUnits(worse)).replace('.', '\\.')} USDT \\(.+%\\) worse than the stop price$`) : /better than the stop price/,
+    worse === 0n
+      ? /None/
+      : worse > 0n
+        ? new RegExp(`^${usd(fromUnits(worse)).replace('.', '\\.')} USDT \\(.+%\\) worse than the stop price$`)
+        : /better than the stop price/,
   );
-  await expect(rowValue(dl, 'Average price')).toHaveText(`${usd(fired.average)} USDT`);
+  await expect(rowValue(dl, 'Average price')).toHaveText(`${usd(average)} USDT`);
 });
 
 test(`${J} #7 reads the order states and the amend trail: the same words everywhere, each change with its time`, async ({ page }) => {
