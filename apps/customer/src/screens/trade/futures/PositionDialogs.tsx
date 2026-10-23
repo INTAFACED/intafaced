@@ -383,7 +383,8 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
 }
 
 /** One leg as it stands: its status in words, its trigger and the price it is judged on, and what a fired one did. */
-function LegLine({ leg, order, contracts, t }: { leg: Leg; order: ConditionalOrder | null; contracts: string; t: T }) {
+function LegLine({ leg, order, position, t }: { leg: Leg; order: ConditionalOrder | null; position: Position; t: T }) {
+  const contracts = position.contracts;
   const words = triggersCopy.useCopy().t;
   const name = leg === 'take_profit' ? t('Protect take profit') : t('Protect stop loss');
   if (order === null) return <li data-leg={leg}>{t('Protect leg', { leg: name, status: t('Protect none') })}</li>;
@@ -404,7 +405,7 @@ function LegLine({ leg, order, contracts, t }: { leg: Leg; order: ConditionalOrd
           })}
         </span>
       )}
-      <TriggerFacts order={order} />
+      <TriggerFacts order={order} positions={[position]} />
     </li>
   );
 }
@@ -584,8 +585,8 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
         {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
         {orders !== null ? (
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            <LegLine leg="take_profit" order={legs.take_profit} contracts={position.contracts} t={t} />
-            <LegLine leg="stop_loss" order={legs.stop_loss} contracts={position.contracts} t={t} />
+            <LegLine leg="take_profit" order={legs.take_profit} position={position} t={t} />
+            <LegLine leg="stop_loss" order={legs.stop_loss} position={position} t={t} />
           </ul>
         ) : null}
         {closingNow ? <p className="text-warn">{t('Protect closing now')}</p> : null}
