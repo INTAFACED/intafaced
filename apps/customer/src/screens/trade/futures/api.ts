@@ -251,6 +251,8 @@ export interface OpenInput {
   priceCorrection?: 'adjust';
   /** Above the max-order: placed as children of at most the cap (`POST /futures/orders/split`), keyed `<clientOpenId>:1..N`. */
   split?: true;
+  /** The margin tier the trader accepted in the confirm step; the service refuses a crossing into a tier not named. */
+  confirmTier?: number;
   clientOpenId: string;
 }
 
@@ -265,6 +267,7 @@ export interface PlaceOrderInput {
   clientOrderId: string;
   collateralClass?: string;
   priceCorrection?: 'adjust';
+  confirmTier?: number;
 }
 
 /** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */

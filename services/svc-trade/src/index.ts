@@ -909,7 +909,9 @@ registerPositionPreviewRest(app, {
     } catch {
       return null;
     }
-  },
+  }, // The tier the order path would rate this order into, and whether it would ask for confirmTier (D-orders-10).
+  riskTierFor: ({ userId, market, side, size, markPrice }) =>
+    positions.riskTierCrossing({ userId, marketId: market.id, symbol: market.symbol, side, qty: size, mark: markPrice }),
 });
 // The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
 // preview, and the same taker rate as the order path (`risk-calculator.ts`).

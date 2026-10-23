@@ -57,6 +57,7 @@ function appWith(input: {
   priceBand?: string | null;
   slippageCapBps?: number | null;
   maxOrder?: number | null;
+  riskTierFor?: Parameters<typeof registerPositionPreviewRest>[1]['riskTierFor'];
 }) {
   const app = Fastify();
   const liquidation = input.liquidation;
@@ -71,6 +72,7 @@ function appWith(input: {
     slippageCapBps: async () => (input.slippageCapBps === undefined ? 50 : input.slippageCapBps),
     maxOrder: () => (input.maxOrder === undefined ? 1000 : input.maxOrder),
     ...(liquidation === undefined ? {} : { liquidationPriceFor: async () => (liquidation === null ? null : parseAmount(liquidation)) }),
+    ...(input.riskTierFor ? { riskTierFor: input.riskTierFor } : {}),
   });
   return app;
 }
@@ -235,6 +237,85 @@ describe('POST /api/v1/positions/preview', () => {
       'trade.max_order_unset',
     ]);
     await blank.close();
+  });
+
+  it('names the margin tier the order carries the side into, and whether the order must confirm it', async () => {
+    const asked: unknown[] = [];
+    const app = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async (input) => {
+        asked.push({ userId: input.userId, market: input.market.id, side: input.side, size: input.size, mark: input.markPrice });
+        return {
+          currentTier: 1,
+          projectedTier: 2,
+          maintenanceBps: 100,
+          notional: parseAmount('200'),
+          confirmRequired: true,
+          tiers: 4,
+          depthNotional: parseAmount('1000'),
+        };
+      },
+    });
+    const response = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(response.json()).toMatchObject({
+      riskTier: { current: 1, projected: 2, maintenanceBps: 100, maintenanceRate: '0.01', notional: '200', confirmRequired: true },
+      // Asking for a confirm is not a refusal: the order goes through once the trader names the tier.
+      orderable: true,
+      refusals: [],
+    });
+    expect(asked).toEqual([{ userId: USER, market: MARKET.id, side: 'long', size: parseAmount('2'), mark: parseAmount('100') }]);
+    await app.close();
+  });
+
+  it('an unreadable tier is named on the tier line; without a mark nothing is rated', async () => {
+    const { FuturesError } = await import('./position-service.js');
+    const unread = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async () => {
+        throw new FuturesError('depth unreadable', 'trade.depth_unknown', 503);
+      },
+    });
+    const response = await unread.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(response.json()).toMatchObject({
+      riskTier: null,
+      orderable: false,
+      refusals: [{ code: 'trade.depth_unknown', field: 'tier', message: 'depth unreadable' }],
+    });
+    let called = false;
+    const markless = appWith({
+      mark: null,
+      cap: '5',
+      riskTierFor: async () => {
+        called = true;
+        throw new Error('not reached');
+      },
+    });
+    const none = await markless.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(none.json().riskTier).toBeNull();
+    expect(called).toBe(false);
+    // Any other failure is named on the tier line too; the rest of the preview still answers.
+    const broken = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async () => {
+        throw new Error('connection reset');
+      },
+    });
+    const named = await broken.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({
+      initialMargin: '50',
+      riskTier: null,
+      refusals: [{ code: 'trade.risk_tier_unavailable', field: 'tier' }],
+    });
+    await broken.close();
+    await unread.close();
+    await markless.close();
   });
 
   it('refuses JSON-number money inputs', async () => {

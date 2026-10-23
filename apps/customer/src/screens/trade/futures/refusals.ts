@@ -75,7 +75,17 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.depth_unknown': {
     title: 'The book cannot be read right now',
-    body: 'Raising leverage releases margin, and that needs a readable order book. Lowering leverage adds margin and still works.',
+    body: 'Opening, adding size and raising leverage need a readable order book to rate the margin tier. Nothing was held or changed. Lowering leverage adds margin and still works.',
+  },
+  'trade.risk_limit_confirm_required': {
+    title: 'This order moves into a higher margin tier',
+    body: 'The tier changed since your review, or it was not confirmed. Nothing was held. Review again, read the new tier and confirm it.',
+    retryable: false,
+  },
+  'trade.confirm_tier_invalid': {
+    title: 'The margin tier confirmation was not readable',
+    body: 'Nothing was held. Review again and confirm the tier the review shows.',
+    retryable: false,
   },
   'trade.ladder_unset': {
     title: 'Margin tiers are not published',

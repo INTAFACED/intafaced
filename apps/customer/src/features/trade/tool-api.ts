@@ -155,6 +155,18 @@ export const positionPreviewSchema = z.object({
     .object({ parts: z.number().int(), sizes: z.array(decimalSchema) })
     .nullable()
     .optional(),
+  /** The margin tier the order carries its side into (D-orders-10); `confirmRequired` asks for `confirmTier`. */
+  riskTier: z
+    .object({
+      current: z.number().int().nullable(),
+      projected: z.number().int(),
+      maintenanceBps: z.number().int(),
+      maintenanceRate: decimalSchema,
+      notional: decimalSchema,
+      confirmRequired: z.boolean(),
+    })
+    .nullable()
+    .optional(),
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });

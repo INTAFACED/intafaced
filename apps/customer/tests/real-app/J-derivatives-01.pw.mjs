@@ -228,6 +228,11 @@ test(`${J} #8 confirms "Open long": one position opens and its margin is locked`
   await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open long' }).click();
   const confirm = page.getByRole('alertdialog');
+  // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
+  // (J-derivatives-02 #6) and the trader accepts it first.
+  await expect(confirm).toBeVisible();
+  const tier = confirm.getByRole('region', { name: 'New margin tier' });
+  if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
   // A double press sends one order: the request id holds until the numbers change.
   await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
   await expect(page.getByText('Order filled')).toBeVisible({ timeout: 20_000 });

@@ -229,6 +229,34 @@ describe('futures orders through the book: REST', () => {
     expect((await out.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: body })).statusCode).toBe(403);
   });
 
+  it('confirmTier is passed to both doors as sent, and a malformed one never reaches the service', async () => {
+    const seen: PlaceMatchedOrderInput[] = [];
+    const server = await app({
+      place: async (_p, input) => {
+        seen.push(input);
+        return order;
+      },
+      placeSplit: async (_p, input) => {
+        seen.push(input);
+        return { parts: 1, orders: [order], stopped: null };
+      },
+    });
+    expect((await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, confirmTier: 3 } })).statusCode).toBe(
+      200,
+    );
+    expect(
+      (await server.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: { ...body, confirmTier: 2 } })).statusCode,
+    ).toBe(200);
+    expect((await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: body })).statusCode).toBe(200);
+    expect(seen.map((input) => input.confirmTier)).toEqual([3, 2, undefined]);
+    for (const confirmTier of ['3', 0, 1.5]) {
+      const res = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, confirmTier } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('trade.confirm_tier_invalid');
+    }
+    expect(seen).toHaveLength(3);
+  });
+
   it('signed out is 401 and an unwired door is 503, never a pretend order', async () => {
     const out = await app({ place: async () => order }, { signedIn: false });
     expect((await out.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: body })).statusCode).toBe(401);

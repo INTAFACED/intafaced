@@ -1798,6 +1798,205 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(await ordersOf(ALICE)).toHaveLength(1);
     });
   });
+
+  describe('the confirm step before a higher margin tier (D-orders-10, J-derivatives-02 #6)', () => {
+    // Depth 1,000 USDT: tier 1 holds up to 50 USDT of notional (0.5 at 100), tier 2 up to 200 (2), tier 3 the rest.
+    const POLICY = {
+      tiers: [
+        { uptoDepthBps: 500, maintenanceBps: 50 },
+        { uptoDepthBps: 2_000, maintenanceBps: 100 },
+        { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 500 },
+      ],
+      marginCallBps: 12_000,
+      targetBps: 15_000,
+      maxTrancheBps: 2_500,
+    };
+    let depth: bigint | null;
+    beforeEach(() => {
+      depth = A('1000');
+    });
+
+    function tiered(overrides: Partial<MatchedOrdersDeps> = {}): MatchedFuturesOrders {
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        ladder: {
+          depth: {
+            depthNotional: async () => {
+              if (depth === null) throw new Error('depth read failed');
+              return depth;
+            },
+          },
+          policy: POLICY,
+        },
+      });
+      return build({ riskTier: (input) => positions.riskTierCrossing(input), ...overrides });
+    }
+
+    async function ordersOf(userId: string) {
+      return sql<{ client_order_id: string; qty: string }[]>`
+        SELECT client_order_id, qty FROM trade.futures_orders WHERE user_id = ${userId} ORDER BY created_at, client_order_id
+      `;
+    }
+
+    it('an order that stays in tier 1 places without a confirm', async () => {
+      const placed = await tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 't1' }));
+      expect(placed.status).toBe('open');
+      expect(engine.submits).toHaveLength(1);
+    });
+
+    it('adding size past the tier the side sits in refuses naming the new tier and its leverage; nothing is held', async () => {
+      const svc = tiered();
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'add-1' }));
+      const free = await bal(userAvailable(ALICE, USDT));
+      // The resting 0.4 can still fill into the position, so 0.4 more is 80 USDT: tier 2.
+      const add = order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'add-2' });
+      const refused = svc.place(principal(ALICE), add);
+      await expect(refused).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required', status: 409 });
+      await expect(refused).rejects.toThrow(
+        'this order moves the position from tier 1 into tier 2 (maintenance 1.00%) at 10x leverage; every tier answers to the listing cap of 10x. Send confirmTier 2 to place it',
+      );
+      expect(engine.submits).toHaveLength(1);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(free);
+      expect((await ordersOf(ALICE)).map((o) => o.client_order_id)).toEqual(['add-1']);
+
+      // A confirm for a lower tier is no confirm for this one.
+      await expect(svc.place(principal(ALICE), { ...add, confirmTier: 1 })).rejects.toMatchObject({
+        code: 'trade.risk_limit_confirm_required',
+      });
+      // The same request naming tier 2 goes ahead under the same key.
+      const placed = await svc.place(principal(ALICE), { ...add, confirmTier: 2 });
+      expect(placed.clientOrderId).toBe('add-2');
+      expect(engine.submits).toHaveLength(2);
+      await assertBooksAgree();
+
+      // Inside tier 2 no confirm is asked again; past it, the next tier is.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'add-3' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'add-4', confirmTier: 2 })),
+      ).rejects.toThrow('from tier 2 into tier 3 (maintenance 5.00%)');
+    });
+
+    it('a filled position counts, and the other side and other accounts do not', async () => {
+      const svc = tiered();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'pos-a' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.4'), clientOrderId: 'pos-b' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '0.4', sequence: 7 });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.size)).toBe(A('0.4'));
+      // Carol has nothing: her 0.4 stays in tier 1 whatever Alice holds.
+      await svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('0.4'), clientOrderId: 'pos-c' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.2'), clientOrderId: 'pos-a2' })),
+      ).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required' });
+      await assertBooksAgree();
+    });
+
+    it('a first order straight into a high tier asks too, naming the tier it opens in', async () => {
+      const big = order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'big' });
+      await expect(tiered().place(principal(ALICE), big)).rejects.toThrow('this order opens the position in tier 3 (maintenance 5.00%)');
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      expect((await tiered().place(principal(ALICE), { ...big, confirmTier: 3 })).status).toBe('open');
+    });
+
+    it('two orders placed together cannot each stay inside the tier and together cross it: the later rating refuses', async () => {
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        ladder: { depth: { depthNotional: async () => A('1000') }, policy: POLICY },
+      });
+      // Order B (0.3) is placed in full while order A (0.3) is between its first rating and writing its row: each alone
+      // stays in tier 1 (30 of 50), together they are 60, tier 2.
+      let racing = true;
+      const svc: MatchedFuturesOrders = build({
+        riskTier: async (input) => {
+          const crossing = await positions.riskTierCrossing(input);
+          if (racing && input.excludeOrderId === undefined) {
+            racing = false;
+            await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-b' }));
+          }
+          return crossing;
+        },
+      });
+      const a = order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-a' });
+      await expect(svc.place(principal(ALICE), a)).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required', status: 409 });
+      // A's row is kept, refused before its hold posted; only B rests and holds.
+      const rows = await sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${ALICE} ORDER BY client_order_id
+      `;
+      expect(rows).toEqual([
+        { client_order_id: 'race-a', status: 'refused', refusal_code: 'trade.risk_limit_confirm_required' },
+        { client_order_id: 'race-b', status: 'open', refusal_code: null },
+      ]);
+      expect(engine.submits).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
+    it('a confirmTier above the ladder names no tier and refuses before any hold', async () => {
+      await expect(
+        tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'tier-9', confirmTier: 9 })),
+      ).rejects.toMatchObject({ code: 'trade.confirm_tier_invalid', status: 400 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+    });
+
+    it('an unreadable depth refuses before any hold: no tier can be named', async () => {
+      depth = null;
+      await expect(
+        tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'no-depth' })),
+      ).rejects.toMatchObject({ code: 'trade.depth_unknown', status: 503 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+    });
+
+    it('a reduce-only order is never asked to confirm a tier', async () => {
+      const svc = tiered();
+      const a = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'ro-a', confirmTier: 3 }),
+      );
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('3'), clientOrderId: 'ro-b', confirmTier: 3 }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '3', sequence: 9 });
+      const close = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('1'), clientOrderId: 'ro-close', reduceOnly: true, type: 'market' }),
+      );
+      expect(close.reduceOnly).toBe(true);
+    });
+
+    describe('through the split door', () => {
+      const saved = process.env.TRADE_MAX_ORDER;
+      afterEach(() => {
+        if (saved === undefined) delete process.env.TRADE_MAX_ORDER;
+        else process.env.TRADE_MAX_ORDER = saved;
+      });
+
+      it('the whole order is rated before any child is placed, and a confirm places every child', async () => {
+        process.env.TRADE_MAX_ORDER = '105';
+        const svc = tiered();
+        const whole = order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'split-tier' });
+        await expect(svc.placeSplit(principal(ALICE), whole)).rejects.toMatchObject({
+          code: 'trade.risk_limit_confirm_required',
+          status: 409,
+        });
+        expect(engine.submits).toHaveLength(0);
+        expect(await ordersOf(ALICE)).toHaveLength(0);
+
+        const out = await svc.placeSplit(principal(ALICE), { ...whole, confirmTier: 3 });
+        expect(out.stopped).toBeNull();
+        expect(out.orders.map((o) => o.qty)).toEqual(['1', '1', '1']);
+        // The confirm is not part of the request's identity: the same request again replays the same children.
+        const tag = splitRequestTag(whole);
+        expect(out.orders.map((o) => o.clientOrderId)).toEqual([1, 2, 3].map((n) => `split-tier:${n}:${tag}`));
+        await assertBooksAgree();
+      });
+    });
+  });
 });
 
 describe('the at-mark open is retired while matched mode is on', () => {

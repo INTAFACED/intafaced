@@ -54,7 +54,8 @@ import { planClose } from './close-planner.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
-import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { DEPTH_UNKNOWN, FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { tierCrossing, type RiskTierCrossing } from './risk-tier-confirm.js';
 import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
@@ -463,7 +464,60 @@ export class PositionService {
       feeRates: matchedOrders?.feeRates ?? null,
       ...(matchedOrders?.slippageCapBps ? { slippageCapBps: matchedOrders.slippageCapBps } : {}),
       assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
+      ...(deps.ladder ? { riskTier: (input) => this.riskTierCrossing(input) } : {}),
     });
+  }
+
+  /**
+   * The margin tier a side's exposure sits in now and would sit in with `qty` more (`risk-tier-confirm.ts`), rated at
+   * `mark` against the depth the liquidation tick reads. Exposure is the open position's size plus what the side's
+   * live opening orders can still fill, since those fill into the same position. An unset ladder refuses
+   * `trade.ladder_unset` and an unreadable depth `trade.depth_unknown`: with either, no tier can be named.
+   */
+  async riskTierCrossing(input: {
+    userId: string;
+    marketId: string;
+    symbol: string;
+    side: 'long' | 'short';
+    qty: Amount;
+    mark: Amount;
+    /** The order being rated once its own row is written: left out of the exposure, since `qty` is that order. */
+    excludeOrderId?: string;
+    /** The depth an earlier rating in the same request read; absent reads it now. */
+    depthNotional?: Amount;
+  }): Promise<RiskTierCrossing> {
+    const ladder = this.deps.ladder;
+    if (!ladder?.policy) {
+      throw new FuturesError(
+        'the owner has not published the maintenance tiers, so no margin tier can be named',
+        'trade.ladder_unset',
+        503,
+      );
+    }
+    let depthNotional: Amount | null = input.depthNotional ?? null;
+    if (depthNotional === null) {
+      try {
+        depthNotional = await ladder.depth.depthNotional({ marketId: input.marketId, side: input.side, symbol: input.symbol });
+      } catch {
+        depthNotional = null;
+      }
+    }
+    if (depthNotional == null || depthNotional <= 0n) {
+      throw new FuturesError('the book depth the margin tiers are rated against is unreadable — nothing was held', DEPTH_UNKNOWN, 503);
+    }
+    const bookSide = input.side === 'long' ? 'buy' : 'sell';
+    const [row] = await this.sql<{ position: string | null; orders: string | null }[]>`
+      SELECT
+        (SELECT sum(size) FROM trade.positions
+          WHERE user_id = ${input.userId} AND market_id = ${input.marketId} AND side = ${input.side}
+            AND status IN ('open', 'closing'))::text AS position,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE user_id = ${input.userId} AND market_id = ${input.marketId} AND side = ${bookSide} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+            ${input.excludeOrderId ? this.sql`AND id <> ${input.excludeOrderId}` : this.sql``})::text AS orders
+    `;
+    const exposure = parseAmount(row?.position ?? '0') + parseAmount(row?.orders ?? '0');
+    return tierCrossing({ policy: ladder.policy, depthNotional, mark: input.mark, exposure: exposure as Amount, qty: input.qty });
   }
 
   private requireLeverageCap(): Amount {
