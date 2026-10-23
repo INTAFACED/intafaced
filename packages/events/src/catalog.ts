@@ -1858,17 +1858,6 @@ export const WIRING_SOCKETS = [
       "svc-matching announces admission to the book; svc-trade consumes only orderFilled and orderCancelled, because acceptance moves no money and releases no hold, and svc-trade already knows it submitted the order. svc-ws publishes book depth from the engine's own snapshots rather than by replaying acceptances. Genuinely nothing to do with it today.",
   },
   {
-    event: 'orderTriggered',
-    missing: 'subscriber',
-    /**
-     * CLASS A — record ahead of its reader. svc-matching publishes it; svc-trade's consumer (the order's trigger
-     * time and price on its own page, J-cex-spot-06 #6) lands in the next PR, which closes this row.
-     */
-    class: 'A',
-    reason:
-      "svc-matching announces each stop trigger with the price that reached it. svc-trade's reader, which records the trigger on the order for its page, is the next change; until it lands the event moves no money and nothing relies on it.",
-  },
-  {
     event: 'protocolAccountCreated',
     missing: 'subscriber',
     /**
