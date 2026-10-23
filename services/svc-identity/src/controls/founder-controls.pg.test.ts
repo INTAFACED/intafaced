@@ -357,7 +357,7 @@ if (!available) {
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE user_id = ${target}`)[0]!.revoked).toBe(true);
     });
 
-    it('lifts a freeze only with a second person\'s approval, spent once, and the history names both', async () => {
+    it("lifts a freeze only with a second person's approval, spent once, and the history names both", async () => {
       const lookup = { target: { area: 'identity' as const, userId: target } };
       await controls.change(first, command());
       const approvalRow = async (approvalId: string) =>
