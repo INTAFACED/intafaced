@@ -1,21 +1,35 @@
+import { useEffect, useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { useRead } from '../developers/use-read';
 import { noticeFeedCopy } from './notice-feed-copy';
-import { feedNotices, isNoticeId, readNotice, readNotices, type Notice } from './notices-api';
+import { feedNotices, isNoticeId, maintenancePhase, readNotice, readNotices, type Notice } from './notices-api';
 import './public-pages.css';
 
 const day = (value: string | null) => (value ? value.slice(0, 10) : null);
+
+/** The time, moving on each minute, so an open page's maintenance phase follows the clock across a window's edge. */
+function useMinute(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
 
 function NoticeCard({ notice, link }: { notice: Notice; link: boolean }) {
   const { t } = noticeFeedCopy.useCopy();
   const from = day(notice.startsAt);
   const to = day(notice.endsAt);
+  const now = useMinute();
+  const phase = maintenancePhase(notice, now);
   return (
-    <article className="pub-card" data-kind={notice.kind}>
+    <article className="pub-card" data-kind={notice.kind} data-testid={`notice-${notice.id}`} {...(phase ? { 'data-phase': phase } : {})}>
       <h2>{notice.title}</h2>
       <p className="muted">
         {t(`kind_${notice.kind}` as const)}
+        {phase ? ` · ${t(`maintenance_${phase}` as const)}` : ''}
         {notice.publishedAt ? ` · ${t('published', { date: day(notice.publishedAt) ?? '' })}` : ''}
         {from || to ? ` · ${t('window', { from: from ?? t('windowNotSet'), to: to ?? t('windowNotSet') })}` : ''}
       </p>

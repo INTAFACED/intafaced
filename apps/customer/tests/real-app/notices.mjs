@@ -33,10 +33,23 @@ const payloadHash = (row) => {
 };
 
 /**
- * A draft notice, open from now for `minutes`. Returns the stored row. An incident may name an impact and status page
+ * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
  * components, update an earlier incident (`parentId`) and close it (`resolves`).
  */
-export async function draftNotice({ kind, title, body, minutes, key, impact = null, components = [], parentId = null, resolves = false }) {
+export async function draftNotice({
+  kind,
+  title,
+  body,
+  minutes,
+  key,
+  impact = null,
+  components = [],
+  parentId = null,
+  resolves = false,
+  startsAt = null,
+  endsAt = null,
+}) {
+  if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -46,8 +59,8 @@ export async function draftNotice({ kind, title, body, minutes, key, impact = nu
       kind,
       title,
       body,
-      startsAt: new Date(now - 60_000).toISOString(),
-      endsAt: new Date(now + minutes * 60_000).toISOString(),
+      startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
+      endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString(),
       ...(impact ? { impact } : {}),
       ...(components.length ? { components } : {}),
       ...(parentId ? { parentId } : {}),
