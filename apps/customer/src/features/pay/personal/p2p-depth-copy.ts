@@ -151,6 +151,10 @@ const en = {
     'This payment method has been retired because of a high fraud risk on it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredLowDemand:
     'This payment method has been retired because too few people used it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failBuyingPaused:
+    'You cancelled {cap} orders, or let their payment time run out, within {hours} hours, so buying is paused until {time}. Selling is not paused. Nothing was placed.',
+  failBuyingPausedPlain:
+    'You cancelled too many orders, or let their payment time run out, in a short time, so buying is paused; selling is not. Nothing was placed.',
   takeFiatAmount: 'Or the amount in {fiat}',
   takeFiatHint: 'The service turns it into {asset} at this ad’s price, rounded down so you never pay more than you typed.',
   takeFiatConverting: 'Working out the {asset} amount…',
@@ -420,6 +424,10 @@ const es = {
     'Este método de pago se ha retirado por un riesgo de fraude elevado. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredLowDemand:
     'Este método de pago se ha retirado porque muy pocas personas lo usaban. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failBuyingPaused:
+    'Cancelaste {cap} pedidos, o dejaste que se acabara su plazo de pago, en {hours} horas, así que las compras quedan en pausa hasta las {time}. Las ventas no se pausan. No se hizo nada.',
+  failBuyingPausedPlain:
+    'Cancelaste demasiados pedidos, o dejaste que se acabara su plazo de pago, en poco tiempo, así que las compras quedan en pausa; las ventas no. No se hizo nada.',
   takeFiatAmount: 'O el importe en {fiat}',
   takeFiatHint:
     'El servicio lo convierte en {asset} al precio de este anuncio, redondeando a la baja para que nunca pagues más de lo escrito.',
@@ -691,6 +699,10 @@ const fr = {
     'Ce mode de paiement a été retiré en raison d’un risque de fraude élevé. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredLowDemand:
     'Ce mode de paiement a été retiré parce que trop peu de personnes l’utilisaient. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failBuyingPaused:
+    'Vous avez annulé {cap} commandes, ou laissé passer leur délai de paiement, en {hours} heures, les achats sont donc en pause jusqu’à {time}. Les ventes ne sont pas en pause. Rien n’a été passé.',
+  failBuyingPausedPlain:
+    'Vous avez annulé trop de commandes, ou laissé passer leur délai de paiement, en peu de temps, les achats sont donc en pause ; les ventes non. Rien n’a été passé.',
   takeFiatAmount: 'Ou le montant en {fiat}',
   takeFiatHint:
     'Le service le convertit en {asset} au prix de cette annonce, arrondi à l’inférieur pour ne jamais payer plus que le montant saisi.',

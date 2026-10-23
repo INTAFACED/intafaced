@@ -440,3 +440,57 @@ test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain
   await take.locator('select').selectOption(METHOD);
   await expect(take.getByTestId('take-quote')).toContainText('21 EUR');
 });
+
+test('J-p2p-01 #4 after three cancelled orders buying is paused, in plain words with the end time', async ({ page }) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer. The limit is the labelled TEST profile value: 3 cancelled orders within 24 hours.
+  const seller = await signUp(page, 'p2p01x');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:cancel-offer:${seller.handle}`,
+  });
+  const buyer = await signUp(page, 'p2p01k');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  const cancelled = [];
+  for (let i = 0; i < 3; i++) {
+    const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+    cancelled.push(await b.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' }));
+  }
+
+  // The fourth take refuses before anything is reserved, with when buying starts again: 24 hours after the first cancel.
+  const refused = await b.raw.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(refused.status).toBe(409);
+  expect(refusalCode(refused)).toBe('p2p.buying_restricted');
+  const pause = refused.body.error.data.p2pLimit;
+  expect(pause).toEqual({ until: expect.any(String), cap: '3', windowHours: '24' });
+  const firstCancel = Date.parse(cancelled[0].resolvedAt);
+  expect(Date.parse(pause.until) - firstCancel).toBeGreaterThan(24 * 3_600_000 - 60_000);
+  expect(Date.parse(pause.until) - firstCancel).toBeLessThan(24 * 3_600_000 + 60_000);
+  expect((await b.query('offers.get', { offerId: offer.id })).remainingAmount).toBe('100');
+
+  await signIn(page, buyer);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(METHOD);
+  await take.getByTestId('take-fiat-amount').fill('20');
+  const failure = take.getByTestId('take-failure');
+  await expect(failure).toHaveAttribute('data-kind', 'buyingPaused');
+  await expect(failure).toContainText(
+    'You cancelled 3 orders, or let their payment time run out, within 24 hours, so buying is paused until',
+  );
+  await expect(failure).toContainText('Selling is not paused. Nothing was placed.');
+});
