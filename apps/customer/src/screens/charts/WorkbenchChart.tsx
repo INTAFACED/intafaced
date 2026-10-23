@@ -1,0 +1,281 @@
+/**
+ * WorkbenchChart: the chart workbench's own adapter to the vendored Lightweight Charts 5.2.1 (`features/trade/vendor`,
+ * Apache-2.0, notice kept beside the file). The desk keeps `trade/chart/PriceChart`; this one draws every chart style,
+ * the colour scheme, older history in front of the loaded bars, a moved view for "go to date", keyboard zoom and pan,
+ * and hands a `ChartHost` to the add-ons drawn on top (studies, drawings).
+ *
+ * TradingView attribution stays on (`layout.attributionLogo: true`), as the licence asks. Colours come from the app's
+ * tokens (`--if-*`), never from literals here.
+ */
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { usePreferences } from '../../shared/preferences';
+import type { Candle } from '../../data/types';
+import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
+import { axisTime, tickMark } from '../trade/chart/PriceChart';
+import type { ChartApi, ChartHost, ChartLib, ChartSeries } from './chart-host';
+import {
+  SCHEME_TOKENS,
+  SERIES_KIND,
+  seriesOptions,
+  seriesPoints,
+  type ChartStyle,
+  type ColourScheme,
+  type SchemeColors,
+} from './chart-style';
+
+type Engine = ChartLib & { createChart(host: HTMLElement, options: Record<string, unknown>): ChartApi } & Record<string, unknown>;
+const engineOf = (): Engine | undefined => (window as unknown as { LightweightCharts?: Engine }).LightweightCharts;
+
+function readColors(scheme: ColourScheme) {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name: string) => css.getPropertyValue(name).trim();
+  const tokens = SCHEME_TOKENS[scheme];
+  return {
+    bg: v('--if-bg'),
+    text: v('--if-fg-2'),
+    grid: v('--if-grid'),
+    border: v('--if-line'),
+    series: { up: v(tokens.up), down: v(tokens.down), line: v(tokens.line) } satisfies SchemeColors,
+  };
+}
+
+export interface WorkbenchChartProps {
+  candles: readonly Candle[];
+  style: ChartStyle;
+  scheme: ColourScheme;
+  /** Changes with the market or interval: the view is fitted again; otherwise it stays where the person put it. */
+  resetKey: string;
+  symbol: string;
+  tickSize: string;
+  timeZone: string | undefined;
+  labels: { open: string; high: string; low: string; close: string; change: string; chart: string; keys: string };
+  /** Called when the person scrolls to the oldest loaded bar. */
+  onReachStart?: () => void;
+  /** Move the view so this bar index is in the middle; `nonce` makes the same index move it again. */
+  focus?: { index: number; nonce: number } | null;
+  /** Add-ons drawn on top of the chart (studies, drawings), given the host once the chart exists. */
+  children?: (host: ChartHost | null) => ReactNode;
+}
+
+const PAN_BARS = 10;
+
+export function WorkbenchChart({
+  candles,
+  style,
+  scheme,
+  resetKey,
+  symbol,
+  tickSize,
+  timeZone,
+  labels,
+  onReachStart,
+  focus,
+  children,
+}: WorkbenchChartProps) {
+  const { language, upColor } = usePreferences();
+  const element = useRef<HTMLDivElement>(null);
+  const engine = useRef<Engine | null>(null);
+  const chart = useRef<ChartApi | null>(null);
+  const main = useRef<ChartSeries | null>(null);
+  const shown = useRef<readonly Candle[] | null>(null);
+  const fittedFor = useRef<string | null>(null);
+  const reachStart = useRef(onReachStart);
+  reachStart.current = onReachStart;
+  const count = useRef(0);
+  count.current = candles.length;
+  // Older bars are asked for only once the person moves the chart, never by the chart's own fit on open.
+  const moved = useRef(false);
+  const [host, setHost] = useState<ChartHost | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [hover, setHover] = useState<number | null>(null);
+  const zone = useRef({ language, timeZone });
+  zone.current = { language, timeZone };
+
+  // One chart per mount.
+  useEffect(() => {
+    let closed = false;
+    let api: ChartApi | null = null;
+    const onMove = (param: { time?: number }) => setHover(param.time ?? null);
+    const onRange = (range: { from: number; to: number } | null) => {
+      if (moved.current && range && count.current > 0 && range.from < 5) reachStart.current?.();
+    };
+    void import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() => {
+      const lib = engineOf();
+      if (closed || !element.current || !lib) return;
+      const c = readColors('standard');
+      api = lib.createChart(element.current, {
+        autoSize: true,
+        layout: {
+          background: { type: 'solid', color: c.bg },
+          textColor: c.text,
+          fontFamily: getComputedStyle(element.current).fontFamily,
+          fontSize: 12,
+          attributionLogo: true,
+          panes: { separatorColor: c.border, separatorHoverColor: c.border, enableResize: true },
+        },
+        grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
+        rightPriceScale: { borderColor: c.border },
+        localization: { timeFormatter: (seconds: number) => axisTime(seconds, zone.current) },
+        timeScale: {
+          borderColor: c.border,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 6,
+          tickMarkFormatter: (seconds: number, kind: number) => tickMark(seconds, kind, zone.current),
+        },
+        crosshair: { mode: 0 },
+      });
+      engine.current = lib;
+      chart.current = api;
+      api.subscribeCrosshairMove(onMove);
+      api.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+      setMounted(true);
+    });
+    return () => {
+      closed = true;
+      if (api) {
+        api.unsubscribeCrosshairMove(onMove);
+        api.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+        api.remove();
+      }
+      chart.current = null;
+      engine.current = null;
+      main.current = null;
+      shown.current = null;
+      setHost(null);
+    };
+  }, []);
+
+  // The main series follows the style and scheme; recreated only when one of them changes.
+  useEffect(() => {
+    const lib = engine.current;
+    const api = chart.current;
+    if (!mounted || !lib || !api || !element.current) return;
+    const colors = readColors(scheme).series;
+    if (main.current) api.removeSeries(main.current);
+    shown.current = null;
+    const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: priceFormat(tickSize) }, 0);
+    main.current = series;
+    setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
+    // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
+  }, [mounted, style, scheme, tickSize, symbol, upColor]);
+
+  // Feed candles: `update` for the newest ones; a full reset when the window moved, keeping the view on the same bars
+  // when older history was put in front.
+  useEffect(() => {
+    const series = main.current;
+    const api = chart.current;
+    if (!series || !api || candles.length === 0) return;
+    const colors = readColors(scheme).series;
+    const before = shown.current;
+    const plan = style === 'heikin-ashi' ? ({ kind: 'reset' } as const) : planUpdate(before, candles);
+    const points = seriesPoints(style, candles, colors);
+    if (plan.kind === 'reset') {
+      const range = api.timeScale().getVisibleLogicalRange();
+      const prepended = before && before.length > 0 ? candles.findIndex((c) => c.t === before[0]!.t) : -1;
+      series.setData(points);
+      if (fittedFor.current !== resetKey) {
+        api.timeScale().fitContent();
+        fittedFor.current = resetKey;
+        moved.current = false;
+      } else if (range && prepended > 0) {
+        api.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended });
+      }
+    } else {
+      for (const point of points.slice(plan.from)) series.update(point);
+    }
+    shown.current = candles;
+  }, [candles, style, scheme, host, resetKey]);
+
+  // Go to date: centre the asked bar, keeping the current zoom.
+  useEffect(() => {
+    const api = chart.current;
+    if (!focus || !api) return;
+    const range = api.timeScale().getVisibleLogicalRange();
+    const width = range ? Math.max(20, range.to - range.from) : 120;
+    api.timeScale().setVisibleLogicalRange({ from: focus.index - width / 2, to: focus.index + width / 2 });
+    // Only a new ask moves the view; a new series (style, scheme) keeps where the person is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
+
+  /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again. */
+  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    moved.current = true;
+    const scale = chart.current?.timeScale();
+    const range = scale?.getVisibleLogicalRange();
+    if (!scale || !range) return;
+    const width = range.to - range.from;
+    let next: { from: number; to: number } | null = null;
+    if (event.key === 'ArrowLeft') next = { from: range.from - PAN_BARS, to: range.to - PAN_BARS };
+    else if (event.key === 'ArrowRight') next = { from: range.from + PAN_BARS, to: range.to + PAN_BARS };
+    else if (event.key === '+' || event.key === '=') next = { from: range.to - Math.max(10, width * 0.8), to: range.to };
+    else if (event.key === '-' || event.key === '_') next = { from: range.to - width * 1.25, to: range.to };
+    else if (event.key === 'Home') {
+      scale.fitContent();
+      event.preventDefault();
+      return;
+    }
+    if (!next) return;
+    event.preventDefault();
+    scale.setVisibleLogicalRange(next);
+  };
+
+  const formatTime = useMemo(
+    () => (seconds: number) =>
+      new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : language, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        ...(timeZone ? { timeZone } : {}),
+      }).format(seconds * 1000),
+    [language, timeZone],
+  );
+  const byTime = useMemo(() => new Map(candles.map((c) => [Math.floor(c.t / 1000), c])), [candles]);
+  const focusBar = (hover !== null ? byTime.get(hover) : undefined) ?? candles[candles.length - 1];
+  const legend = focusBar ? legendValues(focusBar, tickSize) : null;
+
+  return (
+    <div className="wc-root">
+      <div
+        ref={element}
+        className="wc-host"
+        role="img"
+        tabIndex={0}
+        aria-label={labels.chart}
+        aria-description={labels.keys}
+        data-style={style}
+        data-scheme={scheme}
+        data-bars={candles.length}
+        data-first={candles[0] ? String(candles[0].t) : ''}
+        data-last={candles.length > 0 ? String(candles[candles.length - 1]!.t) : ''}
+        onKeyDown={onKey}
+        onPointerDown={() => (moved.current = true)}
+        onWheel={() => (moved.current = true)}
+      />
+      {legend && focusBar ? (
+        <div className="wc-legend" data-testid="chart-legend">
+          <span className="wc-time">{formatTime(Math.floor(focusBar.t / 1000))}</span>
+          <span>
+            {labels.open} <b>{legend.open}</b>
+          </span>
+          <span>
+            {labels.high} <b>{legend.high}</b>
+          </span>
+          <span>
+            {labels.low} <b>{legend.low}</b>
+          </span>
+          <span>
+            {labels.close} <b>{legend.close}</b>
+          </span>
+          <span className="wc-change" data-direction={legend.direction}>
+            {labels.change} {legend.change}
+          </span>
+        </div>
+      ) : null}
+      {children?.(host)}
+    </div>
+  );
+}

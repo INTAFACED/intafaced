@@ -5,9 +5,9 @@ describe('workbench settings', () => {
   it('accepts only an offered interval and style, so a stale stored value falls back to the default', () => {
     expect(isWorkbenchSetting({ interval: '1h', mode: 'line' })).toBe(true);
     expect(isWorkbenchSetting({ interval: '7m', mode: 'line' })).toBe(false);
-    expect(isWorkbenchSetting({ interval: '1h', mode: 'bars' })).toBe(false);
+    expect(isWorkbenchSetting({ interval: '1h', mode: 'renko' })).toBe(false);
     expect(isWorkbenchSetting(null)).toBe(false);
-    expect(DEFAULT_SETTING).toEqual({ interval: '15m', mode: 'candles' });
+    expect(DEFAULT_SETTING).toEqual({ interval: '15m', mode: 'candles', scheme: 'standard' });
   });
 
   it('names the workbench from ?w= and gives everyone their own default one', () => {

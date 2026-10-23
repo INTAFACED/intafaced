@@ -17,9 +17,12 @@ import {
   isWorkbenchSetting,
   settingKey,
   workbenchId,
+  unofferedInterval,
+  intervalLabel,
   type ChartMode,
   type WorkbenchSetting,
 } from './workbench';
+import type { ColourScheme } from './chart-style';
 
 /** The one store every widget on the page reads: the market (from the address) and the interval and style (kept per workbench). */
 interface Workbench {
@@ -29,6 +32,7 @@ interface Workbench {
   setting: WorkbenchSetting;
   setInterval: (interval: ChartInterval) => void;
   setMode: (mode: ChartMode) => void;
+  setScheme: (scheme: ColourScheme) => void;
   chooseMarket: (symbol: string) => void;
 }
 const WorkbenchContext = createContext<Workbench | null>(null);
@@ -103,6 +107,7 @@ function SecondChart({ openSocket }: Pick<WidgetProps, 'openSocket'>) {
           linked ? bench.setInterval(interval) : setOwn((now) => ({ ...now, setting: { ...now.setting, interval } }))
         }
         onMode={(mode) => (linked ? bench.setMode(mode) : setOwn((now) => ({ ...now, setting: { ...now.setting, mode } })))}
+        scheme={setting.scheme ?? 'standard'}
         openSocket={openSocket}
       />
     </div>
@@ -135,10 +140,12 @@ function Page({
   }, []);
   const setInterval = useCallback((interval: ChartInterval) => setSetting((now) => ({ ...now, interval })), [setSetting]);
   const setMode = useCallback((mode: ChartMode) => setSetting((now) => ({ ...now, mode })), [setSetting]);
+  const setScheme = useCallback((scheme: ColourScheme) => setSetting((now) => ({ ...now, scheme })), [setSetting]);
+  const unoffered = useMemo(() => unofferedInterval(search), [search]);
   const chooseMarket = useCallback((symbol: string) => navigate(chartsHref(pairOf(symbol), { workbench: id })), [id]);
   const bench = useMemo<Workbench>(
-    () => ({ id, market, markets, setting, setInterval, setMode, chooseMarket }),
-    [id, market, markets, setting, setInterval, setMode, chooseMarket],
+    () => ({ id, market, markets, setting, setInterval, setMode, setScheme, chooseMarket }),
+    [id, market, markets, setting, setInterval, setMode, setScheme, chooseMarket],
   );
   return (
     <WorkbenchContext.Provider value={bench}>
@@ -155,12 +162,20 @@ function Page({
             </a>
           </div>
         </header>
+        {unoffered && (
+          <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
+            <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
+            {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
+          </div>
+        )}
         <MarketChartWidget
           market={market}
           interval={setting.interval}
           mode={setting.mode}
           onInterval={setInterval}
           onMode={setMode}
+          scheme={setting.scheme ?? 'standard'}
+          onScheme={setScheme}
           openSocket={openSocket}
         />
         <div className="cw-more-charts">

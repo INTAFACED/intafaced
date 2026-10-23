@@ -10,6 +10,7 @@ const world = vi.hoisted(() => ({
   markets: { status: 'loading' } as unknown,
   candles: { status: 'ready', data: [], asOf: 0 } as unknown,
   asked: [] as string[],
+  history: { status: 'idle' } as unknown,
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -24,10 +25,14 @@ vi.mock('../trade/chart/candles', async (original) => ({
     return world.candles;
   },
 }));
-vi.mock('../trade/chart/PriceChart', () => ({
-  PriceChart: ({ candles, mode }: { candles: readonly Candle[]; mode: string }) => (
-    <div data-testid="price-chart" data-mode={mode} data-last={candles[candles.length - 1]?.c ?? ''} />
+vi.mock('./WorkbenchChart', () => ({
+  WorkbenchChart: ({ candles, style, scheme }: { candles: readonly Candle[]; style: string; scheme: string }) => (
+    <div data-testid="price-chart" data-mode={style} data-scheme={scheme} data-last={candles[candles.length - 1]?.c ?? ''} />
   ),
+}));
+vi.mock('./history', async (original) => ({
+  ...(await original<typeof import('./history')>()),
+  useChartHistory: () => ({ state: world.history, load: async () => world.history, oldestReachable: 0 }),
 }));
 import ChartsScreen from './index';
 
@@ -75,6 +80,7 @@ beforeEach(() => {
   world.markets = { status: 'ready', data: [market('BTC/USDT'), market('ETH/USDT')] };
   world.candles = ready([bar(0, '1'), bar(60_000, '2')]);
   world.asked = [];
+  world.history = { status: 'idle' };
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -100,7 +106,7 @@ describe('chart workbench', () => {
     expect(pressed()).toEqual(['1h']);
     await click(button('5m'));
     expect(pressed()).toEqual(['5m']);
-    expect(JSON.parse(localStorage.getItem('charts-workbench:u1:main')!)).toEqual({ interval: '5m', mode: 'candles' });
+    expect(JSON.parse(localStorage.getItem('charts-workbench:u1:main')!)).toEqual({ interval: '5m', mode: 'candles', scheme: 'standard' });
   });
 
   it('falls back to 15m with no error when the stored interval is not offered', async () => {
@@ -184,5 +190,47 @@ describe('chart workbench', () => {
     world.markets = { status: 'loading' };
     await open();
     expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it('names the symbol and interval and offers every chart style, kept for this device', async () => {
+    await open();
+    expect(host.querySelector('[data-testid="chart-title"]')?.textContent).toBe('BTC/USDT · 15m');
+    const styles = [...host.querySelectorAll('[aria-label="Chart style"] button')].map((node) => node.textContent);
+    expect(styles).toEqual(['Candles', 'Bars', 'Line', 'Area', 'Columns', 'Heikin Ashi']);
+    await click(button('Heikin Ashi'));
+    expect(host.querySelector('[data-testid="price-chart"]')?.getAttribute('data-mode')).toBe('heikin-ashi');
+    expect(JSON.parse(localStorage.getItem('charts-workbench:u1:main')!).mode).toBe('heikin-ashi');
+  });
+
+  it('changes the colour scheme and refuses a price source the service does not publish', async () => {
+    await open();
+    const select = (label: string) =>
+      [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))!.querySelector('select')!;
+    await act(async () => {
+      select('Colours').value = 'inverted';
+      select('Colours').dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(host.querySelector('[data-testid="price-chart"]')?.getAttribute('data-scheme')).toBe('inverted');
+    await act(async () => {
+      select('Price source').value = 'bid';
+      select('Price source').dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const note = host.querySelector('[data-code="trade.chart.basis_unpublished"]');
+    expect(note?.textContent).toContain('can’t draw Best bid');
+    expect(select('Price source').value).toBe('last');
+  });
+
+  it('names an interval in the address that the chart does not offer and stays on the current one', async () => {
+    await open('/charts/BTC-USDT', '?interval=3d');
+    const note = host.querySelector('[data-code="trade.datafeed.interval_unsupported"]');
+    expect(note?.textContent).toContain('doesn’t offer the 3d interval');
+    expect(pressed()).toEqual(['15m']);
+  });
+
+  it('states how deep the loaded history goes', async () => {
+    world.history = { status: 'loaded', bars: [bar(-60_000, '1')], earliest: -60_000, since: -120_000 };
+    await open();
+    expect(host.querySelector('[data-testid="chart-depth"]')?.textContent).toContain('3 bars loaded');
+    expect(host.querySelector('[data-testid="chart-depth"]')?.textContent).toContain('keeps the last 720 bars');
   });
 });
