@@ -16952,6 +16952,21 @@
     "order": 0
   },
   {
+    "id": "PH-ops-console-11",
+    "title": "Before real money: production runs in live mode with no TEST shortcuts reachable",
+    "module": "ops-console",
+    "group": "phantom-2026-10-22",
+    "spec": "modules/ops-console/specs/phantom-2026-10-22.md",
+    "lane": "config",
+    "touches": ["svc-pay"],
+    "depends": [],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 0
+  },
+  {
     "id": "RC-ops-console-01",
     "title": "Protocol Plane operator oversight desk",
     "module": "ops-console",
