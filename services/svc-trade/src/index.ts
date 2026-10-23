@@ -30,6 +30,7 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
@@ -773,6 +774,7 @@ app.get('/ready', async (_req, reply) => {
 registerPublicRest(app, {
   markets: (limit) => trade.markets(limit),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  chartOwnerValues: chartOwnerValuesPublicReader(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),

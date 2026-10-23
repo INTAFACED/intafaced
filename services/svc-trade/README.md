@@ -119,6 +119,32 @@ the `documentId`), `trade.derivatives_eligibility_unset` (`reason`: `rules_unpub
 caller's own principal claim; no identity vendor is called from this service. Futures opens need `derivatives_risk`; the
 `margin_terms` kind is stored and acceptable now and is the gate for a margin borrow door when one exists.
 
+**Charts module owner values (C-ops-04, LD-14).** Five counts and a data class per market, held here until account sync
+exists. Blank is `null` ("not set"); nothing has a default. Operator writes need `admin:write`, a reason, and a
+`clientRequestId` (idempotent); each write leaves an audit row (`chart_owner_values.set` or `chart_data_class.set`) with the
+old value, the new value, the reason and the time, written in the same transaction as the change, so a failed audit refuses the
+change (`trade.chart_owner_values_not_written`).
+
+| Procedure                    | What it does                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.chartOwnerValues.get` | the current scalars (`version`, `values`) and every listed market's data class (`dataClasses`, at most 500)                                                                                                                                                                                                                                                                                                       |
+| `admin.chartOwnerValues.set` | one key per write: `compareCap` (1-50), `chartCountLimit` (1-64), `drawingCap` (1-10000), `brushPointCap` (1-100000), `delayedBoundarySeconds` (1-86400), or `null` to clear; `expectedVersion` for optimistic concurrency. A `dataClass` write (`real_time`, `delayed`, `end_of_day`, or `null`) also takes `symbol` and an `approvalId` from a second operator (four-eyes, bound to the payload and the symbol) |
+
+Scalars are one append-only snapshot per version (`trade.chart_owner_values`); a data class is one append-only row per market and
+version (`trade.chart_data_class`). A stale `expectedVersion` refuses `chart_owner_values_stale`; a reused approval refuses
+`approval_reused`. The public read is `GET /api/v1/charts/owner-values[?symbol=BTC%2FUSDT]`: plain JSON with no envelope and no auth,
+`{ compareCap, chartCountLimit, drawingCap, brushPointCap, delayedBoundarySeconds, dataClass }`, where each count is an integer or `null`
+and `dataClass` is the symbol's class, or `null` without `?symbol`. An unknown symbol is `trade.market_not_found` (404, `BadSymbol`). An
+unwired reader refuses 503 `trade.charts_owner_values_unconfigured`. Edge forwards it through the existing `/api/v1` prefix, so no Edge
+change is needed.
+
+A data class write that fails after its approval is consumed says so in the refusal: the approval is spent, and a retry needs a new
+approval from a second operator. A repeat of the same scalar write (same `clientRequestId`, same fields and reason) replays the stored
+result, even when it races the first; the same `clientRequestId` with a different reason refuses `client_request_conflict`. A symbol
+over 64 characters is `BadSymbol` 404, the same shape as an unknown one. Migration `0098_chart_owner_values.down.sql` is destructive: it
+drops both tables, so every owner value and data class row is lost. Run it only on a database with no live values, never on a stack
+that holds them.
+
 ---
 
 ## Events

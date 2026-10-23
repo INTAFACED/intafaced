@@ -27,6 +27,11 @@ import {
   openableMarkets,
   operatorIdentity,
   refusalText,
+  CHART_DATA_CLASS_ACTION,
+  TEST_CHART_COUNTS,
+  TEST_CHART_DATA_CLASSES,
+  chartDataClassPayloadHash,
+  chartDataClassProposal,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 
@@ -280,5 +285,23 @@ assert.equal(
   false,
   'gates must not write database rows',
 );
+
+// Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
+// data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
+assert.deepEqual(TEST_CHART_COUNTS, { compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 });
+assert.deepEqual(TEST_CHART_DATA_CLASSES, { 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
+assert.equal(Object.keys(TEST_CHART_DATA_CLASSES).includes('IFC/USDT'), false, 'IFC/USDT stays unset on purpose');
+assert.equal(
+  chartDataClassPayloadHash({ symbol: 'BTC/USDT', dataClass: 'real_time', expectedVersion: '0', reason: 'list BTC for the charts pilot' }),
+  'sha256:d51ed1f6e5d8fc7ea6c05ea66c3ebd4f92df8647963ae67d3b53710de74a6e67',
+);
+const proposal = chartDataClassProposal({ symbol: 'ETH/USDT', dataClass: null, expectedVersion: '2', reason: 'TEST: clear it' });
+assert.equal(proposal.actionType, CHART_DATA_CLASS_ACTION);
+assert.equal(proposal.actionType, 'trade.chart_data_class_set');
+assert.equal(proposal.targetService, 'svc-trade');
+assert.equal(proposal.targetId, 'ETH/USDT');
+assert.equal(proposal.expectedVersion, '2');
+assert.equal(proposal.policyVersion, 'trade-chart-data-class-v1', 'the same policy version the founder page proposes');
+assert.match(proposal.payloadHash, /^sha256:[0-9a-f]{64}$/);
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');
