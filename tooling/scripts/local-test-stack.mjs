@@ -1120,7 +1120,8 @@ function serviceDefs(secrets) {
     {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets) }),
+      // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
+      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
     },
     {
       name: 'execution',
