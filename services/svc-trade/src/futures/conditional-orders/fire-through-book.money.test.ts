@@ -29,7 +29,7 @@ import type { LifecycleAdmissionProof } from '../../lifecycle-proof.js';
 import { TradingControlError, type TradingAdmissionPort } from '../../controls/trading-controls.js';
 import { MatchedFuturesOrders, MatchedOrderError, type PlaceMatchedOrderInput } from '../matched-orders.js';
 import { matchedOrderIdFor } from '../ids.js';
-import { createConditionalOrderService, type ConditionalOrderService } from './service.js';
+import { createConditionalOrderService, type ConditionalOrderDeps, type ConditionalOrderService } from './service.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', '..', 'drizzle');
@@ -128,7 +128,10 @@ describe('futures conditional orders fire through the book', () => {
   let orders: ConditionalOrderService;
   let seq: number;
 
-  function conditionalService(publishedMark = async () => formatAmount(mark)): ConditionalOrderService {
+  function conditionalService(
+    publishedMark = async () => formatAmount(mark),
+    extra: Partial<ConditionalOrderDeps> = {},
+  ): ConditionalOrderService {
     return createConditionalOrderService({
       sql,
       triggerScheduled: true,
@@ -140,12 +143,13 @@ describe('futures conditional orders fire through the book', () => {
         throw new Error('a stop-limit places its limit in the book');
       },
       placeReduce: (input, instructionId) => book.placeOnInstruction({ ...input, leverage: 0n, reduceOnly: true }, instructionId),
+      ...extra,
     });
   }
 
   beforeEach(async () => {
     await sql`
-      TRUNCATE trade.futures_conditional_orders, trade.futures_protection_requests, trade.futures_order_fills,
+      TRUNCATE trade.futures_conditional_orders, trade.futures_protection_requests, trade.futures_entry_protection, trade.futures_order_fills,
         trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts, trade.futures_fill_waits,
         trade.account_position_modes
       RESTART IDENTITY CASCADE
@@ -705,6 +709,224 @@ describe('futures conditional orders fire through the book', () => {
     await orders.evaluate({ enabled: true });
     expect(await conditional(id)).toMatchObject({ status: 'cancelled', cancelReason: 'position_gone' });
     expect(engine.submits).toHaveLength(submitted);
+  });
+
+  describe('protection attached to an opening order (J-derivatives-03 #4)', () => {
+    /** Records the protection first, as the route does before it places the order. */
+    async function entryWith(clientOrderId: string, legs: { takeProfit?: string; stopLoss?: string }, side: 'buy' | 'sell' = 'buy') {
+      return orders.recordEntryProtection(ALICE, { symbol: SYMBOL, side, reduceOnly: false, clientOrderId, ...legs });
+    }
+    async function fill(makerOrderId: string, takerOrderId: string, qty: string) {
+      seq += 1;
+      await book.settleFill({ marketId: MARKET, makerOrderId, takerOrderId, price: '100', qty, sequence: seq });
+    }
+    async function openLong(): Promise<string> {
+      const [row] = await sql<{ id: string }[]>`
+        SELECT id FROM trade.positions WHERE user_id = ${ALICE} AND side = 'long' AND status = 'open'
+      `;
+      return row!.id;
+    }
+    const legsOf = async () => Object.fromEntries((await orders.list(ALICE)).map((o) => [o.clientOrderId, o]));
+    const entryRow = async (clientOrderId: string) =>
+      (await orders.listEntryProtection(ALICE)).find((e) => e.clientOrderId === clientOrderId);
+
+    it('arms on what fills, grows as more fills, and is done when the order is', async () => {
+      const recorded = await entryWith('entry-1', { takeProfit: '110', stopLoss: '90' });
+      expect(recorded).toMatchObject({ status: 'waiting', takeProfit: '110', stopLoss: '90', armedQuantity: '0' });
+      // The same request recorded again is the same row.
+      expect(await entryWith('entry-1', { takeProfit: '110', stopLoss: '90' })).toMatchObject({ id: recorded!.id });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-1'));
+
+      await orders.evaluate({ enabled: true });
+      expect(await orders.list(ALICE)).toEqual([]);
+
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-1-bob'));
+      await fill(entry.orderId, bob.orderId, '0.4');
+      await orders.evaluate({ enabled: true });
+      const positionId = await openLong();
+      const tp = `entry:${positionId}:entry-1:tp`;
+      const sl = `entry:${positionId}:entry-1:sl`;
+      expect((await legsOf())[tp]).toMatchObject({
+        status: 'armed',
+        kind: 'take_profit',
+        quantity: '0.4',
+        wholePosition: false,
+        triggerPrice: '110',
+      });
+      expect((await legsOf())[sl]).toMatchObject({
+        status: 'armed',
+        kind: 'stop_market',
+        quantity: '0.4',
+        wholePosition: false,
+        triggerPrice: '90',
+      });
+      expect(await entryRow('entry-1')).toMatchObject({ status: 'armed', armedQuantity: '0.4', takeProfitClientOrderId: tp });
+
+      await fill(entry.orderId, bob.orderId, '0.6');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[tp]).toMatchObject({ status: 'armed', quantity: '1' });
+      expect((await legsOf())[sl]).toMatchObject({ status: 'armed', quantity: '1' });
+      expect(await entryRow('entry-1')).toMatchObject({ status: 'done', armedQuantity: '1' });
+
+      // Its take-profit closes what the entry opened, and its linked stop-loss goes with it.
+      mark = A('109');
+      const bid = await carolBid('1', '110');
+      mark = A('111');
+      const leg = (await legsOf())[tp]!;
+      scriptFill(leg.id, bid, '1', '110');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[tp]).toMatchObject({ status: 'filled', closedQuantity: '1' });
+      expect((await legsOf())[sl]).toMatchObject({ status: 'cancelled' });
+    });
+
+    it('covers only what the order filled, not the position it added to', async () => {
+      const positionId = await aliceLong('1');
+      await entryWith('entry-add', { stopLoss: '90' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '0.5', '100', 'entry-add'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '0.5', '100', 'entry-add-bob'));
+      await fill(entry.orderId, bob.orderId, '0.5');
+      await orders.evaluate({ enabled: true });
+      expect(await positionOf(positionId)).toMatchObject({ size: '1.5' });
+      const [leg] = await orders.list(ALICE);
+      expect(leg).toMatchObject({ attachment: 'stop_loss', quantity: '0.5', wholePosition: false, positionId });
+    });
+
+    it('an order that ends with no fill arms nothing', async () => {
+      await entryWith('entry-none', { takeProfit: '110' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '99', 'entry-none'));
+      await sql`UPDATE trade.futures_orders SET status = 'cancelled', engine_filled_qty = 0 WHERE id = ${entry.orderId}`;
+      await orders.evaluate({ enabled: true });
+      expect(await orders.list(ALICE)).toEqual([]);
+      expect(await entryRow('entry-none')).toMatchObject({ status: 'not_filled' });
+    });
+
+    it('a cancelled order with a fill still settling waits for it before it is done', async () => {
+      await entryWith('entry-late', { stopLoss: '90' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-late'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-late-bob'));
+      await fill(entry.orderId, bob.orderId, '0.3');
+      // The engine filled 0.7 in all before the rest came off; 0.4 of it has not settled yet.
+      await sql`UPDATE trade.futures_orders SET status = 'cancelled', engine_filled_qty = 0.7 WHERE id = ${entry.orderId}`;
+      await orders.evaluate({ enabled: true });
+      expect(await entryRow('entry-late')).toMatchObject({ status: 'armed', armedQuantity: '0.3' });
+      await fill(entry.orderId, bob.orderId, '0.4');
+      await orders.evaluate({ enabled: true });
+      expect(await entryRow('entry-late')).toMatchObject({ status: 'done', armedQuantity: '0.7' });
+      expect((await orders.list(ALICE))[0]).toMatchObject({ quantity: '0.7' });
+    });
+
+    it('a position closed before the fill was armed leaves nothing armed once the order is over', async () => {
+      await entryWith('entry-gone', { takeProfit: '110' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-gone'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-gone-bob'));
+      await fill(entry.orderId, bob.orderId, '1');
+      await sql`UPDATE trade.positions SET status = 'closed' WHERE user_id = ${ALICE}`;
+      await orders.evaluate({ enabled: true });
+      expect(await orders.list(ALICE)).toEqual([]);
+      expect(await entryRow('entry-gone')).toMatchObject({ status: 'no_position' });
+    });
+
+    it('stays live while the order works with nothing open, and arms a new pair for the fills in a new position only', async () => {
+      await entryWith('entry-again', { takeProfit: '110', stopLoss: '90' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-again'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-again-bob'));
+      await fill(entry.orderId, bob.orderId, '0.3');
+      await orders.evaluate({ enabled: true });
+      const first = await openLong();
+      expect((await legsOf())[`entry:${first}:entry-again:tp`]).toMatchObject({ status: 'armed', quantity: '0.3' });
+
+      // The trader closes the position by hand (its legs go with it); the order is still working.
+      await sql`UPDATE trade.positions SET status = 'closed' WHERE id = ${first}`;
+      await sql`
+        UPDATE trade.futures_conditional_orders SET status = 'cancelled', cancel_reason = 'position_closed'
+        WHERE position_id = ${first}
+      `;
+      await fill(entry.orderId, bob.orderId, '0.2');
+      const second = await openLong();
+      expect(second).not.toBe(first);
+      expect(await aliceLong('2')).toBe(second);
+      await orders.evaluate({ enabled: true });
+      // The new position holds 0.2 of this order's fills (and 2 from another order): the new pair covers the 0.2.
+      expect((await legsOf())[`entry:${second}:entry-again:tp`]).toMatchObject({ status: 'armed', quantity: '0.2' });
+      expect((await legsOf())[`entry:${second}:entry-again:sl`]).toMatchObject({ status: 'armed', quantity: '0.2' });
+      expect(await entryRow('entry-again')).toMatchObject({
+        status: 'armed',
+        armedQuantity: '0.5',
+        takeProfitClientOrderId: `entry:${second}:entry-again:tp`,
+      });
+
+      // Nothing open on its side while the order still works: the row is not final.
+      await sql`UPDATE trade.positions SET status = 'closed' WHERE id = ${second}`;
+      await fill(entry.orderId, bob.orderId, '0.1');
+      await sql`UPDATE trade.positions SET status = 'closed' WHERE user_id = ${ALICE} AND status = 'open'`;
+      await orders.evaluate({ enabled: true });
+      expect(await entryRow('entry-again')).toMatchObject({ status: 'armed', armedQuantity: '0.6' });
+    });
+
+    it('an order that never appears closes the row not_placed, and the same request sent again reopens it', async () => {
+      const waiting = conditionalService(undefined, { entryOrderWaitMs: 0 });
+      await entryWith('entry-never', { stopLoss: '90' });
+      await waiting.evaluate({ enabled: true });
+      expect(await entryRow('entry-never')).toMatchObject({ status: 'not_placed' });
+      expect(await entryWith('entry-never', { stopLoss: '90' })).toMatchObject({ status: 'waiting' });
+      // While it waits for an order being placed, the default wait keeps it open.
+      await orders.evaluate({ enabled: true });
+      expect(await entryRow('entry-never')).toMatchObject({ status: 'waiting' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-never'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-never-bob'));
+      await fill(entry.orderId, bob.orderId, '1');
+      await waiting.evaluate({ enabled: true });
+      expect(await entryRow('entry-never')).toMatchObject({ status: 'done', armedQuantity: '1' });
+    });
+
+    it('one entry that cannot be worked does not stop the others', async () => {
+      await entryWith('entry-stuck', { stopLoss: '90' });
+      await entryWith('entry-ok', { stopLoss: '90' });
+      const stuck = await book.place(principal(ALICE), limit(ALICE, 'buy', '0.5', '100', 'entry-stuck'));
+      const ok = await book.place(principal(ALICE), limit(ALICE, 'buy', '0.5', '100', 'entry-ok'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-ok-bob'));
+      await fill(stuck.orderId, bob.orderId, '0.5');
+      await fill(ok.orderId, bob.orderId, '0.5');
+      const held = await sql.reserve();
+      try {
+        await held`BEGIN`;
+        await held`SELECT id FROM trade.futures_entry_protection WHERE client_order_id = 'entry-stuck' FOR UPDATE`;
+        await expect(orders.evaluate({ enabled: true })).rejects.toBeDefined();
+        expect(await entryRow('entry-ok')).toMatchObject({ status: 'done', armedQuantity: '0.5' });
+        expect(await entryRow('entry-stuck')).toMatchObject({ status: 'waiting' });
+      } finally {
+        await held`ROLLBACK`;
+        held.release();
+      }
+      await orders.evaluate({ enabled: true });
+      expect(await entryRow('entry-stuck')).toMatchObject({ status: 'done', armedQuantity: '0.5' });
+    });
+
+    it('is refused before anything is placed: wrong side, reduce-only, no price, a reused client id', async () => {
+      await expect(entryWith('bad-tp', { takeProfit: '95' })).rejects.toMatchObject({ code: 'trade.protection_wrong_side' });
+      await expect(entryWith('bad-sl', { stopLoss: '120', takeProfit: '130' }, 'sell')).rejects.toMatchObject({
+        code: 'trade.protection_wrong_side',
+      });
+      await expect(
+        orders.recordEntryProtection(ALICE, { symbol: SYMBOL, side: 'sell', reduceOnly: true, clientOrderId: 'ro', stopLoss: '120' }),
+      ).rejects.toMatchObject({ code: 'trade.entry_protection_reduce_only' });
+      await expect(entryWith('nan', { takeProfit: 'abc' })).rejects.toMatchObject({ code: 'trade.conditional_amount_invalid' });
+      expect(await entryWith('none', {})).toBeNull();
+      await entryWith('reused', { takeProfit: '110' });
+      await expect(entryWith('reused', { takeProfit: '111' })).rejects.toMatchObject({ code: 'trade.client_order_id_conflict' });
+      // The same request again is not checked against a mark that has moved since.
+      mark = A('115');
+      expect(await entryWith('reused', { takeProfit: '110' })).toMatchObject({ clientOrderId: 'reused' });
+      // An order already placed under the id without protection is not given protection by a later request.
+      mark = A('100');
+      await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '99', 'placed-bare'));
+      await expect(entryWith('placed-bare', { stopLoss: '90' })).rejects.toMatchObject({ code: 'trade.client_order_id_conflict' });
+      // Two different requests under one id at once: one is recorded, the other refused.
+      const both = await Promise.allSettled([entryWith('race', { takeProfit: '110' }), entryWith('race', { takeProfit: '112' })]);
+      expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'trade.client_order_id_conflict' } });
+      expect(await orders.list(ALICE)).toEqual([]);
+    });
   });
 
   it('the instruction door never opens a position', async () => {
