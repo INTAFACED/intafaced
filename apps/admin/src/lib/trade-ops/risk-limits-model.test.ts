@@ -95,8 +95,22 @@ describe('checkRiskSet', () => {
     circuitBreaker: null,
     oiLimit: null,
     oiShareBps: null,
+    priceRangeMax: null,
+    priceRangeTrigger: null,
+    priceRangeCadenceSeconds: null,
   };
-  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '', oiLimit: '', oiShareBps: '' };
+  const vals = {
+    collar: '0.05',
+    fatFinger: '',
+    slippageCap: '',
+    throttle: '',
+    circuitBreaker: '',
+    oiLimit: '',
+    oiShareBps: '',
+    priceRangeMax: '',
+    priceRangeTrigger: '',
+    priceRangeCadenceSeconds: '',
+  };
   const REASON = 'tighten after incident 4471';
   it('builds the write for the version it was given, with a blank as unset', () => {
     expect(checkRiskSet(now, { ...vals, fatFinger: '1000.5', slippageCap: '100' }, REASON)).toEqual({
@@ -113,6 +127,9 @@ describe('checkRiskSet', () => {
           circuitBreaker: null,
           oiLimit: null,
           oiShareBps: null,
+          priceRangeMax: null,
+          priceRangeTrigger: null,
+          priceRangeCadenceSeconds: null,
         },
       },
     });
@@ -163,5 +180,29 @@ describe('checkRiskSet', () => {
     expect(out.ok && out.body.limits).not.toHaveProperty('oiShareBps');
     // Leaving the pair out is not a change on its own.
     expect(checkRiskSet(held, five, REASON)).toMatchObject({ code: 'risk_limits.no_change' });
+  });
+  it('sets the dynamic price range whole, with the service’s bounds, and refuses one or two of its values', () => {
+    const range = { priceRangeMax: '0.2', priceRangeTrigger: '0.01', priceRangeCadenceSeconds: '30' };
+    expect(checkRiskSet(now, { ...vals, ...range }, REASON)).toMatchObject({ ok: true, body: { limits: range } });
+    expect(checkRiskSet(now, { ...vals, ...range, priceRangeTrigger: '0' }, REASON)).toMatchObject({ ok: true });
+    for (const priceRangeMax of ['0', '0.0', '1', '1.5', '0.1234567890123456789'])
+      expect(checkRiskSet(now, { ...vals, ...range, priceRangeMax }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    for (const priceRangeTrigger of ['1', '2', '-0.1'])
+      expect(checkRiskSet(now, { ...vals, ...range, priceRangeTrigger }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    for (const priceRangeCadenceSeconds of ['0', '86401', '2.5'])
+      expect(checkRiskSet(now, { ...vals, ...range, priceRangeCadenceSeconds }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, ...range, priceRangeCadenceSeconds: '86400' }, REASON)).toMatchObject({ ok: true });
+    // One or two of the three would be approved and never widen anything: refused before a proposal.
+    expect(checkRiskSet(now, { ...vals, priceRangeMax: '0.2' }, REASON)).toMatchObject({ code: 'risk_limit_not_exact' });
+    const held = { ...now, ...range };
+    expect(checkRiskSet(held, { ...vals, ...range, priceRangeTrigger: '' }, REASON)).toMatchObject({ code: 'risk_limit_not_exact' });
+    // All three cleared together is a change; a write that leaves them out keeps them.
+    expect(checkRiskSet(held, vals, REASON)).toMatchObject({
+      ok: true,
+      body: { limits: { priceRangeMax: null, priceRangeTrigger: null, priceRangeCadenceSeconds: null } },
+    });
+    const { priceRangeMax: _m, priceRangeTrigger: _t, priceRangeCadenceSeconds: _c, ...rest } = vals;
+    expect(checkRiskSet(held, rest, REASON)).toMatchObject({ code: 'risk_limits.no_change' });
+    for (const kind of ['spot', 'options'] as const) expect(valuesFor({ ...vals, ...range }, kind)).not.toHaveProperty('priceRangeMax');
   });
 });

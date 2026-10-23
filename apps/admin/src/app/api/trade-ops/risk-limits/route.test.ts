@@ -65,6 +65,41 @@ describe('risk limits route', () => {
     expect(urls().some((u) => u.includes('/api/trade/trpc/admin.risk.get'))).toBe(true);
   });
 
+  it('reads the band the futures job last worked out beside the limits when asked, and a band it cannot read does not hide them', async () => {
+    const band = { marketId: MARKET, current: null, changes: [] };
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('admin.risk.history')
+        ? json({ result: { data: { json: [] } } })
+        : String(url).includes('admin.risk.priceBand')
+          ? json({ result: { data: { json: band } } })
+          : json({ result: { data: { json: current('0') } } }),
+    );
+    // Not asked (a spot or options market): no band read.
+    expect(await (await post({ action: 'read', market: MARKET })).json()).toMatchObject({
+      kind: 'ok',
+      data: { band: null, bandRefusal: null },
+    });
+    expect(urls().some((u) => u.includes('admin.risk.priceBand'))).toBe(false);
+    expect(await (await post({ action: 'read', market: MARKET, band: true })).json()).toMatchObject({
+      kind: 'ok',
+      data: { current: { version: '0' }, band, bandRefusal: null },
+    });
+    expect(urls().some((u) => u.includes('/api/trade/trpc/admin.risk.priceBand'))).toBe(true);
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('admin.risk.history')
+        ? json({ result: { data: { json: [] } } })
+        : String(url).includes('admin.risk.priceBand')
+          ? json({ error: { json: { message: 'not found', data: { code: 'NOT_FOUND', appCode: 'not_found' } } } }, 404)
+          : json({ result: { data: { json: current('0') } } }),
+    );
+    const res = await post({ action: 'read', market: MARKET, band: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      kind: 'ok',
+      data: { current: { version: '0' }, band: null, bandRefusal: expect.any(String) },
+    });
+  });
+
   it('refuses a body that is not the shape it expects instead of showing half of it', async () => {
     fetchMock.mockImplementation(async () => json({ result: { data: { json: { marketId: MARKET, version: 'x' } } } }));
     const res = await post({ action: 'read', market: MARKET });

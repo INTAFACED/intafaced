@@ -4,6 +4,7 @@ import {
   parseLiquidationDesk,
   parsePosition,
   parsePositionsPage,
+  parsePriceBandView,
   parseRiskCurrent,
   parseRiskHistory,
 } from './desk-parse';
@@ -42,14 +43,23 @@ describe('risk limits', () => {
     circuitBreaker: null,
     oiLimit: null,
     oiShareBps: null,
+    priceRangeMax: null,
+    priceRangeTrigger: null,
+    priceRangeCadenceSeconds: null,
   };
   it('reads the never-set state as all null', () => expect(parseRiskCurrent(none)).toEqual(none));
   it('reads the open-interest pair, and a row from before it existed as unset', () => {
     expect(parseRiskCurrent({ ...none, oiLimit: '1000', oiShareBps: '500' })).toMatchObject({ oiLimit: '1000', oiShareBps: '500' });
-    const { oiLimit: _l, oiShareBps: _s, ...older } = none;
+    const { oiLimit: _l, oiShareBps: _s, priceRangeMax: _m, priceRangeTrigger: _t, priceRangeCadenceSeconds: _c, ...older } = none;
     expect(parseRiskCurrent(older)).toEqual(none);
     expect(parseRiskCurrent({ ...none, oiShareBps: '2.5' })).toBeNull();
     expect(parseRiskCurrent({ ...none, oiLimit: 1000 })).toBeNull();
+  });
+  it('reads the dynamic price range, and refuses one that is not decimal text', () => {
+    const range = { priceRangeMax: '0.2', priceRangeTrigger: '0.01', priceRangeCadenceSeconds: '30' };
+    expect(parseRiskCurrent({ ...none, ...range })).toMatchObject(range);
+    expect(parseRiskCurrent({ ...none, priceRangeMax: 0.2 })).toBeNull();
+    expect(parseRiskCurrent({ ...none, priceRangeCadenceSeconds: '2.5' })).toBeNull();
   });
   it('refuses a number, a negative and a decimal where an integer is needed', () => {
     expect(parseRiskCurrent({ ...none, slippageCap: 100 })).toBeNull();
@@ -71,6 +81,39 @@ describe('risk limits', () => {
     expect(parseRiskHistory([row])).toEqual([row]);
     expect(parseRiskHistory([{ ...row, approverId: undefined }])).toBeNull();
     expect(parseRiskHistory({})).toBeNull();
+  });
+});
+
+describe('price band', () => {
+  const change = {
+    band: '0.0612',
+    previousBand: '0.05',
+    staticBand: '0.05',
+    premium: '0.0112',
+    reason: 'widened',
+    riskVersion: '4',
+    changedAt: '2026-10-23T12:00:00.000Z',
+  };
+  const current = {
+    band: '0.0612',
+    staticBand: '0.05',
+    premium: '0.0112',
+    mark: '65000',
+    bookMid: '65728',
+    reason: 'widened',
+    riskVersion: '4',
+    checkedAt: '2026-10-23T12:00:30.000Z',
+    changedAt: '2026-10-23T12:00:00.000Z',
+  };
+  it('reads the band the job last worked out and its changes', () => {
+    const view = { marketId: 'm1', current, changes: [change, { ...change, band: '0.05', previousBand: null, reason: 'within_trigger' }] };
+    expect(parsePriceBandView(view)).toEqual(view);
+  });
+  it('reads a market never worked out as no band, and refuses a shape it does not know', () => {
+    expect(parsePriceBandView({ marketId: 'm1', current: null, changes: [] })).toEqual({ marketId: 'm1', current: null, changes: [] });
+    expect(parsePriceBandView({ marketId: 'm1', current: { ...current, reason: 'guessed' }, changes: [] })).toBeNull();
+    expect(parsePriceBandView({ marketId: 'm1', current, changes: [{ ...change, band: 0.06 }] })).toBeNull();
+    expect(parsePriceBandView({ marketId: 'm1', current })).toBeNull();
   });
 });
 
