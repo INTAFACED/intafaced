@@ -57,6 +57,8 @@ export const batchCancelSchema = z.object({
   ),
 });
 export type BatchCancel = z.infer<typeof batchCancelSchema>;
+/** The most ids svc-trade takes in one batch cancel (its MAX_BATCH_ORDERS). */
+export const BATCH_CANCEL_MAX = 100;
 export function isTerminalOrder(order: Order) {
   return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
 }
@@ -398,6 +400,9 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     /** Cancel these orders by id in one request (POST /orders/batch-cancel). A reply that does not answer each id, in order, is refused. */
     async cancelBatch(ids: readonly string[]): Promise<ApiResult<BatchCancel>> {
       if (ids.length === 0) return { ok: false as const, reason: 'error' as const, message: 'no orders chosen' };
+      // The service answers at most this many ids in one request; more is refused before anything is sent.
+      if (ids.length > BATCH_CANCEL_MAX)
+        return { ok: false as const, reason: 'error' as const, code: 'trade.batch_too_large', message: 'too many orders' };
       const result = await api.rest('/orders/batch-cancel', batchCancelSchema, { method: 'POST', body: { ids } });
       if (
         result.ok &&

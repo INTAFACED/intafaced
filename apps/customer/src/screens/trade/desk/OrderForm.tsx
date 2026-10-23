@@ -260,8 +260,10 @@ function SideForm({
     if (!suggestion?.flatten || side !== 'sell') return;
     edit(() => {
       setTotalEdit(null);
-      setAmount(floorToLot(suggestion.amount, market.lotSize) ?? '');
-      flattenPending.current = true;
+      const lots = floorToLot(suggestion.amount, market.lotSize);
+      setAmount(lots ?? '');
+      // Less than one lot is nothing to sell: no review is opened for it.
+      flattenPending.current = lots !== null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);

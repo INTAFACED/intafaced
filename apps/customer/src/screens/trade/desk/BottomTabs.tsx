@@ -8,7 +8,7 @@ import { useClosedOrders, useRefreshPrivate } from './data';
 import { HistoryFilters } from './HistoryFilters';
 import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
-import { parseAmount } from '../../../shared/money';
+import { floorToLot } from './order-math';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
 import { CancelMany } from './CancelMany';
@@ -154,7 +154,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
                           <Amount value={fmtAmount(entry?.used ?? '0', { places: 8 })} />
                         </td>
                         <td>
-                          {asset === market.base && userId && market.open && parseAmount(entry?.free ?? '0') > 0n ? (
+                          {asset === market.base && userId && market.open && floorToLot(entry?.free ?? '0', market.lotSize) !== null ? (
                             <button
                               type="button"
                               className="dk-cancel-all"

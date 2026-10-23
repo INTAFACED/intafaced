@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useDataEnv } from '../../../data/hooks';
-import { isTerminalOrder, type BatchCancel, type Order } from '../../../features/trade/trade-api';
+import { BATCH_CANCEL_MAX, isTerminalOrder, type BatchCancel, type Order } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
 import {
@@ -91,28 +91,34 @@ export function CancelMany({
     setBusy(true);
     env.poller.recordExternalRequest();
     let cancelled: string[] = [];
-    if (scope === 'selected') {
-      const result = await api.cancelBatch(chosen.map((order) => order.id));
-      if (result.ok) {
-        const next = batchOutcome(result.data);
-        setOutcome(next);
-        cancelled = result.data.results.filter((row) => row.status === 'success' && row.orderId).map((row) => row.orderId as string);
+    try {
+      if (scope === 'selected') {
+        const result = await api.cancelBatch(chosen.map((order) => order.id));
+        if (result.ok) {
+          setOutcome(batchOutcome(result.data));
+          cancelled = result.data.results.filter((row) => row.status === 'success' && row.orderId).map((row) => row.orderId as string);
+        } else if (result.code === 'trade.batch_too_large') {
+          setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel batch too many', { max: BATCH_CANCEL_MAX }) });
+        } else {
+          setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });
+        }
       } else {
-        setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });
+        const result = scope === 'spot' ? await api.cancelAllSpot() : await api.cancelAllMarkets();
+        if (result.ok) {
+          const done = result.data.filter(isTerminalOrder);
+          cancelled = done.map((order) => order.id);
+          setOutcome({ kind: 'all', tone: 'good', text: t('Cancel all done', { count: done.length }) });
+        } else {
+          // Some orders may already be cancelled when a later one fails, so a refusal never says "nothing was cancelled".
+          setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });
+        }
       }
-    } else {
-      const result = scope === 'spot' ? await api.cancelAllSpot() : await api.cancelAllMarkets();
-      if (result.ok) {
-        const done = result.data.filter(isTerminalOrder);
-        cancelled = done.map((order) => order.id);
-        setOutcome({ kind: 'all', tone: 'good', text: t('Cancel all done', { count: done.length }) });
-      } else {
-        // Some orders may already be cancelled when a later one fails, so a refusal never says "nothing was cancelled".
-        setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });
-      }
+    } catch {
+      setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    busyRef.current = false;
-    setBusy(false);
     onDone(cancelled);
   }
   function close() {
@@ -121,10 +127,10 @@ export function CancelMany({
     setOutcome(null);
   }
   function start() {
-    setScope(chosen.length > 0 ? 'selected' : 'spot');
+    setScope(chosen.length > 0 && chosen.length <= BATCH_CANCEL_MAX ? 'selected' : 'spot');
     setOpen(true);
   }
-  const canConfirm = scope !== 'selected' || chosen.length > 0;
+  const canConfirm = scope !== 'selected' || (chosen.length > 0 && chosen.length <= BATCH_CANCEL_MAX);
   const option = (value: Scope, text: string, disabled = false, note?: string) => (
     <label className="dk-scope">
       <input
@@ -158,7 +164,8 @@ export function CancelMany({
                 {option(
                   'selected',
                   chosen.length > 0 ? t('Cancel scope selected', { count: chosen.length }) : t('Cancel scope selected none'),
-                  chosen.length === 0,
+                  chosen.length === 0 || chosen.length > BATCH_CANCEL_MAX,
+                  chosen.length > BATCH_CANCEL_MAX ? t('Cancel batch too many', { max: BATCH_CANCEL_MAX }) : undefined,
                 )}
                 {option('spot', t('Cancel scope spot'), false, t('Cancel scope spot note'))}
                 {option('everything', t('Cancel scope everything'))}

@@ -2146,7 +2146,9 @@ export class TradeService {
     return withMoneySpan('trade.cancelOrder', { operation: 'cancel_order', userId: principal.userId, orderId }, async () => {
       requireScope(principal, 'trade:write');
 
-      const order = await this.findOrder(orderId);
+      // Order ids are uuids. A cancel of anything else is not found, never a database error that reads as an unknown
+      // outcome: a batch cancel answers such an id as refused and still cancels the rest.
+      const order = UUID_SHAPE.test(orderId) ? await this.findOrder(orderId) : null;
       if (!order) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
       if (order.userId !== principal.userId) {
         // Deliberately the same code a stranger's order id would produce — do
@@ -4891,9 +4893,6 @@ export class TradeService {
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {
-    // Order ids are uuids. Anything else is no order (not found), never a database error that reads as an unknown
-    // outcome: a batch cancel answers such an id as refused and still cancels the rest.
-    if (!UUID_SHAPE.test(orderId)) return null;
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];
     return row ? toOrder(row) : null;

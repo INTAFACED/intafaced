@@ -349,6 +349,7 @@ const messages = {
   'Cancel batch refused': 'Not cancelled: {reason}',
   'Cancel batch unknown': 'Not confirmed. Check Open orders before trying again.',
   'Cancel batch summary': '{done} of {count} cancelled.',
+  'Cancel batch too many': 'At most {max} orders at once. Untick some, or cancel every spot order.',
   'Cancel batch row': 'Order to {side} {amount} {asset} at {price} on {pair}',
   'Cancel batch row market': 'Order to {side} {amount} {asset} at market on {pair}',
   'Cancel batch row unknown': 'Order {id}',
