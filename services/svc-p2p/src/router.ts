@@ -790,7 +790,11 @@ export function createP2pRouter(
       if (!references.has(key)) {
         references.set(
           key,
-          p2p.referencePrice(asset, fiat).then((price) => (price === null ? null : formatAmount(price))),
+          p2p
+            .referencePrice(asset, fiat)
+            .then((price) => (price === null ? null : formatAmount(price)))
+            // A feed that fails prices nothing: the floating ad says so, and the rest of the board still reads.
+            .catch(() => null),
         );
       }
       return references.get(key)!;
@@ -1020,7 +1024,7 @@ export function createP2pRouter(
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
 
-      /** Cursor page. The live customer board still calls `offers.list` and parses an array. */
+      /** Cursor page: the customer board reads this, filtered and sorted here, and continues with `nextCursor`. */
       page: merchantApiProcedure('p2p:read')
         .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
         .output(z.object({ offers: z.array(offerOutput), nextCursor: z.string().nullable() }))

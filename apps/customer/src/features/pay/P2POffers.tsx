@@ -1,17 +1,17 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { PersonalPayApi } from './pay-api';
-import { BOARD_SORTS, id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
+import { id, type BoardQuery, type BoardSort, type Offer, type OfferPage } from './schemas';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { offerCopy } from './p2p-offer-copy';
 import { shortReference } from '../../shared/reference';
 import { MutationResult, PayAmount, PayDetails, PayFailure, PayNotice, PaySection, PayState, ReviewedAction, Status } from './components';
 import './p2p-offer.css';
 import { OfferTabs, TakeOfferPanel } from './personal/P2PDepth';
-import { TraderName, TraderSummary, useTraders } from './personal/Trader';
+import { TraderName, TraderSummary, useTraders, type TraderRecords } from './personal/Trader';
 import { isOwnOffer } from './personal/p2p-model';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { CounterpartyLink, offerReturn, p2pReturn, closeReturnedOffer, consumeMarketArrival, type P2PReturn } from './p2p-return';
@@ -102,23 +102,32 @@ export function BoardPages({
   pay,
   first,
   query,
+  traderIds = () => [],
   children,
 }: {
   pay: PersonalPayApi;
   first: OfferPage;
   query: BoardQuery & { makerId?: string };
-  children: (rows: Offer[]) => ReactNode;
+  /** Whose trading record each row shows, over every loaded page. */
+  traderIds?: (rows: Offer[]) => string[];
+  children: (rows: Offer[], traders: TraderRecords) => ReactNode;
 }) {
   const { t } = offerCopy.useCopy();
   const [rows, setRows] = useState<Offer[]>(first.offers);
   const [cursor, setCursor] = useState(first.nextCursor);
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  // A reload or new filters unmount these pages: a page still in flight is cancelled and never lands.
+  const inflight = useRef<AbortController | null>(null);
+  useEffect(() => () => inflight.current?.abort(), []);
   const more = async () => {
     if (!cursor) return;
+    inflight.current?.abort();
+    const controller = (inflight.current = new AbortController());
     setLoading(true);
     setFailure(null);
-    const result = await pay.offerPage({ ...query, limit: PAGE, cursor });
+    const result = await pay.offerPage({ ...query, limit: PAGE, cursor }, controller.signal);
+    if (controller.signal.aborted) return;
     setLoading(false);
     if (!result.ok) return setFailure(result);
     setRows((current) => {
@@ -127,9 +136,10 @@ export function BoardPages({
     });
     setCursor(result.data.nextCursor);
   };
+  const traders = useTraders(pay, traderIds(rows));
   return (
     <>
-      {children(rows)}
+      {children(rows, traders)}
       {failure ? <PayFailure result={failure} retry={more} /> : null}
       {cursor ? (
         <Button variant="secondary" onClick={more} disabled={loading}>
@@ -150,10 +160,12 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
     ...(arrival.searchParams.get('fiatCurrency') ? { fiatCurrency: arrival.searchParams.get('fiatCurrency')! } : {}),
     ...(arrival.searchParams.get('side') ? { side: arrival.searchParams.get('side') as 'buy' | 'sell' } : {}),
     ...(arrival.searchParams.get('methodId') ? { methodId: arrival.searchParams.get('methodId')! } : {}),
-    ...(FIAT_AMOUNT.test(arrival.searchParams.get('fiatAmount') ?? '') ? { fiatAmount: arrival.searchParams.get('fiatAmount')! } : {}),
-    ...((BOARD_SORTS as readonly string[]).includes(arrival.searchParams.get('sort') ?? '')
-      ? { sort: arrival.searchParams.get('sort') as BoardSort }
+    // An amount means something only in one currency, as on Apply.
+    ...(arrival.searchParams.get('fiatCurrency') && FIAT_AMOUNT.test(arrival.searchParams.get('fiatAmount') ?? '')
+      ? { fiatAmount: arrival.searchParams.get('fiatAmount')! }
       : {}),
+    // The default order is no parameter, as on Apply, so one query has one cache key.
+    ...(arrival.searchParams.get('sort') === 'price_desc' ? { sort: 'price_desc' as const } : {}),
   };
   const [asset, setAsset] = useState(initialFilter.asset ?? ''),
     [fiat, setFiat] = useState(initialFilter.fiatCurrency ?? ''),
@@ -221,12 +233,6 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
   const currencies = useResource((signal) => pay.fiat(signal), 'pay:fiat');
   const registeredMethods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
   const originals = deviceOriginals(userId);
-  const traders = useTraders(
-    pay,
-    mine || list.resource.status !== 'ready'
-      ? []
-      : list.resource.data.offers.filter((offer) => !isOwnOffer(offer, userId)).map((offer) => offer.makerId),
-  );
   return (
     <div className={`p2p-offer-workspace${selected ? ' has-selection' : ''}`} lang={languageFor('current')} dir={directionFor('current')}>
       <div className="p2p-offer-market" tabIndex={-1} ref={marketHeading} aria-label={payCopy.t('p2pOffers')}>
@@ -379,8 +385,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           )}
           <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noOffersReturnedForTheseFilters')}>
             {(first) => (
-              <BoardPages pay={pay} first={first} query={query}>
-                {(visible) => (
+              <BoardPages
+                pay={pay}
+                first={first}
+                query={query}
+                traderIds={(rows) => (mine ? [] : rows.filter((offer) => !isOwnOffer(offer, userId)).map((offer) => offer.makerId))}
+              >
+                {(visible, traders) => (
                   <>
                     {visible.length ? (
                       <ul className="p2p-offer-list" aria-label={payCopy.t('p2pOffers')}>
