@@ -16,6 +16,7 @@ import {
   type AlertEditState,
   type AlertExtra,
   type AlertFrequency,
+  type AlertStopReason,
   type AlertDirection,
   type AlertSide,
   type AlertStatus,
@@ -44,6 +45,20 @@ export class AlertQuotaReachedError extends Error {
     super(`alert.quota_reached: ${limit}`);
     this.name = 'AlertQuotaReachedError';
   }
+}
+
+/** The owner's burst rule: more than `max` triggers of one alert inside `windowMs` stops it. */
+export type BurstRule = { readonly windowMs: number; readonly max: number };
+
+/** The burst window after one more trigger at `at`: the count restarts when the last window has run out. Pure, so both engines agree. */
+export function nextBurst(
+  state: { readonly burstStartedAt: Date | null; readonly burstCount: number },
+  at: Date,
+  rule: BurstRule,
+): { readonly burstStartedAt: Date; readonly burstCount: number; readonly stop: boolean } {
+  const open = state.burstStartedAt !== null && at.getTime() - state.burstStartedAt.getTime() <= rule.windowMs;
+  const burstCount = open ? state.burstCount + 1 : 1;
+  return { burstStartedAt: open ? state.burstStartedAt! : at, burstCount, stop: burstCount > rule.max };
 }
 
 export interface AlertStore {
@@ -88,7 +103,14 @@ export interface AlertStore {
    * a new one. Only applies while the stored fire count is still `fireCount`, so a retried sweep counts the same trigger once.
    * Returns the alert, or `null` when it was not active or had already counted this trigger.
    */
-  recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null>;
+  recordRepeat(
+    userId: string,
+    id: string,
+    fireCount: number,
+    at: Date,
+    side: AlertSide | null,
+    burst?: BurstRule,
+  ): Promise<PriceAlert | null>;
 }
 
 function sourcedKind(input: CreatePriceAlertInput): SourcedAlertKind {
@@ -156,6 +178,9 @@ export class MemoryAlertStore implements AlertStore {
       frequency: input.frequency ?? 'once',
       fireCount: 0,
       lastFiredAt: null,
+      stopReason: null,
+      burstStartedAt: null,
+      burstCount: 0,
     };
     this.byId.set(row.id, row);
     return row;
@@ -230,7 +255,15 @@ export class MemoryAlertStore implements AlertStore {
     if (!row) return null;
     if (stopped && row.status !== 'active') return row;
     if (!stopped && row.status !== 'stopped') return row;
-    const updated: PriceAlert = { ...row, status: stopped ? 'stopped' : 'active', lastSide: null, updatedAt: at };
+    const updated: PriceAlert = {
+      ...row,
+      status: stopped ? 'stopped' : 'active',
+      lastSide: null,
+      stopReason: null,
+      burstStartedAt: null,
+      burstCount: 0,
+      updatedAt: at,
+    };
     this.byId.set(id, updated);
     return updated;
   }
@@ -256,10 +289,30 @@ export class MemoryAlertStore implements AlertStore {
     if (row && row.status === 'active') this.byId.set(id, { ...row, lastSide: side });
   }
 
-  async recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null> {
+  async recordRepeat(
+    userId: string,
+    id: string,
+    fireCount: number,
+    at: Date,
+    side: AlertSide | null,
+    burst?: BurstRule,
+  ): Promise<PriceAlert | null> {
     const row = await this.get(userId, id);
     if (!row || row.status !== 'active' || row.fireCount !== fireCount) return null;
-    const next: PriceAlert = { ...row, fireCount: fireCount + 1, lastFiredAt: at, lastSide: side ?? row.lastSide };
+    const counted = burst ? nextBurst(row, at, burst) : null;
+    const next: PriceAlert = {
+      ...row,
+      fireCount: fireCount + 1,
+      lastFiredAt: at,
+      lastSide: side ?? row.lastSide,
+      ...(counted
+        ? {
+            burstStartedAt: counted.burstStartedAt,
+            burstCount: counted.burstCount,
+            ...(counted.stop ? { status: 'stopped' as const, stopReason: 'burst' as const, updatedAt: at } : {}),
+          }
+        : {}),
+    };
     this.byId.set(id, next);
     return next;
   }
@@ -280,7 +333,7 @@ export class PostgresAlertStore implements AlertStore {
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
         ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)},
         ${input.frequency ?? 'once'})
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
     `;
     if (input.maxOpen === undefined) return mapRow((await insert(this.sql))[0]!);
     const maxOpen = input.maxOpen;
@@ -316,7 +369,7 @@ export class PostgresAlertStore implements AlertStore {
           VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
             ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
             ${input.frequency ?? 'once'})
-          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
         `;
         rows.push(mapRow(row!));
       }
@@ -336,13 +389,13 @@ export class PostgresAlertStore implements AlertStore {
     const rows =
       limit == null
         ? await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
           `
         : await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
@@ -353,7 +406,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async get(userId: string, id: string): Promise<PriceAlert | null> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
       FROM notify.price_alerts
       WHERE user_id = ${userId} AND id = ${id}
       LIMIT 1
@@ -363,7 +416,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async listActiveByMarket(marketId: string): Promise<readonly PriceAlert[]> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
       FROM notify.price_alerts
       WHERE market_id = ${marketId} AND status = 'active'
     `;
@@ -385,7 +438,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'fired', fired_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -395,7 +448,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'cancelled', updated_at = now()
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -408,7 +461,7 @@ export class PostgresAlertStore implements AlertStore {
           message = ${next.message}, expires_at = ${next.expiresAt}, extra_conditions = ${this.sql.json(next.extras as never)},
           frequency = ${next.frequency}, last_side = NULL, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -418,9 +471,9 @@ export class PostgresAlertStore implements AlertStore {
     const to = stopped ? 'stopped' : 'active';
     const rows = await this.sql<AlertRow[]>`
       UPDATE notify.price_alerts
-      SET status = ${to}, last_side = NULL, updated_at = ${at}
+      SET status = ${to}, last_side = NULL, stop_reason = NULL, burst_started_at = NULL, burst_count = 0, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = ${from}
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -449,14 +502,37 @@ export class PostgresAlertStore implements AlertStore {
     `;
   }
 
-  async recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null> {
-    const rows = await this.sql<AlertRow[]>`
-      UPDATE notify.price_alerts
-      SET fire_count = fire_count + 1, last_fired_at = ${at}, last_side = COALESCE(${side}, last_side)
-      WHERE user_id = ${userId} AND id = ${id} AND status = 'active' AND fire_count = ${fireCount}
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
-    `;
-    return rows[0] ? mapRow(rows[0]) : null;
+  async recordRepeat(
+    userId: string,
+    id: string,
+    fireCount: number,
+    at: Date,
+    side: AlertSide | null,
+    burst?: BurstRule,
+  ): Promise<PriceAlert | null> {
+    // The row is locked while the window is counted, so two sweeps cannot both count into the same window.
+    return this.sql.begin(async (tx) => {
+      const [row] = await tx<AlertRow[]>`
+        SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
+        FROM notify.price_alerts
+        WHERE user_id = ${userId} AND id = ${id} AND status = 'active' AND fire_count = ${fireCount}
+        FOR UPDATE
+      `;
+      if (!row) return null;
+      const counted = burst ? nextBurst({ burstStartedAt: row.burst_started_at, burstCount: row.burst_count }, at, burst) : null;
+      const stop = counted?.stop === true;
+      const [updated] = await tx<AlertRow[]>`
+        UPDATE notify.price_alerts
+        SET fire_count = fire_count + 1, last_fired_at = ${at}, last_side = COALESCE(${side}, last_side),
+            burst_started_at = ${counted ? counted.burstStartedAt : row.burst_started_at},
+            burst_count = ${counted ? counted.burstCount : row.burst_count},
+            status = ${stop ? 'stopped' : 'active'}, stop_reason = ${stop ? 'burst' : null},
+            updated_at = ${stop ? at : row.updated_at}
+        WHERE user_id = ${userId} AND id = ${id}
+        RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count
+      `;
+      return updated ? mapRow(updated) : null;
+    });
   }
 }
 
@@ -480,6 +556,9 @@ type AlertRow = {
   frequency: AlertFrequency;
   fire_count: number;
   last_fired_at: Date | null;
+  stop_reason: AlertStopReason | null;
+  burst_started_at: Date | null;
+  burst_count: number;
 };
 
 function mapRow(r: AlertRow): PriceAlert {
@@ -503,5 +582,8 @@ function mapRow(r: AlertRow): PriceAlert {
     frequency: r.frequency === 'every_crossing' ? 'every_crossing' : 'once',
     fireCount: r.fire_count,
     lastFiredAt: r.last_fired_at,
+    stopReason: r.stop_reason === 'burst' ? 'burst' : null,
+    burstStartedAt: r.burst_started_at,
+    burstCount: r.burst_count,
   };
 }
