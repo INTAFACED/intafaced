@@ -218,7 +218,7 @@ describe('who may look up', () => {
 
   it('takes a founder sign-in with admin:read and a second factor, and records the lookup under that founder', async () => {
     const { app, tx, deposit, access } = await seeded();
-    const authorization = await bearer(['admin:read', 'admin:compliance']);
+    const authorization = await bearer(['admin:read']);
     const byId = await app.inject({ method: 'GET', url: `/operator/transactions/${tx.id}`, headers: { authorization } });
     expect(byId.statusCode).toBe(200);
     expect(byId.json()).toMatchObject({ txId: tx.id });
