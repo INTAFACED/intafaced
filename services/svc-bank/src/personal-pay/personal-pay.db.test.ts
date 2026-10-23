@@ -1273,7 +1273,11 @@ describe('personal bill pay and global send', () => {
     });
 
     /** A 500 USDT send, screened and held with nothing posted. */
-    async function held(ledger: MemoryLedger, me: ReturnType<typeof caller>, body: Record<string, string>) {
+    async function held(
+      ledger: MemoryLedger,
+      me: ReturnType<typeof caller>,
+      body: Parameters<ReturnType<typeof caller>['global']['send']>[0],
+    ) {
       await ledger.post(
         recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
       );
