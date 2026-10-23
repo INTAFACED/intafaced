@@ -207,7 +207,7 @@ async function rerunSealOrFlag(repo, sha) {
   }
   console.log(outcome);
   const { json } = await gh('GET', `/repos/${repo}/commits/${sha}/statuses?per_page=100`);
-  if ((json ?? []).find((s) => s.context === RERUN_CONTEXT)?.state === 'failure') {
+  if ((Array.isArray(json) ? json : []).find((s) => s.context === RERUN_CONTEXT)?.state === 'failure') {
     await gh('POST', `/repos/${repo}/statuses/${sha}`, { state: 'success', context: RERUN_CONTEXT, description: outcome.slice(0, 140) });
   }
 }
