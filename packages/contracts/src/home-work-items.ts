@@ -35,28 +35,51 @@ export const WORK_ITEM_SOURCES = {
 export type WorkItemKind = keyof typeof WORK_ITEM_SOURCES;
 export type WorkItemSource = (typeof WORK_ITEM_SOURCES)[WorkItemKind];
 export const workItemKindSchema = z.enum(Object.keys(WORK_ITEM_SOURCES) as [WorkItemKind, ...WorkItemKind[]]);
-export const workItemSourceSchema = z.enum(['identity', 'bank', 'pay']);
+const SOURCES = [...new Set(Object.values(WORK_ITEM_SOURCES))] as [WorkItemSource, ...WorkItemSource[]];
+export const workItemSourceSchema = z.enum(SOURCES);
+
+/** The customer rooms each owner may link to: its own, never another owner's. */
+export const WORK_ITEM_ROOMS: Record<WorkItemSource, readonly string[]> = {
+  identity: ['/verification', '/uc/'],
+  bank: ['/bank'],
+  pay: ['/pay'],
+};
+const inRoom = (source: WorkItemSource, link: string): boolean =>
+  WORK_ITEM_ROOMS[source].some(
+    (room) => link === room || link.startsWith(room.endsWith('/') ? room : `${room}/`) || link.startsWith(`${room}?`),
+  );
 
 /** Decimal string on the wire, never a JSON number. */
-const decimal = z.string().regex(/^\d+(\.\d+)?$/, 'decimal string');
+const decimal = z
+  .string()
+  .max(80)
+  .regex(/^\d+(\.\d+)?$/, 'decimal string');
 
-/** A customer room path: one leading slash, no scheme, no `//`, no backslash. Its owner links only to its own room. */
+/** A code, not a sentence: lower case words joined by `.` or `_`. */
+const code = z
+  .string()
+  .min(1)
+  .max(120)
+  .regex(/^[a-z][a-z0-9]*([._][a-z0-9]+)*$/, 'code, not a sentence');
+
+/** A customer room path: one leading slash, no scheme, no `//`, no backslash, no space. */
 const roomLink = z
   .string()
   .min(1)
   .max(512)
   .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path');
 
-export const workItemSchema = z
+/** The fields of one item, before the cross-field rules (extend this, then apply `workItemRules`). */
+export const workItemFieldsSchema = z
   .object({
-    /** Stable for the life of the owner's record, so a re-read keeps the same row (for example `card_frozen:<cardId>`). */
+    /** `<kind>:<owner's record id>`, stable for the life of that record, so a re-read keeps the same row. */
     id: z.string().min(1).max(200),
     kind: workItemKindSchema,
     source: workItemSourceSchema,
     /** `action`: only the person can move it on. `warning`: it will get worse if left. `info`: waiting on someone else. */
     severity: z.enum(['action', 'warning', 'info']),
     /** Copy key the customer app words; the owner sends no sentences. */
-    titleKey: z.string().min(1).max(120),
+    titleKey: code,
     link: roomLink,
     /** ISO 8601 time the owner's record says it is due, when it has one. */
     dueAt: z.string().datetime({ offset: true }).optional(),
@@ -65,14 +88,30 @@ export const workItemSchema = z
     /** A ratio from the owner's record (loan-to-value), as a decimal string where 1 is 100%. */
     ratio: decimal.optional(),
     /** The owner's typed reason, when the item is a state the owner put it in (a frozen card's reason code). */
-    reasonCode: z.string().min(1).max(120).optional(),
+    reasonCode: code.optional(),
   })
-  .strict()
-  .refine((item) => WORK_ITEM_SOURCES[item.kind] === item.source, { message: 'kind answered by a service that does not own it' });
+  .strict();
+
+/** The rules across fields: the kind's owner answers it, its id starts with its kind, and it links to the owner's room. */
+export function workItemRules(item: z.infer<typeof workItemFieldsSchema>, ctx: z.RefinementCtx): void {
+  if (WORK_ITEM_SOURCES[item.kind] !== item.source)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source'], message: 'kind answered by a service that does not own it' });
+  if (!item.id.startsWith(`${item.kind}:`) || item.id.length === item.kind.length + 1)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['id'], message: 'id is <kind>:<record id>' });
+  if (!inRoom(item.source, item.link))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['link'], message: 'link leaves the owner’s own rooms' });
+}
+
+export const workItemSchema = workItemFieldsSchema.superRefine(workItemRules);
 export type WorkItem = z.infer<typeof workItemSchema>;
 
 /** One owner's answer to `workItems.list`: only its own kinds, for the signed principal. Empty means nothing needs them. */
-export const workItemsOutputSchema = z.object({ items: z.array(workItemSchema).max(100) });
+export const workItemsOutputSchema = z.object({
+  items: z
+    .array(workItemSchema)
+    .max(100)
+    .refine((items) => new Set(items.map((item) => item.id)).size === items.length, 'one row per item id'),
+});
 export type WorkItemsOutput = z.infer<typeof workItemsOutputSchema>;
 
 /** Whether an owner's answer holds only that owner's kinds. A consumer drops the whole answer otherwise. */
@@ -86,7 +125,11 @@ export function ownsAll(source: WorkItemSource, output: WorkItemsOutput): boolea
  */
 export const workListConfigOutputSchema = z.object({
   cap: z.number().int().min(1).max(50).nullable(),
-  order: z.array(workItemKindSchema).min(1).nullable(),
+  order: z
+    .array(workItemKindSchema)
+    .min(1)
+    .refine((kinds) => new Set(kinds).size === kinds.length, 'each kind once')
+    .nullable(),
   revision: z.number().int().nonnegative(),
 });
 export type WorkListConfig = z.infer<typeof workListConfigOutputSchema>;

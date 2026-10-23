@@ -37,8 +37,9 @@ describe('Home work items (HM-dashboard-03)', () => {
 
   it('refuses a kind answered by a service that does not own it', () => {
     expect(workItemSchema.safeParse({ ...frozenCard, source: 'pay' }).success).toBe(false);
+    const rooms = { identity: '/verification', bank: '/bank/cards', pay: '/pay/settlements' };
     for (const [kind, source] of Object.entries(WORK_ITEM_SOURCES))
-      expect(workItemSchema.safeParse({ ...frozenCard, id: kind, kind, source }).success).toBe(true);
+      expect(workItemSchema.safeParse({ ...frozenCard, id: `${kind}:1`, kind, source, link: rooms[source] }).success, kind).toBe(true);
   });
 
   it('refuses a number where money goes, and a link that leaves the customer app', () => {
@@ -48,9 +49,27 @@ describe('Home work items (HM-dashboard-03)', () => {
       expect(workItemSchema.safeParse({ ...frozenCard, link }).success, link).toBe(false);
   });
 
-  it('refuses fields it does not define, so no sentence or other person rides along', () => {
+  it('refuses fields it does not define, and sentences where codes go, so no words or other person ride along', () => {
     expect(workItemSchema.safeParse({ ...frozenCard, title: 'Your card is frozen' }).success).toBe(false);
     expect(workItemSchema.safeParse({ ...frozenCard, userId: 'someone' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, titleKey: 'Your card is frozen, call support' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, reasonCode: 'Frozen because of John Doe' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, ratio: '1'.repeat(81) }).success).toBe(false);
+  });
+
+  it('an item links only into its owner’s rooms, and its id names its kind', () => {
+    expect(workItemSchema.safeParse({ ...frozenCard, link: '/pay/settlements' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, link: '/bankrupt' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, link: '/bank' }).success).toBe(true);
+    expect(workItemSchema.safeParse({ ...frozenCard, link: '/bank?tab=cards' }).success).toBe(true);
+    expect(workItemSchema.safeParse({ ...frozenCard, id: 'margin_health:card-1' }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...frozenCard, id: 'card_frozen:' }).success).toBe(false);
+    const verify = { ...frozenCard, id: 'verification:me', kind: 'verification', source: 'identity', link: '/verification' };
+    expect(workItemSchema.safeParse(verify).success).toBe(true);
+  });
+
+  it('one owner answer holds each item once', () => {
+    expect(workItemsOutputSchema.safeParse({ items: [frozenCard, frozenCard] }).success).toBe(false);
   });
 
   it('ownsAll tells a consumer to drop an answer that carries another owner’s kind', () => {
@@ -65,5 +84,6 @@ describe('Home work items (HM-dashboard-03)', () => {
     expect(workListConfigOutputSchema.safeParse({ cap: 0, order: null, revision: 1 }).success).toBe(false);
     expect(workListConfigOutputSchema.safeParse({ cap: 3, order: [], revision: 1 }).success).toBe(false);
     expect(workListConfigOutputSchema.safeParse({ cap: 3, order: ['unknown'], revision: 1 }).success).toBe(false);
+    expect(workListConfigOutputSchema.safeParse({ cap: 3, order: ['card_frozen', 'card_frozen'], revision: 1 }).success).toBe(false);
   });
 });
