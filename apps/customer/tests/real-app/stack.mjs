@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +9,7 @@ import { localStackState } from '../../../../tooling/scripts/local-test-state.mj
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';
-const ORIGIN = 'http://127.0.0.1:3210';
+export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
@@ -50,6 +51,29 @@ export function mailedCodes(email) {
     .filter((line) => line.includes('purpose=signup-code') && line.includes(` email=${wanted} `))
     .map((line) => /\bcode=(\d{6})\b/.exec(line)?.[1])
     .filter(Boolean);
+}
+
+/** Every email-confirmation link mailed to `email` (an app path), oldest first, read from the LOCAL-TEST outbox like an inbox. */
+export function mailedConfirmLinks(email) {
+  const file = path.join(STATE, 'email-outbox.log');
+  if (!existsSync(file)) return [];
+  const wanted = email.replace(/\s+/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes('purpose=email-confirm') && line.includes(` email=${wanted} `))
+    .map((line) => /\blink=(\S+)/.exec(line)?.[1])
+    .filter(Boolean)
+    .map((link) => `/${link}`);
+}
+
+/** Every LOCAL-TEST mail line for `purpose` sent to `email`, oldest first, read from the outbox like an inbox. */
+export function mailedLines(email, purpose) {
+  const file = path.join(STATE, 'email-outbox.log');
+  if (!existsSync(file)) return [];
+  const wanted = email.replace(/\s+/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes(`purpose=${purpose} `) && line.includes(` email=${wanted} `));
 }
 
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
@@ -116,6 +140,7 @@ export async function api(who) {
   return {
     get: (route) => call('GET', route),
     post: (route, body) => call('POST', route, body),
+    patch: (route, body) => call('PATCH', route, body),
     delete: (route) => call('DELETE', route),
     /** { asset: { free, used, total } } from the ledger, as decimal strings. */
     async balances() {
@@ -124,6 +149,36 @@ export async function api(who) {
       return body.balances;
     },
   };
+}
+
+/**
+ * A staff freeze of `who`'s account through identity's own compliance control, made by the stack's TEST founder (the
+ * only principal that control accepts), as an operator would. Returns the account's user id.
+ */
+export async function staffFreeze(who, reason = 'LOCAL TEST journey freeze') {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: who.email, password: who.password }),
+  }).then(json);
+  const userId = login.body?.result?.data?.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} refused: ${login.status} ${JSON.stringify(login.body).slice(0, 300)}`);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const freeze = (expectedVersion) =>
+    ctx.edge.mutate(
+      'identity',
+      'compliance.freezeIdentity',
+      { requestId: randomUUID(), target: { area: 'identity', userId }, action: 'restrict', reason, expectedVersion },
+      founders.a.token,
+    );
+  // A new account starts at version 0; one an earlier control changed answers `conflict` with its current version.
+  let res = await freeze('0');
+  const current = res.json?.result?.data?.outcome === 'conflict' ? res.json.result.data.current?.version : undefined;
+  if (current) res = await freeze(current);
+  if (res.json?.result?.data?.outcome !== 'changed') throw new Error(`staff freeze refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return userId;
 }
 
 /** The other TEST trader of the journey: the stack's taker account, through the same front door. */

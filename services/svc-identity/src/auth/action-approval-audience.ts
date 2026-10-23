@@ -48,6 +48,19 @@ export const FOUNDER_LEVEL_ACTION_TYPES: readonly string[] = ['edge.kill', 'ledg
 export const TRADING_RESTRICT_ACTION_TYPE = 'trading.restrict';
 export const TRADING_RESTRICT_TARGET_SERVICE = 'svc-identity';
 /**
+ * Lifting a staff freeze on one account, filed at svc-identity with the account id as target. Operator-level (it moves
+ * no money); identity's own restore door still admits only a live founder and spends the row there.
+ */
+export const IDENTITY_UNFREEZE_ACTION_TYPE = 'identity.account_unfreeze';
+/** Staff close and reopen of one account (J-ops-console-04 #7). Operator-level, like the freeze: svc-identity is an operator target. */
+export const IDENTITY_CLOSE_ACTION_TYPE = 'identity.account_close';
+export const IDENTITY_REOPEN_ACTION_TYPE = 'identity.account_reopen';
+/**
+ * Moving one account onto another product tier (J-ops-console-04 #11). Founder-level: a tier carries fees and limits, so
+ * it sits with the fee and limit policy types below; identity also re-checks at consumption that the approver is a live founder.
+ */
+export const IDENTITY_TIER_MOVE_ACTION_TYPE = 'identity.account_tier_move';
+/**
  * Trade-ops operator permission. The trade desk's operator token is `admin:write` plus MFA.
  * There is no separate `trade:ops` scope. `market:ops` and `support:ops` are not this permission.
  */
@@ -60,6 +73,7 @@ export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 
 export const FOUNDER_ACTION_TYPES: readonly string[] = [
   'identity.change_fee_tier',
   'identity.change_limit',
+  IDENTITY_TIER_MOVE_ACTION_TYPE,
   'affiliates.payout',
   'identity.auth_key_rotate',
   'identity.auth_key_remove_old',

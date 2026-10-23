@@ -1,7 +1,14 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
 # in Chromium, nothing mocked. Runs after merge (push to main) and on workflow_dispatch, never on pull requests, and is
-# not a required check. Main trust watches only CI, so a journey that does not pass yet opens no "Main is red" issue;
-# the job goes red and the step summary shows the scoreboard from `roadmap.mjs --progress --results`.
+# not a required check. Main trust's post-merge job compares its steps run to run (tooling/ci/post-merge-trust.mjs), so a
+# journey that does not pass yet opens no issue; the run goes red and the summary shows the scoreboard from
+# `roadmap.mjs --progress --results`.
+#
+# The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
+# (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
+# 155, so no run finished and the scoreboard froze. Setup takes about 14 minutes and the journeys run one at a time, so
+# the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
+# own run file, so Playwright can split them by file.
 name: Real-app journeys
 
 on:
@@ -21,10 +28,12 @@ on:
       - 'tooling/scripts/roadmap.mjs'
       - '.github/workflows/real-app-journeys.yml'
 
-# The scoreboard reads the newest main, so a newer push replaces a run still going.
+# A run that started finishes; newer pushes wait as one queued run, and each newer push replaces the one waiting, so the
+# next run tests the newest main. (Failure it prevents: with cancel-in-progress, main merged every few minutes and every
+# run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the journeys, so the scoreboard never moved.)
 concurrency:
   group: real-app-journeys-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -34,9 +43,14 @@ env:
 
 jobs:
   journeys:
-    name: Real-app journeys
+    name: Journeys (shard ${{ matrix.shard }} of 8)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # About 14 minutes of setup plus one shard of the journeys.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     # The owner's labelled TEST screening placeholder, for every stack command in this job (see the check step). Secrets,
     # not variables, so the logs show *** and not the list.
     env:
@@ -49,6 +63,7 @@ jobs:
           echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
           echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
           echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
+          echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
 
       # Edge refuses every money read without a screening list (edge.screening_unset), and the stack never invents one.
       # The runner takes the owner's labelled TEST placeholder from two repository secrets, never from this file.
@@ -62,7 +77,7 @@ jobs:
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the scoreboard counts merged slice PRs from history
+          persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -100,8 +115,12 @@ jobs:
       # A fresh stack trades only after the TEST gates open the markets and verify the market maker's two TEST accounts
       # (docs/LOCAL-TEST-STACK.md, "A fresh stack"). Matching reads its operator seats when it starts, so it restarts
       # after the founders enrolled. The market maker refuses to start on closed markets and creates its accounts when it
-      # starts, so `verify` runs after it.
-      - name: Open the TEST markets and start the TEST market maker
+      # starts, so `verify` runs after it. It stops again before `verify`, so no market trades before `history`: that
+      # writes the TEST tape history the chart journeys read (real TEST trades whose times svc-trade moves into the past,
+      # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
+      # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
+      # fail later for a reason the log no longer shows.
+      - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
@@ -111,7 +130,10 @@ jobs:
             grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
             sleep 2
           done
+          node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
+          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs
 
       - name: Wait for the first BTC/USDT trade
         run: |
@@ -124,28 +146,21 @@ jobs:
           exit 1
 
       # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
-      - name: Journeys in the running app
-        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
+      - name: Journeys in the running app (this shard)
+        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off --shard ${{ matrix.shard }}/8
 
-      - name: Scoreboard
-        if: always()
-        run: |
-          if [ -f "$JOURNEY_REPORT" ]; then
-            node tooling/scripts/roadmap.mjs --progress --results "$JOURNEY_REPORT" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No journey report: the stack or the browser did not start. See the steps above." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      # The report and the failure screenshots only; the run's TEST account file stays on the runner.
-      - name: Keep the report
+      # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
+      # on the runner.
+      - name: Keep the shard's report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: real-app-journeys
+          name: real-app-journeys-shard-${{ matrix.shard }}
           path: |
-            ${{ runner.temp }}/journeys/report.json
+            ${{ runner.temp }}/journeys/blob
             /tmp/intafaced-real-app/results
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Stack logs on failure
         if: failure()
@@ -155,3 +170,72 @@ jobs:
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # Merges the shards into one report: the scoreboard in the summary, and the `real-app-journeys` artifact with
+  # report.json that Main trust's post-merge job compares run to run. Red when any shard was red.
+  scoreboard:
+    name: Real-app journeys
+    needs: journeys
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # to download this run's shard artifacts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the scoreboard counts merged slice PRs from history
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Merge the shards
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
+          # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
+          for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
+            [ -d "$d" ] || continue
+            find "$d" -name '*.zip' | while read -r z; do cp "$z" "$RUNNER_TEMP/blobs/$(basename "$d")-$(basename "$z")"; done
+          done
+          found=$(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)
+          echo "shard reports found: $found of 8"
+          if [ "$found" -gt 0 ]; then
+            PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/journeys/report.json" pnpm exec playwright merge-reports --reporter json "$RUNNER_TEMP/blobs" > /dev/null
+          fi
+
+      - name: Scoreboard
+        if: always()
+        run: |
+          report="$RUNNER_TEMP/journeys/report.json"
+          if [ -f "$report" ]; then
+            node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
+            missing=$((8 - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
+            if [ "$missing" -gt 0 ]; then
+              echo "Note: $missing of 8 shards sent no report (their stack or browser did not start); their journeys count as not passing." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "No journey report: no shard's stack or browser started. See the shard jobs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: real-app-journeys
+          path: ${{ runner.temp }}/journeys/report.json
+          if-no-files-found: warn
+
+      - name: Red when a shard was red
+        if: needs.journeys.result != 'success'
+        run: |
+          echo "::error::at least one journeys shard did not pass (${{ needs.journeys.result }}); see the shard jobs and the scoreboard"
+          exit 1

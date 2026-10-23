@@ -19,7 +19,7 @@ export interface PairRules {
   readonly minNotional: string;
   readonly maxQty: PairRuleValue;
   readonly protection: {
-    /** Highest accepted limit price (operator collar). */
+    /** Price band (operator collar): a fraction around the middle of the best bid and ask; a buy above or a sell below it is refused. */
     readonly collar: PairRuleValue;
     /** Largest accepted order value (operator fat-finger limit). */
     readonly fatFinger: PairRuleValue;

@@ -64,3 +64,37 @@ describe('report description on the wire', () => {
     expect(page.items[1]?.reportDescription).toBeUndefined();
   });
 });
+
+describe('the note on a payment between two people', () => {
+  const wire = (over: Record<string, unknown>) =>
+    activityPageSchema.parse({
+      items: [
+        {
+          id: 'tx-200:u:USDT:in',
+          kind: 'transfer_in',
+          direction: 'in',
+          asset: 'USDT',
+          amount: '25',
+          postedAt: '2026-10-22T10:14:20Z',
+          txId: 'tx-200',
+          counterparty: { handle: 'ada' },
+          ...over,
+        },
+      ],
+      nextCursor: null,
+    }).items[0]!;
+
+  it('reads the payment note apart from the private note, and never mixes the two', () => {
+    const both = wire({ note: 'Lunch, TEST', privateNote: 'paid back' });
+    expect(both.paymentNote).toBe('Lunch, TEST');
+    expect(both.privateNote).toBe('paid back');
+    expect(both).not.toHaveProperty('note');
+    expect(wire({ note: 'Lunch, TEST' }).privateNote).toBeUndefined();
+  });
+
+  it('leaves it absent when the payment had none', () => {
+    expect(wire({}).paymentNote).toBeUndefined();
+    expect(wire({ note: null }).paymentNote).toBeUndefined();
+    expect(wire({ note: '' }).paymentNote).toBeUndefined();
+  });
+});

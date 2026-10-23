@@ -2,8 +2,12 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { LedgerError } from '@intafaced/ledger-client';
+import { ASSET_EDIT_STALE, ASSET_OPERATION_CONFLICT, REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type LookupActor } from './ledger/operator-lookup.js';
+import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
+import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -48,7 +52,8 @@ import type { LedgerService } from './service.js';
  * one line each, and nothing reachable that is not named here.
  *
  * Routes: GET/POST `/operator/freeze`, POST `/operator/unfreeze`,
- * POST `/operator/reconcile`. Reconcile was the residual of the original
+ * POST `/operator/reconcile`, and the two object lookups GET
+ * `/operator/transactions/:txId` and GET `/operator/trace?businessKey=`. Reconcile was the residual of the original
  * freeze-only ship — freeze was wired first because halt is more urgent than
  * audit, and apps/admin kept an honest-simulated reconcile button until this
  * path existed for edge to proxy.
@@ -56,7 +61,9 @@ import type { LedgerService } from './service.js';
  * ── Authentication ─────────────────────────────────────────────────────────
  *
  * `admin:treasury`, which is in `INTERACTIVE_ONLY_SCOPES`, so `requireScope`
- * rejects a token without `mfa` on its own. No session carries it
+ * rejects a token without `mfa` on its own. The two object lookups are the one
+ * exception: they also take a founder's `admin:read` with a second factor
+ * (`requireLookupAuthority`, owner decision 2026-10-23). No session carries it
  * (`SESSION_SCOPES` excludes every `admin:*` scope and `auth.test.ts` asserts
  * that), and `assertDelegatableScopes` refuses to mint an API key with it.
  *
@@ -138,36 +145,56 @@ export function statusForAuthError(err: AuthError): number {
   }
 }
 
+/** The parts of a Fastify request the operator routes read. */
+interface OperatorRequest {
+  readonly headers: Record<string, string | string[] | undefined>;
+  readonly body: unknown;
+  readonly params?: unknown;
+  readonly query?: unknown;
+  readonly id?: string;
+}
+
+export { LOOKUP_UNRECORDED };
+/** A transaction id that is not a UUID, or a blank or over-long business key. Nothing was recorded or read. */
+export const LOOKUP_INPUT_INVALID = 'ledger.lookup_input_invalid' as const;
+/** A recorded lookup the ledger could not answer (the database did not respond, or the answer failed its schema). */
+export const LOOKUP_UNAVAILABLE = 'ledger.lookup_unavailable' as const;
+
 export function registerOperatorHttp(
   app: FastifyInstance,
   ledger: LedgerService,
   tokens: TokenConfig,
   approvals: ActionApprovalConsumer,
 ): void {
-  const authenticate = async (header: string | undefined): Promise<Principal> => {
+  // Also enforces MFA, because `admin:treasury` is interactive-only.
+  const treasury = (principal: Principal) => requireScope(principal, 'admin:treasury');
+
+  const authenticate = async (header: string | undefined, authorize: (principal: Principal) => void): Promise<Principal> => {
     const token = bearerToken(header ?? null);
     if (!token) throw new AuthError('An operator access token is required', 'token.invalid');
 
     const principal = await verifyAccessToken(token, tokens);
-    // Also enforces MFA, because `admin:treasury` is interactive-only.
-    requireScope(principal, 'admin:treasury');
+    authorize(principal);
     return principal;
   };
 
   const guarded =
-    (handle: (operator: Principal, body: unknown) => Promise<unknown>) =>
-    async (req: { headers: Record<string, string | string[] | undefined>; body: unknown }, reply: FastifyReply) => {
+    (
+      handle: (operator: Principal, body: unknown, req: OperatorRequest, reply: FastifyReply) => Promise<unknown>,
+      authorize: (principal: Principal) => void = treasury,
+    ) =>
+    async (req: OperatorRequest, reply: FastifyReply) => {
       let operator: Principal;
       try {
         const header = req.headers.authorization;
-        operator = await authenticate(typeof header === 'string' ? header : undefined);
+        operator = await authenticate(typeof header === 'string' ? header : undefined, authorize);
       } catch (err) {
         if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ message: err.message, code: err.code });
         throw err;
       }
 
       try {
-        return await handle(operator, req.body);
+        return await handle(operator, req.body, req, reply);
       } catch (err) {
         // Different attribution while already frozen: first reason stands
         // (STOP §4.2b #3). Must not look like a successful freeze — soft-200
@@ -187,6 +214,14 @@ export function registerOperatorHttp(
         // this and NOT verified: not a 400 the operator would read as a bad request, not an `ok: false`.
         if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
           return reply.code(503).send({ message: err.message, code: err.code });
+        }
+        // The asset registry (W-balances-05): another edit landed first, or the operation id was used for
+        // another edit. Nothing changed; 409 so the console asks for a fresh approval rather than retrying.
+        if (err instanceof LedgerError && (err.code === ASSET_EDIT_STALE || err.code === ASSET_OPERATION_CONFLICT)) {
+          return reply.code(409).send({ message: err.message, code: err.code });
+        }
+        if (err instanceof LedgerError && REGISTRY_REFUSALS.has(err.code)) {
+          return reply.code(400).send({ message: err.message, code: err.code });
         }
         const message = err instanceof Error ? err.message : 'operator request failed';
         // 400 rather than 500: everything reachable here is either a validation
@@ -295,6 +330,89 @@ export function registerOperatorHttp(
         );
       }
       return snapshot;
+    }),
+  );
+
+  /**
+   * Object lookup (OPS-rules-monitoring-12 on OPS-ledger-desk-01's reads): one booked transaction by its id, or the
+   * transaction a business key booked. Reads, never posts, and they answer while the posting freeze is on.
+   *
+   * Who may look: `requireLookupAuthority` (a founder's `admin:read` with a second factor, or `admin:treasury`).
+   *
+   * Each lookup writes one `operator_access_log` row FIRST, inside the read function (`operator-lookup.ts`); a row that
+   * cannot be written refuses with 503 and reads nothing. An unknown transaction id is 404 `ledger.tx_not_found`; a key
+   * that never booked is an honest `found: false`. A read that fails after it was recorded is 503 with a fixed message,
+   * never a 400 that would blame the operator, and never the driver's text. Answers are checked against the same output
+   * schemas the tRPC procedures declare. Postings name opaque account ids only.
+   */
+  const lookup = <I, T>(spec: {
+    input: (req: OperatorRequest) => unknown;
+    inputSchema: z.ZodType<I>;
+    invalid: string;
+    read: (actor: LookupActor, input: I) => Promise<T>;
+    output: z.ZodType<T>;
+  }) =>
+    guarded(async (operator, _body, req, reply) => {
+      const input = spec.inputSchema.safeParse(spec.input(req));
+      if (!input.success) return reply.code(400).send({ message: spec.invalid, code: LOOKUP_INPUT_INVALID });
+      try {
+        return spec.output.parse(await spec.read({ actorId: operator.userId, requestId: req.id ?? null }, input.data));
+      } catch (err) {
+        if (err instanceof LookupUnrecordedError) {
+          app.log.error({ err, actor: operator.userId }, 'operator lookup refused: access row not written');
+          return reply.code(503).send({ message: 'The lookup could not be recorded, so it was not read.', code: LOOKUP_UNRECORDED });
+        }
+        if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
+          return reply.code(404).send({ message: 'No transaction has that id.', code: LEDGER_TX_NOT_FOUND });
+        }
+        if (err instanceof TraceInconsistentError) {
+          // The book's own integrity, not the operator's request: a server fault, as the tRPC procedure reports it.
+          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
+          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
+        }
+        app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
+        return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
+      }
+    }, requireLookupAuthority);
+
+  app.get(
+    '/operator/transactions/:txId',
+    lookup({
+      input: (req) => ({ txId: (req.params as { txId?: unknown } | undefined)?.txId }),
+      inputSchema: operatorTxGetInputSchema,
+      invalid: 'A transaction id is a UUID.',
+      read: (actor, input) => operatorTxGet(ledger, actor, input),
+      output: operatorTxGetOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/trace',
+    lookup({
+      input: (req) => ({ businessKey: (req.query as { businessKey?: unknown } | undefined)?.businessKey }),
+      inputSchema: operatorTraceInputSchema,
+      invalid: 'A business key is 1 to 512 characters.',
+      read: (actor, input) => traceBusinessKey(ledger, actor, input),
+      output: operatorTraceOutputSchema,
+    }),
+  );
+
+  /**
+   * The asset and network registry (W-balances-05), operator side. The read lists every row, published or
+   * not, so a founder sees what is still blank. The write applies one edit two founders approved in identity
+   * (`ledger.asset_edit`); the edit travels with the call and its hash must match the approval's.
+   */
+  app.get(
+    '/operator/assets',
+    guarded(async () => ({ assets: await ledger.listOperatorAssets() })),
+  );
+
+  app.post(
+    '/operator/assets/apply-edit',
+    guarded(async (operator, body) => {
+      const asset = await ledger.applyAssetEdit(approvals, operator.userId, body);
+      app.log.warn({ actor: operator.userId, assetId: asset.id, revision: asset.revision }, 'LEDGER ASSET EDIT applied');
+      return asset;
     }),
   );
 }

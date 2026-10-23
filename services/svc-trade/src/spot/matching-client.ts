@@ -30,9 +30,10 @@ export type EngineTif = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'MOC' | 'GTD' | 'GTT';
 export interface EngineSubmitRequest {
   readonly orderId: string;
   /**
-   * §5.1: "it speaks in account IDs". This service passes the USER id. Matching
-   * fillableQty/FOK stops at own rest (`self_trade`) — incoming does not rest,
-   * resting stays, no self-fill. Empty accountIds still fill. Sub-accounts are
+   * §5.1: "it speaks in account IDs". This service passes the USER id. On a
+   * self-trade the engine expires the account's own resting order and the
+   * incoming order continues (svc-matching engine/self-trade.ts); there is no
+   * self-fill. Empty accountIds still fill. Sub-accounts are
    * a reporting dimension here, not separate trading identities. Trade does
    * not invent STP modes.
    */
@@ -330,6 +331,9 @@ export interface ReconcileReport {
  */
 export interface EngineMarketList {
   readonly markets: readonly string[];
+  /** Operator halts on matching's board: the whole venue, and the halted market ids. Older engines omit them. */
+  readonly venueHalted?: boolean;
+  readonly halted?: readonly string[];
 }
 
 export interface EngineMarkResult {

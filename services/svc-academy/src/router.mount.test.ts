@@ -10,6 +10,8 @@ import { userCopy } from './user-copy.js';
 import { certXpPlaneStatus, NullCertXpPublisher } from './certs/xp-publish.js';
 import { certPerkPlaneStatus } from './certs/perk-plane.js';
 import type { AcademyService } from './academy-service.js';
+import { getCurriculumItem } from './curriculum/catalog.js';
+import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import type { PaperOpsStatus } from './paper/ops-gate.js';
 import { assertCallerCannotLiePaperFlag, memoryPaperFlagPort } from './paper/market-flag-verify.js';
 
@@ -84,6 +86,14 @@ const MOUNT_PAPER_FLAG_PORT = memoryPaperFlagPort([
   { marketId: 'mkt-live-1', symbol: 'BTC/USDT', paper: false },
 ]);
 
+function presentCatalogItem(slug: string) {
+  const item = getCurriculumItem(slug);
+  if (!item) {
+    throw new AcademyError(`Curriculum item "${slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+  }
+  return { ...item, objectives: [...item.objectives], keyTerms: [...item.keyTerms], selfCheck: [...item.selfCheck] };
+}
+
 const room = {
   id: ROOM,
   slug: 'meme-war-room',
@@ -137,6 +147,18 @@ function stubAcademy(overrides: Partial<AcademyService> = {}): AcademyService {
     // would pass while the shape drifted underneath it.
     certXpPlane: vi.fn(() => certXpPlaneStatus(new NullCertXpPublisher())),
     certPerkPlane: vi.fn(() => certPerkPlaneStatus()),
+    readCurriculumItem: vi.fn(async (input: { slug: string }) => presentCatalogItem(input.slug)),
+    readCurriculumItemLocalized: vi.fn(async (input: { slug: string; locale?: string }) => {
+      const item = presentCatalogItem(input.slug);
+      const localized = curriculumBodyForLocale(item.body, input.locale);
+      return {
+        ...item,
+        body: localized.body,
+        locale: localized.resolution.locale,
+        fellBack: localized.resolution.fellBack,
+        i18nStrategy: curriculumI18nStrategyLine(),
+      };
+    }),
     ...overrides,
   } as unknown as AcademyService;
 }
@@ -185,6 +207,8 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'curriculumStudyGuides',
         'curriculumDepth',
         'videos',
+        'videoCaptions',
+        'videoTranscript',
         'videoPlayback',
         'paperDrill',
         'paperDrillResult',
@@ -208,6 +232,10 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'certDefinitions',
         'enrollCertPath',
         'markCurriculumComplete',
+        'itemRelease',
+        'admin.setItemPrerequisites',
+        'admin.setItemWindow',
+        'admin.grantItemExtension',
         'grantCert',
         'myCerts',
         'certProgress',
@@ -241,6 +269,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'residencyCohorts',
         'videoProgress.get',
         'videoProgress.set',
+        'videoProgress.watched',
         'myUpcomingSessions',
         'sessionCalendar',
         'admin.completionsByItem',

@@ -249,6 +249,29 @@ describe('ADL pairs at the bankruptcy price (PG-hard)', () => {
     expect((await row(bob)).status).toBe('closed');
   });
 
+  it('leaves out a candidate with a matched fill still being recorded: its pot holds margin its row does not show yet', async () => {
+    const alice = await position(ALICE, 'long', '1', '50000', '5000');
+    const carol = await position(CAROL, 'short', '1', '50000', '1000');
+    const bob = await position(BOB, 'short', '1', '50000', '5000');
+    const orderId = randomUUID();
+    await sql`
+      INSERT INTO trade.futures_orders (
+        id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price, band_low, band_high,
+        leverage, hold_asset, status
+      ) VALUES (${orderId}, ${CAROL}, ${MARKET}, 'pending-fill', 'sell', 'limit', '1', '50000', '50000', '49000', '51000', '5', 'USDT', 'open')
+    `;
+    await sql`
+      INSERT INTO trade.futures_order_fills (
+        fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount, new_filled, new_adverse, new_applied, state
+      ) VALUES (${`${MARKET}:9:${carol}`}, ${orderId}, ${MARKET}, 9, ${carol}, '1', '50000', '10000', '1', '0', '10000', 'pending')
+    `;
+    const ranked = await sqlAdlCandidates(
+      sql,
+      TEST_ADL_RANKING,
+    )({ positionId: alice, userId: ALICE, marketId: MARKET, side: 'long', uncoveredShortfall: 1n });
+    expect(ranked.map((c) => c.positionId)).toEqual([bob]);
+  });
+
   it('refuses trade.adl_unconfigured without a ranking, and nothing moves', async () => {
     const alice = await position(ALICE, 'long', '1', '50000', '5000');
     const bob = await position(BOB, 'short', '1', '50000', '5000');

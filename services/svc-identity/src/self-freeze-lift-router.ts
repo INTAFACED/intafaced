@@ -17,7 +17,7 @@ function mapError(err: unknown): never {
 
 /**
  * Top-level `selfFreezeManage` (W-security-accounts-03). Order: the owner wait must be published,
- * then the step-up approval is spent, then the lift runs under the row lock. Self-freeze itself
+ * the open freeze must be due (read-only), then the step-up approval is spent, then the lift runs under the row lock. Self-freeze itself
  * stays at `auth.selfFreeze` and applies at once.
  */
 export function createSelfFreezeLiftRouter(lift: SelfFreezeLift, stepUp: SecurityStepUp) {
@@ -29,6 +29,7 @@ export function createSelfFreezeLiftRouter(lift: SelfFreezeLift, stepUp: Securit
         .mutation(async ({ ctx, input }) => {
           try {
             lift.assertConfigured();
+            await lift.assertDue(ctx.principal.userId);
             await stepUp.require(
               ctx.principal,
               'identity.step_up.self_freeze_lift',

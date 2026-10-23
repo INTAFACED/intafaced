@@ -53,14 +53,7 @@ function Catalogue() {
           <Select label={t('filterType')} value="" onChange={() => undefined} options={[{ value: '', label: t('filterAny') }]} />
           <Select label={t('filterStatus')} value="" onChange={() => undefined} options={[{ value: '', label: t('filterAny') }]} />
         </div>
-        <EmptyState
-          title={<Copy k="catalogueUnavailable" />}
-          action={
-            <a className="button button--secondary" href="/lab">
-              <Copy k="openPublic" />
-            </a>
-          }
-        >
+        <EmptyState title={<Copy k="catalogueUnavailable" />}>
           <Copy k="catalogueBody" />
         </EmptyState>
       </Panel>

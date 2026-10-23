@@ -1136,6 +1136,9 @@ describe('svc-p2p payment instruments', () => {
         // Operator-only late settlement queue — no instrument fields; stranger refuses.
         'ops.lateSettlements': { limit: 100 },
         'reputation.get': { userId: SELLER },
+        // P-trade-orders-21: the caller's own appeal row; no instrument join.
+        'reputation.myAppeal': {},
+        'reputation.appeal': { tradeId: trade.id, reason: 'probing' },
         // Caller's own order page (P-trade-orders-13): trade rows + counts, no instrument join.
         'trades.page': { limit: 50 },
         // P-trade-orders-14: one own receipt; no instrument join. Stranger has no quotas set → refuses.
@@ -1223,6 +1226,10 @@ describe('svc-p2p payment instruments', () => {
         'ops.trades': { status: 'escrowed', limit: 1 },
         'ops.counts': undefined,
         'ops.disputeRate24h': undefined,
+        // P-disputes-security-15. Own cap and the sell-lock posture. No
+        // instrument join. Unset owner tables refuse before any row is read.
+        'limits.verification': undefined,
+        'limits.securityChange': undefined,
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

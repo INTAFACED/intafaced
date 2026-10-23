@@ -89,11 +89,30 @@ describe('feature registry (UI-SPEC 3.4)', () => {
       expect(isHiddenPath(path), path).toBe(false);
   });
   it('keeps the old dead ends marked blocked, so /dev/features still names the reason and the unlock', () => {
-    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'bank', 'margin-futures-options', 'p2p', 'more-rooms'])
+    for (const id of ['deposit', 'withdraw', 'repeat-buy', 'margin-futures-options', 'p2p', 'more-rooms'])
       expect(featureById(id)?.status, id).toBe('blocked');
     expect(featureById('business-pay')?.status, 'business-pay opens from the signed-in session').toBe('live');
-    expect(featureById('bank')?.paths).toContain('/bank');
+    expect(featureById('bank-overview')?.paths).toContain('/bank');
     expect(findRoom('/bank')?.alias, '/bank is its own page, not an alias of /money').toBeUndefined();
+  });
+  it('splits Bank per room: only rooms a Real-app journey proves are live, with the run, and the rest name their blocker', () => {
+    const rowFor = (path: string) => features.find((feature) => feature.paths.some((pattern) => matchPath(pattern, path)));
+    for (const path of ['/bank', '/bank/spaces', '/bank/transfers']) {
+      expect(rowFor(path)?.status, path).toBe('live');
+      expect(rowFor(path)?.checked, path).toMatch(/Real-app journeys run \d+ .*J-bank-01 #\d/);
+    }
+    for (const [path, blocker] of [
+      ['/bank/earn', /operators/],
+      ['/bank/loans', /operators/],
+      ['/bank/cards', /bank\.no_card_issuer/],
+      ['/bank/ramps', /rail\.bank/],
+      ['/bank/ramps/new', /rail\.bank/],
+      ['/bank/analytics', /proves this room/],
+      ['/bank/business', /proves this room/],
+    ] as const) {
+      expect(rowFor(path)?.status, path).toBe('blocked');
+      expect(rowFor(path)?.reason, path).toMatch(blocker);
+    }
   });
   it('does not hide simulated markets by their query string either', () => {
     expect(featureById('simulated-markets')?.status).toBe('blocked');
@@ -175,6 +194,7 @@ describe('top-bar menus link rooms that open', () => {
       'Trading bots',
       'Quote desk',
       'Execution',
+      'Algo dev',
       'Orders',
     ]);
     expect(titles('Pay')).toEqual(['Send', 'Receive', 'Request', 'Bill pay', 'Send globally', 'Person-to-person', 'Merchant']);

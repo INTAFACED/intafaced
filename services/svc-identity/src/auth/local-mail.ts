@@ -38,14 +38,16 @@ export function openIdentityMail(input: IdentityMailBoot): PasswordResetMail | u
   return createLocalOutboxMail(outboxPath);
 }
 
+type LocalMailMessage = Parameters<PasswordResetMail['send']>[0];
+
 /** One LOCAL-TEST line. `code` is the secret and is placed only in `link`. */
-export function localMailLine(message: {
-  readonly email: string;
-  readonly code: string;
-  readonly expiresAt: Date;
-  readonly purpose?: MailPurpose;
-  readonly handle?: string;
-}): string {
+export function localMailLine(message: LocalMailMessage): string {
+  // The anti-phishing code goes on the end of the line it rides on; letters and digits only, by its own rule.
+  const stamp = message.antiPhishingCode ? ` anti_phishing=${message.antiPhishingCode.replace(/[^A-Za-z0-9]/g, '')}` : '';
+  return localMailBody(message).replace(/\n$/, `${stamp}\n`);
+}
+
+function localMailBody(message: LocalMailMessage): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
   if (purpose === 'email-change-notice') {
@@ -66,7 +68,7 @@ export function localMailLine(message: {
   }
   const link =
     purpose === 'email-confirm'
-      ? `confirmEmail?token=${encodeURIComponent(message.code)}`
+      ? `confirm-email?token=${encodeURIComponent(message.code)}`
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
         : `completePasswordReset?code=${encodeURIComponent(message.code)}`;

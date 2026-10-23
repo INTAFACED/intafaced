@@ -11,6 +11,12 @@
  */
 import { createHash } from 'node:crypto';
 import { SAME_PERSON_ACTION_TYPES, type SamePersonActionType } from './action-approval.js';
+import {
+  ANTI_PHISHING_STEP_UP_PURPOSE,
+  ANTI_PHISHING_STEP_UP_SCOPE,
+  SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
+  SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
+} from './identity.js';
 
 /** How long the user has to answer the passkey or authenticator after begin. */
 export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
@@ -462,6 +468,27 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     targetField: 'subAccountId',
     targetRequired: true,
     emptyOk: ['purpose'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: ANTI_PHISHING_STEP_UP_SCOPE,
+    purpose: ANTI_PHISHING_STEP_UP_PURPOSE,
+    // The code is hashed with the request id and never named as the target: the challenge row keeps the target in the
+    // clear, and a short code could be read back from a hash whose other inputs were all stored. '' clears the code.
+    clientFields: ['code', 'clientRequestId'],
+    targetRequired: false,
+    emptyOk: ['code'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
+    purpose: SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
+    clientFields: ['clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
     decimalFields: [],
     fixed: {},
   },

@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
+import { assertNotSecurityLocked } from './security-lock.js';
 import {
   assertPasswordShape,
   assertPasswordNotIdentity,
@@ -51,6 +52,10 @@ export interface PasswordResetMail {
     readonly purpose?: MailPurpose;
     /** The username, for the recovery mail only. */
     readonly handle?: string;
+    /** The account the mail is about, when the sender knows it and the address may no longer name it. */
+    readonly userId?: string;
+    /** The account's anti-phishing code, on mails to its own address when its owner set one. */
+    readonly antiPhishingCode?: string;
   }): Promise<void>;
 }
 
@@ -333,6 +338,9 @@ export async function completePasswordReset(
       if (!locked[0] || locked[0].status !== 'active') {
         throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
       }
+      // The owner's security lock (W-withdraw-09) stops a reset too, after the code proved the address: the code stays
+      // unspent, and the person sees why. Under the user row lock, so a lock set meanwhile is seen.
+      await assertNotSecurityLocked(tx, user.id);
       const proof = await tx<Array<{ id: string }>>`
         SELECT id FROM auth_flows
         WHERE id = ${flow.id} AND status = 'code_sent' AND consumed_at IS NULL AND expires_at > ${deps.now()}

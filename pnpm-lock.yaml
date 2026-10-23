@@ -119,9 +119,9 @@ importers:
       '@intafaced/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
-      '@intafaced/ledger-client':
+      '@intafaced/money-math':
         specifier: workspace:*
-        version: link:../../packages/ledger-client
+        version: link:../../packages/money-math
       '@intafaced/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -576,6 +576,25 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
+  packages/money-math:
+    dependencies:
+      '@intafaced/ledger-client':
+        specifier: workspace:*
+        version: link:../ledger-client
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.1.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+
   packages/portfolio-view:
     dependencies:
       '@intafaced/ledger-client':
@@ -955,6 +974,12 @@ importers:
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -1564,6 +1589,9 @@ importers:
 
   services/svc-mining-pool:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -2043,10 +2071,16 @@ importers:
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       zod:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -3390,12 +3424,14 @@ packages:
   '@opentelemetry/sdk-trace-base@2.12.0':
     resolution: {integrity: sha512-JOERgZCxRM06FEJ5kEWxlSRChah6MmXDx3KwCruqEv/iEyLkTokCSemf2y1w8oIHtfrr8EVTpzebq/31vn2Cpg==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace-node@2.12.0':
     resolution: {integrity: sha512-9DufH1IlmQMoKAfot5y/FhTP1RnmhLb5K6eKmJO/bvzPjYwPAazoiAUbTZFdPbqxOXN0FEbhZx/e6SB1Og4jmg==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 

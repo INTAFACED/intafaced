@@ -2183,6 +2183,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     intro:
       'Pools, loans, cards, ramps and business approvals, as svc-bank reports them. The one action here is an operator card freeze, which a second founder must approve. Bank money jobs stay on Operator tools.',
     sections: bankSections,
+    commonSet: 'bank',
   },
   pay: {
     id: 'pay',
@@ -2192,6 +2193,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     intro:
       'How personal transfers are doing, from svc-bank’s operator reads: standing orders, one-off sends, bill payments and global sends, each with the time it was read. Lists lead to a record; counts say which window they cover. This desk changes nothing: svc-bank has no operator action on a personal transfer, and each one is shown switched off with the reason.',
     sections: paySections,
+    commonSet: 'pay',
   },
   p2p: {
     id: 'p2p',
@@ -2209,6 +2211,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     title: 'Academy operations',
     intro: 'Content and catalogue health, certificates, seasons, and ambassador control.',
     sections: academySections,
+    commonSet: 'academy',
   },
   more: {
     id: 'more',
@@ -2230,6 +2233,19 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
 };
 
 export const DESK_IDS = Object.keys(DESKS) as OpsDeskId[];
+
+/**
+ * Mining has its own desk page (`/more-ops/mining`) so it carries the common section set like bank, pay and academy. Its reads
+ * stay on the More modules desk and its API: this is that desk's mining section alone, not a second copy of the reads.
+ */
+export const MINING_DESK: DeskSpec = {
+  ...DESKS.more,
+  title: 'Mining operations',
+  intro:
+    'Pool terms, payout windows, shares and workers, as svc-mining-pool reports them, each with the time it was read. This desk changes nothing: the pool has no operator action, and payouts refuse until emission is published.',
+  sections: moreSections.filter((s) => s.id === 'mining'),
+  commonSet: 'mining',
+};
 
 export function allReads(desk: DeskSpec): ReadSpec[] {
   return desk.sections.flatMap((s) => [...s.reads]);

@@ -4,7 +4,7 @@
  * Money stays a string; the only maths is the exact-decimal helpers already in `model.ts` and `data/decimal.ts`.
  */
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { compare, dec, signOf, ZERO } from '../../../data/decimal';
+import { compare, dec, signOf, str, ZERO } from '../../../data/decimal';
 import { fmtAmount, MINUS, PLUS } from '../../../data/format';
 import { healthOf, isLive, liquidationDistancePct, stateOf, type Health, type PositionState } from './model';
 import type { BlockReason } from '../buy/write-lock';
@@ -120,6 +120,25 @@ export function gateActions(input: GateInput): Record<ActionKey, GateReason | nu
 /** Keep the nonce while the intent is unchanged (a re-send uses the same id); a changed intent gets a fresh one. */
 export function pickNonce(prev: { key: string; nonce: string } | null, key: string, fresh: () => string): { key: string; nonce: string } {
   return prev && prev.key === key ? prev : { key, nonce: fresh() };
+}
+
+/** A close is a reduce-only order for this size: above zero and at most what the position holds. `null` means fine. */
+export type CloseSizeProblem = 'empty' | 'notPositive' | 'overPosition';
+
+export function closeSizeProblem(value: string, contracts: string): CloseSizeProblem | null {
+  if (value.trim() === '') return 'empty';
+  const v = dec(value);
+  if (v === null || v <= 0n) return 'notPositive';
+  const held = dec(contracts);
+  if (held !== null && v > held) return 'overPosition';
+  return null;
+}
+
+/** `pct` percent of the position's size, exact, cut (never rounded up) at 18 places. */
+export function closeShare(contracts: string, pct: number): string | null {
+  const held = dec(contracts);
+  if (held === null || held <= 0n || !Number.isInteger(pct) || pct <= 0 || pct > 100) return null;
+  return str((held * BigInt(pct)) / 100n);
 }
 
 /** Amount checks for a margin or leverage field. `null` means fine. Money maths is exact decimals. */

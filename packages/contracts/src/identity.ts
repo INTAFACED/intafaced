@@ -53,6 +53,47 @@ export const accountStateSchema = z.object({
 export type AccountState = z.infer<typeof accountStateSchema>;
 
 /**
+ * Whether the account's current email address is proved (RC-identity-01), for a service that gates an action on it:
+ * svc-trade refuses a new custodial order while it is `missing`. Read per request from svc-identity's
+ * `GET /internal/email-proof/:userId`, service-authenticated; never copied. A separate shape from `AccountState` on
+ * purpose: that projection is status and KYC tier "and literally nothing else", and support stores it as cited.
+ * No address in it, only the fact.
+ */
+export const emailProofSchema = z
+  .object({
+    userId: z.string().uuid(),
+    emailProof: z.enum(['accepted', 'missing']),
+  })
+  .strict();
+export type EmailProof = z.infer<typeof emailProofSchema>;
+
+/**
+ * CUSTOMER SECURITY LOCK (W-withdraw-09, wallet-withdraw-015). The account owner's own switch that stops withdrawals and
+ * changes to withdrawal addresses, the password and verification until they unlock it. Locking applies at once; unlocking
+ * is a request that takes effect only after the owner-set wait, and a repeated request never moves that time earlier.
+ * svc-identity stores it and refuses its own password changes while it holds; a service that moves money out reads it per
+ * request from `GET /internal/security-lock/:userId` (service credentials) and refuses while `locked` is true. It is not
+ * the staff freeze (`users.status`), not the owner's self-freeze and not the ledger posting freeze.
+ */
+export const securityLockSchema = z
+  .object({
+    userId: z.string().uuid(),
+    /** True while the lock holds: set, and either no unlock requested or the requested time not reached. */
+    locked: z.boolean(),
+    lockedAt: z.string().datetime({ offset: true }).nullable(),
+    /** Who set the lock that holds. Support can set one and can never lift it. */
+    setBy: z.enum(['self', 'support']).nullable(),
+    unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
+    /** When the lock ends, fixed when the unlock was requested. Null while no unlock is requested. */
+    unlocksAt: z.string().datetime({ offset: true }).nullable(),
+  })
+  .strict();
+export type SecurityLockView = z.infer<typeof securityLockSchema>;
+/** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
+export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
+export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;
+
+/**
  * The perk table other services query (§4.1). Machine-readable on purpose:
  * svc-trade reads `feeDiscountBps` and applies it without knowing what a rank
  * means, which is why rank can be re-tuned without touching a second service.
@@ -170,3 +211,30 @@ export const sessionOwnershipSchema = z.object({
   revoked: z.boolean(),
 });
 export type SessionOwnership = z.infer<typeof sessionOwnershipSchema>;
+
+/**
+ * ANTI-PHISHING CODE (I-signin-sessions-25). A word the account owner picks so a real security message from us can be
+ * told from a fake one. 4 to 20 letters and digits. `profile.antiPhishing.get` answers the caller's own code (null when
+ * none is set) and nothing else; `profile.antiPhishing.set` takes the code, or '' to clear it, with a step-up.
+ */
+export const ANTI_PHISHING_CODE_PATTERN = /^[A-Za-z0-9]{4,20}$/;
+/** The step-up door for a set or clear (see `CUSTOMER_STEP_UP_DOORS`): its scope and purpose, named once. */
+export const ANTI_PHISHING_STEP_UP_SCOPE = 'identity.step_up.anti_phishing_set' as const;
+export const ANTI_PHISHING_STEP_UP_PURPOSE = 'account.antiPhishing.set' as const;
+export const antiPhishingCodeSchema = z.object({
+  code: z.string().nullable(),
+  updatedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type AntiPhishingCodeView = z.infer<typeof antiPhishingCodeSchema>;
+export const antiPhishingSetResultSchema = antiPhishingCodeSchema.extend({ changed: z.boolean() });
+export type AntiPhishingSetResult = z.infer<typeof antiPhishingSetResultSchema>;
+
+/**
+ * SERVER TIME (I-signin-sessions-13). Authenticator codes depend on the clock, so "my codes do not work" compares the
+ * device's clock with ours. `serverTime` is public and answers only the service's current time.
+ */
+export const SERVER_TIME_PROCEDURE = 'serverTime' as const;
+export const serverTimeSchema = z.object({ now: z.string().datetime({ offset: true }) });
+export type ServerTime = z.infer<typeof serverTimeSchema>;
+/** Each authenticator code lasts this long (svc-identity issues and checks codes with it); the one before and after also count. */
+export const TOTP_STEP_SECONDS = 30;

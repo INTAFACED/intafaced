@@ -1,11 +1,14 @@
+import type { QuantSignalRules } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { QUANT_CASH_UNSET, QUANT_STUDIO_NOT_FOUND, QUANT_STUDIO_RISK_BLOCK_REQUIRED, QuantError } from '../errors.js';
 import { requireSimulatedStamp } from '../honesty.js';
+import { compileSignalRules } from './modules.js';
 import type { SavedStrategy, StudioBlock, StudioRiskBlock, StudioStore } from './store.js';
 
 export interface StudioSaveInput {
   readonly name: string;
   readonly blocks: readonly StudioBlock[];
+  readonly modules?: QuantSignalRules | null;
   readonly risk?: Partial<StudioRiskBlock> | null;
   readonly cash?: string | null;
   readonly environment?: string | null;
@@ -53,7 +56,11 @@ export function buildSavedStrategy(input: StudioSaveInput, id: string): SavedStr
 
   const name = input.name.trim();
   if (!name) throw new QuantError('quant.params_invalid', 'name is required');
-  if (input.blocks.length < 1) throw new QuantError('quant.params_invalid', 'at least one block is required');
+  const modules = input.modules ?? null;
+  if (modules && input.blocks.length > 0) {
+    throw new QuantError('quant.params_invalid', 'a strategy trades by order blocks or by signal rules, not both');
+  }
+  if (!modules && input.blocks.length < 1) throw new QuantError('quant.params_invalid', 'at least one block is required');
 
   decimalField(risk.maxDrawdown, 'maxDrawdown');
   decimalField(risk.maxNotional, 'maxNotional');
@@ -69,14 +76,16 @@ export function buildSavedStrategy(input: StudioSaveInput, id: string): SavedStr
     }
     return { side: block.side, symbol, qty };
   });
+  const compiled = modules ? compileSignalRules(modules) : null;
 
   return {
     id,
     name,
     language: 'javascript',
-    source: compileStudioSource(blocks),
+    source: compiled ? compiled.source : compileStudioSource(blocks),
     cash,
     blocks,
+    modules: compiled ? compiled.rules : null,
     risk,
     ...stamp,
   };

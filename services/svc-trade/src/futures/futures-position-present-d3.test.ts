@@ -29,7 +29,10 @@ describe('position present uses the liquidation ladder for maintenance', () => {
 
   it('listOpen presents through presentListed', () => {
     const listOpen = src.slice(src.indexOf('async listOpen'), src.indexOf('async listClosed'));
-    expect(listOpen).toMatch(/this\.presentListed\(row\)/);
+    // The only extras listOpen passes are the fill figures (fees), which carry no mark and no maintenance figure.
+    expect(listOpen).toMatch(/this\.presentListed\(row, figures\.get\(row\.id\)\)/);
     expect(listOpen).not.toMatch(/presentPosition\(row,\s*\{/);
+    const figures = src.slice(src.indexOf('private async matchedFigures'), src.indexOf('async get('));
+    expect(figures).not.toMatch(/markPrice|maintenanceMargin|liquidationPrice/);
   });
 });

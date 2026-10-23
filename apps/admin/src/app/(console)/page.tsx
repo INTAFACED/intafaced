@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { KillSwitchBoard } from '@/components/kill-switch-board';
@@ -19,12 +20,17 @@ export default async function KillSwitchesPage() {
   const env = readOperatorEnv();
   const controlPlane = await readKillSwitches();
   return (
-    <KillSwitchBoard
-      drop={env.drop}
-      flagEnv={env.flagEnv}
-      initialControlPlane={controlPlane}
-      moduleWritesBlocked={moduleKillBlockedReason(readConsoleStatus())}
-      userId={session.userId}
-    />
+    <>
+      <nav aria-label="Whole-platform views">
+        <Link href="/health">Module health: volume, failures and the oldest waiting item per module</Link>
+      </nav>
+      <KillSwitchBoard
+        drop={env.drop}
+        flagEnv={env.flagEnv}
+        initialControlPlane={controlPlane}
+        moduleWritesBlocked={moduleKillBlockedReason(readConsoleStatus())}
+        userId={session.userId}
+      />
+    </>
   );
 }

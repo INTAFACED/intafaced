@@ -6,6 +6,7 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { authenticatorCopy as copy } from './authenticator-copy';
+import { CodesHelp } from './CodesHelp';
 import {
   disabledAnswer,
   isProof,
@@ -17,7 +18,7 @@ import {
   stepUpDone,
   totpStatus,
   type StepUpScope,
-} from './authenticator';
+} from './authenticator-api';
 
 type Mode =
   | { kind: 'idle' }
@@ -41,6 +42,11 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [problem, setProblem] = useState<'invalidCode' | 'invalidProof' | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [help, setHelp] = useState(false);
+  // The help panel belongs to the idle card: leaving idle by any route closes it, so it never reopens on its own.
+  useEffect(() => {
+    if (mode.kind !== 'idle') setHelp(false);
+  }, [mode.kind]);
   const mounted = useRef(true);
   const form = useRef<HTMLFormElement | null>(null);
   useEffect(() => {
@@ -195,7 +201,18 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
           <Button variant="danger" onClick={() => (setNote(null), setMode({ kind: 'confirm', action: 'disable' }))}>
             {t('disable')}
           </Button>
+          {!help && (
+            <Button variant="ghost" onClick={() => setHelp(true)}>
+              {t('codesHelp')}
+            </Button>
+          )}
         </div>
+      )}
+      {mode.kind === 'idle' && help && (
+        <CodesHelp
+          onReplace={() => (setHelp(false), setNote(null), setMode({ kind: 'confirm', action: 'replace' }))}
+          onClose={() => setHelp(false)}
+        />
       )}
       {mode.kind === 'rename' && (
         <form ref={form} className="stack" onSubmit={(e) => void rename(e)} noValidate>

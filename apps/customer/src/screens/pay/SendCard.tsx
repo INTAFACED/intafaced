@@ -22,6 +22,7 @@ import {
   fractionDigits,
   isHiddenPath,
   NOTE_MAX,
+  parseAmount,
   pendingOutcomes,
   readSent,
   receiptText,
@@ -53,6 +54,7 @@ import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { copyText } from './share';
 import { PAY_SENT_EVENT } from './recent-model';
+import { termsVerdict, useSendTerms, type TermsVerdict } from './send-terms';
 import { checkAmount, parseAccountId, rememberRecipient, sentBefore, sourcesFrom, type Source } from './send-model';
 import type { IdentityState } from './identity-state';
 import type { z } from 'zod';
@@ -76,6 +78,8 @@ type Review = {
   recipient: { userId: string; handle: string | null };
   firstTime: boolean;
   note: string | null;
+  /** The published fee and what is left of today after this payment, as the service quoted them for this amount. */
+  terms: Extract<TermsVerdict, { kind: 'ok' }>;
 };
 type Receipt = { entry: SentEntry; from: string };
 
@@ -309,6 +313,11 @@ function SendForm({
     setLinkNotice(notices.join(' '));
   }, [prefill, prefillKey]);
   const amountCheck = checkAmount(amount, source);
+  // The limits and fee are read for an amount the customer could send; the service applies the same ones again.
+  const typedAmount = amountCheck.kind === 'ok' ? dec(amount) : null;
+  const quotedAmount = typedAmount === null ? null : str(typedAmount);
+  const [terms, recheckTerms] = useSendTerms(pay, source?.asset ?? null, quotedAmount);
+  const verdict = termsVerdict(terms, quotedAmount);
   const hideBalances = useHideBalances();
   const availableText = source
     ? hideBalances
@@ -399,18 +408,20 @@ function SendForm({
           ? payCopy.t('Not enough {asset}', { asset: source.asset })
           : amountCheck.kind !== 'ok'
             ? payCopy.t('Enter an amount')
-            : null;
+            : termsBlock(verdict, personal);
 
   function prepare() {
-    if (reason !== null || recipient.kind !== 'found' || !source || inFlight.current) return;
+    if (reason !== null || recipient.kind !== 'found' || !source || inFlight.current || verdict.kind !== 'ok') return;
     const canonical = dec(amount);
     if (canonical === null) return;
+    const note = cleanNote(memo);
     const parsed = sendInput.safeParse({
       // Made once for this review and kept until it is closed: a retry inside the same review carries the same id.
       transferId: crypto.randomUUID(),
       fromSpaceId: source.id,
       toUserId: recipient.userId,
       amount: str(canonical),
+      ...(note ? { note } : {}),
     });
     if (!parsed.success) return (setFailure(payCopy.t('Check amount and recipient')), setReview(null));
     setFailure(null);
@@ -419,7 +430,8 @@ function SendForm({
       source,
       recipient: { userId: recipient.userId, handle: recipient.handle },
       firstTime: !sentBefore(userId, recipient.userId),
-      note: cleanNote(memo),
+      note,
+      terms: verdict,
     });
   }
 
@@ -772,6 +784,7 @@ function SendForm({
             </button>
           ) : null}
         </div>
+        <TermsLine verdict={verdict} asset={source?.asset ?? ''} onRetry={recheckTerms} />
       </div>
 
       <div className="pay-field" data-testid="note-field">
@@ -828,6 +841,20 @@ function SendForm({
                     <dd>{review.note}</dd>
                   </div>
                 ) : null}
+                <div data-testid="pay-review-fee">
+                  <dt>{personal.t('termsFeeRow')}</dt>
+                  <dd>
+                    {parseAmount(review.terms.fee) === 0n
+                      ? personal.t('termsNoFee')
+                      : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
+                  </dd>
+                </div>
+                <div data-testid="pay-review-left">
+                  <dt>{personal.t('termsLeftRow')}</dt>
+                  <dd>
+                    {fmtAmount(review.terms.leftAfter, { places: 18 })} {review.source.asset}
+                  </dd>
+                </div>
                 <div data-strong="">
                   <dt>{payCopy.t('Amount')}</dt>
                   <dd>
@@ -863,6 +890,61 @@ function SendForm({
         </AlertDialogContent>
       </AlertDialog>
     </form>
+  );
+}
+
+type PersonalCopy = ReturnType<typeof personalCopy.useCopy>;
+
+/** Why Review is off because of the published terms, in a few words for the button. Null when they allow the send. */
+function termsBlock(verdict: TermsVerdict, personal: PersonalCopy): string | null {
+  switch (verdict.kind) {
+    case 'none':
+    case 'ok':
+      return null;
+    case 'checking':
+      return personal.t('termsBlockChecking');
+    case 'unset':
+    case 'feeUnwired':
+      return personal.t('termsBlockPaused');
+    case 'overPayment':
+    case 'overDaily':
+      return personal.t('termsBlockOver');
+    case 'unavailable':
+      return personal.t('termsBlockUnavailable');
+  }
+}
+
+/** The fee and today's allowance under the amount, or the plain reason the amount cannot be sent. */
+function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: string; onRetry: () => void }) {
+  const personal = personalCopy.useCopy();
+  const amountOf = (value: string) => fmtAmount(value, { places: 18 });
+  if (verdict.kind === 'none') return null;
+  if (verdict.kind === 'unavailable')
+    return (
+      <p className="pay-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
+        {personal.t('termsUnavailable')}{' '}
+        <button type="button" className="pay-chip" onClick={onRetry}>
+          {personal.t('termsRetry')}
+        </button>
+      </p>
+    );
+  const text =
+    verdict.kind === 'checking'
+      ? personal.t('termsChecking')
+      : verdict.kind === 'unset'
+        ? personal.t('termsUnset', { asset })
+        : verdict.kind === 'feeUnwired'
+          ? personal.t('termsFeeUnwired', { asset })
+          : verdict.kind === 'overPayment'
+            ? personal.t('termsOverPayment', { limit: amountOf(verdict.limit), asset })
+            : verdict.kind === 'overDaily'
+              ? personal.t('termsOverDaily', { left: amountOf(verdict.left), asset })
+              : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}. ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
+  const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
+  return (
+    <p className="pay-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
+      {text}
+    </p>
   );
 }
 

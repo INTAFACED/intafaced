@@ -74,15 +74,18 @@ export interface Context {
   traceparent?: string;
   requestId: string;
   /**
-   * Optional recheck of an owner's `pay:read` / `pay:write` against the live
-   * merchant grant. Installed only by svc-pay production context. Callers who
-   * own no merchant (team members) are not refused here.
+   * Optional recheck of an owner's `pay:read` / `pay:write` / `pay:onboard`
+   * against the live merchant. Installed only by svc-pay production context.
+   * Callers who own no merchant (team members) are not refused here.
    */
   ownerPayGrant?: OwnerPayGrantRecheck;
 }
 
-/** The two acquiring scopes an API key can carry and a grant can later withdraw. */
-export type OwnerPayScope = 'pay:read' | 'pay:write';
+/**
+ * Owner scopes a later merchant change can withdraw: the two acquiring scopes an API key can carry, and
+ * `pay:onboard`, which a session keeps until it expires after its business is suspended or closed.
+ */
+export type OwnerPayScope = 'pay:read' | 'pay:write' | 'pay:onboard';
 
 export interface OwnerPayGrantRecheck {
   assertStillGranted(principal: Principal, scope: OwnerPayScope): Promise<void>;
@@ -96,16 +99,33 @@ function causeCode(cause: unknown): string | undefined {
   return undefined;
 }
 
+/** The refusals that carry the seconds to wait. No other error changes shape. */
+const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited']);
+
 /**
- * `retryAfterSeconds` of an `auth.too_many_attempts` refusal, so a client can show
- * "try again in N minutes". Only for that one code; no other error changes shape.
+ * `retryAfterSeconds` of an `auth.too_many_attempts` or `auth.email_confirm_rate_limited` refusal, so a client can
+ * show "try again in N minutes".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
-  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.too_many_attempts') return undefined;
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {
+    return undefined;
+  }
   const details = 'details' in cause ? cause.details : undefined;
   if (!details || typeof details !== 'object' || !('retryAfterSeconds' in details)) return undefined;
   const seconds = details.retryAfterSeconds;
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
+/**
+ * `accountState` of an `auth.account_frozen` refusal: `frozen` (staff can lift it) or `closed` (final). svc-identity
+ * sets it on sign-in only after the password verified. Any other value, or any other code, is dropped.
+ */
+export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.account_frozen') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('accountState' in details)) return undefined;
+  const state = details.accountState;
+  return state === 'frozen' || state === 'closed' ? state : undefined;
 }
 
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
@@ -171,6 +191,16 @@ export function withdrawalAllowanceOf(cause: unknown): { perTx: string; rolling2
   return out as { perTx: string; rolling24h: string };
 }
 
+/**
+ * The protocol blocker on `token.delegation_unavailable` only.
+ * Any other string is dropped, so a sentence cannot ride out on this field.
+ */
+export function delegationBlockerOf(cause: unknown): 'no_chain_service' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'token.delegation_unavailable') return undefined;
+  if (!('blocker' in cause) || cause.blocker !== 'no_chain_service') return undefined;
+  return 'no_chain_service';
+}
+
 /** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
 export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
   if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
@@ -228,10 +258,12 @@ const t = initTRPC.context<Context>().create({
     const code = causeCode(cause);
     const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
     const blockers = errorBlockersOf(cause);
+    const delegationBlocker = delegationBlockerOf(cause);
     const algo = algoRefusalDetails(cause);
     const allowance = withdrawalAllowanceOf(cause);
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
+    const accountState = accountStateOf(cause);
     return {
       ...shape,
       data: {
@@ -246,12 +278,15 @@ const t = initTRPC.context<Context>().create({
         requiredTier: cause instanceof JurisdictionError ? cause.requiredTier : undefined,
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
-        ...(code ? { cause: { code } } : {}),
+        // `blocker` is only `no_chain_service` on `token.delegation_unavailable`.
+        ...(code ? { cause: delegationBlocker ? { code, blocker: delegationBlocker } : { code } } : {}),
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts`.
+        // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
+        ...(accountState ? { accountState } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.
@@ -289,6 +324,12 @@ export interface GuardOptions {
   module?: ModuleId;
   /** Which plane the call runs on. Drives the §22 sovereignty branch. */
   plane?: Plane;
+  /**
+   * The signed-in person is the caller. A service may forward that person's
+   * principal on the same request; scope checks do not notice. Set this so the
+   * service is refused here, instead of a service file comparing the caller name.
+   */
+  person?: boolean;
 }
 
 /**
@@ -304,7 +345,7 @@ function isOwnerGrantWithdrawn(err: unknown): err is TRPCError {
 }
 
 async function assertLiveOwnerPayScope(ctx: Context & { principal: Principal }, scope: Scope): Promise<void> {
-  if (scope !== 'pay:read' && scope !== 'pay:write') return;
+  if (scope !== 'pay:read' && scope !== 'pay:write' && scope !== 'pay:onboard') return;
   if (!ctx.ownerPayGrant) return;
   await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
 }
@@ -314,6 +355,12 @@ function refuseGuard(err: unknown): never {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
   }
   throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+}
+
+function refuseActingService(ctx: Context, guards: GuardOptions): void {
+  if (guards.person && ctx.service) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'A signed-in user session is required' });
+  }
 }
 
 function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
@@ -332,6 +379,7 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
 
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
   return protectedProcedure.use(async ({ ctx, next }) => {
+    refuseActingService(ctx, guards);
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
@@ -355,6 +403,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
  */
 export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
   return protectedProcedure.use(async ({ ctx, next }) => {
+    refuseActingService(ctx, guards);
     let accepted = false;
     let sawMfa = false;
     let withdrawn: TRPCError | null = null;

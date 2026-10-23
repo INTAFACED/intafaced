@@ -1,0 +1,32 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// English source only. Curly apostrophes on purpose. Money words: say what is true and name the real reason.
+export const accessCopy = defineCopy('trade.futures.access', {
+  Access: 'Your access to this contract',
+  'Access open': 'Open for your account',
+  'Access blocked': 'Blocked for your account',
+  'Access not listed': 'This contract is not on your account’s list.',
+  'Access reasons': 'What blocks it',
+  'Access thing': 'your access',
+  'Try again': 'Try again',
+  'Agreements heading': 'Risk agreement and margin terms',
+  'Agreement accepted': 'Accepted {date}',
+  'Agreement accept': 'Accept {title}',
+  'Agreement accept short': 'I accept',
+  'Agreement failed': 'Not accepted. {reason}',
+  'Agreement unavailable': '{title}: {message}',
+  'Agreements none': 'No agreement is published for your region.',
+  'Agreements thing': 'the agreements',
+  'Quiz heading': 'Derivatives knowledge check',
+  'Quiz passed': 'Passed. You can trade derivatives under the current rules.',
+  'Quiz intro': 'Questions: {count}. Pass mark: {mark} correct.',
+  'Quiz last': 'Your last score was {score}.',
+  'Quiz unpublished': 'The platform has not published the knowledge check, so derivatives stay closed.',
+  'Quiz identity': 'Your identity level is below the level derivatives need. Finish identity checks first.',
+  'Quiz submit': 'Submit answers',
+  'Quiz answer all': 'Answer every question to submit.',
+  'Quiz result pass': 'Passed with {score}.',
+  'Quiz result fail': 'Not passed: {score}, the pass mark is {mark}. Read the questions again and retry.',
+  'Quiz failed': 'Not sent. {reason}',
+  'Quiz thing': 'the knowledge check',
+});

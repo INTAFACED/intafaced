@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState } from '@intafaced/contracts';
+import type { AccountState, EmailProof } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -28,6 +28,7 @@ import {
   verifyPassword,
   WeakPasswordError,
 } from './passwords.js';
+import { assertNotSecurityLocked } from './security-lock.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
@@ -116,6 +117,7 @@ export class AuthError extends Error {
       | 'auth.session_reused'
       | 'auth.not_found'
       | 'auth.kyc_not_pending'
+      | 'auth.kyc_self_review'
       | 'auth.kyc_agent_refused'
       | 'auth.mfa_not_enrolled'
       | 'identity.passkey_limit'
@@ -163,13 +165,19 @@ export class AuthError extends Error {
       | 'auth.step_up_required'
       | 'auth.step_up_expired'
       | 'pay.role_not_allowed',
-    /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
-    readonly details?: { readonly retryAfterSeconds?: number },
+    /**
+     * Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
+     * `accountState`: set by sign-in's `auth.account_frozen`, only after the password (or a provider) verified who it is.
+     */
+    readonly details?: { readonly retryAfterSeconds?: number; readonly accountState?: 'frozen' | 'closed' },
   ) {
     super(message);
     this.name = 'AuthError';
   }
 }
+
+/** Sign-in's `details` for a non-active account, once the person proved who they are. Only `closed` is final. */
+const accountStateOf = (status: string) => ({ accountState: status === 'closed' ? ('closed' as const) : ('frozen' as const) });
 
 /** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
 export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
@@ -295,6 +303,19 @@ export type { WebAuthnConfig, StoredWebAuthnCredential };
 export function assertOperatorKycReview(input: { service?: string | null; kid?: string | null }): void {
   if (input.service || input.kid) {
     throw new AuthError('KYC review is an operator action — an agent must never write reviewed_by', 'auth.kyc_agent_refused');
+  }
+}
+
+/**
+ * Nobody decides their own verification: not the operator who records the decision, not the second operator named on
+ * the wire, and neither the proposer nor the approver of the four-eyes approval it consumes. Otherwise two people can
+ * approve each other's KYC, or one of them their own, and the four-eyes check grants what it exists to withhold.
+ */
+export function assertNotOwnKyc(subjectId: string, reviewers: readonly (string | null | undefined)[]): void {
+  // Ids arrive typed in as well as from rows: compare them the way a uuid compares, not byte for byte.
+  const subject = subjectId.trim().toLowerCase();
+  if (reviewers.some((id) => typeof id === 'string' && id.trim().toLowerCase() === subject)) {
+    throw new AuthError('Nobody may review their own verification', 'auth.kyc_self_review');
   }
 }
 
@@ -430,7 +451,10 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
   await tx.unsafe(query.text, query.values);
 }
 
-/** A password-policy refusal at registration answers the typed `auth.password_policy`, as change and reset do. */
+/**
+ * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
+ * `auth.password_policy`, as change and reset do, before any hashing.
+ */
 function policyRefusal(check: () => void): void {
   try {
     check();
@@ -819,7 +843,10 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
     return this.finishRegistration(userId, input);
@@ -897,7 +924,10 @@ export class AuthService {
     const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
     if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
 
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
     try {
@@ -982,11 +1012,14 @@ export class AuthService {
     const passwordOk = await verifyPassword(storedHash, input.password);
     if (locked) throw locked;
     if (!user || !passwordOk) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
     // The password verified: it is no longer a guess. Clear its counter NOW, before the
     // two-step TOTP flow (password first, code second), so a correct password is never
     // left counting against the owner. The mfa counter is separate and stays.
     await recordSuccess(this.sql, user.id, 'password');
+    // Named only to someone who just proved the password, so the state is never a probe. A closed
+    // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
+    // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
@@ -1013,7 +1046,8 @@ export class AuthService {
       Array<{ id: string; status: string; totp_secret: string | null }>
     >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // The provider proved the identity, so the state is named as on password sign-in.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     let mfa = false;
     if (user.totp_secret) {
       if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
@@ -1428,6 +1462,9 @@ export class AuthService {
     if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
       throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
     }
+    // The owner's security lock (W-withdraw-09) stops password changes. Checked before the reservation so a locked
+    // account spends no guess; re-checked under the row lock below, which is the authority.
+    await assertNotSecurityLocked(this.sql, userId);
     // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
     await this.reserve(userId, 'password');
     if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
@@ -1456,6 +1493,7 @@ export class AuthService {
         throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
       }
       if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      await assertNotSecurityLocked(tx, userId);
       const live = await tx<
         Array<{ id: string }>
       >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
@@ -1814,7 +1852,9 @@ export class AuthService {
         if (err instanceof WebAuthnError) return refuse();
         throw err;
       }
-      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter } : c));
+      // A passkey that just passed an assertion is a verified passkey (`requireVerifiedPasskey` reads this stamp).
+      const lastVerifiedAt = new Date().toISOString();
+      const next = creds.map((c) => (c.credentialId === credential.credentialId ? { ...c, counter: newCounter, lastVerifiedAt } : c));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
     });
   }
@@ -2058,6 +2098,20 @@ export class AuthService {
   }
 
   /**
+   * Whether the account's current email is proved (RC-identity-01), for svc-trade's order gate. Null for an unknown
+   * user, which the caller must refuse on, never read as proved.
+   */
+  async emailProof(userId: string): Promise<EmailProof | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<Array<{ id: string; email_verified_at: Date | string | null }>>`
+      SELECT id, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
+  }
+
+  /**
    * The caller's own handle, for `identity.me`. Null only when the account row
    * is gone, which a live session should not be able to reach.
    */
@@ -2245,6 +2299,8 @@ export class AuthService {
     confirmActorId?: string | null;
     approvalId?: string | null;
     operationId?: string | null;
+    /** The proposer and the approver of the consumed four-eyes approval for this decision. Required: [] says none. */
+    approvalParties: readonly string[];
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     const outcome = await transaction(this.sql, async (tx) => {
@@ -2253,6 +2309,7 @@ export class AuthService {
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
+      assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
       if (row.status === 'approved') return { record: toKycRecord(row), granted: false };
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be approved`, 'auth.kyc_not_pending');
@@ -2275,6 +2332,8 @@ export class AuthService {
     confirmActorId?: string | null;
     approvalId?: string | null;
     operationId?: string | null;
+    /** The proposer and the approver of the consumed four-eyes approval for this decision. Required: [] says none. */
+    approvalParties: readonly string[];
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     return transaction(this.sql, async (tx) => {
@@ -2283,6 +2342,7 @@ export class AuthService {
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
+      assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
       if (row.status === 'rejected') return toKycRecord(row);
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be rejected`, 'auth.kyc_not_pending');

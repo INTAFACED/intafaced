@@ -1765,6 +1765,30 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  it('DELETE /orders?kind=spot: passes the product; an unknown kind is refused without cancelAll', async () => {
+    let seenKind: string | undefined = 'unset';
+    let cancelled = false;
+    const app = await build(
+      deps({
+        cancelAllOrders: async (_p, _marketId, kind) => {
+          cancelled = true;
+          seenKind = kind;
+          return [];
+        },
+      }),
+    );
+    const ok = await app.inject({ method: 'DELETE', url: '/api/v1/orders?kind=spot', headers: signedHeaders() });
+    expect(ok.statusCode).toBe(200);
+    expect(seenKind).toBe('spot');
+
+    cancelled = false;
+    const bad = await app.inject({ method: 'DELETE', url: '/api/v1/orders?kind=margin', headers: signedHeaders() });
+    expect(bad.statusCode).toBe(400);
+    expect(JSON.stringify(bad.json())).toContain('trade.invalid_filter');
+    expect(cancelled).toBe(false);
+    await app.close();
+  });
+
   it('DELETE /orders?symbol=: filters market; unknown symbol → 404 without cancelAll', async () => {
     let seenMarket: string | undefined = 'unset';
     let cancelled = false;
@@ -2001,6 +2025,53 @@ describe('private REST — mount boundary + order write path', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({});
+    await app.close();
+  });
+
+  // ── GET /fees/published ───────────────────────────────────────────────────
+
+  it('GET /fees/published: no principal needed; the owner schedule with its version, not listing-row bps', async () => {
+    const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
+    const app = await build(
+      deps({
+        markets: async () => [rich],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ version: 'desk', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } });
+    await app.close();
+  });
+
+  it('GET /fees/published: an unpublished schedule refuses by name and never lists markets', async () => {
+    let listed = false;
+    const app = await build(
+      deps({
+        markets: async () => {
+          listed = true;
+          return [market];
+        },
+        feeSchedule: parseFeeScheduleJson(''),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.fee_schedule_blank' });
+    expect(listed).toBe(false);
+    await app.close();
+  });
+
+  it('GET /fees/published: an empty listing answers the version with no rates', async () => {
+    const app = await build(
+      deps({
+        markets: async () => [],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ version: 'desk', fees: {} });
     await app.close();
   });
 

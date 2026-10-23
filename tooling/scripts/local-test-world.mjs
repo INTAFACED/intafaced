@@ -30,7 +30,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack, localPgBin, localStackState } from './local-test-state.mjs';
+import {
+  assertActiveLocalStack,
+  localEmailOutboxPath,
+  localPgBin,
+  localStackState,
+  readLatestEmailConfirmToken,
+} from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -2329,36 +2335,8 @@ const MERCHANT_MONEY = new Set([
  * because that scope is withheld from every session (the same local stand-in
  * local-test-gates uses). It is not stored and it does not change who is a founder.
  */
-/** Same file the local stack's identity process writes. */
-export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
-  return path.join(localStackState(home, env), 'email-outbox.log');
-}
-
-/**
- * Newest LOCAL-TEST confirm link for this address, or null.
- * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirmEmail?token=<encoded>`.
- */
-export function readLatestEmailConfirmToken(text, email) {
-  const want = String(email ?? '')
-    .trim()
-    .toLowerCase();
-  let token = null;
-  for (const line of String(text ?? '').split('\n')) {
-    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
-    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
-    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
-    if (!emailMatch || !linkMatch) continue;
-    if (emailMatch[1].toLowerCase() !== want) continue;
-    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
-    if (!q?.[1]) continue;
-    try {
-      token = decodeURIComponent(q[1]);
-    } catch {
-      token = null;
-    }
-  }
-  return token;
-}
+// Shared with local-test-market, which proves its accounts' emails the same way.
+export { localEmailOutboxPath, readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 /** What the merchant step does with a session and an outbox. No database write. */
 export function planEmailConfirm({ emailVerified, outboxText, email }) {
@@ -3607,6 +3585,37 @@ async function founderComplianceToken(gctx, session) {
 }
 
 /**
+ * svc-pay's operator doors sit behind the pay module's tier rule, so each of the pair deciding a KYB needs verification
+ * tier "full" too. Each one without it submits its own LOCAL TEST request, which the stack's two LOCAL TEST operators
+ * approve (the same path `populate` takes for the merchant owner). Only the deciders' own requests are approved.
+ */
+async function ensureDecidersKycFull(log) {
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => log(`merchant kyb: ${m}`) });
+  const founders = loadEnrolledFounders(gctx);
+  const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+  if (!signedIn.ok) return signedIn;
+  const missing = signedIn.sessions.filter((s) => s.tier !== 'full' && s.tier !== 'institutional');
+  if (missing.length === 0) return { ok: true };
+  const pendingFor = (userId) => gates.listAccountsAndTiers(gctx.secrets).pending.some((r) => r.userId === userId && r.tier === 'full');
+  for (const s of missing) {
+    if (pendingFor(s.userId)) continue;
+    const sub = await gctx.edge.mutate(
+      'identity',
+      'kyc.submit',
+      { tier: 'full', jurisdiction: gates.MARKERS.kycJurisdiction },
+      s.loginToken ?? s.token,
+    );
+    if (!trpcData(sub)) return { ok: false, refusal: `KYB pending: decider kyc.submit refused (${gates.refusalText(sub)})` };
+  }
+  const rows = await gates.approvePending(gctx, null, { userIds: missing.map((s) => s.userId) });
+  const failed = rows.find((r) => !r.ok);
+  if (failed) return { ok: false, refusal: `KYB pending: decider verification refused (${oneLine(failed.why, 200)})` };
+  return { ok: true };
+}
+
+/**
  * Live-only KYB. The two local founders propose and approve. If they are not enrolled, this
  * returns before any proposal, so no PENDING row is left. An open proposal for the same binding
  * is approved or consumed instead of filing another.
@@ -4035,7 +4044,27 @@ async function main() {
   else if (cmd === 'seed') await cmdSeed();
   else if (cmd === 'status') cmdStatus();
   else if (cmd === 'populate') await cmdPopulate(process.argv.slice(3));
-  else die('usage: local-test-world.mjs watch | seed | status | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]', 2);
+  else if (cmd === 'approve-kyb') await cmdApproveKyb(process.argv[3]);
+  else
+    die(
+      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
+      2,
+    );
+}
+
+/**
+ * The stack's founder pair approves one TEST merchant's submitted verification through svc-pay's own two-person door,
+ * as `populate` does for the sandbox merchant. For journey tests that need an active business. Prints the decision.
+ */
+async function cmdApproveKyb(merchantId) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(merchantId ?? ''))) die('usage: local-test-world.mjs approve-kyb <merchantId>', 2);
+  assertActiveLocalStack();
+  const log = (m) => console.error(m);
+  const ready = await ensureDecidersKycFull(log);
+  if (!ready.ok) die(ready.refusal, 3);
+  const out = await decideKybByFounderPair(log, merchantId);
+  if (!out.ok) die(out.refusal, 3);
+  console.log(JSON.stringify({ merchantId, kybStatus: out.kybStatus, approvalId: out.approvalId }));
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();

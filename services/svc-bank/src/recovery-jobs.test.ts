@@ -1,5 +1,5 @@
 /**
- * Recovery timer — the three jobs actually run.
+ * Recovery timer — the jobs actually run.
  *
  * 1. Promise: the scheduler calls resume-pending loans, recover repayments and
  *    resume-pending earn; a thrown job does not cancel the next tick; a blank
@@ -155,6 +155,30 @@ describe('startBankRecoveryJobs', () => {
     handle.stop();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(ports.loans.resumePending).toHaveBeenCalledTimes(1);
+  });
+
+  it('announces owed personal-send notices as a fourth job when that port is given', async () => {
+    vi.useFakeTimers();
+    const announceUnannounced = vi.fn(async (limit: number): Promise<readonly RecoveryJobResult[]> => {
+      expect(limit).toBe(50);
+      return [{ outcome: 'completed' }, { outcome: 'failed', reason: 'bank.transfer_notice_failed' }];
+    });
+    const onResult = vi.fn();
+    const handle = startBankRecoveryJobs({
+      config: { intervalMs: 1_000, batchLimit: 50 },
+      ...jobs(),
+      transferNotices: { announceUnannounced },
+      tryLock: async (_namespace, _key, body) => {
+        await body();
+        return { acquired: true };
+      },
+      onResult,
+    });
+    expect(handle.list()).toContain('bank.recovery.announce_posted_transfers');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(announceUnannounced).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith('bank.recovery.announce_posted_transfers', { scanned: 2, resolved: 1, stillUnknown: 1 });
+    handle.stop();
   });
 
   it('a job error does not stop the next tick', async () => {

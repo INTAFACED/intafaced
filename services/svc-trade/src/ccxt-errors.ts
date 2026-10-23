@@ -306,9 +306,14 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.sub_account_denied': { ccxt: 'PermissionDenied', status: 403 },
   /** Soft-revoked sub-account — create a new book; do not retry the same id. */
   'trade.sub_account_revoked': { ccxt: 'PermissionDenied', status: 403 },
+  /** Email not proved yet (RC-identity-01). Permanent until the user confirms the email. */
+  'trade.email_proof_required': { ccxt: 'PermissionDenied', status: 403 },
+  /** Identity email-proof read failed or was off-contract. Retryable; fails closed. */
+  'trade.identity_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
 
   // ── Order lifecycle ───────────────────────────────
   'trade.order_not_found': { ccxt: 'OrderNotFound', status: 404 },
+  'trade.invalid_cursor': { ccxt: 'BadRequest', status: 400 },
   /**
    * Cancelling an order that already filled or cancelled. CCXT venues answer
    * InvalidOrder here rather than OrderNotFound, because the order does exist
@@ -339,6 +344,9 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Operator price band or open-order cap unpublished for the pair — refuse-closed, never a default. */
+  'trade.price_band_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.open_orders_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Owner pre-trade limits (#4725). The order is well-formed but breaches a
    * published risk limit: InvalidOrder, 422, not retryable unchanged. Shrink
@@ -498,8 +506,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_cancel_incomplete': { ccxt: 'InvalidOrder', status: 409 },
   /** Operator fat-finger cap. The order is too large. Not retryable unchanged. */
   'trade.operator_fat_finger': { ccxt: 'InvalidOrder', status: 400 },
-  /** Operator price collar. Not retryable at the same price. */
-  'trade.operator_collar': { ccxt: 'InvalidOrder', status: 400 },
+  /** Operator price band. Not retryable at the same price. */
+  'trade.price_band': { ccxt: 'InvalidOrder', status: 400 },
   /** Operator open-order throttle. Cancel one before placing another. Not a timed retry. */
   'trade.operator_throttle': { ccxt: 'InvalidOrder', status: 400 },
   /**

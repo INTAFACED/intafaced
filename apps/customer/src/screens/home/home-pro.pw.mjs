@@ -62,6 +62,8 @@ async function mock(page, overrides = {}) {
       return route.fulfill({ status: value.status, json: value.json });
     return route.fulfill({ status: 200, json: typeof value === 'function' ? value(arg) : value });
   };
+  // The services' own reads (tRPC) are not mocked here: they answer 404 as a missing build would, never the dev server's page.
+  await page.route('**/api/*/trpc/**', (route) => route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } }));
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api\/v1\//, '');
     const name = path.startsWith('ohlcv/') ? 'ohlcv' : path === 'account/balance' ? 'balance' : path;
@@ -81,6 +83,12 @@ async function mock(page, overrides = {}) {
   };
 }
 const pro = (page) => page.addInitScript((key) => localStorage.setItem(key, JSON.stringify({ layoutMode: 'pro' })), PREFERENCES_KEY);
+/** A device that chose Simple before. Pro is the default (preferences.ts), so Simple is always a stored choice. Set once, so a reload keeps what the page stored. */
+const simple = (page) =>
+  page.addInitScript(
+    (key) => localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify({ layoutMode: 'simple' })),
+    PREFERENCES_KEY,
+  );
 const open = async (page, query = '') => {
   await page.goto(`/pro.html${query}`);
   await page.locator('.tb').waitFor();
@@ -231,10 +239,13 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
     path.push(stop);
     if (path.length >= 12) break;
   }
-  expect(path.map((stop) => stop.name).slice(0, 6)).toEqual([
+  expect(path.map((stop) => stop.name).slice(0, 9)).toEqual([
+    'Customise Home',
     'Hide balances',
     'How the total is worked out',
+    'Assets',
     'About this change',
+    'Named spaces not included',
     '2 open orders',
     'Buy',
     'Sell',
@@ -270,8 +281,9 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
 
 test('the Simple / Pro switch changes Home at once, is remembered, and says what changes', async ({ page }) => {
   await mock(page);
+  await simple(page);
   await open(page);
-  await expect(page.locator('.if-home')).toBeVisible(); // Simple by default
+  await expect(page.locator('.if-home')).toBeVisible();
   await expect(page.locator('.if-home-pro')).toHaveCount(0);
 
   const group = page.getByRole('group', { name: 'Simple or Pro layout' });
@@ -327,17 +339,21 @@ test('the Simple / Pro switch changes Home at once, is remembered, and says what
 
 test('the switch also changes the Trade list: Buy in Simple, Trade in Pro', async ({ page }) => {
   await mock(page);
+  await simple(page);
   await open(page, '?screen=trade');
-  const action = page.locator('[role="row"][data-symbol] [data-col="action"]').first();
-  await expect(action).toBeVisible();
-  await expect(action).toContainText('Buy');
+  // BTC's row in the full Markets table (the Popular and Top gainers cards above it carry no action).
+  const row = page
+    .getByRole('grid', { name: 'Markets' })
+    .getByRole('row', { name: /BTC\/USDT/ })
+    .first();
+  await expect(row.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   await page.getByRole('group', { name: 'Simple or Pro layout' }).getByRole('button', { name: 'Pro' }).click();
-  await expect(action).toContainText('Trade');
+  await expect(row.getByRole('button', { name: 'Trade BTC/USDT' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Buy BTC' })).toHaveCount(0);
   await page.mouse.move(0, 300);
   await page.screenshot({ path: join(shots, 'trade-list-pro-1440x900.png') });
-  await expect(page.locator('[role="row"][data-symbol]').first().locator('a').first()).toHaveAttribute('href', /\/trade\/spot\//);
   await page.getByRole('group', { name: 'Simple or Pro layout' }).getByRole('button', { name: 'Simple' }).click();
-  await expect(action).toContainText('Buy');
+  await expect(row.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
 });
 
 test('the switch is hidden below 1000px, where the top bar has no room for it', async ({ page }) => {
@@ -355,15 +371,15 @@ test('below 1000px the same switch is in the account menu, so Pro can always be 
   await mock(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
-  await expect(page.locator('.if-home')).toBeVisible();
+  await expect(page.locator('.if-home-pro')).toBeVisible(); // Pro by default on a new device
   await page.getByRole('button', { name: 'Account menu' }).click();
   const group = page.getByRole('group', { name: 'Simple or Pro layout' });
   await expect(group).toBeVisible();
-  await group.getByRole('button', { name: 'Pro' }).click();
-  await expect(page.locator('.if-home-pro')).toBeVisible();
   await expect(group.getByRole('button', { name: 'Pro' })).toHaveAttribute('aria-pressed', 'true');
   await group.getByRole('button', { name: 'Simple' }).click();
   await expect(page.locator('.if-home')).toBeVisible();
+  await group.getByRole('button', { name: 'Pro' }).click();
+  await expect(page.locator('.if-home-pro')).toBeVisible();
   // On a wide bar the menu does not repeat it: the bar's own switch is the only one.
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole('button', { name: 'Account menu' }).click();

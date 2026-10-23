@@ -242,7 +242,24 @@ export function listPlatformKb(): readonly SupportKbArticle[] {
 }
 
 /**
- * Search by id substring or key fragment. Empty query → latest per id.
+ * How closely one article matches a query. A label (tag or category) outranks
+ * a title, which outranks the body. Zero means it is not a hit.
+ */
+function kbSearchScore(article: SupportKbArticle, q: string): number {
+  const labels = [...(article.tags ?? []), ...(article.category ? [article.category] : [])].map((label) => label.toLowerCase());
+  let score = 0;
+  if (labels.some((label) => label === q)) score += 300;
+  else if (labels.some((label) => label.includes(q))) score += 200;
+  if (article.titleKey.toLowerCase().includes(q)) score += 100;
+  if (article.id.toLowerCase().includes(q)) score += 80;
+  if (article.bodyKey.toLowerCase().includes(q)) score += 10;
+  return score;
+}
+
+/**
+ * Search by id, title, body, tag or category. Empty query → latest per id, in
+ * catalog order. A non-empty query is ranked: a labelled article comes before
+ * one that only mentions the word in the body. Ties keep catalog order.
  * Empty catalog and unknown queries stay empty — never a default article.
  * Duplicate ids collapse to the highest version (search is latest-only).
  */
@@ -251,9 +268,11 @@ export function searchKb(query: string, catalog: readonly SupportKbArticle[] = P
   const unique = latestById(catalog);
   const q = query.trim().toLowerCase();
   if (!q) return unique.map((a) => ({ ...a }));
-  return unique.filter(
-    (a) => a.id.toLowerCase().includes(q) || a.titleKey.toLowerCase().includes(q) || a.bodyKey.toLowerCase().includes(q),
-  );
+  return unique
+    .map((article, index) => ({ article, index, score: kbSearchScore(article, q) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((row) => ({ ...row.article }));
 }
 
 /**

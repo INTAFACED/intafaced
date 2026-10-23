@@ -3,6 +3,7 @@ import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
+import { ConfirmEmail } from './ConfirmEmail';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -11,7 +12,8 @@ import { publicAuthContext, publicAuthHref } from './auth-context';
 import './public.css';
 import { publicCopy } from './public-copy';
 import { PasswordRecovery } from './PasswordRecovery';
-import { AboutPage, AppPage, CampaignsOverview, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
+import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
+import { LabPage } from './LabPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 
@@ -63,6 +65,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Home />
         ) : path === '/register' ? (
           <SignUp />
+        ) : path === '/confirm-email' ? (
+          <ConfirmEmail />
         ) : auth ? (
           <AuthForm register={false} />
         ) : path === '/invite' ? (
@@ -86,9 +90,9 @@ export function PublicRoutes({ path }: { path: string }) {
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (
-          <CampaignsOverview />
+          <LabPage />
         ) : path.startsWith('/lab/detail/') ? (
-          <CampaignsOverview detail />
+          <LabPage detail />
         ) : (
           <PublicInformation path={path} />
         )}

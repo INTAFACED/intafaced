@@ -34,7 +34,7 @@ export const accountControlInputSchema = z
 export type AccountControlInput = z.infer<typeof accountControlInputSchema>;
 
 /**
- * svc-identity only. `approvalId` names a stored `trading.restrict` approval.
+ * svc-identity only. `approvalId` names a stored `trading.restrict` approval, or an `identity.account_unfreeze` one for an identity restore.
  * It is a reference, not authority: identity checks the row is approved, unexpired,
  * unconsumed, and bound to this account and payload before consuming it.
  * The shared schema refuses this field so another service cannot apply the
@@ -68,7 +68,14 @@ const auditFields = {
   reason,
   occurredAt: timestamp,
 };
-const completedFields = { ...auditFields, actorUserId: id, before: accountControlStateSchema, after: accountControlStateSchema };
+/** `approverUserId`: the second person whose approval was spent for this change (an identity unfreeze, a trading restriction). */
+const completedFields = {
+  ...auditFields,
+  actorUserId: id,
+  approverUserId: id.optional(),
+  before: accountControlStateSchema,
+  after: accountControlStateSchema,
+};
 
 /** Failed/no-op attempts are audited too; they never claim a successful state change. */
 export const accountControlResultSchema = z
@@ -127,6 +134,292 @@ export const accountControlResultSchema = z
     if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, action and state versions disagree' });
   });
 export type AccountControlResult = z.infer<typeof accountControlResultSchema>;
+
+/**
+ * Staff close and reopen of one account (J-ops-console-04 #7), svc-identity only. Both are four-eyes: the actor runs it
+ * with an approval a second person gave (`identity.account_close` or `identity.account_reopen`), bound to the account,
+ * the reason and `expectedVersion` (the same identity control version a freeze moves). A close needs a reason code from
+ * this list. Only a customer-closed account can be reopened: one the customer closed through the closure flow, or that
+ * staff closed with `customer_request`. A close for any other reason (fraud, negative balance, bank reason, other) stays
+ * closed. No money moves here; the balance at close is the closure sweep's, and a close refuses while the closure checks
+ * report open products or balances.
+ */
+export const accountCloseReasonCodes = ['fraud', 'negative_balance', 'bank_reason', 'customer_request', 'other'] as const;
+export const accountCloseReasonCodeSchema = z.enum(accountCloseReasonCodes);
+export type AccountCloseReasonCode = z.infer<typeof accountCloseReasonCodeSchema>;
+
+const closureReason = z.string().trim().min(3).max(255);
+
+export const accountClosureInputSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      requestId: id,
+      userId: id,
+      action: z.literal('close'),
+      reasonCode: accountCloseReasonCodeSchema,
+      reason: closureReason,
+      expectedVersion: version,
+      approvalId: z.string().trim().min(1).max(128).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: id,
+      userId: id,
+      action: z.literal('reopen'),
+      reason: closureReason,
+      expectedVersion: version,
+      approvalId: z.string().trim().min(1).max(128).optional(),
+    })
+    .strict(),
+]);
+export type AccountClosureInput = z.infer<typeof accountClosureInputSchema>;
+
+/** `closedBy`: who closed it, `customer` (the closure flow, or staff with `customer_request`) or `staff`; null while open. */
+export const accountClosureStateSchema = z
+  .object({
+    userId: id,
+    version,
+    status: z.enum(['active', 'frozen', 'closed']),
+    closedBy: z.enum(['customer', 'staff']).nullable(),
+    closeReasonCode: accountCloseReasonCodeSchema.nullable(),
+    reopenable: z.boolean(),
+  })
+  .strict();
+export type AccountClosureState = z.infer<typeof accountClosureStateSchema>;
+
+export const accountClosureLookupInputSchema = z.object({ userId: id }).strict();
+export const accountClosureHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const closureAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  action: z.enum(['close', 'reopen']),
+  reasonCode: accountCloseReasonCodeSchema.nullable(),
+  reason: closureReason,
+  occurredAt: timestamp,
+};
+const closureBlockerSchema = z.object({ code: z.string().min(1).max(128), count: z.number().int().min(0) }).strict();
+
+export const accountClosureResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id,
+        before: accountClosureStateSchema,
+        after: accountClosureStateSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.close_founder_forbidden',
+          'identity.close_self_forbidden',
+          'identity.close_already_closed',
+          'identity.reopen_not_closed',
+          'identity.reopen_not_allowed',
+          'identity.close_requires_approver',
+          'identity.close_approval_mismatch',
+          'identity.close_approval_consumed',
+          'identity.close_blocked',
+          'identity.close_check_unavailable',
+        ]),
+        current: accountClosureStateSchema.nullable(),
+        blockers: z.array(closureBlockerSchema).max(50).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...closureAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountClosureStateSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'before' in result ? [result.before, result.after] : result.current === null ? [] : [result.current];
+    if (states.some((state) => state.userId !== result.userId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'State belongs to a different account' });
+    }
+    if (result.outcome === 'changed') {
+      const closed = result.action === 'close';
+      const coherent =
+        (result.after.status === 'closed') === closed &&
+        (result.before.status === 'closed') !== closed &&
+        version.safeParse(result.before.version).success &&
+        version.safeParse(result.after.version).success &&
+        BigInt(result.after.version) === BigInt(result.before.version) + 1n &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, action and state versions disagree' });
+    }
+    if ((result.action === 'close') !== (result.reasonCode !== null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reasonCode'], message: 'A close carries a reason code and a reopen does not' });
+    }
+  });
+export type AccountClosureResult = z.infer<typeof accountClosureResultSchema>;
+
+/**
+ * Account product tiers (J-ops-console-04 #11). Identity keeps which tier an account is on; the tiers and their terms are
+ * an owner setting that ships blank. A term left blank (null) means the tier cannot be assigned
+ * (`identity.tier_terms_unset`). Terms are decimal strings, never numbers.
+ */
+const tierId = z
+  .string()
+  .min(1)
+  .max(32)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/);
+const termDecimal = z
+  .string()
+  .max(40)
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
+export const accountTierTermsSchema = z
+  .object({
+    /** Yearly rate in percent, as a decimal string. */
+    ratePercent: termDecimal.nullable(),
+    monthlyFee: termDecimal.nullable(),
+    /** The asset the fee and the daily limit are in. */
+    feeAssetId: z
+      .string()
+      .min(1)
+      .max(16)
+      .regex(/^[A-Z0-9]+$/)
+      .nullable(),
+    dailyLimit: termDecimal.nullable(),
+    clearingDays: z
+      .string()
+      .regex(/^(?:0|[1-9]\d{0,2})$/)
+      .nullable(),
+  })
+  .strict();
+export type AccountTierTerms = z.infer<typeof accountTierTermsSchema>;
+export const ACCOUNT_TIER_TERM_KEYS = ['ratePercent', 'monthlyFee', 'feeAssetId', 'dailyLimit', 'clearingDays'] as const;
+
+export const accountTierSchema = z.object({ id: tierId, name: z.string().trim().min(1).max(64), terms: accountTierTermsSchema }).strict();
+export type AccountTier = z.infer<typeof accountTierSchema>;
+
+/** The tiers on offer. Unset (blank, or not a valid list) is its own answer, never an empty list. */
+export const accountTierListSchema = z.discriminatedUnion('configured', [
+  z
+    .object({
+      configured: z.literal(true),
+      tiers: z.array(accountTierSchema).min(1).max(50),
+    })
+    .strict(),
+  z.object({ configured: z.literal(false), code: z.literal('identity.account_tiers_unset') }).strict(),
+]);
+export type AccountTierList = z.infer<typeof accountTierListSchema>;
+
+/** `tierId` null: the account was never put on a tier. */
+export const accountTierStateSchema = z.object({ userId: id, version, tierId: tierId.nullable() }).strict();
+export type AccountTierState = z.infer<typeof accountTierStateSchema>;
+
+const tierReason = z.string().trim().min(3).max(255);
+export const accountTierMoveInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    tierId,
+    reason: tierReason,
+    expectedVersion: version,
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict();
+export type AccountTierMoveInput = z.infer<typeof accountTierMoveInputSchema>;
+export const accountTierLookupInputSchema = z.object({ userId: id }).strict();
+export const accountTierHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const tierAuditFields = { auditId: id, requestId: id, userId: id, tierId, reason: tierReason, occurredAt: timestamp };
+
+export const accountTierResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...tierAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id,
+        before: accountTierStateSchema,
+        after: accountTierStateSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...tierAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.account_tiers_unset',
+          'identity.tier_unknown',
+          'identity.tier_terms_unset',
+          'identity.tier_unchanged',
+          'identity.tier_self_forbidden',
+          'identity.tier_account_closed',
+          'identity.tier_requires_approver',
+          'identity.tier_approval_mismatch',
+          'identity.tier_approval_consumed',
+        ]),
+        current: accountTierStateSchema.nullable(),
+        /** With `identity.tier_terms_unset`: which terms of the tier are blank. */
+        blankTerms: z.array(z.enum(ACCOUNT_TIER_TERM_KEYS)).min(1).max(5).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...tierAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountTierStateSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'before' in result ? [result.before, result.after] : result.current === null ? [] : [result.current];
+    if (states.some((state) => state.userId !== result.userId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'State belongs to a different account' });
+    }
+    if (result.outcome === 'refused' && (result.code === 'identity.tier_terms_unset') !== (result.blankTerms !== undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['blankTerms'], message: 'Blank terms come with tier_terms_unset only' });
+    }
+    if (result.outcome === 'changed') {
+      const coherent =
+        result.after.tierId === result.tierId &&
+        result.before.tierId !== result.tierId &&
+        BigInt(result.after.version) === BigInt(result.before.version) + 1n &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, tier and state versions disagree' });
+    }
+  });
+export type AccountTierResult = z.infer<typeof accountTierResultSchema>;
 
 export const accountCredentialReferenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: id }).strict(),

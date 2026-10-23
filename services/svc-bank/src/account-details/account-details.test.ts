@@ -4,6 +4,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
 import { AccountDetailsService, requestKey, type AccountDetailsPartner, type AccountDetailSet } from './account-details.js';
+import { ProfileService } from '../account-home/profile.js';
 
 /**
  * Account details and the eligibility statement through the real router and edge context. No banking partner is wired in this
@@ -65,7 +66,9 @@ function testPartner() {
 
 function build(options: ConstructorParameters<typeof AccountDetailsService>[0]) {
   const accountDetails = new AccountDetailsService(options);
-  const router = createBankRouter({ accountDetails } as unknown as BankServices);
+  // Every call here is Personal, which the profile check answers without a database (business profiles: profile.db.test.ts).
+  const profiles = new ProfileService(undefined as never);
+  const router = createBankRouter({ accountDetails, profiles } as unknown as BankServices);
   return {
     as: (scopes: string[], region?: string) => router.createCaller(signed(USER, scopes, region)),
     anonymous: () => router.createCaller(anonymous()),

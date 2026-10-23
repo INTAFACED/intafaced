@@ -441,6 +441,32 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_MAX_LEVERAGE: z.string().default(''),
 
       /**
+       * FUTURES ORDERS THROUGH svc-matching (docs/adr/2026-10-20-futures-matched-traders.md slice 6). OFF by default,
+       * so main keeps today's futures behaviour until slice 6b retires open and close at mark.
+       *
+       * Off refuses NEW matched futures orders only. Settling a fill the engine has already matched, and releasing a
+       * hold, keep running: a kill switch that traps margin is not a safety control.
+       */
+      TRADE_FUTURES_MATCHING_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
+       * The futures collateral haircut, in whole bps of posted cash (0 to 10000). An opening order's hold, and an at-mark
+       * open, must fit inside the account's posted cash less this cut. NO DEFAULT — empty refuses an opening order with
+       * `trade.haircut_unset`, and the Collateral read shows "haircut not set". Read by futures/haircut-credit.ts.
+       */
+      TRADE_COLLATERAL_HAIRCUT_BPS: z.string().default(''),
+
+      /**
+       * The futures price band (slice 6): a decimal fraction of the mark, for example 0.05 for five per cent either
+       * side. EMPTY BY DEFAULT — and empty refuses a matched futures order with `trade.futures_price_band_unset`.
+       * The number is the owner's; a value that is not a fraction strictly between 0 and 1 fails boot.
+       */
+      TRADE_FUTURES_PRICE_BAND: z.string().default(''),
+
+      /**
        * Market-maker seed job (trade.mm-bot residual).
        * Default OFF — ops must enable + fund pot + set markets + mids.
        * Never invents mid or market list.
@@ -493,6 +519,14 @@ const schema = serviceEnvSchema
        * Empty = in-memory only (legacy). Relative paths resolve from process cwd.
        */
       TRADE_MM_SEED_STATE_PATH: z.string().default('.data/mm-seed-last-run.json'),
+
+      /**
+       * Futures mark from our own spot book: `<futures symbol>=<spot symbol>`, comma-separated
+       * (`futures/mark-from-spot-index.ts`). The owner's pairing. Empty (default) = off, and a futures market is
+       * marked by its own book's mid as before. A malformed pair fails boot; a pair whose spot market does not share
+       * the futures market's base and quote marks nothing (never a nearby price).
+       */
+      TRADE_FUTURES_INDEX_SPOT_MARKETS: z.string().default(''),
 
       /**
        * Venue fabric mark source (A-TRADE-VENUE-1 / venue.aggregation).

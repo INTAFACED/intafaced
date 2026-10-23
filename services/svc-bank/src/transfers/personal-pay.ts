@@ -25,11 +25,23 @@ import type { TransferService } from './transfer-service.js';
 import { BookedTransferConflict } from './booked-transfer.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
+import type { PersonalTransferNotices } from './transfer-notices.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
 /** A reserved send the client never retried. Older than this, and with no ledger posting, it stops counting toward the daily cap. */
 const STALE_RESERVATION_MS = 15 * 60 * 1000;
+/** How long a send waits for the bus to take its notice; the recovery timer announces it later if not. */
+const NOTICE_PUBLISH_TIMEOUT_MS = 5_000;
+/** The recovery timer leaves a send this young to the request that posted it, which announces it itself. */
+const NOTICE_RETRY_AFTER_MS = 30_000;
+
+function termsUnset(assetId: string): BankError {
+  return new BankError(
+    `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
+    'bank.personal_transfer_terms_unset',
+  );
+}
 
 export type RequestStatus = 'open' | 'paid' | 'declined' | 'cancelled' | 'expired';
 
@@ -116,6 +128,9 @@ interface TransferRow {
   request_id: string | null;
   status: 'reserved' | 'posted';
   created_at: Date;
+  posted_at: Date | null;
+  /** Empty while the bus has not taken the posted notice: the row is the outbox record. */
+  announced_at: Date | null;
 }
 
 interface RequestRow {
@@ -149,8 +164,21 @@ const REQUEST_COLS = `
 
 const TRANSFER_COLS = `
   transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note, reference,
-  from_handle, to_handle, request_id, status, created_at
+  from_handle, to_handle, request_id, status, created_at, posted_at, announced_at
 `;
+
+/** `work`, or a rejection once `ms` pass. The work itself is not cancelled; its late answer is ignored. */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms);
+  });
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Plain text, trimmed. Blank becomes null. Control characters and over-long text are refused. */
 export function plainNote(value: string | null | undefined): string | null {
@@ -198,6 +226,10 @@ export class PersonalPayService {
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
+      /** Unset = every posted send stays owed its notice and says so in the log; the send itself never depends on it. */
+      transferNotices?: PersonalTransferNotices;
+      /** How long a send waits for the bus to take its notice. Tests shorten it. */
+      noticeTimeoutMs?: number;
       now?: () => Date;
     } = {},
   ) {}
@@ -280,6 +312,7 @@ export class PersonalPayService {
 
     if (reserved.status === 'posted' && reserved.ledger_tx_id) {
       if (reserved.request_id) await this.finishRequest(reserved.request_id, input.transferId, reserved.ledger_tx_id, now);
+      if (!reserved.announced_at) await this.announcePosted(reserved, reserved.ledger_tx_id, now);
       return this.toTransferView(reserved);
     }
 
@@ -315,13 +348,83 @@ export class PersonalPayService {
 
     const posted = await this.sql<TransferRow[]>`
       UPDATE bank.personal_transfers
-         SET status = 'posted', ledger_tx_id = ${ledgerTxId}
+         SET status = 'posted', ledger_tx_id = ${ledgerTxId}, posted_at = ${now}
        WHERE transfer_id = ${input.transferId} AND status = 'reserved'
       RETURNING ${this.sql.unsafe(TRANSFER_COLS)}
     `;
     const row = posted[0] ?? (await this.mustTransfer(input.transferId));
     if (requestId) await this.finishRequest(requestId, input.transferId, ledgerTxId, now);
+    if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
     return this.toTransferView(row);
+  }
+
+  /**
+   * Both people hear about a posted send. The posted row is the outbox record: `announced_at` is set only once the bus
+   * has taken the notice, so a publish that fails or hangs past the timeout leaves the row owed, and a retried send or
+   * the recovery timer (`announceUnannounced`) sends it again. Redelivery is safe: the event's business key is
+   * `pay.transfer_posted:<transferId>` and svc-notify dedupes per person. The money has moved by now, so a failed
+   * publish is logged, never thrown. Unwired notices leave the row owed and say so.
+   */
+  private async announcePosted(row: TransferRow, ledgerTxId: string, now: Date): Promise<boolean> {
+    const notices = this.options.transferNotices;
+    try {
+      if (!notices) {
+        throw new BankError(
+          'svc-notify is not wired for posted sends, so neither person was told (bank.transfer_notify_unwired)',
+          'bank.transfer_notify_unwired',
+        );
+      }
+      await withTimeout(
+        notices.posted({
+          transferId: row.transfer_id,
+          senderUserId: row.from_user_id,
+          recipientUserId: row.to_user_id,
+          amount: formatAmount(parseAmount(row.amount)),
+          assetId: row.asset_id,
+          ledgerTxId,
+          postedAt: (row.posted_at ?? row.created_at).toISOString(),
+        }),
+        this.options.noticeTimeoutMs ?? NOTICE_PUBLISH_TIMEOUT_MS,
+      );
+      await this.sql`
+        UPDATE bank.personal_transfers SET announced_at = ${now}
+         WHERE transfer_id = ${row.transfer_id} AND status = 'posted' AND announced_at IS NULL
+      `;
+      return true;
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-bank',
+          event: 'bank.transfer_notice_failed',
+          transferId: row.transfer_id,
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      return false;
+    }
+  }
+
+  /**
+   * The recovery timer's pass: announce posted sends the bus never took, oldest first, up to `limit`. A send younger
+   * than `NOTICE_RETRY_AFTER_MS` is left to the request that posted it.
+   */
+  async announceUnannounced(limit: number, at?: Date): Promise<Array<{ outcome: 'completed' | 'failed'; reason?: string }>> {
+    const now = this.now(at);
+    const before = new Date(now.getTime() - NOTICE_RETRY_AFTER_MS);
+    const rows = await this.sql<TransferRow[]>`
+      SELECT ${this.sql.unsafe(TRANSFER_COLS)}
+        FROM bank.personal_transfers
+       WHERE status = 'posted' AND announced_at IS NULL AND COALESCE(posted_at, created_at) < ${before}
+       ORDER BY created_at
+       LIMIT ${limit}
+    `;
+    const results: Array<{ outcome: 'completed' | 'failed'; reason?: string }> = [];
+    for (const row of rows) {
+      const announced = row.ledger_tx_id !== null && (await this.announcePosted(row, row.ledger_tx_id, now));
+      results.push(announced ? { outcome: 'completed' } : { outcome: 'failed', reason: 'bank.transfer_notice_failed' });
+    }
+    return results;
   }
 
   async get(actorUserId: string, ledgerTxId: string): Promise<PersonalTransferView> {
@@ -341,13 +444,11 @@ export class PersonalPayService {
   async quote(actorUserId: string, assetId: string, amount: Amount, at?: Date): Promise<TransferQuote> {
     const now = this.now(at);
     const terms = await this.terms(assetId);
-    if (!terms) {
-      throw new BankError(
-        `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
-        'bank.personal_transfer_terms_unset',
-      );
-    }
-    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
+    if (!terms) throw termsUnset(assetId);
+    // A reservation older than the stale cutoff is released by the next send before it checks the limits, so the
+    // quote does not count it either: the screen must not refuse what the send would accept.
+    const reservedSince = new Date(now.getTime() - STALE_RESERVATION_MS);
+    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now), reservedSince);
     const fee = parseAmount(terms.fee);
     // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
     const grants = await grantedLimits(this.sql, actorUserId, assetId);
@@ -716,7 +817,8 @@ export class PersonalPayService {
         FROM bank.personal_transfer_terms WHERE asset_id = ${assetId}
     `;
     const terms = rows[0];
-    if (!terms) return;
+    // Blank is not unlimited: with no published limits for the asset, nothing is reserved or posted.
+    if (!terms) throw termsUnset(assetId);
     const fee = parseAmount(terms.fee);
     if (fee > 0n) {
       throw new BankError(
@@ -750,12 +852,19 @@ export class PersonalPayService {
     return rows[0] ?? null;
   }
 
-  private async spentToday(tx: Sql | TransactionSql, userId: string, assetId: string, start: Date): Promise<Amount> {
+  /** Posted today plus reserved today; `reservedSince` leaves out reservations older than it (a quote's view of stale ones). */
+  private async spentToday(
+    tx: Sql | TransactionSql,
+    userId: string,
+    assetId: string,
+    start: Date,
+    reservedSince: Date = start,
+  ): Promise<Amount> {
     const rows = await tx<Array<{ spent: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS spent
         FROM bank.personal_transfers
        WHERE from_user_id = ${userId} AND asset_id = ${assetId} AND created_at >= ${start}
-         AND status IN ('reserved', 'posted')
+         AND (status = 'posted' OR (status = 'reserved' AND created_at >= ${reservedSince}))
     `;
     return parseAmount(rows[0]?.spent ?? '0');
   }
@@ -794,7 +903,7 @@ export class PersonalPayService {
         continue;
       }
       await this.sql`
-        UPDATE bank.personal_transfers SET status = 'posted', ledger_tx_id = ${posted.id}
+        UPDATE bank.personal_transfers SET status = 'posted', ledger_tx_id = ${posted.id}, posted_at = ${now}
          WHERE transfer_id = ${row.transfer_id} AND status = 'reserved'
       `;
       if (row.request_id) await this.finishRequest(row.request_id, row.transfer_id, posted.id, now);

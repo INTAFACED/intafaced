@@ -127,10 +127,31 @@ export function finishSubaccount(original: SubaccountRecord): boolean {
     current.records.filter((row) => row.requestId !== original.requestId),
   );
 }
-/** These four AuthService causes precede INSERT. The real create router emits HTTP500;
- * require its original service explanation, not a generic status or shared fallback.
+/**
+ * Typed refusals `subAccounts.create` sends, for the fields this page sends (label and purpose), before it inserts
+ * anything, and the copy key that explains each. Identity answers them with a 4xx (services/svc-identity/src/router.ts
+ * toTrpcError). A 4xx carrying one of these codes is a known refusal; any other answer stays unconfirmed.
+ */
+const CREATE_REFUSALS = new Map<string, CreateRefusalKey>([
+  ['auth.not_found', 'refusedNotFound'],
+  ['auth.account_frozen', 'refusedFrozen'],
+  ['auth.sub_account_cap_unset', 'refusedCapUnset'],
+  ['auth.sub_account_limit', 'refusedLimit'],
+]);
+export type CreateRefusalKey = 'refusedNotFound' | 'refusedFrozen' | 'refusedCapUnset' | 'refusedLimit';
+
+/** The copy key for a known create refusal, or undefined. */
+export function createRefusalKey(answer: ApiResult<unknown>): CreateRefusalKey | undefined {
+  if (answer.ok || answer.reason === 'uncertain' || !answer.code) return undefined;
+  if (answer.status === undefined || answer.status < 400 || answer.status > 499) return undefined;
+  return CREATE_REFUSALS.get(answer.code);
+}
+
+/** These four AuthService causes precede INSERT. Identity's router answers them with a typed 4xx (above); an older
+ * router emitted HTTP500, accepted only with its original service explanation, not a generic status or shared fallback.
  * Revocation has no proven before-effect refusal classification. */
 export function isCreateRefusal(answer: ApiResult<unknown>): boolean {
+  if (createRefusalKey(answer)) return true;
   if (answer.ok || answer.status !== 500 || answer.reason !== 'uncertain' || answer.messageCopy) return false;
   switch (answer.code) {
     case 'auth.not_found':

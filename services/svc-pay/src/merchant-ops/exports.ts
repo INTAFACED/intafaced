@@ -7,6 +7,7 @@ import { iso, money } from './money.js';
 import { recordMerchantNotification } from './notifications.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { payoutReference } from './payouts.js';
+import { boundAmount } from '../payments/amounts.js';
 import { assertPermission, type MerchantCaller, type MerchantRole } from './roles.js';
 
 /**
@@ -76,6 +77,9 @@ export interface ExportFilters {
   readonly to?: string;
   readonly status?: string;
   readonly assetId?: string;
+  /** Inclusive decimal bounds. Only a payments export accepts them. */
+  readonly amountMin?: string;
+  readonly amountMax?: string;
 }
 
 /** Engineering ceiling so one request cannot hold the whole table in memory. A bigger report must be narrowed. */
@@ -172,6 +176,13 @@ export function validateFilters(kind: ExportKind, f: ExportFilters): void {
             ? ['open', 'contested', 'accepted', 'won', 'lost']
             : undefined;
     if (!allowed || !allowed.includes(f.status)) throw bad();
+  }
+  if (kind !== 'payments' && (f.amountMin !== undefined || f.amountMax !== undefined)) throw bad();
+  if (kind === 'payments') {
+    const min = boundAmount(f.amountMin);
+    const max = boundAmount(f.amountMax);
+    if (min.kind === 'invalid' || max.kind === 'invalid') throw bad();
+    if (min.kind === 'amount' && max.kind === 'amount' && min.scaled > max.scaled) throw bad();
   }
 }
 
@@ -419,6 +430,8 @@ export class ExportService {
                  ${filters.to ? sql`AND p.created_at < (${filters.to}::text)::timestamptz` : sql``}
                  ${filters.status ? sql`AND p.status = ${filters.status}::pay.payment_status` : sql``}
                  ${filters.assetId ? sql`AND p.currency = ${filters.assetId}` : sql``}
+                 ${filters.amountMin ? sql`AND p.amount >= ${filters.amountMin}::numeric` : sql``}
+                 ${filters.amountMax ? sql`AND p.amount <= ${filters.amountMax}::numeric` : sql``}
                  ${cursor ? sql`AND (p.created_at, p.id) > ((${cursor.ts}::text)::timestamptz, ${cursor.id}::uuid)` : sql``}
                ORDER BY p.created_at, p.id LIMIT ${BATCH}`
           : await sql`

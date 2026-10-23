@@ -1,14 +1,15 @@
 import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { Academy } from './Academy';
+import { AcademyRoom } from './Academy';
+import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { Launch, Mining } from './AvailabilityRooms';
 import { Market } from './Market';
 import { Prediction } from './Prediction';
-import { Quant } from './Quant';
+import { quantRoute } from '../quant/QuantRoutes';
 import { Support } from './Support';
 import { Token } from './Token';
 import { launchCopy } from './launch-copy';
@@ -31,6 +32,7 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
+  const quant = p === '/quant' || p.startsWith('/quant/') ? quantRoute(p, paper, userId ?? null) : null;
   let title: ReactNode = copyText('moreroutes.more'),
     description: ReactNode = undefined,
     content: ReactNode = (
@@ -46,13 +48,16 @@ function MoreRooms({ path }: { path: string }) {
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
-    let slug = url.searchParams.get('slug') ?? undefined;
-    try {
-      if (p.split('/')[2]) slug = decodeURIComponent(p.split('/')[2]!);
-    } catch {
-      slug = undefined;
-    }
-    content = <Academy key={`${p}:${url.search}`} slug={slug} initialPath={url.searchParams.get('path') ?? undefined} />;
+    content = (
+      <AcademyRoom
+        key={`${p}:${url.search}`}
+        pathname={p}
+        search={url.search}
+        route={academyRoute(p)}
+        slug={url.searchParams.get('slug') ?? undefined}
+        initialPath={url.searchParams.get('path') ?? undefined}
+      />
+    );
   } else if (p === '/agents') {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
@@ -90,21 +95,8 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
-  } else if (p === '/quant' || p === '/quant/studio' || p === '/quant/backtest') {
-    title =
-      p === '/quant'
-        ? copyText('moreroutes.quant.sandbox')
-        : p === '/quant/studio'
-          ? copyText('moreroutes.quant.studio')
-          : copyText('moreroutes.backtest');
-    description = copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence');
-    content = (
-      <Quant
-        key={`${p}:${userId}`}
-        paper={paper}
-        mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'}
-      />
-    );
+  } else if (quant) {
+    ({ title, description, content } = quant);
   } else if (p === '/support') {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');

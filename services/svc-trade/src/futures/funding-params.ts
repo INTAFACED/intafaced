@@ -211,7 +211,7 @@ export async function currentFundingParams(sql: Sql, marketId: string): Promise<
            period_seconds, period_anchor, operator_id, approver_id, reason, approval_id, created_at
       FROM trade.funding_params
      WHERE market_id = ${marketId}
-     ORDER BY version DESC
+     ORDER BY funding_params.version DESC
      LIMIT 1`;
   return row ? presentParams(row) : emptyParamsVersion(marketId);
 }
@@ -249,7 +249,7 @@ export async function currentIndexSources(sql: Sql, marketId: string): Promise<I
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.funding_index_sources
      WHERE market_id = ${marketId}
-     ORDER BY version DESC
+     ORDER BY funding_index_sources.version DESC
      LIMIT 1`;
   if (!row) return emptySourcesVersion(marketId);
   return {

@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
+import { emailProofSchema } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
@@ -195,7 +196,7 @@ if (!available) {
   const grantKyc = async (userId: string, tier: 'basic' | 'full') => {
     const operator = await register();
     const submitted = await auth.submitKyc({ userId, tier, jurisdiction: 'DE' });
-    await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+    await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
   };
 
   beforeEach(async () => {
@@ -1406,7 +1407,7 @@ if (!available) {
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
-      const approved = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      const approved = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       expect(approved.status).toBe('approved');
       expect(approved.reviewedBy).toBe(operator.userId);
@@ -1424,6 +1425,7 @@ if (!available) {
           recordId: submitted.id,
           reviewerId: operator.userId,
           service: 'svc-agents',
+          approvalParties: [],
         }),
       ).rejects.toMatchObject({ code: 'auth.kyc_agent_refused' });
 
@@ -1433,11 +1435,47 @@ if (!available) {
           recordId: second.id,
           reviewerId: operator.userId,
           kid: 'agent-key',
+          approvalParties: [],
         }),
       ).rejects.toMatchObject({ code: 'auth.kyc_agent_refused' });
 
       expect(await auth.kycTier(session.userId)).toBe('none');
       expect((await auth.getKycRecord(submitted.id))?.reviewedBy).toBeNull();
+    });
+
+    it('refuses a review by anyone whose KYC it is: the reviewer, the named second operator or either approval party', async () => {
+      const session = await register();
+      const operator = await register();
+      const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
+      const self = { code: 'auth.kyc_self_review' };
+
+      await expect(
+        auth.approveKycRecord({ recordId: submitted.id, reviewerId: session.userId, approvalParties: [] }),
+      ).rejects.toMatchObject(self);
+      await expect(
+        auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, confirmActorId: session.userId, approvalParties: [] }),
+      ).rejects.toMatchObject(self);
+      // Two operators approving each other's KYC: the subject proposed, or approved, the four-eyes approval.
+      for (const approvalParties of [
+        [session.userId, operator.userId],
+        [operator.userId, session.userId],
+      ]) {
+        await expect(auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties })).rejects.toMatchObject(
+          self,
+        );
+        await expect(auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties })).rejects.toMatchObject(
+          self,
+        );
+      }
+
+      expect(await auth.kycTier(session.userId)).toBe('none');
+      expect(await auth.getKycRecord(submitted.id)).toMatchObject({ status: 'pending', reviewedBy: null });
+
+      // Two other people on the approval: it goes ahead.
+      const third = await register();
+      await expect(
+        auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [operator.userId, third.userId] }),
+      ).resolves.toMatchObject({ status: 'approved', reviewedBy: operator.userId });
     });
 
     it('unblocks the custodial matrix rule that was blocking every new account', async () => {
@@ -1459,7 +1497,7 @@ if (!available) {
       expect(before.code).toBe('denied.kyc_required');
 
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       const after = checkAccess({
         screeningFailClosed: false,
@@ -1522,7 +1560,7 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
-      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       const again = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
@@ -1537,8 +1575,8 @@ if (!available) {
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
-      const once = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
-      const twice = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      const once = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
+      const twice = await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       expect(twice.id).toBe(once.id);
       expect(twice.reviewedAt?.getTime()).toBe(once.reviewedAt?.getTime());
@@ -1550,9 +1588,11 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
-      await expect(auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId })).rejects.toMatchObject({
+      await expect(
+        auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] }),
+      ).rejects.toMatchObject({
         code: 'auth.kyc_not_pending',
       });
       expect(await auth.kycTier(session.userId)).toBe('none');
@@ -1563,14 +1603,14 @@ if (!available) {
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
-      const rejected = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      const rejected = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
       expect(rejected.status).toBe('rejected');
       expect(rejected.reviewedBy).toBe(operator.userId);
       expect(rejected.reviewedAt).toBeInstanceOf(Date);
       expect(await auth.kycTier(session.userId)).toBe('none');
 
       // Re-reject is a no-op (same stamps), not a second write.
-      const again = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: 'other-op' });
+      const again = await auth.rejectKycRecord({ recordId: submitted.id, reviewerId: 'other-op', approvalParties: [] });
       expect(again.reviewedBy).toBe(operator.userId);
       expect(again.reviewedAt?.getTime()).toBe(rejected.reviewedAt?.getTime());
     });
@@ -1579,7 +1619,7 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const first = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.rejectKycRecord({ recordId: first.id, reviewerId: operator.userId });
+      await auth.rejectKycRecord({ recordId: first.id, reviewerId: operator.userId, approvalParties: [] });
 
       const second = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
       expect(second.id).not.toBe(first.id);
@@ -1597,17 +1637,37 @@ if (!available) {
       const session = await register();
       const operator = await register();
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
-      await expect(auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId })).rejects.toMatchObject({
+      await expect(
+        auth.rejectKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] }),
+      ).rejects.toMatchObject({
         code: 'auth.kyc_not_pending',
       });
       expect(await auth.kycTier(session.userId)).toBe('basic');
     });
 
     it('refuses an unknown record rather than creating one', async () => {
-      await expect(auth.approveKycRecord({ recordId: '00000000-0000-4000-8000-000000000000', reviewerId: 'op' })).rejects.toMatchObject({
+      await expect(
+        auth.approveKycRecord({ recordId: '00000000-0000-4000-8000-000000000000', reviewerId: 'op', approvalParties: [] }),
+      ).rejects.toMatchObject({
         code: 'auth.not_found',
+      });
+    });
+
+    describe('email proof for the order gate (RC-identity-01)', () => {
+      it('an unknown or malformed user is null, never proved', async () => {
+        expect(await auth.emailProof('00000000-0000-4000-8000-000000000000')).toBeNull();
+        expect(await auth.emailProof('not-a-uuid')).toBeNull();
+      });
+
+      it('is missing until the current email is confirmed, then accepted, and carries no address', async () => {
+        const session = await register();
+        const missing = await auth.emailProof(session.userId);
+        expect(missing).toEqual({ userId: session.userId, emailProof: 'missing' });
+        expect(emailProofSchema.parse(missing)).toEqual(missing);
+        await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
+        expect(await auth.emailProof(session.userId)).toEqual({ userId: session.userId, emailProof: 'accepted' });
       });
     });
 
@@ -1652,7 +1712,7 @@ if (!available) {
         // must not see a tier the user has not actually been given.
         expect(await auth.accountState(session.userId)).toMatchObject({ kycTier: 'none' });
 
-        await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+        await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
         expect(await auth.accountState(session.userId)).toMatchObject({ kycTier: 'basic' });
       });
 
@@ -1680,8 +1740,8 @@ if (!available) {
       const submitted = await auth.submitKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
 
       bus.reset();
-      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
-      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
+      await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId, approvalParties: [] });
 
       const published = bus.published.filter((p) => p.subject.includes('kyc'));
       expect(published).toHaveLength(1);
@@ -1710,7 +1770,7 @@ if (!available) {
       const mine = ids.filter((id) => id === first.id || id === second.id);
       expect(mine).toEqual([first.id, second.id]);
 
-      await auth.approveKycRecord({ recordId: first.id, reviewerId: operator.userId });
+      await auth.approveKycRecord({ recordId: first.id, reviewerId: operator.userId, approvalParties: [] });
       expect((await auth.listPendingKyc(200)).map((r) => r.id)).not.toContain(first.id);
     });
   });

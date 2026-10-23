@@ -2,6 +2,7 @@
 //  - /api/identity/trpc/me                    (GET)   caller's own handle        [backend PR #4688]
 //  - /api/identity/trpc/users.resolveHandle   (GET)   exact @handle lookup       [backend PR #4688]
 //  - /api/bank/trpc/spaces.list               (GET)   the customer's own balances
+//  - /api/bank/trpc/transfers.quote           (GET)   published limits and fee (TEST figures below)
 //  - /api/bank/trpc/transfers.toUser          (POST)  the payment
 // A small world (balances) really changes when a payment is accepted. Overrides replace one answer: a JSON body, a
 // function of the request, 'error' (500), 'abort' (connection dropped), 'hang' (held until release()), or { status, json }.
@@ -62,6 +63,19 @@ export async function mock(page, overrides = {}) {
       return trpc({ found: false });
     },
     spaces: () => trpc(spacesFor(world.balances)),
+    // TEST limits, wide enough that only the balance ever stops a harness payment. No fee.
+    quote: ({ input }) =>
+      trpc({
+        assetId: input.assetId,
+        amount: input.amount,
+        perTransferLimit: '1000000',
+        dailyLimit: '1000000',
+        spentToday: '0',
+        fee: '0',
+        feeBlocker: null,
+        withinPerTransfer: true,
+        withinDaily: true,
+      }),
     toUser: ({ body }) => {
       // The service is idempotent on transferId: the same id answers with the same transaction and moves money once.
       const known = world.sent.get(body.transferId);
@@ -87,7 +101,13 @@ export async function mock(page, overrides = {}) {
     const request = route.request();
     const url = new URL(request.url());
     const [, , module, , procedure] = url.pathname.split('/');
-    const name = { me: 'me', 'users.resolveHandle': 'resolve', 'spaces.list': 'spaces', 'transfers.toUser': 'toUser' }[procedure];
+    const name = {
+      me: 'me',
+      'users.resolveHandle': 'resolve',
+      'spaces.list': 'spaces',
+      'transfers.quote': 'quote',
+      'transfers.toUser': 'toUser',
+    }[procedure];
     const input = url.searchParams.get('input') ? JSON.parse(url.searchParams.get('input')) : undefined;
     const body = request.method() === 'POST' ? request.postDataJSON() : undefined;
     calls.push({ module, procedure, method: request.method(), input, body, at: Date.now() });

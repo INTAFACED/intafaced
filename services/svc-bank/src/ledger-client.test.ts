@@ -9,7 +9,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { serviceAuthHeaders, verifyServiceHeaders } from '@intafaced/contracts';
-import { createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
+import { createLedgerAssetRegistry, createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
 import { fakeLedgerDoor, type DoorCall } from './ledger-door-fake.js';
 
 function retained(body: string) {
@@ -599,5 +599,34 @@ describe('history adapters — signed as svc-bank, bounded, never empty on failu
     respond = () => ({ status: 404, body: { message: 'procedure not found', code: 'NOT_FOUND' } });
     await expect(createLedgerHistory('http://ledger.test', SECRET).entriesFor(userAvailable(USER, 'USDT'), range)).rejects.toThrow();
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe('asset registry — the networks an address may be saved on', () => {
+  const row = {
+    id: 'USDT',
+    kind: 'crypto',
+    precision: 6,
+    networks: [{ networkId: 'erc20', label: 'TEST Ethereum' }],
+    defaultNetworkId: 'erc20',
+    allowedActions: ['withdraw'],
+    state: 'active',
+    revision: 1,
+    updatedAt: '2026-10-23T00:00:00.000Z',
+  };
+
+  it('asks /trpc/assetsList for active assets that allow withdrawals, signed as svc-bank, and parses the rows', async () => {
+    respond = () => ({ status: 200, body: { assets: [row] } });
+    expect(await createLedgerAssetRegistry('http://ledger.test', SECRET).withdrawable()).toEqual([row]);
+    expect(sent[0]!.url).toBe('http://ledger.test/trpc/assetsList');
+    expect(sent[0]!.body).toEqual({ state: 'active', action: 'withdraw' });
+    expect(verifyServiceHeaders(sent[0]!.headers, SECRET, { rawBody: retained(sent[0]!.raw), mode: 'require' }).service).toBe('svc-bank');
+  });
+
+  it('refuses a row that does not fit the registry shape, and throws a ledger failure instead of an empty list', async () => {
+    respond = () => ({ status: 200, body: { assets: [{ ...row, precision: 30 }] } });
+    await expect(createLedgerAssetRegistry('http://ledger.test', SECRET).withdrawable()).rejects.toThrow();
+    respond = () => ({ status: 503, body: 'busy' });
+    await expect(createLedgerAssetRegistry('http://ledger.test', SECRET).withdrawable()).rejects.toThrow(/assetsList/);
   });
 });

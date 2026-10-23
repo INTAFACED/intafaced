@@ -108,6 +108,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row pay.request_paid for the person who was paid',
   },
   {
+    event: 'personalTransferPosted',
+    durable: 'notify-personal-transfer-posted',
+    subject: 'intafaced.bank.personal_transfer.posted',
+    effect: 'Inbox rows pay.transfer_received for the recipient and pay.transfer_sent for the sender of one posted personal send',
+  },
+  {
     event: 'supportTicketResolved',
     durable: 'notify-support-ticket-resolved',
     subject: 'intafaced.support.ticket.resolved',
