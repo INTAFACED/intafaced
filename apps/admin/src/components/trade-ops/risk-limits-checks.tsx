@@ -20,7 +20,15 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { RiskCurrent, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
 import type { MarketRow } from '@/lib/trade-ops/reads';
 import type { Outcome } from '@/lib/trade-ops/outcome';
-import { checkRiskSet, ENGINE_CHECKS, limitText, type EngineCheck, type OperatorLimitField } from '@/lib/trade-ops/risk-limits-model';
+import {
+  appliesTo,
+  checkRiskSet,
+  ENGINE_CHECKS,
+  limitText,
+  valuesFor,
+  type EngineCheck,
+  type OperatorLimitField,
+} from '@/lib/trade-ops/risk-limits-model';
 import { ConfirmAction } from './confirm-action';
 import { OutcomeNotice } from './outcome-notice';
 
@@ -34,7 +42,15 @@ import { OutcomeNotice } from './outcome-notice';
  */
 
 type Read = { current: RiskCurrent; history: readonly RiskVersionRow[] };
-const EMPTY: Record<OperatorLimitField, string> = { collar: '', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '' };
+const EMPTY: Record<OperatorLimitField, string> = {
+  collar: '',
+  fatFinger: '',
+  slippageCap: '',
+  throttle: '',
+  circuitBreaker: '',
+  oiLimit: '',
+  oiShareBps: '',
+};
 
 export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] }) {
   const [marketId, setMarketId] = useState(markets[0]?.id ?? '');
@@ -48,7 +64,10 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
 
   const loaded = read?.kind === 'ok' ? read.data : null;
   const symbol = markets.find((m) => m.id === marketId)?.symbol ?? '';
-  const check = loaded ? checkRiskSet(loaded.current, values, reason.length >= 12 ? reason : 'x'.repeat(12)) : null;
+  // The kind of the market whose limits were read, so the form never offers or sends a check that does not apply there.
+  const kind = loaded ? markets.find((m) => m.id === loaded.current.marketId)?.kind : undefined;
+  const sent = valuesFor(values, kind);
+  const check = loaded ? checkRiskSet(loaded.current, sent, reason.length >= 12 ? reason : 'x'.repeat(12)) : null;
   const problem = check && !check.ok ? check : null;
 
   async function load() {
@@ -65,12 +84,23 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
         slippageCap: limitText(c.slippageCap),
         throttle: limitText(c.throttle),
         circuitBreaker: limitText(c.circuitBreaker),
+        oiLimit: limitText(c.oiLimit),
+        oiShareBps: limitText(c.oiShareBps),
       });
     }
     setBusy(false);
   }
 
-  const body = () => ({ market: marketId, values, reason: reason.trim(), expectedVersion: loaded?.current.version });
+  /** A new market drops the read, so nothing read for one market is shown, sent or applied for another. */
+  function chooseMarket(id: string) {
+    setMarketId(id);
+    setRead(null);
+    setValues(EMPTY);
+    setProposed(null);
+    setHash(null);
+  }
+
+  const body = () => ({ market: marketId, values: sent, reason: reason.trim(), expectedVersion: loaded?.current.version });
 
   async function propose() {
     setBusy(true);
@@ -93,6 +123,10 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       cell: (c) =>
         !loaded ? (
           <span className="text-fg-3">—</span>
+        ) : !appliesTo(c, kind) ? (
+          <Badge tone="neutral" variant="outline" density="dense">
+            Futures only
+          </Badge>
         ) : loaded.current[c.field] === null ? (
           <Badge tone="neutral" variant="outline" density="dense">
             Unset
@@ -106,18 +140,21 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
       header: 'New value (blank = unset)',
       width: 230,
       value: () => null,
-      cell: (c) => (
-        <Input
-          aria-label={`${c.name}: new value`}
-          value={values[c.field]}
-          onValueChange={(v) => setValues((prev) => ({ ...prev, [c.field]: v }))}
-          density="dense"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={!loaded}
-          placeholder={c.unit}
-        />
-      ),
+      cell: (c) =>
+        loaded && !appliesTo(c, kind) ? (
+          <span className="text-sm text-fg-2">Not used on {kind} markets</span>
+        ) : (
+          <Input
+            aria-label={`${c.name}: new value`}
+            value={values[c.field]}
+            onValueChange={(v) => setValues((prev) => ({ ...prev, [c.field]: v }))}
+            density="dense"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={!loaded}
+            placeholder={c.unit}
+          />
+        ),
     },
   ];
 
@@ -126,8 +163,9 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
     { id: 'at', header: 'When (UTC)', width: 190, value: (h) => h.createdAt.replace('T', ' ').slice(0, 19) },
     {
       id: 'limits',
-      header: 'Collar / fat-finger / slippage / throttle / breaker',
-      value: (h) => [h.collar, h.fatFinger, h.slippageCap, h.throttle, h.circuitBreaker].map((v) => v ?? 'unset').join(' / '),
+      header: 'Collar / fat-finger / slippage / throttle / breaker / open interest / share',
+      value: (h) =>
+        [h.collar, h.fatFinger, h.slippageCap, h.throttle, h.circuitBreaker, h.oiLimit, h.oiShareBps].map((v) => v ?? 'unset').join(' / '),
     },
     { id: 'who', header: 'Operator → approver', value: (h) => `${h.operatorId} → ${h.approverId}` },
     { id: 'reason', header: 'Reason', value: (h) => h.reason },
@@ -140,7 +178,7 @@ export function RiskLimitsChecks({ markets }: { markets: readonly MarketRow[] })
           <Select
             items={Object.fromEntries(markets.map((m) => [m.id, m.symbol]))}
             value={marketId}
-            onValueChange={(v) => setMarketId(String(v))}
+            onValueChange={(v) => chooseMarket(String(v))}
           >
             <SelectTrigger size={32}>
               <SelectValue />

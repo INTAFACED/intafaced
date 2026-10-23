@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketRow } from './reads';
-import { checkLimitEdit, checkRiskSet, decimalGte, isMultipleOf, isPositiveDecimal, limitEditOutcome } from './risk-limits-model';
+import {
+  checkLimitEdit,
+  checkRiskSet,
+  decimalGte,
+  ENGINE_CHECKS,
+  isMultipleOf,
+  isPositiveDecimal,
+  limitEditOutcome,
+  appliesTo,
+  valuesFor,
+} from './risk-limits-model';
 
 const ME = 'me';
 const market: MarketRow = {
@@ -75,8 +85,18 @@ describe('checkLimitEdit', () => {
 });
 
 describe('checkRiskSet', () => {
-  const now = { marketId: 'm1', version: '3', collar: '0.05', fatFinger: null, slippageCap: null, throttle: null, circuitBreaker: null };
-  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '' };
+  const now = {
+    marketId: 'm1',
+    version: '3',
+    collar: '0.05',
+    fatFinger: null,
+    slippageCap: null,
+    throttle: null,
+    circuitBreaker: null,
+    oiLimit: null,
+    oiShareBps: null,
+  };
+  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '', oiLimit: '', oiShareBps: '' };
   const REASON = 'tighten after incident 4471';
   it('builds the write for the version it was given, with a blank as unset', () => {
     expect(checkRiskSet(now, { ...vals, fatFinger: '1000.5', slippageCap: '100' }, REASON)).toEqual({
@@ -85,7 +105,15 @@ describe('checkRiskSet', () => {
         market: 'm1',
         expectedVersion: '3',
         reason: REASON,
-        limits: { collar: '0.05', fatFinger: '1000.5', slippageCap: '100', throttle: null, circuitBreaker: null },
+        limits: {
+          collar: '0.05',
+          fatFinger: '1000.5',
+          slippageCap: '100',
+          throttle: null,
+          circuitBreaker: null,
+          oiLimit: null,
+          oiShareBps: null,
+        },
       },
     });
   });
@@ -102,5 +130,38 @@ describe('checkRiskSet', () => {
     expect(checkRiskSet(now, { ...vals, slippageCap: '5001' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
     expect(checkRiskSet(now, { ...vals, throttle: '5' }, 'short')).toMatchObject({ code: 'risk_limits.bad_reason' });
     expect(checkRiskSet(now, { ...vals, throttle: '5' }, undefined)).toMatchObject({ code: 'risk_limits.bad_reason' });
+  });
+  it('sets the open-interest pair, refusing a share outside 1 to 10000 basis points', () => {
+    expect(checkRiskSet(now, { ...vals, oiLimit: '1000', oiShareBps: '500' }, REASON)).toMatchObject({
+      ok: true,
+      body: { limits: { oiLimit: '1000', oiShareBps: '500' } },
+    });
+    for (const oiShareBps of ['0', '10001', '1.5'])
+      expect(checkRiskSet(now, { ...vals, oiLimit: '1000', oiShareBps }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, oiLimit: '-5' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+  });
+  it('refuses an open-interest limit longer than the ledger can hold', () => {
+    const whole20 = '9'.repeat(20);
+    expect(checkRiskSet(now, { ...vals, oiLimit: `${whole20}.5`, oiShareBps: '500' }, REASON)).toMatchObject({ ok: true });
+    expect(checkRiskSet(now, { ...vals, oiLimit: `1${whole20}`, oiShareBps: '500' }, REASON)).toMatchObject({
+      code: 'risk_limits.bad_value',
+    });
+  });
+  it('sends the open-interest pair on futures markets only, and a write without it keeps it', () => {
+    const shown = { ...vals, oiLimit: '1000', oiShareBps: '500' };
+    expect(Object.keys(valuesFor(shown, 'futures'))).toEqual(expect.arrayContaining(['oiLimit', 'oiShareBps']));
+    for (const kind of ['spot', 'options'] as const) {
+      expect(valuesFor(shown, kind)).not.toHaveProperty('oiLimit');
+      expect(valuesFor(shown, kind)).not.toHaveProperty('oiShareBps');
+      expect(ENGINE_CHECKS.filter((c) => appliesTo(c, kind)).map((c) => c.field)).not.toContain('oiLimit');
+    }
+    // A pair stored on the market stays out of a write that leaves it out: the hash and the write carry no key for it.
+    const held = { ...now, oiLimit: '1000', oiShareBps: '500' };
+    const { oiLimit: _l, oiShareBps: _s, ...five } = vals;
+    const out = checkRiskSet(held, { ...five, throttle: '7' }, REASON);
+    expect(out.ok && out.body.limits).not.toHaveProperty('oiLimit');
+    expect(out.ok && out.body.limits).not.toHaveProperty('oiShareBps');
+    // Leaving the pair out is not a change on its own.
+    expect(checkRiskSet(held, five, REASON)).toMatchObject({ code: 'risk_limits.no_change' });
   });
 });

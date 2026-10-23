@@ -32,8 +32,25 @@ describe('positions', () => {
 });
 
 describe('risk limits', () => {
-  const none = { marketId: 'm1', version: '0', collar: null, fatFinger: null, slippageCap: null, throttle: null, circuitBreaker: null };
+  const none = {
+    marketId: 'm1',
+    version: '0',
+    collar: null,
+    fatFinger: null,
+    slippageCap: null,
+    throttle: null,
+    circuitBreaker: null,
+    oiLimit: null,
+    oiShareBps: null,
+  };
   it('reads the never-set state as all null', () => expect(parseRiskCurrent(none)).toEqual(none));
+  it('reads the open-interest pair, and a row from before it existed as unset', () => {
+    expect(parseRiskCurrent({ ...none, oiLimit: '1000', oiShareBps: '500' })).toMatchObject({ oiLimit: '1000', oiShareBps: '500' });
+    const { oiLimit: _l, oiShareBps: _s, ...older } = none;
+    expect(parseRiskCurrent(older)).toEqual(none);
+    expect(parseRiskCurrent({ ...none, oiShareBps: '2.5' })).toBeNull();
+    expect(parseRiskCurrent({ ...none, oiLimit: 1000 })).toBeNull();
+  });
   it('refuses a number, a negative and a decimal where an integer is needed', () => {
     expect(parseRiskCurrent({ ...none, slippageCap: 100 })).toBeNull();
     expect(parseRiskCurrent({ ...none, throttle: '-1' })).toBeNull();

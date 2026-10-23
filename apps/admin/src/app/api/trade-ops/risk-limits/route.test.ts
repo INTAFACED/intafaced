@@ -7,6 +7,7 @@ vi.mock('@/lib/founder-session', () => ({
 }));
 
 import { riskSetPayloadHash } from '@/lib/trade-ops/risk-set-hash';
+import type { RiskSetBody } from '@/lib/trade-ops/risk-limits-model';
 import { POST } from './route';
 
 const ME = '00000000-0000-4000-8000-000000000001';
@@ -84,10 +85,37 @@ describe('risk limits route', () => {
     expect(sent.payloadHash).toBe(
       riskSetPayloadHash({
         market: MARKET,
-        limits: { collar: '0.05', fatFinger: null, slippageCap: '100', throttle: null, circuitBreaker: null },
+        limits: {
+          collar: '0.05',
+          fatFinger: null,
+          slippageCap: '100',
+          throttle: null,
+          circuitBreaker: null,
+        },
         expectedVersion: '2',
         reason: REASON,
       }),
+    );
+  });
+
+  it('a form without the open-interest pair leaves it out of the hash and the write, so the service keeps it; a form with it sends it', async () => {
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('actionApproval.propose')
+        ? json({ result: { data: { json: { approvalId: 'ap-1', status: 'PENDING' } } } })
+        : json({ result: { data: { json: current('2', { oiLimit: '1000', oiShareBps: '500' }) } } }),
+    );
+    const hashOf = async (v: Record<string, string>) =>
+      ((await (await post({ action: 'hash', market: MARKET, values: v, reason: REASON })).json()) as { data: { payloadHash: string } }).data
+        .payloadHash;
+    const five = { collar: '0.05', fatFinger: null, slippageCap: '100', throttle: null, circuitBreaker: null };
+    const body = (limits: object) => ({ market: MARKET, limits, expectedVersion: '2', reason: REASON }) as RiskSetBody;
+    expect(await hashOf(values)).toBe(riskSetPayloadHash(body(five)));
+    expect(await hashOf({ ...values, oiLimit: '2000', oiShareBps: '500' })).toBe(
+      riskSetPayloadHash(body({ ...five, oiLimit: '2000', oiShareBps: '500' })),
+    );
+    // Sent blank is an explicit clear, and hashes differently from leaving it out.
+    expect(await hashOf({ ...values, oiLimit: '', oiShareBps: '' })).toBe(
+      riskSetPayloadHash(body({ ...five, oiLimit: null, oiShareBps: null })),
     );
   });
 
