@@ -7,14 +7,17 @@ import {
   type WorkItemSource,
 } from '@intafaced/contracts/home-work-items';
 import { useSession } from '../../features/session/session';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, isServiceNotConnected, type ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
 import { sourceAnswer, workList, WORK_SOURCES, type ConfigRead, type SourceRead, type WorkList } from './work-list';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
-/** No such procedure, or the service is not running here: the owner does not answer this read on this deployment yet. */
-const unwired = (failure: Failure) => failure.reason === 'not_mounted' || failure.reason === 'unreachable';
+/**
+ * No such procedure, or the gateway says the service is not connected here: the owner does not answer this read on this
+ * deployment yet. A crash, restart or timeout is a failure the person can retry, never "not connected".
+ */
+const unwired = (failure: Failure) => failure.reason === 'not_mounted' || isServiceNotConnected(failure.code);
 
 /** One read, keyed by person, so another person's answer is never shown. */
 function useRead<T>(module: string, procedure: string, schema: z.ZodType<T>, key: string): { resource: Resource<T>; reload: () => void } {

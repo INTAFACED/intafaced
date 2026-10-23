@@ -43,8 +43,8 @@ export type WorkList =
       more: number;
       /** Whether the owner set the order; while not, the owners' own order is kept and Home says so. */
       ordered: boolean;
-      /** Owners whose answer is not in: still loading, not answering on this deployment, or failed. */
-      missing: { source: WorkItemSource; state: 'loading' | 'unwired' | 'failed'; code?: string }[];
+      /** Owners whose answer is not in: not answering on this deployment, or failed. The list waits while any is loading. */
+      missing: { source: WorkItemSource; state: 'unwired' | 'failed'; code?: string }[];
     };
 
 /** Home's owner values could not be read on this deployment. */
@@ -72,14 +72,14 @@ export function workList(config: ConfigRead, sources: Readonly<Record<WorkItemSo
 
   const merged: WorkItem[] = [];
   const missing: Extract<WorkList, { state: 'ready' }>['missing'] = [];
+  // While one owner is still loading the list is not final: show it loading rather than a partial list that reshuffles.
+  if (WORK_SOURCES.some((source) => sources[source].state === 'loading')) return { state: 'loading' };
   for (const source of WORK_SOURCES) {
     const read = sources[source];
     if (read.state === 'ready') merged.push(...read.items);
-    else missing.push(read.state === 'failed' ? { source, state: 'failed', code: read.code } : { source, state: read.state });
+    else if (read.state === 'failed') missing.push({ source, state: 'failed', code: read.code });
+    else if (read.state === 'unwired') missing.push({ source, state: 'unwired' });
   }
-  // Every source's state is held, so while one is still loading the list is not final: show it loading rather than a
-  // partial list that reshuffles.
-  if (missing.some((entry) => entry.state === 'loading')) return { state: 'loading' };
 
   const rank = (kind: WorkItemKind) => {
     const at = order?.indexOf(kind) ?? -1;

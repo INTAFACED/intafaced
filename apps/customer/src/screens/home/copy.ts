@@ -133,7 +133,7 @@ const messages = {
   'Work nothing': 'Nothing needs you right now.',
   'Work nothing so far': 'Nothing so far from the services that answered.',
   'Work more': '{count} more not shown.',
-  'Work order unset': 'The owner has not set an order, so items are listed as each service answered.',
+  'Work order unset': 'The owner has not set an order, so items are grouped by service: verification, then bank, then pay.',
   'Work sources unwired': 'Not connected yet: {sources}.',
   'Work sources failed': 'Couldn’t check: {sources}.',
   'Work due': 'Due {when}',
@@ -292,7 +292,8 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work nothing': 'Nada te necesita ahora mismo.',
     'Work nothing so far': 'Nada por ahora de los servicios que respondieron.',
     'Work more': '{count} más sin mostrar.',
-    'Work order unset': 'El propietario no ha definido un orden, así que los elementos se listan como respondió cada servicio.',
+    'Work order unset':
+      'El propietario no ha definido un orden, así que los elementos se agrupan por servicio: verificación, banco y pagos.',
     'Work sources unwired': 'Aún no conectado: {sources}.',
     'Work sources failed': 'No se pudo comprobar: {sources}.',
     'Work due': 'Vence {when}',
@@ -451,7 +452,8 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Work nothing': 'Rien ne vous attend pour l’instant.',
     'Work nothing so far': 'Rien pour l’instant des services qui ont répondu.',
     'Work more': '{count} de plus non affichés.',
-    'Work order unset': 'Le propriétaire n’a pas défini d’ordre, les éléments sont donc listés comme chaque service a répondu.',
+    'Work order unset':
+      'Le propriétaire n’a pas défini d’ordre, les éléments sont donc groupés par service : vérification, banque, puis paiements.',
     'Work sources unwired': 'Pas encore connecté : {sources}.',
     'Work sources failed': 'Vérification impossible : {sources}.',
     'Work due': 'Échéance {when}',

@@ -233,17 +233,18 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   await expect(list.locator('.home-activity__row')).toHaveCount(3);
 });
 
-test(`${J}, part of #4: Needs you is on Home, and while Home's list settings are not served it says so with its code, never "nothing needs you"`, async ({
+test(`${J}, part of #4: Needs you is on Home, and while Home's list settings cannot be read it says so with its code and Try again, never "nothing needs you"`, async ({
   page,
 }) => {
   await signIn(page, who);
   await page.goto('/');
   const work = page.locator('section[aria-labelledby="home-work-title"]');
   await expect(work).toBeVisible();
-  // The local stack runs no svc-ops, so Home's owner values (`home.config`: the cap and order) cannot be read. The list is
-  // refused and named; an empty list here would claim that nothing needs the person.
-  await expect(work.locator('[data-slot="state-block"]')).toContainText('Not connected yet');
-  await expect(work).toContainText('home.config_unwired');
+  // The local stack runs no svc-ops, so Home's owner values (`home.config`: the cap and order) cannot be read: the gateway
+  // answers that the service is unavailable, which is a failure to retry, not "not connected". The list is refused and
+  // named; an empty list here would claim that nothing needs the person.
+  await expect(work.locator('[data-slot="state-block"]')).toContainText('Couldn’t load this list');
+  await expect(work).toContainText('edge.upstream_unavailable');
   await expect(work).not.toContainText('Nothing needs you');
   await expect(work.getByRole('button', { name: 'Try again' })).toBeVisible();
 });

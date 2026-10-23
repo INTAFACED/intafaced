@@ -9,12 +9,27 @@ describe('Home tiles (HM-widgets-01)', () => {
     expect(shownTiles(null, 'simple', 'side')).toEqual(['started', 'your-crypto', 'watchlist']);
   });
 
-  it('follows the stored order, puts unnamed tiles after it, and ignores an id this build does not know', () => {
-    const layout = { order: ['markets', 'gone-tile', 'activity'], hidden: ['gone-tile'] };
-    expect(orderedTiles(layout).slice(0, 2)).toEqual(['markets', 'activity']);
-    expect(orderedTiles(layout)).toHaveLength(HOME_TILE_IDS.length);
-    expect(shownTiles(layout, 'pro')).toEqual(['markets', 'activity', 'started', 'work', 'holdings']);
-    expect(shownTiles(layout, 'simple', 'main')).toEqual(['markets', 'activity', 'work', 'holdings', 'movers', 'learn']);
+  it('follows the stored order, puts each unnamed tile back after the tile it follows when shipped, and ignores an id this build does not know', () => {
+    const layout = { order: ['activity', 'gone-tile', 'markets'], hidden: ['gone-tile'] };
+    expect(orderedTiles(layout)).toEqual([
+      'started',
+      'work',
+      'holdings',
+      'activity',
+      'learn',
+      'your-crypto',
+      'watchlist',
+      'markets',
+      'movers',
+    ]);
+    expect(shownTiles(layout, 'pro')).toEqual(['started', 'work', 'holdings', 'activity', 'markets']);
+    expect(shownTiles(layout, 'simple', 'main')).toEqual(['work', 'holdings', 'activity', 'learn', 'markets', 'movers']);
+  });
+
+  it('a tile added after a layout was saved lands at its shipped place, not at the bottom', () => {
+    const saved = { order: ['started', 'activity', 'holdings', 'markets', 'movers', 'learn', 'your-crypto', 'watchlist'], hidden: [] };
+    expect(shownTiles(saved, 'simple', 'main')).toEqual(['work', 'activity', 'holdings', 'markets', 'movers', 'learn']);
+    expect(shownTiles(saved, 'pro')).toEqual(['started', 'work', 'activity', 'holdings', 'markets']);
   });
 
   it('a hidden tile is not drawn in either mode and stays in the list of choices', () => {
