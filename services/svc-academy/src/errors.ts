@@ -162,9 +162,13 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
+  /** The item has a prerequisite, so whether it is open depends on the reader's own record: sign in. */
+  | 'academy.sign_in_required'
   | 'academy.holder_name_invalid'
   /** AC-articles-02: a slug equal to a reserved academy tab. */
-  | 'academy.slug_reserved';
+  | 'academy.slug_reserved'
+  /** AC-catalogue-03: no published course by that slug. A draft gets the same answer as a missing one. */
+  | 'academy.course_not_found';
 
 export class AcademyError extends Error {
   constructor(
@@ -263,8 +267,10 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_rate_unset',
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
+  'academy.sign_in_required',
   'academy.holder_name_invalid',
   'academy.slug_reserved',
+  'academy.course_not_found',
 ] as const;
 
 /** L3 — catalog size. */

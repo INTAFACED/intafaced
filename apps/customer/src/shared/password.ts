@@ -35,6 +35,8 @@ export type PasswordProblem =
   | 'secondStep'
   | 'inviteNeeded'
   | 'inactive'
+  /** The owner's security lock holds (`identity.security_locked`): no password change or reset until it ends. */
+  | 'securityLocked'
   | 'signedOut'
   | 'invalidInput'
   /** The request left but no answer was confirmed: the password may or may not have changed. */
@@ -67,6 +69,8 @@ export function passwordProblem(result: Refusal): PasswordProblem {
       return 'inviteNeeded';
     case 'auth.account_frozen':
       return 'inactive';
+    case 'identity.security_locked':
+      return 'securityLocked';
     case 'auth.session_invalid':
     case 'auth.session_denied':
     case 'auth.session_revoked':
