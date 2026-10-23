@@ -251,6 +251,9 @@ export const priceAlerts = schema.table('price_alerts', {
   frequency: text('frequency').$type<'once' | 'every_crossing'>().notNull().default('once'),
   fireCount: integer('fire_count').notNull().default(0),
   lastFiredAt: timestamp('last_fired_at', { withTimezone: true, mode: 'date' }),
+  stopReason: text('stop_reason').$type<'burst'>(),
+  burstStartedAt: timestamp('burst_started_at', { withTimezone: true, mode: 'date' }),
+  burstCount: integer('burst_count').notNull().default(0),
 });
 
 /** One row each time an alert fired, keyed by alert and fire number. See drizzle/0022_notify_alert_frequency.sql (it replaced alert_triggers). */
