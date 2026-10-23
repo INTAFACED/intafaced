@@ -35,19 +35,28 @@ export type OperatorOwnerBalancesOutput = z.infer<typeof operatorOwnerBalancesOu
 
 export const OWNER_BALANCES_READ_ACTION = 'owner_balances.read' as const;
 
+/** What an access row records: an owner's balances (0024), or one transaction looked up by id or business key (0025). */
+export type OperatorAccessAction = typeof OWNER_BALANCES_READ_ACTION | 'transaction.read' | 'trace.read';
+
+export interface OperatorAccessEntry {
+  readonly actorId: string;
+  readonly ownerType: string;
+  readonly ownerId: string;
+  readonly requestId: string | null;
+  /** Defaults to an owner-balances read. */
+  readonly action?: OperatorAccessAction;
+}
+
 /** Writes one access row. Throws if it cannot, which refuses the read. */
-export async function recordOperatorAccess(
-  sql: Sql,
-  entry: { actorId: string; ownerType: string; ownerId: string; requestId: string | null },
-): Promise<void> {
+export async function recordOperatorAccess(sql: Sql, entry: OperatorAccessEntry): Promise<void> {
   await sql`
     INSERT INTO operator_access_log (actor_id, action, target_owner_type, target_owner_id, request_id)
-    VALUES (${entry.actorId}, ${OWNER_BALANCES_READ_ACTION}, ${entry.ownerType}, ${entry.ownerId}, ${entry.requestId})
+    VALUES (${entry.actorId}, ${entry.action ?? OWNER_BALANCES_READ_ACTION}, ${entry.ownerType}, ${entry.ownerId}, ${entry.requestId})
   `;
 }
 
 export interface OwnerBalancesReader {
-  recordOperatorAccess(entry: { actorId: string; ownerType: string; ownerId: string; requestId: string | null }): Promise<void>;
+  recordOperatorAccess(entry: OperatorAccessEntry): Promise<void>;
   balances(ownerType: OperatorOwnerBalancesInput['ownerType'], ownerId: string): Promise<Balance[]>;
 }
 
