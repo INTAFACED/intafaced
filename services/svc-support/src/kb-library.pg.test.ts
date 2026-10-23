@@ -39,7 +39,7 @@ const url = await harnessUrl();
 const change = { actorId: 'lead-1', reason: 'TEST library' };
 
 if (!url) {
-  describe.skip('SqlKbLibraryBook (no Postgres)', () => {
+  describe.skip('SqlKbLibraryBook (Postgres unavailable)', () => {
     it('skipped', () => undefined);
   });
 } else {
