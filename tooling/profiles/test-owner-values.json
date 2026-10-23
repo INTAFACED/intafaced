@@ -150,6 +150,11 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "IDENTITY_API_KEYS_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
     }
   }
 }

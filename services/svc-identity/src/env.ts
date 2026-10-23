@@ -212,6 +212,12 @@ const schema = serviceEnvSchema
        * can be read.
        */
       IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
+      /**
+       * Owner-published API key cap per verification level (`basic=3,full=5`, levels none, basic, full, institutional).
+       * Blank, or a level left out, refuses every key create in the developer room (`identity.key_cap_unset`).
+       * Never git-default. Parsed at start by `parseApiKeyCapByTier`; a malformed value stops the service.
+       */
+      IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

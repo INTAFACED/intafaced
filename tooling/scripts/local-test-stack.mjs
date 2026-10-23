@@ -886,6 +886,10 @@ function serviceDefs(secrets) {
         IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
         IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
         IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+        // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+        // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+        // J-developer-03 can show the fourth refused.
+        IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
