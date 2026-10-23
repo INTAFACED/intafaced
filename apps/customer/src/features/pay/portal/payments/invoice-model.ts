@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { MAX_AMOUNT, SCALE } from '@intafaced/ledger-client/money';
+import { MAX_AMOUNT, SCALE } from '@intafaced/money-math';
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { newRequestId } from '../model';
 import { checkoutAddressFor } from './checkout-address';

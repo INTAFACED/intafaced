@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AccountClosureResult, AccountClosureState } from '@intafaced/contracts';
 import { ControlDesk } from '@/components/control-desk';
 import { CLOSE_REASON_CODES, type AccountCloseReasonCode } from '@/lib/desk/approval-packet';
+import { describeBlockers } from '@/lib/accounts/closure-blockers';
 
 const REASON_LABEL: Record<AccountCloseReasonCode, string> = {
   fraud: 'Fraud',
@@ -178,7 +179,12 @@ export function AccountClosure({
                     <tr key={event.auditId}>
                       <td>{new Date(event.occurredAt).toLocaleString()}</td>
                       <td>{event.action}</td>
-                      <td>{event.outcome === 'refused' ? `refused (${event.code})` : event.outcome}</td>
+                      <td>
+                        {event.outcome === 'refused' ? `refused (${event.code})` : event.outcome}
+                        {event.outcome === 'refused' && describeBlockers(event.blockers)
+                          ? ` · still open: ${describeBlockers(event.blockers)}`
+                          : ''}
+                      </td>
                       <td>{event.reasonCode ? REASON_LABEL[event.reasonCode] : '—'}</td>
                       <td>{event.actorUserId?.slice(0, 8) ?? 'Unauthenticated'}</td>
                       <td>{event.outcome === 'changed' ? event.approverUserId.slice(0, 8) : '—'}</td>

@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { stack } from './env';
 
@@ -39,6 +40,42 @@ export async function identityCall<T = unknown>(procedure: string, input: unknow
   const text = await response.text();
   if (!response.ok) throw new IdentityRefusal(procedure, response.status, text);
   return JSON.parse(text).result.data as T;
+}
+
+/** The newest LOCAL-TEST confirm token mailed to `email` in the rig's outbox, or null. */
+function latestConfirmToken(email: string): string | null {
+  let text = '';
+  try {
+    text = readFileSync(stack.mailOutbox(), 'utf8');
+  } catch {
+    return null;
+  }
+  const want = email.trim().toLowerCase();
+  let token: string | null = null;
+  for (const line of text.split('\n')) {
+    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
+    if (/(?:^|\s)email=(\S+)/.exec(line)?.[1]?.toLowerCase() !== want) continue;
+    const found = /[?&]token=([^&\s]+)/.exec(/(?:^|\s)link=(\S+)/.exec(line)?.[1] ?? '')?.[1];
+    if (found) token = decodeURIComponent(found);
+  }
+  return token;
+}
+
+/**
+ * New custodial orders need a proved email (RC-identity-01). The customer proves it the way a person does: asks for a
+ * confirmation, then opens the link identity mailed (the rig's outbox). Nothing writes the proof directly.
+ */
+export async function proveEmail(email: string, claims: Claims, waitMs = 15_000): Promise<void> {
+  const before = latestConfirmToken(email);
+  await identityCall('auth.requestEmailConfirmation', {}, claims);
+  const until = Date.now() + waitMs;
+  let token = latestConfirmToken(email);
+  while (!token || token === before) {
+    if (Date.now() >= until) throw new Error(`no LOCAL-TEST confirm link reached ${email}`);
+    await new Promise((r) => setTimeout(r, 250));
+    token = latestConfirmToken(email);
+  }
+  await identityCall('auth.confirmEmail', { token }, null);
 }
 
 export class IdentityRefusal extends Error {

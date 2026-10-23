@@ -1018,6 +1018,9 @@ export const userWithdrawDestinations = bank.table(
     state: text('state').notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // A look-alike saved after the customer confirmed it (migration 0054): the saved entry it was checked against, and when.
+    lookalikeOf: uuid('lookalike_of'),
+    lookalikeConfirmedAt: tstz('lookalike_confirmed_at'),
   },
   (t) => [
     primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),
