@@ -44,3 +44,11 @@ export const RISK_CARD = {
   reason:
     'No risk ruleset exists: svc-pay holds no risk rulesets or risk scale (OPS-rules-monitoring-02), so no account can be scored. When one is published, this card shows the level and the rules behind it.',
 } as const;
+
+/** J-ops-console-02 #4: the KPI indicator strip says "not set" while no indicator is configured (OPS-rules-monitoring-11). */
+export const INDICATOR_STRIP = {
+  title: 'Not set',
+  reason:
+    'No account indicators are configured: identity has no indicator configuration and no per-account metrics read (identity.accounts.metrics), so this strip has nothing to measure. When indicators are configured, each one shows here with its value.',
+  code: 'compliance.indicators_unset',
+} as const;

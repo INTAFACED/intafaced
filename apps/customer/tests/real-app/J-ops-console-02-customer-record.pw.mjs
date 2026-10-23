@@ -30,6 +30,10 @@ test('J-ops-console-02 #3 #4 #5 one customer record: the risk card, and six tabs
   const risk = page.getByTestId('customer-risk-card');
   await expect(risk).toContainText('Risk: No risk level');
   await expect(risk).toContainText('No risk ruleset exists');
+  // ...and the indicator strip says "not set" with its code, never a made-up value.
+  const indicators = page.getByTestId('customer-indicator-strip');
+  await expect(indicators).toContainText('Indicators: Not set');
+  await expect(indicators).toContainText('compliance.indicators_unset');
 
   // Money: the balance read answers or refuses in words; it is never blank.
   const balances = page.getByTestId('read-bank.customer-balances');
@@ -64,11 +68,13 @@ test('J-ops-console-02 #3 #4 #5 one customer record: the risk card, and six tabs
   ).toBeVisible();
 
   // Step #5, documents: identity's document list for this account answers in words (a list or "holds no document"), and the
-  // per-document decisions identity does not keep name their blocker.
+  // document viewer the console lacks and the per-document decisions identity does not keep each name their blocker.
   await page.getByTestId('customer-tab-documents').click();
   await expect(page.getByTestId('customer-panel-documents')).toBeVisible({ timeout: 60_000 });
   const documents = page.getByTestId('read-identity.documents');
   await expect(documents.getByText(/As of /).first()).toBeVisible();
+  await expect(page.getByTestId('unwired-documents.viewer')).toContainText('Open a document: no source');
+  await expect(page.getByTestId('unwired-documents.viewer')).toContainText('kyc.getDocument');
   await expect(page.getByTestId('unwired-documents.decisions')).toContainText('no source');
 
   for (const tab of ['cards', 'tickets']) {

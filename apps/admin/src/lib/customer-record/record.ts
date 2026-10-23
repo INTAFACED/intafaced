@@ -2,7 +2,16 @@ import { BANK_CUSTOMER_BALANCES } from '@/lib/ops-desk/catalog';
 import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import type { CustomerTab } from './tabs';
 
-export { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, customerId, customerTab, type CustomerTab } from './tabs';
+export {
+  CUSTOMER_TABS,
+  INDICATOR_STRIP,
+  RECORD_SOURCE_UNWIRED,
+  RISK_CARD,
+  TAB_LABELS,
+  customerId,
+  customerTab,
+  type CustomerTab,
+} from './tabs';
 
 /**
  * One customer's record across money, trade, pay, cards, documents and tickets (OPS-founder-01, ops-console-founder-002), at
@@ -169,6 +178,11 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
           },
         ],
         unwired: [
+          un(
+            'documents.viewer',
+            'Open a document',
+            'Identity serves a document’s contents (kyc.getDocument) only through its two-founder door, and this console has no document viewer to request and show it (OPS-cases-07). The list above names each document; its contents stay in the vault.',
+          ),
           un(
             'documents.decisions',
             'Document decisions and requests',

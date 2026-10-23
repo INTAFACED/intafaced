@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readData } from '@/lib/ops-desk/model';
 import { moduleForPage } from '@/lib/modules';
-import { CUSTOMER_TABS, RISK_CARD, customerId, customerTab, tabPlan } from './record';
+import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
@@ -43,7 +43,7 @@ describe('what each tab reads', () => {
     expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
       ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
     ]);
-    expect(docs.unwired.map((u) => u.id)).toEqual(['documents.decisions']);
+    expect(docs.unwired.map((u) => u.id)).toEqual(['documents.viewer', 'documents.decisions']);
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
   });
   it('names procedures the owning services serve today', () => {
@@ -95,5 +95,33 @@ describe('risk card', () => {
     expect(RISK_CARD.title).toBe('No risk level');
     expect(RISK_CARD.reason).toContain('No risk ruleset exists');
     expect(`${RISK_CARD.title} ${RISK_CARD.reason}`).not.toMatch(/\b(low|medium|high|score of|\d+\s*\/\s*\d+)\b/i);
+  });
+});
+
+describe('indicator strip', () => {
+  it('says not set, why, and the code, with no value', () => {
+    expect(INDICATOR_STRIP.title).toBe('Not set');
+    expect(INDICATOR_STRIP.code).toBe('compliance.indicators_unset');
+    expect(INDICATOR_STRIP.reason).toContain('No account indicators are configured');
+    expect(`${INDICATOR_STRIP.title} ${INDICATOR_STRIP.reason}`).not.toMatch(/\d/);
+  });
+});
+
+describe('documents tab', () => {
+  it('reads one of identity’s document rows into the list', () => {
+    const [docs] = tabPlan('documents', USER).reads;
+    const row = {
+      id: '3c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5',
+      contentType: 'image/png',
+      byteLength: 2048,
+      storedBy: null,
+      createdAt: '2026-10-22T10:00:00.000Z',
+    };
+    expect(readData(docs!, [row])).toMatchObject({ shape: 'list', rows: [{ id: row.id }] });
+  });
+  it('names the missing document viewer and the missing decisions as parked parts', () => {
+    const parked = tabPlan('documents', USER).unwired.map((u) => u.id);
+    expect(parked).toEqual(['documents.viewer', 'documents.decisions']);
+    expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('kyc.getDocument');
   });
 });

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ReadBlock } from '@/components/ops-desk';
-import { CUSTOMER_TABS, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/tabs';
+import { CUSTOMER_TABS, INDICATOR_STRIP, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/tabs';
 import type { ReadOutcome, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import './desk.css';
 
@@ -42,6 +42,17 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
         <strong id="h-risk">Risk: {RISK_CARD.title}</strong>
         <p>{RISK_CARD.reason}</p>
         <p className="dk-muted">Code: {RECORD_SOURCE_UNWIRED}</p>
+      </article>
+      <article
+        className="adm-callout"
+        data-tone="warn"
+        data-testid="customer-indicator-strip"
+        data-state="unset"
+        aria-labelledby="h-indicators"
+      >
+        <strong id="h-indicators">Indicators: {INDICATOR_STRIP.title}</strong>
+        <p>{INDICATOR_STRIP.reason}</p>
+        <p className="dk-muted">Code: {INDICATOR_STRIP.code}</p>
       </article>
       <nav aria-label="Customer record areas">
         <ul className="dk-row" role="list">
