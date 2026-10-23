@@ -19,6 +19,7 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  founderSignIns,
   termsProposal,
   TEST_TRANSFER_TERMS,
   needsFullTier,
@@ -27,6 +28,7 @@ import {
   operatorIdentity,
   refusalText,
 } from './local-test-gates.mjs';
+import { draftFounderVault } from './local-test-founders.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -242,6 +244,32 @@ assert.deepEqual(
 // refusalText reports the service's own words.
 assert.equal(refusalText({ json: { error: { message: 'nope', data: { code: 'FORBIDDEN' } } }, text: '' }), 'nope [FORBIDDEN]');
 assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
+
+// Founder sign-ins: none until both founders are enrolled, then a and b in vault order, keyed like their TOTP steps.
+{
+  const vault = draftFounderVault();
+  assert.deepEqual(founderSignIns(null), []);
+  assert.deepEqual(founderSignIns(vault), []);
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `user-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  const pair = founderSignIns(vault);
+  assert.deepEqual(
+    pair.map((f) => [f.key, f.handle, f.totpSecret]),
+    [
+      ['a', 'local_test_founder_a', 'SECRET0'],
+      ['b', 'local_test_founder_b', 'SECRET1'],
+    ],
+  );
+  assert.ok(pair.every((f) => f.email && f.password));
+  vault.founders[1].totpConfirmed = false;
+  assert.deepEqual(founderSignIns(vault), [], 'a founder without a confirmed second factor cannot sign in');
+}
+// verify submits founders' requests; populate (which approves only its friend) does not.
+{
+  const src = readFileSync(script, 'utf8');
+  assert.match(src, /submitOwnedAccounts\(ctx, before, \{ founders: true \}\)/);
+  const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
+  assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
+}
 
 // The CLI help names every command.
 const src = readFileSync(script, 'utf8');

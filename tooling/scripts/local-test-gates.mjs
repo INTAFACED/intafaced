@@ -484,6 +484,14 @@ export async function operatorSessions(ctx) {
   return signInPair(ctx, ops, () => saveOperators(ctx, ops));
 }
 
+/** The vault's two enrolled LOCAL TEST founders as sign-ins keyed `a`/`b` (the keys their TOTP steps use), or none. */
+export function founderSignIns(vault) {
+  const pair = enrolledFounderPair(vault);
+  return pair
+    ? pair.map((f, i) => ({ key: ['a', 'b'][i], handle: f.handle, email: f.email, password: f.password, totpSecret: f.totpSecret }))
+    : [];
+}
+
 /**
  * The pair that approves founder-only actions (opening a book, approving a verification). Once the stack's founders
  * are enrolled, identity refuses those from anyone else (action_approval.founder_only), so the founders sign in; on a
@@ -491,15 +499,12 @@ export async function operatorSessions(ctx) {
  * founder's last TOTP step is kept, in its own file, so a code is never replayed.
  */
 export async function approverSessions(ctx) {
-  const pair = enrolledFounderPair(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
-  if (!pair) return operatorSessions(ctx);
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0) return operatorSessions(ctx);
   const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
   const steps = readJson(stepsFile, {});
   const ops = {};
-  pair.forEach((f, i) => {
-    const l = ['a', 'b'][i];
-    ops[l] = { handle: f.handle, email: f.email, password: f.password, totpSecret: f.totpSecret, lastStep: Number(steps[l] ?? 0) };
-  });
+  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
   return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
 }
 
@@ -827,16 +832,26 @@ export function ownedAccounts(ctx) {
   return [m.maker, m.taker, w.friend].filter((a) => a?.email && a?.password);
 }
 
-/** Owned accounts submit their own `full` request through identity (nobody else can submit for them). */
-export async function submitOwnedAccounts(ctx, { users, approved, pending }) {
+/**
+ * Owned accounts submit their own `full` request through identity (nobody else can submit for them). With `founders`,
+ * the two enrolled LOCAL TEST founders do too: the founder console reads bank and P2P desks whose access gate checks
+ * the caller's own verification tier. A founder signs in with its second factor, at a step `founderTotp` never replays.
+ */
+export async function submitOwnedAccounts(ctx, { users, approved, pending }, { founders = false } = {}) {
   const out = [];
   const pendingUsers = new Set(pending.filter((r) => r.tier === 'full').map((r) => r.userId));
-  for (const acct of ownedAccounts(ctx)) {
+  const founderAccounts = founders ? founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)) : [];
+  for (const acct of [...ownedAccounts(ctx), ...founderAccounts]) {
     const u = users.find((x) => x.email.toLowerCase() === String(acct.email).toLowerCase());
     if (!u) continue;
     const has = approved.get(u.id) ?? new Set();
     if (has.has('full') || has.has('institutional') || pendingUsers.has(u.id)) continue;
-    const login = await ctx.edge.mutate('identity', 'auth.login', { identifier: acct.email, password: acct.password });
+    const totpCode = acct.key ? await founderTotp(ctx, acct.key, acct.totpSecret) : undefined;
+    const login = await ctx.edge.mutate('identity', 'auth.login', {
+      identifier: acct.email,
+      password: acct.password,
+      ...(totpCode ? { totpCode } : {}),
+    });
     const token = data(login)?.accessToken;
     if (!token) {
       out.push({ handle: u.handle, ok: false, why: `login refused: ${refusalText(login)}` });
@@ -893,7 +908,7 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
 /** Submit what this stack can submit for itself, then approve everything pending. */
 export async function verifyAll(ctx) {
   const before = listAccountsAndTiers(ctx.secrets);
-  const submitted = await submitOwnedAccounts(ctx, before);
+  const submitted = await submitOwnedAccounts(ctx, before, { founders: true });
   for (const s of submitted) ctx.log(`verify ${s.handle}: ${s.ok ? 'submitted its own full request' : `could not submit: ${s.why}`}`);
   const approvedRows = await approvePending(ctx);
   const after = listAccountsAndTiers(ctx.secrets);
