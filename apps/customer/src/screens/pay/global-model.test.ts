@@ -122,6 +122,10 @@ describe('refusals', () => {
       'bank.proof_not_requested',
       'bank.proof_already_uploaded',
       'bank.transfer_settled',
+      'bank.global_send_cancelled',
+      'bank.global_send_not_cancellable',
+      'bank.receipt_not_ready',
+      'bank.receipt_signing_unset',
     ];
     for (const code of codes) {
       const words = refusalCopy(code);
@@ -134,7 +138,9 @@ describe('refusals', () => {
 
 describe('tracking and recipients', () => {
   it('counts the steps a send has passed and none for a failed one', () => {
-    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed', 'held'].map((s) => progressOf(s as never))).toEqual([0, 1, 2, 3, 0, 0]);
+    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed', 'held', 'cancelled'].map((s) => progressOf(s as never))).toEqual([
+      0, 1, 2, 3, 0, 0, 0,
+    ]);
   });
   it('keys a saved recipient by the person, the country and the normalised account', () => {
     expect(recipientKey('u1', 'de', 'de89 3704 0044 0532 0130 00')).toBe('global-recipient:u1:DE:DE89370400440532013000');

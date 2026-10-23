@@ -61,6 +61,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
     // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-xfer-08): how long a global send may stay on hold before it is cancelled.
+    BANK_GLOBAL_HOLD_CANCEL_HOURS: testValue('BANK_GLOBAL_HOLD_CANCEL_HOURS'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',

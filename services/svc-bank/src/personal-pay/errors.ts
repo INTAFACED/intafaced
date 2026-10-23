@@ -111,6 +111,18 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
       return new PersonalPayError('This send has already left, so it can no longer be held.', code, 'PRECONDITION_FAILED');
     case 'bank.transfer_not_holdable':
       return new PersonalPayError('This send is not in a state that can be held.', code, 'PRECONDITION_FAILED');
+    case 'bank.global_send_cancelled':
+      return new PersonalPayError(
+        'This send was cancelled: it stayed on hold past the owner’s window, or its customer cancelled it. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.global_send_not_cancellable':
+      return new PersonalPayError('Only a send on hold, with nothing sent, can be cancelled.', code, 'PRECONDITION_FAILED');
+    case 'bank.receipt_not_ready':
+      return new PersonalPayError('A receipt is made once the send has left the account.', code, 'PRECONDITION_FAILED');
+    case 'bank.receipt_signing_unset':
+      return new PersonalPayError('No receipt signing key is configured, so no receipt is made.', code, 'PRECONDITION_FAILED');
     case 'bank.hold_not_found':
       return new PersonalPayError('No open hold on this send.', code, 'NOT_FOUND');
     case 'bank.hold_conflict':

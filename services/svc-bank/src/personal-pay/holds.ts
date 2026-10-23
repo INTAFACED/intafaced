@@ -13,9 +13,28 @@ import { parseProofLimits, type ProofLimits } from './payee-controls.js';
  * hold's reason is internal and is never in anything a customer reads; the customer sees only the request an operator wrote
  * for them. Release needs a different person from the one who held (four-eyes, by the signed-in operator id, never a typed
  * one). If releasing leaves the outcome unknown and nothing was posted, the hold goes back on.
+ *
+ * Cancel (BK-xfer-08): while a send is on hold with nothing posted, its customer can cancel it, and the owner's window
+ * (`BANK_GLOBAL_HOLD_CANCEL_HOURS`) cancels one still on hold that long after the hold was placed. The window has no
+ * default: blank, nothing is cancelled automatically and every screen says the rule is not published. A cancelled send
+ * never posts; the window is applied whenever the send or the queue is read and before any release.
  */
 
-export type HoldState = 'requested' | 'under_review' | 'released';
+export type HoldState = 'requested' | 'under_review' | 'released' | 'cancelled';
+
+export const BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV = 'BANK_GLOBAL_HOLD_CANCEL_HOURS';
+const HOUR_MS = 3_600_000;
+
+/** The owner's auto-cancel window in whole hours (1 or more), or null when blank or not a whole number. */
+export function readHoldCancelHours(raw: string | undefined): number | null {
+  const trimmed = raw?.trim() ?? '';
+  if (!/^[0-9]{1,6}$/.test(trimmed)) return null;
+  const hours = Number.parseInt(trimmed, 10);
+  return hours >= 1 ? hours : null;
+}
+
+/** The auto-cancel rule as every screen shows it: the window, or that it is not published. */
+export type AutoCancelRule = { readonly state: 'unset'; readonly hours: null } | { readonly state: 'published'; readonly hours: number };
 
 /** Who placed a hold the stand-in's screening put on: not a person, so it never matches a signed-in operator. */
 export const SCREENING_OPERATOR = 'system:test-screening';
@@ -61,6 +80,8 @@ export interface CustomerHoldView {
   readonly infoRequest: string | null;
   readonly proofUploaded: boolean;
   readonly proofLimits: { allowedTypes: string[]; maxBytes: number } | null;
+  /** The owner's rule, and when this hold is cancelled by it (null when the rule is unset or the hold is closed). */
+  readonly autoCancel: AutoCancelRule & { readonly at: string | null };
 }
 
 function holdView(row: HoldRow): HoldView {
@@ -99,8 +120,101 @@ export class GlobalHoldService {
     private readonly sql: Sql,
     private readonly sends: GlobalSendService,
     proofLimitsJson?: string,
+    holdCancelHours: () => string | undefined = () => undefined,
+    private readonly now: () => Date = () => new Date(),
   ) {
     this.limits = parseProofLimits(proofLimitsJson);
+    this.cancelHours = holdCancelHours;
+  }
+
+  private readonly cancelHours: () => string | undefined;
+
+  /** The owner's auto-cancel rule for a send on hold. */
+  autoCancelRule(): AutoCancelRule {
+    const hours = readHoldCancelHours(this.cancelHours());
+    return hours === null ? { state: 'unset', hours: null } : { state: 'published', hours };
+  }
+
+  private cancelsAt(hold: HoldRow): Date | null {
+    const rule = this.autoCancelRule();
+    if (rule.state === 'unset' || (hold.state !== 'requested' && hold.state !== 'under_review')) return null;
+    const at = new Date(hold.created_at.getTime() + rule.hours * HOUR_MS);
+    return Number.isFinite(at.getTime()) ? at : null;
+  }
+
+  /** The customer cancels their send while it is on hold. Nothing was posted, so nothing is returned or reversed. */
+  async cancel(userId: string, sendId: string): Promise<SendView> {
+    await this.sends.get(userId, sendId);
+    await this.expireOverdue({ sendId });
+    const send = await this.sends.get(userId, sendId);
+    // Cancelled already (by the customer, or by the window just now) is the same answer.
+    if (send.status === 'cancelled') return send;
+    const open = (
+      await this.sql<HoldRow[]>`
+        SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${sendId} AND state IN ('requested', 'under_review')
+      `
+    )[0];
+    if (send.status !== 'held' || send.ledgerTxId !== null || !open) throw personalPayError('bank.global_send_not_cancellable');
+    try {
+      await this.cancelHold(open, 'customer');
+    } catch (err) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : '';
+      if (code === 'bank.transfer_settled' || code === 'bank.hold_not_found') throw personalPayError('bank.global_send_not_cancellable');
+      throw err;
+    }
+    return this.sends.get(userId, sendId);
+  }
+
+  /**
+   * Applies the owner's window: every open hold placed longer ago than it, on a send with nothing posted, is cancelled.
+   * Scoped to one customer or one send when a read names one. Blank window, nothing happens.
+   */
+  async expireOverdue(scope: { userId?: string; sendId?: string }): Promise<number> {
+    const rule = this.autoCancelRule();
+    if (rule.state === 'unset') return 0;
+    const before = new Date(this.now().getTime() - rule.hours * HOUR_MS);
+    const rows = await this.sql<HoldRow[]>`
+      SELECT ${this.sql.unsafe(
+        COLUMNS.split(',')
+          .map((c) => `h.${c.trim()}`)
+          .join(', '),
+      )}
+      FROM bank.global_send_holds h JOIN bank.global_sends s ON s.id = h.send_id
+      WHERE h.state IN ('requested', 'under_review') AND h.created_at <= ${before}
+        AND s.status = 'held' AND s.ledger_tx_id IS NULL
+        ${scope.userId === undefined ? this.sql`` : this.sql`AND s.user_id = ${scope.userId}`}
+        ${scope.sendId === undefined ? this.sql`` : this.sql`AND s.id = ${scope.sendId}`}
+      ORDER BY h.created_at LIMIT 200
+    `;
+    let cancelled = 0;
+    for (const row of rows) {
+      if (
+        await this.cancelHold(row, 'auto').then(
+          () => true,
+          () => false,
+        )
+      )
+        cancelled += 1;
+    }
+    return cancelled;
+  }
+
+  /** Closes an open hold as cancelled and cancels its send, in one transaction: only a held send with nothing posted. */
+  private async cancelHold(hold: HoldRow, by: 'customer' | 'auto'): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const closed = await tx`
+        UPDATE bank.global_send_holds
+        SET state = 'cancelled', released_by = ${by === 'customer' ? 'customer' : 'system:auto-cancel'}, released_at = now(), updated_at = now()
+        WHERE id = ${hold.id} AND state IN ('requested', 'under_review') RETURNING id
+      `;
+      if (closed.length === 0) throw personalPayError('bank.hold_not_found');
+      const moved = await tx`
+        UPDATE bank.global_sends SET status = 'cancelled', cancelled_by = ${by}, updated_at = now()
+        WHERE id = ${hold.send_id} AND status = 'held' AND ledger_tx_id IS NULL RETURNING id
+      `;
+      // A hold that landed while the forward entry was being posted stands on a debit: that send cannot be cancelled.
+      if (moved.length === 0) throw personalPayError('bank.transfer_settled');
+    });
   }
 
   proofLimitsStatus(): { state: 'unset' | 'published'; allowedTypes: string[]; maxBytes: number | null } {
@@ -175,7 +289,7 @@ export class GlobalHoldService {
     const infoRequest = text(input.infoRequest, 1000);
     const rows = await this.sql<HoldRow[]>`
       UPDATE bank.global_send_holds SET info_request = ${infoRequest}, updated_at = now()
-      WHERE send_id = ${input.sendId} AND state <> 'released'
+      WHERE send_id = ${input.sendId} AND state IN ('requested', 'under_review')
       RETURNING ${this.sql.unsafe(COLUMNS)}
     `;
     if (!rows[0]) throw personalPayError('bank.hold_not_found');
@@ -185,9 +299,10 @@ export class GlobalHoldService {
   /** Open holds, newest first: the compliance queue. */
   async queue(input: { limit?: number }): Promise<(HoldView & { send: SendView & { userId: string } })[]> {
     if (input.limit === undefined) throw personalPayError('bank.global_list_limit_unset');
+    await this.expireOverdue({});
     const rows = await this.sql<HoldRow[]>`
       SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds
-      WHERE state <> 'released' ORDER BY created_at DESC, id DESC LIMIT ${input.limit}
+      WHERE state IN ('requested', 'under_review') ORDER BY created_at DESC, id DESC LIMIT ${input.limit}
     `;
     return Promise.all(rows.map(async (row) => ({ ...holdView(row), send: await this.sends.opsGet(row.send_id) })));
   }
@@ -200,6 +315,7 @@ export class GlobalHoldService {
   /** The customer's own view of the hold on their send. */
   async forCustomer(userId: string, sendId: string): Promise<CustomerHoldView> {
     await this.sends.get(userId, sendId);
+    await this.expireOverdue({ sendId });
     const rows = await this.sql<HoldRow[]>`
       SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${sendId}
       ORDER BY created_at DESC LIMIT 1
@@ -211,6 +327,7 @@ export class GlobalHoldService {
       infoRequest: row.info_request,
       proofUploaded: row.proof_sha256 !== null,
       proofLimits: this.limits ? { allowedTypes: [...this.limits.allowedTypes], maxBytes: this.limits.maxBytes } : null,
+      autoCancel: { ...this.autoCancelRule(), at: this.cancelsAt(row)?.toISOString() ?? null },
     };
   }
 
@@ -235,7 +352,7 @@ export class GlobalHoldService {
     const sha = createHash('sha256').update(bytes).digest('hex');
 
     const open = await this.sql<HoldRow[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${input.sendId} AND state <> 'released'
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${input.sendId} AND state IN ('requested', 'under_review')
     `;
     const hold = open[0];
     if (!hold || hold.info_request === null) throw personalPayError('bank.proof_not_requested');
@@ -273,6 +390,7 @@ export class GlobalHoldService {
   /** Lets a held send carry on. The person who held it cannot release it. */
   async release(input: { sendId: string; operatorId: string }): Promise<SendView> {
     const operatorId = text(input.operatorId, 128);
+    if ((await this.expireOverdue({ sendId: input.sendId })) > 0) throw personalPayError('bank.global_send_cancelled');
     const hold = await this.mustOpen(input.sendId);
     if (hold.placed_by === operatorId) throw personalPayError('bank.release_same_operator');
     await this.close(hold, operatorId);
@@ -291,9 +409,10 @@ export class GlobalHoldService {
     const reference = text(input.reference, 64).toUpperCase();
     if (reference.length < 6) throw personalPayError('bank.personal_pay_request_invalid');
     await this.sends.opsGet(input.sendId);
+    if ((await this.expireOverdue({ sendId: input.sendId })) > 0) throw personalPayError('bank.global_send_cancelled');
     const hold = (
       await this.sql<HoldRow[]>`
-        SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${input.sendId} AND state <> 'released'
+        SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${input.sendId} AND state IN ('requested', 'under_review')
       `
     )[0];
     if (hold && hold.placed_by === operatorId) throw personalPayError('bank.release_same_operator');
@@ -319,7 +438,7 @@ export class GlobalHoldService {
 
   private async mustOpen(sendId: string): Promise<HoldRow> {
     const rows = await this.sql<HoldRow[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${sendId} AND state <> 'released'
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM bank.global_send_holds WHERE send_id = ${sendId} AND state IN ('requested', 'under_review')
     `;
     if (!rows[0]) throw personalPayError('bank.hold_not_found');
     return rows[0];
@@ -329,7 +448,7 @@ export class GlobalHoldService {
     await this.sql.begin(async (tx) => {
       const closed = await tx`
         UPDATE bank.global_send_holds SET state = 'released', released_by = ${operatorId}, released_at = now(), updated_at = now()
-        WHERE id = ${hold.id} AND state <> 'released' RETURNING id
+        WHERE id = ${hold.id} AND state IN ('requested', 'under_review') RETURNING id
       `;
       if (closed.length === 0) throw personalPayError('bank.hold_not_found');
       await tx`UPDATE bank.global_sends SET status = 'submitted', updated_at = now() WHERE id = ${hold.send_id} AND status = 'held'`;

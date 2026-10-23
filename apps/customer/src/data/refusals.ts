@@ -226,6 +226,19 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'We can’t send this payment',
     body: 'This payment can’t be sent to that recipient right now. Nothing was taken from your balance.',
   },
+  globalCancelled: {
+    title: 'This send was cancelled',
+    body: 'It was cancelled while on hold, so it was not sent. Nothing was taken from your balance.',
+  },
+  globalNotCancellable: {
+    title: 'This send can’t be cancelled',
+    body: 'Only a send that is on hold, with nothing sent, can be cancelled.',
+  },
+  receiptNotReady: { title: 'No receipt for this send', body: 'A receipt is made once the send has left your balance.' },
+  receiptOff: {
+    title: 'Receipts are switched off',
+    body: 'Receipts can’t be signed in this build, so none is made. Your send is not affected.',
+  },
   proofOff: {
     title: 'Uploads are switched off',
     body: 'The file types and size we accept have not been published, so no upload is accepted. Nothing was sent.',

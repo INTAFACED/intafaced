@@ -51,6 +51,11 @@
       "value": "24",
       "note": "How long a newly saved bank recipient waits before money may go to it (J-bank-04 #2)."
     },
+    "BANK_GLOBAL_HOLD_CANCEL_HOURS": {
+      "service": "bank",
+      "value": "72",
+      "note": "How long a global send may stay on a compliance hold before it is cancelled automatically, nothing posted (J-bank-04 #6)."
+    },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "30",

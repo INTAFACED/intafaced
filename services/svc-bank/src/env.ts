@@ -253,6 +253,15 @@ const schema = serviceEnvSchema
       BANK_PAYEE_COOLING_HOURS: z.string().optional(),
 
       /**
+       * Owner-set hours a global send may stay on a compliance hold before it is cancelled automatically, nothing posted
+       * (BK-xfer-08, J-bank-04 #6).
+       *
+       * No default. Blank / unset / not a whole number of 1 or more → nothing is cancelled automatically, and every screen
+       * says the rule is not published (`bank.global_hold_cancel_unset`).
+       */
+      BANK_GLOBAL_HOLD_CANCEL_HOURS: z.string().optional(),
+
+      /**
        * Owner-set number of saved withdrawal addresses one customer may hold.
        *
        * No default. Blank / unset / zero / not a whole number → saving an address refuses

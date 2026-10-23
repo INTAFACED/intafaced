@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze, toUnits } from './stack.mjs';
@@ -10,7 +12,8 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // (`local-test-gates.mjs apply`) and none for BTC; every number here is a TEST number on the local stack, and balances
 // are read through each person's own API. #5 sends abroad through Pay's global send on the TEST stand-in, whose TEST
 // catalogue puts a USDT send of 500 or more on hold for a compliance look: staff ask for a document and release it by
-// API with the stack's founder sessions. Not here yet: #6 and #7 (each lands with its own slice).
+// API with the stack's founder sessions. #6 follows a send that left (the tracker and its signed receipt) and cancels one
+// on hold, under the TEST auto-cancel window of 72 hours. Not here yet: #7 (it lands with its own slice).
 const J = 'J-bank-04';
 const AMOUNT = '40';
 const NOTE = 'Lunch, TEST';
@@ -336,6 +339,10 @@ function founders() {
     const ctx = await gates.makeContext({ log: () => {} });
     return { ctx, sessions: await gates.approverSessions(ctx) };
   })();
+  // A failed sign-in is not kept: the next staff call signs in again.
+  founderSessions.catch(() => {
+    founderSessions = undefined;
+  });
   return founderSessions;
 }
 
@@ -442,4 +449,58 @@ test(`${J} #5 meets a compliance hold: the send waits, the bank asks for a docum
     { timeout: 30_000 },
   );
   expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('500'));
+});
+
+test(`${J} #6 watches the tracker, downloads a signed receipt with the ledger id and hash, and cancels a send on hold under the auto-cancel rule`, async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  const { sender } = await people(page);
+  expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
+  await signInSender(page);
+  const before = await senderUsdt();
+
+  // A send that leaves: the tracker shows its states, and the newest row has gone one step of three.
+  let card = await globalSend(page, { name: 'Cara TEST', account: 'DE89 3704 0044 0532 0130 00', value: '40', receive: '80' });
+  await expect(card.getByTestId('global-sent')).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByTestId('pay-steps').last().locator('li')).toHaveText(['Sent', 'On its way', 'Arrived']);
+  const sentRow = card.getByTestId('global-history').locator('li').first();
+  await expect(sentRow).toContainText('40 USDT to EUR · Sent (1/3)', { timeout: 30_000 });
+
+  // The receipt: a file, signed, naming the ledger transaction; its hash on screen is the hash of the file.
+  const sent = (await globalSends()).find((one) => one.amount === '40' && one.status === 'sent');
+  expect(sent?.ledgerTxId).toBeTruthy();
+  const receipt = sentRow.getByTestId('global-receipt');
+  const [download] = await Promise.all([page.waitForEvent('download'), receipt.getByRole('button', { name: 'Download receipt' }).click()]);
+  expect(download.suggestedFilename()).toBe(`receipt-${sent.id}.txt`);
+  const file = readFileSync(await download.path(), 'utf8');
+  expect(file).toContain(`Ledger transaction: ${sent.ledgerTxId}`);
+  expect(file).toContain('Sent: 40 USDT');
+  expect(file).toContain('To: Cara TEST · …3000 (DE, sepa)');
+  await expect(receipt.getByTestId('global-receipt-ledger')).toHaveText(`Ledger record: ${sent.ledgerTxId}`);
+  await expect(receipt.getByTestId('global-receipt-hash')).toHaveText(`SHA-256: ${createHash('sha256').update(file).digest('hex')}`);
+  await expect(receipt).toContainText(/Signed: [0-9a-f]{64}/);
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('40'));
+
+  // A send on hold shows the owner's auto-cancel rule with its time, and the customer cancels it: nothing leaves.
+  card = await globalSend(page, { name: 'Cara TEST', account: 'DE89 3704 0044 0532 0130 00', value: '500', receive: '1000' });
+  const heldRow = card.getByTestId('global-history').locator('li').first();
+  await expect(heldRow).toHaveAttribute('data-status', 'held', { timeout: 30_000 });
+  await expect(heldRow.getByTestId('global-hold-autocancel')).toHaveText(
+    /^If it is still on hold at \d{4}-\d{2}-\d{2}T\S+Z, it is cancelled automatically and nothing is taken from your balance\.$/,
+    { timeout: 30_000 },
+  );
+  const at = (await heldRow.getByTestId('global-hold-autocancel').innerText()).match(/at (\S+Z),/)[1];
+  const waiting = (await globalSends()).find((one) => one.amount === '500' && one.status === 'held');
+  // The TEST window is 72 hours from the hold, which was placed as the send was made.
+  expect(Math.abs(Date.parse(at) - Date.parse(waiting.createdAt) - 72 * 3_600_000)).toBeLessThan(60_000);
+  await heldRow.getByTestId('global-cancel').click();
+  const cancelled = card.getByTestId('global-history').locator('li[data-status="cancelled"]').first();
+  await expect(cancelled).toHaveText('500 USDT to EUR · Cancelled — You cancelled it. Nothing was taken from your balance.', {
+    timeout: 30_000,
+  });
+  await expect(cancelled.getByTestId('global-receipt')).toHaveCount(0);
+  expect(toUnits(await senderUsdt())).toBe(toUnits(before) - toUnits('40'));
+  // Staff can no longer release it: it is out of the queue and nothing posts.
+  await expect(staff('release', { sendId: waiting.id }, 'b')).rejects.toThrow(/bank.hold_not_found/);
 });

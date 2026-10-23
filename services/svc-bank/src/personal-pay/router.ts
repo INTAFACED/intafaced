@@ -60,7 +60,7 @@ const sendView = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -71,11 +71,12 @@ const sendView = z.object({
   quoteValidUntil: z.string().nullable(),
   quoteEta: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
+  cancelledBy: z.enum(['customer', 'auto']).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
-const holdState = z.enum(['requested', 'under_review', 'released']);
+const holdState = z.enum(['requested', 'under_review', 'released', 'cancelled']);
 const operatorHoldView = z.object({
   id: z.string(),
   sendId: z.string(),
@@ -92,6 +93,7 @@ const customerHoldView = z.object({
   infoRequest: z.string().nullable(),
   proofUploaded: z.boolean(),
   proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number() }).nullable(),
+  autoCancel: z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable(), at: z.string().nullable() }),
 });
 
 function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -436,11 +438,39 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
     list: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ limit: limitField, cursor: z.string().min(1).max(512).optional() }).strict())
       .output(z.object({ items: z.array(sendView), nextCursor: z.string().nullable() }))
-      .query(({ ctx, input }) => guard(() => bank.globalSend.list({ userId: ctx.principal.userId, ...input }))),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          // The owner's auto-cancel window is applied before the customer reads their sends.
+          await bank.globalHolds.expireOverdue({ userId: ctx.principal.userId });
+          return bank.globalSend.list({ userId: ctx.principal.userId, ...input });
+        }),
+      ),
     get: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ id: z.string().uuid() }).strict())
       .output(sendView)
-      .query(({ ctx, input }) => guard(() => bank.globalSend.get(ctx.principal.userId, input.id))),
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          await bank.globalSend.get(ctx.principal.userId, input.id);
+          await bank.globalHolds.expireOverdue({ sendId: input.id });
+          return bank.globalSend.get(ctx.principal.userId, input.id);
+        }),
+      ),
+    /** Cancel a send while it is on hold with nothing posted (BK-xfer-08). Nothing moves, so no step-up. */
+    cancel: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ id: z.string().uuid() }).strict())
+      .output(sendView)
+      .mutation(({ ctx, input }) => guard(() => bank.globalHolds.cancel(ctx.principal.userId, input.id))),
+    /** The signed receipt of a send that left: its text, SHA-256, signature and ledger transaction id. */
+    receipt: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ id: z.string().uuid() }).strict())
+      .output(
+        z.object({ fileName: z.string(), text: z.string(), ledgerTxId: z.string(), sha256: z.string(), signature: z.string() }).strict(),
+      )
+      .query(({ ctx, input }) => guard(() => bank.globalSend.receipt(ctx.principal.userId, input.id))),
+    /** The owner's auto-cancel rule for a send on hold, as the tracker shows it. */
+    autoCancelRule: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable() }).strict())
+      .query(() => guard(async () => bank.globalHolds.autoCancelRule())),
     hold: router({
       get: scopedProcedure('bank:read', { module: 'bank' })
         .input(z.object({ id: z.string().uuid() }).strict())
@@ -540,6 +570,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               on_the_way: z.number(),
               arrived: z.number(),
               failed: z.number(),
+              cancelled: z.number(),
             }),
             volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
             rails: z.object({

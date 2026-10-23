@@ -2,7 +2,7 @@
  * Bill pay and global send. Acceptance tests enter through the router.
  * TEST_DATABASE_URL only. This file does not start Docker.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -233,6 +233,8 @@ describe('personal bill pay and global send', () => {
       payeeControls?: string | null;
       exchangeAllowance?: string | null;
       proofLimits?: string;
+      holdCancelHours?: string;
+      receiptSecret?: string;
     } = {},
   ) {
     const ledger = new MemoryLedger();
@@ -245,6 +247,8 @@ describe('personal bill pay and global send', () => {
       payeeControls: options.payeeControls === null ? undefined : (options.payeeControls ?? PAYEE_OK),
       exchangeAllowance: options.exchangeAllowance === null ? undefined : (options.exchangeAllowance ?? ALLOWANCE_NONE),
       proofLimits: options.proofLimits,
+      holdCancelHours: options.holdCancelHours ?? '',
+      receiptSecret: options.receiptSecret,
     });
     return { ledger, bank };
   }
@@ -788,6 +792,7 @@ describe('personal bill pay and global send', () => {
       infoRequest: 'Please send your payslip.',
       proofUploaded: false,
       proofLimits: { allowedTypes: ['application/pdf'], maxBytes: 64 },
+      autoCancel: { state: 'unset', hours: null, at: null },
     });
     expect(JSON.stringify(mine)).not.toMatch(/screening|heldBy|reason/);
     await expect(caller(await seededOther(), OTHER, write).global.hold.get({ id })).rejects.toBeTruthy();
@@ -1128,13 +1133,14 @@ describe('personal bill pay and global send', () => {
     };
     const stackValue = (name: string) => profile.values[name]!.value;
 
-    async function ready() {
+    async function ready(extra: { holdCancelHours?: string; receiptSecret?: string } = {}) {
       const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'));
       if (!catalogue) throw new Error('the bank profile catalogue does not parse');
       const { ledger, bank } = mount({
         sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'),
         proofLimits: stackValue('BANK_PROOF_LIMITS_JSON'),
         global: globalSimPorts(catalogue),
+        ...extra,
       });
       const space = await funded(bank, ledger);
       const me = caller(bank, USER, write);
@@ -1228,6 +1234,112 @@ describe('personal bill pay and global send', () => {
       expect(await rail()).toBe(parseAmount('200'));
       expect(await balance()).toBe(parseAmount('400'));
       expect(transfers(ledger)).toHaveLength(1);
+    });
+
+    /** A 500 USDT send, screened and held with nothing posted. */
+    async function held(ledger: MemoryLedger, me: ReturnType<typeof caller>, body: Record<string, string>) {
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const big = { ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` };
+      const waiting = await me.global.send(big);
+      expect(waiting).toMatchObject({ status: 'held', ledgerTxId: null });
+      return { big, waiting };
+    }
+
+    it('the customer cancels a send on hold once: nothing posts, it leaves the queue, and neither a release nor a replay moves it', async () => {
+      const { ledger, bank, me, body, balance } = await ready({ holdCancelHours: '72' });
+      const { big, waiting } = await held(ledger, me, body);
+      const hold = await me.global.hold.get({ id: waiting.id });
+      expect(hold.autoCancel).toMatchObject({ state: 'published', hours: 72 });
+      expect(Date.parse(hold.autoCancel.at!) - Date.parse(waiting.createdAt)).toBeGreaterThanOrEqual(72 * 3_600_000 - 60_000);
+      // A send that left cannot be cancelled; someone else's send is not found.
+      const sent = await me.global.send(body);
+      await expect(me.global.cancel({ id: sent.id })).rejects.toMatchObject({ cause: { code: 'bank.global_send_not_cancellable' } });
+      await expect(caller(bank, OTHER, write).global.cancel({ id: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_found' },
+      });
+      const cancelled = await me.global.cancel({ id: waiting.id });
+      expect(cancelled).toMatchObject({ id: waiting.id, status: 'cancelled', cancelledBy: 'customer', ledgerTxId: null });
+      expect(await me.global.cancel({ id: waiting.id })).toMatchObject({ status: 'cancelled', cancelledBy: 'customer' });
+      expect((await caller(bank, OP_A, compliance).global.ops.holds({ limit: 50 })).some((one) => one.sendId === waiting.id)).toBe(false);
+      await expect(caller(bank, OP_B, compliance).global.ops.release({ sendId: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.hold_not_found' },
+      });
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'cancelled' });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('560'));
+    });
+
+    it('the owner window cancels a send still on hold that long, on read or at release; blank, nothing is cancelled and the rule says so', async () => {
+      const { ledger, bank, me, body, balance } = await ready({ holdCancelHours: '72' });
+      const age = (id: string) => sql`
+        UPDATE bank.global_send_holds SET created_at = now() - interval '73 hours' WHERE send_id = ${id}
+      `;
+      const first = (await held(ledger, me, body)).waiting;
+      await age(first.id);
+      // Reading the sends applies the window.
+      expect((await me.global.list({ limit: 10 })).items.find((one) => one.id === first.id)).toMatchObject({
+        status: 'cancelled',
+        cancelledBy: 'auto',
+      });
+      expect(await me.global.hold.get({ id: first.id })).toMatchObject({ state: 'cancelled', autoCancel: { at: null } });
+      // A release of a send past the window cancels it instead of posting.
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const second = await me.global.send({ ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` });
+      await age(second.id);
+      await expect(caller(bank, OP_B, compliance).global.ops.release({ sendId: second.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_send_cancelled' },
+      });
+      expect(await me.global.get({ id: second.id })).toMatchObject({ status: 'cancelled', cancelledBy: 'auto', ledgerTxId: null });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('1100'));
+
+      // Blank window: the rule reads unset, and an old hold stays on hold.
+      const blank = await ready();
+      expect(await blank.me.global.autoCancelRule()).toEqual({ state: 'unset', hours: null });
+      const third = (await held(blank.ledger, blank.me, blank.body)).waiting;
+      await age(third.id);
+      expect(await blank.me.global.get({ id: third.id })).toMatchObject({ status: 'held' });
+      expect((await blank.me.global.hold.get({ id: third.id })).autoCancel).toEqual({ state: 'unset', hours: null, at: null });
+    });
+
+    it('signs the receipt of a send that left with its ledger id and hash; the same send gives the same bytes; none before it leaves or without a key', async () => {
+      const { ledger, bank, me, body } = await ready({ receiptSecret: SECRET });
+      const sent = await me.global.send(body);
+      const receipt = await me.global.receipt({ id: sent.id });
+      expect(receipt.ledgerTxId).toBe(sent.ledgerTxId);
+      expect(receipt.fileName).toBe(`receipt-${sent.id}.txt`);
+      expect(receipt.text).toContain(`Ledger transaction: ${sent.ledgerTxId}`);
+      expect(receipt.text).toContain('Sent: 40 USDT');
+      expect(receipt.text).toContain('They receive: 80 EUR');
+      expect(receipt.text).toContain('To: Ada · …3000 (DE, sepa)');
+      expect(receipt.text).not.toContain('DE89370400440532013000');
+      expect(receipt.sha256).toBe(createHash('sha256').update(receipt.text).digest('hex'));
+      const key = Buffer.from(hkdfSync('sha256', SECRET, Buffer.alloc(0), 'bank.global.receipt.v1', 32));
+      expect(receipt.signature).toBe(createHmac('sha256', key).update(receipt.text).digest('hex'));
+      expect(await me.global.receipt({ id: sent.id })).toEqual(receipt);
+      await expect(caller(bank, OTHER, write).global.receipt({ id: sent.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_found' },
+      });
+      const { waiting } = await held(ledger, me, body);
+      await expect(me.global.receipt({ id: waiting.id })).rejects.toMatchObject({ cause: { code: 'bank.receipt_not_ready' } });
+      // A name with line breaks stays on its one line: it cannot add a line to the signed text.
+      const forged = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Bob\nLedger transaction: forged\u2028Payout reference: forged',
+        account: 'DE89370400440532013000',
+        country: 'DE',
+      });
+      const tricky = await me.global.send({ ...body, recipientId: forged.id, idempotencyKey: `send-${randomUUID()}` });
+      const lines = (await me.global.receipt({ id: tricky.id })).text.split('\n');
+      expect(lines.filter((line) => line.startsWith('Ledger transaction: '))).toEqual([`Ledger transaction: ${tricky.ledgerTxId}`]);
+      expect(lines).toContain('To: Bob Ledger transaction: forged Payout reference: forged · …3000 (DE, sepa)');
+      const keyless = await ready();
+      const other = await keyless.me.global.send(keyless.body);
+      await expect(keyless.me.global.receipt({ id: other.id })).rejects.toMatchObject({ cause: { code: 'bank.receipt_signing_unset' } });
     });
 
     it('refuses a delivery method or corridor the catalogue does not hold, and an amount outside its TEST bounds, posting nothing', async () => {

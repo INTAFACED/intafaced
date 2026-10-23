@@ -87,6 +87,10 @@ export type RefusalKind =
   | 'globalAmountOutside'
   | 'globalDetailsMissing'
   | 'globalNoSend'
+  | 'globalCancelled'
+  | 'globalNotCancellable'
+  | 'receiptNotReady'
+  | 'receiptOff'
   | 'proofOff'
   | 'proofType'
   | 'proofSize'
@@ -264,6 +268,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.proof_already_uploaded': 'proofDone',
   'bank.hold_not_found': 'notFound',
   'bank.transfer_settled': 'globalNoSend',
+  'bank.global_send_cancelled': 'globalCancelled',
+  'bank.global_send_not_cancellable': 'globalNotCancellable',
+  'bank.receipt_not_ready': 'receiptNotReady',
+  'bank.receipt_signing_unset': 'receiptOff',
   'bank.global_insufficient_funds': 'insufficient',
   'bank.global_outcome_unknown': 'tryAgain',
   'bank.global_conflict': 'duplicate',
