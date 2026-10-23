@@ -37,6 +37,7 @@ import {
 } from './grid';
 import { MarketChartWidget, type WidgetProps } from './MarketChartWidget';
 import { StudiesBar } from './studies/StudiesBar';
+import type { StudyKind } from './studies/catalogue';
 import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerValues } from './owner-values';
 import { chartsHref, type WorkbenchSetting } from './workbench';
 
@@ -89,6 +90,12 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const [maximised, setMaximised] = useState<number | null>(null);
   const [help, setHelp] = useState(false);
   const [commands, setCommands] = useState<Record<number, { kind: 'replay'; nonce: number }>>({});
+  // A study added to one sync group goes to every chart in it: each chart's studies bar applies the command once.
+  const [groupCommand, setGroupCommand] = useState<{ group: Group; kind: StudyKind; nonce: number } | null>(null);
+  const applyToGroup = useCallback(
+    (group: Group, kind: StudyKind) => setGroupCommand((now) => ({ group, kind, nonce: (now?.nonce ?? 0) + 1 })),
+    [],
+  );
   // The first chart's colour group is kept beside the grid (its market and interval are the workbench's own).
   const [firstTag, setFirstTag] = useDeviceSetting<Group | 'none'>(
     `${gridKey(userId, workbench)}:first`,
@@ -406,17 +413,28 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   onScheme={i === 0 ? setScheme : undefined}
                   openSocket={openSocket}
                   onHost={(host) => onHost(i, host)}
-                  addons={i === 0 ? mainAddons : undefined}
                   command={commands[i] ?? null}
                   markets={markets}
                   addons={(host, bars) => (
-                    <StudiesBar
-                      host={host}
-                      market={cellMarket}
-                      interval={cell.interval}
-                      bars={bars}
-                      workbench={i === 0 ? workbench : `${workbench}:${i}`}
-                    />
+                    <>
+                      {i === 0 ? mainAddons?.(host, bars) : null}
+                      <StudiesBar
+                        host={host}
+                        market={cellMarket}
+                        interval={cell.interval}
+                        bars={bars}
+                        workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                        group={
+                          cell.group
+                            ? {
+                                size: cells.filter((c) => c.group === cell.group).length,
+                                command: groupCommand && groupCommand.group === cell.group ? groupCommand : null,
+                                onApplyToGroup: (kind) => applyToGroup(cell.group!, kind),
+                              }
+                            : undefined
+                        }
+                      />
+                    </>
                   )}
                 />
               ) : (

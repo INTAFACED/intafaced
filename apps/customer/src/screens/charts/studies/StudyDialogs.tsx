@@ -39,13 +39,18 @@ export function IndicatorDialog({
   open,
   onOpenChange,
   onAdd,
+  groupSize = 0,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (kind: StudyKind) => void;
+  /** `toGroup` is true when the study goes to every chart of the sync group (only offered when there is one). */
+  onAdd: (kind: StudyKind, toGroup: boolean) => void;
+  /** Charts in this chart's sync group, this one included; the group option shows only above one. */
+  groupSize?: number;
 }) {
   const { t, word } = useWords();
   const [query, setQuery] = useState('');
+  const [toGroup, setToGroup] = useState(false);
   const groups = useMemo(() => groupByCategory(searchStudies(query)), [query]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -59,6 +64,12 @@ export function IndicatorDialog({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+        {groupSize > 1 && (
+          <label className="st-check">
+            <input type="checkbox" checked={toGroup} onChange={(event) => setToGroup(event.target.checked)} />
+            <span>{t('Add to every chart in this sync group ({n})', { n: String(groupSize) })}</span>
+          </label>
+        )}
         {groups.length === 0 && <p className="st-note">{t('No indicator matches {query}.', { query })}</p>}
         {groups.map((group) => (
           <section key={group.category} className="st-group" aria-label={word(CATEGORY_KEY[group.category])}>
@@ -72,7 +83,7 @@ export function IndicatorDialog({
                     variant="secondary"
                     aria-label={t('Add {name}', { name: word(def.name) })}
                     onClick={() => {
-                      onAdd(def.kind);
+                      onAdd(def.kind, toGroup && groupSize > 1);
                       onOpenChange(false);
                     }}
                   >

@@ -68,8 +68,11 @@ export function useStudyDraw(host: ChartHost | null, series: readonly SeriesOut[
     if (panes > 0) {
       const all = chart.panes();
       all.forEach((p, n) => p.setStretchFactor(n === 0 ? 3 : 1));
+      // The number of indicator panes under the main pane, for the page and its journeys.
+      host.element.dataset.studyPanes = String(panes);
     }
     return () => {
+      delete host.element.dataset.studyPanes;
       for (const api of added) {
         try {
           chart.removeSeries(api as Parameters<typeof chart.removeSeries>[0]);

@@ -4,7 +4,6 @@ import type { Candle } from '../../data/types';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
 import { zoneName } from '../trade/desk/time';
 import type { DeskMarket } from '../trade/desk/market';
-import type { Candle } from '../../data/types';
 import type { ChartHost } from './chart-host';
 import {
   BASIS_UNPUBLISHED,

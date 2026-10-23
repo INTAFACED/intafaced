@@ -6,7 +6,7 @@
  * It needs the chart's host (`ChartHost`, from the workbench chart) and the bars the chart draws. It draws nothing until
  * the host is ready, and every value it shows comes from `computeStudy`.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import type { Candle, Loadable } from '../../../data/types';
 import { useSession } from '../../../features/session/session';
@@ -45,6 +45,17 @@ export interface StudiesBarProps {
   bars: readonly Candle[] | null;
   /** The workbench the studies belong to (`?w=`). Default `main`. */
   workbench?: string;
+  /**
+   * The chart's sync group, when it has one. `command` is the study the group was asked to add, with a nonce so each
+   * request is applied once; `onApplyToGroup` asks the grid to add a study to every chart of the group.
+   */
+  group?: StudyGroupLink;
+}
+
+export interface StudyGroupLink {
+  size: number;
+  command: { nonce: number; kind: StudyKind } | null;
+  onApplyToGroup: (kind: StudyKind) => void;
 }
 
 type Words = StudiesWords;
@@ -222,12 +233,20 @@ function StudyRow({
   );
 }
 
-export function StudiesBar({ host, market, interval, bars, workbench = 'main' }: StudiesBarProps) {
+export function StudiesBar({ host, market, interval, bars, workbench = 'main', group }: StudiesBarProps) {
   const words = useWords();
   const { t, word } = words;
   const { userId } = useSession();
   const [store, setStore] = useDeviceSetting<StudyStore>(storeKey(userId, workbench), FRESH_STORE, isStudyStore);
   const [adding, setAdding] = useState(false);
+  // A group command is applied once: the nonce it arrived with is remembered, so a remount does not add it again.
+  const appliedNonce = useRef(group?.command?.nonce ?? 0);
+  const groupCommand = group?.command ?? null;
+  useEffect(() => {
+    if (!groupCommand || groupCommand.nonce === appliedNonce.current) return;
+    appliedNonce.current = groupCommand.nonce;
+    setStore((now) => addStudy(now, groupCommand.kind));
+  }, [groupCommand, setStore]);
   const [editing, setEditing] = useState<string | null>(null);
   const [showWindow, setShowWindow] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
@@ -370,7 +389,14 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main' }:
         </section>
       )}
 
-      <IndicatorDialog open={adding} onOpenChange={setAdding} onAdd={(kind: StudyKind) => setStore((now) => addStudy(now, kind))} />
+      <IndicatorDialog
+        open={adding}
+        onOpenChange={setAdding}
+        groupSize={group?.size ?? 0}
+        onAdd={(kind: StudyKind, toGroup: boolean) =>
+          toGroup && group ? group.onApplyToGroup(kind) : setStore((now) => addStudy(now, kind))
+        }
+      />
       {editingStudy && (
         <StudySettings
           key={editingStudy.id}

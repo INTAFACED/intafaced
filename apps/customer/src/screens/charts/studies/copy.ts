@@ -19,6 +19,7 @@ const messages = {
   'Shown on {interval}': 'Shown on {interval}',
   'Hidden on this interval': 'hidden on this interval',
   'Legend always shown': 'Legend always shown',
+  'Add to every chart in this sync group ({n})': 'Add to every chart in this sync group ({n})',
   'Data window': 'Data window',
   'Show the data window': 'Show the data window',
   'Move the pointer over the chart to read its values.': 'Move the pointer over the chart to read its values.',
