@@ -977,6 +977,53 @@
     outline: 2px solid var(--if-lime);
     outline-offset: 2px;
   }
+  .dk-select {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--if-lime);
+    cursor: pointer;
+  }
+  .dk-scopes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0 4px;
+    padding: 0;
+    border: 0;
+  }
+  .dk-scope {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--if-fg);
+    font: 400 14px/20px var(--if-font-ui);
+    cursor: pointer;
+  }
+  .dk-scope input {
+    margin-top: 3px;
+    accent-color: var(--if-lime);
+  }
+  .dk-scope input:disabled + span {
+    color: var(--if-fg-3);
+  }
+  .dk-scope-note {
+    display: block;
+    color: var(--if-fg-2);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .dk-batch {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    font: 400 13px/18px var(--if-font-ui);
+  }
+  .dk-batch-good {
+    color: var(--if-fg);
+  }
+  .dk-batch-bad {
+    color: var(--if-down-text);
+  }
   .dk-edit .dk-edit-fields {
     display: flex;
     flex-direction: column;

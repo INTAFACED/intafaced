@@ -188,6 +188,8 @@ export function OrdersTable({
   onChanged,
   desk = false,
   onEdit,
+  selected,
+  onSelect,
 }: {
   rows: Order[];
   withAction: boolean;
@@ -197,6 +199,9 @@ export function OrdersTable({
   desk?: boolean;
   /** Open the edit dialog for an order (the desk hosts the dialog above the table: a replacement removes the row). */
   onEdit?: (order: Order) => void;
+  /** Orders ticked for a batch cancel; with `onSelect`, each open order gets a checkbox. */
+  selected?: ReadonlySet<string>;
+  onSelect?: (id: string, on: boolean) => void;
 }) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -205,6 +210,11 @@ export function OrdersTable({
       <table className="dk-table">
         <thead>
           <tr>
+            {withAction && onSelect ? (
+              <th>
+                <span className="sr-only">{t('Select order')}</span>
+              </th>
+            ) : null}
             <th>{t('Time')}</th>
             <th>{t('Pair')}</th>
             <th>{t('Type')}</th>
@@ -225,6 +235,24 @@ export function OrdersTable({
         <tbody>
           {byNewest(rows).map((order) => (
             <tr key={order.id}>
+              {withAction && onSelect ? (
+                <td>
+                  {isTerminalOrder(order) ? null : (
+                    <input
+                      type="checkbox"
+                      className="dk-select"
+                      checked={selected?.has(order.id) ?? false}
+                      onChange={(event) => onSelect(order.id, event.currentTarget.checked)}
+                      aria-label={t('Select order label', {
+                        side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
+                        amount: fmtAmount(order.amount, { places: 8 }),
+                        asset: baseOf(order.symbol),
+                        pair: order.symbol,
+                      })}
+                    />
+                  )}
+                </td>
+              ) : null}
               <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
               <td>{order.symbol}</td>
               <td>

@@ -261,6 +261,20 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+/** LOCAL TEST maintenance ladder for the TEST perpetual (TRADE_FUTURES_LADDER_POLICY). Same numbers as
+ * services/svc-trade/src/futures/ladder-policy.test-harness.ts: coarse on purpose, never an owner D3 table. */
+export const TEST_FUTURES_LADDER_POLICY = Object.freeze({
+  tiers: [
+    { uptoDepthBps: 500, maintenanceBps: 50 },
+    { uptoDepthBps: 2_000, maintenanceBps: 100 },
+    { uptoDepthBps: 5_000, maintenanceBps: 250 },
+    { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 500 },
+  ],
+  marginCallBps: 12_000,
+  targetBps: 15_000,
+  maxTrancheBps: 2_500,
+});
+
 const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
 
 /**
@@ -932,6 +946,22 @@ function serviceDefs(secrets) {
           makerBps: '8',
           takerBps: '10',
         }),
+        // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
+        // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
+        // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
+        // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
+        TRADE_FUTURES_ENABLED: 'true',
+        TRADE_FUTURES_TEST_SEED: 'true',
+        TRADE_FUTURES_JOBS_ENABLED: 'true',
+        TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
+        TRADE_FUTURES_LADDER_POLICY: JSON.stringify(TEST_FUTURES_LADDER_POLICY),
+        // The code's own ceiling (DIRECTION §1); the TEST listing caps itself lower. Markets show orderable only with it.
+        TRADE_FUTURES_MAX_LEVERAGE: '10',
+        // Futures orders through the one book (futures ADR 2026-10-20): no open at mark. The TEST perpetual is marked
+        // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
+        TRADE_FUTURES_MATCHING_ENABLED: 'true',
+        TRADE_FUTURES_PRICE_BAND: '0.05',
+        TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },
     {

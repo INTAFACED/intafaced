@@ -84,3 +84,32 @@ test(`${J} #2 and part of #4 a business with verification not started: "Not veri
   // The portal never asks the founder's console for anything.
   expect(asked.filter((url) => /founderAdmin/i.test(url))).toEqual([]);
 });
+
+test(`${J} #5 the team page lists the five built-in roles and every permission exactly as the service's role table holds them`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = await businessReadyPerson(page, 'mr', '/pay/onboarding');
+  await openBusiness(page, who, 'TEST Roles Ltd');
+  const refused = refusedPayCalls(page);
+  const answer = page.waitForResponse((r) => r.url().includes('merchantOps.permissions.catalogue'));
+  await page.goto('/pay/team');
+  const sent = await (await answer).json();
+  const catalogue = (Array.isArray(sent) ? sent[0] : sent).result.data;
+  expect(catalogue.roles.map((r) => r.role)).toEqual(['owner', 'admin', 'finance', 'developer', 'viewer']);
+
+  const roles = page.getByRole('region', { name: 'What each role can do' });
+  for (const role of catalogue.roles) await expect(roles).toContainText(role.description);
+  // Each permission row, in the service's order: the five cells say Yes exactly where its heldBy names the role.
+  const order = ['owner', 'admin', 'finance', 'developer', 'viewer'];
+  const expected = catalogue.areas.flatMap((g) => g.permissions.map((p) => order.map((r) => (p.heldBy.includes(r) ? 'Yes' : 'No'))));
+  const matrix = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Every permission, by role' }) });
+  await expect(matrix.locator('tbody tr')).toHaveCount(expected.length);
+  const shown = await matrix
+    .locator('tbody tr')
+    .evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)));
+  expect(shown).toEqual(expected);
+  expect(expected.length).toBeGreaterThan(20);
+  await expect(matrix.getByText(/has no name for yet/)).toHaveCount(0);
+  expect(refused).toEqual([]);
+});

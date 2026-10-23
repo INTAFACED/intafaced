@@ -102,6 +102,13 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.close_finalize_limit_unset': 'The finalize limit is not set.',
   'identity.closure_list_limit_unset': 'The list limit is not set.',
   'identity.closure_list_cursor_invalid': 'That page cursor is not valid.',
+  'identity.anti_phishing_delegated': 'Sign in on this device. An API key or a sub-account cannot read or change the anti-phishing code.',
+  'identity.anti_phishing_invalid': 'Use 4 to 20 letters and digits for the anti-phishing code.',
+  'identity.anti_phishing_guessable': 'Pick a code that is not your handle, your email or your password.',
+  'identity.anti_phishing_key_unset': 'Anti-phishing codes cannot be stored on this service: its encryption key is not set.',
+  'identity.anti_phishing_unavailable': 'The anti-phishing code is not available on this service.',
+  'identity.anti_phishing_unreadable': 'Your anti-phishing code cannot be read on this service. Set a new one, or remove it.',
+  'identity.session_not_live': 'This sign-in has ended. Sign in again.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

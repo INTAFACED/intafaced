@@ -2848,19 +2848,22 @@ export class TradeService {
    * Cancel every open/pending order for the principal (optional market filter).
    * Sequential on purpose: each cancel is its own hold-release money path.
    */
-  async cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]> {
+  async cancelAllOrders(principal: Principal, marketId?: string, kind?: MarketKind): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:write');
     // Mutation, not a list door: pull every rest for this principal. openOrders is a
     // published page and must not silently leave orders past LIMIT uncancelled.
+    // `kind` narrows to one product's markets ("spot only" leaves futures and options orders alone).
     const rows = marketId
       ? await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `
       : await this.sql<OrderRow[]>`
           SELECT * FROM trade.orders
            WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
            ORDER BY created_at DESC
         `;
     const open = rows.map(toOrder);
