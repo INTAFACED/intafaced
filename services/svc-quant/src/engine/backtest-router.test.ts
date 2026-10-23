@@ -13,7 +13,8 @@ import { trackRun } from '../runs/track.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
 import { HISTORY_BARS_BACK, tradeFeePort, tradeHistoryPort, type FeePort, type HistoryPort } from './ports.js';
-import { NO_JUDGEMENT, prepareBacktest, type Judgement } from './run.js';
+import { NO_JUDGEMENT, prepareBacktest, runOnBars, type Judgement } from './run.js';
+import { parseAmount } from '@intafaced/ledger-client/money';
 
 const SECRET = 'a-quant-bar-backtest-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
@@ -434,6 +435,25 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     });
     expect(second.checks.find((check) => check.name === 'variant_count')).toMatchObject({ status: 'warning', evidence: { variants: '2' } });
     expect((await a.backtest.result({ runId: second.runId })).checks).toEqual(second.checks);
+  });
+
+  it('starts the one-bar-later run at the second traded bar, also when the window opens in a gap', async () => {
+    const fees: FeePort = { wired: true, fee: async () => ({ version: 'TEST-1', makerBps: 5, takerBps: 10 }) };
+    const strategy = { id: 'strategy-1', version: 1, modules: RULES, risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    const prepared = await prepareBacktest(request(strategy.id), strategy, fees, NOW, NO_JUDGEMENT);
+    // No trade in the first three hours: the first bar opens at 03:00, the second at 04:00.
+    const bars = candleRows()
+      .slice(3)
+      .map(([openTimeMs, open, high, low, close]) => ({
+        openTimeMs,
+        open: parseAmount(open),
+        high: parseAmount(high),
+        low: parseAmount(low),
+        close: parseAmount(close),
+      }));
+    const ran = runOnBars(prepared, bars);
+    expect(ran.offsetRun?.from).toBe(new Date(T0 + 4 * HOUR).toISOString());
+    expect(runOnBars(prepared, bars.slice(0, 2)).offsetRun).toBeNull();
   });
 
   it('keeps the run key when the owner changes a criterion or a threshold, so the same inputs stay one variant', async () => {

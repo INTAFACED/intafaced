@@ -344,9 +344,9 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], vari
       delayBars: prepared.delayBars,
     });
   const ran = simulate(bars);
-  // The sensitivity run: the same rules and costs from one bar after the window opens. Under two bars left, there is none.
-  const laterMs = prepared.fromMs + barSpanMs(barSize);
-  const later = bars.filter((bar) => bar.openTimeMs >= laterMs);
+  // The sensitivity run: the same rules and costs from the window's second traded bar, by position, so a window that
+  // opens in a gap still starts one bar later. Under two bars left, there is none.
+  const later = bars.slice(1);
   const offset = later.length >= 2 ? simulate(later) : null;
   return {
     runKey: prepared.key,
@@ -383,7 +383,7 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], vari
     offsetRun:
       offset === null
         ? null
-        : { from: new Date(laterMs).toISOString(), returnPercent: returnOf(offset.totals), trades: offset.trades.length },
+        : { from: new Date(later[0]!.openTimeMs).toISOString(), returnPercent: returnOf(offset.totals), trades: offset.trades.length },
     checkThresholds: prepared.checks,
     simulated: true,
     live: false,
