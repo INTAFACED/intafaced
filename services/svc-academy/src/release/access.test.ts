@@ -140,5 +140,14 @@ describe('item release rules', () => {
     const closed = { availableFrom: from, availableUntil: until, dueAt: null };
     expect(opens(closed)).toEqual(from);
     expect(releaseOpensAt({ window: closed, extensionUntil: null, courseStartsAt: null, now: before })).toEqual(from);
+    // A window that ends before the course starts never opens, so it gets no date; an extension past the start gives it one.
+    const short = {
+      availableFrom: new Date('2026-10-29T12:00:00.000Z'),
+      availableUntil: new Date('2026-10-30T00:00:00.000Z'),
+      dueAt: null,
+    };
+    expect(opens(short)).toBeNull();
+    const extended = new Date('2026-11-02T00:00:00.000Z');
+    expect(releaseOpensAt({ window: short, extensionUntil: extended, courseStartsAt: start, now: before })).toEqual(start);
   });
 });

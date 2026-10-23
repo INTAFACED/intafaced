@@ -213,7 +213,8 @@ function courseStartPending(courseStartsAt: Date | null, now: Date): courseStart
 
 /**
  * When a window-locked item opens: its own window's start, or the course start when that is later. An item whose own
- * window has closed keeps that window's start (already past), so nothing promises an opening that will not happen.
+ * window has closed keeps that window's start (already past), and one whose window ends before the course starts gets
+ * null, so nothing promises an opening that will not happen.
  */
 export function releaseOpensAt(input: {
   readonly window: ItemWindow | null;
@@ -227,7 +228,10 @@ export function releaseOpensAt(input: {
     input.now.getTime() >= input.window.availableFrom.getTime() &&
     outsideWindow(input.window, input.extensionUntil, input.now);
   if (ownClosed || !courseStartPending(input.courseStartsAt, input.now)) return own;
-  return own !== null && own.getTime() > input.courseStartsAt.getTime() ? own : input.courseStartsAt;
+  const opens = own !== null && own.getTime() > input.courseStartsAt.getTime() ? own : input.courseStartsAt;
+  // A window that ends before the course starts never opens: no date is promised.
+  if (input.window !== null && outsideWindow(input.window, input.extensionUntil, opens)) return null;
+  return opens;
 }
 
 export type ItemExtensionRecord = {
