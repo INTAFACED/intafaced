@@ -61,6 +61,19 @@ describe('the public read API', () => {
     expect(second.body.notices.map((n: { id: string }) => n.id)).toEqual([a]);
   });
 
+  it('says nothing follows a page that ends exactly at the last notice, and reads an id in capitals', async () => {
+    const { publish, get } = await api();
+    const ids = [];
+    for (const n of [1, 2, 3, 4]) ids.push(await publish('announcement', `x${n}`, `2026-10-23T1${n}:00:00.000Z`));
+    const first = await get('/v1/notices?limit=2');
+    const second = await get(`/v1/notices?limit=2&after=${first.body.next.toUpperCase()}`);
+    expect(second.body.notices.map((n: { id: string }) => n.id)).toEqual([ids[1], ids[0]]);
+    expect(second.body.next).toBeNull();
+    expect((await get(`/v1/notices/${ids[0]!.toUpperCase()}`)).body.id).toBe(ids[0]);
+    // A page size past the cap is the cap, however many digits it has.
+    expect((await get('/v1/notices?limit=1000000')).body.notices).toHaveLength(4);
+  });
+
   it('narrows to one kind, and a cursor of another kind refuses instead of restarting', async () => {
     const { publish, get } = await api();
     const note = await publish('announcement', 'n', '2026-10-23T10:00:00.000Z');

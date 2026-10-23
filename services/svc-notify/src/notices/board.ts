@@ -370,15 +370,12 @@ export class MemoryNoticeStore implements NoticeStore {
   }
 
   async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
-    const at = after?.publishedAt.getTime();
+    const order = (a: { publishedAt: Date | null; id: string }, b: { publishedAt: Date | null; id: string }) =>
+      (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id);
     return [...this.rows.values()]
       .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
-      .filter((row) => {
-        if (!after || at === undefined) return true;
-        const t = row.publishedAt?.getTime() ?? 0;
-        return t < at || (t === at && row.id > after.id);
-      })
-      .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .filter((row) => !after || order(row, after) > 0)
+      .sort(order)
       .slice(0, limit);
   }
 
@@ -680,19 +677,30 @@ export class NoticeBoard {
    * rather than starting again from the top.
    */
   async notices(input: { kind?: string | null; limit: number; after?: string | null }): Promise<readonly NoticeWire[]> {
+    return (await this.noticesPage(input)).notices;
+  }
+
+  /** One page of `notices` and the id to read the next page after, or `null` when nothing follows this page. */
+  async noticesPage(input: {
+    kind?: string | null;
+    limit: number;
+    after?: string | null;
+  }): Promise<{ notices: readonly NoticeWire[]; next: string | null }> {
     const limit = clampNoticeLimit(input.limit);
     const kind = input.kind == null || input.kind === '' ? null : input.kind;
     if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
     let cursor: NoticeCursor | undefined;
     if (input.after != null) {
-      const row = await this.store.findById(input.after);
+      const row = await this.store.findById(input.after.toLowerCase());
       if (!row || row.status !== 'published' || row.publishedAt === null || (kind !== null && row.kind !== kind)) {
         throw new NoticeError('notify.notices_cursor_unknown');
       }
       cursor = { publishedAt: row.publishedAt, id: row.id };
     }
-    const rows = await this.store.listPublished(kind, limit, cursor);
-    return rows.map(toNoticeWire);
+    // One row more than the page says whether another page follows.
+    const rows = await this.store.listPublished(kind, limit + 1, cursor);
+    const page = rows.slice(0, limit).map(toNoticeWire);
+    return { notices: page, next: rows.length > limit ? (page.at(-1)?.id ?? null) : null };
   }
 
   /** A published notice as its subscriber fan-out takes it, or null when there is none by that id. */

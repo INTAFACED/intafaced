@@ -275,7 +275,8 @@ through tRPC; nothing here writes.
 | `GET /v1/notices/:id`                                  | `notify.notice`   | One published notice.                                                                                                                                   |
 | `GET /v1/status`                                       | `statusPage.read` | Components, groups, top-level status, uptime and the incident and maintenance feed.                                                                     |
 
-`limit` is required (there is no default page size) and is capped at 50. `kind` is `announcement`, `maintenance`,
+`limit` is required (there is no default page size) and is capped at 50. `/v1/status` may answer a read up to 5 s old,
+shared with the badge, since unsigned callers poll it. `kind` is `announcement`, `maintenance`,
 `incident` or `changelog`. Refusals are `{ code }`: 400 `notify.notices_limit_invalid`, `notify.notice_kind_unknown`,
 `notify.notices_cursor_unknown` (an `after` that is not a published notice of that kind: a page never silently restarts
 from the top); 404 `notify.notice_not_found` (a draft reads the same as an id that never existed); 503

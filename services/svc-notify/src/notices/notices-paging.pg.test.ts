@@ -79,12 +79,13 @@ afterAll(async () => {
 });
 
 describe.skipIf(!URL || !available)('paged published notices on the shared test database', () => {
-  it('walks every published notice once, in order, through the cursor, ties on the same instant included', async () => {
-    let now = new Date('2026-10-23T10:00:00.000Z');
-    const store = new PostgresNoticeStore(db());
-    const board = new NoticeBoard(store, new Approvals(), new PostgresCommandLog(db()), () => now);
+  it('pages published notices once each, in order, through the cursor, ties on the same instant split by id', async () => {
+    // Far in the future, so this file's notices are the newest on the shared table and its pages hold only them.
+    let now = new Date('2099-01-01T10:00:00.000Z');
+    const board = new NoticeBoard(new PostgresNoticeStore(db()), new Approvals(), new PostgresCommandLog(db()), () => now);
     const mine: string[] = [];
-    for (const [i, at] of ['2026-10-23T10:00:00.000Z', '2026-10-23T11:00:00.000Z', '2026-10-23T11:00:00.000Z'].entries()) {
+    // The last two publish at the same instant.
+    for (const [i, at] of ['2099-01-01T10:00:00.000Z', '2099-01-01T11:00:00.000Z', '2099-01-01T11:00:00.000Z'].entries()) {
       now = new Date(at);
       const draft = await board.draft(AUTHOR, {
         kind: 'changelog',
@@ -100,25 +101,17 @@ describe.skipIf(!URL || !available)('paged published notices on the shared test 
       });
       mine.push(draft.id);
     }
-    // Two rows published in the same microsecond: the cursor must still split them by id.
-    await db()`ALTER TABLE notify.notices DISABLE TRIGGER notice_published_immutable`;
-    try {
-      await db()`UPDATE notify.notices SET published_at = (SELECT published_at FROM notify.notices WHERE id = ${mine[1]!}) WHERE id = ${mine[2]!}`;
-    } finally {
-      await db()`ALTER TABLE notify.notices ENABLE TRIGGER notice_published_immutable`;
-    }
+    const tie = [mine[1]!, mine[2]!].sort();
 
-    const all = (await store.listPublished('changelog', 10_000)).map((row) => row.id);
-    const walked: string[] = [];
-    let after: string | null = null;
-    for (let guard = 0; guard < 10_000; guard++) {
-      const page: readonly { id: string }[] = await board.notices({ kind: 'changelog', limit: 2, after });
-      walked.push(...page.map((n) => n.id));
-      if (page.length < 2) break;
-      after = page.at(-1)!.id;
-    }
-    expect(walked).toEqual(all);
-    for (const id of mine) expect(walked.filter((w) => w === id)).toHaveLength(1);
+    const first = await board.noticesPage({ kind: 'changelog', limit: 2 });
+    expect(first.notices.map((n) => n.id)).toEqual(tie);
+    expect(first.next).toBe(tie[1]);
+    const second = await board.noticesPage({ kind: 'changelog', limit: 2, after: first.next });
+    expect(second.notices[0]?.id).toBe(mine[0]);
+    expect(second.notices.map((n) => n.id)).not.toContain(tie[0]);
+    expect(second.notices.map((n) => n.id)).not.toContain(tie[1]);
+    // The tie split by id on its own: after the first of the pair comes the second.
+    expect((await board.noticesPage({ kind: 'changelog', limit: 1, after: tie[0]! })).notices.map((n) => n.id)).toEqual([tie[1]]);
     await expect(board.notices({ kind: 'announcement', limit: 2, after: mine[0]! })).rejects.toMatchObject({
       code: 'notify.notices_cursor_unknown',
     });

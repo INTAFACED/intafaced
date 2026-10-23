@@ -6,18 +6,18 @@
  * `notify.notice`, the status is `statusPage.read`. Nothing here writes.
  *
  * Paging: `limit` is required (there is no default page size, the same as the tRPC read) and is capped at
- * NOTICES_LIST_LIMIT_MAX. A full page carries `next`, the id to pass as `after` for the page that follows; a short page
- * carries `next: null`.
+ * NOTICES_LIST_LIMIT_MAX. A page carries `next`, the id to pass as `after` for the page that follows, and `next: null`
+ * when no notice follows it. `statusPage` may answer a read a few seconds old: unsigned callers can poll it.
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { StatusPage } from '@intafaced/contracts/status-page';
 import { NOTICES_LIST_LIMIT_MAX, NoticeError, type NoticeBoard } from './notices/board.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LIMIT = /^[1-9][0-9]{0,3}$/;
+const LIMIT = /^[1-9][0-9]{0,14}$/;
 
 export type PublicReadApiDeps = {
-  readonly notices: Pick<NoticeBoard, 'notices' | 'notice'> | null;
+  readonly notices: Pick<NoticeBoard, 'noticesPage' | 'notice'> | null;
   readonly statusPage: () => Promise<StatusPage>;
 };
 
@@ -42,11 +42,12 @@ export function registerPublicReadApi(app: FastifyInstance, deps: PublicReadApiD
       return refuse(reply, 400, 'notify.notices_cursor_unknown');
     }
     if (!deps.notices) return refuse(reply, 503, 'notify.notices_unavailable');
-    const size = Math.min(Number(limit), NOTICES_LIST_LIMIT_MAX);
     try {
-      const notices = await deps.notices.notices({ kind: kind ?? null, limit: size, after: after ?? null });
-      const last = notices.at(-1);
-      return { notices, next: notices.length === size && last ? last.id : null };
+      return await deps.notices.noticesPage({
+        kind: kind ?? null,
+        limit: Math.min(Number(limit), NOTICES_LIST_LIMIT_MAX),
+        after: after ?? null,
+      });
     } catch (err) {
       return noticeFailure(reply, err);
     }
@@ -56,7 +57,7 @@ export function registerPublicReadApi(app: FastifyInstance, deps: PublicReadApiD
     if (!UUID.test(request.params.id)) return refuse(reply, 404, 'notify.notice_not_found');
     if (!deps.notices) return refuse(reply, 503, 'notify.notices_unavailable');
     try {
-      return await deps.notices.notice(request.params.id);
+      return await deps.notices.notice(request.params.id.toLowerCase());
     } catch (err) {
       return noticeFailure(reply, err);
     }

@@ -422,7 +422,8 @@ app.get<{ Querystring: { component?: unknown } }>('/status/badge.svg', async (re
 });
 
 // The documented read API for status and notices (SP-api-01): what the site reads, as plain GETs under /v1.
-registerPublicReadApi(app, { notices, statusPage: () => readStatusPage(statusPageDeps, new Date()) });
+// Polled by unsigned callers, so it shares the badge's few-second read.
+registerPublicReadApi(app, { notices, statusPage: badgeRead });
 
 app.get('/health', async () => ({
   ok: true,

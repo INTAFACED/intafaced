@@ -74,13 +74,23 @@ test(`${J} #1 the notices read without a key: the same data as the website, page
 });
 
 test(`${J} #2 the status read without a key: components and top-level status as on /status`, async ({ browser }) => {
-  const api = await readApi('/status');
-  expect(api.status).toBe(200);
-  // The same answer the site reads (statusPage.read), apart from the moment it was read.
-  const { asOf: _asOf, ...site } = await statusRead();
-  const { asOf, ...read } = api.body;
-  expect(Number.isNaN(Date.parse(asOf))).toBe(false);
-  expect(read).toEqual(site);
+  // The same answer the site reads (statusPage.read), apart from the moment it was read. The API may answer from a read
+  // up to a few seconds old (unsigned callers poll it), so a change made just before by another journey can lag once.
+  let read;
+  await expect
+    .poll(
+      async () => {
+        const api = await readApi('/status');
+        expect(api.status).toBe(200);
+        const { asOf, ...rest } = api.body;
+        expect(Number.isNaN(Date.parse(asOf))).toBe(false);
+        read = rest;
+        const { asOf: _siteAsOf, ...site } = await statusRead();
+        return JSON.stringify(rest) === JSON.stringify(site);
+      },
+      { timeout: 15_000, intervals: [1_000] },
+    )
+    .toBe(true);
 
   // And /status shows those components and that top level. The page is the stack's as other journeys left it, so
   // this compares with what is there and changes nothing.
