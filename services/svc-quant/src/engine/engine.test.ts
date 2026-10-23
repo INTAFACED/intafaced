@@ -263,6 +263,36 @@ describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
     expect(margin + parseAmount(buy!.fee) <= parseAmount('20')).toBe(true);
   });
 
+  it('fills a stop-out at the level less slippage, the event keeping the bar price that reached it', () => {
+    const out = run(['100', '100', '101', '85', '90'], { cash: parseAmount('20'), account: ACCOUNT, slippageBps: parseAmount('10') });
+    const stop = out.marginEvents.find((event) => event.kind === 'stop_out')!;
+    const sell = out.trades.find((trade) => trade.reason === 'stop_out')!;
+    expect(sell.barPrice).toBe(stop.price);
+    expect(parseAmount(sell.price) < parseAmount(stop.price)).toBe(true);
+  });
+
+  it('drops a queued sell when a stop-out closes the position, so the strategy can enter again', () => {
+    // With a delay of one bar, the cross down on the 100 bar queues a sell due two bars on; the stop-out on the next bar
+    // closes first. The queued sell is dropped, not listed as an order with no size.
+    const closes = ['100', '100', '101', '102', '100', '60', '40', '41', '45', '50'];
+    const out = run(closes, { cash: parseAmount('20'), account: ACCOUNT, delayBars: 1 });
+    expect(out.trades.some((trade) => trade.reason === 'stop_out')).toBe(true);
+    expect(out.rejected.filter((row) => row.reason === 'no_size')).toEqual([]);
+    expect(out.trades.filter((trade) => trade.side === 'buy').length).toBe(2);
+  });
+
+  it('says so when a gap through the stop-out loses more than the margin posted', () => {
+    const bar = (i: number, open: string, close: string): Bar => {
+      const o = parseAmount(open);
+      const c = parseAmount(close);
+      return { openTimeMs: T0 + i * HOUR, open: o, high: o > c ? o : c, low: o < c ? o : c, close: c };
+    };
+    const bars = [bar(0, '100', '100'), bar(1, '100', '100'), bar(2, '100', '101'), bar(3, '101', '101'), bar(4, '50', '50')];
+    const out = run([], { bars, cash: parseAmount('20'), account: ACCOUNT });
+    expect(parseAmount(out.totals.endEquity) < 0n).toBe(true);
+    expect(out.assumptions).toContain('loss_beyond_margin');
+  });
+
   it('leaves a cash run exactly as before: no margin level on its equity and no events', () => {
     const out = run(['100', '100', '101', '85', '90']);
     expect(out.marginEvents).toEqual([]);

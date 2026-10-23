@@ -153,6 +153,7 @@ export const QUANT_BACKTEST_ASSUMPTIONS = [
   'risk_limits_not_simulated',
   'stop_out_before_exits',
   'margin_level_at_bar_low',
+  'loss_beyond_margin',
 ] as const;
 
 /**
@@ -167,7 +168,10 @@ export const quantAccountRulesSchema = z.object({
 });
 export type QuantAccountRules = z.infer<typeof quantAccountRulesSchema>;
 export const QUANT_MARGIN_EVENTS = ['margin_call', 'stop_out'] as const;
-/** A margin call or stop-out on a backtest, at the price that reached its level, with the margin level there. */
+/**
+ * A margin call or stop-out on a backtest, at the bar price that reached its level (the bar's open when it gapped past),
+ * with the margin level there. A stop-out's sell fills at that bar price less slippage, as its trade row shows.
+ */
 export const quantMarginEventSchema = z.object({
   ts: z.string(),
   kind: z.enum(QUANT_MARGIN_EVENTS),

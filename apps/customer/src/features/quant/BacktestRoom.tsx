@@ -867,6 +867,8 @@ const LOG_WORDS = new Set([
   'signal',
   'stop_loss',
   'take_profit',
+  'stop_out',
+  'margin_call',
   'insufficient_cash',
   'no_size',
   'unfilled_at_window_end',
@@ -874,6 +876,9 @@ const LOG_WORDS = new Set([
   'averages_over_traded_bars',
   'stop_loss_first',
   'take_profit_without_slippage',
+  'stop_out_before_exits',
+  'margin_level_at_bar_low',
+  'loss_beyond_margin',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
 ]);

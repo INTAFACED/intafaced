@@ -136,18 +136,22 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     return div(sub(mul(used, div(percent, HUNDRED, 'floor'), 'ceil'), cash), qty, 'ceil');
   }
 
+  /** What an order's notional takes from the account: all of it on cash, one leverage-th of it on margin. */
+  function marginFor(notional: Amount): Amount {
+    return account ? div(notional, account.leverage, 'ceil') : notional;
+  }
+
   function sizeAt(price: Amount): Amount {
     const value = parseAmount(rules.sizing.value);
     if (rules.sizing.kind === 'quantity') return value;
     const budget = rules.sizing.kind === 'cash' ? value : mul(cash, div(value, HUNDRED, 'floor'), 'floor');
     // The budget pays the order's margin (all of it on a cash account, one leverage-th on margin) and its fee, so the
     // whole order stays inside the budget; rounding can leave it one unit over.
-    const marginOf = (notional: Amount) => (account ? div(notional, account.leverage, 'ceil') : notional);
-    const perUnit = add(marginOf(price), bpsOf(price, input.feeBps));
+    const perUnit = add(marginFor(price), bpsOf(price, input.feeBps));
     const size = div(budget, perUnit, 'floor');
     const cost = (q: Amount) => {
       const notional = mul(q, price, 'half-up');
-      return add(marginOf(notional), bpsOf(notional, input.feeBps));
+      return add(marginFor(notional), bpsOf(notional, input.feeBps));
     };
     return cost(size) > budget ? size - 1n : size;
   }
@@ -165,7 +169,7 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     const notional = mul(size, price, 'half-up');
     const barNotional = mul(size, barPrice, 'half-up');
     const fee = bpsOf(notional, input.feeBps);
-    const margin = account ? div(notional, account.leverage, 'ceil') : notional;
+    const margin = marginFor(notional);
     if (side === 'buy' && add(margin, fee) > cash) {
       rejected.push({ ts, side, reason: 'insufficient_cash' });
       return;
@@ -225,8 +229,14 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       }
       if (bar.low <= stopAt) {
         if (stopLoss !== null || takeProfit !== null) applied.add('stop_out_before_exits');
+        // The event carries the bar price that reached the level; the sell fills there less slippage, like any order.
         fill(i, 'sell', 'stop_out', event('stop_out', stopAt), true);
         stoppedOut = true;
+        // The position is closed, so a sell the strategy queued for it has nothing left to sell: it is dropped and the
+        // strategy may enter again on this bar's close.
+        if ((pending as Pending | null)?.side === 'sell') pending = null;
+        // A bar that gaps through the stop-out can close below the margin posted; the run says so.
+        if (cash < 0n) applied.add('loss_beyond_margin');
       }
     }
     // Exits on a held position. An entry at this bar's open is held for the rest of the bar.
