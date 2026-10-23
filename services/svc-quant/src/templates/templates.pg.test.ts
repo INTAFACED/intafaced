@@ -73,6 +73,17 @@ describe('starter templates on Postgres', () => {
     const next = await repo.list({ limit: 1, cursor: page.nextCursor });
     expect(next).toMatchObject({ nextCursor: null });
     expect(next.templates.map((row) => [row.id, row.version])).toEqual([['ma-cross', 2]]);
+    // Byte order: 'ma-cross' before 'ma2', as in the in-memory store, whatever the database's collation.
+    await repo.publish({ ...publish, id: 'ma2', idempotencyKey: 'template.publish:ma2:v1' });
+    const ordered = await repo.list({ limit: 2, cursor: 'breakout' });
+    expect(ordered.templates.map((row) => row.id)).toEqual(['ma-cross', 'ma2']);
+    // The same key for a different template at once: one stores, the other refuses as a conflict, not a raw index error.
+    const raced = await Promise.allSettled([
+      repo.publish({ ...publish, id: 'race-a', idempotencyKey: 'template.publish:race' }),
+      repo.publish({ ...publish, id: 'race-b', idempotencyKey: 'template.publish:race' }),
+    ]);
+    expect(raced.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(raced.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'quant.idempotency_conflict' } });
 
     await expect(sql.unsafe(`UPDATE "${SCHEMA}".templates SET name = 'x'`)).rejects.toThrow(/quant\.template_immutable/);
     await expect(

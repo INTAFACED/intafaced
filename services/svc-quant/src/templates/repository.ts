@@ -1,6 +1,6 @@
 import type { QuantSignalRules } from '@intafaced/contracts';
 
-/** First-party starter templates (AL-editor-03): versioned, published by an operator, read by every signed-in person. */
+/** First-party starter templates (AL-editor-03): versioned, published by an operator, readable from any allowed jurisdiction (they hold nothing account-private). */
 export interface TemplateVersion {
   readonly id: string;
   readonly version: number;

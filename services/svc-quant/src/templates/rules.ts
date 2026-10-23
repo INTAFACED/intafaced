@@ -14,7 +14,8 @@ export function blankTemplateRules(rules: QuantSignalRules): QuantSignalRules {
     ['exit.stopLossPercent', rules.exit.stopLossPercent],
     ['exit.takeProfitPercent', rules.exit.takeProfitPercent],
   ];
-  const set = numbers.find(([, value]) => value.trim() !== '');
+  // Exactly empty, as the database check reads it: a space is set, not blank.
+  const set = numbers.find(([, value]) => value !== '');
   if (set) throw new QuantError(QUANT_TEMPLATE_NUMBER_SET, `${set[0]} is set; a template leaves every number blank`);
   return { ...rules, symbol: rules.symbol.trim() };
 }

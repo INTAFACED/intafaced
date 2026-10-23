@@ -1,5 +1,5 @@
 import { quantTemplateDetailSchema, quantTemplateListOutputSchema, type QuantTemplateVersion } from '@intafaced/contracts/quant-algo';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
@@ -25,6 +25,13 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ result: Failed; retry: () => void } | null>(null);
   const [used, setUsed] = useState<QuantTemplateVersion | null>(null);
+  // The form's guard as of now, not as of the press: edits typed while the read was in flight are still guarded.
+  const latestOnUse = useRef(onUse);
+  latestOnUse.current = onUse;
+  const reload = () => {
+    setLater(null);
+    first.reload();
+  };
 
   async function use(id: string) {
     if (busy) return;
@@ -34,7 +41,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     setBusy(null);
     if (!res.ok) return setFailure({ result: res, retry: () => void use(id) });
     const newest = res.data.versions[0]!;
-    if (onUse(newest)) setUsed(newest);
+    if (latestOnUse.current(newest)) setUsed(newest);
   }
 
   async function more(cursor: string) {
@@ -50,7 +57,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     <Panel title={t('title')}>
       <div data-testid="quant-templates">
         <p className="muted">{t('intro')}</p>
-        <Read resource={first.resource} retry={first.reload}>
+        <Read resource={first.resource} retry={reload}>
           {(data) => {
             const rows = [...data.templates, ...(later?.rows ?? [])];
             const cursor = later ? later.cursor : data.nextCursor;

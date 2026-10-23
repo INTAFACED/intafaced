@@ -48,7 +48,9 @@ export function createPostgresTemplateRepository(sql: Sql, schema = 'quant', now
   return {
     async publish(input: TemplatePublishInput) {
       return sql.begin(async (tx) => {
-        // One publisher per template at a time, so two operators never take the same next version.
+        // One publisher per key, then per template, so a replay never meets the unique key index and two operators
+        // never take the same next version. Always key first, then template: no two publishers wait on each other.
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.template.key:${input.idempotencyKey}`]);
         await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.template.publish:${input.id}`]);
         const prior = await query<TemplateSql>(tx, `SELECT ${COLUMNS} FROM ${templates} WHERE idempotency_key = $1`, [
           input.idempotencyKey,
@@ -84,9 +86,10 @@ export function createPostgresTemplateRepository(sql: Sql, schema = 'quant', now
     async list({ limit, cursor }) {
       const rows = await query<TemplateSql>(
         sql,
-        `SELECT DISTINCT ON (template_id) ${COLUMNS} FROM ${templates}
-          WHERE ($1::text IS NULL OR template_id > $1)
-          ORDER BY template_id, version DESC
+        // Byte order (COLLATE "C"), the same order the cursor compares in and the in-memory store sorts in.
+        `SELECT DISTINCT ON (template_id COLLATE "C") ${COLUMNS} FROM ${templates}
+          WHERE ($1::text IS NULL OR template_id COLLATE "C" > $1)
+          ORDER BY template_id COLLATE "C", version DESC
           LIMIT $2`,
         [cursor ?? null, limit + 1],
       );

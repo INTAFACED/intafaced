@@ -108,6 +108,9 @@ describe('starter templates', () => {
     await expect(
       writer.ops.template.publish({ ...publish, rules: { ...RULES, sizing: { kind: 'quantity', value: '1' } } }),
     ).rejects.toThrow(/sizing\.value is set/);
+    await expect(
+      writer.ops.template.publish({ ...publish, rules: { ...RULES, exit: { ...RULES.exit, stopLossPercent: '  ' } } }),
+    ).rejects.toThrow(/exit\.stopLossPercent is set/);
     await expect(a.ops.template.publish(publish)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(anonymous.template.list({ limit: 1 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
