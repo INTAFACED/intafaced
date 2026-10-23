@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
 
@@ -403,6 +404,8 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'cashOut.quote': cashOutQuoteSchema,
+  // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
+  'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),

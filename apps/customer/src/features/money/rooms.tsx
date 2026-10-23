@@ -61,6 +61,7 @@ import { rampDepthCopy } from './ramp-depth-copy';
 import { PERIOD_PRESETS, periodRange, type PeriodPreset } from './periods';
 import type { Payee } from './payees';
 import { transferDepthCopy } from './transfer-depth-copy';
+import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 
@@ -542,7 +543,7 @@ function ownSpaces(spaces: Space[], from: Space | undefined, owner: string): Spa
   return spaces.filter((space) => space.id !== from.id && space.assetId === from.assetId && currentSpace(spaces, space.id, owner));
 }
 function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search: string }) {
-  const { userId } = useSession();
+  const { api, userId } = useSession();
   const context = spaceContext(search, 'from');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
   const query = useBankRead('spaces.list', { limit });
@@ -705,6 +706,25 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                         validate: (input) =>
                           validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
+                        ...(!scheduled && destination === 'user'
+                          ? {
+                              reviewTerms: {
+                                checking: depth.t('reviewChecking'),
+                                read: (input, signal) => readPersonSendTerms(api, from.assetId, String(input.amount), signal),
+                              },
+                              stepUp: {
+                                request: (input) => personSendStepUp(from.assetId, input),
+                                words: {
+                                  why: depth.t('stepUpWhy'),
+                                  code: depth.t('stepUpCode'),
+                                  codeHint: depth.t('stepUpCodeHint'),
+                                  codeShort: depth.t('stepUpCodeShort'),
+                                  noFactor: depth.t('stepUpNoFactor'),
+                                  sendWithout: depth.t('stepUpSendWithout'),
+                                },
+                              },
+                            }
+                          : {}),
                         input: (values, requestId) => ({
                           fromSpaceId: from.id,
                           ...(destination === 'space' ? { toSpaceId: values.toSpaceId } : { toUserId: recipient!.userId }),
