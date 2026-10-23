@@ -155,6 +155,16 @@
       "service": "bank",
       "value": "EUR,GBP,USD",
       "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+    },
+    "NOTIFY_INBOX_PAGE_SIZE": {
+      "service": "notify",
+      "value": "20",
+      "note": "Inbox page size, so the notification centre lists (J-home-ia-05)."
+    },
+    "NOTIFY_INBOX_UNREAD_CAP": {
+      "service": "notify",
+      "value": "99",
+      "note": "Bell badge ceiling (J-home-ia-05)."
     }
   }
 }

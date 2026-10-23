@@ -21,6 +21,7 @@ import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
+import { RunHistory } from './RunHistory';
 import './algo.css';
 import { STRATEGY_PAGE } from './StrategyTable';
 
@@ -130,120 +131,124 @@ export function BacktestRoom() {
   }
 
   return (
-    <Panel title={t('title')}>
-      <div data-testid="quant-bar-backtest">
-        <p className="muted">{t('intro')}</p>
-        <Read resource={list.resource} retry={list.reload}>
-          {(data) => {
-            if (!data.strategies.length) {
+    <>
+      <Panel title={t('title')}>
+        <div data-testid="quant-bar-backtest">
+          <p className="muted">{t('intro')}</p>
+          <Read resource={list.resource} retry={list.reload}>
+            {(data) => {
+              if (!data.strategies.length) {
+                return (
+                  <EmptyState title={t('strategyNone')}>
+                    {t('strategyNoneBody')}{' '}
+                    <a className="text-link" href="/quant/studio">
+                      {t('openStudio')}
+                    </a>
+                  </EmptyState>
+                );
+              }
+              const strategy = data.strategies.find((row) => row.id === strategyId) ?? null;
               return (
-                <EmptyState title={t('strategyNone')}>
-                  {t('strategyNoneBody')}{' '}
-                  <a className="text-link" href="/quant/studio">
-                    {t('openStudio')}
-                  </a>
-                </EmptyState>
-              );
-            }
-            const strategy = data.strategies.find((row) => row.id === strategyId) ?? null;
-            return (
-              <form
-                className="quant-bar-backtest"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (strategy) void run(strategy);
-                }}
-              >
-                <Select
-                  label={t('strategy')}
-                  value={strategyId}
-                  onChange={(id) => {
-                    setStrategyId(id);
-                    setResult(null);
-                    setRefusal(null);
-                    setFailure(null);
-                    // The saved starting cash is the person's own figure; they may change it for this run.
-                    setCash(data.strategies.find((row) => row.id === id)?.cash ?? '');
+                <form
+                  className="quant-bar-backtest"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (strategy) void run(strategy);
                   }}
-                  options={[
-                    { value: '', label: t('strategyChoose') },
-                    ...data.strategies.map((row) => ({ value: row.id, label: row.name })),
-                  ]}
-                />
-                {strategy && (
-                  <p className="muted" data-testid="quant-backtest-rules">
-                    {strategy.modules
-                      ? t('rulesOf', { version: strategy.version, symbol: strategy.modules.symbol, barSize: strategy.modules.barSize })
-                      : t('blocksOnly', { version: strategy.version })}
-                  </p>
-                )}
-                {strategy?.modules && <FeeLedger symbol={strategy.modules.symbol} />}
-                <Field
-                  label={t('cash')}
-                  value={cash}
-                  onChange={(e) => edited(setCash)(e.target.value)}
-                  inputMode="decimal"
-                  maxLength={40}
-                  error={errorFor('cash')}
-                />
-                <div className="quant-date-fields">
+                >
+                  <Select
+                    label={t('strategy')}
+                    value={strategyId}
+                    onChange={(id) => {
+                      setStrategyId(id);
+                      setResult(null);
+                      setRefusal(null);
+                      setFailure(null);
+                      // The saved starting cash is the person's own figure; they may change it for this run.
+                      setCash(data.strategies.find((row) => row.id === id)?.cash ?? '');
+                    }}
+                    options={[
+                      { value: '', label: t('strategyChoose') },
+                      ...data.strategies.map((row) => ({ value: row.id, label: row.name })),
+                    ]}
+                  />
+                  {strategy && (
+                    <p className="muted" data-testid="quant-backtest-rules">
+                      {strategy.modules
+                        ? t('rulesOf', { version: strategy.version, symbol: strategy.modules.symbol, barSize: strategy.modules.barSize })
+                        : t('blocksOnly', { version: strategy.version })}
+                    </p>
+                  )}
+                  {strategy?.modules && <FeeLedger symbol={strategy.modules.symbol} />}
                   <Field
-                    label={t('from')}
-                    type="datetime-local"
-                    value={from}
-                    onChange={(e) => edited(setFrom)(e.target.value)}
-                    error={errorFor('from')}
+                    label={t('cash')}
+                    value={cash}
+                    onChange={(e) => edited(setCash)(e.target.value)}
+                    inputMode="decimal"
+                    maxLength={40}
+                    error={errorFor('cash')}
+                  />
+                  <div className="quant-date-fields">
+                    <Field
+                      label={t('from')}
+                      type="datetime-local"
+                      value={from}
+                      onChange={(e) => edited(setFrom)(e.target.value)}
+                      error={errorFor('from')}
+                    />
+                    <Field
+                      label={t('to')}
+                      type="datetime-local"
+                      value={to}
+                      onChange={(e) => edited(setTo)(e.target.value)}
+                      error={errorFor('to')}
+                    />
+                  </div>
+                  <Select
+                    label={t('fillTiming')}
+                    value={fillTiming}
+                    onChange={edited(setFillTiming)}
+                    options={[{ value: '', label: t('fillChoose') }, ...QUANT_FILL_TIMINGS.map((value) => ({ value, label: t(value) }))]}
+                  />
+                  {selectError('fillTiming')}
+                  <Select
+                    label={t('feeRole')}
+                    value={feeRole}
+                    onChange={edited(setFeeRole)}
+                    options={[{ value: '', label: t('feeChoose') }, ...QUANT_FEE_ROLES.map((value) => ({ value, label: t(value) }))]}
+                  />
+                  {selectError('feeRole')}
+                  <Field
+                    label={t('slippage')}
+                    value={slippage}
+                    onChange={(e) => edited(setSlippage)(e.target.value)}
+                    inputMode="decimal"
+                    maxLength={24}
+                    error={errorFor('slippage')}
                   />
                   <Field
-                    label={t('to')}
-                    type="datetime-local"
-                    value={to}
-                    onChange={(e) => edited(setTo)(e.target.value)}
-                    error={errorFor('to')}
+                    label={t('delay')}
+                    value={delay}
+                    onChange={(e) => edited(setDelay)(e.target.value)}
+                    inputMode="numeric"
+                    maxLength={3}
+                    error={errorFor('delay')}
                   />
-                </div>
-                <Select
-                  label={t('fillTiming')}
-                  value={fillTiming}
-                  onChange={edited(setFillTiming)}
-                  options={[{ value: '', label: t('fillChoose') }, ...QUANT_FILL_TIMINGS.map((value) => ({ value, label: t(value) }))]}
-                />
-                {selectError('fillTiming')}
-                <Select
-                  label={t('feeRole')}
-                  value={feeRole}
-                  onChange={edited(setFeeRole)}
-                  options={[{ value: '', label: t('feeChoose') }, ...QUANT_FEE_ROLES.map((value) => ({ value, label: t(value) }))]}
-                />
-                {selectError('feeRole')}
-                <Field
-                  label={t('slippage')}
-                  value={slippage}
-                  onChange={(e) => edited(setSlippage)(e.target.value)}
-                  inputMode="decimal"
-                  maxLength={24}
-                  error={errorFor('slippage')}
-                />
-                <Field
-                  label={t('delay')}
-                  value={delay}
-                  onChange={(e) => edited(setDelay)(e.target.value)}
-                  inputMode="numeric"
-                  maxLength={3}
-                  error={errorFor('delay')}
-                />
-                <Button type="submit" disabled={busy || !strategy} data-testid="quant-backtest-run">
-                  {t('run')}
-                </Button>
-                {busy && <Loading label={t('running')} />}
-                {failure && <Failure result={failure} retry={() => strategy && void run(strategy)} />}
-              </form>
-            );
-          }}
-        </Read>
-        {result && <BacktestResult result={result} />}
-      </div>
-    </Panel>
+                  <Button type="submit" disabled={busy || !strategy} data-testid="quant-backtest-run">
+                    {t('run')}
+                  </Button>
+                  {busy && <Loading label={t('running')} />}
+                  {failure && <Failure result={failure} retry={() => strategy && void run(strategy)} />}
+                </form>
+              );
+            }}
+          </Read>
+          {result && <BacktestResult key={result.runId} result={result} />}
+        </div>
+      </Panel>
+      {/* A new result refreshes the list, so the run just stored is at the top. */}
+      <RunHistory refresh={result?.runId ?? ''} onOpen={setResult} />
+    </>
   );
 }
 
@@ -264,7 +269,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'charts', 'trades'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'charts', 'trades', 'log'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -281,12 +286,13 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
         value={tab}
         onChange={(next) => setTab(next as ResultTab)}
         label={t('resultTabs')}
-        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics'), charts: t('tabCharts'), trades: t('tabTrades') }}
+        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics'), charts: t('tabCharts'), trades: t('tabTrades'), log: t('tabLog') }}
       />
       {tab === 'summary' && <ResultSummary result={result} />}
       {tab === 'metrics' && <MetricsTab metrics={result.metrics} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
+      {tab === 'log' && <ResultLog result={result} />}
     </section>
   );
 }
@@ -443,7 +449,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
   );
 }
 
-/** The equity curve with a marker on each fill (green buy, red sell); the table under it carries the same numbers. */
+/** The equity curve with a marker on each fill (a triangle up for a buy, down for a sell); the table under it carries the same numbers. */
 function ResultCharts({ result }: { result: QuantBacktestResult }) {
   const { t } = backtestCopy.useCopy();
   const geometry = equityGeometry(result, CHART_W, CHART_H);
@@ -504,6 +510,62 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       </details>
+    </div>
+  );
+}
+
+/** Values the log carries as codes (a side, a reason, a modelling choice) read in words where the copy has them. */
+const LOG_WORDS = new Set([
+  'buy',
+  'sell',
+  'signal',
+  'stop_loss',
+  'take_profit',
+  'insufficient_cash',
+  'no_size',
+  'unfilled_at_window_end',
+  'long_only',
+  'averages_over_traded_bars',
+  'stop_loss_first',
+  'take_profit_without_slippage',
+  'open_position_marked_at_last_close',
+  'risk_limits_not_simulated',
+]);
+
+/** The run's log, derived from what it stored; the filter narrows it to warnings. */
+function ResultLog({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const [level, setLevel] = useState<'all' | 'warn'>('all');
+  const lines = result.log.filter((line) => level === 'all' || line.level === 'warn');
+  const readable = (values: Record<string, string>) =>
+    Object.fromEntries(
+      // Every word in LOG_WORDS is a copy key that takes no values.
+      Object.entries(values).map(([key, value]) => [key, LOG_WORDS.has(value) ? t(value as 'buy') : value]),
+    ) as typeof values;
+  return (
+    <div data-testid="quant-bar-log">
+      <Select
+        label={t('logFilter')}
+        value={level}
+        onChange={(value) => setLevel(value === 'warn' ? 'warn' : 'all')}
+        options={[
+          { value: 'all', label: t('logAll') },
+          { value: 'warn', label: t('logWarn') },
+        ]}
+      />
+      {lines.length ? (
+        <ol className="quant-log">
+          {lines.map((line, i) => (
+            <li key={`${line.code}:${line.ts ?? ''}:${i}`} data-testid="quant-log-line" data-level={line.level} data-code={line.code}>
+              <strong>{line.level === 'warn' ? t('levelWarn') : t('levelInfo')}</strong>{' '}
+              {line.ts && <span lang="zxx">{line.ts.slice(0, 16).replace('T', ' ')} </span>}
+              {t(`log_${line.code}` as Parameters<typeof t>[0], readable(line.values))}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="muted">{t('logNone')}</p>
+      )}
     </div>
   );
 }

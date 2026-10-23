@@ -4,6 +4,8 @@ import {
   assertOnlyWithdrawDestinations,
   assertPersistableWithdrawDestination,
   destKindForRamp,
+  evmChecksumMatches,
+  lookalikeOf,
   memoryWithdrawDestinations,
 } from './withdraw-destination.js';
 
@@ -37,6 +39,55 @@ describe('assertPersistableWithdrawDestination', () => {
   it('maps ramp kind to dest kind — fiat is bank shape, not a PSP', () => {
     expect(destKindForRamp('crypto')).toBe('crypto');
     expect(destKindForRamp('fiat')).toBe('bank');
+  });
+});
+
+describe('evmChecksumMatches (EIP-55)', () => {
+  // The EIP-55 specification's own examples.
+  const VECTORS = [
+    '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed',
+    '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359',
+    '0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB',
+    '0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb',
+  ];
+
+  it('accepts the specification examples, and an address in one case only, which carries no checksum', () => {
+    for (const address of VECTORS) expect(evmChecksumMatches(address)).toBe(true);
+    expect(evmChecksumMatches(VECTORS[0]!.toLowerCase())).toBe(true);
+    expect(evmChecksumMatches(`0x${VECTORS[0]!.slice(2).toUpperCase()}`)).toBe(true);
+  });
+
+  it('refuses one flipped letter, and assertPersistableWithdrawDestination says so with its own code', async () => {
+    const flipped = '0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+    expect(evmChecksumMatches(flipped)).toBe(false);
+    expect(() => assertPersistableWithdrawDestination({ kind: 'crypto', ref: flipped })).toThrow(
+      expect.objectContaining({ code: 'bank.address_checksum_mismatch' }),
+    );
+    // The legacy one-per-kind slot the offramp writes goes through the same check.
+    await expect(assertOnlyWithdrawDestinations().persist({ userId: 'u1', kind: 'crypto', ref: flipped })).rejects.toMatchObject({
+      code: 'bank.address_checksum_mismatch',
+    });
+  });
+});
+
+describe('lookalikeOf', () => {
+  const saved = [{ ref: '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed', label: 'Cold' }];
+
+  it('finds a saved address with the same start and end as the book shows them, and a different middle', () => {
+    expect(lookalikeOf(`0x5aae${'1'.repeat(32)}eaed`, saved)).toBe(saved[0]);
+  });
+
+  it('ignores the same address in any case, a different start or end, and anything that is not an address', () => {
+    expect(lookalikeOf(saved[0]!.ref.toLowerCase(), saved)).toBeNull();
+    expect(lookalikeOf(`0x5aaf${'1'.repeat(32)}eaed`, saved)).toBeNull();
+    expect(lookalikeOf(`0x5aae${'1'.repeat(32)}eaee`, saved)).toBeNull();
+    expect(lookalikeOf('0x5aaeeaed', saved)).toBeNull();
+    expect(lookalikeOf(`0x5aae${'1'.repeat(32)}eaed`, [{ ref: 'GB82WEST12345698765432' }])).toBeNull();
+  });
+
+  it('never calls an address already in the book a look-alike, even when another saved entry shows like it', () => {
+    const near = `0x5aae${'1'.repeat(32)}eaed`;
+    expect(lookalikeOf(near, [...saved, { ref: near.toUpperCase().replace('0X', '0x'), label: 'Confirmed before' }])).toBeNull();
   });
 });
 

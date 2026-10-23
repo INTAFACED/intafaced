@@ -440,6 +440,7 @@ const messages = {
   'History filter status expired': 'Expired',
   'History filter none match': 'No past orders match these filters.',
   'History filter clear': 'Clear filters',
+  'Order details open': 'Open this order’s details',
   'Order changes open': 'Changes',
   'Order changes title': 'Changes to this order',
   'Order changes loading': 'Loading changes…',

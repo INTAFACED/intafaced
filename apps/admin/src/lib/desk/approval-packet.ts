@@ -16,6 +16,10 @@ import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '
  * Pure: no Node-only imports, so the browser and the server use the same parser.
  */
 
+/** identity's staff close reason codes (`accountCloseReasonCodes` in contracts; a test keeps the two equal). */
+export const CLOSE_REASON_CODES = ['fraud', 'negative_balance', 'bank_reason', 'customer_request', 'other'] as const;
+export type AccountCloseReasonCode = (typeof CLOSE_REASON_CODES)[number];
+
 export const PACKET_PREFIX = 'ifa1.';
 export const REASON_MIN = 12;
 export const REASON_MAX = 500;
@@ -38,6 +42,15 @@ export type DeskRequest =
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
+  /** Staff close and reopen of one account (J-ops-console-04 #7). A close carries a reason code from identity's list. */
+  | {
+      readonly kind: 'identity.account.close';
+      readonly userId: string;
+      readonly reasonCode: AccountCloseReasonCode;
+      readonly reason: string;
+      readonly version: string;
+    }
+  | { readonly kind: 'identity.account.reopen'; readonly userId: string; readonly reason: string; readonly version: string }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -92,6 +105,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+/** Identity keeps a closure reason to 255 characters. */
+function validClosureReason(value: unknown): value is string {
+  return validReason(value) && value.length <= 255;
+}
+
 export function validReason(value: unknown): value is string {
   return typeof value === 'string' && value.trim() === value && value.length >= REASON_MIN && value.length <= REASON_MAX;
 }
@@ -137,6 +155,25 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.unfreeze', userId: raw.userId, reason: raw.reason, version: raw.version };
+  }
+  if (raw.kind === 'identity.account.close') {
+    if (keys !== 'kind,reason,reasonCode,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
+    if (typeof raw.reasonCode !== 'string' || !(CLOSE_REASON_CODES as readonly string[]).includes(raw.reasonCode)) return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return {
+      kind: 'identity.account.close',
+      userId: raw.userId,
+      reasonCode: raw.reasonCode as AccountCloseReasonCode,
+      reason: raw.reason,
+      version: raw.version,
+    };
+  }
+  if (raw.kind === 'identity.account.reopen') {
+    if (keys !== 'kind,reason,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return { kind: 'identity.account.reopen', userId: raw.userId, reason: raw.reason, version: raw.version };
   }
   if (raw.kind === 'academy.ambassador.appoint') {
     if (keys !== 'kind,userId') return null;
@@ -322,6 +359,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'REMOVE OLD KEYS';
     case 'identity.account.unfreeze':
       return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'identity.account.close':
+      return `CLOSE ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'identity.account.reopen':
+      return `REOPEN ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
     case 'protocol.pool.hide':
@@ -374,6 +415,10 @@ export function describeRequest(request: DeskRequest): string {
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
     case 'identity.account.unfreeze':
       return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
+    case 'identity.account.close':
+      return `Close account ${request.userId} (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). Its owner is signed out and cannot sign in; sessions, API keys and sub-accounts are revoked. Identity refuses while the account still has open products or balances, and applies it only if the account is still at control version ${request.version}. ${request.reasonCode === 'customer_request' ? 'Closed at the customer’s request, it can be reopened later.' : 'Closed for this reason, it cannot be reopened.'}`;
+    case 'identity.account.reopen':
+      return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':

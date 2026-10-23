@@ -8,7 +8,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 
 1. **Push (now).** Build every slice. Proof per slice: its tests, the journey it serves, and screenshots.
 2. **Polish (part of finishing, after the push).** Review against the reference apps with a rubric, scripted persona tasks per module, nightly re-runs, dependency upgrades, leftover review findings.
-3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, the items on the owner's must-fix list, and every slice whose title starts "Before real money:" (Phantom's fault table and admin acceptance tests, linked from the money journeys they protect but not steps of them).
+3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, the items on the owner's must-fix list, every slice whose title starts "Before real money:" (Phantom's fault table, admin acceptance tests and his 2026-10-23 controls: proof of reserves, AML transaction monitoring, 3-D Secure and sanctions screening proven in a journey, and a check that production runs in live mode with no TEST shortcuts reachable; linked from the money journeys they protect but not steps of them), the readiness review of the first launch unit, and an external security audit of the money code (the audit is external; agents never mark anything audited).
 
 ## How work flows
 
@@ -44,7 +44,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1488 slices left in 21 modules. 281 need no other slice. 47 sit in a dependency loop that the lane untangles first. 353 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 679 M, 106 S.
+1494 slices left in 21 modules. 282 need no other slice. 47 sit in a dependency loop that the lane untangles first. 357 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 685 M, 106 S.
 
 ### Journey map
 
@@ -78,13 +78,13 @@ Done is defined by 462 journeys (3111 steps) in `modules/<module>/acceptance/jou
 
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
-| merchant       | 210    | 35           | 9                             | 105   |
+| merchant       | 211    | 35           | 10                            | 105   |
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
-| ops-console    | 115    | 24           | 41                            | 66    |
+| ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| bank           | 97     | 40           | 6                             | 57    |
+| bank           | 98     | 40           | 7                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
-| wallet         | 76     | 25           | 26                            | 26    |
+| wallet         | 77     | 25           | 27                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
 | derivatives    | 59     | 10           | 19                            | 28    |
@@ -106,8 +106,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 231    | 36           | 11                    | 36                    | 15            |
-| svc-bank                      | 194    | 53           | 35                    | 38                    | 18            |
+| svc-pay merchant              | 232    | 36           | 11                    | 36                    | 16            |
+| svc-bank                      | 195    | 53           | 35                    | 38                    | 19            |
 | svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
 | svc-identity                  | 136    | 29           | 68                    | 40                    | 10            |
 | svc-protocol                  | 75     | 4            | 1                     | 20                    | 3             |
@@ -115,16 +115,16 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 2             |
 | svc-trade futures             | 48     | 8            | 0                     | 9                     | 0             |
-| svc-ops                       | 41     | 11           | 4                     | 0                     | 7             |
+| svc-ops                       | 42     | 11           | 4                     | 0                     | 8             |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 10                    | 3             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
-| ledger                        | 24     | 9            | 7                     | 2                     | 2             |
+| ledger                        | 25     | 9            | 7                     | 2                     | 3             |
 | svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
 | customer: trade               | 19     | 1            | 3                     | 4                     | 1             |
-| svc-edge                      | 18     | 1            | 2                     | 4                     | 0             |
+| svc-edge                      | 19     | 1            | 2                     | 4                     | 1             |
 | customer: more                | 16     | 2            | 3                     | 7                     | 0             |
 | svc-market                    | 15     | 0            | 0                     | 6                     | 0             |
 | svc-token                     | 15     | 2            | 0                     | 4                     | 0             |
@@ -146,6 +146,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin shell                   | 2      | 0            | 0                     | 0                     | 0             |
 | admin: founder-ops            | 2      | 1            | 1                     | 0                     | 0             |
 | admin: protocol-desk          | 2      | 0            | 0                     | 0                     | 0             |
+| config                        | 2      | 2            | 0                     | 0                     | 2             |
 | customer: money               | 2      | 1            | 1                     | 0                     | 1             |
 | acceptance (Polish)           | 1      | 1            | 1                     | 0                     | 1             |
 | admin: console-status-banner  | 1      | 0            | 0                     | 1                     | 0             |
@@ -157,7 +158,6 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: nav                    | 1      | 0            | 0                     | 1                     | 0             |
 | admin: support-ticket-actions | 1      | 0            | 0                     | 1                     | 0             |
 | ci gate                       | 1      | 1            | 0                     | 0                     | 1             |
-| config                        | 1      | 1            | 0                     | 0                     | 1             |
 | customer: coin                | 1      | 0            | 0                     | 0                     | 0             |
 | docs                          | 1      | 0            | 0                     | 0                     | 1             |
 

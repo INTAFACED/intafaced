@@ -886,6 +886,11 @@ function serviceDefs(secrets) {
         IDENTITY_WATCHLIST_LIST_CAP: '10',
         IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
         IDENTITY_SAVED_SCREEN_CAP: '10',
+        // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
+        // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
+        IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
+        IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
+        IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
@@ -1125,6 +1130,10 @@ function serviceDefs(secrets) {
         // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
         // and every create is refused (notify.alert_quota_unset) until then.
         NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
+        // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
+        // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
+        NOTIFY_INBOX_PAGE_SIZE: '20',
+        NOTIFY_INBOX_UNREAD_CAP: '99',
       }),
     },
     {

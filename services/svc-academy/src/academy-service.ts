@@ -38,6 +38,7 @@ import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/
 import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } from './assessment/catalog.js';
 import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
+import { ReleaseAccess } from './release/access.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -67,7 +68,8 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { hasCurriculumSlug } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug } from './curriculum/catalog.js';
+import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import type { VideoSpineEntry } from './video/catalog.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
@@ -242,6 +244,7 @@ export interface AcademyServiceOptions {
 export class AcademyService {
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
+  private readonly release: ReleaseAccess;
 
   constructor(
     private readonly sql: Sql,
@@ -257,6 +260,7 @@ export class AcademyService {
     private readonly certXp: CertXpPublisher = new NullCertXpPublisher(),
   ) {
     this.customer = new AcademyCustomerStore(sql);
+    this.release = new ReleaseAccess(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1715,6 +1719,67 @@ export class AcademyService {
     return this.customer.completionsByItem(input);
   }
 
+  setItemPrerequisites(input: { itemSlug: string; prerequisites: readonly string[] }) {
+    return this.release.setItemPrerequisites(input);
+  }
+
+  setItemWindow(input: { itemSlug: string; availableFrom: Date | null; availableUntil: Date | null; dueAt: Date | null }) {
+    return this.release.setItemWindow(input);
+  }
+
+  grantItemExtension(input: {
+    userId: string;
+    itemSlug: string;
+    reason: string;
+    extendedUntil: Date;
+    clientRequestId: string;
+    operatorId: string;
+    now?: Date;
+  }) {
+    return this.release.grantItemExtension(input);
+  }
+
+  itemRelease(input: { userId: string; itemSlug: string; now?: Date }) {
+    return this.release.itemRelease(input);
+  }
+
+  /**
+   * Lesson body for this learner. The release decision runs first: a lock
+   * throws and the catalog body is not read into the result.
+   */
+  async readCurriculumItem(input: { userId: string; slug: string; now?: Date }) {
+    await this.release.assertMayRead({ userId: input.userId, itemSlug: input.slug, now: input.now });
+    const item = getCurriculumItem(input.slug.trim());
+    if (!item) {
+      throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+    }
+    return {
+      slug: item.slug,
+      title: item.title,
+      kind: item.kind,
+      path: item.path,
+      order: item.order,
+      summary: item.summary,
+      estimatedMinutes: item.estimatedMinutes,
+      body: item.body,
+      objectives: [...item.objectives],
+      keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
+      selfCheck: [...item.selfCheck],
+    };
+  }
+
+  async readCurriculumItemLocalized(input: { userId: string; slug: string; locale?: string; now?: Date }) {
+    const item = await this.readCurriculumItem(input);
+    const localized = curriculumBodyForLocale(item.body, input.locale);
+    return {
+      ...item,
+      body: localized.body,
+      locale: localized.resolution.locale,
+      fellBack: localized.resolution.fellBack,
+      i18nStrategy: curriculumI18nStrategyLine(),
+    };
+  }
+
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {
@@ -1738,6 +1803,7 @@ export class AcademyService {
       this.mapCertErr(err);
     }
     if (decision.alreadyComplete) return decision.record;
+    await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
     const rows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
       INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
       VALUES (${input.userId}, ${slug}, now())

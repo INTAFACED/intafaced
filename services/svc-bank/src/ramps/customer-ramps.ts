@@ -6,8 +6,10 @@ import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
 import {
   assertBookEntry,
+  evmChecksumMatches,
   isBankDestinationRef,
   isEvmAddressRef,
+  lookalikeOf,
   type SaveDestinationInput,
   type UserWithdrawDestinations,
   type WithdrawDestination,
@@ -381,12 +383,43 @@ export async function listDestinations(deps: CustomerRampDeps, userId: string): 
   return rows.map((row) => viewOf(row, hours));
 }
 
-export async function saveDestination(deps: CustomerRampDeps, input: SaveDestinationInput): Promise<DestinationView> {
+/** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
+export type DestinationCheck = {
+  /** `checksum_mismatch`: mixed case that does not match its EIP-55 checksum. `invalid`: not an EVM address at all. */
+  address: 'ok' | 'invalid' | 'checksum_mismatch';
+  /** The saved entry this address shows like but is not (address poisoning), or null. */
+  lookalike: { destinationId: string; label: string | null; refMasked: string } | null;
+};
+
+/** Read-only: the same address rules `saveDestination` applies, answered as data so the form can warn before step-up. */
+export async function checkDestination(deps: CustomerRampDeps, input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  const ref = input.ref.trim();
+  if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null };
+  const near = lookalikeOf(ref, await deps.destinations.list(input.userId));
+  return {
+    address: evmChecksumMatches(ref) ? 'ok' : 'checksum_mismatch',
+    lookalike: near ? { destinationId: near.destinationId, label: near.label, refMasked: maskRef(near.ref) } : null,
+  };
+}
+
+export async function saveDestination(
+  deps: CustomerRampDeps,
+  input: SaveDestinationInput & { confirmLookalike?: boolean },
+): Promise<DestinationView> {
   // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
   // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
-  const entry = assertBookEntry(input);
+  const { confirmLookalike, ...book } = input;
+  const entry = assertBookEntry(book);
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
-  return viewOf(await deps.destinations.save(input), readOfframpCoolingHours(deps.coolingRaw()));
+  // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
+  const near = lookalikeOf(entry.ref, await deps.destinations.list(book.userId));
+  if (near && confirmLookalike !== true) {
+    throw new BankError(
+      `This address starts and ends like your saved address ${near.label ? `"${near.label}"` : maskRef(near.ref)} but is a different address. Check every character before you save it`,
+      'bank.address_lookalike',
+    );
+  }
+  return viewOf(await deps.destinations.save(book), readOfframpCoolingHours(deps.coolingRaw()));
 }
 
 export async function renameDestination(

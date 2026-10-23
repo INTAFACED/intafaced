@@ -69,7 +69,7 @@ describe('fills.mine / orders.history limit unset refuse (no invented 100)', () 
     expect(src).not.toMatch(/input\.limit \?\? 100/);
     expect(src).toMatch(/publishedOrderHistoryLimit\(input\.limit\)/);
     expect(src).toMatch(/async fillsForOrder\(principal: Principal, orderId: string, limit: number\)/);
-    expect(src).toMatch(/ORDER BY ts ASC LIMIT \$\{capped\}/);
+    expect(src).toMatch(/ORDER BY ts ASC, sequence ASC, id ASC LIMIT \$\{capped\}/);
     expect(src).not.toMatch(/async fillsForOrder\(principal: Principal, orderId: string\): Promise/);
   });
 

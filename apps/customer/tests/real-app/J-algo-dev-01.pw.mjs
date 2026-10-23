@@ -529,3 +529,79 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
   expect(markers).toEqual(shown);
   await expect(result.getByText(/^Equity by bar\. A triangle pointing up marks a buy/)).toBeVisible();
 });
+
+test(`${J} #9 opens run history, renames a run, compares two side by side and filters the log to warnings: newest first with label, version and outcome; the result stays the same; no ranking by return; only warning lines show`, async ({
+  page,
+}) => {
+  const { backtest } = run.read();
+  if (!backtest) throw new Error(`${J} #6 stored no run, so the history has nothing to show`);
+  await signIn(page, developer());
+  await page.goto('/quant/backtest');
+  const history = page.getByTestId('quant-run-history');
+  const rows = history.getByTestId('quant-run-row');
+  // #6 stored a run and #7 an empty one: newest first, each with a version and an outcome.
+  await expect(rows).toHaveCount(2);
+  const started = await rows.evaluateAll((list) => list.map((row) => row.dataset.started));
+  expect([...started].sort().reverse()).toEqual(started);
+  for (const row of await rows.all()) {
+    await expect(row.locator('td').nth(2)).toHaveText(/^v\d+$/);
+    await expect(row.locator('td').nth(3)).toHaveText('Finished');
+    await expect(row.getByTestId('quant-run-label')).toHaveText('Unnamed run');
+  }
+
+  // Rename #6's run: the label shows, and opening it reads the same stored result, figure for figure.
+  const mine = history.locator(`[data-testid="quant-run-row"][data-run-id="${backtest.runId}"]`);
+  const totals = (from) =>
+    from
+      .getByTestId('quant-bar-totals')
+      .locator('[data-value]')
+      .evaluateAll((list) => list.map((row) => [row.dataset.testid, row.dataset.value]));
+  await mine.getByRole('button', { name: 'Open' }).click();
+  await expect(page.getByTestId('quant-bar-result')).toHaveAttribute('data-run-id', backtest.runId);
+  const before = await totals(page.getByTestId('quant-bar-result'));
+  await mine.getByRole('button', { name: 'Rename' }).click();
+  await mine.getByLabel('Label').fill('TEST hourly cross');
+  await mine.getByRole('button', { name: 'Save label' }).click();
+  await expect(mine.getByTestId('quant-run-label')).toHaveText('TEST hourly cross');
+  await mine.getByRole('button', { name: 'Open' }).click();
+  const result = page.getByTestId('quant-bar-result');
+  await expect(result).toHaveAttribute('data-run-id', backtest.runId);
+  await expect(result.getByTestId('quant-bar-total-net')).toHaveAttribute('data-value', backtest.net);
+  expect(await totals(result)).toEqual(before);
+
+  // Compare the two: the same figures side by side, columns in the list's order (newest first), never by return.
+  const ids = await rows.evaluateAll((list) => list.map((row) => row.dataset.runId));
+  for (const id of ids) await history.locator(`[data-run-id="${id}"] input[type="checkbox"]`).check();
+  const compare = history.getByTestId('quant-run-compare');
+  await expect(compare.getByTestId('quant-compare-row').first().locator('td[data-run-id]')).toHaveCount(2);
+  const columns = await compare
+    .getByTestId('quant-compare-row')
+    .first()
+    .locator('td[data-run-id]')
+    .evaluateAll((cells) => cells.map((cell) => cell.dataset.runId));
+  expect(columns).toEqual(ids);
+  const figures = await compare.getByTestId('quant-compare-row').evaluateAll((list) => list.map((row) => row.dataset.metric));
+  expect(figures).toEqual([
+    'net',
+    'netPercent',
+    'profitFactor',
+    'expectedPayoff',
+    'maxDrawdown',
+    'maxDrawdownPercent',
+    'maxRunUp',
+    'roundTrips',
+    'winRate',
+  ]);
+
+  // The log, then warnings only: every line left is a warning, and as many as the full log holds.
+  await result.getByRole('button', { name: 'Log' }).click();
+  const lines = result.getByTestId('quant-log-line');
+  const levels = await lines.evaluateAll((list) => list.map((line) => line.dataset.level));
+  expect(levels.filter((level) => level === 'info').length).toBeGreaterThan(0);
+  await result.getByRole('combobox', { name: /^Show/ }).selectOption('warn');
+  // The TEST tape has quiet minutes and the strategy sets risk limits, so the run always carries warnings.
+  const warnings = levels.filter((level) => level === 'warn').length;
+  expect(warnings).toBeGreaterThan(0);
+  await expect(lines).toHaveCount(warnings);
+  expect(new Set(await lines.evaluateAll((list) => list.map((line) => line.dataset.level)))).toEqual(new Set(['warn']));
+});

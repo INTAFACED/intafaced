@@ -106,8 +106,9 @@
   }
   .cw-canvas {
     position: relative;
-    height: clamp(260px, 52vh, 520px);
-    min-height: 0;
+    /* Grows with the add-ons (drawings dock, studies bar) below the chart stage; the stage keeps its own floor. */
+    height: auto;
+    min-height: clamp(260px, 52vh, 520px);
   }
   .cw-canvas > [data-slot='state-block'] {
     height: 100%;
@@ -180,8 +181,17 @@
   }
   .wc-root {
     position: relative;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100%;
+  }
+  /* The chart stage takes the room the add-ons leave; the add-ons (studies bar) sit in flow below it. */
+  .wc-stage {
+    position: relative;
+    flex: 1 1 auto;
+    /* A floor, so the add-ons cannot crush the plot to a few pixels (the crosshair then never reaches it). */
+    min-height: 260px;
   }
   .wc-host {
     position: absolute;
@@ -399,7 +409,7 @@
       flex-direction: column;
     }
     .cw-canvas {
-      height: clamp(240px, 46vh, 420px);
+      min-height: clamp(240px, 46vh, 420px);
     }
   }
 }
