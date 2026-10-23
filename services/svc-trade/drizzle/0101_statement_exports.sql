@@ -1,5 +1,5 @@
 -- trade.statement_exports · a statement of one person's orders, trades and ledger lines for a date range (J-cex-spot-07 #5)
--- Reversal: 0100_statement_exports.down.sql
+-- Reversal: 0101_statement_exports.down.sql
 --
 -- One job per (person, request key): asking again with the same key answers the same job, never a second file. The file
 -- is built once from the range [range_from, range_to), which must be over when asked, and kept with its SHA-256. An export
