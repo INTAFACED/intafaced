@@ -15,6 +15,8 @@ export const stack = {
   bank: () => need('BANK_HTTP_URL').replace(/\/$/, ''),
   tax: () => need('TAX_HTTP_URL').replace(/\/$/, ''),
   identity: () => need('IDENTITY_HTTP_URL').replace(/\/$/, ''),
+  /** The file the rig's identity writes LOCAL-TEST confirm links to, read like an inbox. */
+  mailOutbox: () => need('CX8_MAIL_OUTBOX'),
   edgeSecret: () => need('EDGE_PRINCIPAL_SECRET'),
   internalSecret: () => need('INTERNAL_SERVICE_SECRET'),
   region: () => process.env.TRADE_SMOKE_REGION?.trim() || 'DE',

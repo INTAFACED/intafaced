@@ -13,6 +13,7 @@ const messages = {
   renamed: 'Name saved.',
   replace: 'Replace',
   disable: 'Turn off',
+  codesHelp: 'My codes do not work',
   cancel: 'Cancel',
   confirmTitle: 'Confirm it is you',
   confirmBody: 'Enter the 6-digit code from your authenticator app.',

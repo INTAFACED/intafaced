@@ -1028,6 +1028,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
         // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
         // blocked (bank.offramp_cooling_unset).
+        // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
+        // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
+        BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
@@ -1115,6 +1118,8 @@ function serviceDefs(secrets) {
       env: () => ({
         ...c('svc-notify', PORTS.notify),
         DATABASE_URL: dbUrl('svc_notify', secrets),
+        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
+        IDENTITY_URL: urlOf('identity'),
         TRADE_URL: urlOf('trade'),
         MATCHING_URL: urlOf('matching'),
         // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.

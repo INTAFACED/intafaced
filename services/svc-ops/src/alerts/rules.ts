@@ -160,15 +160,22 @@ export interface Actor {
   readonly key: string;
 }
 
+/** Enforced alert-quality requirements. Absent means this deployment has no policy store, so a save is not blocked. */
+export interface AlertQualityGate {
+  assertWritable(fields: RuleFields): Promise<void>;
+}
+
 export class AlertRules {
   constructor(
     private readonly store: AlertRuleStore,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly newId: () => string = randomUUID,
+    private readonly quality?: AlertQualityGate,
   ) {}
 
-  create(draft: OpsAlertRuleDraft, who: Actor): Promise<OpsAlertRule> {
+  async create(draft: OpsAlertRuleDraft, who: Actor): Promise<OpsAlertRule> {
     const fields = resolveDraft(draft);
+    await this.quality?.assertWritable(fields);
     return this.store.apply({
       key: who.key,
       fingerprint: fingerprintOf({ op: 'create', draft: fields }),
@@ -182,8 +189,9 @@ export class AlertRules {
     });
   }
 
-  update(ruleId: string, expectedVersion: number, draft: OpsAlertRuleDraft, who: Actor): Promise<OpsAlertRule> {
+  async update(ruleId: string, expectedVersion: number, draft: OpsAlertRuleDraft, who: Actor): Promise<OpsAlertRule> {
     const fields = resolveDraft(draft);
+    await this.quality?.assertWritable(fields);
     return this.store.apply({
       key: who.key,
       fingerprint: fingerprintOf({ op: 'update', ruleId, expectedVersion, draft: fields }),

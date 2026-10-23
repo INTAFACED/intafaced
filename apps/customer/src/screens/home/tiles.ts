@@ -8,6 +8,7 @@ import type { HomeTilesValue } from '@intafaced/contracts/home-tiles-preferences
  */
 export const HOME_TILES = [
   { id: 'started', column: 'side', pro: true },
+  { id: 'work', column: 'main', pro: true },
   { id: 'holdings', column: 'main', pro: true },
   { id: 'markets', column: 'main', pro: true },
   { id: 'movers', column: 'main', pro: false },
@@ -27,17 +28,23 @@ const known = (id: string): id is HomeTileId => (HOME_TILE_IDS as readonly strin
  */
 const SHIPPED: Record<'simple' | 'pro', readonly HomeTileId[]> = {
   simple: HOME_TILE_IDS,
-  pro: ['started', 'holdings', 'activity', 'markets', 'movers', 'learn', 'your-crypto', 'watchlist'],
+  pro: ['started', 'work', 'holdings', 'activity', 'markets', 'movers', 'learn', 'your-crypto', 'watchlist'],
 };
 
 /**
- * Every tile, in the person's order, each once: the ids the record names first (an id this build does not know is
- * ignored), then any tile it does not name, in the shipped order. One stored order applies to both Homes.
+ * Every tile, in the person's order, each once: the ids the record names (an id this build does not know is ignored),
+ * with any tile it does not name, such as one added after the layout was saved, put back right after the tile it follows
+ * in the shipped order, or first when it leads that order. One stored order applies to both Homes.
  */
 export function orderedTiles(layout: HomeTilesValue | null, mode: 'simple' | 'pro' = 'simple'): HomeTileId[] {
-  const named = (layout?.order ?? []).filter(known);
-  const seen = new Set<HomeTileId>(named);
-  return [...named, ...SHIPPED[mode].filter((id) => !seen.has(id))];
+  const order = [...new Set((layout?.order ?? []).filter(known))];
+  const shipped = SHIPPED[mode];
+  shipped.forEach((id, at) => {
+    if (order.includes(id)) return;
+    const before = shipped.slice(0, at).findLast((prev) => order.includes(prev));
+    order.splice(before === undefined ? 0 : order.indexOf(before) + 1, 0, id);
+  });
+  return order;
 }
 
 /** Whether a tile is hidden. */

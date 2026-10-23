@@ -15,6 +15,7 @@ import { isFeatureLive } from './feature-registry';
 import { navigate } from './location';
 import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
+import { ShellSwitch } from '../features/protocol/ShellSwitch';
 
 const profileSchema = z.object({ displayName: z.string().nullable() });
 
@@ -175,6 +176,10 @@ export function AccountMenuBody({ close, onSignOut }: { close: () => void; onSig
       <Profiles close={close} />
       <li className="tb-account-divider" role="separator" />
       {isFeatureLive('pro-mode-switch') && <ModeRow />}
+      {/* The bar drops the Exchange | Web3 switch below 1000 px, as it drops Simple · Pro; the menu keeps both. */}
+      <li className="tb-account-mode min-[1000px]:hidden">
+        <ShellSwitch current="exchange" here={typeof location === 'undefined' ? '/' : location.pathname + location.search} />
+      </li>
       <li className="tb-account-language">
         <LanguageMenu keptIn={status === 'not-saved' ? 'not-saved' : 'account'} onSelect={(next) => savePreferences({ language: next })} />
       </li>
