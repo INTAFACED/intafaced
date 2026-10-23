@@ -12,6 +12,7 @@ import {
   TAX_LOT_METHOD_REQUIRED,
   TAX_DEPOSIT_BASIS_POLICY_UNSET,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
+  TAX_CHOICES_UNAVAILABLE,
   TAX_DATABASE_URL_UNSET,
   TAX_LOT_PICK_INVALID,
   TaxError,
@@ -20,7 +21,7 @@ import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, ty
 import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
 import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type BookChoices, type Inflow, type LotBook } from './lot-book.js';
-import { saleRules, unwiredChoices, type ChoiceStore, type CostBasisChoices } from './choices.js';
+import { NO_CHOICES, saleRules, unwiredChoices, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
 
@@ -221,17 +222,29 @@ export class TaxService {
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
     const preview = input.method === undefined ? null : requireBookMethod(input.method);
-    const saved = await this.choices.read(input.userId);
+    // The indicator needs no settings to be worked out: if the saved choices cannot be read, it answers with the default
+    // and says so (`choices.status: 'unavailable'`), rather than failing every customer's page.
+    let saved: CostBasisChoices = NO_CHOICES;
+    let unreadable = false;
+    try {
+      saved = await this.choices.read(input.userId);
+    } catch {
+      unreadable = true;
+    }
+    return this.bookWith(
+      input.userId,
+      preview,
+      saved,
+      unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
+    );
+  }
+
+  private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {
     const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
-    const shared = {
-      method,
-      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
-      preview: preview !== null,
-      choices: this.bookChoices(saved),
-    };
+    const shared = { method, rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview), preview: preview !== null, choices };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
-    const [balances, filled] = await Promise.all([this.reads.balances('user', input.userId), readFills.call(this.reads, input.userId)]);
+    const [balances, filled] = await Promise.all([this.reads.balances('user', userId), readFills.call(this.reads, userId)]);
     const held = new Map<string, Amount>();
     for (const row of balances) {
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
@@ -272,11 +285,17 @@ export class TaxService {
    */
   async pickSaleLot(input: { userId: string; saleTxId: string; assetId: string; lotId: string | null }): Promise<void> {
     if (input.lotId !== null) {
-      const book = await this.lotBook({ userId: input.userId });
+      // Worked out with the pick in place: the sale must exist, and the lot must be of that coin and still open at the sale
+      // (arrived by then and not used up by an earlier sale), so the sale really draws on it. Anything else is not stored.
+      const saved = await this.choices.read(input.userId);
+      const picks = [
+        ...saved.picks.filter((p) => !(p.saleTxId === input.saleTxId && p.assetId === input.assetId)),
+        { saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId },
+      ];
+      const book = await this.bookWith(input.userId, null, { ...saved, picks }, this.bookChoices(saved));
       const sale = book.sales.find((s) => s.txId === input.saleTxId && s.assetId === input.assetId);
-      const lot = book.lots.find((l) => l.id === input.lotId && l.assetId === input.assetId);
-      if (!sale || !lot || lot.acquiredAt > sale.disposedAt) {
-        throw new TaxError(TAX_LOT_PICK_INVALID, 'that sale and lot are not both in your book for this coin, with the lot arriving first');
+      if (!sale || sale.pickedLotId !== input.lotId) {
+        throw new TaxError(TAX_LOT_PICK_INVALID, 'that lot is not one this sale could draw on: same coin, arrived by then, not used up');
       }
     }
     await this.choices.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);

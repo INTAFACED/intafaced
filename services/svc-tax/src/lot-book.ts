@@ -125,7 +125,8 @@ export type BookChoices =
       readonly days: Array<{ day: string; assetId: string | null; method: EngineMethod }>;
       readonly picks: Array<{ saleTxId: string; assetId: string; lotId: string }>;
     }
-  | { readonly status: 'unwired'; readonly code: 'tax.database_url_unset' | 'tax.database_pool_max_unset' };
+  | { readonly status: 'unwired'; readonly code: 'tax.database_url_unset' | 'tax.database_pool_max_unset' }
+  | { readonly status: 'unavailable'; readonly code: 'tax.choices_unavailable' };
 
 export const UNWIRED_CHOICES: BookChoices = { status: 'unwired', code: 'tax.database_url_unset' };
 

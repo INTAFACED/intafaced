@@ -35,6 +35,8 @@ export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
 export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
 /** The settings store is not connected, so a cost-basis choice cannot be saved. Reads use the product default. */
 export const TAX_DATABASE_URL_UNSET = 'tax.database_url_unset' as const;
+/** The saved choices could not be read for this answer; the product default was used and the book says so. */
+export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
 /** DATABASE_URL is set but its pool size is not; blank is not 10. */
 export const TAX_DATABASE_POOL_MAX_UNSET = 'tax.database_pool_max_unset' as const;
 
@@ -61,7 +63,8 @@ export type TaxRefuseCode =
   | typeof TAX_LOT_PICK_UNUSABLE
   | typeof TAX_LOT_PICK_INVALID
   | typeof TAX_DATABASE_URL_UNSET
-  | typeof TAX_DATABASE_POOL_MAX_UNSET;
+  | typeof TAX_DATABASE_POOL_MAX_UNSET
+  | typeof TAX_CHOICES_UNAVAILABLE;
 
 export class TaxError extends Error {
   readonly code: TaxRefuseCode;

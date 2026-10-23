@@ -4,6 +4,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { memoryChoices, NO_CHOICES, openChoices, saleRules, type CostBasisChoices } from './choices.js';
 import {
+  TAX_CHOICES_UNAVAILABLE,
   TAX_DATA_LAKE_UNAVAILABLE,
   TAX_DATABASE_POOL_MAX_UNSET,
   TAX_DATABASE_URL_UNSET,
@@ -191,6 +192,30 @@ describe('the lot book applies what the customer saved', () => {
     await expect(tax.pickSaleLot({ userId: USER, saleTxId: 's1', assetId: 'BTC', lotId: 'lot:b9:BTC' })).rejects.toMatchObject({
       code: TAX_LOT_PICK_INVALID,
     });
+  });
+
+  it('a lot already used up by an earlier sale cannot be picked for a later one', async () => {
+    // TEST: a third buy and a second sale. FIFO: s1 (day 3) uses all of b1, so b1 is gone by s2 (day 5).
+    const more: Fill[] = [
+      ...fills,
+      { txId: 's2', postedAt: at(5), received: { assetId: 'USDT', amount: amt('250') }, paid: { assetId: 'BTC', amount: amt('1') } },
+      { txId: 'b3', postedAt: at(4), received: { assetId: 'BTC', amount: amt('1') }, paid: { assetId: 'USDT', amount: amt('150') } },
+    ];
+    const tax = service(memoryChoices(), reads({ [USER]: more }));
+    await expect(tax.pickSaleLot({ userId: USER, saleTxId: 's2', assetId: 'BTC', lotId: 'lot:b1:BTC' })).rejects.toMatchObject({
+      code: TAX_LOT_PICK_INVALID,
+    });
+    await tax.pickSaleLot({ userId: USER, saleTxId: 's2', assetId: 'BTC', lotId: 'lot:b3:BTC' });
+    expect((await tax.lotBook({ userId: USER })).sales.find((x) => x.txId === 's2')).toMatchObject({
+      pickedLotId: 'lot:b3:BTC',
+      realizedUsd: '100',
+    });
+  });
+
+  it('when the saved choices cannot be read, the book still answers with the default and says so', async () => {
+    const broken = { ...memoryChoices(), read: async () => Promise.reject(new Error('connection refused')) };
+    const book = await service(broken).lotBook({ userId: USER });
+    expect(book).toMatchObject({ method: 'FIFO', realizedUsd: '200', choices: { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } });
   });
 
   it('with no settings store the book still answers with the default, says so, and a save is refused by name', async () => {

@@ -58,6 +58,8 @@ export const lotBookChoicesSchema = z.discriminatedUnion('status', [
   }),
   /** No settings store: nothing can be saved and the product default applies. */
   z.object({ status: z.literal('unwired'), code: z.enum(['tax.database_url_unset', 'tax.database_pool_max_unset']) }),
+  /** The saved choices could not be read just now: the product default applies to this answer, and it says so. */
+  z.object({ status: z.literal('unavailable'), code: z.literal('tax.choices_unavailable') }),
 ]);
 
 export const lotBookValuedAtSchema = z.object({

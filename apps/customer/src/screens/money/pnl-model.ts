@@ -118,9 +118,17 @@ export function lotsOf(book: LotBookAnswer, asset: string): LotBookLot[] {
   return book.lots.filter((lot) => lot.assetId === asset);
 }
 
-/** The lots a sale could have drawn on: the same coin, arrived by the time of the sale. */
+/**
+ * The lots a sale could draw on: the same coin, arrived by the time of the sale, and still open then. A lot was open at
+ * the sale if some of it is open now or this sale or a later one drew on it; one used up by earlier sales is not offered.
+ */
 export function pickableLots(book: LotBookAnswer, sale: LotBookSale): LotBookLot[] {
-  return book.lots.filter((lot) => lot.assetId === sale.assetId && lot.acquiredAt <= sale.disposedAt);
+  const usedFromHere = new Set(
+    book.sales.filter((s) => s.assetId === sale.assetId && s.disposedAt >= sale.disposedAt).flatMap((s) => s.matches.map((m) => m.lotId)),
+  );
+  return book.lots.filter(
+    (lot) => lot.assetId === sale.assetId && lot.acquiredAt <= sale.disposedAt && (lot.remaining !== '0' || usedFromHere.has(lot.id)),
+  );
 }
 
 /** The coin's own saved method, or null when it follows the account. */

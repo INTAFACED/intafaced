@@ -70,7 +70,6 @@ const RESIDUAL_COPY: Record<
   | 'Residual incomplete'
   | 'Residual deposit policy'
   | 'Residual price at time'
-  | 'Residual pick unusable'
 > = {
   'tax.lot_underflow': 'Residual underflow',
   'tax.cost_basis_unavailable': 'Residual cost unavailable',
@@ -78,7 +77,6 @@ const RESIDUAL_COPY: Record<
   'tax.lot_book_incomplete': 'Residual incomplete',
   'tax.deposit_basis_policy_unset': 'Residual deposit policy',
   'tax.price_at_time_unavailable': 'Residual price at time',
-  'tax.lot_pick_unusable': 'Residual pick unusable',
 };
 
 type Save = (choice: LotChoice) => Promise<void>;
@@ -241,6 +239,7 @@ function SaleRows({ book, hidden, copy, save, busy }: { book: LotBook; hidden: b
                   <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
                   <span className="money-note">{t(METHOD_SOURCE_COPY[sale.methodSource])}</span>
                   {save !== null ? <LotPick book={book} sale={sale} save={save} busy={busy} copy={copy} /> : null}
+                  {sale.pickedLotId === null && savedPick(book, sale) ? <span className="money-note"> {t('Pick not used')}</span> : null}
                 </td>
               </tr>
             ))}
@@ -251,12 +250,21 @@ function SaleRows({ book, hidden, copy, save, busy }: { book: LotBook; hidden: b
   );
 }
 
+/** The lot the customer saved for this sale, if any. */
+function savedPick(book: LotBook, sale: LotBookSale) {
+  return book.choices.status === 'saved'
+    ? book.choices.picks.find((p) => p.saleTxId === sale.txId && p.assetId === sale.assetId)
+    : undefined;
+}
+
 /** Which lot one sale draws on first. "By method" clears the pick. */
 function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBookSale; save: Save; busy: boolean; copy: Copy }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
-  const saved =
-    book.choices.status === 'saved' ? book.choices.picks.find((p) => p.saleTxId === sale.txId && p.assetId === sale.assetId) : undefined;
+  const saved = savedPick(book, sale);
+  const lots = pickableLots(book, sale);
+  // A saved pick that can no longer be used stays listed, so the control shows what is saved and can clear it.
+  const stale = saved && !lots.some((lot) => lot.id === saved.lotId) ? book.lots.find((lot) => lot.id === saved.lotId) : undefined;
   return (
     <select
       className="money-note"
@@ -271,7 +279,7 @@ function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBoo
       }
     >
       <option value="">{t('By method')}</option>
-      {pickableLots(book, sale).map((lot) => (
+      {(stale ? [...lots, stale] : lots).map((lot) => (
         <option key={lot.id} value={lot.id}>
           {t('Lot option', { time: stamp(lot.acquiredAt, timeZone), qty: fmtAmount(lot.qty), source: t(SOURCE_COPY[lot.source]) })}
         </option>
@@ -292,8 +300,16 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
       <header className="money-card__head">
         <h2>{t('Your matching choices')}</h2>
       </header>
-      {choices.status === 'unwired' ? (
-        <p className="money-note">{t('Choices not saved here')}</p>
+      {choices.status !== 'saved' ? (
+        <p className="money-note">
+          {t(
+            choices.status === 'unavailable'
+              ? 'Choices unreadable'
+              : choices.code === 'tax.database_pool_max_unset'
+                ? 'Choices store misconfigured'
+                : 'Choices not saved here',
+          )}
+        </p>
       ) : (
         <>
           <label className="money-note">

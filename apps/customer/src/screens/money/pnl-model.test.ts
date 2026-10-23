@@ -175,6 +175,20 @@ describe('lots', () => {
       matches: [],
     };
     expect(pickableLots(withLater, sale).map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
+    // A lot used up by an earlier sale is not offered; one this sale or a later sale drew on is.
+    const usedUp = book({
+      ...withLater,
+      lots: withLater.lots.map((l) => (l.id === 'lot:a:ETH' || l.id === 'lot:c:ETH' ? { ...l, remaining: '0' } : l)),
+      sales: [
+        {
+          ...sale,
+          txId: 's2',
+          disposedAt: '2026-10-21T12:00:00.000Z',
+          matches: [{ lotId: 'lot:c:ETH', qty: '1', costUsd: null, proceedsUsd: null, realizedUsd: null }],
+        },
+      ],
+    });
+    expect(pickableLots(usedUp, sale).map((l) => l.id)).toEqual(['lot:c:ETH']);
     expect(coinMethod(withLater, 'ETH')).toBe('HIFO');
     expect(coinMethod(withLater, 'BTC')).toBeNull();
     expect(coinMethod(book({ choices: { status: 'unwired', code: 'tax.database_url_unset' } }), 'ETH')).toBeNull();
