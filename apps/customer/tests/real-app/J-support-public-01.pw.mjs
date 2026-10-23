@@ -221,6 +221,7 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
   const section = { id: `j01-${RUN}-l1`, categoryId: category.id, name: `TEST language ${RUN}`, position: 0, reason: category.reason };
   const found = await helpCentre();
   let answer = null;
+  let page = null;
   await saveCategory(category);
   try {
     await saveSection(section);
@@ -234,7 +235,7 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
     });
     await setHelpCentre({ languages: ['en', 'es'] }, `TEST ${J} #5 offer two languages`);
 
-    const page = await visitor(browser);
+    page = await visitor(browser);
     await page.goto(`/helpdetail?id=${answer.id}`);
     const main = page.locator('main');
     await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
@@ -253,8 +254,8 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
     await page.reload();
     await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
     await expect(main.getByRole('combobox', { name: 'Article language' })).toHaveCount(0);
-    await page.context().close();
   } finally {
+    await page?.context().close();
     await setHelpCentre({ languages: found.languages }, `TEST ${J} #5 put the languages back`);
     if (answer) await unpublish(answer.id, answer.revision);
     await saveCategory({ ...category, retired: true, reason: `TEST ${J} #5 retire the run's topic` });
