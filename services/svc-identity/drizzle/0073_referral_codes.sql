@@ -1,6 +1,6 @@
 -- A short referral code per person (CM-referral-01, J-campaigns-05 #1), kept beside the share link token. Random from an
 -- unambiguous alphabet, its length an owner setting (IDENTITY_REFERRAL_CODE_LENGTH); one code per person, never reused.
--- Reversal: 0072_referral_codes.down.sql
+-- Reversal: 0073_referral_codes.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."referral_codes" (
   "user_id" uuid PRIMARY KEY REFERENCES "identity"."users"("id") ON DELETE CASCADE,
