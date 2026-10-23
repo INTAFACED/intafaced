@@ -180,18 +180,6 @@ export const offerMethodIds = (offer: Pick<Offer, 'methods'>): string[] =>
         : [],
   );
 
-/** Keep offers that take the chosen payment method, and, if asked, only one person's offers. */
-export function filterOffers<T extends Pick<Offer, 'methods' | 'makerId'>>(
-  rows: readonly T[],
-  filter: { method?: string; makerId?: string },
-): T[] {
-  return rows.filter(
-    (offer) =>
-      (!filter.method || offerMethodIds(offer).includes(filter.method)) &&
-      (!filter.makerId || offer.makerId.toLowerCase() === filter.makerId.toLowerCase()),
-  );
-}
-
 export type TakeCheck =
   | { kind: 'empty' }
   | { kind: 'invalid' }

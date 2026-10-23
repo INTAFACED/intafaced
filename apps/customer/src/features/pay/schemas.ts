@@ -59,7 +59,23 @@ export const offerSchema = z.object({
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
+  /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
+  referencePrice: amount.nullable().optional(),
 });
+/** One board page (`offers.page`): continue with `nextCursor` under the same filters and sort. */
+export const offerPageSchema = z.object({ offers: z.array(offerSchema), nextCursor: z.string().nullable() });
+export type OfferPage = z.infer<typeof offerPageSchema>;
+export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
+export type BoardSort = (typeof BOARD_SORTS)[number];
+/** What the board asks the service for. Everything is filtered and sorted there, so paging never misses a row. */
+export type BoardQuery = {
+  asset?: string;
+  fiatCurrency?: string;
+  side?: 'buy' | 'sell';
+  methodId?: string;
+  fiatAmount?: string;
+  sort?: BoardSort;
+};
 export const tradeSchema = z.object({
   id,
   offerId: id,

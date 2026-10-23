@@ -466,6 +466,9 @@ export function createPersonalPayApi(
     },
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.list', input, z.array(s.offerSchema), { signal }),
+    /** One board page, filtered and sorted by the service; `cursor` continues the previous page under the same query. */
+    offerPage: (input: s.BoardQuery & { makerId?: string; limit: number; cursor?: string | null }, signal?: AbortSignal) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.page', input, s.offerPageSchema, { signal }),
     offer: currentOffer,
     trade: currentTrade,
     /** One page of the order list: `tab` narrows it, `cursor` continues from the previous page's `nextCursor`. */

@@ -23,6 +23,7 @@ import {
   disputeOpenForTrade,
   eitherBlocked,
   encodeOfferCursor,
+  type BoardSort,
   finishWriteKey,
   insertChatMessage,
   listChatMessages,
@@ -3457,21 +3458,28 @@ export class P2pService {
       makerId?: string;
       methodId?: string;
       minFiat?: string;
+      fiatAmount?: string;
+      sort?: BoardSort;
       viewerId?: string;
       limit?: number;
       cursor?: string | null;
     } = {},
   ): Promise<{ offers: OfferRecord[]; nextCursor: string | null }> {
     const limit = assertOfferListLimit(filter.limit);
-    let minFiat: Amount | null = null;
-    if (filter.minFiat !== undefined) {
+    const sort = filter.sort ?? 'price_asc';
+    const fiatFilter = (raw: string | undefined): Amount | null => {
+      if (raw === undefined) return null;
+      let value: Amount;
       try {
-        minFiat = parseAmount(filter.minFiat);
+        value = parseAmount(raw);
       } catch {
         throw new P2pError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
       }
-      if (minFiat < 0n) throw new P2pError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
-    }
+      if (value < 0n) throw new P2pError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
+      return value;
+    };
+    const minFiat = fiatFilter(filter.minFiat);
+    const fiatAmount = fiatFilter(filter.fiatAmount);
     let rows;
     try {
       rows = await selectOfferBoard(this.sql, {
@@ -3481,6 +3489,8 @@ export class P2pService {
         makerId: filter.makerId,
         methodId: filter.methodId,
         minFiat,
+        fiatAmount,
+        sort,
         viewerId: filter.viewerId ?? null,
         limit,
         cursor: filter.cursor ?? null,
@@ -3492,8 +3502,16 @@ export class P2pService {
     const raw = rows.map(boardRowToOffer);
     const offers = await this.projectBoardMethods(raw);
     const lastRaw = raw[raw.length - 1];
-    const nextCursor = raw.length === limit && lastRaw ? encodeOfferCursor(lastRaw) : null;
+    const nextCursor = raw.length === limit && lastRaw ? encodeOfferCursor(lastRaw, sort) : null;
     return { offers, nextCursor };
+  }
+
+  /**
+   * The reference price a floating ad is priced from, or null when no market feed is wired or it has no price for
+   * the pair. The board says which, instead of showing a multiplier as if it were a price.
+   */
+  async referencePrice(asset: string, fiatCurrency: string): Promise<Amount | null> {
+    return (await this.referencePrices?.price(asset, fiatCurrency)) ?? null;
   }
 
   async releasedTradeCounts(offerIds: readonly string[]): Promise<Map<string, number>> {
