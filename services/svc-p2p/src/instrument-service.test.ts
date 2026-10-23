@@ -1226,6 +1226,10 @@ describe('svc-p2p payment instruments', () => {
         'ops.trades': { status: 'escrowed', limit: 1 },
         'ops.counts': undefined,
         'ops.disputeRate24h': undefined,
+        // P-disputes-security-15. Own cap and the sell-lock posture. No
+        // instrument join. Unset owner tables refuse before any row is read.
+        'limits.verification': undefined,
+        'limits.securityChange': undefined,
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
