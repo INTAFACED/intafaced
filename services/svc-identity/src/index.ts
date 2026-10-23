@@ -68,6 +68,7 @@ import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
 import { createWorkItemsRouter } from './work-items.js';
+import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -471,6 +472,17 @@ const tradeClosureCheck = httpClosureChecker({
   secret: closureSecret,
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
+const p2pClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_P2P_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
+});
+// A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
+founderControls.useClosureChecks(async (input) => {
+  const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);
+  if (results.some((result) => !result.ok)) return { ok: false };
+  return { ok: true, blockers: results.flatMap((result) => (result.ok ? result.blockers : [])) };
+});
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
 const antiPhishing = new AntiPhishingService({
@@ -487,11 +499,7 @@ const closure = new AccountClosureService({
   founderUserIds: founderPair ?? [],
   bank: bankClosureCheck,
   trade: tradeClosureCheck,
-  p2p: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_P2P_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
-  }),
+  p2p: p2pClosureCheck,
   now: () => new Date(),
 });
 account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));
@@ -580,6 +588,7 @@ export const appRouter = mergeRouters(
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
   createWorkItemsRouter(sql),
+  createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],

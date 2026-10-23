@@ -228,7 +228,15 @@ export class AccountClosureService {
       ORDER BY requested_at DESC, id DESC
       LIMIT 1
     `;
-    return rows[0] ? viewOf(rows[0]) : null;
+    const row = rows[0];
+    if (!row) return null;
+    // Staff can reopen a customer-closed account (J-ops-console-04 #7). The finished closure stays as history, but it is
+    // not the account's state once the account is open again.
+    if (row.status === 'closed') {
+      const users = await this.deps.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
+      if (users[0]?.status !== 'closed') return null;
+    }
+    return viewOf(row);
   }
 
   async finalize(limit: number): Promise<{ closed: number; blocked: number }> {

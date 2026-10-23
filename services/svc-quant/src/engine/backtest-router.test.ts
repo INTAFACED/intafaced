@@ -274,6 +274,22 @@ describe('run history, labels and the log', () => {
     expect((await a.backtest.history({ limit: 1, cursor: one.nextCursor })).runs.map((row) => row.runId)).toEqual([first.runId]);
   });
 
+  it('leaves out a fills-language backtest, which has no bar result to open, and refuses to rename it', async () => {
+    const { a, runs } = setup();
+    const strategy = await saved(a);
+    const bar = await a.backtest.start(request(strategy.id));
+    const fills = await runs.begin({
+      userId: ACCOUNT_A,
+      idempotencyKey: 'backtest.run:client-key',
+      kind: 'backtest',
+      strategyId: strategy.id,
+      strategyVersion: 1,
+    });
+    await runs.finish({ id: fills.id, userId: ACCOUNT_A, outcome: 'ok', stored: { detail: null, response: { simulated: true } } });
+    expect((await a.backtest.history({ limit: 10 })).runs.map((row) => row.runId)).toEqual([bar.runId]);
+    await expect(a.backtest.rename({ runId: fills.id, label: 'old' })).rejects.toThrow(/quant\.run_not_found/);
+  });
+
   it('logs what was read, each fill and, as warnings, each gap and the choices that shaped the result', async () => {
     const { a } = setup();
     const strategy = await saved(a);

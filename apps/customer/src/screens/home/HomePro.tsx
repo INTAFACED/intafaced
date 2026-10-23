@@ -49,6 +49,7 @@ import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
 import { CustomiseHome } from './CustomiseHome';
@@ -622,6 +623,8 @@ export function HomePro() {
                 <GetStarted steps={started.steps} onHide={started.hide} />
               </div>
             ) : null;
+          case 'work':
+            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" />;
           case 'holdings':
             return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
           case 'activity':

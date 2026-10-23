@@ -202,3 +202,13 @@ export const antiPhishingCodeSchema = z.object({
 export type AntiPhishingCodeView = z.infer<typeof antiPhishingCodeSchema>;
 export const antiPhishingSetResultSchema = antiPhishingCodeSchema.extend({ changed: z.boolean() });
 export type AntiPhishingSetResult = z.infer<typeof antiPhishingSetResultSchema>;
+
+/**
+ * SERVER TIME (I-signin-sessions-13). Authenticator codes depend on the clock, so "my codes do not work" compares the
+ * device's clock with ours. `serverTime` is public and answers only the service's current time.
+ */
+export const SERVER_TIME_PROCEDURE = 'serverTime' as const;
+export const serverTimeSchema = z.object({ now: z.string().datetime({ offset: true }) });
+export type ServerTime = z.infer<typeof serverTimeSchema>;
+/** Each authenticator code lasts this long (svc-identity issues and checks codes with it); the one before and after also count. */
+export const TOTP_STEP_SECONDS = 30;

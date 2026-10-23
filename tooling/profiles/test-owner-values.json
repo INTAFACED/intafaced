@@ -150,6 +150,16 @@
       "service": "bank",
       "value": "24",
       "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
+    },
+    "NOTIFY_INBOX_PAGE_SIZE": {
+      "service": "notify",
+      "value": "20",
+      "note": "Inbox page size, so the notification centre lists (J-home-ia-05)."
+    },
+    "NOTIFY_INBOX_UNREAD_CAP": {
+      "service": "notify",
+      "value": "99",
+      "note": "Bell badge ceiling (J-home-ia-05)."
     }
   }
 }
