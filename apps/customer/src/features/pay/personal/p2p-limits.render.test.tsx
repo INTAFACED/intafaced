@@ -77,6 +77,16 @@ describe('take limits in plain words (P-trade-orders-03, P-disputes-security-15)
     expect((await note(refused('p2p.method_delisted'))).textContent).toContain('has been retired and no longer takes orders');
   });
 
+  it('says buying is paused after cancelled orders, until when, and that selling is not', async () => {
+    const shown = await note(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: '24' }));
+    expect(shown.dataset.kind).toBe('buyingPaused');
+    expect(shown.textContent).toContain(
+      'You cancelled 3 orders, or let their payment time run out, within 24 hours, so buying is paused until',
+    );
+    expect(shown.textContent).toContain('Selling is not paused.');
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.buying_restricted', status: 409 })).toBe(true);
+  });
+
   it('falls back to the plain sentence when the figures are missing', async () => {
     const shown = await note(refused('p2p.active_order_cap'));
     expect(shown.textContent).toContain('You already have the most ongoing orders');

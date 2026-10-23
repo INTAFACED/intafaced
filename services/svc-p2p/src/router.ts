@@ -532,6 +532,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.quote_changed':
       // Too many ongoing orders: one has to finish first. The error data lists them and the soonest deadline.
       case 'p2p.active_order_cap':
+      // Buying is paused after too many cancelled orders; the error data says until when.
+      case 'p2p.buying_restricted':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':

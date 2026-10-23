@@ -6,6 +6,16 @@
       "value": "20",
       "note": "Most ongoing P2P orders one person may hold as taker; J-p2p-18 holds 19 at once, J-p2p-01 reaches 20."
     },
+    "P2P_BUYER_CANCEL_LIMIT": {
+      "service": "p2p",
+      "value": "3",
+      "note": "Cancelled orders within the window that pause a person's buying; small, so J-p2p-01 reaches it."
+    },
+    "P2P_BUYER_CANCEL_WINDOW_HOURS": {
+      "service": "p2p",
+      "value": "24",
+      "note": "Hours the cancelled orders are counted over."
+    },
     "P2P_EXPORT_MAX_RANGE_DAYS": {
       "service": "p2p",
       "value": "90",

@@ -53,6 +53,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failLimitsUnset');
     case 'methodRetired':
       return t('failMethodRetired');
+    case 'buyingPaused':
+      return t('failBuyingPausedPlain');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -109,7 +111,10 @@ function limitText(
   if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
   const limit = failure.p2pLimit;
   if (!limit) return null;
-  const { cap, min, max, remaining, currency, until, reason } = limit;
+  const { cap, min, max, remaining, currency, until, reason, windowHours } = limit;
+  if (kind === 'buyingPaused') {
+    return cap && windowHours && until ? t('failBuyingPaused', { cap, hours: windowHours, time: limitTime(until) }) : null;
+  }
   if (kind === 'methodRetired' && reason) return t(RETIRED_COPY[reason]);
   if (kind === 'orderCap' && cap) return t('failOrderCap', { cap });
   if (kind === 'pairLimit' && min && max && currency) {

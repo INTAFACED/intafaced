@@ -37,7 +37,7 @@ import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
-import { parseActiveOrderCap, parsePairLimits } from './take-limits.js';
+import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 import {
   createIdentityContactReader,
@@ -167,6 +167,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   takeLimits: {
     activeOrderCap: parseActiveOrderCap(env.P2P_ACTIVE_ORDER_CAP),
     pairLimits: parsePairLimits(env.P2P_PAIR_LIMITS),
+    buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
   },
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),

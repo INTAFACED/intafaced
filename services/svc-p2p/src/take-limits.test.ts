@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
-import { parseActiveOrderCap, parsePairLimits, pairLimitRefusal, type TakeLimits } from './take-limits.js';
+import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits, pairLimitRefusal, type TakeLimits } from './take-limits.js';
 import { parseVerificationLimits, type VerificationLimitConfig } from './verification-limits.js';
 
 /**
@@ -45,6 +45,13 @@ describe('svc-p2p take limit parsing', () => {
     expect(parseActiveOrderCap(-2)).toBeNull();
   });
 
+  it('reads a cancel limit only when both the count and the window are whole numbers', () => {
+    expect(parseBuyerCancelLimit(3, 24)).toEqual({ limit: 3, windowHours: 24 });
+    expect(parseBuyerCancelLimit(3, null)).toEqual({ limit: null, windowHours: null });
+    expect(parseBuyerCancelLimit(undefined, 24)).toEqual({ limit: null, windowHours: null });
+    expect(parseBuyerCancelLimit(0, 24)).toEqual({ limit: null, windowHours: null });
+  });
+
   it('reads a decimal-string pair table and refuses anything partial', () => {
     expect(parsePairLimits(undefined)).toEqual({ status: 'unset' });
     expect(parsePairLimits('  ')).toEqual({ status: 'unset' });
@@ -69,7 +76,12 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
   let ledger!: MemoryLedger;
   let instruments!: InstrumentService;
 
-  const service = (takeLimits: TakeLimits | undefined, verificationLimits?: VerificationLimitConfig) =>
+  // A cancel limit far from every test but the ones about it.
+  const ROOMY = { limit: 100, windowHours: 24 };
+  const service = (
+    takeLimits: (Omit<TakeLimits, 'buyerCancels'> & Partial<Pick<TakeLimits, 'buyerCancels'>>) | undefined,
+    verificationLimits?: VerificationLimitConfig,
+  ) =>
     new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
       instruments,
       feeBps: 0,
@@ -80,7 +92,7 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
         disputeSeconds: 604_800,
         escalationRecheckSeconds: 3_600,
       },
-      ...(takeLimits ? { takeLimits } : {}),
+      ...(takeLimits ? { takeLimits: { buyerCancels: ROOMY, ...takeLimits } } : {}),
       ...(verificationLimits ? { verificationLimits } : {}),
     });
 
@@ -284,6 +296,130 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     expect(refused.limit?.cap).toBe('51');
     expect(refused.limit?.until).toBeNull();
     expect(refused.limit?.openTradeIds).toHaveLength(50);
+  });
+
+  /**
+   * Moves a finished order's resolution as the clock or the sweeper would have written it. A terminal row is frozen
+   * by trigger, so the test lifts it for this one write only.
+   */
+  const rewrite = async (tradeId: string, set: { hoursAgo?: number; reason?: string }) => {
+    await sql.begin(async (tx) => {
+      await tx`ALTER TABLE p2p.p2p_trades DISABLE TRIGGER p2p_trades_original_terms_frozen_trg`;
+      if (set.hoursAgo !== undefined) {
+        await tx`UPDATE p2p.p2p_trades SET resolved_at = now() - make_interval(hours => ${set.hoursAgo}) WHERE id = ${tradeId}`;
+      }
+      if (set.reason !== undefined) await tx`UPDATE p2p.p2p_trades SET resolution_reason = ${set.reason} WHERE id = ${tradeId}`;
+      await tx`ALTER TABLE p2p.p2p_trades ENABLE TRIGGER p2p_trades_original_terms_frozen_trg`;
+    });
+  };
+
+  it('cancelled orders pause buying until the oldest of them leaves the window; others’ cancels do not count', async () => {
+    const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: { limit: 2, windowHours: 24 } });
+    const offer = await sellOffer(p2p);
+    const placed = await take(p2p, offer.id);
+    // The seller's cancel is not the buyer's; then the buyer cancels two, and an older cancel sits outside the window.
+    await p2p.cancelTrade((await take(p2p, offer.id)).id, MAKER, 'TEST seller changed their mind');
+    const old = await take(p2p, offer.id);
+    await p2p.cancelTrade(old.id, TAKER, 'TEST');
+    await rewrite(old.id, { hoursAgo: 30 });
+    const first = await take(p2p, offer.id);
+    await p2p.cancelTrade(first.id, TAKER, 'TEST');
+    expect((await take(p2p, offer.id)).status).toBe('escrowed');
+    // The payment window running out on the buyer counts as the buyer's.
+    const lapsed = await take(p2p, offer.id);
+    await p2p.cancelTrade(lapsed.id, TAKER, 'TEST');
+    await rewrite(lapsed.id, { reason: 'timeout.payment_window_elapsed' });
+    const journal = ledger.journal().length;
+
+    const [oldest] = await sql<
+      { until: Date }[]
+    >`SELECT resolved_at + interval '24 hours' AS until FROM p2p.p2p_trades WHERE id = ${first.id}`;
+    for (const attempt of [
+      p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('20') }),
+      take(p2p, offer.id),
+    ]) {
+      const refused = await refusal(attempt);
+      expect(refused.code).toBe('p2p.buying_restricted');
+      expect(refused.limit).toEqual({ until: oldest!.until.toISOString(), cap: '2', windowHours: '24' });
+    }
+    expect(ledger.journal()).toHaveLength(journal);
+    // A retry of a take placed before the pause is that take.
+    expect((await refusal(take(p2p, offer.id, '20', placed.id))).code).toBe('p2p.trade_exists');
+
+    // Once the oldest of the two leaves the window, buying is back.
+    await rewrite(first.id, { hoursAgo: 25 });
+    expect((await take(p2p, offer.id)).status).toBe('escrowed');
+  });
+
+  const takerSells = async () => {
+    await instruments.createInstrument({
+      ownerId: TAKER,
+      methodId: 'sepa',
+      country: 'DE',
+      fiatCurrency: 'EUR',
+      label: 'sepa',
+      details: { account_reference: 'ref-taker' },
+      instrumentId: crypto.randomUUID(),
+    });
+    await ledger.post(
+      recipes.deposit({ userId: TAKER, assetId: ASSET, amount: parseAmount('100'), rail: 'test', railRef: `${TAKER}:fund` }),
+    );
+  };
+  const buyOffer = (p2p: P2pService, makerId: string) =>
+    p2p.createOffer({
+      makerId,
+      side: 'buy',
+      asset: ASSET,
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: parseAmount('0.92'),
+      minAmt: parseAmount('10'),
+      maxAmt: parseAmount('50'),
+      totalAmt: parseAmount('100'),
+      methods: ['sepa'],
+      terms: 'TEST terms',
+      makerTier: 'basic',
+    });
+
+  it('a blank cancel limit refuses every buy: a take of a sell ad, a new buy ad and a take of one', async () => {
+    const roomy = service({ activeOrderCap: 5, pairLimits: PAIRS });
+    const buy = await buyOffer(roomy, MAKER);
+    await takerSells();
+    const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: parseBuyerCancelLimit(null, 24) });
+    const sell = await sellOffer(p2p);
+    expect((await refusal(take(p2p, sell.id))).code).toBe('p2p.config_unset');
+    expect((await refusal(buyOffer(p2p, TAKER))).code).toBe('p2p.config_unset');
+    expect((await refusal(take(p2p, buy.id))).code).toBe('p2p.config_unset');
+    expect(await sql`SELECT id FROM p2p.p2p_trades`).toHaveLength(0);
+  });
+
+  it('a paused buyer may still sell, posts no buy ad, and their own buy ad takes no orders meanwhile', async () => {
+    const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: { limit: 2, windowHours: 24 } });
+    await takerSells();
+    const theirs = await buyOffer(p2p, TAKER);
+    const sell = await sellOffer(p2p);
+    for (let i = 0; i < 2; i++) await p2p.cancelTrade((await take(p2p, sell.id)).id, TAKER, 'TEST');
+
+    expect((await refusal(take(p2p, sell.id))).code).toBe('p2p.buying_restricted');
+    const posted = await refusal(buyOffer(p2p, TAKER));
+    expect(posted.code).toBe('p2p.buying_restricted');
+    expect(posted.limit).toMatchObject({ cap: '2', windowHours: '24' });
+    // A seller filling the paused buyer's ad learns only that it takes no orders, nothing about the pause.
+    const filled = await refusal(
+      p2p.takeOffer({
+        tradeId: crypto.randomUUID(),
+        offerId: theirs.id,
+        takerId: MAKER,
+        amount: parseAmount('20'),
+        method: 'sepa',
+        tier: 'basic',
+      }),
+    );
+    expect(filled.code).toBe('p2p.offer_not_active');
+    expect(filled.limit).toBeUndefined();
+    // Selling is not paused.
+    const buy = await buyOffer(p2p, MAKER);
+    expect((await take(p2p, buy.id)).status).toBe('escrowed');
   });
 
   it('a service built without the owner limits takes as before', async () => {
