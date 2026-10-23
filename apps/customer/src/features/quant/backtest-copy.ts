@@ -228,6 +228,8 @@ const en = {
   partReturn: 'Return (%)',
   partDrawdown: 'Max drawdown (%)',
   partTrips: 'Round trips entered',
+  sectionsNote:
+    'A position still open at the cut is carried into the out-of-sample part: its return and drawdown include it, but its round trip counts in sample, where it was entered.',
   tabChecks: 'Checks',
   checksIntro:
     'Overfitting, look-ahead and repainting checks on this run, each with what it measured. Every check is listed. Thresholds are the owner’s, as they stood when the run finished.',

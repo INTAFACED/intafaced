@@ -465,6 +465,7 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       )}
+      {sections && <p data-testid="quant-sections-note">{t('sectionsNote')}</p>}
     </section>
   );
 }

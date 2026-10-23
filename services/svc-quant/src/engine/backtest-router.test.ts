@@ -75,22 +75,25 @@ function fakeFetch(routes: Record<string, { status: number; body: unknown }>, se
 
 const FEES = { status: 200, body: { version: 'local-test:v1', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } } };
 
-function setup(options: { history?: HistoryPort; fees?: FeePort; seen?: string[]; judgement?: Judgement } = {}) {
+type Stores = { runs: ReturnType<typeof createMemoryRunRepository>; strategies: ReturnType<typeof createMemoryStrategyRepository> };
+
+function setup(options: { history?: HistoryPort; fees?: FeePort; seen?: string[]; judgement?: Judgement; stores?: Stores } = {}) {
   const seen = options.seen ?? [];
   const fetch = fakeFetch({ '/api/v1/ohlcv/BTC%2FUSDT': { status: 200, body: candleRows() }, '/api/v1/fees/published': FEES }, seen);
-  const runs = createMemoryRunRepository(RUN_RESULT_MAX_BYTES);
+  const runs = options.stores?.runs ?? createMemoryRunRepository(RUN_RESULT_MAX_BYTES);
+  const strategies = options.stores?.strategies ?? createMemoryStrategyRepository();
   const appRouter = createQuantRouter({
     wired: true,
     venueVaultSet: false,
     limits,
-    strategies: createMemoryStrategyRepository(),
+    strategies,
     runs,
     history: options.history ?? tradeHistoryPort({ tradeUrl: 'http://trade.test', now: () => NOW, fetch }),
     fees: options.fees ?? tradeFeePort({ tradeUrl: 'http://trade.test', fetch }),
     now: () => NOW,
     judgement: options.judgement,
   });
-  return { a: appRouter.createCaller(signed(ACCOUNT_A)), b: appRouter.createCaller(signed(ACCOUNT_B)), runs, seen };
+  return { a: appRouter.createCaller(signed(ACCOUNT_A)), b: appRouter.createCaller(signed(ACCOUNT_B)), runs, strategies, seen };
 }
 
 async function saved(a: ReturnType<typeof setup>['a'], modules: QuantSignalRules | null = RULES) {
@@ -401,6 +404,11 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     const far = await saved(clear.a);
     const result = await clear.a.backtest.start({ ...asked, strategyId: far.id });
     expect(result.holdout).toEqual({ enforced: true, from: new Date(T0 + 8 * HOUR).toISOString() });
+    // The owner moves the holdout earlier: the stored run reads back as it ran, and nothing new runs into the holdout.
+    const moved = setup({ judgement: { ...NO_JUDGEMENT, holdoutStart: 'PT44H' }, stores: clear });
+    const replay = await moved.a.backtest.start({ ...asked, strategyId: far.id });
+    expect(replay).toEqual(result);
+    await expect(moved.a.backtest.start({ ...asked, strategyId: far.id, cash: '2000' })).rejects.toThrow(/quant\.holdout_overlap/);
     await expect(clear.a.backtest.start({ ...asked, strategyId: far.id, split: { preset: 'thirds' } })).rejects.toThrow(
       /quant\.backtest_window_invalid — split/,
     );

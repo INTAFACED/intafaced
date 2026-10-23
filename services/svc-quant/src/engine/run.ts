@@ -111,7 +111,8 @@ export interface PreparedBacktest {
   readonly split: { readonly preset: QuantSplitPreset; readonly outOfSampleFromMs: number } | null;
   readonly criteria: QuantVerdictCriteria;
   readonly checks: QuantCheckThresholds;
-  readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null };
+  /** A holdout refusal waits until no stored run answers the key: a stored run reads back after the owner moves the holdout. */
+  readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null; readonly refusal: QuantError | null };
   readonly ignoredInputs: readonly string[];
 }
 
@@ -172,18 +173,23 @@ export function holdoutStartMs(setting: string | null, now: number): number | nu
  * out-of-sample part starts, or at the window's end when the run is not split. A run that does not ask says so.
  */
 function holdoutOf(enforced: boolean, setting: string | null, inSampleEndMs: number, now: number): PreparedBacktest['holdout'] {
-  if (!enforced) return { enforced: false, fromMs: null };
+  if (!enforced) return { enforced: false, fromMs: null, refusal: null };
   const fromMs = holdoutStartMs(setting, now);
   if (fromMs === null) {
-    throw new QuantError(QUANT_HOLDOUT_DATE_UNSET, 'holdout — the owner has not set where the holdout begins; nothing is assumed');
+    const refusal = new QuantError(
+      QUANT_HOLDOUT_DATE_UNSET,
+      'holdout — the owner has not set where the holdout begins; nothing is assumed',
+    );
+    return { enforced: true, fromMs: null, refusal };
   }
   if (inSampleEndMs > fromMs) {
-    throw new QuantError(
+    const refusal = new QuantError(
       QUANT_HOLDOUT_OVERLAP,
       `holdout — the in-sample part runs to ${new Date(inSampleEndMs).toISOString()}, into the holdout that begins ${new Date(fromMs).toISOString()}`,
     );
+    return { enforced: true, fromMs, refusal };
   }
-  return { enforced: true, fromMs };
+  return { enforced: true, fromMs, refusal: null };
 }
 
 function hash(value: unknown): string {
@@ -270,6 +276,7 @@ export async function prepareBacktest(
 
 /** The window's closed bars. An empty window refuses; no bar is invented. */
 export async function readWindowBars(prepared: PreparedBacktest, history: HistoryPort): Promise<Bar[]> {
+  if (prepared.holdout.refusal) throw prepared.holdout.refusal;
   const barSize = prepared.rules.barSize as BarSize;
   const bars = await history.bars({ symbol: prepared.rules.symbol, barSize, fromMs: prepared.fromMs, toMs: prepared.toMs });
   if (bars.length === 0) {
@@ -324,6 +331,7 @@ export function presentBacktest(stored: StoredBacktest, runId: string): QuantBac
 }
 
 export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], variantCount: number | null = null): StoredBacktest {
+  if (prepared.holdout.refusal) throw prepared.holdout.refusal;
   const barSize = prepared.rules.barSize as BarSize;
   const simulate = (on: readonly Bar[]) =>
     simulateSignalRules({
