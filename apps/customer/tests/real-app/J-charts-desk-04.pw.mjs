@@ -42,11 +42,12 @@ const row = (page, id) => page.locator(`[data-study="${id}"]`);
 test('J-charts-desk-04 #1 adds Ichimoku with 40 bars loaded: the lines that need 52 bars are absent and the legend says so', async ({
   page,
 }) => {
-  // The 52-bar rule is about the loaded bars, so the chart is set to the hourly interval. Precondition: fewer than 52
-  // hourly bars are loaded (span B needs 52); the count is read from the public route, not assumed.
-  const hourly = await candles('1h', 240);
-  expect(hourly.length).toBeLessThan(52);
-  await openChart(page, '?interval=1h');
+  // The 52-bar rule is about the loaded bars. The TEST history covers a few days, so the 2h interval loads between 26
+  // and 52 bars (the base line draws, span B cannot); the count is read from the public route, not assumed.
+  const loaded = await candles('2h', 240);
+  expect(loaded.length).toBeGreaterThanOrEqual(26);
+  expect(loaded.length).toBeLessThan(52);
+  await openChart(page, '?interval=2h');
   await addStudy(page, 'ichimoku', 'Ichimoku Cloud');
   await expect(row(page, 'ichimoku-1')).toContainText('Leading B: Needs 52 bars');
 });
@@ -111,9 +112,12 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
     .getByRole('combobox', { name: /^Interval/ })
     .selectOption('1h');
   await page.getByRole('button', { name: 'Apply' }).click();
-  // The study reads the closed hourly bars only (no look-ahead). The count is worked from the public hourly route.
+  // The study reads only the hourly bars that end by the chart's last 15m bar (no look-ahead past the chart). In the last
+  // quarter of an hour that includes the forming hour, which ends with the forming 15m bar. Worked from the public routes.
+  const quarter = await candles('15m', 1);
+  const chartEnd = Number(quarter[quarter.length - 1][0]) + 900_000;
   const hourly = await candles('1h', 240);
-  const closed = hourly.filter((bar) => Number(bar[0]) + 3_600_000 <= Date.now()).length;
+  const closed = hourly.filter((bar) => Number(bar[0]) + 3_600_000 <= chartEnd).length;
   await expect(row(page, 'htf-sma-1')).toContainText(`Higher bars read: ${closed}`);
 });
 
