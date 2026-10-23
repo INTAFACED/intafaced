@@ -1,7 +1,7 @@
 -- The developer room's key create (DV-keys-01, J-developer-03) is idempotent by the client's request id, a business
 -- key. One row per (person, request id) names the key that request made and a hash of what it asked for, so a repeat
 -- returns the same record without the secret and the same id asking for a different key refuses.
--- Reversal: 0070_api_key_create_requests.down.sql
+-- Reversal: 0071_api_key_create_requests.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."api_key_create_requests" (
   "user_id" uuid NOT NULL REFERENCES "identity"."users"("id") ON DELETE CASCADE,

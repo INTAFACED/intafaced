@@ -18,8 +18,20 @@ import {
   type SensitiveKey,
 } from './fields.js';
 import { requirePageLimit } from './series-cursor.js';
+import { SHUT } from '../owner-pay-grant-recheck.js';
 
 type PayLookup = Pick<PayService, 'getMerchant' | 'getMerchantByUserId'>;
+
+/**
+ * The person writing a profile change, and the scope their session still holds for it (`profileWrite`
+ * in router.ts). `pay:write` is the verified owner's scope. A session on `pay:onboard` alone may write
+ * only as the owner of a business that is not verified yet, or as an admin of a verified one: the two
+ * people the owner grant law never gives `pay:write`.
+ */
+export interface ProfileWriter {
+  readonly userId: string;
+  readonly scope: 'pay:write' | 'pay:onboard';
+}
 
 interface StoredRow {
   id: string;
@@ -158,7 +170,7 @@ export class MerchantProfileService {
   }
 
   async submit(
-    userId: string,
+    writer: ProfileWriter,
     input: {
       merchantId: string;
       expectedVersion: string;
@@ -173,7 +185,8 @@ export class MerchantProfileService {
       industry?: string | null;
     },
   ) {
-    await this.manageFence(userId, input.merchantId);
+    await this.manageFence(writer, input.merchantId);
+    const userId = writer.userId;
     const { immediate, sensitive } = parseProfilePatch(input);
     const expected = versionOf(input.expectedVersion);
     const sensitiveKeys = sensitiveKeysOf(sensitive);
@@ -234,7 +247,7 @@ export class MerchantProfileService {
   }
 
   async decide(
-    userId: string,
+    writer: ProfileWriter,
     input: {
       merchantId: string;
       requestId: string;
@@ -243,7 +256,8 @@ export class MerchantProfileService {
       reason: string;
     },
   ) {
-    await this.manageFence(userId, input.merchantId);
+    await this.manageFence(writer, input.merchantId);
+    const userId = writer.userId;
     return transaction(
       this.sql,
       async (tx) => {
@@ -342,9 +356,12 @@ export class MerchantProfileService {
     );
   }
 
-  /** Merchant opt-in for a second owner/admin before compliance review. Default off. */
-  async setSecondApproval(userId: string, input: { merchantId: string; enabled: boolean }) {
-    await this.manageFence(userId, input.merchantId);
+  /**
+   * Merchant opt-in for a second owner/admin before compliance review. Default off. The owner's alone: an admin it
+   * binds must not be able to switch it off and then submit straight to review.
+   */
+  async setSecondApproval(writer: ProfileWriter, input: { merchantId: string; enabled: boolean }) {
+    await this.manageFence(writer, input.merchantId, { ownerOnly: true });
     const rows = await this.sql<Array<{ profile_second_approval: boolean }>>`
       UPDATE pay.merchants
          SET profile_second_approval = ${input.enabled}, updated_at = now()
@@ -420,8 +437,18 @@ export class MerchantProfileService {
     });
   }
 
-  /** Owner, or an active admin of this merchant. A PayFac parent is not a writer. Missing and foreign are one refusal. */
-  private async manageFence(userId: string, merchantId: string): Promise<void> {
+  /**
+   * Owner, or an active admin of this merchant. A PayFac parent is not a writer. Missing and foreign are one refusal.
+   * The rules then hang on this merchant, never on the scope alone, because a `pay:write` session may be one an admin
+   * holds as the owner of some other business:
+   * - nobody writes to a suspended or closed business;
+   * - the owner writes on `pay:write`, or on `pay:onboard` before verification (a verified owner without `pay:write`
+   *   has had it withdrawn);
+   * - an admin writes only on a verified business, on either scope (the owner grant law never gives an admin
+   *   `pay:write` for the business they work for).
+   */
+  private async manageFence(writer: ProfileWriter, merchantId: string, opts: { ownerOnly?: boolean } = {}): Promise<void> {
+    const userId = writer.userId;
     const [merchant, role] = await Promise.all([
       this.pay.getMerchant(merchantId).then(
         (row) => row,
@@ -432,10 +459,15 @@ export class MerchantProfileService {
       ),
       this.team.activeRole(userId, merchantId),
     ]);
-    if (merchant && merchant.userId === userId) return;
-    if (role === 'admin') return;
-    if (role) throw new PortalError('pay.team_role_forbidden', 'forbidden');
-    throw merchantNotFound(merchantId);
+    if (!merchant) throw merchantNotFound(merchantId);
+    const owner = merchant.userId === userId;
+    if (!owner && (role !== 'admin' || opts.ownerOnly)) {
+      if (role) throw new PortalError('pay.team_role_forbidden', 'forbidden');
+      throw merchantNotFound(merchantId);
+    }
+    const verified = merchant.kybStatus === 'approved';
+    const allowed = SHUT.has(merchant.status) ? false : owner ? writer.scope === 'pay:write' || !verified : verified;
+    if (!allowed) throw new PortalError('pay.owner_grant_withdrawn', 'forbidden');
   }
 
   private async load(sql: Sql, merchantId: string): Promise<StoredRow> {
