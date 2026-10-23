@@ -37,7 +37,7 @@ import {
   chartDataClassProposal,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS } from './seed-spot-test-listing.mjs';
+import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -280,6 +280,11 @@ assert.deepEqual(
       [l.symbol],
     );
   }
+  // The spot seed refuses production and any database that does not look local or test.
+  const local = 'postgres://u:p@127.0.0.1:15460/intafaced_local_test';
+  assert.equal(localTestDatabaseUrl(local, {}), local);
+  assert.throws(() => localTestDatabaseUrl(local, { NODE_ENV: 'production' }), /NODE_ENV is production/);
+  assert.throws(() => localTestDatabaseUrl('postgres://u:p@db.example:5432/intafaced', {}), /does not look local or test/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.
