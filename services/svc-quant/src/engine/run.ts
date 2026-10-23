@@ -39,6 +39,16 @@ export const MAX_DELAY_BARS = 100;
 /** The most runs one history page lists. */
 export const BACKTEST_HISTORY_PAGE_MAX = 50;
 
+/**
+ * Every bar backtest's run key starts with this. The older fills-language `backtest.run` stores kind 'backtest' too,
+ * under a key the caller chose, and has no bar result to open, so history and rename keep to this prefix.
+ */
+export const BAR_BACKTEST_KEY_PREFIX = 'algo:bt:';
+
+export function isBarBacktest(run: { readonly kind: string; readonly idempotencyKey: string }): boolean {
+  return run.kind === 'backtest' && run.idempotencyKey.startsWith(BAR_BACKTEST_KEY_PREFIX);
+}
+
 const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:\d{2})$/i;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
 
@@ -157,7 +167,7 @@ export async function prepareBacktest(
   const windowHash = hash([fromMs, toMs]);
   const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
-  return { ...prepared, key: `algo:bt:${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
+  return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
 
 /** The window's closed bars. An empty window refuses; no bar is invented. */

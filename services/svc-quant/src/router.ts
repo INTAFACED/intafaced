@@ -35,6 +35,8 @@ import { missingLake, type BacktestLake } from './backtest/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
 import {
   BACKTEST_HISTORY_PAGE_MAX,
+  BAR_BACKTEST_KEY_PREFIX,
+  isBarBacktest,
   prepareBacktest,
   presentBacktest,
   readWindowBars,
@@ -919,7 +921,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           try {
             const userId = accountOf(ctx, input.accountId);
             const cursor = input.cursor?.trim() ? input.cursor.trim() : null;
-            const page = await runs.history({ userId, kind: 'backtest', limit: input.limit, cursor });
+            const page = await runs.history({ userId, kind: 'backtest', keyPrefix: BAR_BACKTEST_KEY_PREFIX, limit: input.limit, cursor });
             return {
               runs: page.runs.map((row) => ({
                 runId: row.id,
@@ -952,7 +954,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               throw new QuantError('quant.params_invalid', `label — a run label is 1 to ${QUANT_RUN_LABEL_MAX} characters`);
             }
             const row = await runs.get({ userId, id: input.runId });
-            if (!row || row.kind !== 'backtest') throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            if (!row || !isBarBacktest(row)) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
             const saved = await runs.setLabel({ userId, runId: row.id, label });
             return { runId: row.id, label: saved.label };
           } catch (err) {
