@@ -56,6 +56,26 @@
       "value": "10",
       "note": "TEST: saved screens per account. Not an owner limit."
     },
+    "IDENTITY_LAYOUT_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: saved chart layouts per account. Not an owner limit."
+    },
+    "IDENTITY_LAYOUT_RESTORE_DAYS": {
+      "service": "identity",
+      "value": "7",
+      "note": "TEST: days a deleted chart layout can be recovered. Not an owner limit."
+    },
+    "IDENTITY_LAYOUT_RESTORE_LIST_SIZE": {
+      "service": "identity",
+      "value": "20",
+      "note": "TEST: deleted chart layouts kept per account for recovery. Not an owner limit."
+    },
+    "IDENTITY_CHART_TEMPLATE_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: chart templates per account. Not an owner limit."
+    },
     "PAY_MIN_CONFIRMATIONS": {
       "service": "pay",
       "value": "6",

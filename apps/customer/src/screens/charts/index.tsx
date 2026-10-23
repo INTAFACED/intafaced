@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
@@ -29,6 +29,14 @@ import {
 import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
+import { LayoutsMenu } from './layouts/LayoutsMenu';
+import { layoutsCopy } from './layouts/copy';
+import { DEFAULT_DESK, isDeskSetting } from './layouts/model';
+import { deskKey } from './layouts/capture';
+import type { DeskSetting } from '@intafaced/contracts/layouts-preferences';
+
+/** The watchlist widget is dragged by its grip and dropped on either half of the chart area. Its own drag type, never a symbol. */
+const WIDGET_DRAG_TYPE = 'application/x-intafaced-widget';
 
 function MarketSelect({
   label,
@@ -60,16 +68,22 @@ function Page({
   markets,
   search,
   openSocket,
+  onRemount,
 }: {
   market: DeskMarket;
   markets: readonly DeskMarket[];
   search: string;
   openSocket?: WidgetProps['openSocket'];
+  onRemount: () => void;
 }) {
   const { t } = chartsCopy.useCopy();
+  const { t: tl } = layoutsCopy.useCopy();
   const { userId } = useSession();
   const id = workbenchId(search);
   const [setting, setSetting] = useDeviceSetting<WorkbenchSetting>(settingKey(userId, id), DEFAULT_SETTING, isWorkbenchSetting);
+  // The desk: which widgets show (the preset's), and which side the watchlist sits on. Kept on this device, and in a layout.
+  const [desk, setDesk] = useDeviceSetting<DeskSetting>(deskKey(userId, id), DEFAULT_DESK, isDeskSetting);
+  const [dragging, setDragging] = useState(false);
   // An interval in the address opens the workbench at that interval, once; after that the person's choice stands.
   // A shared link also names the style (`?style=line`), applied the same way.
   const fromAddress = useRef(intervalFromSearch(search));
@@ -109,6 +123,15 @@ function Page({
         </div>
         <div className="cw-head-actions">
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
+          <LayoutsMenu
+            workbench={id}
+            symbol={market.symbol}
+            markets={markets}
+            setting={setting}
+            desk={desk}
+            setDesk={setDesk}
+            onRemount={onRemount}
+          />
           <a className="cw-link" href={`/trade/spot/${pairOf(market.symbol)}`}>
             {t('Trade this market')}
           </a>
@@ -120,7 +143,21 @@ function Page({
           {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
         </div>
       )}
-      <div className="cw-split">
+      <div
+        className={`cw-split${desk.side === 'left' ? ' cw-split--left' : ''}${dragging ? ' cw-split--drop' : ''}`}
+        data-side={desk.side}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(WIDGET_DRAG_TYPE)) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          // A widget dropped on the left or right half of the page takes that side. A widget drop is never a market drop.
+          if (!event.dataTransfer.types.includes(WIDGET_DRAG_TYPE)) return;
+          event.preventDefault();
+          setDragging(false);
+          const box = event.currentTarget.getBoundingClientRect();
+          setDesk({ ...desk, side: event.clientX < box.left + box.width / 2 ? 'left' : 'right' });
+        }}
+      >
         {/* A watchlist row dragged here opens its market on this chart, at the interval the workbench already has. */}
         <div
           className="cw-split-chart"
@@ -143,20 +180,40 @@ function Page({
             setMode={setMode}
             setScheme={setScheme}
             openSocket={openSocket}
-            mainAddons={(host, bars) => (
-              <DrawingsLayer
-                key={id}
-                host={host}
-                bars={bars}
-                workbench={id}
-                symbol={market.symbol}
-                tickSize={market.tickSize}
-                limits={limits}
-              />
-            )}
+            showStudies={desk.studies}
+            mainAddons={(host, bars) =>
+              desk.drawings ? (
+                <DrawingsLayer
+                  key={id}
+                  host={host}
+                  bars={bars}
+                  workbench={id}
+                  symbol={market.symbol}
+                  tickSize={market.tickSize}
+                  limits={limits}
+                />
+              ) : null
+            }
           />
         </div>
-        <WatchlistPanel workbench={id} />
+        <div className="cw-widget" data-widget="watchlist">
+          <button
+            type="button"
+            className="cw-grip"
+            draggable
+            aria-label={tl('Drag widget')}
+            title={tl('Drag widget')}
+            onDragStart={(event) => {
+              event.dataTransfer.setData(WIDGET_DRAG_TYPE, 'watchlist');
+              event.dataTransfer.effectAllowed = 'move';
+              setDragging(true);
+            }}
+            onDragEnd={() => setDragging(false)}
+          >
+            {tl('Drag widget')}
+          </button>
+          <WatchlistPanel workbench={id} />
+        </div>
       </div>
     </div>
   );
@@ -166,6 +223,9 @@ function Page({
 export default function ChartsScreen({ params, search, openSocket }: ScreenProps & { openSocket?: WidgetProps['openSocket'] }) {
   const { t } = chartsCopy.useCopy();
   const markets = useDeskMarkets();
+  // Bumped when a layout, template or reset has written the device's settings: the page mounts again and reads them.
+  const [revision, setRevision] = useState(0);
+  const remount = useCallback(() => setRevision((now) => now + 1), []);
   const pair = normalizePair(params.symbol ?? defaultDeskPair);
   if (markets.status === 'loading')
     return (
@@ -199,5 +259,14 @@ export default function ChartsScreen({ params, search, openSocket }: ScreenProps
         />
       </div>
     );
-  return <Page key={market.symbol} market={market} markets={markets.data} search={search} openSocket={openSocket} />;
+  return (
+    <Page
+      key={`${market.symbol}#${revision}`}
+      market={market}
+      markets={markets.data}
+      search={search}
+      openSocket={openSocket}
+      onRemount={remount}
+    />
+  );
 }

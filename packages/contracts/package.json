@@ -101,6 +101,10 @@
     "./watchlists-preferences": {
       "types": "./dist/watchlists-preferences.d.ts",
       "default": "./dist/watchlists-preferences.js"
+    },
+    "./layouts-preferences": {
+      "types": "./dist/layouts-preferences.d.ts",
+      "default": "./dist/layouts-preferences.js"
     }
   },
   "scripts": {

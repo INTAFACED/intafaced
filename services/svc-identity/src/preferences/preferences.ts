@@ -9,6 +9,16 @@ import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
+import {
+  CHART_TEMPLATES_NAMESPACE,
+  LAYOUTS_NAMESPACE,
+  NO_LAYOUT_CAPS,
+  layoutsForRead,
+  parseChartTemplates,
+  parseLayouts,
+  type LayoutCaps,
+} from './layouts.js';
+import type { ChartTemplatesValue, LayoutsValue } from '@intafaced/contracts/layouts-preferences';
 import type { SavedScreensValue, WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
 import {
   NO_WATCHLIST_CAPS,
@@ -37,16 +47,28 @@ export type PreferenceNamespace =
   | typeof UI_VIEW_NAMESPACE
   | typeof HOME_TILES_NAMESPACE
   | typeof WATCHLISTS_NAMESPACE
-  | typeof SAVED_SCREENS_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue | WatchlistsValue | SavedScreensValue;
+  | typeof SAVED_SCREENS_NAMESPACE
+  | typeof LAYOUTS_NAMESPACE
+  | typeof CHART_TEMPLATES_NAMESPACE;
+export type PreferenceValue =
+  | TradeViewsValue
+  | AccountDisplayValue
+  | UiViewValue
+  | HomeTilesValue
+  | WatchlistsValue
+  | SavedScreensValue
+  | LayoutsValue
+  | ChartTemplatesValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = {
   readonly displayCurrencies: readonly string[];
   /** The watchlist and saved-screen caps. Absent or blank: a write that needs a cap is refused. */
   readonly watchlists?: WatchlistCaps;
+  /** The saved-layout and chart-template limits. Absent or blank: a write that needs one is refused. */
+  readonly layouts?: LayoutCaps;
 };
-const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [], watchlists: NO_WATCHLIST_CAPS };
+const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [], watchlists: NO_WATCHLIST_CAPS, layouts: NO_LAYOUT_CAPS };
 
 export class PreferencesError extends Error {
   constructor(
@@ -66,7 +88,9 @@ export type PreferenceView =
   | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
   | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null }
   | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
-  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null };
+  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
+  | { readonly namespace: typeof LAYOUTS_NAMESPACE; readonly version: number; readonly value: LayoutsValue | null }
+  | { readonly namespace: typeof CHART_TEMPLATES_NAMESPACE; readonly version: number; readonly value: ChartTemplatesValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -92,6 +116,8 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, (value: unknown, settings
   [HOME_TILES_NAMESPACE]: (value) => parseHomeTiles(value),
   [WATCHLISTS_NAMESPACE]: (value, settings) => parseWatchlists(value, settings.watchlists),
   [SAVED_SCREENS_NAMESPACE]: (value, settings) => parseSavedScreens(value, settings.watchlists),
+  [LAYOUTS_NAMESPACE]: (value, settings) => parseLayouts(value, settings.layouts ?? NO_LAYOUT_CAPS),
+  [CHART_TEMPLATES_NAMESPACE]: (value, settings) => parseChartTemplates(value, settings.layouts ?? NO_LAYOUT_CAPS),
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {
@@ -105,14 +131,22 @@ function parseValue(namespace: PreferenceNamespace, value: unknown, settings: Pr
   return NAMESPACES[namespace](value, settings);
 }
 
-export async function getPreferences(sql: Sql, context: Context, namespace: string): Promise<PreferenceView> {
+export async function getPreferences(
+  sql: Sql,
+  context: Context,
+  namespace: string,
+  settings: PreferenceSettings = NO_SETTINGS,
+): Promise<PreferenceView> {
   const userId = callerId(context);
   const named = requireNamespace(namespace);
   const [row] = await sql<Array<{ version: string; value: PreferenceValue }>>`
     SELECT version::text AS version, value FROM user_preferences WHERE user_id = ${userId} AND namespace = ${named}
   `;
   if (!row) return { namespace: named, version: 0, value: null } as PreferenceView;
-  return { namespace: named, version: Number(row.version), value: row.value } as PreferenceView;
+  // A layout past the owner's restore window is not returned, even before the next write drops it from the record.
+  const value =
+    named === LAYOUTS_NAMESPACE ? layoutsForRead(row.value as LayoutsValue | null, settings.layouts ?? NO_LAYOUT_CAPS) : row.value;
+  return { namespace: named, version: Number(row.version), value } as PreferenceView;
 }
 
 function fingerprint(namespace: string, value: PreferenceValue, ifVersion: number): string {

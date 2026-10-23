@@ -1,0 +1,88 @@
+/* The Layouts menu on the chart workbench. Colours and spacing come from the design tokens only. */
+.ly {
+  position: relative;
+  display: inline-block;
+}
+.ly-panel {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: calc(100% + 6px);
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line, #262626);
+  border-radius: 8px;
+  background: var(--surface, #111111);
+  color: var(--text, #e8e8e8);
+}
+.ly-lead,
+.ly-hint,
+.ly-empty,
+.ly-status,
+.ly-error {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--muted, #a3a3a3);
+}
+.ly-error {
+  color: var(--down, #f05a68);
+}
+.ly-status {
+  color: var(--text, #e8e8e8);
+}
+.ly-section {
+  margin: 8px 0;
+  padding: 8px 0 4px;
+  border: 0;
+  border-top: 1px solid var(--line, #262626);
+}
+.ly-section legend {
+  padding: 0;
+  font-weight: 600;
+}
+.ly-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-end;
+  margin: 6px 0;
+}
+.ly-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ly-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line, #262626);
+}
+.ly-item[aria-current='true'] {
+  border-left: 2px solid var(--accent, #c8f64a);
+  padding-left: 6px;
+}
+.ly-tag {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--accent, #c8f64a);
+}
+.ly-sub {
+  margin: 12px 0 2px;
+  font-size: 14px;
+}
+.ly-panel input {
+  min-width: 180px;
+}
+@media (max-width: 560px) {
+  .ly-panel {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: 96px;
+    width: auto;
+  }
+}

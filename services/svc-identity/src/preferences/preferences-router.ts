@@ -5,6 +5,7 @@ import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
 import { savedScreensPreferenceSchema, watchlistsPreferenceSchema } from '@intafaced/contracts/watchlists-preferences';
+import { chartTemplatesPreferenceSchema, layoutsPreferenceSchema } from '@intafaced/contracts/layouts-preferences';
 import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
 import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
@@ -34,6 +35,8 @@ const preference = z.union([
   homeTilesPreferenceSchema,
   watchlistsPreferenceSchema,
   savedScreensPreferenceSchema,
+  layoutsPreferenceSchema,
+  chartTemplatesPreferenceSchema,
 ]);
 const stored = z.literal('stored');
 const storedPreference = z.union([
@@ -43,6 +46,8 @@ const storedPreference = z.union([
   homeTilesPreferenceSchema.extend({ outcome: stored }).strict(),
   watchlistsPreferenceSchema.extend({ outcome: stored }).strict(),
   savedScreensPreferenceSchema.extend({ outcome: stored }).strict(),
+  layoutsPreferenceSchema.extend({ outcome: stored }).strict(),
+  chartTemplatesPreferenceSchema.extend({ outcome: stored }).strict(),
 ]);
 
 function preferenceError(error: unknown): never {
@@ -82,7 +87,7 @@ export function createPreferencesRouter(sql: Sql, settings?: PreferenceSettings)
         .output(preference)
         .query(async ({ ctx, input }) => {
           try {
-            return await getPreferences(sql, ctx, input.namespace);
+            return await getPreferences(sql, ctx, input.namespace, settings);
           } catch (error) {
             preferenceError(error);
           }

@@ -561,6 +561,12 @@ export const appRouter = mergeRouters(
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
     },
+    layouts: {
+      layoutCap: env.IDENTITY_LAYOUT_CAP ?? null,
+      restoreDays: env.IDENTITY_LAYOUT_RESTORE_DAYS ?? null,
+      restoreListSize: env.IDENTITY_LAYOUT_RESTORE_LIST_SIZE ?? null,
+      templateCap: env.IDENTITY_CHART_TEMPLATE_CAP ?? null,
+    },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(

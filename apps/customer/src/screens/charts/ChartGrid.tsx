@@ -84,12 +84,25 @@ interface GridProps {
   openSocket?: WidgetProps['openSocket'];
   /** Add-ons on the first chart only (the workbench's drawings): the chart's host and the bars it draws. */
   mainAddons?: WidgetProps['addons'];
+  /** The studies bar on each chart. The desk's Classic preset leaves it out of the page entirely. Default: shown. */
+  showStudies?: boolean;
 }
 
 const inField = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-export function ChartGrid({ market, markets, workbench, setting, setInterval, setMode, setScheme, openSocket, mainAddons }: GridProps) {
+export function ChartGrid({
+  market,
+  markets,
+  workbench,
+  setting,
+  setInterval,
+  setMode,
+  setScheme,
+  openSocket,
+  mainAddons,
+  showStudies = true,
+}: GridProps) {
   const { t } = chartsCopy.useCopy();
   const { userId } = useSession();
   const [grid, setGrid] = useDeviceSetting<GridSetting>(gridKey(userId, workbench), DEFAULT_GRID, isGridSetting);
@@ -444,28 +457,30 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   addons={(host, bars, view: AddonView) => (
                     <>
                       {i === 0 ? mainAddons?.(host, bars, view) : null}
-                      <StudiesBar
-                        host={host}
-                        market={cellMarket}
-                        interval={cell.interval}
-                        bars={bars}
-                        percent={view.percent}
-                        replaying={view.replaying}
-                        workbench={i === 0 ? workbench : `${workbench}:${i}`}
-                        group={
-                          cell.group
-                            ? {
-                                size: cells.filter((c) => c.group === cell.group).length,
-                                command: groupCommands[cell.group] ?? null,
-                                appliedNonce: () => applied.current[i] ?? 0,
-                                onApplied: (nonce) => {
-                                  applied.current[i] = nonce;
-                                },
-                                onApplyToGroup: (kind) => applyToGroup(cell.group!, kind),
-                              }
-                            : undefined
-                        }
-                      />
+                      {showStudies && (
+                        <StudiesBar
+                          host={host}
+                          market={cellMarket}
+                          interval={cell.interval}
+                          bars={bars}
+                          percent={view.percent}
+                          replaying={view.replaying}
+                          workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                          group={
+                            cell.group
+                              ? {
+                                  size: cells.filter((c) => c.group === cell.group).length,
+                                  command: groupCommands[cell.group] ?? null,
+                                  appliedNonce: () => applied.current[i] ?? 0,
+                                  onApplied: (nonce) => {
+                                    applied.current[i] = nonce;
+                                  },
+                                  onApplyToGroup: (kind) => applyToGroup(cell.group!, kind),
+                                }
+                              : undefined
+                          }
+                        />
+                      )}
                     </>
                   )}
                 />

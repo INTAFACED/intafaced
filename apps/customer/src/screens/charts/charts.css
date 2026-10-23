@@ -429,3 +429,46 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The desk's widget positions: the watchlist on the left or the right, and the drop target while a widget is dragged. */
+.cw-split--left {
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+}
+.cw-split--left > .cw-split-chart {
+  grid-column: 2;
+  grid-row: 1;
+}
+.cw-split--left > .cw-widget {
+  grid-column: 1;
+  grid-row: 1;
+}
+.cw-split--drop {
+  outline: 1px dashed var(--accent, #c8f64a);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.cw-widget {
+  min-width: 0;
+}
+.cw-grip {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--muted, #a3a3a3);
+  background: transparent;
+  border: 1px dashed var(--line, #262626);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: grab;
+}
+@media (max-width: 960px) {
+  .cw-split--left {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cw-split--left > .cw-split-chart,
+  .cw-split--left > .cw-widget {
+    grid-column: 1;
+  }
+  .cw-split--left > .cw-split-chart {
+    grid-row: 2;
+  }
+}

@@ -43,11 +43,17 @@ export function useAccountRecord<T>(
   const [value, setValue] = useState<T>(empty);
   const version = useRef(0);
   const saved = useRef<T>(empty);
-  const stored = preference.and(z.object({ outcome: z.literal('stored') }));
+  // Writes wait for the read: until the account record is read, there is no version to compare against.
+  const readyRef = useRef(false);
+  // Writes run one after another, so each reads the version the one before it stored.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  // The reply carries the stored version and value, and an outcome. It is not strict: the outcome is an extra key.
+  const stored = z.object({ outcome: z.literal('stored'), version: z.number().int(), value: z.unknown() });
 
   const adopt = useCallback((nextVersion: number, next: T | null) => {
     version.current = nextVersion;
     saved.current = next ?? empty;
+    readyRef.current = true;
     setValue(next ?? empty);
     setStatus('ready');
     // `empty` is a constant per caller; the record is what changes.
@@ -60,18 +66,24 @@ export function useAccountRecord<T>(
       return;
     }
     setStatus('loading');
+    readyRef.current = false;
     void api.query('identity', 'preferences.get', { namespace }, preference).then((result) => {
       if (result.ok) adopt(result.data.version, result.data.value);
-      else setStatus('error');
+      else {
+        // A failed read is not an empty account: nothing is written over the record until a read succeeds.
+        readyRef.current = false;
+        setStatus('error');
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, userId, namespace, adopt]);
 
   useEffect(() => reload(), [reload]);
 
-  const commit = useCallback(
+  const send = useCallback(
     async (next: T): Promise<CommitOutcome> => {
       if (!userId) return { ok: false, code: 'auth.required' };
+      if (!readyRef.current) return { ok: false, code: 'not-saved' };
       const ifVersion = version.current;
       setValue(next);
       const result = await api.mutate(
@@ -95,6 +107,14 @@ export function useAccountRecord<T>(
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [api, userId, namespace, adopt, reload, stored],
+  );
+  const commit = useCallback(
+    (next: T): Promise<CommitOutcome> => {
+      const run = queue.current.then(() => send(next));
+      queue.current = run.catch(() => undefined);
+      return run;
+    },
+    [send],
   );
 
   return { status, value, commit, reload };

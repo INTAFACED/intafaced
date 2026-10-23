@@ -18,7 +18,11 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../../features/session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+// The workbench reads the account's records (watchlists, layouts, templates) on mount. This stub answers none of them: every read
+// stays loading, so no record is ever written over.
+vi.mock('../../features/session/session', () => ({
+  useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined) } }),
+}));
 vi.mock('../trade/desk/data', () => ({ useDeskMarkets: () => world.markets }));
 vi.mock('../trade/chart/candles', async (original) => ({
   ...(await original<typeof import('../trade/chart/candles')>()),
@@ -146,6 +150,8 @@ beforeEach(() => {
   document.body.append(host);
   localStorage.clear();
   for (const key of ['main', 'main:1', 'main:2', 'main:3']) localStorage.setItem(`charts-studies:u1:${key}`, EMPTY);
+  // The desk opens in Classic, which leaves the studies bar out. These tests add studies, so they open on Advanced.
+  localStorage.setItem('charts-desk:u1:main', JSON.stringify({ preset: 'advanced', side: 'right', studies: true, drawings: true }));
   world.markets = { status: 'ready', data: [market('BTC/USDT'), market('ETH/USDT')] };
   world.candles = { status: 'ready', data: [bar(0, '1'), bar(60_000, '2')], asOf: Date.now() };
   world.unloaded = [];
