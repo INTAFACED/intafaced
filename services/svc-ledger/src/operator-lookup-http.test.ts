@@ -9,7 +9,7 @@ import type { LedgerService } from './service.js';
 
 /**
  * The object lookup on the operator port (OPS-rules-monitoring-12): one transaction by id, or the one a business key
- * booked. Treasury scope with a second factor, an access row written before anything is read, and honest misses.
+ * booked. Treasury scope, or a founder's admin:read, with a second factor; an access row written before anything is read, and honest misses.
  */
 
 const tokens = { secret: 'a-ledger-lookup-test-secret-long-enough', issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 900 };
@@ -199,7 +199,7 @@ describe('a recorded lookup the ledger cannot answer', () => {
 });
 
 describe('who may look up', () => {
-  it('refuses no credential, treasury without a second factor, and a non-treasury scope, recording and reading nothing', async () => {
+  it('refuses no credential, treasury without a second factor, and a scope that is neither, recording and reading nothing', async () => {
     const { app, tx, deposit, access, reads } = await seeded();
     const urls = [`/operator/transactions/${tx.id}`, `/operator/trace?businessKey=${encodeURIComponent(deposit.idempotencyKey)}`];
     for (const url of urls) {
@@ -208,11 +208,73 @@ describe('who may look up', () => {
         (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:treasury'], false) } })).statusCode,
       ).toBe(401);
       expect(
-        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:read', 'ledger:read']) } })).statusCode,
+        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['ledger:read', 'market:ops']) } })).statusCode,
       ).toBe(403);
     }
     expect(access).toHaveLength(0);
     expect(reads()).toBe(0);
+    await app.close();
+  });
+
+  it('takes a founder sign-in with admin:read and a second factor, and records the lookup under that founder', async () => {
+    const { app, tx, deposit, access } = await seeded();
+    const authorization = await bearer(['admin:read']);
+    const byId = await app.inject({ method: 'GET', url: `/operator/transactions/${tx.id}`, headers: { authorization } });
+    expect(byId.statusCode).toBe(200);
+    expect(byId.json()).toMatchObject({ txId: tx.id });
+    const byKey = await app.inject({
+      method: 'GET',
+      url: `/operator/trace?businessKey=${encodeURIComponent(deposit.idempotencyKey)}`,
+      headers: { authorization },
+    });
+    expect(byKey.statusCode).toBe(200);
+    expect(access.map((row) => [row.actorId, row.action])).toEqual([
+      [OPERATOR, 'transaction.read'],
+      [OPERATOR, 'trace.read'],
+    ]);
+    await app.close();
+  });
+
+  it('refuses admin:read without a second factor, or on an API key, recording and reading nothing', async () => {
+    const { app, tx, access, reads } = await seeded();
+    const url = `/operator/transactions/${tx.id}`;
+    const noMfa = await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:read'], false) } });
+    expect(noMfa.statusCode).toBe(401);
+    expect(noMfa.json().code).toBe('mfa.required');
+    const { token } = await issueAccessToken(
+      {
+        userId: OPERATOR,
+        sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        scopes: ['admin:read'],
+        tier: 'basic',
+        mfa: true,
+        apiKeyId: 'ifc_key',
+      },
+      tokens,
+    );
+    const key = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${token}` } });
+    expect(key.statusCode).toBe(401);
+    expect(key.json().code).toBe('scope.interactive_only');
+    expect(access).toHaveLength(0);
+    expect(reads()).toBe(0);
+    await app.close();
+  });
+
+  it('keeps every other operator route on admin:treasury: admin:read with a second factor cannot freeze or read the freeze', async () => {
+    const { app } = await seeded();
+    const authorization = await bearer(['admin:read']);
+    expect((await app.inject({ method: 'GET', url: '/operator/freeze', headers: { authorization } })).statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/operator/freeze',
+          headers: { authorization },
+          payload: { reason: 'a founder trying to halt with a read scope', confirmOperatorId: CONFIRM },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/operator/assets', headers: { authorization } })).statusCode).toBe(403);
     await app.close();
   });
 });

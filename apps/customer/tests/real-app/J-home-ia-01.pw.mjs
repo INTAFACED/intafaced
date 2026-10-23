@@ -240,11 +240,11 @@ test(`${J}, part of #4: Needs you is on Home, and while Home's list settings can
   await page.goto('/');
   const work = page.locator('section[aria-labelledby="home-work-title"]');
   await expect(work).toBeVisible();
-  // The local stack runs no svc-ops, so Home's owner values (`home.config`: the cap and order) cannot be read: the gateway
-  // answers that the service is unavailable, which is a failure to retry, not "not connected". The list is refused and
-  // named; an empty list here would claim that nothing needs the person.
-  await expect(work.locator('[data-slot="state-block"]')).toContainText('Couldn’t load this list');
-  await expect(work).toContainText('edge.upstream_unavailable');
+  // svc-ops runs on the local stack but has no `home.config` procedure yet (Home's owner values: the cap and order). Edge
+  // answers 404 and the app names it home.config_unwired. The list is refused and named; an empty list here would claim
+  // that nothing needs the person.
+  await expect(work.locator('[data-slot="state-block"]')).toContainText('Not served here');
+  await expect(work).toContainText('home.config_unwired');
   await expect(work).not.toContainText('Nothing needs you');
   await expect(work.getByRole('button', { name: 'Try again' })).toBeVisible();
 });

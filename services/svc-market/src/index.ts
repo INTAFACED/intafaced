@@ -72,6 +72,9 @@ await sql`SELECT 1 FROM market.listing_takedowns LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM market.reviews LIMIT 1`.catch(() => {
   throw new Error('market.reviews is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.listing_category_events LIMIT 1`.catch(() => {
+  throw new Error('market.listing_category_events is missing — run migrations before starting svc-market');
+});
 
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every outgoing call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-market');

@@ -37,6 +37,7 @@ import { positionIdFor } from './ids.js';
 import {
   div,
   formatAmount,
+  futuresOrderMarginAccount,
   parseAmount,
   positionCollateralAccount,
   recipes,
@@ -71,13 +72,22 @@ import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-ma
 import { TradeError } from '../spot/types.js';
 import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
-import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
+import {
+  COLLATERAL_UNREADABLE,
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  collateralCredit,
+  decideOpenCredit,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+} from './haircut-credit.js';
 import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
 import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
-import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { holdOf, MatchedFuturesOrders, type MatchedFillEvent, type OrderRow, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
@@ -324,6 +334,8 @@ export interface PositionServiceDeps {
     enabled: boolean;
     priceBand: Amount | null;
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
+    /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
+    feeRates?: ((userId: string) => Promise<FeeRates>) | null;
   };
 }
 
@@ -381,6 +393,8 @@ interface PresentExtras {
   realizedPnl?: string | null;
   /** A closed matched position: the summed quantity of its applied reduce fills. */
   closedSize?: string | null;
+  /** The fees the position's fills through the book paid; null when it has none. Omitted when not read. */
+  fees?: string | null;
   maintenanceMargin?: string | null;
   maintenanceReason?: string | null;
   /** The ladder's liquidation price at today's depth (`liquidation-price.ts`); shown only, never stored. */
@@ -439,11 +453,13 @@ export class PositionService {
       ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
       // An opening order takes on exposure the same way the at-mark open did, so it answers to the same two doors.
       assertOpeningAllowed: async (userId) => {
-        this.refuseIfFuturesExposureOff();
+        this.refuseNewPosition();
         if (deps.assertAdlDisclosureAcked) await deps.assertAdlDisclosureAcked(userId);
       },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
+      feeRates: matchedOrders?.feeRates ?? null,
+      assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
     });
   }
 
@@ -457,7 +473,7 @@ export class PositionService {
   /** The plane refusal an opening action would meet now, or null. The gated list shows it without throwing. */
   futuresExposureRefusal(): { code: string; message: string } | null {
     try {
-      this.refuseIfFuturesExposureOff();
+      this.refuseNewPosition();
       return null;
     } catch (err) {
       if (err instanceof FuturesError) return { code: err.code, message: err.message };
@@ -477,6 +493,115 @@ export class PositionService {
     if (off.length === 0) return;
     const verb = off.length === 1 ? 'is' : 'are';
     throw new FuturesError(`futures exposure cannot increase while ${off.join(' and ')} ${verb} off`, 'trade.futures_disabled', 403);
+  }
+
+  /**
+   * A new or growing position also needs the owner's maintenance ladder where one is wired: with none the
+   * liquidation tick refuses `trade.ladder_unset` and closes nothing, so the open would take on risk nothing can
+   * unwind. Adding margin to an open position is not an open and does not call this.
+   */
+  private refuseNewPosition(): void {
+    this.refuseIfFuturesExposureOff();
+    if (this.deps.ladder && !this.deps.ladder.policy) {
+      throw new FuturesError(
+        'the owner has not published the maintenance tiers (TRADE_FUTURES_LADDER_POLICY); no position opens until they do',
+        'trade.ladder_unset',
+        503,
+      );
+    }
+  }
+
+  /**
+   * What an account's cash in one settle asset backs right now, read from the ledger: its free balance, the pots of its
+   * open positions and the holds of its live futures orders. `committed` is what those positions require (their
+   * initial margin) plus what the orders hold. `haircutBps` is the owner's cut, or null while it is unset, and then
+   * `credit` and `buyingPower` are null too: nothing here guesses a haircut.
+   */
+  async collateralFigures(
+    userId: string,
+    asset: string,
+  ): Promise<{
+    free: Amount;
+    posted: Amount;
+    committed: Amount;
+    haircutBps: number | null;
+    credit: Amount | null;
+    buyingPower: Amount | null;
+  }> {
+    let haircutBps: number | null;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch {
+      haircutBps = null;
+    }
+    // One read of every account the user has, so the figures are one consistent ledger state: two reads could see the
+    // same cash twice, in free before a hold posts and in the hold after. The rows are read after it, so a move between
+    // the two reads can only leave cash out of `posted` or count a margin twice in `committed`, never the other way.
+    const snapshot = await this.ledger.balances('user', userId);
+    const amountOf = (kind: string, purpose: string): Amount => {
+      const row = snapshot.find((b) => b.account.assetId === asset && b.account.kind === kind && (b.account.purpose ?? '') === purpose);
+      return row && row.amount > 0n ? row.amount : 0n;
+    };
+    const positions = await this.sql<{ id: string; margin_initial: string }[]>`
+      SELECT id, margin_initial FROM trade.positions
+       WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
+    `;
+    const orders = await this.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+    `;
+    const accountOf = (ref: { kind: string; purpose?: string }) => amountOf(ref.kind, ref.purpose ?? '');
+    const free = accountOf(userAvailable(userId, asset));
+    const potRows = positions.map((row) => accountOf(positionCollateralAccount(userId, asset, row.id)));
+    const heldRows = orders.map((row) => accountOf(futuresOrderMarginAccount(userId, asset, row.id)));
+    let initial = 0n;
+    for (const row of positions) initial += parseAmount(String(row.margin_initial));
+    let pots = 0n;
+    for (const pot of potRows) pots += pot;
+    let held = 0n;
+    let promised = 0n;
+    orders.forEach((row, n) => {
+      const inLedger = heldRows[n]!;
+      held += inLedger;
+      // What the order commits comes from its row: the hold its terms lock less what its fills applied, paid and
+      // released. A pending order counts the whole hold it is about to post (its cash is still in free), and an order
+      // whose hold posted after the ledger read still counts, so a second open checked meanwhile sees it.
+      const fromRow = holdOf(row) - parseAmount(row.applied_amount) - parseAmount(row.fee_charged) - parseAmount(row.released_amount);
+      promised += fromRow > inLedger ? fromRow : inLedger;
+    });
+    const posted = (free + pots + held) as Amount;
+    const committed = (initial + promised) as Amount;
+    const credit = haircutBps === null ? null : collateralCredit(posted, haircutBps);
+    const buyingPower = credit === null ? null : ((credit > committed ? credit - committed : 0n) as Amount);
+    return { free, posted, committed, haircutBps, credit, buyingPower };
+  }
+
+  /**
+   * An opening order's hold answers to the owner's haircut like an at-mark open did: the account's posted cash, cut,
+   * must cover everything it has committed, the new order's hold included. Blank refuses `trade.haircut_unset`; short
+   * refuses `trade.haircut_credit_short`; a read that fails refuses `trade.collateral_unreadable` (503). Nothing is held.
+   */
+  private async assertMatchedCollateralCredit(input: { userId: string; asset: string }): Promise<void> {
+    let figures: Awaited<ReturnType<PositionService['collateralFigures']>>;
+    try {
+      figures = await this.collateralFigures(input.userId, input.asset);
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      // The service could not read the account, which says nothing about the owner's haircut: a 5xx, retried.
+      throw new FuturesError('collateral could not be read — refusing with no margin hold', COLLATERAL_UNREADABLE, 503);
+    }
+    if (figures.haircutBps === null) {
+      throw new FuturesError('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut', HAIRCUT_UNSET, 400);
+    }
+    // The same rule as the at-mark open: posted cash, cut, covers everything committed (this order's hold included).
+    const decision = decideOpenCredit({ postedCash: figures.posted, initialMargin: figures.committed, haircutBps: figures.haircutBps });
+    if (!decision.ok) {
+      throw new FuturesError(
+        'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
+        HAIRCUT_CREDIT_SHORT,
+        400,
+      );
+    }
   }
 
   /**
@@ -1015,7 +1140,8 @@ export class PositionService {
             AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
   }
 
   /**
@@ -1072,34 +1198,68 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    const realized = await this.matchedRealized(rows);
-    return Promise.all(rows.map((row) => this.presentListed(row, realized.get(row.id))));
+    const figures = await this.matchedFigures(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, figures.get(row.id))));
   }
 
   /**
-   * A position closed by reduce-only orders through the book realised its result fill by fill: the sum of its applied
-   * reduce fills, each the amount that was paid, owed or booked (migration 0096). The row's accepted mark is only the
-   * last reduce's price, so it would report the last fill alone. Closed rows only; a liquidation also hands part to ADL.
+   * What a position's fills through the book say about it (migrations 0096 and 0099).
+   *
+   * FEES. Every applied fill on the position, opening or reducing, paid its fee into house fees; the position reports
+   * their sum. A position with no fill through the book (an older at-mark row) reports none, with the reason.
+   *
+   * A CLOSED POSITION realised its result fill by fill: the sum of its applied reduce fills, each the amount that was
+   * paid, owed or booked. The row's accepted mark is only the last reduce's price, so it would report the last fill
+   * alone. The sums are used only when the reduce fills close exactly what the opening fills opened. A position whose
+   * fills do not cover its whole history reports its result as unknown, since neither the sum nor the row's last figure
+   * is the whole of it: one opened through the book but also shrunk some other way (auto-deleveraging, or an at-mark
+   * close while the book was off), and one with reduce fills but no opening fill (opened at the mark before the book).
+   * A position with no fill through the book keeps the row's own figures. Liquidated rows keep theirs: a liquidation
+   * hands part to ADL.
    */
-  private async matchedRealized(rows: readonly PositionRow[]): Promise<Map<string, { realizedPnl: string | null; closedSize: string }>> {
-    const ids = rows.filter((row) => row.status === 'closed').map((row) => row.id);
+  private async matchedFigures(rows: readonly PositionRow[]): Promise<Map<string, PresentExtras>> {
+    const ids = rows.map((row) => row.id);
     if (ids.length === 0) return new Map();
-    const sums = await this.sql<{ position_id: string; realized: string | null; closed: string }[]>`
-      SELECT position_id::text AS position_id, (CASE WHEN count(*) = count(realized_pnl) THEN sum(realized_pnl) END)::text AS realized, sum(qty)::text AS closed
+    const sums = await this.sql<
+      { position_id: string; realized: string | null; closed: string | null; opened: string | null; fees: string }[]
+    >`
+      SELECT position_id::text AS position_id,
+             (CASE WHEN count(*) FILTER (WHERE kind = 'reduce') = count(realized_pnl) FILTER (WHERE kind = 'reduce')
+                   THEN sum(realized_pnl) FILTER (WHERE kind = 'reduce') END)::text AS realized,
+             (sum(qty) FILTER (WHERE kind = 'reduce'))::text AS closed,
+             (sum(qty) FILTER (WHERE kind = 'open'))::text AS opened,
+             sum(fee)::text AS fees
       FROM trade.futures_order_fills
-      WHERE kind = 'reduce' AND state = 'applied' AND position_id IN ${this.sql(ids)}
+      WHERE state = 'applied' AND position_id IN ${this.sql(ids)}
       GROUP BY position_id
     `;
-    // A fill with no recorded result (a liquidation fill keeps its result on the rung) leaves the sum unknown, never zero.
-    return new Map(
-      sums.map((row) => [
-        row.position_id,
-        {
-          realizedPnl: row.realized == null ? null : formatAmount(parseAmount(row.realized)),
-          closedSize: formatAmount(parseAmount(row.closed)),
-        },
-      ]),
-    );
+    const byId = new Map(sums.map((row) => [row.position_id, row]));
+    const out = new Map<string, PresentExtras>();
+    for (const row of rows) {
+      const sum = byId.get(row.id);
+      if (!sum) {
+        out.set(row.id, { fees: null });
+        continue;
+      }
+      const extras: { fees: string; realizedPnl?: string | null; closedSize?: string } = { fees: formatAmount(parseAmount(sum.fees)) };
+      // A fill with no recorded result leaves the sum unknown, never zero (the table refuses one, migration 0096).
+      if (row.status === 'closed' && sum.closed != null) {
+        if (sum.opened != null && parseAmount(sum.closed) === parseAmount(sum.opened)) {
+          extras.realizedPnl = sum.realized == null ? null : formatAmount(parseAmount(sum.realized));
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        } else {
+          // Its fills do not cover its whole history: opened at the mark before orders went through the book (no
+          // opening fill, and it may have been partly closed at the mark too), or shrunk by auto-deleveraging, which
+          // leaves no fill row. The reduce fills are part of its result and so is what happened outside them, and the
+          // row's own figure is only its last remainder. Unknown, never partial. The size closed through the book is
+          // what its fills record.
+          extras.realizedPnl = null;
+          extras.closedSize = formatAmount(parseAmount(sum.closed));
+        }
+      }
+      out.set(row.id, extras);
+    }
+    return out;
   }
 
   /**
@@ -1119,8 +1279,8 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    const realized = await this.matchedRealized([row]);
-    return this.presentListed(row, realized.get(row.id));
+    const figures = await this.matchedFigures([row]);
+    return this.presentListed(row, figures.get(row.id));
   }
 
   /**
@@ -1232,7 +1392,7 @@ export class PositionService {
       });
     }
 
-    this.refuseIfFuturesExposureOff();
+    this.refuseNewPosition();
 
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
@@ -3068,6 +3228,7 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;
   if (realizedPnl == null && realizedReason) fieldReasons.realizedPnl = realizedReason;
   if (closedAt == null && closedReason) fieldReasons.closedAt = closedReason;
+  if (extras?.fees === null) fieldReasons.fees = 'fees_not_recorded';
   if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
 
   return {
@@ -3097,6 +3258,7 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
     percentage,
     closedAt,
     updatedAt,
+    ...(extras?.fees !== undefined ? { fees: extras.fees } : {}),
     ...(extras?.replayed === true ? { replayed: true } : {}),
     fieldReasons,
   };

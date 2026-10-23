@@ -142,15 +142,15 @@ try {
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
   for (const schema of plan.schemas) {
-    // A service owns each schema (svc-mining-pool owns mining_pool), and has a migrate script.
+    // A service owns each schema (svc-mining-pool owns mining_pool), and has the migrate script the stack runs
+    // (`pnpm --filter <service> db:migrate`), pointing at a file that exists (svc-ops keeps it in src/db).
     const owner = plan.services.find((x) => x.schema === schema);
     assert.ok(owner, `schema ${schema} has no service`);
-    const scripts = join(repo, 'services', `svc-${owner.name}`, 'scripts');
-    assert.equal(
-      existsSync(join(scripts, 'migrate.ts')) || existsSync(join(scripts, 'migrate.mjs')),
-      true,
-      `svc-${owner.name} has no migrate script`,
-    );
+    const dir = join(repo, 'services', `svc-${owner.name}`);
+    const migrate = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts?.['db:migrate'] ?? '';
+    const file = /^(?:tsx|node) (\S+\.(?:ts|mjs))$/.exec(migrate)?.[1];
+    assert.ok(file, `svc-${owner.name} has no db:migrate script that runs one file`);
+    assert.equal(existsSync(join(dir, file)), true, `svc-${owner.name} db:migrate names a missing file ${file}`);
   }
   assert.equal(names.at(-1), 'edge', 'Edge starts last');
 
@@ -389,12 +389,12 @@ console.log('local-test-stack: customer folder override checks passed');
     rmSync(mkHome, { recursive: true, force: true });
   }
   // start (and restart, which ends in start) calls ensure after the services are up; it never starts one that was never started.
-  // The founder console starts after the Customer app and before the market check, and stops first.
+  // The founder console starts after the Customer app and the invitation site and before the market check, and stops first.
   assert.match(
     source,
-    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
+    /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  assert.match(source, /const order = \['admin', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);

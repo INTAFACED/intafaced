@@ -123,3 +123,6 @@ export function initialMarginFromDecimals(size: string, entryPrice: string, leve
   // format as integer string of scaled amount is internal; tests compare via parse
   return m.toString();
 }
+
+/** Leverage is set in hundredths: the order path refuses a finer step, and so does the calculator. */
+export const LEVERAGE_STEP = 10n ** 16n;

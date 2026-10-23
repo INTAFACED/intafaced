@@ -62,9 +62,9 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
-  { path: '/lab', title: 'Campaigns', description: 'Public activities', area: 'public' },
-  { path: '/lab/detail/:id', title: 'Campaign', description: 'Activity details', area: 'public', hidden: true },
-  { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
+  { path: '/lab', title: 'Lab', description: 'Entries the owner publishes', area: 'public' },
+  { path: '/lab/detail/:id', title: 'Lab entry', description: 'One Lab entry', area: 'public', hidden: true },
+  { path: '/bzb', title: 'Lab', description: 'Entries the owner publishes', area: 'public', alias: '/lab' },
   { path: '/home', title: 'Home', description: 'Your money and markets', door: 'Home', area: 'home', screen: 'home' },
   { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Assets', area: 'money', screen: 'money' },
   {
@@ -159,6 +159,20 @@ export const rooms: readonly Room[] = [
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Bank', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Bank', area: 'money' },
   { path: '/bank/ramps/new', title: 'Add money', description: 'Pay in by bank transfer, bank or card', door: 'Bank', area: 'money' },
+  {
+    path: '/bank/ramps/accounts',
+    title: 'Linked bank accounts',
+    description: 'Your own accounts at other banks',
+    door: 'Bank',
+    area: 'money',
+  },
+  {
+    path: '/bank/ramps/cash-out',
+    title: 'Cash out to your bank',
+    description: 'Send money to a linked bank account',
+    door: 'Bank',
+    area: 'money',
+  },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Bank', area: 'money' },
   {
     path: '/bank/business',
@@ -624,6 +638,24 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
+  // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
+  ...(
+    [
+      ['learning', 'Academy learning'],
+      ['certificates', 'Academy certificates'],
+      ['rooms', 'Academy rooms'],
+      ['videos', 'Academy videos'],
+      ['programmes', 'Academy programmes'],
+      ['progress', 'Academy progress'],
+    ] as const
+  ).map(([slug, title]) => ({
+    path: `/academy/${slug}`,
+    title,
+    description: 'Rooms, learning and certifications' as const,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -751,6 +783,20 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/api-keys',
+    title: 'API keys',
+    description: 'Keys for your own programs to read and trade',
+    area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/new',
+    title: 'Create an API key',
+    description: 'A new key with only the permissions it needs',
+    area: 'person',
+    screen: 'account',
+  },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
   { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
   { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },

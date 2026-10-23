@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1043,6 +1043,29 @@ export const withdrawDestinationRemovals = bank.table(
 );
 
 /**
+ * Signed-message proofs that a customer controls a saved wallet (W-withdraw-17, migration 0057). `pending` until the
+ * saved address signs the message; then `verified` with the signature and how long the proof holds.
+ */
+export const walletOwnershipProofs = bank.table(
+  'wallet_ownership_proofs',
+  {
+    id: uuid('id').primaryKey(),
+    seq: bigint('seq', { mode: 'bigint' }).generatedAlwaysAsIdentity(),
+    userId: text('user_id').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    address: text('address').notNull(),
+    message: text('message').notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    expiresAt: tstz('expires_at').notNull(),
+    verifiedAt: tstz('verified_at'),
+    validUntil: tstz('valid_until'),
+    signature: text('signature'),
+  },
+  (t) => [index('wallet_ownership_proofs_entry_idx').on(t.userId, t.destinationId, t.status, t.seq.desc())],
+);
+
+/**
  * Terms a rate source published for one customer on-ramp quote.
  * Amounts are that source's decimals, not a balance.
  */
@@ -1105,6 +1128,45 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   refusalCode: text('refusal_code'),
   quoteId: uuid('quote_id'),
   onrampId: uuid('onramp_id'),
+  createdAt: createdAt(),
+});
+
+/**
+ * A customer's own account at another bank (BK-acct-02, migration 0055). Kept `unverified` until a banking partner
+ * verifies it; one active link per (user, IBAN). Holds no amount.
+ */
+export const linkedBankAccounts = bank.table(
+  'linked_bank_accounts',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    label: text('label').notNull(),
+    holderName: text('holder_name').notNull(),
+    iban: text('iban').notNull(),
+    country: text('country').notNull(),
+    state: text('state').notNull().default('unverified'),
+    verifiedAt: tstz('verified_at'),
+    createdAt: createdAt(),
+    removedAt: tstz('removed_at'),
+  },
+  (t) => [
+    uniqueIndex('linked_bank_accounts_active_iban_idx')
+      .on(t.userId, t.iban)
+      .where(sql`${t.removedAt} IS NULL`),
+    index('linked_bank_accounts_user_idx').on(t.userId, t.createdAt),
+  ],
+);
+
+/** One cash-out request to a linked bank account (J-bank-03, migration 0056). Kept refused with its code; never held or posted. */
+export const cashOutRequests = bank.table('cash_out_requests', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  linkedAccountId: uuid('linked_account_id').notNull(),
+  rail: text('rail').notNull().default('rail.bank'),
+  status: text('status').notNull(),
+  refusalCode: text('refusal_code'),
   createdAt: createdAt(),
 });
 

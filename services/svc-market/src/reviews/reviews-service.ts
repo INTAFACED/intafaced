@@ -56,6 +56,15 @@ export interface ReviewSummary {
   meanRounding: typeof REVIEW_MEAN_ROUNDING;
 }
 
+/** One listing's review summary. No buyer id and no purchase id. */
+export interface ListingReviewSummary {
+  /** Integer decimal. "0" when this listing has no reviews — a count, not a missing amount. */
+  count: string;
+  /** Exact decimal, or null when count is 0. Never "0". */
+  mean: string | null;
+  meanRounding: typeof REVIEW_MEAN_ROUNDING;
+}
+
 interface ReviewRow {
   id: string;
   purchase_id: string;
@@ -285,6 +294,19 @@ export class ReviewsService {
     const scores = rows.map((row) => row.score);
     return {
       vendorId,
+      count: String(scores.length),
+      mean: reviewMean(scores),
+      meanRounding: REVIEW_MEAN_ROUNDING,
+    };
+  }
+
+  /** Scores for this listing only. The query does not select a buyer or a purchase. */
+  async summaryForListing(listingId: string): Promise<ListingReviewSummary> {
+    const rows = await this.sql<Array<{ score: number }>>`
+      SELECT score FROM market.reviews WHERE listing_id = ${listingId}
+    `;
+    const scores = rows.map((row) => row.score);
+    return {
       count: String(scores.length),
       mean: reviewMean(scores),
       meanRounding: REVIEW_MEAN_ROUNDING,

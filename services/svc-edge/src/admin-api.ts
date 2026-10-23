@@ -98,6 +98,10 @@ export type WarehouseDoorSnapshot = {
  * sake — it means the edge refuses before it forwards a token, so an
  * under-scoped operator never reaches the money plane at all.
  *
+ * The two ledger object lookups are reads and take a founder's `admin:read`
+ * with a second factor on a live session instead (`authenticateLookup`, owner
+ * decision 2026-10-23, ADR 2026-10-22 §3.9); svc-ledger applies the same rule.
+ *
  * Mutate of `/admin/kill-switches` is dual-control: the signed `admin:write`
  * principal plus a distinct `confirmOperatorId`. Missing or same-as-operator
  * confirm refuses (`missing_operator`) — one operator cannot kill or resume a
@@ -280,6 +284,11 @@ export interface AdminApi {
   authenticateRead(header: string | undefined): Promise<Principal>;
   /** Verify an Authorization header for treasury control, or throw `AuthError`. */
   authenticateTreasury(header: string | undefined): Promise<Principal>;
+  /**
+   * Verify an Authorization header for the ledger object lookups: `admin:read` with a second factor, on a live session
+   * (owner decision 2026-10-23), the same rule svc-ledger applies. Or throw `AuthError`.
+   */
+  authenticateLookup(header: string | undefined): Promise<Principal>;
   /** Current kill-switch state and its audit trail, as the console renders it. */
   read(): KillSwitchSnapshot;
   /**
@@ -403,6 +412,15 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       const principal = await verify(header);
       // `admin:treasury` is interactive-only, so this enforces MFA too.
       requireScope(principal, 'admin:treasury');
+      if (deps.sessionLive) await deps.sessionLive(principal);
+      return principal;
+    },
+
+    async authenticateLookup(header) {
+      const principal = await verify(header);
+      // `admin:read` is interactive-only (refused on an API key); a lookup also needs the second factor.
+      requireScope(principal, 'admin:read');
+      requireMfa(principal);
       if (deps.sessionLive) await deps.sessionLive(principal);
       return principal;
     },

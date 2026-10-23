@@ -8,6 +8,8 @@ import { useBalances } from '../desk/data';
 import { useNow } from '../desk/hooks';
 import { AccessPanel } from './AccessPanel';
 import { AdlTab } from './AdlTab';
+import { CalculatorTab } from './CalculatorTab';
+import { CollateralTab } from './CollateralTab';
 import { ContractStrip } from './ContractStrip';
 import { EmptyDesk } from './EmptyDesk';
 import { FundingTab } from './FundingTab';
@@ -19,6 +21,7 @@ import { OrdersTab } from './OrdersTab';
 import { PositionDetail } from './PositionDetail';
 import { PositionsTable } from './PositionsTable';
 import { RiskSummary, freeOf } from './RiskSummary';
+import { TiersTab } from './TiersTab';
 import { Ticket } from './Ticket';
 import {
   useAdlDisclosure,
@@ -30,12 +33,14 @@ import {
   useFuturesRefresh,
   useMarginCalls,
   useOpenPositions,
+  useCollateral,
+  useRiskTiers,
   useTickerStrip,
 } from './data';
 import { deskCopy } from './desk-copy';
 import { isPlaneOff } from './refusals';
 
-type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls';
+type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls' | 'tiers' | 'calculator' | 'collateral';
 
 /** Futures desk (TRFUT-SPEC §2): contract strip, chart, ticket with all-in cost, risk, and the positions blotter with its tabs. */
 export default function FuturesScreen({ search }: ScreenProps) {
@@ -61,6 +66,8 @@ export default function FuturesScreen({ search }: ScreenProps) {
   const events = useAdlEvents(tab === 'adl');
   const openOrders = useFuturesOrders('open', tab === 'orders');
   const allOrders = useFuturesOrders('all', tab === 'orders');
+  const tiers = useRiskTiers(symbol, tab === 'tiers');
+  const collateral = useCollateral(tab === 'collateral');
 
   const planeOff = (positions.status === 'refused' && isPlaneOff(positions.code)) || (strip.status === 'refused' && isPlaneOff(strip.code));
   const selected: Position | null = useMemo(
@@ -141,6 +148,9 @@ export default function FuturesScreen({ search }: ScreenProps) {
           <TabsTab value="funding">{t('Funding')}</TabsTab>
           <TabsTab value="adl">{t('ADL and liquidations')}</TabsTab>
           <TabsTab value="calls">{t('Margin calls')}</TabsTab>
+          <TabsTab value="tiers">{t('Margin tiers')}</TabsTab>
+          <TabsTab value="calculator">{t('Calculator')}</TabsTab>
+          <TabsTab value="collateral">{t('Collateral')}</TabsTab>
         </TabsList>
         <TabsPanel value="positions">
           <PositionsTable
@@ -167,6 +177,16 @@ export default function FuturesScreen({ search }: ScreenProps) {
         </TabsPanel>
         <TabsPanel value="calls">
           <MarginCallsTab positions={positions} calls={calls} />
+        </TabsPanel>
+        <TabsPanel value="tiers">
+          <TiersTab tiers={tiers} quote={quote} />
+        </TabsPanel>
+        <TabsPanel value="collateral">
+          <CollateralTab collateral={collateral} />
+        </TabsPanel>
+        <TabsPanel value="calculator">
+          {/* Keyed by contract: a figure on screen always belongs to the contract and the numbers above it. */}
+          <CalculatorTab key={market?.symbol ?? 'none'} market={market} />
         </TabsPanel>
       </Tabs>
       {selected ? (
