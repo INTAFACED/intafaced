@@ -185,3 +185,20 @@ export const sessionOwnershipSchema = z.object({
   revoked: z.boolean(),
 });
 export type SessionOwnership = z.infer<typeof sessionOwnershipSchema>;
+
+/**
+ * ANTI-PHISHING CODE (I-signin-sessions-25). A word the account owner picks so a real security message from us can be
+ * told from a fake one. 4 to 20 letters and digits. `profile.antiPhishing.get` answers the caller's own code (null when
+ * none is set) and nothing else; `profile.antiPhishing.set` takes the code, or '' to clear it, with a step-up.
+ */
+export const ANTI_PHISHING_CODE_PATTERN = /^[A-Za-z0-9]{4,20}$/;
+/** The step-up door for a set or clear (see `CUSTOMER_STEP_UP_DOORS`): its scope and purpose, named once. */
+export const ANTI_PHISHING_STEP_UP_SCOPE = 'identity.step_up.anti_phishing_set' as const;
+export const ANTI_PHISHING_STEP_UP_PURPOSE = 'account.antiPhishing.set' as const;
+export const antiPhishingCodeSchema = z.object({
+  code: z.string().nullable(),
+  updatedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type AntiPhishingCodeView = z.infer<typeof antiPhishingCodeSchema>;
+export const antiPhishingSetResultSchema = antiPhishingCodeSchema.extend({ changed: z.boolean() });
+export type AntiPhishingSetResult = z.infer<typeof antiPhishingSetResultSchema>;

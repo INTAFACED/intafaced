@@ -1,10 +1,11 @@
 /**
- * `profile.get` and `profile.update`. Customer sessions only.
+ * `profile.get` and `profile.update`, and `profile.antiPhishing.get`/`set`. Customer sessions only.
  * An API key or a sub-account is refused. A body `userId` is ignored.
  */
 import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { antiPhishingCodeSchema, antiPhishingSetResultSchema, protectedProcedure, router, TRPCError } from '@intafaced/contracts';
 import { userCopy } from '../user-copy.js';
+import { AntiPhishingError, type AntiPhishingService } from './anti-phishing.js';
 import { ProfileError, ProfileService, type ProfileRow } from './profile-service.js';
 
 const profileOutput = z.object({
@@ -29,8 +30,25 @@ function delegated(principal: { kid?: string | null; sub_account?: string | null
   return Boolean(principal.kid || principal.sub_account);
 }
 
+function antiPhishingToTrpc(err: AntiPhishingError): TRPCError {
+  const code =
+    err.code === 'identity.anti_phishing_delegated'
+      ? 'FORBIDDEN'
+      : err.code === 'identity.session_not_live'
+        ? 'UNAUTHORIZED'
+        : err.code === 'auth.not_found'
+          ? 'NOT_FOUND'
+          : err.code === 'identity.anti_phishing_invalid' ||
+              err.code === 'identity.anti_phishing_guessable' ||
+              err.code === 'identity.client_request_id_invalid'
+            ? 'BAD_REQUEST'
+            : 'PRECONDITION_FAILED';
+  return new TRPCError({ code, message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+}
+
 function toTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
+  if (err instanceof AntiPhishingError) throw antiPhishingToTrpc(err);
   if (err instanceof ProfileError) {
     const code =
       err.code === 'identity.profile_version_conflict'
@@ -45,11 +63,23 @@ function toTrpc(err: unknown): never {
   throw err;
 }
 
-export function createProfileRouter(profile: ProfileService | undefined) {
+type Principal = { userId: string; sid: string; kid?: string | null; sub_account?: string | null };
+
+export function createProfileRouter(profile: ProfileService | undefined, antiPhishing?: AntiPhishingService) {
   const svc = (): ProfileService => {
     if (!profile) throw new ProfileError('identity.profile_unwired');
     return profile;
   };
+  const codes = (): AntiPhishingService => {
+    if (!antiPhishing) throw new AntiPhishingError('identity.anti_phishing_unavailable');
+    return antiPhishing;
+  };
+  const actor = (principal: Principal) => ({
+    userId: principal.userId,
+    sessionId: principal.sid,
+    apiKey: Boolean(principal.kid),
+    subAccount: Boolean(principal.sub_account),
+  });
 
   return router({
     /** The signed-in user's own profile. Region is visible and not editable. */
@@ -84,5 +114,37 @@ export function createProfileRouter(profile: ProfileService | undefined) {
           toTrpc(err);
         }
       }),
+
+    antiPhishing: router({
+      /** The caller's own code, or null. A live session only; this answer carries nothing else. */
+      get: protectedProcedure.output(antiPhishingCodeSchema).query(async ({ ctx }) => {
+        try {
+          return await codes().read(actor(ctx.principal as Principal));
+        } catch (err) {
+          toTrpc(err);
+        }
+      }),
+
+      /** Set the code, or clear it with ''. Needs the step-up `identity.step_up.anti_phishing_set` over this code and request id. */
+      set: protectedProcedure
+        .input(
+          z
+            .object({
+              // Wide wire bounds only; the service checks the real shape and answers identity.anti_phishing_invalid.
+              code: z.string().max(256),
+              stepUpApprovalId: z.string().uuid(),
+              clientRequestId: z.string().max(256),
+            })
+            .strict(),
+        )
+        .output(antiPhishingSetResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await codes().set({ ...actor(ctx.principal as Principal), ...input });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
   });
 }

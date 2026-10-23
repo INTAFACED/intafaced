@@ -22,7 +22,8 @@ const begun = z
   .passthrough();
 const approved = z.object({ stepUpApprovalId: z.string().min(1) }).passthrough();
 
-export type StepUpBegin = { scope: string; purpose: string; target: string; fields: Record<string, string> };
+// `target` is left out for a door that names none (the anti-phishing code is never sent as a target).
+export type StepUpBegin = { scope: string; purpose: string; target?: string; fields: Record<string, string> };
 export type StepUpMethod = { totpCode: string } | { passkey: true };
 
 /**

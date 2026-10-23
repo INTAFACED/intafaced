@@ -99,6 +99,7 @@ import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -466,6 +467,11 @@ const tradeClosureCheck = httpClosureChecker({
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
+const antiPhishing = new AntiPhishingService({
+  sql,
+  approvals: actionApprovals,
+  key: antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY)),
+});
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -514,6 +520,7 @@ export const appRouter = mergeRouters(
     subAccountDelete,
     subAccountFeatures,
     subAccountEdit,
+    antiPhishing,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
