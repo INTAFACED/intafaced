@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -76,6 +76,9 @@ test('every TEST value names its service, is a string and is a listed owner sett
 test('the generated list names every env setting and every TEST value', async () => {
   const data = build();
   const text = await render(data);
+  // A known setting read from services/svc-trade/src/env.ts, shown with its TEST value from trade.json.
+  assert.match(text, /\|\s*svc-trade\s*\|\s*`TRADE_MARKET_SLIPPAGE_CAP_BPS`\s*\|.*\|\s*`150` \(TEST\)\s*\|/);
+  assert.match(text, new RegExp(`^${data.settings.length} env settings, `, 'm'));
   for (const s of data.settings) assert.ok(text.includes(`\`${s.env}\``), s.env);
   for (const [name, v] of Object.entries(data.profile.values)) {
     if (data.settings.some((s) => s.env === name)) assert.ok(text.includes(`\`${v.value.replace(/\|/g, '\\|')}\` (TEST)`), name);

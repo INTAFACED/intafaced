@@ -126,11 +126,19 @@ const migrationNumber = (file) => {
  * second had to rename and rebase (svc-bank 0055/0056, svc-trade 0101,
  * svc-identity 0070-0074, 2026-10). A new migration is named for the UTC second
  * it was written instead. The runners apply every file not yet recorded, keyed
- * by name and in name order, so a timestamp sorts after every four-digit file
- * and two PRs' migrations both apply whichever merges first. A migration that
- * builds on a table another PR added must be stamped after that one; CI applies
- * every migration to an empty database in name order, so a wrong order fails
- * there, on the PR.
+ * by name and in name order (svc-ops lists its files by name in
+ * `src/db/migrate.ts`, so a new one is added there too), so a timestamp sorts
+ * after every four-digit file and two PRs' migrations both apply whichever
+ * merges first. A migration that builds on a table another PR added must be
+ * stamped after that one; CI applies every migration to an empty database in
+ * name order, so a wrong order fails there, on the PR.
+ *
+ * The cost, accepted on purpose: a database that already ran a later stamp
+ * applies an earlier one after it, so two PRs' migrations can run in a
+ * different order there than on an empty database. They were written without
+ * seeing each other, so neither can depend on the other; the dependent case is
+ * the one CI catches above. A stamp before this rule began (2026-10-23) would
+ * sort into the old history, so it is refused.
  *
  * A new four-digit name is still accepted while it is above main's highest, so a
  * PR opened before this rule keeps passing; once one has to be renumbered, it
@@ -139,9 +147,10 @@ const migrationNumber = (file) => {
 const STAMPED = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_[a-z0-9_]+\.sql$/;
 const LEGACY = /^\d{4}_/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RULE_BEGAN = Date.UTC(2026, 9, 23);
 
 /** Problems with the names of `ups` that are not on main. `onMain` is main's file names (null when main is not fetched). */
-export function namingProblems(ups, onMain, now = Date.now()) {
+function namingProblems(ups, onMain, now = Date.now()) {
   if (!onMain) return [];
   const legacyOnMain = [...onMain].filter((f) => LEGACY.test(f)).map(migrationNumber);
   const legacyHighest = legacyOnMain.length ? Math.max(...legacyOnMain) : -1;
@@ -155,6 +164,8 @@ export function namingProblems(ups, onMain, now = Date.now()) {
       const at = Date.UTC(y, mo - 1, d, h, mi, se);
       const real = new Date(at).toISOString().replace(/\D/g, '').slice(0, 14) === up.slice(0, 14);
       if (!real) out.push({ file: up, problem: `${up.slice(0, 14)} is not a real UTC date and time (YYYYMMDDHHMMSS)` });
+      else if (at < RULE_BEGAN)
+        out.push({ file: up, problem: `${up.slice(0, 14)} is before 20261023: stamp it with the UTC time you write it` });
       else if (at > now + DAY_MS)
         out.push({ file: up, problem: `${up.slice(0, 14)} is in the future: stamp it with the UTC time you write it` });
       continue;
@@ -187,6 +198,7 @@ function selfTest() {
     ],
     ['a date that does not exist fails', check(['20261332000000_c.sql']), ['20261332000000_c.sql']],
     ['a stamp more than a day ahead fails', check(['20261025000000_c.sql']), ['20261025000000_c.sql']],
+    ['a stamp before the rule began fails', check(['01261023213000_c.sql']), ['01261023213000_c.sql']],
     ['an upper-case name fails', check(['20261023213000_Bad.sql']), ['20261023213000_Bad.sql']],
     ['files already on main are never judged', check(['0060_a.sql']), []],
     ['main not fetched judges nothing', check(['0001_c.sql'], null), []],
