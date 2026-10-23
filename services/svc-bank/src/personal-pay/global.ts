@@ -60,6 +60,8 @@ export interface SendView {
   readonly quoteReceive: string | null;
   readonly quoteValidUntil: string | null;
   readonly quoteEta: string | null;
+  /** The rate lock the send was confirmed on (`global.quote`); its figures are the quote ones above. */
+  readonly quoteId: string | null;
   readonly ledgerTxId: string | null;
   /** Who cancelled a `cancelled` send: its customer, or the owner's auto-cancel window. */
   readonly cancelledBy: 'customer' | 'auto' | null;
@@ -119,6 +121,7 @@ type SendRow = {
   quote_receive: string | null;
   quote_valid_until: Date | null;
   quote_eta: string | null;
+  quote_id: string | null;
   ledger_tx_id: string | null;
   cancelled_by: 'customer' | 'auto' | null;
   return_ref: string | null;
@@ -136,15 +139,49 @@ type SendRow = {
 const SEND_COLUMNS = [
   'id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id, country, delivery_method',
   'compliance, status, failure_code, failure_blocker, provider_ref, quote_rate, quote_fee, quote_fee_asset, quote_receive',
-  'quote_valid_until, quote_eta, ledger_tx_id, cancelled_by, return_ref, returned_by, returned_at, refund_operator_id, refunded_at',
+  'quote_valid_until, quote_eta, quote_id, ledger_tx_id, cancelled_by, return_ref, returned_by, returned_at, refund_operator_id, refunded_at',
   'recall_reason, recall_requested_at, created_at, updated_at',
 ].join(', ');
+
+/** A rate lock (`bank.global_quotes`): the provider's figures for one customer, asset, amount and currency. */
+type LockRow = {
+  id: string;
+  user_id: string;
+  asset_id: string;
+  amount: string;
+  to_currency: string;
+  rate: string;
+  fee: string;
+  fee_asset: string;
+  receive_amount: string;
+  valid_until: Date;
+  eta: string;
+};
+
+/** A quote as the customer gets it: the provider's figures and the id of the lock that keeps them. */
+export interface LockedQuote extends FxQuote {
+  readonly quoteId: string;
+}
+
+function lockView(row: LockRow): LockedQuote {
+  return {
+    quoteId: row.id,
+    rate: row.rate,
+    fee: row.fee,
+    feeAsset: row.fee_asset,
+    receiveAmount: row.receive_amount,
+    validUntil: row.valid_until.toISOString(),
+    eta: row.eta,
+  };
+}
 
 const DEFINITE = new Set([
   'bank.global_corridors_unset',
   'bank.global_corridor_unknown',
   'bank.global_amount_outside_corridor',
   'bank.global_fx_unset',
+  'bank.global_quote_required',
+  'bank.global_quote_expired',
   'bank.global_payout_unset',
   'bank.global_payout_refused',
   'bank.global_travel_rule_undecided',
@@ -286,6 +323,7 @@ function sendView(row: SendRow): SendView {
     quoteReceive: row.quote_receive,
     quoteValidUntil: row.quote_valid_until ? row.quote_valid_until.toISOString() : null,
     quoteEta: row.quote_eta,
+    quoteId: row.quote_id,
     ledgerTxId: row.ledger_tx_id,
     cancelledBy: row.cancelled_by,
     returnRef: row.return_ref,
@@ -477,13 +515,36 @@ export class GlobalSendService {
     return { removed: true };
   }
 
-  async quote(input: { asset: string; amount: string; toCurrency: string; now?: Date }): Promise<FxQuote> {
+  /**
+   * A quote is a rate lock (BK-xfer-03): the provider's figures, checked, kept for this customer, asset, amount and
+   * currency until the provider's own valid-until. A send confirmed on it before then (`send`'s `quoteId`) is paid at
+   * exactly these figures; nothing is quoted again at send time. Each quote is a new lock, and one lock pays one send.
+   */
+  async quote(input: {
+    userId: string;
+    asset: string;
+    amount: string;
+    toCurrency: string;
+    now?: Date;
+  }): Promise<LockedQuote & { readonly lockedAt: string }> {
     if (this.ports.fx.status() !== 'live') throw personalPayError('bank.global_fx_unset');
     const asset = requireText(input.asset, 16).toUpperCase();
     const toCurrency = requireText(input.toCurrency, 8).toUpperCase();
     const money = canonical(input.amount);
-    const quoted = await this.checkedQuote({ asset, amount: money.text, toCurrency }, input.now ?? new Date());
-    return quoted;
+    const now = input.now ?? new Date();
+    const quoted = await this.checkedQuote({ asset, amount: money.text, toCurrency }, now);
+    const id = randomUUID();
+    await this.sql`
+      INSERT INTO bank.global_quotes (
+        id, user_id, asset_id, amount, to_currency, rate, fee, fee_asset, receive_amount, valid_until, eta
+      ) VALUES (
+        ${id}, ${input.userId}, ${asset}, ${money.text}, ${toCurrency}, ${quoted.rate}, ${quoted.fee}, ${quoted.feeAsset},
+        ${quoted.receiveAmount}, ${quoted.validUntil}::timestamptz, ${quoted.eta}
+      )
+    `;
+    // `lockedAt` is the service's clock as the lock was taken: a screen counts the lock down as `validUntil - lockedAt` from
+    // when it asked, so a device clock that is wrong does not end the lock early or late.
+    return { quoteId: id, lockedAt: now.toISOString(), ...quoted };
   }
 
   async send(input: {
@@ -496,6 +557,8 @@ export class GlobalSendService {
     country: string;
     deliveryMethod: string;
     compliance?: Readonly<Record<string, string>>;
+    /** The rate lock the customer confirmed (`quote`). A send with none is refused before anything posts. */
+    quoteId?: string;
     now?: Date;
   }): Promise<SendView> {
     const now = input.now ?? new Date();
@@ -509,6 +572,14 @@ export class GlobalSendService {
     const compliance = canonicalCompliance(input.compliance);
     const space = await this.ownedSpace(input.userId, input.fromSpaceId, now);
     const recipient = await this.liveRecipient(input.userId, input.recipientId);
+    // The lock must be this customer's, for this asset, amount and currency: a quote for other figures pays nothing.
+    if (input.quoteId !== undefined) {
+      const lock = await this.lockById(input.quoteId);
+      if (!lock || lock.user_id !== input.userId) throw personalPayError('bank.global_quote_not_found');
+      if (lock.asset_id !== space.assetId.toUpperCase() || lock.amount !== money.text || lock.to_currency !== toCurrency) {
+        throw personalPayError('bank.global_quote_mismatch');
+      }
+    }
     const row = await this.instruction({
       userId: input.userId,
       idempotencyKey,
@@ -520,6 +591,7 @@ export class GlobalSendService {
       country,
       deliveryMethod,
       compliance,
+      quoteId: input.quoteId ?? null,
     });
     return this.drive(row, space, money.amount, now);
   }
@@ -747,11 +819,17 @@ export class GlobalSendService {
     if (!forward || !boundary || !forward.entries.some((entry) => entry.accountId === boundary)) {
       throw personalPayError('bank.refund_rail_changed');
     }
-    // The occurrence-1 key is shared with the reversal of a refused payout: one posted before this send came back means its
-    // value was already returned, so the refund is not recorded as having credited anything.
+    // The occurrence-1 key is shared with the reversal of a refused payout. An entry under it that no refund of this send
+    // started (no refund operator marked below) was turned back some other way, so its value was already returned and the
+    // refund is not recorded as having credited anything. An entry a refund started is that refund's own, posted before
+    // it was recorded: the retry records it and credits nothing more. Decided by that mark, never by comparing clocks.
     const prior = await this.ledger.getTxByKey(reverseKey(row.id));
-    if (prior && row.returned_at && prior.postedAt.getTime() < row.returned_at.getTime()) {
-      throw personalPayError('bank.refund_already_reversed');
+    if (prior && !row.refund_operator_id) throw personalPayError('bank.refund_already_reversed');
+    if (!prior) {
+      await this.sql`
+        UPDATE bank.global_sends SET refund_operator_id = ${operatorId}, updated_at = now()
+        WHERE id = ${row.id} AND status = 'returned'
+      `;
     }
     try {
       await reverseFromRail(this.ledger, row.id, account, railId, canonical(row.amount).amount);
@@ -880,7 +958,7 @@ export class GlobalSendService {
         'maxLength' in refusal ? `The reference can be at most ${refusal.maxLength} characters for this rail.` : undefined,
       );
 
-    const quote = await this.checkedQuote({ asset: row.asset_id, amount: row.amount, toCurrency: row.to_currency }, now);
+    const quote = await this.lockedQuote(row);
     const railId = this.ports.payout.railId().trim();
     if (!railId || railId.length > 64) throw personalPayError('bank.global_payout_unusable');
     const account = accountForSpace(space);
@@ -928,6 +1006,9 @@ export class GlobalSendService {
         assetId: row.asset_id,
         toCurrency: row.to_currency,
         recipientId: row.recipient_id,
+        quoteId: quote.quoteId,
+        rate: quote.rate,
+        receiveAmount: quote.receiveAmount,
       });
     } catch {
       throw personalPayError('bank.global_outcome_unknown');
@@ -969,6 +1050,28 @@ export class GlobalSendService {
     throw personalPayError(code, detail);
   }
 
+  /**
+   * The figures a send is paid at: the rate lock it was confirmed on, exactly as the provider gave them. The send must
+   * have been confirmed (its row recorded) before the lock ran out. A replay of it, or its release from a hold, is still
+   * paid at that lock, because the customer agreed to it in time; nothing is quoted again here. A lock the payout partner
+   * will no longer honour is its refusal, which turns the posting back (`bank.global_payout_refused`).
+   */
+  private async lockedQuote(row: SendRow): Promise<LockedQuote> {
+    if (!row.quote_id) return this.definite(row, 'bank.global_quote_required');
+    const lock = await this.lockById(row.quote_id);
+    if (!lock || lock.user_id !== row.user_id) throw personalPayError('bank.global_outcome_unknown');
+    if (lock.valid_until.getTime() <= row.created_at.getTime()) return this.definite(row, 'bank.global_quote_expired');
+    return lockView(lock);
+  }
+
+  private async lockById(id: string): Promise<LockRow | null> {
+    const rows = await this.sql<LockRow[]>`
+      SELECT id, user_id, asset_id, amount, to_currency, rate, fee, fee_asset, receive_amount, valid_until, eta
+      FROM bank.global_quotes WHERE id = ${id}
+    `;
+    return rows[0] ?? null;
+  }
+
   private async checkedQuote(input: { asset: string; amount: string; toCurrency: string }, now: Date): Promise<FxQuote> {
     let quoted: FxQuote;
     try {
@@ -1000,19 +1103,28 @@ export class GlobalSendService {
     country: string;
     deliveryMethod: string;
     compliance: string;
+    quoteId: string | null;
   }): Promise<SendRow> {
     const id = randomUUID();
-    await this.sql`
-      INSERT INTO bank.global_sends (
-        id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-        country, delivery_method, compliance, status
-      ) VALUES (
-        ${id}, ${input.userId}, ${input.idempotencyKey}, ${input.fromSpaceId}, ${input.assetId}, ${input.amount},
-        ${input.toCurrency}, ${input.recipientId}, ${input.country}, ${input.deliveryMethod},
-        ${input.compliance || null}, 'submitted'
-      )
-      ON CONFLICT (user_id, idempotency_key) DO NOTHING
-    `;
+    try {
+      await this.sql`
+        INSERT INTO bank.global_sends (
+          id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
+          country, delivery_method, compliance, quote_id, status
+        ) VALUES (
+          ${id}, ${input.userId}, ${input.idempotencyKey}, ${input.fromSpaceId}, ${input.assetId}, ${input.amount},
+          ${input.toCurrency}, ${input.recipientId}, ${input.country}, ${input.deliveryMethod},
+          ${input.compliance || null}, ${input.quoteId}, 'submitted'
+        )
+        ON CONFLICT (user_id, idempotency_key) DO NOTHING
+      `;
+    } catch (err) {
+      // One lock pays one send: a second send (another key) on the same quote is refused, and nothing is recorded for it.
+      if (err && typeof err === 'object' && 'constraint_name' in err && err.constraint_name === 'global_sends_quote_uq') {
+        throw personalPayError('bank.global_quote_used');
+      }
+      throw err;
+    }
     const row = await this.sendByKey(input.userId, input.idempotencyKey);
     if (!row) throw personalPayError('bank.global_outcome_unknown');
     const same =
@@ -1023,7 +1135,8 @@ export class GlobalSendService {
       row.recipient_id === input.recipientId &&
       row.country === input.country &&
       row.delivery_method === input.deliveryMethod &&
-      (row.compliance ?? '') === input.compliance;
+      (row.compliance ?? '') === input.compliance &&
+      row.quote_id === input.quoteId;
     if (!same) throw personalPayError('bank.global_conflict');
     return row;
   }

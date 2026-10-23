@@ -290,6 +290,8 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
       'deliveryMethod',
       'compliance',
     ],
+    // svc-bank globalSendStepUp: the rate lock the customer confirmed joins the hash only when the send names one.
+    optionalFields: { quoteId: (value) => UUID_RE.test(value) },
     amountField: 'amount',
     targetField: 'recipientId',
     targetRequired: true,

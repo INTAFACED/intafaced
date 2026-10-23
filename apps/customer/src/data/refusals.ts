@@ -210,6 +210,8 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'The account or bank code is not in a shape we can use. We only check the format, not the bank. Nothing was saved.',
   },
   globalPayoutRefused: { title: 'The payment was refused', body: 'The receiving side refused it. Nothing was taken from your balance.' },
+  globalQuoteNeeded: { title: 'This send needs a locked rate', body: 'Get a quote, then confirm the send while its rate is locked.' },
+  globalQuoteOther: { title: 'That quote is not for this send', body: 'Get a fresh quote for this send and confirm again.' },
   globalCorridorUnknown: {
     title: 'We do not send there',
     body: 'That country, currency and delivery method are not on the list. Choose one from the list.',

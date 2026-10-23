@@ -81,6 +81,39 @@ describe('customer step-up binding', () => {
     expect(spoofed).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
+  it('hashes the rate lock of a global send only when the send names one, and refuses one that is not a lock id', () => {
+    const fields = {
+      idempotencyKey: 'global-send:1',
+      fromSpaceId: 'space-from',
+      assetId: 'USDT',
+      amount: '40',
+      toCurrency: 'EUR',
+      recipientId: 'recipient-1',
+      country: 'DE',
+      deliveryMethod: 'sepa',
+      compliance: '',
+    };
+    const begin = (extra: Record<string, string>) =>
+      bindCustomerStepUp(ACTOR, {
+        scope: 'bank.step_up.global.send',
+        purpose: 'global.send',
+        amount: '40',
+        target: 'recipient-1',
+        fields: { ...fields, ...extra },
+      });
+    const quoteId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    expect(begin({ quoteId })).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('bank.step_up.global.send', { actor: ACTOR, ...fields, quoteId }),
+    });
+    expect(begin({})).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('bank.step_up.global.send', { actor: ACTOR, ...fields }),
+    });
+    for (const extra of [{ quoteId: '' }, { quoteId: 'quote-1' }, { quoteId: ` ${quoteId}` }])
+      expect(begin(extra), JSON.stringify(extra)).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
   it('hashes a note, reference or settled request on a send only when the send carries one, and refuses an empty one', () => {
     const fields = { transferId: 'transfer-1', fromSpaceId: 'space-from', toUserId: 'user-2', assetId: 'USDT', amount: '10.50' };
     const begin = (extra: Record<string, string>) =>
