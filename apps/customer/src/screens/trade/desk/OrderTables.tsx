@@ -253,7 +253,11 @@ export function OrdersTable({
                   )}
                 </td>
               ) : null}
-              <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
+              <td className="if-num">
+                <a className="dk-order-link" href={`/trade/orders/${encodeURIComponent(order.id)}`} title={t('Order details open')}>
+                  {dayTime(order.timestamp, timeZone)}
+                </a>
+              </td>
               <td>{order.symbol}</td>
               <td>
                 {order.exit

@@ -245,6 +245,21 @@ export const rooms: readonly Room[] = [
     door: 'Trade',
     area: 'trade',
   },
+  {
+    path: '/trade/orders',
+    title: 'Order history',
+    description: 'Past orders by side, state and date, with each order’s fills and fees',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/orders/:id',
+    title: 'Order detail',
+    description: 'One order’s fills, fees and changes',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+  },
   { path: '/trade/news', title: 'News', description: 'Market news by category, language and symbol', door: 'Trade', area: 'trade' },
   { path: '/trade/calendar', title: 'Economic calendar', description: 'Scheduled releases and their values', door: 'Trade', area: 'trade' },
   {

@@ -11,6 +11,10 @@ const messages = {
   'Market news by category, language and symbol': 'Market news by category, language and symbol',
   'Economic calendar': 'Economic calendar',
   'Scheduled releases and their values': 'Scheduled releases and their values',
+  'Past orders by side, state and date, with each order’s fills and fees':
+    'Past orders by side, state and date, with each order’s fills and fees',
+  'Order detail': 'Order detail',
+  'One order’s fills, fees and changes': 'One order’s fills, fees and changes',
   'Invoice detail': 'Invoice detail',
   'One invoice reference': 'One invoice reference',
   'Endpoint detail': 'Endpoint detail',

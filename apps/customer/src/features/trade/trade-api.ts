@@ -11,6 +11,7 @@ import {
   positionSchema,
   TIMEFRAMES,
   type Market,
+  type Trade,
 } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
@@ -40,6 +41,18 @@ export const orderSchema = contractOrderSchema.extend({
 });
 export type Order = z.infer<typeof orderSchema>;
 export type ReviewedOrder = Pick<Order, 'id' | 'symbol'>;
+/** The order-history filters as the service reads them; each is sent only when set. */
+export interface HistoryQuery {
+  readonly limit: number;
+  readonly side?: string;
+  readonly status?: string;
+  readonly type?: string;
+  readonly since?: number;
+  readonly until?: number;
+  readonly before?: string;
+}
+/** The most fills one order's detail reads (the service's own ceiling for a fills read). */
+export const ORDER_TRADES_LIMIT = 500;
 /** One answer per id of a batch cancel, in the order sent: cancelled, refused with the service's reason, or unknown. */
 export const batchCancelSchema = z.object({
   atomic: z.literal(false),
@@ -361,6 +374,40 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       ),
     orders: (kind: 'open' | 'closed', symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>
       api.rest(`/orders/${kind}`, z.array(orderSchema), { query: { symbol, limit, since }, signal }),
+    /**
+     * One page of order history, newest first, with the service doing the filtering. `before` is the previous page's
+     * last order. The filter values go as written: the service, not this client, refuses one it does not know.
+     */
+    orderHistory: (query: HistoryQuery, signal?: AbortSignal) =>
+      api.rest('/orders/closed', z.array(orderSchema), {
+        query: {
+          limit: query.limit,
+          side: query.side,
+          status: query.status,
+          type: query.type,
+          since: query.since,
+          until: query.until,
+          before: query.before,
+        },
+        signal,
+      }),
+    /** One order by id. A reply for another order is refused, never shown. */
+    async orderById(id: string, signal?: AbortSignal): Promise<ApiResult<Order>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(id)}`, orderSchema, { signal });
+      return result.ok && result.data.id !== id
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
+    /** One order's fills, oldest first. A fill of another order is refused, never shown. */
+    async orderTrades(id: string, signal?: AbortSignal): Promise<ApiResult<Trade[]>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(id)}/trades`, z.array(tradeSchema), {
+        query: { limit: ORDER_TRADES_LIMIT },
+        signal,
+      });
+      return result.ok && result.data.some((fill) => fill.order !== id)
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
     fills: (symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>
       api.rest('/account/trades', z.array(tradeSchema), { query: { symbol, limit, since }, signal }),
     positions: (symbol?: string, signal?: AbortSignal) => api.rest('/positions', z.array(positionSchema), { query: { symbol }, signal }),

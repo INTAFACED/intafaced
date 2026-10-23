@@ -4794,10 +4794,20 @@ export class TradeService {
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
       type?: 'market' | 'limit' | 'stop_limit';
+      before?: string;
     },
   ): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:read');
     const limit = publishedOrderHistoryLimit(input.limit);
+    // The cursor is the previous page's last order: its (created_at, id) is compared in SQL at full precision, so a
+    // page never repeats or skips an order that shares a creation instant with another. Only the caller's own order
+    // can be a cursor.
+    if (input.before !== undefined) {
+      const found = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM trade.orders WHERE id = ${input.before} AND user_id = ${principal.userId}
+      `;
+      if (!found[0]) throw new TradeError('before must be the id of one of your orders', 'trade.invalid_cursor');
+    }
     // timestamptz compare: Date carries ms precision into postgres.js.
     const sinceDate = input.sinceMs !== undefined ? new Date(input.sinceMs) : undefined;
     const untilDate = input.untilMs !== undefined ? new Date(input.untilMs) : undefined;
@@ -4819,7 +4829,12 @@ export class TradeService {
          }
          ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
          ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
-       ORDER BY created_at DESC
+         ${
+           input.before !== undefined
+             ? this.sql`AND (created_at, id) < (SELECT c.created_at, c.id FROM trade.orders c WHERE c.id = ${input.before})`
+             : this.sql``
+         }
+       ORDER BY created_at DESC, id DESC
        LIMIT ${limit}
     `;
     return rows.map(toOrder);
