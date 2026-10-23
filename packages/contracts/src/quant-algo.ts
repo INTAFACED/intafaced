@@ -151,7 +151,34 @@ export const QUANT_BACKTEST_ASSUMPTIONS = [
   'take_profit_without_slippage',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
+  'stop_out_before_exits',
+  'margin_level_at_bar_low',
+  'loss_beyond_margin',
 ] as const;
+
+/**
+ * The simulated account's rules (ENGINE RK-5): one netting position, the leverage the developer picks up to the
+ * owner's maximum, and the owner's margin-call and stop-out levels as a percent of the margin used. Blank is not set.
+ */
+export const quantAccountRulesSchema = z.object({
+  mode: z.literal('netting'),
+  maxLeverage: z.string().nullable(),
+  marginCallPercent: z.string().nullable(),
+  stopOutPercent: z.string().nullable(),
+});
+export type QuantAccountRules = z.infer<typeof quantAccountRulesSchema>;
+export const QUANT_MARGIN_EVENTS = ['margin_call', 'stop_out'] as const;
+/**
+ * A margin call or stop-out on a backtest, at the bar price that reached its level (the bar's open when it gapped past),
+ * with the margin level there. A stop-out's sell fills at that bar price less slippage, as its trade row shows.
+ */
+export const quantMarginEventSchema = z.object({
+  ts: z.string(),
+  kind: z.enum(QUANT_MARGIN_EVENTS),
+  price: z.string(),
+  marginLevelPercent: z.string(),
+});
+export type QuantMarginEvent = z.infer<typeof quantMarginEventSchema>;
 
 /**
  * A bar backtest of a saved signal-rules strategy (AL-backtest-01, AL-backtest-02). Every cost is a string so a blank
@@ -170,6 +197,11 @@ export const quantBacktestInputSchema = z.object({
   split: z.object({ preset: z.string(), outOfSampleFrom: z.string().optional() }).optional(),
   /** Whether the run keeps clear of the owner's holdout. Absent or false, the result says the holdout is not enforced. */
   enforceHoldout: z.boolean().optional(),
+  /**
+   * Trade on margin (AL-backtest-02): the leverage, a string so a blank one refuses by name. Absent, the run is a cash
+   * account that cannot spend more than it holds. The margin rules are the owner's, never the caller's.
+   */
+  simulatedAccount: z.object({ leverage: z.string() }).optional(),
   /**
    * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
    * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
@@ -238,7 +270,7 @@ export type QuantCheck = z.infer<typeof quantCheckSchema>;
 export const quantBacktestTradeSchema = z.object({
   ts: z.string(),
   side: z.enum(['buy', 'sell']),
-  reason: z.enum(['signal', 'stop_loss', 'take_profit']),
+  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'stop_out']),
   qty: decimalText,
   barPrice: decimalText,
   price: decimalText,
@@ -374,7 +406,8 @@ export const quantBacktestResultSchema = z.object({
   trades: z.array(quantBacktestTradeSchema),
   rejected: z.array(z.object({ ts: z.string(), side: z.enum(['buy', 'sell']), reason: z.enum(QUANT_BACKTEST_REJECT_REASONS) })),
   assumptions: z.array(z.enum(QUANT_BACKTEST_ASSUMPTIONS)),
-  equity: z.array(z.object({ ts: z.string(), equity: decimalText })),
+  /** One point per bar. `marginLevelPercent`: equity over the margin used, on a margin run while a position is held. */
+  equity: z.array(z.object({ ts: z.string(), equity: decimalText, marginLevelPercent: decimalText.nullable().optional() })),
   totals: z.object({
     startCash: decimalText,
     gross: decimalText,
@@ -406,6 +439,10 @@ export const quantBacktestResultSchema = z.object({
   holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
   /** Fields the request sent that only the service may set; they were ignored. */
   ignoredInputs: z.array(z.string()),
+  /** The margin account the run simulated, with the owner's rules as they stood. Null: a cash account. */
+  account: quantAccountRulesSchema.extend({ leverage: z.string() }).nullable(),
+  /** Margin calls and stop-outs, in the order they happened. */
+  marginEvents: z.array(quantMarginEventSchema),
   /**
    * The same rules and costs run again from one bar after the window opens, to show how much the result leans on where
    * it starts. Null when it was not made; the `bar_offset` check says why (too few bars, or a run stored before it).
