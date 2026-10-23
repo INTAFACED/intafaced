@@ -1,5 +1,7 @@
 # OPS lane closeout — 2026-08-08
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Tip at writing: `0c350d10` (`feat(trade): a futures market can take an order — behind a flag that ships off (#1118)`).
 The lane was dispatched against `8519bea5`; four other lanes moved the tip ~15 commits during the session.
 

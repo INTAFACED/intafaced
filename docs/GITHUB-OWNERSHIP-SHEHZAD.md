@@ -1,5 +1,7 @@
 # GitHub ownership lock — `@shehzad002` (Shehzad / “Shizu”)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING on `main` · cold agents must obey  
 **Supersedes:** M1–M7 hard spine lock (2026-08-01) for **who may code**  
 **Historical detail (superseded for scope):** [`SHEHZAD-HARD-OWNERSHIP-2026-08-01.md`](SHEHZAD-HARD-OWNERSHIP-2026-08-01.md)  

@@ -89,14 +89,16 @@ describe('memoryMarkBook', () => {
 });
 
 describe('markSourceFromBook', () => {
+  const at = new Date('2026-08-06T12:00:00.000Z');
+
   it('uses mid when two-sided', async () => {
     const src = markSourceFromBook({
       async readBook() {
-        return { bestBid: '99', bestAsk: '101', last: '50' };
+        return { bestBid: '99', bestAsk: '101', last: '50', observedAt: at };
       },
     });
-    expect(await src.markPrice({ marketId: 'm1', at: new Date() })).toBe('100');
-    expect((await src.quote({ marketId: 'm1', at: new Date() }))?.quality).toBe('mid');
+    expect(await src.markPrice({ marketId: 'm1', at })).toBe('100');
+    expect((await src.quote({ marketId: 'm1', at }))?.quality).toBe('mid');
   });
 
   it('empty book → null', async () => {
@@ -111,19 +113,19 @@ describe('markSourceFromBook', () => {
   it('labels the last print `last` and refuses it as a price unless policy allows', async () => {
     const src = markSourceFromBook({
       async readBook() {
-        return { bestBid: null, bestAsk: null, last: '77' };
+        return { bestBid: null, bestAsk: null, last: '77', observedAt: at };
       },
     });
-    expect((await src.quote({ marketId: 'm1', at: new Date() }))?.quality).toBe('last');
-    expect(await src.markPrice({ marketId: 'm1', at: new Date() })).toBeNull();
+    expect((await src.quote({ marketId: 'm1', at }))?.quality).toBe('last');
+    expect(await src.markPrice({ marketId: 'm1', at })).toBeNull();
 
     const srcLast = markSourceFromBook({
       async readBook() {
-        return { bestBid: null, bestAsk: null, last: '77' };
+        return { bestBid: null, bestAsk: null, last: '77', observedAt: at };
       },
       policy: policy({ liquidationQualities: ['last'] }),
     });
-    expect(await srcLast.markPrice({ marketId: 'm1', at: new Date() })).toBe('77');
+    expect(await srcLast.markPrice({ marketId: 'm1', at })).toBe('77');
   });
 });
 

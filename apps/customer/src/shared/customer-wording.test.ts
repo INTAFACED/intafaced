@@ -11,6 +11,10 @@ import '../features/money/loan-copy';
 import '../features/money/earn-copy';
 import '../features/money/space-copy';
 import '../features/money/analytics-copy';
+import '../features/money/card-depth-copy';
+import '../features/money/business-copy';
+import '../features/money/transfer-depth-copy';
+import '../features/money/money-refusal-copy';
 import '../features/more/copy';
 import '../features/more/academy-grant-copy';
 import '../features/more/agents-session-copy';
@@ -93,6 +97,10 @@ const CHECKED = new Set([
   'customer.money.earn',
   'customer.money.space',
   'customer.money.analytics',
+  'customer.bank.cards',
+  'customer.bank.business',
+  'customer.bank.transfers',
+  'customer.money.refusals',
   'customer.more',
   'academy-grant',
   'more.agentSessions',

@@ -1,5 +1,7 @@
 # Spec — Pro Exchange Rulebook, Market Lifecycle, and Integrity (`PX-S01`)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Authoritative product contract; owner/external sockets remain refuse-closed  
 **Authority:** `PX-S01`; bounded child of [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md)
 **Requirements:** `PTX-M00-R01–R06`, `PTX-M02-R01–R06`, `PTX-M16-R01–R09`  

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { TradeError } from '../spot/types.js';
 import { MemoryTwapParentStore } from './parent-store.js';
@@ -41,6 +41,15 @@ function ports(): TwapEnginePorts {
 }
 
 describe('trade.algo — hydrate on mutate after restart', () => {
+  const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
+  beforeEach(() => {
+    process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
+  });
+  afterEach(() => {
+    if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+    else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
+  });
+
   it('pause after cold engine loads store and persists paused', async () => {
     const store = new MemoryTwapParentStore();
     const live = new TwapEngine(ports(), { onChange: (parent, plan) => store.save({ parent, plan }) });

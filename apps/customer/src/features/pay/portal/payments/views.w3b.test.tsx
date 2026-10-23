@@ -16,7 +16,7 @@ import type { PortalApi } from '../api';
 import { portalRefusal } from '../refusal';
 import * as p from '../schemas';
 import { notLiveWords } from '../ui/test-words';
-import { withMoneyScopes } from '../access/money-test-kit';
+import { withMoneyAccess } from '../access/money-test-kit';
 const html = (node: ReactElement) => renderToString(node);
 const loading = { status: 'loading' } as const;
 const ready = <T,>(data: T): Resource<T> => ({ status: 'ready', data });
@@ -243,7 +243,7 @@ describe('payment detail (P07)', () => {
   ];
   const view = (patch: Partial<Parameters<typeof PaymentDetailView>[0]> = {}, held = true) =>
     html(
-      withMoneyScopes(
+      withMoneyAccess(
         <PaymentDetailView
           payment={ready(payment())}
           history={ready(events)}
@@ -256,9 +256,9 @@ describe('payment detail (P07)', () => {
         held,
       ),
     );
-  it('switches Refund off, with the reason, when the session has no refund scope', () => {
+  it('switches Refund off, with the reason, when the person cannot begin a refund', () => {
     const out = view({}, false);
-    expect(out).toContain('Refunding needs a confirmed sign-in step that this deployment does not offer.');
+    expect(out).toContain('Only the account owner can refund payments.');
     expect(out).not.toContain('href="/pay/refunds/new');
     expect(out).toMatch(/<button[^>]*disabled[^>]*>Refund/);
   });
@@ -325,6 +325,11 @@ describe('payment detail (P07)', () => {
     const out = view({ payment: ready(payment({ pricingSnapshot: null, refundedAmount: '125.5', status: 'refunded' })) });
     expect(out).toContain('The fee taken is shown on the settlement.');
     expect(out).not.toContain('/pay/refunds/new');
+  });
+  it('says a captured payment that has not settled yet is charged when it settles, not that a settlement shows the fee', () => {
+    const out = view({ payment: ready(payment({ pricingSnapshot: null, status: 'captured', refundedAmount: '0' })) });
+    expect(out).toContain('The fee is taken when this payment settles.');
+    expect(out).not.toContain('shown on the settlement');
   });
   it('lists refunds from the refunds list when it is available, and the activity recorded for the payment', () => {
     const out = view({

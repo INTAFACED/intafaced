@@ -143,7 +143,9 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   const test = useTestMode();
   const now = useNow();
   const { access, can } = useMerchantAccess();
-  const stepReason = useMoneyReason('payout');
+  // Sending is the owner's; asking for approval follows the role's permission (`payout.request`).
+  const sendReason = useMoneyReason('payout', 'send');
+  const requestReason = useMoneyReason('payout', 'request');
   const [picked, setPicked] = useUrlParam('settlement', '');
   const [destPicked, setDest] = useState('');
   // A payout can be started from a finalised settlement ("posted"). Retrying a "failed" one is held (PAYOUT_RETRY_ENABLED).
@@ -234,6 +236,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
           const allowed = can('payout.request');
           // The account owner is the only person who can send a payout (same rule as the payout page); a role we could not read is left to the service.
           const maySend = access.status !== 'ready' || access.role === 'owner';
+          const stepReason = sending ? sendReason : requestReason;
           const problem = payoutProblem(t, { allowed, settlement, haltsRead, block, dest, sending, maySend, stepReason });
           return (
             <>
@@ -324,6 +327,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                       </p>
                     )}
                     <PortalReview<PayoutOutcome>
+                      stepUp="payout"
                       title={sending ? t('pnSend') : t('pnSubmit')}
                       variant="primary"
                       description={sending ? t('pnSendReviewBody') : t('pnReviewBody')}

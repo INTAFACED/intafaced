@@ -1,5 +1,7 @@
 # Frontend master plan — Waves A / B / C + styleboard
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **[HISTORY 2026-09-01]** Wave A/B executed; Wave C chart host is Advanced Charts pending, not “LWC v5 forever.” Live execution: [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md). Do not start from this file.
 
 **Status:** **LOCKED v3.1** · Nitro approved N1–N7 (2026-07-31) · free-hands override active  

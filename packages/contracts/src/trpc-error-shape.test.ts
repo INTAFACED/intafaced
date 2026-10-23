@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
-import { publicProcedure, retryAfterSecondsOf, conflictProfile, router, type Context } from './trpc.js';
+import { algoRefusalDetails, publicProcedure, retryAfterSecondsOf, conflictProfile, router, type Context } from './trpc.js';
 
 /** Stand-in with the same shape as svc-identity's AuthError (a different class from @intafaced/auth's). */
 class FakeAuthError extends Error {
@@ -94,5 +94,52 @@ describe('errorFormatter retryAfterSeconds', () => {
     const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
     expect(data.profile).toEqual({ displayName: 'Ada', locale: 'en', region: 'DE', version: 2 });
     expect(conflictProfile(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter algo creation amounts', () => {
+  it('copies exact decimal strings for an insufficient-balance refusal and keeps the code', async () => {
+    const cause = Object.assign(new Error('short'), {
+      code: 'trade.algo_insufficient_balance',
+      data: {
+        asset: 'USDT',
+        required: '60000000',
+        available: '100',
+        fee: '2',
+        feeAsset: 'BTC',
+        sliceQty: '1000',
+        note: 'AlgoMarkPolicy.maxAgeSeconds is unset',
+      },
+    });
+    const refused = router({
+      short: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: cause.message, cause });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/short'),
+      router: refused,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: 'trade.algo_insufficient_balance' });
+    expect(data.algo).toEqual({
+      asset: 'USDT',
+      required: '60000000',
+      available: '100',
+      fee: '2',
+      feeAsset: 'BTC',
+      sliceQty: '1000',
+    });
+    expect(JSON.stringify(data.algo)).not.toMatch(/AlgoMarkPolicy/);
+  });
+
+  it('drops amounts that are not decimal strings, and ignores other codes', () => {
+    expect(
+      algoRefusalDetails({ code: 'trade.algo_insufficient_balance', data: { asset: 'USDT', required: 'not-a-number' } }),
+    ).toBeUndefined();
+    expect(algoRefusalDetails({ code: 'trade.algo_price_band', data: { asset: 'USDT', required: '1' } })).toBeUndefined();
+    expect(algoRefusalDetails(undefined)).toBeUndefined();
   });
 });

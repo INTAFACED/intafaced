@@ -1,5 +1,7 @@
 # TRK-pay.public-api — Public REST + webhooks + sandbox (§9)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** `pay.public-api` · **Class:** M · **Law:** [`docs/adr/2026-08-07-pay-public-api-law.md`](../../adr/2026-08-07-pay-public-api-law.md)
 
 ## Sequence (ADR §4)

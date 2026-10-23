@@ -245,6 +245,19 @@ export function installPositionModePlace(ctor: typeof TradeService): void {
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const tagged = input as PlaceWithMode;
+    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
+    // A futures order with no position mode must not fall through to a spot hold.
+    if (market?.kind === 'futures') {
+      const mode = parsePositionMode(tagged.positionMode);
+      if (!mode.ok) refusePlace(mode);
+      const side = checkOrderSideForPositionMode({
+        mode: mode.mode,
+        side: tagged.side,
+        positionSide: tagged.positionSide,
+      });
+      if (!side.ok) refusePlace(side);
+      return origPlace.call(this, principal, input);
+    }
     if (tagged.positionMode === undefined && tagged.positionSide === undefined) {
       return origPlace.call(this, principal, input);
     }

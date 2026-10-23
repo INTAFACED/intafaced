@@ -12,7 +12,7 @@ import { useListFilters } from '../ui/FilterRow';
 import type { ListState } from '../hooks';
 import type { Dispute, MerchantRecord } from '../schemas';
 import { DisputesView } from './Disputes';
-import { CheckoutSettingsView, feeLines, feePercent, HomePanelsView } from './HomePanels';
+import { CheckoutSettingsView, HomePanelsView } from './HomePanels';
 import { assetChoices } from './asset-choices';
 import { definite, neverRan } from './not-available';
 import { InvoiceCreate } from './Invoices';
@@ -39,25 +39,6 @@ const panels = (patch: Partial<Parameters<typeof HomePanelsView>[0]> = {}) =>
     <HomePanelsView
       merchant={merchant}
       role="owner"
-      pricing={ready({
-        merchantId: merchant.id,
-        tierId: null,
-        archetypeId: null,
-        caps: null,
-        pricing: [
-          {
-            layer: 'global' as const,
-            scopeId: null,
-            assetCode: 'USDT',
-            bands: [{ fromAmount: '0', feeBps: 150, flatFee: '0.30' }],
-            spreadBps: null,
-            roundingBeneficiary: 'platform' as const,
-          },
-        ],
-        reserve: null,
-        version: '1',
-        updatedAt: null,
-      })}
       rails={rails}
       settings={ready({ status: 'not_configured' as const })}
       retryRails={noop}
@@ -103,24 +84,10 @@ describe('Home panels, in plain words', () => {
     const test = panels({ merchant: { ...merchant, feeBps: 250, starterFee: { bps: 250, source: 'local_test' as const } } });
     expect(test).toContain('Starter fee 2.50% (TEST value) — taken when a payment settles');
     expect(test).not.toMatch(/bps|basis points/i);
-    const noPrices = ready({
-      merchantId: merchant.id,
-      tierId: null,
-      archetypeId: null,
-      caps: null,
-      pricing: [],
-      reserve: null,
-      version: '1',
-      updatedAt: null,
-    });
-    expect(panels({ merchant: { ...merchant, feeBps: null }, pricing: noPrices })).toContain(
-      'No rate is set on your account; settlement uses the platform default.',
-    );
-  });
-  it('turns basis points into a percentage', () => {
-    expect(feePercent(150)).toBe('1.5%');
-    expect(feePercent(25)).toBe('0.25%');
-    expect(feePercent(100)).toBe('1%');
+    // An account with no rate says so, and nothing else stands in for it: no price list, no claim about a default.
+    const none = panels({ merchant: { ...merchant, feeBps: null } });
+    expect(none).toContain('No rate is set on your account.');
+    expect(none).not.toMatch(/platform default|per payment|1\.5%/);
   });
   it('reads the checkout settings: not set up, or the website addresses it is set up for', () => {
     expect(panels()).toContain('isn’t set up, so customers');
@@ -269,24 +236,4 @@ it('says a billing cadence in words, never the raw value', async () => {
   expect(cadenceWord('daily')).toBe('Daily');
   expect(cadenceWord('weekly')).toBe('Weekly');
   expect(cadenceWord('monthly')).toBe('Monthly');
-});
-
-describe('the fee as the pricing read states it', () => {
-  const rule = (layer: 'global' | 'merchant', feeBps: number, flatFee: string | null, assetCode = 'USDT') => ({
-    layer,
-    scopeId: null,
-    assetCode,
-    bands: [{ fromAmount: '0', feeBps, flatFee }],
-    spreadBps: null,
-    roundingBeneficiary: 'platform' as const,
-  });
-  it('says percent plus flat per payment, from the most specific rule', () => {
-    expect(feeLines([rule('global', 150, '0.30'), rule('merchant', 120, '0.25')])).toEqual([
-      { assetCode: 'USDT', percent: '1.2%', flat: '0.25', fromBand: false },
-    ]);
-  });
-  it('leaves the flat part out when there is none, and says nothing when no rule is read', () => {
-    expect(feeLines([rule('global', 150, '0.00')])[0]).toMatchObject({ percent: '1.5%', flat: null });
-    expect(feeLines(null)).toEqual([]);
-  });
 });

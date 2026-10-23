@@ -1,5 +1,7 @@
 # Vendored overlap audit — what the Java platform does, what we are rebuilding, and what it costs
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Type:** audit. Evidence and options. **No code was changed.**
 **Question asked:** _"the vendored app was fully complete with all functionality of a crypto trading app — is all of this being used?"_
 **Probed:** 2026-07-30, live fleet on this machine, against `main` @ `207c8a6`.

@@ -3,6 +3,7 @@ import { useSession } from '../../session/session';
 import { createPortalApi } from './api';
 import { portalCopy } from './copy';
 import { parsePortalRoute, type PortalRoute } from './routes';
+import type { StarterFee } from './schemas';
 import './portal.css';
 import { ExactMoneyContext } from './presentation';
 import { LayoutFrame } from './home-layout/Frame';
@@ -17,11 +18,11 @@ import { authorityFromAccess } from './access/authority';
 
 /**
  * The merchant portal shell (W3a). Every page here is scoped by the server from the signed session, so the
- * browser never names a merchant. `starterFeeBps` is the fee INTAFACED has published for new accounts: null
+ * browser never names a merchant. `starterFee` is the fee INTAFACED has published for new accounts: null
  * until one is, and a null fee means an account cannot be opened from onboarding.
  * `MerchantAccessProvider` sits at the root: every page and the frame read who is signed in from it.
  */
-export function MerchantPortal(props: { path: string; authority?: PayBusinessAuthority | null; starterFeeBps?: number | null }) {
+export function MerchantPortal(props: { path: string; authority?: PayBusinessAuthority | null; starterFee?: StarterFee | null }) {
   return (
     <MerchantAccessProvider>
       <PortalRooms {...props} />
@@ -32,11 +33,11 @@ export function MerchantPortal(props: { path: string; authority?: PayBusinessAut
 function PortalRooms({
   path,
   authority = null,
-  starterFeeBps = null,
+  starterFee = null,
 }: {
   path: string;
   authority?: PayBusinessAuthority | null;
-  starterFeeBps?: number | null;
+  starterFee?: StarterFee | null;
 }) {
   const { api, userId } = useSession();
   const portal = useMemo(() => createPortalApi(api, userId), [api, userId]);
@@ -54,7 +55,7 @@ function PortalRooms({
         portal,
         authority: effective,
         access,
-        starterFeeBps,
+        starterFee,
       }}
     />
   );

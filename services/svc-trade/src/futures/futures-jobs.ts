@@ -368,6 +368,9 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       ledger: deps.ledger,
       now: deps.now,
       notifyMarginCall,
+      // No owner publication of the liquidation age or deviation limit.
+      // Compiled 300 / 60 / 2000 are not that publication (MKT-0057).
+      publishedLiquidationLimits: null,
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
     });

@@ -1,5 +1,7 @@
 # Nitro session prompt (paste every new coding chat)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Copy **only** the block below into a new agent session opened on this repo (worktree folder for code; main checkout only for pull/read).
 
 ---

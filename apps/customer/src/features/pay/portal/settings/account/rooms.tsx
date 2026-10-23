@@ -81,7 +81,7 @@ export const accountRooms: RoomTable = {
       action: link('/pay/merchant', t('openDashboard')),
     }),
     // A signed-in team member (a business exists, and they are not its owner) has nothing to set up: the owner does that.
-    render: (route, { portal, access, starterFeeBps }) =>
+    render: (route, { portal, access, starterFee }) =>
       isTeamMember(access.access) ? (
         <OwnerSetsUp />
       ) : (
@@ -92,7 +92,7 @@ export const accountRooms: RoomTable = {
               portal={portal}
               merchant={record}
               reloadMerchant={access.reloadMerchant}
-              starterFeeBps={starterFeeBps}
+              starterFee={starterFee}
             />
           )}
         </Gate>

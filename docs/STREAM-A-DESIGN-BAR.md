@@ -1,5 +1,7 @@
 # Stream A Design Bar — scoreable law for polish
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **[HISTORY 2026-09-01]** Honesty / no-fake-prices / one-kit still bind. P21 teal and “LWC only” do **not**. Live paint N4. Chart: Advanced Charts pending (`LICENCE-POSITION.md` §1.1a). Execution map: [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md).
 
 **Status:** Pass 2.5 · 2026-07-30  

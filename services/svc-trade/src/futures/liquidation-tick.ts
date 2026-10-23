@@ -26,6 +26,19 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { type LiquidationPosition } from './liquidation-planner.js';
+import { gateLiquidationRecipe } from './sub-account-loss.js';
+
+async function postGuarded(
+  ledger: Pick<LedgerClient, 'post'>,
+  row: { readonly userId: string; readonly subAccountId?: string | null },
+  recipe: PostRequest,
+): Promise<void> {
+  const gate = gateLiquidationRecipe(row, recipe);
+  if (!gate.ok) {
+    throw Object.assign(new Error(gate.reason), { code: gate.code });
+  }
+  await ledger.post(recipe);
+}
 import {
   DEPTH_UNKNOWN,
   FuturesLadderError,
@@ -34,7 +47,14 @@ import {
   summarizeLadder,
   type FuturesLadderPolicy,
 } from './maintenance-ladder.js';
-import { DEFAULT_FUTURES_MARK_POLICY, acceptableForLiquidation, type FuturesQuotedMark, type MarkPolicy } from './mark-policy.js';
+import {
+  DEFAULT_FUTURES_MARK_POLICY,
+  acceptableForLiquidation,
+  judgeLiquidationMark,
+  type FuturesQuotedMark,
+  type MarkPolicy,
+  type PublishedLiquidationLimits,
+} from './mark-policy.js';
 import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
@@ -281,6 +301,14 @@ export interface LiquidationTickDeps {
   liquidationIdFor?: (row: LiquidationPositionRow, at: Date) => string;
   /** Gates a labelled mark must clear before it may close a position. */
   markPolicy?: MarkPolicy;
+  /**
+   * Owner-published liquidation age and deviation limits.
+   * `null` means none were published: the tick refuses and does not apply the
+   * compiled 300 / 60 / 2000 figures. Omitted keeps `markPolicy` for callers
+   * that already pass an explicit policy (unit tests). Production passes null
+   * until an owner publication exists.
+   */
+  publishedLiquidationLimits?: PublishedLiquidationLimits | null;
   /**
    * Where the deviation breaker gets its basis, and where an accepted mark goes.
    *
@@ -555,7 +583,10 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
        * literal `null` on every tick and the breaker never fired once.
        */
       const previous = await deps.acceptedMarks.previous(row.positionId);
-      const check = acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
+      const check =
+        deps.publishedLiquidationLimits !== undefined
+          ? judgeLiquidationMark(quoted, breakerBasis(previous), at, deps.publishedLiquidationLimits)
+          : acceptableForLiquidation(quoted, breakerBasis(previous), at, deps.markPolicy ?? DEFAULT_FUTURES_MARK_POLICY);
       if (!check.ok) {
         items.push({
           positionId: row.positionId,
@@ -892,7 +923,7 @@ async function planAndDrive(
   }
 
   for (const recipe of decision.recipes) {
-    await deps.ledger.post(recipe as PostRequest);
+    await postGuarded(deps.ledger, row, recipe as PostRequest);
   }
 
   if (decision.closesPosition) {
@@ -1007,7 +1038,7 @@ async function driveRung(
 
     for (const stored of plan.recipes) {
       try {
-        await deps.ledger.post(stored);
+        await postGuarded(deps.ledger, row, stored);
       } catch (err) {
         const code = (err as { code?: unknown } | null)?.code;
         if (code !== 'ledger.insufficient_funds') throw err;
@@ -1036,7 +1067,7 @@ async function driveRung(
             amended > 0n ? { ...stored, entries: stored.entries.map((e) => ({ ...e, amount: amended })) } : null;
           releaseShort += potEntry.amount - amended;
           if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), releaseShort }))) return rereadAndDrive();
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else if (
           stored.reason === 'futures.loss.realized' &&
           potEntry &&
@@ -1106,7 +1137,7 @@ async function driveRung(
           }
           if (!(await amend(next))) return rereadAndDrive();
           if (closing) insuranceGrown += shift; // the amendment is persisted: the fund now pays `shift` more than planned
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else if (current.fromInsurance > 0n) {
           // The pot holds what the recipe needs, so a refusal on a rung that draws on insurance is
           // the insurance fund — but only if the fund is actually below the leg. Otherwise it is
@@ -1153,7 +1184,7 @@ async function driveRung(
           if (!(await amend({ ...current, recipes: replace(stored.idempotencyKey, recipe), fromInsurance: 0n, lossShort }))) {
             return rereadAndDrive();
           }
-          if (recipe) await deps.ledger.post(recipe);
+          if (recipe) await postGuarded(deps.ledger, row, recipe);
         } else {
           throw err;
         }

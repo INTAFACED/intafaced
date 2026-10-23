@@ -304,6 +304,8 @@ export const merchantRecordSchema = z
   })
   .nullable();
 export type MerchantRecord = NonNullable<z.infer<typeof merchantRecordSchema>>;
+/** The fee INTAFACED has published for new accounts, exactly as the service states it. `local_test` marks a TEST value. */
+export type StarterFee = { bps: number; source: 'local_test' };
 export const railSchema = z.array(
   z.object({
     id: z.string(),

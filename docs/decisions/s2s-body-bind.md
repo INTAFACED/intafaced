@@ -1,5 +1,7 @@
 # Decision: S2S body binding (L2-6) — how it ships without an outage
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** **Mechanism landed. `accept-both` is still the schema default, for local runs and tests only. The tRPC door is `require` by default since 2026-10-13. In production posture (`APP_ENV` anything but exactly `dev`/`test`) a service that holds `INTERNAL_SERVICE_SECRET` REFUSES TO BOOT unless `INTERNAL_SERVICE_BODY_BIND` is exactly `require` (`config.s2s_body_bind_not_required`), since the PR that added the section "Refusal in production posture" below.**
 **Date:** 2026-07-30 · **Author:** Denon spine (Stream B) · **Board:** D12 · **Audit finding:** L2-6
 

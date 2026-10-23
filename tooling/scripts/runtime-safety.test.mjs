@@ -89,8 +89,14 @@ function run(script, args, mode) {
   const protection = t.calls[1];
   assert.match(protection, /Gitleaks/);
   assert.match(protection, /Dependency audit/);
+  assert.match(protection, /Doctrine gates/);
   assert.match(protection, /"strict":false/);
   assert.match(protection, /"required_approving_review_count":0/);
+  const merge = t.calls.find((call) => call.includes('allow_squash_merge'));
+  assert.ok(merge, 'setup sends the merge settings');
+  assert.match(merge, /delete_branch_on_merge=false/);
+  assert.match(merge, /allow_auto_merge=false/);
+  assert.doesNotMatch(merge, /(delete_branch_on_merge|allow_auto_merge)=true/);
 }
 
 // Issue-sync's permissive milestone-creation fallback must stop on HTTP 429.

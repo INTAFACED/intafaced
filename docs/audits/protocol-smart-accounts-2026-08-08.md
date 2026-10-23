@@ -1,5 +1,7 @@
 # Smart accounts — adversarial audit package (S-A1)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** **Internal package shipped / not externally audited.** Engineering half of board S-A1 is in-repo. This is **not** permission to set `audited:true` or close `socket.contract-audit` (external firm / Nitro budget still required).
 **Scope:** `SmartAccount.sol`, `AccountFactory.sol`, `SessionKeyLib.sol`, `PasskeyOwner.sol` / `P256.sol` (S-A9).
 **Owner:** `@shehzad002`. External firm engagement is a **Nitro budget** decision (§0.5).

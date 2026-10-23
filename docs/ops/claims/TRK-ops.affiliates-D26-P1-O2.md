@@ -1,5 +1,7 @@
 # Claim TRK-ops.affiliates — D26-P1-O2
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Lane:** `d26-p1-o2-affiliates`  
 **Owner session:** Phantom-X-007 (Denon)  
 **Board:** D26-P1-O2 — Accrual tree under rate authority  

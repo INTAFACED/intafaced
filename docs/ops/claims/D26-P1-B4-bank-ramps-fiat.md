@@ -1,5 +1,7 @@
 # Claim — D26-P1-B4 bank.ramps fiat via pay adapters
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 | Field        | Value                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------- |
 | ID           | D26-P1-B4                                                                                   |

@@ -1,5 +1,7 @@
 # Spec — lending (M2)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Read §1 before designing anything.** Lending is the most-exploited product category in this industry, the exploits are well documented, and almost all of them reduce to the same root cause. A lending market that is elegant everywhere else and wrong in §1 loses every deposit in it.
 
 This spec is deliberately conservative. Every constraint below has a named failure it exists to prevent.

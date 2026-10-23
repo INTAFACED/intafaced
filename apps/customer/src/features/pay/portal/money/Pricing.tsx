@@ -26,7 +26,7 @@ import type { PricingHistory as History } from './schemas';
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
 export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { t } = portalCopy.useCopy();
-  const { access, merchant: merchantRead } = useMerchantAccess();
+  const { access, merchant: merchantRead, reloadMerchant } = useMerchantAccess();
   const account = merchantRead.status === 'ready' ? merchantRead.data : null;
   const control = useResource((s) => portal.control(merchantId, s), `money:control:${merchantId}`);
   const tiers = useResource((s) => portal.tiersList(merchantId, s), `money:tiers:${merchantId}`);
@@ -44,9 +44,10 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
         {(profile) => {
           const rules = profile.pricing ?? [];
           const assets = pricingAssets(profile.pricing);
-          const first = rules[0]?.bands[0] ?? null;
           return (
             <>
+              {/* The account's own rate comes from a separate read. If it fails the page says so and can ask again; it never stays on "…". */}
+              {merchantRead.status === 'failed' && <PortalFailure result={merchantRead.failure} retry={reloadMerchant} />}
               <Freshness asOf={readAt} />
               <KpiStrip
                 label={t('priceTiles')}
@@ -61,15 +62,16 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                     label: t('priceRate'),
                     period: t('mnPeriodNow'),
                     href: '/pay/pricing',
-                    value:
-                      account && hasAccountFee(account) ? (
+                    // The rate is the account's own. With none set the tile says so; a price list never stands in for it.
+                    value: account ? (
+                      hasAccountFee(account) ? (
                         percentOfBps(account.feeBps!)
-                      ) : first ? (
-                        bpsPercent(first.feeBps)
                       ) : (
                         <NotConfigured />
-                      ),
-                    note: first && rules.length > 1 ? t('priceRateNote', { asset: rules[0]!.assetCode }) : undefined,
+                      )
+                    ) : (
+                      <span className="muted">{merchantRead.status === 'loading' ? '…' : '—'}</span>
+                    ),
                   },
                   { label: t('priceAssets'), period: t('mnPeriodNow'), href: '/pay/pricing', value: String(assets.length) },
                   {
@@ -126,7 +128,16 @@ export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId:
                   items={[
                     [t('colTier'), tierName ?? <NotConfigured>{t('tierNotAssigned')}</NotConfigured>],
                     // The fee taken at settlement is the account's own rate: the same sentence as on Overview.
-                    [t('priceAccountFee'), merchantRead.status === 'ready' ? feeStory(account) : <span className="muted">…</span>],
+                    [
+                      t('priceAccountFee'),
+                      account ? (
+                        feeStory(account)
+                      ) : merchantRead.status !== 'loading' ? (
+                        <span className="muted">{t('priceFeeUnavailable')}</span>
+                      ) : (
+                        <span className="muted">…</span>
+                      ),
+                    ],
                     [
                       t('effectiveSince'),
                       profile.updatedAt ? <DateTime value={profile.updatedAt} /> : <span className="muted">{t('notRecorded')}</span>,

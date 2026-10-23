@@ -1,5 +1,7 @@
 # Nitro L3 slice factory law
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** standing · **Owner:** Nitro agents · **Date:** 2026-08-05  
 **Stacks with:** 24h build program · continuation ladder · partner/Shehzad bans  
 **Does not replace:** Denon L1 product law · Class X · dual-edit bans

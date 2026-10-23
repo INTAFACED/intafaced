@@ -1,5 +1,7 @@
 # Depth / tape product SLO — honest empty book
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker:** D26-P4-06 · board [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) §8  
 **Status:** **Accepted — 2026-08-15.** Spec for the shell client. Class **N**.  
 **Decision owner:** Denon. **Written by:** Denon agent.  

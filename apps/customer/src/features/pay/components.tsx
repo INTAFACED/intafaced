@@ -6,6 +6,10 @@ import type { Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog, StateBlock, Amount, StatusTag } from '@intafaced/ui';
 import { EmptyState } from './ui-kit';
+import type { MoneyKind } from './portal/access/money-step';
+import { payStepUp } from './portal/access/step-up-store';
+import { StepUpNote } from './portal/access/step-up';
+import { stepUpRequired, stepUpWords } from './portal/access/step-up-words';
 
 function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
@@ -269,6 +273,7 @@ export function ReviewedAction<T>({
   disabled = false,
   disabledReason,
   variant = 'secondary',
+  stepUp,
 }: {
   title: string;
   description: string;
@@ -278,11 +283,18 @@ export function ReviewedAction<T>({
   disabled?: boolean;
   disabledReason?: string;
   variant?: 'primary' | 'secondary' | 'sell';
+  /**
+   * Money leaving the account. Opening the action first asks "Confirm it's you" (a passkey or an authenticator code);
+   * the review opens once that is done. If the confirmation runs out before the send, the person confirms again and the
+   * same `perform` runs once more, so the same request id goes out. See `portal/access/step-up-store.ts`.
+   */
+  stepUp?: MoneyKind;
 }) {
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ApiResult<T> | null>(null);
   const inFlight = useRef(false);
+  const asking = useRef(false);
   const lifetime = useRef({ mounted: true, opened, disabled, review: 0 });
   const reviewId = lifetime.current.review;
   useLayoutEffect(() => {
@@ -301,7 +313,7 @@ export function ReviewedAction<T>({
     inFlight.current = true;
     setBusy(true);
     try {
-      const outcome = await perform(currentReview);
+      const outcome = stepUp ? await payStepUp.run(stepUp, () => perform(currentReview), stepUpWords) : await perform(currentReview);
       if (!currentReview()) return;
       setResult(outcome);
       if (outcome.ok) {
@@ -326,10 +338,27 @@ export function ReviewedAction<T>({
         variant={variant}
         disabled={disabled || busy || Boolean(result && !result.ok && result.reason === 'uncertain')}
         onClick={() => {
-          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current) return;
-          lifetime.current.review += 1;
-          setResult(null);
-          setOpened(true);
+          if (!lifetime.current.mounted || lifetime.current.disabled || inFlight.current || asking.current) return;
+          if (!stepUp) {
+            lifetime.current.review += 1;
+            setResult(null);
+            setOpened(true);
+            return;
+          }
+          // Money out: confirm it's them first, then show the review.
+          asking.current = true;
+          void payStepUp.ensure(stepUp).then((confirmed) => {
+            asking.current = false;
+            if (!lifetime.current.mounted || lifetime.current.disabled) return;
+            if (!confirmed) {
+              // Declining is the person's own choice and needs no message; a page with no one to ask says what is needed.
+              setResult(payStepUp.canAsk ? null : stepUpRequired());
+              return;
+            }
+            lifetime.current.review += 1;
+            setResult(null);
+            setOpened(true);
+          });
         }}
       >
         {title}
@@ -350,6 +379,7 @@ export function ReviewedAction<T>({
           <div className="form-stack">
             <p className="muted">{description}</p>
             {review}
+            {stepUp && <StepUpNote kind={stepUp} />}
             <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
             <Button
               variant={variant}

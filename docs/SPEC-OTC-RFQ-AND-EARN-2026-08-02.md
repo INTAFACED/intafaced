@@ -1,5 +1,7 @@
 # Spec — OTC / RFQ (M4) and Earn (M6)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Completes the product law for the mountains. Both are products where the dangerous thing is not the mechanism but **what the user is told is happening**.
 
 ---

@@ -1,5 +1,7 @@
 # TRK-ops.admin — research / spec pack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker id:** `ops.admin`  
 **Title:** apps/admin — listings, fee params, treasury, kill-switches  
 **Module / phase:** `core-ops` · phase **5** · plane **F**  

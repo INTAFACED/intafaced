@@ -1,5 +1,7 @@
 # Spec — Pro Exchange competitive delta (31 August 2026)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Authoritative addendum. Does not replace any `PX-S*`.  
 **Parent:** [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) v1.20  
 **Research cutoff:** 31 August 2026  

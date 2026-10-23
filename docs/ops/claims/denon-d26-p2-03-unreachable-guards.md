@@ -1,5 +1,7 @@
 # Claim denon-d26-p2-03-unreachable-guards
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** wip
 **owner:** denon-agent (Phantom-X-007)
 **tracker:** D26-P2-03

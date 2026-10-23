@@ -2,6 +2,8 @@
 
 # Revised five dispatches — anti-drift pass (2026-08-08)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** C1 is **executing in-repo** (not paste-only). Holds the five C1–C5 briefs that the axis planner planned to release after Nitro’s full green light, revised after a four-lane anti-drift audit, then **re-verified at tip 2026-08-08** (errata below).
 
 **Parent session:** Code session `bbaab7e1-2319-432c-ba6f-0c97cf7bb44d` (axis planner). Died mid-synthesis on org subscription disable; four subagent reports completed, two parents failed. Synthesis completed here from those reports + live re-check.

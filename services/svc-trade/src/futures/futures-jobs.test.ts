@@ -136,6 +136,7 @@ describe('startFuturesJobs', () => {
       bids: [['99', '100']],
       asks: [['101', '100']],
       sequence: 1,
+      observedAt: new Date(),
     }));
     const handle = startFuturesJobs({
       sql: {} as never,

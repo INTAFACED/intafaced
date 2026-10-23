@@ -1,5 +1,7 @@
 # Licence position — what must be resolved before launch
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** engineering record, 2026-07-29, against commit `4311cff`.
 **Companion:** [`NOTICE`](../NOTICE) at the repository root — the evidence. This file is the decisions.
 **Tip freshness (2026-08-15, D26-P3-04):** §§ below are still that compile. Working-tree facts that diverged are named in `NOTICE` §11 and pinned by `tooling/ci/notice-pin.mjs`. This is not a new legal opinion. The 2017 Charting Library copy is **gone from the working tree** (Path A, #106); history may still hold it. **Owner 2026-08-31:** intended live chart is **TradingView Advanced Charts**, waiting on TradingView access/approval — see §1.1a. Undetermined jars, Geetest, and other §10 rows are unchanged asks for counsel — agents do not close them.

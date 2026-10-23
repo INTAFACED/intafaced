@@ -1,5 +1,7 @@
 # Claim — TRK-agents.scanner Stage-2 live tools
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Owner session:** grok agents-scanner-stage  
 **Paths:** `services/svc-agents/src/scanner/**`, `services/svc-agents/src/router.ts`, `services/svc-agents/src/copy.ts`  
 **status:** merged

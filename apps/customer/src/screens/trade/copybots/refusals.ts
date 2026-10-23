@@ -192,8 +192,20 @@ const BOTS: Readonly<Record<string, Words>> = {
   },
   'trade.algo_unsupported_kind': { title: 'That bot type isn’t available', body: 'Choose another type.' },
   'trade.algo_insufficient_balance': {
-    title: 'Not enough funds for this schedule',
-    body: 'Lower the amount or add funds, then try again.',
+    title: 'Not enough funds for the first slice',
+    body: 'The first slice needs more than your available balance. Lower the amount or add funds, then try again. Nothing was started and nothing was held.',
+  },
+  'trade.algo_balance_unreadable': {
+    title: 'We couldn’t check your balance',
+    body: 'The balance read failed, so the schedule was not started. Nothing was held.',
+  },
+  'trade.algo_mark_policy_unset': {
+    title: 'The price check isn’t configured',
+    body: 'The mark age limit isn’t set, so a schedule can’t start. Nothing was held.',
+  },
+  'trade.fee_schedule_blank': {
+    title: 'Trading fees aren’t set',
+    body: 'A schedule can’t start until the fee schedule is published. Nothing was held.',
   },
   'trade.algo_invalid_qty': { title: 'Check the amount', body: 'The amount is too small for this market’s lot size, or not valid.' },
   'trade.algo_invalid_schedule': { title: 'Check the schedule', body: 'The gap between slices can’t be longer than the whole run.' },

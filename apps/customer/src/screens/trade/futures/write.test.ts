@@ -64,7 +64,7 @@ const failure = (reason: 'uncertain' | 'rejected', code?: string, status?: numbe
 function fakeApi() {
   const api = {
     open: vi.fn<(input: OpenInput) => Promise<ApiResult<Position>>>(),
-    close: vi.fn<(id: string) => Promise<ApiResult<Position>>>(),
+    close: vi.fn<(id: string, input: { quantity: string; clientCloseId: string }) => Promise<ApiResult<Position>>>(),
     setLeverage:
       vi.fn<
         (input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string }) => Promise<ApiResult<Position>>
@@ -81,7 +81,13 @@ function fakeApi() {
 
 const openInput: OpenInput = { symbol: 'BTC/USDT:USDT', side: 'long', size: '1', leverage: '5', clientOpenId: 'open-abc' };
 const openIntent: Intent = { op: 'open', input: openInput };
-const closeIntent: Intent = { op: 'close', positionId: 'pos-1', symbol: 'BTC/USDT:USDT' };
+const closeIntent: Intent = {
+  op: 'close',
+  positionId: 'pos-1',
+  symbol: 'BTC/USDT:USDT',
+  size: '1.250',
+  clientCloseId: 'close-intent-1',
+};
 
 function pendingFor(id: string): Pending {
   const note = readPending(USER);
@@ -186,7 +192,7 @@ describe('checkPending: close', () => {
     return fake;
   }
 
-  it('a position already closed is done, with no second DELETE', async () => {
+  it('a position already closed is done, with no second close', async () => {
     const { api, typed } = await startUncertainClose();
     api.position.mockResolvedValue(ok(position({ status: 'closed' })));
     const outcome = await checkPending(typed, USER, pendingFor('close:pos-1'));
@@ -206,14 +212,16 @@ describe('checkPending: close', () => {
     expect(loadIntent(USER, 'close:pos-1')).toEqual(closeIntent);
   });
 
-  it('a still-open position sends the saved close again once', async () => {
+  it('two sends of the same close intent pass the same clientCloseId', async () => {
     const { api, typed } = await startUncertainClose();
     api.position.mockResolvedValue(ok(position({ status: 'open' })));
     api.close.mockResolvedValue(ok(position({ status: 'closed' })));
     const outcome = await checkPending(typed, USER, pendingFor('close:pos-1'));
     expect(outcome.kind).toBe('done');
     expect(api.close).toHaveBeenCalledTimes(2);
-    expect(api.close).toHaveBeenLastCalledWith('pos-1');
+    const expected = ['pos-1', { quantity: '1.250', clientCloseId: 'close-intent-1' }] as const;
+    expect(api.close.mock.calls[0]).toEqual(expected);
+    expect(api.close.mock.calls[1]).toEqual(api.close.mock.calls[0]);
     expect(readPending(USER)).toEqual({ state: 'none' });
   });
 });
@@ -266,7 +274,13 @@ describe('guards', () => {
     const { api, typed } = fakeApi();
     api.open.mockResolvedValue(failure('uncertain', undefined, 503));
     await runIntent(typed, USER, openIntent);
-    const other: Intent = { op: 'close', positionId: 'pos-2', symbol: 'BTC/USDT:USDT' };
+    const other: Intent = {
+      op: 'close',
+      positionId: 'pos-2',
+      symbol: 'BTC/USDT:USDT',
+      size: '2',
+      clientCloseId: 'close-intent-2',
+    };
     const outcome = await runIntent(typed, USER, other);
     expect(outcome).toMatchObject({ kind: 'blocked', reason: 'pending' });
     expect(api.close).not.toHaveBeenCalled();

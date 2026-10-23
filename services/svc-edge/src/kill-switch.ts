@@ -111,9 +111,15 @@ export interface RestRelease {
 export const ALWAYS_ALLOWED_REST: readonly RestRelease[] = [
   { method: 'DELETE', pattern: /^\/api\/v1\/orders\/[^/]+$/, what: 'cancel one order (CCXT REST)' },
   { method: 'DELETE', pattern: /^\/api\/v1\/orders$/, what: 'cancel all orders (CCXT REST)' },
-  // Futures close + margin release — same "lets user out" rule as order cancel.
-  // A kill that traps open positions is not a safety control.
-  { method: 'DELETE', pattern: /^\/api\/v1\/positions\/[^/]+$/, what: 'close one futures position (CCXT REST)' },
+  // DELETE /positions/:id is cancel-shaped and does not release margin. The close
+  // routes do. A kill that traps open positions is not a safety control.
+  {
+    method: 'DELETE',
+    pattern: /^\/api\/v1\/positions\/[^/]+$/,
+    what: 'cancel-shaped futures DELETE (trade refuses it; it does not close)',
+  },
+  { method: 'POST', pattern: /^\/api\/v1\/positions\/[^/]+\/close$/, what: 'close one futures position' },
+  { method: 'POST', pattern: /^\/api\/v1\/futures\/positions\/close-all$/, what: 'close all futures positions' },
 ];
 
 export type KillReason =

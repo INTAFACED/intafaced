@@ -11,8 +11,9 @@ import { allows, canOwnerWrite as ownerMayWrite, resolveAccess, type Access, typ
 import type { MyAccess } from './schemas';
 import { NoBusiness } from './NoBusiness';
 import { publishAccess } from './shared-access';
-import { moneyReason, type MoneyKind } from './money-step';
+import { moneyReasonFor, type MoneyKind, type PayoutAct } from './money-step';
 import { scopesOfAccessToken } from './session-scopes';
+import { StepUpHost } from './step-up';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 
@@ -34,8 +35,8 @@ export type MerchantAccessValue = {
   canOwnerWrite: boolean;
   /** The scopes the signed-in session carries (read from its access token), or null when they cannot be read. */
   sessionScopes: ReadonlySet<string> | null;
-  /** Why a refund or a payout cannot be sent from this session, in words, or null when it can. One answer for every control. */
-  moneyReason: (kind: MoneyKind) => string | null;
+  /** Why a refund or a payout cannot be started by this person, in words (who can), or null when they may begin: opening the action asks them to confirm it's them. One answer for every control. */
+  moneyReason: (kind: MoneyKind, act?: PayoutAct) => string | null;
 };
 
 const Context = createContext<MerchantAccessValue | null>(null);
@@ -66,14 +67,21 @@ export function MerchantAccessProvider({ children }: { children: ReactNode }) {
       can: (need) => allows(access, need),
       canOwnerWrite: ownerMayWrite(access),
       sessionScopes,
-      moneyReason: (kind) => moneyReason(kind, sessionScopes),
+      moneyReason: (kind, act) => moneyReasonFor(kind, access, act),
     };
   }, [userId, accessToken, myAccess.resource, merchant.resource, team.resource, myAccess.reload, merchant.reload, team.reload]);
   useEffect(() => {
     publishAccess(value);
     return () => publishAccess(null);
   }, [value]);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  const merchantId = value.access.status === 'ready' ? value.access.merchantId : null;
+  return (
+    <Context.Provider value={value}>
+      {children}
+      {/* Asks "Confirm it's you" for a refund or a payout, and forgets the answer when the person or the business changes. */}
+      <StepUpHost userId={userId} merchantId={merchantId} />
+    </Context.Provider>
+  );
 }
 
 export function useMerchantAccess(): MerchantAccessValue {

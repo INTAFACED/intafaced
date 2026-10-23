@@ -103,6 +103,34 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
 
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
 
+const ALGO_MONEY_CODES = new Set(['trade.algo_insufficient_balance', 'trade.algo_balance_unreadable']);
+const ALGO_MONEY_KEYS = ['asset', 'required', 'available', 'fee', 'feeAsset', 'sliceQty'] as const;
+const ALGO_ASSET = /^[A-Z][A-Z0-9]{0,15}$/;
+const ALGO_DECIMAL = /^(0|[1-9]\d*)(\.\d+)?$/;
+
+/**
+ * Amounts on an algo creation refusal. Decimal strings and asset codes only.
+ * Any other key, or a value that is not that shape, is dropped so a sentence
+ * cannot ride out on this field.
+ */
+export function algoRefusalDetails(cause: unknown): Record<string, string> | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || !('data' in cause)) return undefined;
+  const code = (cause as { code?: unknown }).code;
+  if (typeof code !== 'string' || !ALGO_MONEY_CODES.has(code)) return undefined;
+  const raw = (cause as { data?: unknown }).data;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const key of ALGO_MONEY_KEYS) {
+    if (!(key in raw)) continue;
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value !== 'string') return undefined;
+    const ok = key === 'asset' || key === 'feeAsset' ? ALGO_ASSET.test(value) : ALGO_DECIMAL.test(value);
+    if (!ok) return undefined;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
 export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
   if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
@@ -139,6 +167,7 @@ const t = initTRPC.context<Context>().create({
     const code = causeCode(cause);
     const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
     const blockers = errorBlockersOf(cause);
+    const algo = algoRefusalDetails(cause);
     return {
       ...shape,
       data: {
@@ -160,6 +189,7 @@ const t = initTRPC.context<Context>().create({
         // Only on `auth.too_many_attempts`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         ...(blockers ? { blockers } : {}),
+        ...(algo ? { algo } : {}),
       },
     };
   },

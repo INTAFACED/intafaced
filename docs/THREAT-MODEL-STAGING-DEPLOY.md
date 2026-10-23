@@ -1,5 +1,7 @@
 # Threat model — the staging deploy workflow
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Subject:** `.github/workflows/staging-deploy.yml`, and nothing else.
 **Board:** D26-P3-01 (the workflow). Fiat / wallet_rpc / vendor Java live under **D26-P3-02** → [`THREAT-MODEL-CURRENT.md`](THREAT-MODEL-CURRENT.md).
 **Law it sits under:** [`adr/2026-08-08-staging-deploy-path.md`](adr/2026-08-08-staging-deploy-path.md) (Accepted 2026-08-08).

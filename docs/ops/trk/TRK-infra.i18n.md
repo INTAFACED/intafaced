@@ -1,5 +1,7 @@
 # TRK-infra.i18n — research / spec pack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker id:** `infra.i18n`  
 **Title:** 100+ languages — keyed from day one (§9)  
 **Module / phase:** `core-ops` · phase 0 · plane F  

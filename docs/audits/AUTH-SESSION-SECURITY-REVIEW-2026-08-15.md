@@ -1,5 +1,7 @@
 # Auth / session security review (fiat plane) — D26-P3-06
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Written review on tip. **Not** a certification, pentest, or “we are secure” claim.  
 **Date:** 2026-08-15. **Tip at open:** `origin/main` `fb819742`.  
 **Class:** N (judgment). **Scope:** Fiat-plane credential mint in `packages/auth` + `services/svc-identity`.  

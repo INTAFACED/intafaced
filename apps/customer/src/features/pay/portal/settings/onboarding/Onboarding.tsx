@@ -8,7 +8,7 @@ import { Chip, Gate, ListShell, MoreFooter, SelectField, TestTag, Timeline } fro
 import { useCursorList, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
 import type { OnboardingStep } from '../../routes';
-import type { KybEvent, MerchantRecord, kybCurrentSchema } from '../../schemas';
+import type { KybEvent, MerchantRecord, StarterFee, kybCurrentSchema } from '../../schemas';
 import { PortalReview } from '../../ui/PortalReview';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { reason as notLive } from '../../chrome/copy';
@@ -17,7 +17,7 @@ import type { Progress } from '../account/schemas';
 import { Blocker } from '../account/ui';
 import { portalCopy } from '../copy';
 import { mc } from '../../money/copy';
-import { feeStory } from '../../ui/fee-story';
+import { starterFeeStory } from '../../ui/fee-story';
 import { describeDestination, railWords } from '../../money/destination';
 import {
   businessDetails,
@@ -39,21 +39,21 @@ type StepState = 'done' | 'current' | 'waiting' | 'todo';
 /**
  * `/pay/onboarding`: the setup overview, and its three steps at their own addresses. Progress is read from the
  * service (a business record, the verification status, the saved destinations), so reloading or switching device
- * never loses it. `starterFeeBps` is the fee INTAFACED has published for new accounts. Until one exists a new
+ * never loses it. `starterFee` is the fee INTAFACED has published for new accounts, as the service states it. Until one exists a new
  * account cannot be opened from here: a blank price is refused, never defaulted.
  */
 export function Onboarding({
   portal,
   merchant,
   reloadMerchant,
-  starterFeeBps,
+  starterFee,
   step,
 }: {
   step?: OnboardingStep;
   portal: PortalApi;
   merchant: MerchantRecord | null;
   reloadMerchant: () => void;
-  starterFeeBps: number | null;
+  starterFee: StarterFee | null;
 }) {
   const id = merchant?.id ?? 'none';
   const kyb = useResource(
@@ -81,7 +81,7 @@ export function Onboarding({
       history={merchant ? history.state : null}
       loadMoreHistory={history.loadMore}
       rails={rails.resource as Resource<Rails>}
-      starterFeeBps={starterFeeBps}
+      starterFee={starterFee}
       saved={saved}
       onCreated={reloadMerchant}
       onKybSubmitted={() => {
@@ -112,7 +112,7 @@ export type OnboardingViewProps = {
   history: ListState<KybEvent> | null;
   loadMoreHistory: () => void;
   rails: Resource<Rails>;
-  starterFeeBps: number | null;
+  starterFee: StarterFee | null;
   saved: SavedDestination | null;
   onCreated: () => void;
   onKybSubmitted: () => void;
@@ -247,7 +247,7 @@ function Overview(props: OnboardingViewProps) {
   );
 }
 
-function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: OnboardingViewProps) {
+function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: OnboardingViewProps) {
   const { t } = portalCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
   const [form, setForm] = useState<BusinessForm>(emptyBusiness);
@@ -280,7 +280,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
     );
   }
   const invalid = Object.keys(validateBusiness(form)).length > 0;
-  const noFee = starterFeeBps === null;
+  const noFee = starterFee === null;
   return (
     <PaySection title={t('step1Title')} description={t('step1Body')}>
       <form
@@ -385,12 +385,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
                 [t('fBusinessType'), form.businessType],
                 [t('fContactEmail'), form.contactEmail],
                 [t('fExpectedVolume'), form.expectedVolume ? `${form.expectedVolume} (${t('declaredTag')})` : t('notGiven')],
-                [
-                  t('factStartingFee'),
-                  noFee
-                    ? t('feeNotPublished')
-                    : feeStory({ feeBps: starterFeeBps, starterFee: { bps: starterFeeBps, source: 'local_test' } }),
-                ],
+                [t('factStartingFee'), noFee ? t('feeNotPublished') : starterFeeStory(starterFee)],
               ]}
             />
           }
@@ -398,7 +393,7 @@ function StepBusiness({ portal, merchant, starterFeeBps, onCreated, progress }: 
             setTried(true);
             return noFee
               ? { ok: false as const, reason: 'forbidden' as const, message: a('starterFeeRefusal'), code: 'portal.local' }
-              : portal.createMerchant(starterFeeBps, businessDetails(form), merchantNames(form));
+              : portal.createMerchant(starterFee.bps, businessDetails(form), merchantNames(form));
           }}
           onConfirmed={onCreated}
           disabled={invalid || noFee}

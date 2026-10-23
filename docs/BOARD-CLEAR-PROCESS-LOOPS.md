@@ -1,5 +1,7 @@
 # Board Clear — Process Loops (mandatory)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Without these loops, agents re-create residual theater.**  
 Every ship and every orchestrator turn runs the loops below. Skipping is a campaign defect.
 

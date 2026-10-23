@@ -394,7 +394,11 @@ export function PayoutDetailView({
                       {t(state === 'failed' ? 'pdoRetry' : waitingToSend ? 'pdoSend' : 'pdoRequest')}
                     </LinkButton>
                   );
-                  return <MoneyAction kind="payout">{link}</MoneyAction>;
+                  return (
+                    <MoneyAction kind="payout" act={waitingToSend ? 'send' : 'request'}>
+                      {link}
+                    </MoneyAction>
+                  );
                 })()
               : undefined;
           const reversed = lc?.events.some((e) => e.kind === 'payout.reversed') ?? false;

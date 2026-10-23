@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildIssueInput, CARD_CHANNELS, cardsLive, issuedMatches, limitProblem, maskedPan, orderBlock } from './card-controls';
+import {
+  addressProblems,
+  buildIssueInput,
+  CARD_CHANNELS,
+  cardsLive,
+  EMPTY_ADDRESS,
+  issuedMatches,
+  limitProblem,
+  maskedPan,
+  orderBlock,
+  wireAddress,
+} from './card-controls';
 
 describe('card programme gate', () => {
   it('treats only a real issuer as live', () => {
@@ -56,5 +67,67 @@ describe('card order identity', () => {
     expect(issuedMatches({ ...card, perAuthorizationLimit: '100.51' }, input)).toBe(false);
     expect(issuedMatches({ ...card, status: 'frozen' }, input)).toBe(false);
     expect(issuedMatches(null, input)).toBe(false);
+  });
+});
+
+describe('the delivery address for a physical card', () => {
+  const draft = {
+    name: ' Ada Lovelace ',
+    line1: ' 1 High St ',
+    line2: ' ',
+    city: 'London',
+    region: '',
+    postalCode: ' N1 9GU ',
+    country: ' gb ',
+  };
+  const requestId = '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11';
+  it('asks for every required line and a two-letter country', () => {
+    expect(addressProblems(EMPTY_ADDRESS)).toEqual({
+      name: 'required',
+      line1: 'required',
+      city: 'required',
+      postalCode: 'required',
+      country: 'required',
+    });
+    expect(addressProblems(draft)).toEqual({});
+    expect(addressProblems({ ...draft, country: 'GBR' })).toEqual({ country: 'country' });
+    expect(addressProblems({ ...draft, country: '1A' })).toEqual({ country: 'country' });
+  });
+  it('sends the address trimmed, with the country in capitals and blank lines left out', () => {
+    expect(wireAddress(draft)).toEqual({ name: 'Ada Lovelace', line1: '1 High St', city: 'London', postalCode: 'N1 9GU', country: 'GB' });
+    expect(wireAddress({ ...draft, line2: 'Flat 2', region: 'Greater London' })).toMatchObject({
+      line2: 'Flat 2',
+      region: 'Greater London',
+    });
+  });
+  it('adds the card type and address to the order only for a physical card', () => {
+    const virtual = buildIssueInput(requestId, { assetId: 'USDT', perAuthorizationLimit: '100', cardType: 'virtual', address: draft });
+    expect(virtual).toEqual({ cardId: requestId, assetId: 'USDT', perAuthorizationLimit: '100' });
+    const physical = buildIssueInput(requestId, { assetId: 'USDT', perAuthorizationLimit: '100', cardType: 'physical', address: draft });
+    expect(physical).toMatchObject({ cardId: requestId, cardType: 'physical', shippingAddress: { country: 'GB', name: 'Ada Lovelace' } });
+  });
+  it('accepts a physical card only when it comes back physical, to that address', () => {
+    const input = buildIssueInput(requestId, { assetId: 'USDT', perAuthorizationLimit: '100', cardType: 'physical', address: draft });
+    const base = { id: requestId, assetId: 'USDT', status: 'active', perAuthorizationLimit: '100' };
+    const address = {
+      name: 'Ada Lovelace',
+      line1: '1 High St',
+      line2: null,
+      city: 'London',
+      region: null,
+      postalCode: 'N1 9GU',
+      country: 'GB',
+    };
+    expect(issuedMatches({ ...base, cardType: 'physical', shippingAddress: address }, input)).toBe(true);
+    expect(issuedMatches({ ...base, cardType: 'virtual', shippingAddress: null }, input)).toBe(false);
+    expect(issuedMatches({ ...base, cardType: 'physical', shippingAddress: { ...address, line1: '2 High St' } }, input)).toBe(false);
+    expect(issuedMatches({ ...base, cardType: 'physical', shippingAddress: { ...address, country: 'US' } }, input)).toBe(false);
+    expect(issuedMatches({ ...base, cardType: 'physical', shippingAddress: null }, input)).toBe(false);
+  });
+  it('refuses a virtual order that comes back as a physical card', () => {
+    const input = buildIssueInput(requestId, { assetId: 'USDT', perAuthorizationLimit: '100' });
+    expect(
+      issuedMatches({ id: requestId, assetId: 'USDT', status: 'active', perAuthorizationLimit: '100', cardType: 'physical' }, input),
+    ).toBe(false);
   });
 });

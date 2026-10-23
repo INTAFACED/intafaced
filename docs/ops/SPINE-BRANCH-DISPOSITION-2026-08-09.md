@@ -1,5 +1,7 @@
 # Spine branch disposition — 2026-08-09
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **CURRENT table is** [`SPINE-BRANCH-DISPOSITION-2026-08-15.md`](SPINE-BRANCH-DISPOSITION-2026-08-15.md). This file stays for seal mechanisms (§3–§6). Do not treat the 1,220-behind counts or DIRECTION §6 RESUME rows as live.
 
 **Board item:** D26-P4-01, `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` §8 — _"architecture cleanup — only you seal without destroy."_

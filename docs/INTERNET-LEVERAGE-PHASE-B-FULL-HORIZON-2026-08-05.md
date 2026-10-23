@@ -2,6 +2,8 @@
 
 # Internet leverage — Phase B full-horizon map (whole future project)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Exchange OSS (2026-08-31) wins on FIX/SBE/Greeks:** [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3** + [`BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md`](BACKEND-INTERNET-LEVERAGE-PEACE-2026-08-31.md). Silence in the tracker table below is **not** permission to hand-roll a FIX parser. `trade.ccxt-api` is a public API **shape**; npm `ccxt` is still **KILL**. `venue.aggregation` = `packages/venue-adapter` decimal strings, not CCXT.
 
 **Status:** CANONICAL · **DONE-DONE** per-ID map (no wildcards)  

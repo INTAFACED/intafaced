@@ -1,5 +1,7 @@
 # Frontend state of truth — operating (refreshed 2026-08-02)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **[HISTORY 2026-09-01]** P21 is not live paint (N4). Do not paste the GO-READY brief. Live: [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md).
 
 **Status:** Implement program mid-flight · Wave A + P21 + Wave B **desk core** on main · **level recovery required** before next go  

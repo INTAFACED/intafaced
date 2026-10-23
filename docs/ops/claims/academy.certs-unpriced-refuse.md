@@ -1,5 +1,7 @@
 # Claim — academy.certs unpriced cert publishes nothing
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Lane id:** `academy.certs-unpriced-refuse`  
 **Owner session:** Denon · Grok  
 **Tracker:** `academy.certs` (stays `ready` — mountain not done until multi-svc cert→perk product law)  

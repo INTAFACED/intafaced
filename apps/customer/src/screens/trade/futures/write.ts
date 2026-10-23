@@ -2,7 +2,7 @@
  * Every futures write goes through here: one at a time, under the shared device guard (`../buy/write-lock`), with the
  * original request saved so an unknown outcome can be looked up again with the SAME request id.
  *
- * The service makes each of these retry-safe on its own request identity: open by `clientOpenId`, close by the position,
+ * The service makes each of these retry-safe on its own request identity: open by `clientOpenId`, close by `clientCloseId`,
  * leverage and margin by `clientAdjustmentId` plus the position id. "Check status" reads first (open, close) and replays the
  * saved request, unchanged, only for margin and leverage or after the trader's explicit second step. Nothing here retries by itself.
  */
@@ -15,7 +15,7 @@ import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
   | { op: 'open'; input: OpenInput }
-  | { op: 'close'; positionId: string; symbol: string }
+  | { op: 'close'; positionId: string; symbol: string; size: string; clientCloseId: string }
   | { op: 'leverage'; input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string } }
   | { op: 'margin-add'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
   | { op: 'margin-reduce'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } };
@@ -70,7 +70,7 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<Positio
     case 'open':
       return api.open(intent.input);
     case 'close':
-      return api.close(intent.positionId);
+      return api.close(intent.positionId, { quantity: intent.size, clientCloseId: intent.clientCloseId });
     case 'leverage':
       return api.setLeverage(intent.input);
     case 'margin-add':
@@ -154,8 +154,9 @@ async function lookup(api: FuturesApi, intent: Intent, pending: Pending): Promis
 }
 
 /**
- * After an unknown outcome. Open and close are looked up with a READ first: a close that already went through would answer a
- * second DELETE with "not open", and an open whose request never arrived must not be sent again by a button called "check".
+ * After an unknown outcome. Open and close are looked up with a READ first: a close that already went through is not sent
+ * again, and an open whose request never arrived must not be sent again by a button called "check". A still-open close
+ * replays the saved intent, including the same `clientCloseId`, so the service returns the first close instead of a second.
  * `resend` is the trader's explicit second step for an open that was not found: the same request id goes out once more, so at
  * most one position can result. Margin and leverage replays are safe by their request id and go straight out.
  */

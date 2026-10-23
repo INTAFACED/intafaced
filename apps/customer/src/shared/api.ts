@@ -6,7 +6,20 @@ export type RefusalReason =
 export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number; requestId?: string };
-export type RequestOptions = { signal?: AbortSignal };
+export type RequestOptions = {
+  signal?: AbortSignal;
+  /**
+   * Send this one call with this bearer token instead of the signed-in session's. The session itself is not touched:
+   * a refusal of this token never ends the session, and nothing else uses it. Used only for the short confirmation
+   * token that lets a refund or a payout through (`features/pay/portal/access/step-up.ts`).
+   */
+  bearer?: string;
+  /**
+   * Service codes whose 401 is this call's own answer (a wrong confirmation code), not proof that the session ended.
+   * A 401 with one of these codes does not sign the person out; any other 401 follows the normal path.
+   */
+  keepSessionFor?: readonly string[];
+};
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
   body?: unknown;
@@ -57,6 +70,14 @@ const errorEnvelope = z
   })
   .passthrough();
 
+/** Picks a bearer for one call by procedure name. Set by the feature that holds such tokens; none by default. */
+export type ScopedBearer = (module: string, procedure: string) => string | undefined;
+let scopedBearer: ScopedBearer | null = null;
+/** Registers (or, with null, removes) the one resolver that supplies a per-call bearer. The token never passes through the session. */
+export function setScopedBearer(resolver: ScopedBearer | null): void {
+  scopedBearer = resolver;
+}
+
 export function createApiClient(
   options: {
     token?: () => string | undefined;
@@ -82,7 +103,10 @@ export function createApiClient(
     if (method !== 'GET' && options.canWrite && !options.canWrite()) return authoredRefusal('aborted', { key: 'accountChanged' });
     // A JSON content type on a body-less request (DELETE /orders/:id) makes Fastify answer 400 FST_ERR_CTP_EMPTY_JSON_BODY.
     const headers: Record<string, string> = input === undefined ? {} : { 'content-type': 'application/json' };
-    const token = options.token?.();
+    const overridden = requestOptions.bearer !== undefined;
+    const token = requestOptions.bearer ?? options.token?.();
+    // A refusal of an override token, or of a call that owns its 401, never counts as the session ending.
+    const sessionEnds = (code?: string) => !overridden && !(code !== undefined && requestOptions.keepSessionFor?.includes(code));
     if (token) headers.authorization = `Bearer ${token}`;
     if (requestOptions.idempotencyKey) headers['Idempotency-Key'] = requestOptions.idempotencyKey;
     const controller = new AbortController();
@@ -117,7 +141,7 @@ export function createApiClient(
                         ? 'unreachable'
                         : 'uncertain'
                       : 'error';
-          if (reason === 'unauthorized') options.onUnauthorized?.(token);
+          if (reason === 'unauthorized' && sessionEnds()) options.onUnauthorized?.(token);
           return authoredRefusal(
             reason,
             reason === 'unreachable'
@@ -152,7 +176,7 @@ export function createApiClient(
         let reason: RefusalReason = 'error';
         if (response.status === 401) {
           reason = 'unauthorized';
-          options.onUnauthorized?.(token);
+          if (sessionEnds(code)) options.onUnauthorized?.(token);
         } else if (response.status === 403) reason = 'forbidden';
         else if (response.status === 404) reason = 'not_mounted';
         else if (response.status === 501) reason = 'not_supported';
@@ -213,7 +237,16 @@ export function createApiClient(
       return request(url, 'GET', schema, undefined, false, opts);
     },
     mutate<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
-      return request(`/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}`, 'POST', schema, input ?? {}, false, opts);
+      // A call that names its own bearer keeps it; otherwise the registered resolver may supply one for this procedure only.
+      const bearer = opts.bearer ?? scopedBearer?.(module, procedure);
+      return request(
+        `/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}`,
+        'POST',
+        schema,
+        input ?? {},
+        false,
+        bearer === undefined ? opts : { ...opts, bearer },
+      );
     },
     rest<T>(path: string, schema: ZodType<T>, opts: RestOptions = {}) {
       const query = new URLSearchParams();

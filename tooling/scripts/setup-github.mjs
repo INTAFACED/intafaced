@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { throwOnGitHubRefusal } from './github-refusal.mjs';
 
 /** Status contexts required on main before a PR can merge. */
-const REQUIRED_CHECKS = ['Gitleaks', 'Dependency audit'];
+const REQUIRED_CHECKS = ['Gitleaks', 'Dependency audit', 'Doctrine gates'];
 
 function gh(args, { allowFail = false, input } = {}) {
   try {
@@ -62,13 +62,14 @@ if (result === null) {
   console.log('      · Require status checks to pass — ' + REQUIRED_CHECKS.join(', '));
   console.log('      · Do not allow bypassing the above settings');
 } else {
-  console.log('  ✓ 0 approvals · Gitleaks + Dependency audit · no up-to-date requirement · admins included');
+  console.log('  ✓ 0 approvals · Gitleaks + Dependency audit + Doctrine gates · no up-to-date requirement · admins included');
 }
 
 // ── Merge behaviour ─────────────────────────────────────────────────────────
 //
 // Squash only, so main reads as one commit per change rather than a transcript
-// of someone's afternoon. Auto-delete branches so the branch list stays honest.
+// of someone's afternoon. Merged branches are kept (never auto-deleted) and auto-merge stays off:
+// agents merge by hand after the gate.
 console.log('· merge settings');
 gh([
   'api',
@@ -82,15 +83,15 @@ gh([
   '-F',
   'allow_rebase_merge=false',
   '-F',
-  'delete_branch_on_merge=true',
+  'delete_branch_on_merge=false',
   '-F',
-  'allow_auto_merge=true',
+  'allow_auto_merge=false',
   '-f',
   'squash_merge_commit_title=PR_TITLE',
   '-f',
   'squash_merge_commit_message=PR_BODY',
 ]);
-console.log('  ✓ squash-only · auto-delete merged branches · auto-merge enabled');
+console.log('  ✓ squash-only · merged branches kept · auto-merge off');
 
 // ── Labels ──────────────────────────────────────────────────────────────────
 const labels = [

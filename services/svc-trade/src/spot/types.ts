@@ -508,7 +508,12 @@ export type TradeErrorCode =
   | 'trade.algo_price_band'
   | 'trade.algo_mark_unusable'
   | 'trade.algo_mark_missing'
+  | 'trade.algo_mark_invalid'
+  /** Mark policy key blank at creation. Names `AlgoMarkPolicy.maxAgeSeconds`. */
+  | 'trade.algo_mark_policy_unset'
   | 'trade.algo_insufficient_balance'
+  /** Ledger balance read failed at creation. Never treated as enough funds. */
+  | 'trade.algo_balance_unreadable'
   | 'trade.algo_child_refused'
   | 'trade.algo_child_cancel_failed'
   | 'trade.algo_principal_unavailable'
@@ -615,11 +620,16 @@ export type TradeErrorCode =
   | 'trade.circuit_breaker_reference_unset';
 
 export class TradeError extends Error {
+  /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */
+  readonly data?: Readonly<Record<string, string>>;
+
   constructor(
     message: string,
     readonly code: TradeErrorCode,
+    data?: Readonly<Record<string, string>>,
   ) {
     super(message);
     this.name = 'TradeError';
+    this.data = data;
   }
 }

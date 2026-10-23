@@ -24,6 +24,15 @@ const card = {
   status: 'active' as const,
   cashbackBps: 0,
   perAuthorizationLimit: '250.5',
+  dailyLimit: null,
+  monthlyLimit: null,
+  cashLimit: null,
+  online: true,
+  contactless: true,
+  atm: true,
+  abroad: true,
+  cardType: 'virtual' as const,
+  shippingAddress: null,
 };
 const render = (props: Partial<Parameters<typeof CardActions>[0]>) =>
   renderToStaticMarkup(<CardActions card={card} programme={{ id: 'card-sim', simulated: true }} open={() => undefined} {...props} />);

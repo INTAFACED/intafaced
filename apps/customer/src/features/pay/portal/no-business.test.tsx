@@ -25,7 +25,7 @@ const none: MerchantAccessValue = {
   sessionScopes: null,
   moneyReason: () => 'off',
 };
-const ctx: RoomContext = { portal: {} as PortalApi, authority: null, access: none, starterFeeBps: null };
+const ctx: RoomContext = { portal: {} as PortalApi, authority: null, access: none, starterFee: null };
 const show = (route: PortalRoute) => renderToString(<PortalPage route={route} ctx={ctx} />);
 
 /** Every portal address: each room once with an id, and the three setup steps. */

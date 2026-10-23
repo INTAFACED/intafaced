@@ -1189,7 +1189,11 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   /** A service priced off the MATCHING BOOK — the production depth mark path. */
   function onDepth(readDepth: () => Promise<EngineDepth | null>) {
     return new PositionService(sql, ledger, {
-      marks: markSourceFromDepth(readDepth),
+      marks: markSourceFromDepth(async () => {
+        const book = await readDepth();
+        if (!book) return null;
+        return { ...book, observedAt: NOW };
+      }),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
       bus,

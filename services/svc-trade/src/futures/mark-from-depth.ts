@@ -292,7 +292,10 @@ export interface DepthQuoteRequirement {
   readonly bpsOfNotional: number;
 }
 
-export type DepthReader = (marketId: string) => Promise<EngineDepth | null>;
+/** Matching depth plus the time the book was observed. Missing time is not a quote. */
+export type DepthSnapshot = EngineDepth & { readonly observedAt?: Date | null };
+
+export type DepthReader = (marketId: string) => Promise<DepthSnapshot | null>;
 
 const SCALE = 10n ** 18n;
 
@@ -520,8 +523,10 @@ export function markSourceFromDepth(readDepth: DepthReader, policy?: MarkPolicy,
     async readBook(marketId, authorisesSize) {
       const depth = await readDepth(marketId);
       if (!depth) return null;
+      const observedAt = depth.observedAt;
+      if (!(observedAt instanceof Date) || !Number.isFinite(observedAt.getTime())) return null;
       const { bestBid, bestAsk } = bestFromDepth(depth, depthRequirement(authorisesSize, depthPolicy ?? DEFAULT_DEPTH_QUOTE_POLICY));
-      return { bestBid, bestAsk, last: null };
+      return { bestBid, bestAsk, last: null, observedAt };
     },
   });
 }

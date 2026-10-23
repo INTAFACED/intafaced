@@ -6,8 +6,10 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { consumeApproval, payloadHash, type ApprovalBook } from '../admin/common.js';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';
+import type { FundingHistoryRow } from './funding-history.js';
 
 /** Clock-skew allowance on a publisher's `asOfMs`. Anything beyond is refused. */
 const FUTURE_SKEW_MS = 60_000;
@@ -23,6 +25,16 @@ export interface InternalFundingRateDeps {
   /** Optional clock for asOf default. */
   now?: () => number;
   /**
+   * Append-only history. Called once, after a consumed four-eyes approval,
+   * and not on a replay of the same market, period and rate.
+   */
+  recordFundingHistory?: (row: FundingHistoryRow) => void;
+  /**
+   * Identity approval book. Null refuses: a missing book never allows a publish.
+   * Free-text operator names are not an approval.
+   */
+  approvals: ApprovalBook | null;
+  /**
    * Isolated tests install retention. Production index already called
    * `retainRawBody` on the same Fastify instance.
    */
@@ -31,11 +43,20 @@ export interface InternalFundingRateDeps {
 
 /**
  * POST /internal/futures/funding-rate
- * Body: { marketId, rate, periodId?, asOfMs? }
- * Auth: service headers (INTERNAL_SERVICE_SECRET).
+ * Body: { marketId, rate, periodId?, asOfMs?, approvalId? }
+ * Auth: service headers (INTERNAL_SERVICE_SECRET), then a consumed four-eyes approval.
  */
+function publishKey(marketId: string, periodId: string, rate: string): string {
+  return `${marketId}\n${periodId}\n${rate}`;
+}
+
+function positiveDecimal(value: string): boolean {
+  return /^\d+(\.\d+)?$/.test(value) && /[1-9]/.test(value);
+}
+
 export function registerInternalFundingRate(app: FastifyInstance, deps: InternalFundingRateDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
+  const published = new Map<string, { entry: FundingRateEntry; markPrice: string | null }>();
 
   app.post<{
     Body: {
@@ -45,6 +66,8 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       asOfMs?: number;
       periodStartIso?: string;
       periodEndIso?: string;
+      approvalId?: string;
+      markPrice?: string;
     };
   }>('/internal/futures/funding-rate', async (req, reply) => {
     if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
@@ -184,8 +207,77 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       periodEndIso = new Date(parsedEnd).toISOString();
     }
 
+    const rawMark = req.body?.markPrice?.trim();
+    let markPrice: string | null = null;
+    if (rawMark) {
+      if (!positiveDecimal(rawMark)) {
+        return reply.code(400).send({
+          error: 'trade.funding_rate_publish_invalid',
+          message: 'markPrice must be a positive decimal string when it is sent — a missing mark stays absent',
+        });
+      }
+      markPrice = rawMark;
+    }
+
     const entry: FundingRateEntry = { marketId, rate, periodId, asOfMs, ...(periodEndIso ? { periodEndIso } : {}) };
+    const key = publishKey(marketId, periodId, rate);
+    const already = published.get(key);
+    if (already) {
+      return reply.code(200).send({
+        ok: true,
+        duplicate: true,
+        marketId,
+        periodId,
+        rate,
+        asOfMs: already.entry.asOfMs,
+        ...(already.entry.periodEndIso ? { periodEndIso: already.entry.periodEndIso } : {}),
+      });
+    }
+
+    // The service secret authenticates the caller. It is not an approval.
+    // A missing book refuses. A blank approval id refuses. consumeApproval throws
+    // for a missing row, a reused row, a payload that does not match, and a
+    // requester who is also the approver.
+    const approvalId = req.body?.approvalId?.trim() ?? '';
+    if (deps.approvals === null || approvalId.length === 0) {
+      return reply.code(403).send({
+        error: 'trade.funding_rate_publish_invalid',
+        message: 'a service secret is not an approval — funding rate publish needs a consumed four-eyes approval',
+      });
+    }
+    let approverId: string;
+    try {
+      const consumed = await consumeApproval(deps.approvals, {
+        approvalId,
+        actionType: 'trade.funding_rate.publish',
+        targetId: marketId,
+        expectedVersion: periodId,
+        payloadHash: payloadHash({
+          actionType: 'trade.funding_rate.publish',
+          marketId,
+          periodId,
+          rate,
+          markPrice,
+        }),
+        operationId: `funding:${marketId}:${periodId}`,
+      });
+      approverId = consumed.approverId;
+    } catch {
+      return reply.code(403).send({
+        error: 'trade.funding_rate_publish_invalid',
+        message: 'the approval is missing, reused, or does not match this market, period, rate and mark',
+      });
+    }
+
+    published.set(key, { entry, markPrice });
     deps.publishFundingRate(entry);
-    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, ...(periodEndIso ? { periodEndIso } : {}) });
+    deps.recordFundingHistory?.({
+      marketId,
+      periodId,
+      periodTimestamp: asOfMs,
+      fundingRate: rate,
+      markPrice,
+    });
+    return reply.code(200).send({ ok: true, marketId, periodId, rate, asOfMs, approverId, ...(periodEndIso ? { periodEndIso } : {}) });
   });
 }

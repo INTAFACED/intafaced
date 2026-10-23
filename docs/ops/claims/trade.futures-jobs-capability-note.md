@@ -1,5 +1,7 @@
 # Claim trade.futures (capabilities advertise jobs default OFF)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `trade.futures` (stays **wip** — no mountain-done; D3 ladder still uninvented)
 **owner session:** Denon agent

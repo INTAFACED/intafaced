@@ -1,5 +1,7 @@
 # Claim p2p.merchants (operator freeze)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `p2p.merchants` (stays **done** on features.mjs — this slice does not flip the mountain; badges+limits+API residual remains)
 **branch:** `feat/p2p-merchant-programme-freeze`

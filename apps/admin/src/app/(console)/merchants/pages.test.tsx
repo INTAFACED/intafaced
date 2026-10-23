@@ -129,6 +129,8 @@ const globalMetrics = {
     { railId: 'crypto-native', ok: false, detail: null },
     { railId: 'card-sandbox', ok: false, detail: '' },
     { railId: 'bank-payout', ok: false, detail: 'bank-payout has nothing configured.' },
+    { railId: 'crypto-stale', ok: false, detail: 'rail.health_stale ageMs=45000' },
+    { railId: 'card-test', ok: true, detail: 'rail.sandbox_only' },
   ],
 };
 const snapshot = {
@@ -276,6 +278,11 @@ describe('dashboard', () => {
     // Both down rails that sent no reason say so, in words, instead of a dash.
     expect(out.match(/The rail did not report a reason\./g)?.length).toBe(2);
     expect(out).toContain('timeout');
+    // The service's typed reasons read as words, never as the raw code.
+    expect(out).toContain('No health report in the last 30 seconds (the last one was 45 seconds ago)');
+    expect(out).toContain('Test acquirer only: it does not move real money');
+    expect(out).not.toContain('rail.health_stale');
+    expect(out).not.toContain('rail.sandbox_only');
     expect(out).toContain('Show as a table');
     expect(out).not.toMatch(/NaN|undefined|\[object/);
   });

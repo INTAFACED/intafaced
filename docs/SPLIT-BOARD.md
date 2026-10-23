@@ -1,5 +1,7 @@
 # Split board — two streams, no collisions
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 > ## ⚠️ 29 July, owner offline 1–2h: **Nitro has full access to the whole app.**
 >
 > The territory rule below is **suspended** while Denon is away. Debug, wire and

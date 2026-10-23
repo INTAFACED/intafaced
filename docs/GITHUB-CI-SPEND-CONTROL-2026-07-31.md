@@ -1,5 +1,7 @@
 # GitHub CI spend control — RETIRED 2026-08-07
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Clarification 2026-10-09:** standard GitHub-hosted runner minutes have a zero bill on this public repo. Service limits and acceptable-use rules still apply. A 403 or 429 from GitHub is a stop; follow [`AGENT_PROTOCOL.md`](../tooling/agent-protocol/AGENT_PROTOCOL.md) §3 for cooldowns and access restrictions. Parallel pull requests and merge-when-done stay. The live external market-data smoke runs manually; operational third-party polling belongs on our own infrastructure. Do not restore `thrift-preflight`.
 
 **Status:** **VOID. Not law. Do not follow, do not restore, do not reinvent.**  

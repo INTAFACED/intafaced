@@ -1,5 +1,7 @@
 # Runbook — analytics warehouse read replica (TRK-ops.analytics Stage-1)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Audience:** operators / agents wiring analytics.  
 **Law:** [`docs/adr/2026-08-07-ops-analytics-warehouse-read-replica.md`](../adr/2026-08-07-ops-analytics-warehouse-read-replica.md)  
 **Code:** `@intafaced/contracts` → `ops-analytics-warehouse.ts`

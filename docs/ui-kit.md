@@ -1,5 +1,7 @@
 # UI kit: which part to use
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 One kit, in `packages/ui` (`import { … } from '@intafaced/ui'`). Every customer screen builds from these parts.
 **Do not create local tables, buttons or inputs.** If a part is missing something, change the part (one PR to
 `packages/ui`), do not copy it into a screen. Raw `<button>`, `<input>` and `<table>` in a screen are review blockers.

@@ -1,5 +1,7 @@
 # Spec — sovereign routing, and copy execution that pays without a performance fee
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Status: **spec, ready to build.** Two of the three open items in §6 are the owner's with counsel; the build does not wait on them, because the safe shape is a strict subset of every answer they could give.
 
 Supersedes `DIRECTION-2026-07-31.md` §1's flat "copy trading — OUT" **only** for the shape defined here. The blanket ban still holds for anything outside §2–§4: a pooled fund, a discretionary manager, or a performance fee remains out, and stays in §8.

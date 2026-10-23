@@ -1,5 +1,7 @@
 # Threat model — current (fiat plane · wallet_rpc · vendor Java)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Board:** D26-P3-02 · **Class:** Judgment (not a pentest, not go-live, not clearance).  
 **Tip this page was written against:** `1723273b` (`origin/main` at branch create, 2026-08-15). Re-derive: `git rev-parse --short origin/main`.  
 **What this is:** ranked judgment of **custodial money doors** on the Fiat Plane, the vendored **`01_wallet_rpc`** custody tree, and **vendor Java dual-book** risk. Residuals are **named tickets / sockets / gates**, not vibes.  

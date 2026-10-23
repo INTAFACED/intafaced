@@ -4,9 +4,10 @@ import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { fetchMe } from '../../data/identity';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
-import { RecipientPicker } from './RecipientPicker';
-import type { Payee } from './payees';
+import { PayPerson, roleOf, TeamPanel, type RoleState } from './BusinessPeople';
+import { PayrollRun } from './BusinessPayroll';
 import {
+  canSend,
   approvalActions,
   companySpaces,
   ownSpaceName,
@@ -17,10 +18,10 @@ import {
   whoMade,
   type ApprovalAction,
   type Role,
-  ROLES,
 } from './business-model';
 import { businessCopy } from './business-copy';
 import {
+  amount as exactAmount,
   Continuation,
   date,
   funds,
@@ -32,53 +33,66 @@ import {
   usePageLimit,
   type ActionSpec,
 } from './components';
-import type { approvalSchema, businessSchema } from './contracts';
+import type { businessSchema, pendingApprovalSchema } from './contracts';
 import { assetSelectField, useHoldings } from './holdings';
 import { t as copyText } from './copy';
 import './bank-depth.css';
 
 type Business = z.infer<typeof businessSchema>;
-type Approval = z.infer<typeof approvalSchema>;
+type Approval = z.infer<typeof pendingApprovalSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
 
 const verifyApproval = (key: 'approvalId') => (data: unknown, input: Record<string, unknown>) =>
   !!data && typeof data === 'object' && typeof input[key] === 'string';
 
-function ApprovalRow({
+export function ApprovalRow({
   approval,
   me,
   myHandle,
+  role,
   spaces,
   open,
 }: {
   approval: Approval;
   me: string | null;
   myHandle: string | null;
+  /** The role the bank reports for this person. When it could not be read, every action stays offered and the bank decides. */
+  role: Role | null;
   spaces: readonly OwnSpace[];
   open: (spec: ActionSpec) => void;
 }) {
   const { t } = businessCopy.useCopy();
-  // The app cannot read members or look up owners yet, so the role is unknown and the service has the last word.
-  const actions = approvalActions(approval, me, null);
+  const actions = approvalActions(approval, me, role);
   const unnamed = (id: string) => t('destinationUnnamed', { ref: id });
   const label = (id: string) => ownSpaceName(spaces, id) ?? unnamed(id);
   const destinationNamed = ownSpaceName(spaces, approval.toSpaceId) !== null;
+  // Names come from the bank's own reading of the directory. Where it could not name someone, say so and keep the reference.
   const maker =
     whoMade(approval, me) === 'you'
       ? myHandle
         ? t('makerYou', { handle: myHandle })
         : t('makerYouNoHandle')
-      : t('makerTeammate', { ref: shortRef(approval.makerUserId) });
-  const blockApprove = !destinationNamed;
+      : approval.makerHandle
+        ? `@${approval.makerHandle}`
+        : t('makerTeammate', { ref: shortRef(approval.makerUserId) });
+  const owner = approval.receiverOwnerHandle
+    ? approval.receiverOwnerName
+      ? `${approval.receiverOwnerName} (@${approval.receiverOwnerHandle})`
+      : `@${approval.receiverOwnerHandle}`
+    : null;
+  // Approving sends money to the receiving account, so the approver must be able to see whose it is.
+  const blockApprove = !destinationNamed && owner === null;
   const act = (action: ApprovalAction) =>
     open({
       title: action === 'approve' ? t('approveTitle') : action === 'reject' ? t('rejectTitle') : t('cancelTitle'),
       procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel',
       facts: [
-        [t('amountLabel'), funds(approval.amount, approval.assetId)],
+        // The decision is about this exact figure, so the confirmation never masks it.
+        [t('amountLabel'), exactAmount(approval.amount, approval.assetId)],
         [t('makerLabel'), maker],
         [t('fromAccount'), label(approval.fromSpaceId)],
         [t('destinationLabel'), label(approval.toSpaceId)],
+        ...(owner ? [[t('receiverOwnerLabel'), owner] as [string, string]] : []),
       ],
       notes: [action === 'approve' ? t('approveNote') : action === 'reject' ? t('rejectNote') : t('cancelNote'), t('needsSecondStep')],
       input: () => ({ approvalId: approval.id }),
@@ -101,6 +115,7 @@ function ApprovalRow({
             {label(approval.toSpaceId)}
           </span>
         </Fact>
+        {owner && <Fact label={t('receiverOwnerLabel')}>{owner}</Fact>}
         <Fact label={t('statusLabel')}>
           {approval.status === 'pending'
             ? t('pending')
@@ -146,7 +161,17 @@ function ApprovalRow({
   );
 }
 
-function Approvals({ accountId, spaces, open }: { accountId: string; spaces: readonly OwnSpace[]; open: (spec: ActionSpec) => void }) {
+function Approvals({
+  accountId,
+  role,
+  spaces,
+  open,
+}: {
+  accountId: string;
+  role: Role | null;
+  spaces: readonly OwnSpace[];
+  open: (spec: ActionSpec) => void;
+}) {
   const { t } = businessCopy.useCopy();
   const { api, userId } = useSession();
   const [myHandle, setMyHandle] = useState<string | null>(null);
@@ -166,7 +191,15 @@ function Approvals({ accountId, spaces, open }: { accountId: string; spaces: rea
           <>
             {rows.length ? (
               rows.map((approval) => (
-                <ApprovalRow key={approval.id} approval={approval} me={userId ?? null} myHandle={myHandle} spaces={spaces} open={open} />
+                <ApprovalRow
+                  key={approval.id}
+                  approval={approval}
+                  me={userId ?? null}
+                  myHandle={myHandle}
+                  role={role}
+                  spaces={spaces}
+                  open={open}
+                />
               ))
             ) : (
               <NoRows title={t('approvalsEmpty')}>{t('approvalsEmptyBody')}</NoRows>
@@ -179,54 +212,15 @@ function Approvals({ accountId, spaces, open }: { accountId: string; spaces: rea
   );
 }
 
-function AddTeammate({ account, open }: { account: Business; open: (spec: ActionSpec) => void }) {
-  const { t } = businessCopy.useCopy();
-  const [person, setPerson] = useState<Payee | null>(null);
-  return (
-    <DepthPanel title={t('membersTitle')} lead={t('addMemberChoose')}>
-      <RecipientPicker value={person} onChange={setPerson} />
-      <Button
-        disabled={!person}
-        onClick={() => {
-          if (!person) return;
-          open({
-            title: t('addMemberTitle', { name: account.name }),
-            procedure: 'business.addMember',
-            fields: [
-              {
-                name: 'role',
-                label: t('addMemberRole'),
-                options: ROLES.map((role) => ({
-                  value: role,
-                  label:
-                    role === 'admin' ? t('addMemberRoleAdmin') : role === 'maker' ? t('addMemberRoleMaker') : t('addMemberRoleChecker'),
-                })),
-              },
-            ],
-            facts: [[t('membersTitle'), `@${person.handle}`]],
-            notes: [t('needsSecondStep')],
-            submit: t('addMemberSubmit'),
-            input: (values) => ({ accountId: account.id, userId: person.userId, role: values.role as Role }),
-            verifyOutcome: (data, input) =>
-              !!data &&
-              typeof data === 'object' &&
-              (data as Record<string, unknown>).accountId === input.accountId &&
-              (data as Record<string, unknown>).userId === input.userId &&
-              (data as Record<string, unknown>).role === input.role,
-          });
-        }}
-      >
-        {t('addMember')}
-      </Button>
-      <p className="money-caption">{t('membersReason')}</p>
-    </DepthPanel>
-  );
-}
-
 function AccountCard({ account, spaces, open }: { account: Business; spaces: readonly OwnSpace[]; open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
-  const [expanded, setExpanded] = useState(false);
+  const [panel, setPanel] = useState<'team' | 'person' | 'payroll' | null>(null);
   const own = companySpaces(spaces, account.assetId);
+  const roleRead = useBankRead('business.myRole', { accountId: account.id });
+  const role: RoleState = roleRead.resource;
+  const known = roleOf(role);
+  const mayProposeUnknown = known === null || canSend(known);
+  const toggle = (next: 'team' | 'person' | 'payroll') => setPanel(panel === next ? null : next);
   const send = () =>
     open({
       title: t('sendMoney'),
@@ -285,18 +279,36 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
         <Fact label={t('created')}>{date(account.createdAt)}</Fact>
       </dl>
       <div className="actions">
-        <Button onClick={send} disabled={account.status !== 'active' || own.length < 2}>
-          {t('sendMoney')}
+        <Button onClick={send} disabled={account.status !== 'active' || own.length < 2 || !mayProposeUnknown}>
+          {t('sendTargetOwn')}
         </Button>
-        <Button variant="secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+        <Button
+          variant="secondary"
+          onClick={() => toggle('person')}
+          aria-expanded={panel === 'person'}
+          disabled={account.status !== 'active'}
+        >
+          {t('sendTargetPerson')}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => toggle('payroll')}
+          aria-expanded={panel === 'payroll'}
+          disabled={account.status !== 'active'}
+        >
+          {t('payroll')}
+        </Button>
+        <Button variant="secondary" onClick={() => toggle('team')} aria-expanded={panel === 'team'}>
           {t('membersTitle')}
         </Button>
       </div>
       {own.length < 2 && account.status === 'active' && <p className="money-caption">{t('sendNoSpaces')}</p>}
-      <p className="money-caption">{t('sendReasonOther')}</p>
-      <DisabledAction label={t('payroll')} reason={t('payrollReason')} />
-      {expanded && <AddTeammate account={account} open={open} />}
-      <Approvals accountId={account.id} spaces={spaces} open={open} />
+      {known !== null && !canSend(known) && account.status === 'active' && <p className="money-caption">{t('sendRoleReason')}</p>}
+      {role.status === 'failed' && <p className="money-caption">{t('roleUnreadable')}</p>}
+      {panel === 'person' && <PayPerson account={account} own={own} role={role} open={open} />}
+      {panel === 'payroll' && <PayrollRun account={account} own={own} role={role} open={open} />}
+      {panel === 'team' && <TeamPanel account={account} role={role} open={open} />}
+      <Approvals accountId={account.id} role={known} spaces={spaces} open={open} />
     </article>
   );
 }

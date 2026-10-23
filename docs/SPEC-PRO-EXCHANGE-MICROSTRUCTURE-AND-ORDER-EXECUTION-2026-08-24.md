@@ -1,5 +1,7 @@
 # Spec — Pro Exchange Microstructure and Professional Order Execution (`PX-S03`)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Authoritative product contract; implementation maturity remains mixed and named owner sockets remain refuse-closed
 
 **Authority:** `PX-S03`; bounded child of [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md)

@@ -152,14 +152,17 @@ describe('the best level must scale with the position it authorises', () => {
 });
 
 describe('markSourceFromDepth', () => {
+  const observedAt = new Date('2026-08-06T12:00:00.000Z');
+
   it('mids two-sided book', async () => {
     const src = markSourceFromDepth(async () => ({
       bids: [['100', '5']],
       asks: [['102', '5']],
       sequence: 3,
+      observedAt,
     }));
-    expect(await src.markPrice({ marketId: 'm1', at: new Date() })).toBe('101');
-    expect((await src.quote({ marketId: 'm1', at: new Date() }))?.provenance).toBe('depth');
+    expect(await src.markPrice({ marketId: 'm1', at: observedAt })).toBe('101');
+    expect((await src.quote({ marketId: 'm1', at: observedAt }))?.provenance).toBe('depth');
   });
 
   it('empty matching book → null (never invent)', async () => {
@@ -217,8 +220,9 @@ describe('markSourceFromDepth', () => {
       bids: [['1000', '1']],
       asks: [['3000', '1']],
       sequence: 1,
+      observedAt,
     }));
-    expect(await src.markPrice({ marketId: 'm1', at: new Date() })).toBe('2000');
+    expect(await src.markPrice({ marketId: 'm1', at: observedAt })).toBe('2000');
   });
 
   /**
@@ -227,8 +231,8 @@ describe('markSourceFromDepth', () => {
    */
   it('answers the same book differently depending on what the mark would authorise', async () => {
     const book = { bids: [['1000', '1']] as const, asks: [['3000', '1']] as const, sequence: 1 };
-    const src = markSourceFromDepth(async () => ({ bids: [...book.bids], asks: [...book.asks], sequence: 1 }));
-    const at = new Date();
+    const src = markSourceFromDepth(async () => ({ bids: [...book.bids], asks: [...book.asks], sequence: 1, observedAt }));
+    const at = observedAt;
     // No position in scope — a ticker read. Absolute floor only.
     expect(await src.markPrice({ marketId: 'm1', at })).toBe('2000');
     // 1% of 50 contracts is 0.5; the level carries 1.

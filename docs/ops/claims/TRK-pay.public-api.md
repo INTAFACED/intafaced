@@ -1,5 +1,7 @@
 # Claim TRK-pay.public-api
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** merged
 **proof:** #1006 · #1014 merged 2026-08-07 — merchant outbound webhooks (step 3), then sandbox API keys (step 4)
 **updated:** 2026-08-07 (claim closed against merged main)

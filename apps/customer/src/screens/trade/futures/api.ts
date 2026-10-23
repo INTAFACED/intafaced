@@ -84,7 +84,11 @@ export function createFuturesApi(api: ApiClient) {
     positions: (signal?: AbortSignal) => api.rest('/positions', z.array(positionSchema), { signal }),
     closed: (signal?: AbortSignal) => api.rest('/positions/closed', z.array(positionSchema), { query: { limit: 100 }, signal }),
     position: (id: string, signal?: AbortSignal) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema, { signal }),
-    close: (id: string) => api.rest(`/positions/${encodeURIComponent(id)}`, positionSchema, { method: 'DELETE' }),
+    close: (id: string, input: { quantity: string; clientCloseId: string }) =>
+      api.rest(`/positions/${encodeURIComponent(id)}/close`, positionSchema, {
+        method: 'POST',
+        body: { quantity: input.quantity, clientCloseId: input.clientCloseId },
+      }),
     setLeverage: (input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string }) =>
       api.rest('/futures/leverage', positionSchema, { method: 'POST', body: input }),
     addMargin: (input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string }) =>

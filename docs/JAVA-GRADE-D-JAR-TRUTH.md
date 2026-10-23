@@ -1,5 +1,7 @@
 # Java Grade D empty + jar honesty (D26-P2-07 / D-S-17)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** executed ratchet — not a runtime safety certificate.  
 **Does not claim:** “the Java book is closed.”  
 **Sibling law:** [`adr/2026-08-04-java-dual-book-residual.md`](adr/2026-08-04-java-dual-book-residual.md).  

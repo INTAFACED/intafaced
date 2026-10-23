@@ -7,7 +7,7 @@ vi.mock('../../../../shared/preferences', async (original) => {
 });
 
 import { NextRun } from './Subscriptions';
-import { feeStory, percentOfBps } from '../ui/fee-story';
+import { feeStory, percentOfBps, starterFeeStory } from '../ui/fee-story';
 
 // TEST data only.
 describe('the next run of a subscription', () => {
@@ -37,7 +37,11 @@ describe('the one fee statement', () => {
     expect(feeStory({ feeBps: 250 })).toBe('Fee 2.50% — taken when a payment settles');
     // A rate that is not the server's marked starter value is not labelled TEST.
     expect(feeStory({ feeBps: 100, starterFee: starter })).toBe('Fee 1.00% — taken when a payment settles');
-    expect(feeStory({ feeBps: null })).toBe('No rate is set on your account; settlement uses the platform default.');
-    expect(feeStory(null)).toBe('No rate is set on your account; settlement uses the platform default.');
+    // No rate is a plain present-tense fact. It says nothing about a default: the portal cannot know whether one is published.
+    expect(feeStory({ feeBps: null })).toBe('No rate is set on your account.');
+    expect(feeStory(null)).toBe('No rate is set on your account.');
+    // A new account's starting fee is stated from what the service published, with the service's own TEST mark.
+    expect(starterFeeStory(starter)).toBe('Starter fee 2.50% (TEST value) — taken when a payment settles');
+    expect(starterFeeStory(null)).toBeNull();
   });
 });

@@ -1,5 +1,7 @@
 # Baseline scorecard — A0 (first eyes)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-07-31  
 **Tip base at boot:** see PR #267 branch · shell http://127.0.0.1:8090  
 **Eyes:** Orca embedded browser  

@@ -1,5 +1,7 @@
 # Owner / ops checklist — 2026-07-31
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 These items are **human-only** or **Denon multi-week mountains**. An agent cannot close them by inventing product or paying bills. This file is the honest split.
 
 ## 1. GitHub Actions billing (human)

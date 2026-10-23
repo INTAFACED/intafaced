@@ -6,7 +6,7 @@ const en = {
   // The one statement about the fee on the account, used on Overview, Pricing and Onboarding. Percent, never basis points.
   feeStory: 'Fee {pct} — taken when a payment settles',
   feeStoryTest: 'Starter fee {pct} (TEST value) — taken when a payment settles',
-  feeStoryNone: 'No rate is set on your account; settlement uses the platform default.',
+  feeStoryNone: 'No rate is set on your account.',
   // freshness
   updatedJustNow: 'Updated just now',
   updatedMinutes: 'Updated {n} min ago',

@@ -1,5 +1,7 @@
 # Nitro ownership + Denon direction (durable law)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** DECISION LOCKED · Denon direction brief **sent** by Nitro (2026-07-31)  
 **This file is LAW, not a status dashboard.**  
 **Live tip / open PRs / CI / lane claims:** never trust frozen lists here — re-derive (§6).  

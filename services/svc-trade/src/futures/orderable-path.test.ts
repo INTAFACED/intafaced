@@ -314,7 +314,11 @@ describe('futures orderable path', () => {
   /** A PositionService whose mark feed IS the book the order path built. */
   function positionsOnOrderBook(marketId: string) {
     return new PositionService(sql, ledger, {
-      marks: markSourceFromDepth(async (id) => (id === marketId ? bookFromOrders(marketId) : null)),
+      marks: markSourceFromDepth(async (id) => {
+        if (id !== marketId) return null;
+        const book = await bookFromOrders(marketId);
+        return { ...book, observedAt: NOW };
+      }),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
       bus,

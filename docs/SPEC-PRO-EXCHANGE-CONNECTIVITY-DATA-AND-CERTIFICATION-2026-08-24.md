@@ -1,5 +1,7 @@
 # INTAFACED Professional Connectivity, Data, and Certification Specification
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Authoritative product contract; implementation incomplete  
 **Authority:** `PX-S04`; bounded child of [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](../PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md)  
 **Primary requirements:** `PTX-M05-R01–R09`, `PTX-M06-R01–R10`, `PTX-M19-R01–R07`  

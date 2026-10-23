@@ -350,9 +350,13 @@ export class FuturesExchange {
       const row = this.find(m[1]) ?? this.closed.find((p) => p.id === m[1]);
       return row ? json(row) : error('trade.position_not_found', 'not found', 404);
     }
-    if (m && method === 'DELETE') {
+    m = path.match(/^positions\/([^/]+)\/close$/);
+    if (m && method === 'POST') {
       const pos = this.find(m[1]);
       if (!pos) return error('trade.position_not_found', 'not found', 404);
+      if (typeof body.quantity !== 'string' || typeof body.clientCloseId !== 'string') {
+        return error('trade.client_close_id_required', 'quantity and clientCloseId are required');
+      }
       if (this.opts.closeMode === 'closing') {
         pos.status = 'closing';
         pos.closingReason = 'trade.mark_unusable';

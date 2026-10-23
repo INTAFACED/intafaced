@@ -1,5 +1,7 @@
 # Denon — hard parallel board (substance-audited) · 2026-08-09
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Audience:** `@Phantom-X-007` (Denon) · **From:** Nitro · **Status:** **HISTORICAL** (2026-08-09 v2) · **Live queue:** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md)  
 **Substance Audit Active:** Evaluating Queue Mass, Leverage Density, Residual Depth. **Rejecting busy efficiency.**
 

@@ -1,5 +1,7 @@
 # Secret rotation readiness
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-03 · **Branch:** `fix/secret-rotation-readiness`
 **Predecessor:** [`A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md`](A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md) — the audit that found the committed credentials. This document is the other half: what the owner needs in order to rotate them safely.
 

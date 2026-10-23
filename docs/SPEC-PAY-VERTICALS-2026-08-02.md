@@ -1,5 +1,7 @@
 # Spec — the Pay verticals: psp · payfac · fraud · subscriptions · routing · settlement
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 For **M1**, written because these six were named as a next task with no product law behind them. Each is a real regulated product with a well-known shape, and each has one decision that determines whether it is buildable now or is a licence conversation. Those decisions are made here so they do not get made by accident inside an implementation.
 
 **The single rule underneath all six:** we may build the _mechanics_ of any of these against a sandbox and be honest about it. What we may not do is **hold, route, or settle other people's money as a principal** without the licence that permits it. Most of the difficulty below is that distinction, applied six times.

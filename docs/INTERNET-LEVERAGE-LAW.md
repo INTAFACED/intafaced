@@ -1,5 +1,7 @@
 # Internet leverage — standing law (agents · no Nitro decision)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** LAW · binding on every agent session  
 **Operator decision (2026-08-05):** Phase A is **finished for current residual craft**. Agents **must use** that leverage. Nitro does **not** re-decide this per chat.  
 **Home for maps:** Phase A audit · Phase B full-horizon (paths) · this file = **enforcement**  

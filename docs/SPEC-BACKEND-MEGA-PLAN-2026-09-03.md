@@ -1,5 +1,7 @@
 # SPEC — Mega backend plan (everything except frontend)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Execution contract for this chat after Nitro says **go**. Not a second north-star.  
 **Date:** 3 September 2026  
 **Tip this stamp:** `origin/main` `de0a9cb4b` (re-fetch every card). Grok door is diverged — ignore it.  

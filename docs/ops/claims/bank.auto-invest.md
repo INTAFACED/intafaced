@@ -1,5 +1,7 @@
 # Claim bank.auto-invest (ConvertPort → trade.convert)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `bank.auto-invest` (stays **wip** on features.mjs — this slice does not flip the mountain)
 **branch:** `feat/bank-auto-invest-convert-port`

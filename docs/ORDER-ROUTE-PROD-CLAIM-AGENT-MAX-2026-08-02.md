@@ -1,5 +1,7 @@
 # Order-route · production-claim path · agent-max (path C)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-02  
 **You chose:** path **C** — production claim readiness  
 **Operator:** Nitro (non-technical; out of loop)  

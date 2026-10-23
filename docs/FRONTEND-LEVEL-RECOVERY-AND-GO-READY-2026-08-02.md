@@ -1,5 +1,7 @@
 # Frontend level recovery + go-ready law — 2026-08-02
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Purpose:** Stop the autonomous-run failure mode (ship volume without operating level).  
 **Audience:** Next implement agent + Nitro peace check.  
 **Provenance:** Re-derived from disk law + tip `origin/main` + this session’s compaction index — **not** chat memory alone.

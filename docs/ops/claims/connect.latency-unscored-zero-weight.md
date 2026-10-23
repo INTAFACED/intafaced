@@ -1,5 +1,7 @@
 # Claim connect.latency-unscored-zero-weight
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **id:** connect.latency-unscored-zero-weight  
 **tracker:** `connect.latency-grading`  
 **branch:** `feat/connect-unscored-zero-weight`  

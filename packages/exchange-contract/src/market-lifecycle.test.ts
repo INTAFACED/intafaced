@@ -71,6 +71,9 @@ describe('market lifecycle contract', () => {
     expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'HALTED', allowedActions: ['CANCEL', 'REDUCE'] }).success).toBe(true);
     expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'CANCEL_ONLY', allowedActions: ['REDUCE'] }).success).toBe(false);
     expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'ARCHIVED', allowedActions: ['CANCEL'] }).success).toBe(false);
+    expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'PRELAUNCH', allowedActions: ['CANCEL'] }).success).toBe(true);
+    expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'PRELAUNCH', allowedActions: ['PLACE'] }).success).toBe(false);
+    expect(marketStateSnapshotSchema.safeParse({ ...base, state: 'PRELAUNCH', allowedActions: ['CANCEL', 'PLACE'] }).success).toBe(false);
   });
 
   it('refuses ordinary PLACE while the market is in auction', () => {
