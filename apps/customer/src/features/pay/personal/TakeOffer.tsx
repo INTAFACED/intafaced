@@ -1,3 +1,4 @@
+import type { P2pDelistReason } from '@intafaced/contracts/p2p-delist';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
@@ -50,6 +51,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failVerificationPlain');
     case 'limitsUnset':
       return t('failLimitsUnset');
+    case 'methodRetired':
+      return t('failMethodRetired');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -85,6 +88,14 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
   }
 }
 
+/** The operator's reason for retiring a payment method, in words. A retirement has no end time. */
+const RETIRED_COPY = {
+  regulation: 'failMethodRetiredRegulation',
+  provider_withdrawn: 'failMethodRetiredProviderWithdrawn',
+  fraud_risk: 'failMethodRetiredFraudRisk',
+  low_demand: 'failMethodRetiredLowDemand',
+} as const satisfies Record<P2pDelistReason, string>;
+
 /**
  * A take limit in words, with the figures the service sent: the bound, what is left and when it ends, or that it has
  * no end time. Without the figures the kind's plain sentence stands.
@@ -98,7 +109,8 @@ function limitText(
   if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
   const limit = failure.p2pLimit;
   if (!limit) return null;
-  const { cap, min, max, remaining, currency, until } = limit;
+  const { cap, min, max, remaining, currency, until, reason } = limit;
+  if (kind === 'methodRetired' && reason) return t(RETIRED_COPY[reason]);
   if (kind === 'orderCap' && cap) return t('failOrderCap', { cap });
   if (kind === 'pairLimit' && min && max && currency) {
     return t('failPairLimit', { min: displayAmount(min), max: displayAmount(max), currency });

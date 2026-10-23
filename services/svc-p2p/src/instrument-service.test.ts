@@ -431,17 +431,21 @@ describe('svc-p2p payment instruments', () => {
         methods: [METHOD],
       });
 
-      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false);
+      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false, 'provider_withdrawn');
 
+      // Retired everywhere, so the take names the retirement and its reason (P-trade-orders-03) instead of the
+      // uniform refusal; nothing is reserved either way.
       await expect(
         p2p.takeOffer({ offerId: offer.id, takerId: BUYER, amount: amt('100'), method: METHOD, tradeId: crypto.randomUUID() }),
       ).rejects.toMatchObject({
-        code: 'p2p.take_refused',
+        code: 'p2p.method_delisted',
+        limit: { until: null, reason: 'provider_withdrawn' },
       });
+      expect(await sql`SELECT id FROM p2p.p2p_trades`).toHaveLength(0);
     });
 
     it('omitting enabled on a label or field replace leaves a disabled method schema disabled', async () => {
-      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false);
+      await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false, 'low_demand');
       const disabled = { code: 'p2p.instrument_method_disabled' as const };
       await expect(sellerInstrument()).rejects.toMatchObject(disabled);
 
@@ -465,7 +469,11 @@ describe('svc-p2p payment instruments', () => {
       expect(forcedOn.enabled).toBe(true);
       await expect(sellerInstrument({ ownerId: BUYER })).resolves.toMatchObject({ methodId: METHOD });
 
-      const forcedOff = await registerMethod({ enabled: false, label: 'Renamed test transfer' });
+      // A live method is switched off only with a retirement reason, so a register cannot do it (P-trade-orders-03).
+      await expect(registerMethod({ enabled: false, label: 'Renamed test transfer' })).rejects.toMatchObject({
+        code: 'p2p.delist_reason_required',
+      });
+      const forcedOff = await instruments.setMethodSchemaEnabled(METHOD, ANY_COUNTRY, false, 'regulation');
       expect(forcedOff.enabled).toBe(false);
       await expect(sellerInstrument()).rejects.toMatchObject(disabled);
 
@@ -1150,7 +1158,7 @@ describe('svc-p2p payment instruments', () => {
         'merchants.stats': {},
         'instruments.methods.list': { limit: 50 },
         'instruments.methods.register': { methodId: 'probe', country: 'DE', label: 'p', fields: [{ key: 'a', label: 'A' }] },
-        'instruments.methods.setEnabled': { methodId: METHOD, country: ANY_COUNTRY, enabled: false },
+        'instruments.methods.setEnabled': { methodId: METHOD, country: ANY_COUNTRY, enabled: false, reason: 'regulation' },
         'instruments.create': {
           instrumentId: crypto.randomUUID(),
           methodId: METHOD,

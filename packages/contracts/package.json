@@ -110,6 +110,10 @@
       "types": "./dist/tax-lot-book.d.ts",
       "default": "./dist/tax-lot-book.js"
     },
+    "./p2p-delist": {
+      "types": "./dist/p2p-delist.d.ts",
+      "default": "./dist/p2p-delist.js"
+    },
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"

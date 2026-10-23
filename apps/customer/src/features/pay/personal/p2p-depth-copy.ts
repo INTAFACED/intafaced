@@ -141,6 +141,16 @@ const en = {
     'Verification-level allowances are published in another currency, so this order can’t be counted against them. Nothing was placed.',
   failVerificationRaise: 'Raise your verification level',
   failLimitsUnset: 'The order limits for this ad could not be checked, so no order can be placed. Nothing was placed.',
+  failMethodRetired:
+    'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredRegulation:
+    'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredProviderWithdrawn:
+    'This payment method has been retired because the payment provider withdrew it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredFraudRisk:
+    'This payment method has been retired because of a high fraud risk on it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failMethodRetiredLowDemand:
+    'This payment method has been retired because too few people used it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   takeFiatAmount: 'Or the amount in {fiat}',
   takeFiatHint: 'The service turns it into {asset} at this ad’s price, rounded down so you never pay more than you typed.',
   takeFiatConverting: 'Working out the {asset} amount…',
@@ -400,6 +410,16 @@ const es = {
   failVerificationRaise: 'Subir tu nivel de verificación',
   failLimitsUnset:
     'No se pudieron comprobar los límites de pedido de este anuncio, así que no se puede hacer ningún pedido. No se hizo nada.',
+  failMethodRetired:
+    'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredRegulation:
+    'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredProviderWithdrawn:
+    'Este método de pago se ha retirado porque el proveedor de pagos lo retiró. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredFraudRisk:
+    'Este método de pago se ha retirado por un riesgo de fraude elevado. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failMethodRetiredLowDemand:
+    'Este método de pago se ha retirado porque muy pocas personas lo usaban. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   takeFiatAmount: 'O el importe en {fiat}',
   takeFiatHint:
     'El servicio lo convierte en {asset} al precio de este anuncio, redondeando a la baja para que nunca pagues más de lo escrito.',
@@ -661,6 +681,16 @@ const fr = {
   failVerificationRaise: 'Relever votre niveau de vérification',
   failLimitsUnset:
     'Les limites de commande de cette annonce n’ont pas pu être vérifiées, aucune commande ne peut donc être passée. Rien n’a été passé.',
+  failMethodRetired:
+    'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredRegulation:
+    'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredProviderWithdrawn:
+    'Ce mode de paiement a été retiré parce que le prestataire de paiement l’a retiré. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredFraudRisk:
+    'Ce mode de paiement a été retiré en raison d’un risque de fraude élevé. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failMethodRetiredLowDemand:
+    'Ce mode de paiement a été retiré parce que trop peu de personnes l’utilisaient. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   takeFiatAmount: 'Ou le montant en {fiat}',
   takeFiatHint:
     'Le service le convertit en {asset} au prix de cette annonce, arrondi à l’inférieur pour ne jamais payer plus que le montant saisi.',

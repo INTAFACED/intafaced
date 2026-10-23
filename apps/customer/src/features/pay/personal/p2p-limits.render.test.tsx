@@ -66,6 +66,17 @@ describe('take limits in plain words (P-trade-orders-03, P-disputes-security-15)
     expect(shown.querySelector('a[href="/verification"]')?.textContent).toBe('Raise your verification level');
   });
 
+  it('names a retired payment method with the operator’s reason and no end time', async () => {
+    const shown = await note(refused('p2p.method_delisted', { until: null, reason: 'provider_withdrawn' }));
+    expect(shown.dataset.kind).toBe('methodRetired');
+    expect(shown.textContent).toContain('retired because the payment provider withdrew it');
+    expect(shown.textContent).toContain('no end time');
+    expect(shown.textContent).not.toContain('service text');
+    expect(takeRefusalIsDefinite({ reason: 'error', code: 'p2p.method_delisted', status: 400 })).toBe(true);
+    root?.unmount();
+    expect((await note(refused('p2p.method_delisted'))).textContent).toContain('has been retired and no longer takes orders');
+  });
+
   it('falls back to the plain sentence when the figures are missing', async () => {
     const shown = await note(refused('p2p.active_order_cap'));
     expect(shown.textContent).toContain('You already have the most ongoing orders');

@@ -5,6 +5,7 @@
  * A change here is reviewed on its own, before either side implements it.
  */
 export * from './trpc.js';
+export * from './p2p-delist.js';
 export * from './edge.js';
 export * from './service-auth.js';
 export * from './service-keys.js';

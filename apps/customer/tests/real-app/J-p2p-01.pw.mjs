@@ -2,7 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { METHOD, confirmEmail, p2p, readyTaker, refusalCode, testInstrument, unconfirmedAccount } from './p2p.mjs';
+import {
+  METHOD,
+  RETIRING_METHOD,
+  TEST_IBAN,
+  confirmEmail,
+  p2p,
+  readyTaker,
+  refusalCode,
+  registerRetiringMethod,
+  retireRetiringMethod,
+  testInstrument,
+  unconfirmedAccount,
+} from './p2p.mjs';
 
 // J-p2p-01, in the running app (docs/roadmap/journeys.json): I buy crypto from an ad, pay the seller outside, and
 // receive the coins. One test per step, titled "J-p2p-01 #<n>", run in order on one verified TEST buyer. The other side
@@ -364,4 +376,67 @@ test('J-p2p-01 #4 a pair limit, the ongoing-order cap and the daily verification
   await expect(failure).toContainText('The soonest of them reaches its deadline at');
   await expect(failure.getByTestId('take-open-order')).toHaveCount(20);
   await expect(failure.getByTestId('take-open-order').first()).toHaveAttribute('href', /^\/p2p\/orders\/[0-9a-f-]{36}$/);
+});
+
+test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain words with the reason and no end time', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer, and a second TEST method the founder pair retires; the shared TEST bank transfer stays.
+  await registerRetiringMethod();
+  const seller = await signUp(page, 'p2p01r');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  await s.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: RETIRING_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST second account',
+    details: { account_holder: seller.handle, iban: TEST_IBAN },
+  });
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, RETIRING_METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:retired-offer:${seller.handle}`,
+  });
+  const buyer = await signUp(page, 'p2p01m');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+
+  // The buyer has the ad open with the second method chosen, and it quotes.
+  await signIn(page, buyer);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(RETIRING_METHOD);
+  await take.getByTestId('take-fiat-amount').fill('20');
+  await expect(take.getByTestId('take-quote')).toContainText('20 EUR');
+
+  // The operators retire it: the payment provider withdrew it. The take names that, with no end time, and reserves nothing.
+  const retired = await retireRetiringMethod('provider_withdrawn');
+  expect(retired.enabled).toBe(false);
+  const refused = await b.raw.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '20', method: RETIRING_METHOD });
+  expect(refused.status).toBe(400);
+  expect(refusalCode(refused)).toBe('p2p.method_delisted');
+  expect(refused.body.error.data.p2pLimit).toEqual({ until: null, reason: 'provider_withdrawn' });
+  expect((await b.query('offers.get', { offerId: offer.id })).remainingAmount).toBe('100');
+  await take.getByTestId('take-fiat-amount').fill('21');
+  const failure = take.getByTestId('take-failure');
+  await expect(failure).toHaveAttribute('data-kind', 'methodRetired');
+  await expect(failure).toContainText(
+    'This payment method has been retired because the payment provider withdrew it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  );
+  // The ad still takes orders by the method that is not retired.
+  await take.locator('select').selectOption(METHOD);
+  await expect(take.getByTestId('take-quote')).toContainText('21 EUR');
 });

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { EDGE, ORIGIN, mailedConfirmLinks } from './stack.mjs';
 
 // What every P2P journey needs: svc-p2p's own doors through Edge, and a taker who meets the take requirements.
@@ -94,4 +94,84 @@ export async function testInstrument(client, who) {
     label: 'TEST account',
     details: { account_holder: who.handle, iban: TEST_IBAN },
   });
+}
+
+// The stack's founder pair, as P2P operators: A proposes and makes the change, B approves (svc-p2p's two-person rule).
+let gates;
+let operatorCtx;
+let operatorPair;
+async function operators() {
+  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
+  operatorCtx ??= await gates.makeContext({ log: () => {} });
+  operatorPair ??= await gates.approverSessions(operatorCtx);
+  return { ctx: operatorCtx, pair: operatorPair };
+}
+
+/** svc-p2p's approval payload hash (p2pActionPayloadHash): the action and its fields, in the router's order. */
+const p2pActionHash = (actionType, fields) =>
+  `sha256:${createHash('sha256')
+    .update(JSON.stringify({ actionType, ...fields }))
+    .digest('hex')}`;
+
+/** A's change to the method registry, approved by B first. Returns the stored method schema. */
+async function operatorMethodChange(proc, actionType, fields, input) {
+  const { ctx, pair } = await operators();
+  const payloadHash = p2pActionHash(actionType, fields);
+  const proposal = {
+    actionType,
+    targetService: 'svc-p2p',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: gates.MARKERS.policyVersion,
+  };
+  const proposed = await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await pair.a.approvalToken());
+  const ids = proposed.json?.result?.data;
+  if (!ids?.approvalId) throw new Error(`actionApproval.propose refused (${proposed.status}): ${proposed.text.slice(0, 300)}`);
+  const approved = await ctx.edge.mutate(
+    'identity',
+    'actionApproval.approve',
+    { approvalId: ids.approvalId, expectedPayloadHash: payloadHash },
+    await pair.b.approvalToken(),
+  );
+  if (approved.json?.result?.data?.status !== 'APPROVED')
+    throw new Error(`actionApproval.approve refused (${approved.status}): ${approved.text.slice(0, 300)}`);
+  const res = await ctx.edge.mutate(
+    'p2p',
+    proc,
+    { ...input, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.complianceToken(),
+  );
+  const row = res.json?.result?.data;
+  if (!row?.methodId) throw new Error(`p2p ${proc} refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return row;
+}
+
+/**
+ * A second LOCAL TEST method, the same TEST bank transfer under another id, which a journey retires. The shared
+ * test-bank-transfer is never retired: every other P2P journey pays with it.
+ */
+export const RETIRING_METHOD = 'test-retiring-transfer';
+
+/** Registers the retiring TEST method switched on, which also brings it back from an earlier run's retirement. */
+export async function registerRetiringMethod() {
+  const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
+  const method = { methodId: RETIRING_METHOD, country: base.country, label: 'TEST retiring transfer', fields: base.fields };
+  return operatorMethodChange(
+    'instruments.methods.register',
+    'p2p.method_register',
+    { ...method, fields: JSON.stringify(method.fields), enabled: 'true' },
+    { ...method, enabled: true },
+  );
+}
+
+/** Retires the retiring TEST method in its market with the operator's `reason`. */
+export async function retireRetiringMethod(reason) {
+  const input = { methodId: RETIRING_METHOD, country: 'DE', enabled: false, reason };
+  return operatorMethodChange(
+    'instruments.methods.setEnabled',
+    'p2p.method_set_enabled',
+    { methodId: RETIRING_METHOD, country: 'DE', enabled: 'false', reason },
+    input,
+  );
 }
