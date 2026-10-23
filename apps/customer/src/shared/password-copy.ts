@@ -18,6 +18,8 @@ const messages = {
     'Your account uses a second sign-in step. Sign out, sign in again with your authenticator code, recovery code or passkey, then change your password. An API key or sub-account cannot change it.',
   inviteNeeded: 'This account needs an invitation before it can set up its second sign-in step. Contact Support.',
   inactive: 'This account is not active, so its password cannot be changed. Contact Support.',
+  securityLocked:
+    'Your security lock is on, so the password cannot be changed. Ask to unlock in Security; the lock ends after the waiting time.',
   signedOut: 'You were signed out. Sign in again, then try once more.',
   invalidInput: 'Check what you entered and try again.',
   unconfirmed: 'Your password may or may not have changed. Try the new one first.',
@@ -45,6 +47,8 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
       'Tu cuenta usa un segundo paso de inicio de sesión. Cierra sesión, vuelve a entrar con tu código del autenticador, un código de recuperación o una clave de acceso, y cambia la contraseña. Una clave de API o una subcuenta no puede cambiarla.',
     inviteNeeded: 'Esta cuenta necesita una invitación para configurar su segundo paso de inicio de sesión. Contacta con soporte.',
     inactive: 'Esta cuenta no está activa, así que no se puede cambiar su contraseña. Contacta con soporte.',
+    securityLocked:
+      'Tu bloqueo de seguridad está activo, así que no se puede cambiar la contraseña. Pide el desbloqueo en Seguridad; el bloqueo termina tras el tiempo de espera.',
     signedOut: 'Se cerró tu sesión. Vuelve a iniciar sesión y prueba otra vez.',
     invalidInput: 'Revisa lo que has escrito y vuelve a intentarlo.',
     unconfirmed: 'Es posible que tu contraseña haya cambiado o no. Prueba primero con la nueva.',
@@ -71,6 +75,8 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
       'Votre compte utilise une seconde étape de connexion. Déconnectez-vous, reconnectez-vous avec votre code d’authentification, un code de récupération ou une clé d’accès, puis changez le mot de passe. Une clé API ou un sous-compte ne peut pas le changer.',
     inviteNeeded: 'Ce compte a besoin d’une invitation pour configurer sa seconde étape de connexion. Contactez l’assistance.',
     inactive: 'Ce compte n’est pas actif, son mot de passe ne peut donc pas être changé. Contactez l’assistance.',
+    securityLocked:
+      'Votre verrou de sécurité est actif, le mot de passe ne peut donc pas être changé. Demandez le déverrouillage dans Sécurité ; le verrou prend fin après le délai d’attente.',
     signedOut: 'Vous avez été déconnecté. Reconnectez-vous, puis réessayez.',
     invalidInput: 'Vérifiez ce que vous avez saisi et réessayez.',
     unconfirmed: 'Votre mot de passe a peut-être changé, ou non. Essayez d’abord le nouveau.',
