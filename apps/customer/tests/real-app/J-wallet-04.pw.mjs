@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, journeyState } from './stack.mjs';
@@ -27,15 +28,27 @@ function account() {
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
-// Well-known public development keys (the first two accounts of common local EVM chains). They hold nothing; TEST only.
-const WALLET_KEY = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-const WALLET = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
-const OTHER_KEY = '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+// Two TEST wallet keys, made here from fixed labels so no key text sits in the repo. They hold nothing.
+const testKey = (label) => createHash('sha256').update(`INTAFACED TEST wallet proof: ${label}`).digest('hex');
+const WALLET_KEY = testKey('saved wallet');
+const OTHER_KEY = testKey('another wallet');
+
+async function noble() {
+  const { secp256k1 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/curves/secp256k1.js'));
+  const { keccak_256 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/hashes/sha3.js'));
+  return { secp256k1, keccak_256 };
+}
+
+/** The EVM address of `keyHex`: the last 20 bytes of the keccak hash of its uncompressed public key. */
+async function addressOf(keyHex) {
+  const { secp256k1, keccak_256 } = await noble();
+  const pub = secp256k1.getPublicKey(Buffer.from(keyHex, 'hex'), false);
+  return `0x${Buffer.from(keccak_256(pub.subarray(1)).subarray(12)).toString('hex')}`;
+}
 
 /** What a wallet's `personal_sign` returns for `message` (EIP-191, `r || s || v`), made with the bank's own libraries. */
 async function personalSign(message, keyHex) {
-  const { secp256k1 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/curves/secp256k1.js'));
-  const { keccak_256 } = await import(path.join(ROOT, 'services/svc-bank/node_modules/@noble/hashes/sha3.js'));
+  const { secp256k1, keccak_256 } = await noble();
   const body = new TextEncoder().encode(message);
   const prefix = new TextEncoder().encode(`\x19Ethereum Signed Message:\n${body.length}`);
   const joined = new Uint8Array(prefix.length + body.length);
@@ -206,7 +219,8 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
   await field(page, 'Label').fill('TEST private wallet');
   await field(page, 'Asset').selectOption('USDT');
   await field(page, 'Network').selectOption('ethereum');
-  await field(page, 'Address').fill(WALLET);
+  const wallet = await addressOf(WALLET_KEY);
+  await field(page, 'Address').fill(wallet);
   await form.getByRole('button', { name: 'Save address' }).click();
   await confirmItsMe(page);
   await expect(page.getByText('TEST private wallet was saved to your address book.')).toBeVisible();
@@ -216,7 +230,7 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
   const panel = page.getByTestId('wallet-proof');
   await expect(panel).toContainText('Signing moves no funds and approves nothing else.');
   const messageBox = panel.getByTestId('wallet-proof-message');
-  await expect(messageBox).toHaveValue(/^INTAFACED wallet ownership proof\nAddress: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266\n/);
+  await expect(messageBox).toHaveValue(new RegExp(`^INTAFACED wallet ownership proof\nAddress: ${wallet}\n`));
   const message = await messageBox.inputValue();
   // No confirmation code: proving a wallet cannot change where money goes.
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -226,7 +240,7 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
   await signature.fill(await personalSign(message, OTHER_KEY));
   await panel.getByRole('button', { name: 'Check signature' }).click();
   await expect(panel.getByRole('alert')).toHaveText(
-    'This was signed by a different wallet. Sign the message with the wallet that holds 0xf39f…2266.',
+    `This was signed by a different wallet. Sign the message with the wallet that holds ${wallet.slice(0, 6)}…${wallet.slice(-4)}.`,
   );
   await expect(messageBox).toHaveValue(message);
 

@@ -169,7 +169,7 @@ describe('proving a saved wallet', () => {
     ]);
     expect(options).toBeUndefined();
     expect(document.body.textContent).toContain('Ownership proved. It holds until');
-    expect(document.body.textContent).toContain('Withdrawals do not check this proof yet.');
+    expect(document.body.textContent).toContain('Withdrawals do not check this proof.');
     expect(reloads.book).toBe(1);
     expect(mint).not.toHaveBeenCalled();
   });
@@ -240,7 +240,7 @@ describe('proving a saved wallet', () => {
     mutate.mockResolvedValueOnce({ ok: false, code: 'bank.wallet_proof_window_unset', message: 'x' });
     await mount();
     await click('Prove ownership');
-    expect(document.body.textContent).toContain('Wallet proofs are not open yet');
+    expect(document.body.textContent).toContain('Wallet proofs are closed');
     expect(document.querySelector('[data-testid="wallet-proof-message"]')).toBeNull();
   });
 
