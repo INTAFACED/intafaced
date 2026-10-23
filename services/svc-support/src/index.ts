@@ -158,6 +158,12 @@ const support = new SupportService(
   ratingRequests,
   attachmentSettings,
   env.SUPPORT_BULK_CAP ?? null,
+  {
+    feedbackRateLimit: env.SUPPORT_FEEDBACK_RATE_LIMIT ?? null,
+    feedbackRateWindowSeconds: env.SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS ?? null,
+    assistantModel: env.SUPPORT_ASSISTANT_MODEL ?? null,
+    searchQueryMax: env.SUPPORT_SEARCH_QUERY_MAX ?? null,
+  },
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(

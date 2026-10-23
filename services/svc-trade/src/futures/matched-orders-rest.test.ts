@@ -96,6 +96,20 @@ describe('futures orders through the book: REST', () => {
     ]);
   });
 
+  it('passes a named collateral class to the service, which decides; omitted sends none', async () => {
+    const seen: PlaceMatchedOrderInput[] = [];
+    const server = await app({
+      place: async (_p, input) => {
+        seen.push(input);
+        return order;
+      },
+    });
+    await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, collateralClass: 'staked' } });
+    await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: body });
+    expect(seen.map((input) => input.collateralClass)).toEqual(['staked', undefined]);
+    expect('collateralClass' in seen[1]!).toBe(false);
+  });
+
   it('refuses a JSON number, a missing leverage on an opening order, cross margin and a missing clientOrderId before the service', async () => {
     let calls = 0;
     const server = await app({

@@ -26,31 +26,32 @@ stake numbers stay in svc-token; value moves only through `packages/ledger-clien
 tRPC under `/trpc` (edge mounts `/api/market`). Principal via edge HMAC
 (`EDGE_PRINCIPAL_SECRET`).
 
-| Procedure                  | Scope          | Behaviour                                                    |
-| -------------------------- | -------------- | ------------------------------------------------------------ |
-| `profile`                  | **public**     | One listed vendor's public profile                           |
-| `listed`                   | **public**     | The directory of vendors listed right now                    |
-| `listings`                 | **public**     | Active sellable listings (one-time + perioded subscriptions) |
-| `listingCategories`        | **public**     | Product category enum (not an owner env list)                |
-| `listingsByCategory`       | **public**     | Short page of active one-time listings in one category       |
-| `commerceProgramme`        | **public**     | Whether house commission bps is configured                   |
-| `applyAsVendor`            | `market:write` | Create the caller's own application (`applied`)              |
-| `mine`                     | `market:read`  | The caller's own application, or `null`                      |
-| `createListing`            | `market:write` | Create a listing; claims a slot named by the listing id      |
-| `createNonStrategyListing` | `market:write` | One-time listing that names a product category slug          |
-| `ops.setListingCategory`   | `market:ops`   | MFA + reason; audit row; idempotent on the business key      |
-| `archiveListing`           | `market:write` | Archive own listing; releases its slot                       |
-| `myListings`               | `market:read`  | Caller's listings                                            |
-| `purchase`                 | `market:write` | One-time or one-period subscription purchase (`purchaseId`)  |
-| `myPurchases`              | `market:read`  | Caller's purchases                                           |
-| `cancelSubscription`       | `market:write` | Stop new access; no ledger reverse                           |
-| `subscriptionAccess`       | `market:read`  | Time-bounded grant, or named past-due / cancelled            |
-| `claimSlot`                | `market:write` | Take a listing slot, if the caller's tier has one            |
-| `releaseSlot`              | `market:write` | Give a slot back                                             |
-| `slots`                    | `market:read`  | Tier, capacity, held and **usable** slots                    |
-| `listApplications`         | `market:ops`   | Operator queue — undecided first, oldest first               |
-| `vet`                      | `market:ops`   | Record an operator's decision and apply it                   |
-| `history`                  | `market:ops`   | The decision trail for one application                       |
+| Procedure                  | Scope          | Behaviour                                                                                                     |
+| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `profile`                  | **public**     | One listed vendor's public profile                                                                            |
+| `listed`                   | **public**     | The directory of vendors listed right now                                                                     |
+| `listing`                  | **public**     | One shopfront listing by id: terms, seller profile, review summary. No seller user id. No performance figure. |
+| `listings`                 | **public**     | Active sellable listings (one-time + perioded subscriptions)                                                  |
+| `listingCategories`        | **public**     | Product category enum (not an owner env list)                                                                 |
+| `listingsByCategory`       | **public**     | Short page of active one-time listings in one category                                                        |
+| `commerceProgramme`        | **public**     | Whether house commission bps is configured                                                                    |
+| `applyAsVendor`            | `market:write` | Create the caller's own application (`applied`)                                                               |
+| `mine`                     | `market:read`  | The caller's own application, or `null`                                                                       |
+| `createListing`            | `market:write` | Create a listing; claims a slot named by the listing id                                                       |
+| `createNonStrategyListing` | `market:write` | One-time listing that names a product category slug                                                           |
+| `ops.setListingCategory`   | `market:ops`   | MFA + reason; audit row; idempotent on the business key                                                       |
+| `archiveListing`           | `market:write` | Archive own listing; releases its slot                                                                        |
+| `myListings`               | `market:read`  | Caller's listings                                                                                             |
+| `purchase`                 | `market:write` | One-time or one-period subscription purchase (`purchaseId`)                                                   |
+| `myPurchases`              | `market:read`  | Caller's purchases                                                                                            |
+| `cancelSubscription`       | `market:write` | Stop new access; no ledger reverse                                                                            |
+| `subscriptionAccess`       | `market:read`  | Time-bounded grant, or named past-due / cancelled                                                             |
+| `claimSlot`                | `market:write` | Take a listing slot, if the caller's tier has one                                                             |
+| `releaseSlot`              | `market:write` | Give a slot back                                                                                              |
+| `slots`                    | `market:read`  | Tier, capacity, held and **usable** slots                                                                     |
+| `listApplications`         | `market:ops`   | Operator queue — undecided first, oldest first                                                                |
+| `vet`                      | `market:ops`   | Record an operator's decision and apply it                                                                    |
+| `history`                  | `market:ops`   | The decision trail for one application                                                                        |
 
 HTTP: `GET /health`, `GET /ready` (`stage: commerce-subscriptions`, plus whether commission is configured).
 

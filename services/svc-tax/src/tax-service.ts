@@ -1,23 +1,29 @@
-import { formatAmount, mul, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { listMissingBasis, parseBasisSet, type BasisSetInput, type MissingBasisItem } from './basis-override.js';
+import { type ActiveBasis, type BasisRow, type BasisStore } from './basis-store.js';
 import {
+  PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED,
+  TAX_BASIS_LOT_UNKNOWN,
+  TAX_BASIS_STORE_UNWIRED,
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
+  TAX_CUSTOMER_BASIS_EXPORT_UNSET,
   TAX_DATA_LAKE_UNAVAILABLE,
   TAX_DATA_LAKE_UNPROBED,
+  TAX_DEPOSIT_BASIS_POLICY_UNSET,
   TAX_EXPORT_INCOMPLETE,
   TAX_HISTORY_YEARS_UNSET,
   TAX_INDEXER_UNAVAILABLE,
   TAX_INDEXER_UNPROBED,
   TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
-  TAX_DEPOSIT_BASIS_POLICY_UNSET,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook } from './lot-book.js';
+import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook, type ManualPosition } from './lot-book.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
 
@@ -93,6 +99,8 @@ export interface TaxServiceDeps {
   readonly depositBasis?: DepositBasisPolicy;
   /** Price of a coin at a past moment. Absent: arrivals are not valued, named `tax.price_at_time_unavailable`. */
   readonly prices?: PriceAtTime;
+  /** Customer-entered basis. Absent: writes refuse `tax.basis_store_unwired` and the book ignores overrides. */
+  readonly basis?: BasisStore;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -186,6 +194,7 @@ export class TaxService {
   private readonly now: () => Date;
   private readonly depositBasis: DepositBasisPolicy | undefined;
   private readonly prices: PriceAtTime | undefined;
+  private readonly basis: BasisStore | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -196,6 +205,7 @@ export class TaxService {
     this.now = deps.now ?? (() => new Date());
     this.depositBasis = deps.depositBasis;
     this.prices = deps.prices;
+    this.basis = deps.basis;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -215,18 +225,92 @@ export class TaxService {
     const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : requireBookMethod(input.method);
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
-    const [balances, filled] = await Promise.all([this.reads.balances('user', input.userId), readFills.call(this.reads, input.userId)]);
+    const [balances, filled, active] = await Promise.all([
+      this.reads.balances('user', input.userId),
+      readFills.call(this.reads, input.userId),
+      this.activeBasis(input.userId),
+    ]);
     const held = new Map<string, Amount>();
     for (const row of balances) {
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
+    const overridePricePerUnit = pricesOf(active);
     if (filled.inflows === undefined) {
-      return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
+      return this.withManual(
+        buildLotBook({
+          fills: filled.fills,
+          held,
+          method,
+          truncated: filled.truncated,
+          outsideInflows: filled.outsideInflows,
+          ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
+        }),
+        active,
+      );
     }
     const extra = new Set<string>();
     const inflows = await this.valueInflows(filled.inflows, extra);
-    const book = buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, inflows, now: this.now() });
-    return { ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() };
+    const book = buildLotBook({
+      fills: filled.fills,
+      held,
+      method,
+      truncated: filled.truncated,
+      inflows,
+      now: this.now(),
+      ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
+    });
+    return this.withManual({ ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() }, active);
+  }
+
+  /** Lots and disposals whose basis is still null. The effect column is "unknown share", never a computed gain. */
+  async missingBasis(input: { userId: string; method?: string }): Promise<{ items: MissingBasisItem[] }> {
+    const book = await this.lotBook(input);
+    return { items: listMissingBasis(book) };
+  }
+
+  /**
+   * Gives a lot with no cost a customer-entered basis, or records a manual position that is not a balance.
+   * The key is `basisoverride:<userId>:<lotId>:<version>`. The same payload twice is one version.
+   */
+  async basisOverrideSet(input: BasisSetInput): Promise<BasisResult> {
+    const store = this.storeOrRefuse();
+    const write = parseBasisSet(input);
+    if (write.kind === 'override') await this.assertUnknownLot(input.userId, write.lotId);
+    const row = await store.save(write);
+    return resultOf(row);
+  }
+
+  /** Drops a customer basis. The ledger figure is unchanged, and the unknown it replaced is what the book shows again. */
+  async basisOverrideRemove(input: { userId: string; lotId: string }): Promise<BasisResult> {
+    const store = this.storeOrRefuse();
+    const lotId = input.lotId.trim();
+    if (lotId.length === 0) throw new TaxError(TAX_BASIS_LOT_UNKNOWN, 'a basis write needs a lot id');
+    return resultOf(await store.clear(input.userId, lotId));
+  }
+
+  private storeOrRefuse(): BasisStore {
+    if (!this.basis) {
+      throw new TaxError(TAX_BASIS_STORE_UNWIRED, 'DATABASE_URL is unset — a customer basis is not stored');
+    }
+    return this.basis;
+  }
+
+  private activeBasis(userId: string): Promise<readonly ActiveBasis[]> {
+    return this.basis ? this.basis.listActive(userId) : Promise.resolve([]);
+  }
+
+  private withManual(book: LotBook, active: readonly ActiveBasis[]): LotBook {
+    const manualPositions = manualOf(active);
+    return manualPositions.length === 0 ? book : { ...book, manualPositions };
+  }
+
+  private async assertUnknownLot(userId: string, lotId: string): Promise<void> {
+    const book = await this.lotBook({ userId });
+    const lot = book.lots.find((row) => row.id === lotId);
+    if (!lot) throw new TaxError(TAX_BASIS_LOT_UNKNOWN, 'that lot is not in this account');
+    if (lot.costUsd !== null && lot.basisSource !== 'customer-entered') {
+      throw new TaxError(PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED, 'a lot that already has a cost from our own records is not overwritten');
+    }
   }
 
   /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */
@@ -322,6 +406,7 @@ export class TaxService {
     }
 
     if (movements.length > 0) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+    if ((await this.activeBasis(input.userId)).length > 0) residuals.add(TAX_CUSTOMER_BASIS_EXPORT_UNSET);
 
     const lots = runLots(movements, lotMethod);
     for (const r of lots.residuals) residuals.add(r);
@@ -398,6 +483,51 @@ export class TaxService {
     }
     return { books: 'read', accounts };
   }
+}
+
+export interface BasisResult {
+  readonly businessKey: string;
+  readonly version: number;
+  readonly lotId: string;
+  readonly kind: BasisRow['kind'];
+  readonly basisSource: 'customer-entered' | null;
+}
+
+function pricesOf(active: readonly ActiveBasis[]): Map<string, Amount> | undefined {
+  const map = new Map<string, Amount>();
+  for (const row of active) {
+    if (row.kind === 'override') map.set(row.lotId, parseAmount(row.pricePerUnit));
+  }
+  return map.size === 0 ? undefined : map;
+}
+
+function manualOf(active: readonly ActiveBasis[]): ManualPosition[] {
+  const out: ManualPosition[] = [];
+  for (const row of active) {
+    if (row.kind !== 'manual') continue;
+    out.push({
+      id: row.lotId,
+      assetId: row.assetId,
+      acquiredAt: row.acquiredAt,
+      qty: row.qty,
+      pricePerUnit: row.pricePerUnit,
+      costUsd: formatAmount(mul(parseAmount(row.pricePerUnit), parseAmount(row.qty))),
+      sourceNote: row.sourceNote,
+      basisSource: 'customer-entered',
+      heldApart: true,
+    });
+  }
+  return out;
+}
+
+function resultOf(row: BasisRow): BasisResult {
+  return {
+    businessKey: row.businessKey,
+    version: row.version,
+    lotId: row.lotId,
+    kind: row.kind,
+    basisSource: row.kind === 'tombstone' ? null : 'customer-entered',
+  };
 }
 
 export function lakeStatusFromUrl(url: string | undefined): LakeStatus {

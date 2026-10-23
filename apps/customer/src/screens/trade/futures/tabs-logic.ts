@@ -86,3 +86,9 @@ export function sameContract(a: string | null | undefined, b: string | null | un
   const key = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   return key(a) !== '' && key(a) === key(b);
 }
+
+/** Whole bps as a percent string, by place value: 500 -> "5.00", 5 -> "0.05". */
+export function percentOfBps(bps: number): string {
+  const digits = String(bps).padStart(3, '0');
+  return `${digits.slice(0, -2)}.${digits.slice(-2)}`;
+}

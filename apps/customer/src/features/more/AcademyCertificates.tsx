@@ -285,7 +285,7 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
     if (mine.signal.aborted) return;
     setLookup({ status: 'done', code, result });
   }
-  // A link such as /academy?section=certificates&verify=<code> checks the code it carries.
+  // A link such as /academy/certificates?verify=<code> checks the code it carries.
   useEffect(() => {
     const first = parseVerifyCode(param('verify'));
     if (first.kind === 'code') void check(first.code);

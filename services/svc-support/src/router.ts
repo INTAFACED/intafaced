@@ -41,6 +41,7 @@ import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreProcedures } from './help-centre-router.js';
+import { kbFeedbackProcedures } from './kb-feedback-router.js';
 import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
@@ -119,9 +120,14 @@ function mapError(err: unknown): never {
       err.code === 'support.attachment_count_unset' ||
       err.code === 'support.attachment_scan_unknown' ||
       err.code === 'support.attachment_count_reached' ||
-      err.code === 'support.attachment_too_large'
+      err.code === 'support.attachment_too_large' ||
+      err.code === 'support.feedback_rate_limit_unset' ||
+      err.code === 'support.assistant_model_unset'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
+    }
+    if (err.code === 'support.feedback_rate_exceeded') {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
     }
     if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
       throw new TRPCError({ code: 'FORBIDDEN', message });
@@ -182,6 +188,7 @@ export function createSupportRouter(
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
     ...helpCentreProcedures(helpCentre, support),
+    ...kbFeedbackProcedures(support, mapError),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -910,6 +917,10 @@ export function createSupportRouter(
           id: z.string().min(1).max(200),
           helpful: z.boolean(),
           clientRequestId: z.string().min(1).max(200),
+          /** Kept on an unhelpful vote. A request needs this and helpful false. */
+          comment: z.string().max(2_000).optional(),
+          /** Opens one linked request. Refused unless the vote is unhelpful and the comment is set. */
+          openRequest: z.boolean().optional(),
         }),
       )
       .output(
@@ -918,6 +929,8 @@ export function createSupportRouter(
           version: z.number().int().positive(),
           userId: z.string().uuid(),
           helpful: z.boolean(),
+          /** Present only when this vote opened a request. */
+          ticketId: z.string().uuid().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
