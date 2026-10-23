@@ -2,7 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { METHOD, confirmEmail, p2p, readyTaker, refusalCode, testInstrument, unconfirmedAccount } from './p2p.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import {
+  METHOD,
+  RETIRING_METHOD,
+  TEST_IBAN,
+  browserHoldsPasskey,
+  confirmEmail,
+  p2p,
+  readyTaker,
+  refusalCode,
+  registerRetiringMethod,
+  retireRetiringMethod,
+  testInstrument,
+  testPasskey,
+  unconfirmedAccount,
+} from './p2p.mjs';
 
 // J-p2p-01, in the running app (docs/roadmap/journeys.json): I buy crypto from an ad, pay the seller outside, and
 // receive the coins. One test per step, titled "J-p2p-01 #<n>", run in order on one verified TEST buyer. The other side
@@ -228,7 +243,11 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and the risk noti
 test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quote past its window refuses by name', async ({ page }) => {
   test.setTimeout(300_000);
   const state = journey();
-  const b = p2p(await api(state.buyer));
+  // The buyer's TEST passkey, saved on the account here: it confirms the service-side take below, and the browser
+  // holds the same one in #5.
+  const session = await api(state.buyer);
+  const key = await testPasskey(session);
+  const b = p2p(session, key);
   // A quote held through the service's own window (the stack's TEST escrow window, 120 s), placed after it ends.
   const held = await b.mutate('trades.lockQuote', {
     quoteId: randomUUID(),
@@ -253,7 +272,9 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   const dialog = page.getByTestId('take-review-dialog');
   const countdown = dialog.getByTestId('take-quote-countdown');
   await expect(countdown).toContainText(/Price, fee and amounts held for 1:[45]\d/);
-  await expect(dialog.getByTestId('take-confirm')).toBeEnabled();
+  // Placing is the fresh confirmation (#5): offered while the quote holds.
+  const passkey = dialog.getByRole('button', { name: 'Use a passkey' });
+  await expect(passkey).toBeEnabled();
 
   // Past the window: the service refuses the held quote by name and reserves nothing; the dialog turns placing off.
   const before = (await b.query('offers.get', { offerId: state.offerId })).remainingAmount;
@@ -270,10 +291,11 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   expect((await b.query('offers.get', { offerId: state.offerId })).remainingAmount).toBe(before);
   await expect(countdown).toHaveAttribute('data-ended', 'true');
   await expect(countdown).toContainText('This quote ended at');
-  await expect(dialog.getByTestId('take-confirm')).toBeDisabled();
+  await expect(passkey).toBeDisabled();
   await dialog.getByTestId('take-quote-renew').click();
   await expect(countdown).toContainText(/held for 1:[45]\d/);
-  await expect(dialog.getByTestId('take-confirm')).toBeEnabled();
+  await expect(passkey).toBeEnabled();
+  run.write({ passkey: key.saved() });
 });
 
 test('J-p2p-01 #4 a pair limit, the ongoing-order cap and the daily verification allowance each refuse in plain words with the end time', async ({
@@ -364,4 +386,201 @@ test('J-p2p-01 #4 a pair limit, the ongoing-order cap and the daily verification
   await expect(failure).toContainText('The soonest of them reaches its deadline at');
   await expect(failure.getByTestId('take-open-order')).toHaveCount(20);
   await expect(failure.getByTestId('take-open-order').first()).toHaveAttribute('href', /^\/p2p\/orders\/[0-9a-f-]{36}$/);
+});
+
+test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain words with the reason and no end time', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer, and a second TEST method the founder pair retires; the shared TEST bank transfer stays.
+  await registerRetiringMethod();
+  const seller = await signUp(page, 'p2p01r');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  await s.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: RETIRING_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST second account',
+    details: { account_holder: seller.handle, iban: TEST_IBAN },
+  });
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, RETIRING_METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:retired-offer:${seller.handle}`,
+  });
+  const buyer = await signUp(page, 'p2p01m');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+
+  // The buyer has the ad open with the second method chosen, and it quotes.
+  await signIn(page, buyer);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(RETIRING_METHOD);
+  await take.getByTestId('take-fiat-amount').fill('20');
+  await expect(take.getByTestId('take-quote')).toContainText('20 EUR');
+
+  // The operators retire it: the payment provider withdrew it. The take names that, with no end time, and reserves nothing.
+  const retired = await retireRetiringMethod('provider_withdrawn');
+  expect(retired.enabled).toBe(false);
+  const refused = await b.raw.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '20', method: RETIRING_METHOD });
+  expect(refused.status).toBe(400);
+  expect(refusalCode(refused)).toBe('p2p.method_delisted');
+  expect(refused.body.error.data.p2pLimit).toEqual({ until: null, reason: 'provider_withdrawn' });
+  expect((await b.query('offers.get', { offerId: offer.id })).remainingAmount).toBe('100');
+  await take.getByTestId('take-fiat-amount').fill('21');
+  const failure = take.getByTestId('take-failure');
+  await expect(failure).toHaveAttribute('data-kind', 'methodRetired');
+  await expect(failure).toContainText(
+    'This payment method has been retired because the payment provider withdrew it. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  );
+  // The ad still takes orders by the method that is not retired.
+  await take.locator('select').selectOption(METHOD);
+  await expect(take.getByTestId('take-quote')).toContainText('21 EUR');
+});
+
+test('J-p2p-01 #4 after three cancelled orders buying is paused, in plain words with the end time', async ({ page }) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer. The limit is the labelled TEST profile value: 3 cancelled orders within 24 hours.
+  const seller = await signUp(page, 'p2p01x');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:cancel-offer:${seller.handle}`,
+  });
+  const buyer = await signUp(page, 'p2p01k');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  const cancelled = [];
+  for (let i = 0; i < 3; i++) {
+    const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+    cancelled.push(await b.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' }));
+  }
+
+  // The fourth take refuses before anything is reserved, with when buying starts again: 24 hours after the first cancel.
+  const refused = await b.raw.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(refused.status).toBe(409);
+  expect(refusalCode(refused)).toBe('p2p.buying_restricted');
+  const pause = refused.body.error.data.p2pLimit;
+  expect(pause).toEqual({ until: expect.any(String), cap: '3', windowHours: '24' });
+  const firstCancel = Date.parse(cancelled[0].resolvedAt);
+  expect(Date.parse(pause.until) - firstCancel).toBeGreaterThan(24 * 3_600_000 - 60_000);
+  expect(Date.parse(pause.until) - firstCancel).toBeLessThan(24 * 3_600_000 + 60_000);
+  expect((await b.query('offers.get', { offerId: offer.id })).remainingAmount).toBe('100');
+
+  await signIn(page, buyer);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(METHOD);
+  await take.getByTestId('take-fiat-amount').fill('20');
+  const failure = take.getByTestId('take-failure');
+  await expect(failure).toHaveAttribute('data-kind', 'buyingPaused');
+  await expect(failure).toContainText(
+    'You cancelled 3 orders, or let their payment time run out, within 24 hours, so buying is paused until',
+  );
+  await expect(failure).toContainText('Selling is not paused. Nothing was placed.');
+});
+
+test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a take without one is refused; the order keeps its terms', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  // Passkeys belong to the stack's relying party, localhost, so the buyer uses the app there; the browser's (virtual)
+  // authenticator holds the passkey saved on the account in #4.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const page = await context.newPage();
+  await browserHoldsPasskey(page, state.passkey);
+  await signIn(page, state.buyer);
+
+  // A take with no confirmation is refused by name, and nothing is reserved or locked.
+  const b = p2p(await api(state.buyer));
+  const s = p2p(await api(state.seller));
+  const before = (await b.query('offers.get', { offerId: state.offerId })).remainingAmount;
+  const refused = await b.bare.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(refused.status).toBe(403);
+  expect(refusalCode(refused)).toBe('auth.step_up_required');
+  expect((await b.query('offers.get', { offerId: state.offerId })).remainingAmount).toBe(before);
+
+  // Review, then confirm with the passkey: the order is placed and opens.
+  const review = async (open = () => page.goto(`/p2p?offerId=${state.offerId}`)) => {
+    await open();
+    const take = page.getByTestId('take-offer');
+    await take.getByTestId('take-fiat-amount').fill('9.2');
+    await take.locator('select').selectOption(METHOD);
+    await expect(take.getByLabel('Quantity in USDT')).toHaveValue('10');
+    await take.getByTestId('take-review').click();
+    return page.getByTestId('take-review-dialog');
+  };
+  let dialog = await review();
+  await expect(dialog).toContainText('Placing an order holds the seller’s coins in escrow, so it needs a fresh check that it’s you.');
+  await dialog.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
+  const tradeId = new URL(page.url()).searchParams.get('tradeId');
+  const ordersOnAd = async () =>
+    (await b.query('trades.page', { limit: 50 })).trades.filter((trade) => trade.offerId === state.offerId).map((trade) => trade.id);
+  expect(await ordersOnAd()).toEqual([tradeId]);
+  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(10);
+  expect(await b.query('trades.get', { tradeId })).toMatchObject({
+    status: 'escrowed',
+    amount: '10',
+    price: '0.92',
+    fiatAmount: '9.2',
+    method: METHOD,
+  });
+
+  // Back to the ad in the app: the confirmation covers the next orders here for up to ten minutes, and says so; a
+  // double press places one order.
+  dialog = await review(() => page.goBack());
+  await expect(dialog.getByTestId('take-step-up-covered')).toContainText(
+    'You confirmed it’s you here, so this order needs no new check until',
+  );
+  await dialog.getByTestId('take-confirm').dblclick();
+  await expect(page).toHaveURL(/\/uc\/order\?tradeId=/);
+  const second = new URL(page.url()).searchParams.get('tradeId');
+  expect(second).not.toBe(tradeId);
+  expect((await ordersOnAd()).sort()).toEqual([tradeId, second].sort());
+  expect(Number(before) - Number((await b.query('offers.get', { offerId: state.offerId })).remainingAmount)).toBe(20);
+  await page.goto(`/uc/order?tradeId=${tradeId}`);
+
+  // The seller edits the ad: the order keeps the price, amount and method it was placed under.
+  await s.mutate('offers.update', {
+    offerId: state.offerId,
+    idempotencyKey: `${J}:edit:${tradeId}`,
+    price: '0.95',
+    terms: 'TEST terms changed after the order was placed.',
+  });
+  expect((await s.query('offers.get', { offerId: state.offerId })).price).toBe('0.95');
+  expect(await b.query('trades.get', { tradeId })).toMatchObject({ price: '0.92', amount: '10', fiatAmount: '9.2', method: METHOD });
+  await page.reload();
+  const order = page.getByRole('main');
+  await expect(order).toContainText('0.92');
+  await expect(order).toContainText('9.2 EUR');
+  await expect(order).not.toContainText('0.95');
+  run.write({ tradeId });
+  await context.close();
 });

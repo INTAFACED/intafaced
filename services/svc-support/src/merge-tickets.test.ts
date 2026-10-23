@@ -4,6 +4,7 @@ import type { Context } from '@intafaced/contracts';
 import { createSupportRouter } from './router.js';
 import { SupportService } from './support-service.js';
 import { MemorySupportStore } from './store.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 /**
  * SP-tickets-07 — merge a duplicate request into the one that stays: messages and files move, the source ends closed with
@@ -29,7 +30,7 @@ async function ctx(userId: string, scopes: string[]): Promise<Context> {
 
 async function desk() {
   const store = new MemorySupportStore();
-  const support = new SupportService(store);
+  const support = withTestCommentCap(store);
   const router = createSupportRouter(support);
   const lead = router.createCaller(await ctx(LEAD, ['support:ops']));
   const customer = router.createCaller(await ctx(USER, ['support:read', 'support:write']));

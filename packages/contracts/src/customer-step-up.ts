@@ -245,6 +245,20 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-p2p takeStepUpPayloadHash: the reviewed ad, coin amount and method exactly as `trades.take` carries them; a
+    // held quote joins the hash when the take names one. The order id is the take's idempotency key and is not hashed.
+    scope: 'p2p.step_up.trades.take',
+    purpose: 'trades.take',
+    clientFields: ['offerId', 'amount', 'method'],
+    optionalFields: { quoteId: (value) => UUID_RE.test(value) },
+    amountField: 'amount',
+    targetField: 'offerId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],

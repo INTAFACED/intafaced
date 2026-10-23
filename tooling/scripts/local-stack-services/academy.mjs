@@ -25,6 +25,10 @@ const videoStorage = ({ secrets, urlOf }) =>
 const outlineLimits = () =>
   process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS === 'off' ? {} : { ACADEMY_OUTLINE_MAX_SECTIONS: '20', ACADEMY_OUTLINE_MAX_ITEMS: '200' };
 
+// LOCAL TEST lesson import size limit (a TEST owner value): 8 KiB, so the journey's 20 KiB file is over it
+// (J-academy-11 #5). `LOCAL_STACK_ACADEMY_IMPORT_LIMIT=off` leaves it blank.
+const importLimit = () => (process.env.LOCAL_STACK_ACADEMY_IMPORT_LIMIT === 'off' ? {} : { ACADEMY_LESSON_IMPORT_MAX_BYTES: '8192' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -37,5 +41,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ACADEMY_PLANNER_TODO_LIMIT: '50', // TEST: the owner sets the real cap; the stack needs one so the planner journey can add
     ...videoStorage({ secrets, urlOf }),
     ...outlineLimits(),
+    ...importLimit(),
   }),
 });

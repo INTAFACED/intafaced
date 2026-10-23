@@ -59,13 +59,21 @@ function WaitingBanner({ userId }: { userId: string }) {
  * The request button. Signed in it opens the support desk. Signed out it shows the sign-in prompt in place, so the search
  * text on this page is kept; there is no mailto draft standing in for a form. Guest submission is a separate slice.
  */
-export function RequestEntry() {
+/** The support desk, opened on its help search with the visitor's words when there are any. */
+export function supportDeskHref(query: string): string {
+  const q = query.trim();
+  return q ? `/support?${new URLSearchParams({ q })}` : '/support';
+}
+
+export function RequestEntry({ query = '' }: { query?: string }) {
   const { t } = copy.useCopy();
   const { session } = useSession();
   const [asking, setAsking] = useState(false);
+  // The words typed in the help search go along to the support desk, through sign-in too, so nobody types them twice.
+  const desk = supportDeskHref(query);
   if (session)
     return (
-      <a className="button button--secondary" href="/support">
+      <a className="button button--secondary" href={desk}>
         {t('requestOpenDesk')}
       </a>
     );
@@ -78,7 +86,7 @@ export function RequestEntry() {
         <section id="help-request-signin" className="help__card help__measure" role="status" data-testid="request-sign-in">
           <h2>{t('requestSignInTitle')}</h2>
           <p className="muted">{t('requestSignInBody')}</p>
-          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent('/support')}`}>
+          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(desk)}`}>
             {t('requestSignIn')}
           </a>
           <Button variant="secondary" onClick={() => setAsking(false)}>

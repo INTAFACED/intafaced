@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AuthError, requireMfa } from '@intafaced/auth';
+import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -26,8 +26,9 @@ import {
 import { InstrumentError, parseFieldSpecs } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
-import type { InstrumentService } from './instrument-service.js';
+import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
+import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -91,6 +92,12 @@ export type P2pRouterOptions = {
    * `p2p.take_gate_unwired`; a missing gate never means "no checks".
    */
   takeGate?: TakeGate;
+  /**
+   * P-trade-orders-07: the fresh passkey or authenticator confirmation a take
+   * needs (`take-step-up.ts`). Unset → every take refuses `auth.step_up_failed`;
+   * a missing wire never means "no confirmation needed".
+   */
+  takeStepUp?: TakeStepUp;
 };
 
 /**
@@ -381,6 +388,12 @@ function toTrpcError(err: unknown): TRPCError {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
 
+  // Confirm the order again: nothing was reserved or locked. Unverifiable is the deployment's, not the person's.
+  if (err instanceof TakeStepUpError) {
+    const code = err.code === 'p2p.step_up_unverifiable' ? 'PRECONDITION_FAILED' : 'FORBIDDEN';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
+
   if (err instanceof TakeGateError) {
     switch (err.code) {
       // The person can fix these themself: confirm the address, read and accept the notice.
@@ -532,6 +545,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.quote_changed':
       // Too many ongoing orders: one has to finish first. The error data lists them and the soonest deadline.
       case 'p2p.active_order_cap':
+      // Buying is paused after too many cancelled orders; the error data says until when.
+      case 'p2p.buying_restricted':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':
@@ -563,6 +578,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.verification_daily_limit':
       case 'p2p.verification_lifetime_limit':
       case 'p2p.pair_limit_exceeded':
+      // The ad lists a method the operator retired: choose another method or ad.
+      case 'p2p.method_delisted':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -696,6 +713,12 @@ export function createP2pRouter(
   const opsReads = options.opsReads;
   const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
   const takeGate = options.takeGate ?? unwiredTakeGate();
+  const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
+  const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
+    userId: principal.userId,
+    sessionId: principal.sid,
+    viaApiKey: principal.kid !== undefined,
+  });
 
   const requireOpsReads = (): OpsReads => {
     if (!opsReads) {
@@ -1224,6 +1247,19 @@ export function createP2pRouter(
     }),
 
     trades: router({
+      /**
+       * Until when this session's takes need no new confirmation (P-trade-orders-07), or null when the next take does.
+       * An API key is refused: it never confirms a take.
+       */
+      stepUpWindow: merchantApiProcedure('p2p:read')
+        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { confirmedUntil } = await takeStepUp.window(stepUpCaller(ctx.principal));
+            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
+          }),
+        ),
+
       /** Take an offer → `escrowLock`. The first money path in this router. */
       take: merchantApiProcedure('p2p:write')
         .input(
@@ -1234,6 +1270,8 @@ export function createP2pRouter(
             method: z.string().min(1).max(64),
             /** P-trade-orders-06: the locked quote (`trades.lockQuote`) this take places, inside its window. */
             quoteId: z.string().uuid().optional(),
+            /** P-trade-orders-07: identity's single-use confirmation of exactly this take. Optional inside a live window. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
           }),
         )
         .output(tradeOutput)
@@ -1241,6 +1279,18 @@ export function createP2pRouter(
           guard(async () => {
             // Before anything is reserved or locked: the same checks the eligibility panel shows.
             await takeGate.assertCanTake(ctx);
+            // Then the fresh confirmation, over the strings this take carries.
+            await takeStepUp.assertConfirmed(
+              stepUpCaller(ctx.principal),
+              {
+                tradeId: input.tradeId,
+                offerId: input.offerId,
+                amount: input.amount,
+                method: input.method,
+                ...(input.quoteId ? { quoteId: input.quoteId } : {}),
+              },
+              input.stepUpApprovalId,
+            );
             return toTradeOut(
               await p2p.takeOffer({
                 offerId: input.offerId,
@@ -1760,6 +1810,8 @@ export function createP2pRouter(
               methodId: z.string().min(1).max(64),
               country: z.string().min(1).max(2),
               enabled: z.boolean(),
+              /** Required when retiring (`enabled: false`); the customer is told it on a take. */
+              reason: z.enum(DELIST_REASONS).optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -1777,12 +1829,21 @@ export function createP2pRouter(
                 throw err;
               }
               void requireUser(ctx);
+              // Checked here as well as in the service so a refused change never spends the approval.
+              if (!input.enabled && !input.reason) {
+                throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
+              }
+              if (input.enabled && input.reason) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: 'A payment method switched on has no retirement reason' });
+              }
+              const reason = input.enabled ? undefined : input.reason;
               const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_set_enabled', {
                 methodId: input.methodId,
                 country: input.country,
                 enabled: input.enabled ? 'true' : 'false',
+                ...(reason ? { reason } : {}),
               });
-              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled);
+              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled, reason);
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),
           ),

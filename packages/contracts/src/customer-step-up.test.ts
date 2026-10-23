@@ -34,6 +34,48 @@ describe('customer step-up binding', () => {
     );
   });
 
+  it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
+    const fields = {
+      offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',
+      amount: '21.739130434782608695',
+      method: 'test-bank-transfer',
+    };
+    const bound = bindCustomerStepUp(ACTOR, {
+      scope: 'p2p.step_up.trades.take',
+      purpose: 'trades.take',
+      amount: fields.amount,
+      target: fields.offerId,
+      fields,
+    });
+    expect(bound).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('p2p.step_up.trades.take', { actor: ACTOR, ...fields }),
+    });
+    const quoteId = '9d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a';
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'p2p.step_up.trades.take',
+        purpose: 'trades.take',
+        amount: fields.amount,
+        target: fields.offerId,
+        fields: { ...fields, quoteId },
+      }),
+    ).toMatchObject({ ok: true, payloadHash: customerStepUpPayloadHash('p2p.step_up.trades.take', { actor: ACTOR, ...fields, quoteId }) });
+    expect(
+      bindCustomerStepUp(ACTOR, { scope: 'p2p.step_up.trades.take', purpose: 'trades.take', amount: '1', target: fields.offerId, fields }),
+    ).toEqual({ ok: false, code: 'step_up.amount' });
+    // The order id is the take's idempotency key, not part of what the person confirmed.
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'p2p.step_up.trades.take',
+        purpose: 'trades.take',
+        amount: fields.amount,
+        target: fields.offerId,
+        fields: { ...fields, tradeId: '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c' },
+      }),
+    ).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
   it('sorts payroll lines by space id then amount string', () => {
     expect(
       canonicalPayrollLines([

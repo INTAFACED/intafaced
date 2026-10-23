@@ -48,6 +48,7 @@ export const NOTICE_NETWORK_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export type NoticeCode =
   | 'notify.notices_unavailable'
   | 'notify.notices_limit_invalid'
+  | 'notify.notices_cursor_unknown'
   | 'notify.notice_not_found'
   | 'notify.notice_kind_unknown'
   | 'notify.notice_copy_unset'
@@ -197,7 +198,11 @@ export interface NoticeStore {
   insert(row: NoticeRow): Promise<void>;
   findByDraftRequest(authorId: string, clientRequestId: string): Promise<NoticeRow | null>;
   findById(id: string): Promise<NoticeRow | null>;
-  listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /**
+   * Published rows, newest first (ties by id). With `after`, only the rows that come after that position in the same
+   * order: the next page of a paged read.
+   */
+  listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
   /** Published maintenance with reminder offsets that starts after `at`, soonest first: the reminder sweep's work list. */
@@ -223,6 +228,9 @@ export interface NoticeStore {
 }
 
 export const NOTICES_LIST_LIMIT_MAX = 50;
+
+/** Where a page of published notices ends: the last notice's publish time and id. */
+export type NoticeCursor = { readonly publishedAt: Date; readonly id: string };
 
 export function clampNoticeLimit(limit: number): number {
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) {
@@ -361,10 +369,13 @@ export class MemoryNoticeStore implements NoticeStore {
     return this.rows.get(id) ?? null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+  async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
+    const order = (a: { publishedAt: Date | null; id: string }, b: { publishedAt: Date | null; id: string }) =>
+      (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id);
     return [...this.rows.values()]
       .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
-      .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .filter((row) => !after || order(row, after) > 0)
+      .sort(order)
       .slice(0, limit);
   }
 
@@ -660,12 +671,36 @@ export class NoticeBoard {
     };
   }
 
-  async notices(input: { kind?: string | null; limit: number }): Promise<readonly NoticeWire[]> {
+  /**
+   * Published notices, newest first. `after` is the id of the last notice of the page before: the read then answers the
+   * page that follows it. An id that is not a published notice of that kind refuses `notify.notices_cursor_unknown`
+   * rather than starting again from the top.
+   */
+  async notices(input: { kind?: string | null; limit: number; after?: string | null }): Promise<readonly NoticeWire[]> {
+    return (await this.noticesPage(input)).notices;
+  }
+
+  /** One page of `notices` and the id to read the next page after, or `null` when nothing follows this page. */
+  async noticesPage(input: {
+    kind?: string | null;
+    limit: number;
+    after?: string | null;
+  }): Promise<{ notices: readonly NoticeWire[]; next: string | null }> {
     const limit = clampNoticeLimit(input.limit);
     const kind = input.kind == null || input.kind === '' ? null : input.kind;
     if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
-    const rows = await this.store.listPublished(kind, limit);
-    return rows.map(toNoticeWire);
+    let cursor: NoticeCursor | undefined;
+    if (input.after != null) {
+      const row = await this.store.findById(input.after.toLowerCase());
+      if (!row || row.status !== 'published' || row.publishedAt === null || (kind !== null && row.kind !== kind)) {
+        throw new NoticeError('notify.notices_cursor_unknown');
+      }
+      cursor = { publishedAt: row.publishedAt, id: row.id };
+    }
+    // One row more than the page says whether another page follows.
+    const rows = await this.store.listPublished(kind, limit + 1, cursor);
+    const page = rows.slice(0, limit).map(toNoticeWire);
+    return { notices: page, next: rows.length > limit ? (page.at(-1)?.id ?? null) : null };
   }
 
   /** A published notice as its subscriber fan-out takes it, or null when there is none by that id. */

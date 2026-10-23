@@ -1,3 +1,4 @@
+import { P2P_DELIST_REASONS, type P2pDelistReason } from '@intafaced/contracts';
 import { P2pError } from './p2p-service.js';
 import type { Sql } from 'postgres';
 import { isSupportedFiat } from '@intafaced/config';
@@ -213,6 +214,10 @@ interface InstrumentRow {
   removed_at: Date | null;
 }
 
+/** Why an operator retired a payment method in a market: the one list in contracts, which customer copy words. */
+export const DELIST_REASONS = P2P_DELIST_REASONS;
+export type DelistReason = P2pDelistReason;
+
 interface SchemaRow {
   method_id: string;
   country: string;
@@ -351,10 +356,21 @@ export class InstrumentService {
           WHEN ${writeEnabled}::boolean THEN EXCLUDED.enabled
           ELSE payment_method_schemas.enabled
         END,
+        -- A register that switches the method on brings it back: the retirement reason goes with it.
+        delist_reason = CASE WHEN ${writeEnabled}::boolean AND EXCLUDED.enabled THEN NULL ELSE payment_method_schemas.delist_reason END,
+        delisted_at = CASE WHEN ${writeEnabled}::boolean AND EXCLUDED.enabled THEN NULL ELSE payment_method_schemas.delisted_at END,
         updated_at = now()
+      -- A live method is switched off only by setMethodSchemaEnabled, which records why; a register cannot do it.
+      WHERE NOT (payment_method_schemas.enabled AND ${input.enabled === false}::boolean)
       RETURNING *
     `;
-    return toSchema(rows[0]!);
+    if (!rows[0]) {
+      throw new InstrumentError(
+        'A live payment method is retired with a reason through setEnabled, not by registering it switched off',
+        'p2p.delist_reason_required',
+      );
+    }
+    return toSchema(rows[0]);
   }
 
   /**
@@ -388,9 +404,19 @@ export class InstrumentService {
     return rows.map(toSchema);
   }
 
-  async setMethodSchemaEnabled(methodId: string, country: string, enabled: boolean): Promise<MethodSchema> {
+  /**
+   * Turning a method off in a market retires it there (P-trade-orders-03), and the reason is required: a take on it
+   * then refuses `p2p.method_delisted` with that reason. Turning it on again clears the reason.
+   */
+  async setMethodSchemaEnabled(methodId: string, country: string, enabled: boolean, reason?: DelistReason): Promise<MethodSchema> {
+    if (!enabled && !reason) throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
+    const why = enabled ? null : (reason ?? null);
     const rows = await this.sql<SchemaRow[]>`
-      UPDATE p2p.payment_method_schemas SET enabled = ${enabled}, updated_at = now()
+      UPDATE p2p.payment_method_schemas
+         SET enabled = ${enabled},
+             delist_reason = ${why},
+             delisted_at = CASE WHEN ${enabled}::boolean THEN NULL ELSE now() END,
+             updated_at = now()
        WHERE method_id = ${normaliseMethodId(methodId)} AND country = ${normaliseCountry(country)}
       RETURNING *
     `;
@@ -574,6 +600,21 @@ export class InstrumentService {
        LIMIT ${lim}
     `;
     return rows.map(toHeader);
+  }
+
+  /**
+   * Why a method is retired, when no market accepts it any more and the latest retirement named a reason; otherwise
+   * `null` (still accepted somewhere, never registered, or switched off before reasons were kept). Catalogue facts
+   * only: nothing here is about anyone's account.
+   */
+  async retiredMethod(methodId: string): Promise<{ reason: DelistReason; delistedAt: Date } | null> {
+    const rows = await this.sql<Array<{ enabled: boolean; delist_reason: DelistReason | null; delisted_at: Date | null }>>`
+      SELECT enabled, delist_reason, delisted_at FROM p2p.payment_method_schemas WHERE method_id = ${methodIdKey(methodId)}
+       ORDER BY delisted_at DESC NULLS LAST
+    `;
+    if (rows.length === 0 || rows.some((row) => row.enabled)) return null;
+    const latest = rows[0];
+    return latest?.delist_reason && latest.delisted_at ? { reason: latest.delist_reason, delistedAt: latest.delisted_at } : null;
   }
 
   /**

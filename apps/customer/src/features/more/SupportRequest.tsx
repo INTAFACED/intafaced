@@ -13,6 +13,7 @@ import { deskCopy } from './support-desk-copy';
 import { canFollowUp, canReply, replyReopens, ticketReference, type TicketStatus } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
 import { commentSchema, ticketSchema, type Ticket } from './support-schemas';
+import { plainSupportResult } from './support-refusal';
 
 const STATUS_KEY = {
   open: 'statusOpen',
@@ -186,16 +187,22 @@ export function SupportRequest({
                           ]}
                         />
                       ),
-                      run: () =>
-                        api.mutate(
-                          'support',
-                          'comment',
-                          { ticketId: id, body: reply.trim() },
-                          commentSchema.refine(
-                            (row) =>
-                              row.ticketId === id && row.authorId === userId && row.authorRole === 'user' && row.body === reply.trim(),
-                            copyText('support.posted.comment.does.not.match.this.account'),
+                      run: async () =>
+                        plainSupportResult(
+                          await api.mutate(
+                            'support',
+                            'comment',
+                            // The reply to the request as it stood when it was read: sent again after a lost answer it is
+                            // the same reply, and the service keeps one. Any change to the request gives the next reply its own.
+                            { ticketId: id, body: reply.trim(), clientRequestId: `reply:${id}:${ticket.updatedAt}` },
+                            commentSchema.refine(
+                              (row) =>
+                                row.ticketId === id && row.authorId === userId && row.authorRole === 'user' && row.body === reply.trim(),
+                              copyText('support.posted.comment.does.not.match.this.account'),
+                            ),
                           ),
+                          // The reply key was used for other words: the request moved on since this page read it.
+                          { 'support.idempotency_conflict': 'refuseReplyChanged' },
                         ),
                       done: () => {
                         setReply('');

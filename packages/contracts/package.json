@@ -74,6 +74,14 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-kb-library": {
+      "types": "./dist/support-kb-library.d.ts",
+      "default": "./dist/support-kb-library.js"
+    },
+    "./support-help-centre": {
+      "types": "./dist/support-help-centre.d.ts",
+      "default": "./dist/support-help-centre.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
@@ -109,6 +117,10 @@
     "./tax-lot-book": {
       "types": "./dist/tax-lot-book.d.ts",
       "default": "./dist/tax-lot-book.js"
+    },
+    "./p2p-delist": {
+      "types": "./dist/p2p-delist.d.ts",
+      "default": "./dist/p2p-delist.js"
     },
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",

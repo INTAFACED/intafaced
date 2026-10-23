@@ -5,6 +5,7 @@
  * A change here is reviewed on its own, before either side implements it.
  */
 export * from './trpc.js';
+export * from './p2p-delist.js';
 export * from './edge.js';
 export * from './service-auth.js';
 export * from './service-keys.js';
@@ -72,6 +73,8 @@ export * from './quant-algo.js';
 export * from './home-work-items.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
+export * from './support-kb-library.js';
+export * from './support-help-centre.js';
 export * from './outreach-public.js';
 export * from './status-page.js';
 export * from './status-subscriptions.js';

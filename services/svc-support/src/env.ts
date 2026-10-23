@@ -74,6 +74,11 @@ const schema = serviceEnvSchema
        */
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * How many comments a requester may add to one request (SP-api-01). Blank is an owner value left unset: a
+       * requester's comment refuses support.comment_cap_unset. Operators are not capped. Never defaulted.
+       */
+      SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
        * How many votes one signed-out reader may cast in the window below.
        * Either one blank refuses a public vote with support.feedback_rate_limit_unset. Never defaulted.
        */

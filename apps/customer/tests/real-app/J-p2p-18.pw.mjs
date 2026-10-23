@@ -87,9 +87,12 @@ test('J-p2p-18 #1 the order list counts every order exactly, pages back to the o
     await b.mutate('trades.markFiatSent', { tradeId: trade.id });
     expect((await s.mutate('trades.confirmReceived', { tradeId: trade.id })).status).toBe('released');
   }
+  // The buyer cancels two before payment and the seller the rest: three of the buyer's own within a day would pause
+  // their buying (the TEST profile's limit) before the orders below are placed.
   for (let i = 0; i < MADE.cancelled; i++) {
     const trade = await take(n++);
-    expect((await b.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' })).status).toBe('cancelled');
+    const by = i < 2 ? b : s;
+    expect((await by.mutate('trades.cancel', { tradeId: trade.id, reason: 'TEST changed my mind' })).status).toBe('cancelled');
   }
   for (let i = 0; i < MADE.paid; i++) {
     const trade = await take(n++);

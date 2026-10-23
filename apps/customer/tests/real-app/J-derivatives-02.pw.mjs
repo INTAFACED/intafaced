@@ -74,20 +74,35 @@ test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and
   expect(calc.body.maintenanceBps).toBe(rateOf[calc.body.tier]);
   expect(calc.body.refusals).toEqual([]);
 
-  // The same numbers typed into the Calculator tab.
+  // The tab takes a price on the tick (0.01 on the TEST perpetual) and the mark can carry more places, so the tab is
+  // given the mark on the tick and shows the service's own answer for that entry.
+  const tick = 10n ** 16n;
+  const entry = fromUnits((toUnits(mark) / tick) * tick);
+  const typed = await me.post('/api/v1/futures/calculator', {
+    symbol: SYMBOL,
+    side: 'long',
+    size: SIZE,
+    entryPrice: entry,
+    exitPrice: exit,
+    leverage: LEVERAGE,
+  });
+  expect(typed.status, JSON.stringify(typed.body)).toBe(200);
+
+  // Those numbers typed into the Calculator tab.
   await page.getByRole('tab', { name: 'Calculator' }).click();
   const panel = page.getByRole('region', { name: 'Margin and P&L calculator' });
   await expect(panel.getByText('Nothing is placed, held or saved.')).toBeVisible();
   await panel.getByLabel('Size').fill(SIZE);
-  await panel.getByLabel('Entry price').fill(mark);
+  await panel.getByLabel('Entry price').fill(entry);
+  await expect(panel.getByLabel('Entry price')).toHaveValue(new RegExp(entry.replace('.', '\\.')));
   await panel.getByLabel('Exit price (optional)').fill(exit);
   await panel.getByLabel('Leverage').fill(LEVERAGE);
   const answered = page.waitForResponse((r) => r.url().includes('/api/v1/futures/calculator') && r.request().method() === 'POST');
   await panel.getByRole('button', { name: 'Calculate' }).click();
   const shown = await (await answered).json();
-  expect(shown.initialMargin).toBe(calc.body.initialMargin);
-  expect(shown.liquidationPrice).toBe(calc.body.liquidationPrice);
-  expect(shown.pnl).toBe(calc.body.pnl);
+  expect(shown.initialMargin).toBe(typed.body.initialMargin);
+  expect(shown.liquidationPrice).toBe(typed.body.liquidationPrice);
+  expect(shown.pnl).toBe(typed.body.pnl);
 
   const results = panel.getByLabel('Calculator results');
   for (const label of ['Initial margin', 'Maintenance margin', 'Liquidation price', 'P&L at exit', 'Return on margin', 'P&L after fees']) {

@@ -272,6 +272,15 @@ describe('errorFormatter p2p take limits', () => {
     expect(data.p2pLimit).toEqual({ until: '2026-10-23T18:04:05.123Z', cap: '2', openTradeIds: [trade] });
   });
 
+  it('keeps a buying pause with its end, the cancels and the window', () => {
+    expect(p2pLimitOf(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: '24' }))).toEqual({
+      until: '2026-10-24T09:00:00.000Z',
+      cap: '3',
+      windowHours: '24',
+    });
+    expect(p2pLimitOf(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: 24 }))).toBeUndefined();
+  });
+
   it('keeps a limit with no end time and its bounds', () => {
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
       until: null,
@@ -296,6 +305,12 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, openTradeIds: ['not a trade'] }))).toBeUndefined();
     expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, cap: '2', note: 'internal' }))).toEqual({ until: null, cap: '2' });
     expect(p2pLimitOf(refused('p2p.quote_expired', { until: null }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'regulation' }))).toEqual({
+      until: null,
+      reason: 'regulation',
+    });
+    expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'the bank said so' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, reason: 'regulation' }))).toBeUndefined();
     expect(p2pLimitOf(undefined)).toBeUndefined();
   });
 });

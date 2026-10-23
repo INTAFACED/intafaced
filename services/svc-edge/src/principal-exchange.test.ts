@@ -286,7 +286,7 @@ describe('API key bearers (ifc_…) exchange into access JWTs', () => {
       expect(String(input)).toContain('/trpc/apiKeys.exchange');
       expect(init?.method).toBe('POST');
       const body = JSON.parse(String(init?.body));
-      expect(body).toEqual({ json: { key: 'ifc_live_secret_key' } });
+      expect(body).toEqual({ key: 'ifc_live_secret_key' });
       return new Response(JSON.stringify({ result: { data: { json: { accessToken } } } }), {
         status: 200,
         headers: { 'content-type': 'application/json' },

@@ -1,26 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
-import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useLocation } from '../../app/location';
+import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
-import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from '../more/support-desk';
-import { deskCopy } from '../more/support-desk-copy';
+import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
+import { HelpLibraryNav } from './HelpLibrary';
+import { kbArticleText } from './kb-text';
+import { canonicalUiLocale, uiLocaleDescriptor } from '../../shared/locale';
+import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
 import '../more/support-desk.css';
-
-const CATEGORY_KEY = {
-  all: 'categoryAll',
-  account: 'categoryAccount',
-  security: 'categorySecurity',
-  trading: 'categoryTrading',
-  money: 'categoryMoney',
-  general: 'categoryGeneral',
-} as const;
 
 type Actor = { client: ApiClient; owner: string | null; token: string | null };
 type Context = { actor: Actor; url: string };
@@ -54,12 +48,33 @@ export function PublicHelp() {
   const [window, setWindow] = useState({ actor, limit: 100 }),
     [retry, setRetry] = useState(0);
   const [read, setRead] = useState<Read | null>(null);
-  const [category, setCategory] = useState<KbCategory>('all');
-  const desk = deskCopy.useCopy();
+  // A reader's pick holds for the answer it was made on; another answer opens in the reader's own language again.
+  const [picked, setPicked] = useState<{ id: string; code: string } | null>(null);
+  const helpCentre = useHelpCentre();
+  const settings = helpCentre.status === 'ready' ? helpCentre.data : null;
+  // The owner's offered languages, compared by canonical code (an owner's `pt-br` is the catalogue's `pt-BR`). None offered
+  // (blank) draws no picker: the reader reads in the site language.
+  const offered = settings?.languages?.length ? settings.languages.map((tag) => ({ tag, code: canonicalLanguage(tag) })) : null;
+  const pickedHere = picked && selection.kind === 'article' && picked.id === selection.id ? picked.code : null;
+  const offers = (code: string | null | undefined) => Boolean(code && offered?.some((row) => row.code === code));
+  const defaultCode = settings?.defaultLanguage ? canonicalLanguage(settings.defaultLanguage) : null;
+  const reading = !offered
+    ? null
+    : offers(pickedHere)
+      ? pickedHere!
+      : offers(requestedLocale)
+        ? requestedLocale
+        : offers(defaultCode)
+          ? defaultCode!
+          : offered[0]!.code;
+  const readingLocale = (selection.kind === 'article' && reading && canonicalUiLocale(reading)) || requestedLocale;
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
   const visible = read?.context === context && location.href === context.url ? read : null;
+  const switchedOff = helpCentreSwitchedOff(helpCentre, visible?.status === 'failed' ? visible.failure : null);
+  // The switch is read before any answer is drawn, so a switched-off help centre never flashes its answers first.
+  const settingsLoading = helpCentre.status === 'loading';
   const same = (captured: Context) => mounted.current && contextRef.current === captured && location.href === captured.url;
   useEffect(() => {
     mounted.current = true;
@@ -111,45 +126,75 @@ export function PublicHelp() {
     if (visible && (selection.kind !== 'browse' || visible.status === 'failed')) heading.current?.focus();
   }, [context, read]);
 
-  const rendered = (article: HelpArticle) => ({
-    title: publishedCopy(article.titleKey, requestedLocale),
-    body: publishedCopy(article.bodyKey, requestedLocale),
-    titleLanguage: publishedLanguageFor(article.titleKey, requestedLocale),
-    bodyLanguage: publishedLanguageFor(article.bodyKey, requestedLocale),
-  });
+  const rendered = (article: HelpArticle) => kbArticleText(article, readingLocale);
+  /** Paragraphs as the reader sees them: a stored body by its blank lines, a catalogue body by its sentences. */
+  const paragraphs = (article: HelpArticle) => {
+    const text = rendered(article);
+    if (!text.body) return [];
+    return text.stored ? supportKbParagraphs(text.body) : text.body.split(/(?<=[.!?])\s+/);
+  };
   const fallback = (article: HelpArticle) => {
     const text = rendered(article);
+    if (text.stored) return false;
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
   };
+  /** The language the reader actually sees, when it is not the one they asked for: the body's, or else the title's. */
+  const shownInstead = (article: HelpArticle) => {
+    if (!reading) return null;
+    const text = rendered(article);
+    const languages = [text.bodyLanguage, text.titleLanguage].filter((tag): tag is string => Boolean(tag)).map(canonicalLanguage);
+    return languages.find((code) => code !== reading) ?? null;
+  };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
-  const articles =
-    loaded?.articles.filter((article) => {
-      if (!inKbCategory(article.id, category)) return false;
-      const text = rendered(article);
-      return [text.title ?? '', text.body ?? '', article.id]
-        .join(' ')
-        .toLocaleLowerCase(requestedLocale)
-        .includes(filterText.trim().toLocaleLowerCase(requestedLocale));
-    }) ?? [];
+  const typed = filterText.trim();
+  // The service ranks a search: a labelled answer comes before one that only mentions the words. Answers on this page whose
+  // translated text matches follow, so a catalogue answer found by its words in the reader's language is never lost.
+  const ranked = useResource(
+    (signal): Promise<ApiResult<HelpArticle[]>> =>
+      typed && loaded && !switchedOff
+        ? actor.client.query('support', 'searchKb', { q: typed, limit }, helpWindow(limit), { signal })
+        : Promise.resolve({ ok: true, data: [] }),
+    `help-search:${actor.owner ?? 'public'}:${limit}:${typed}:${Boolean(loaded && !switchedOff)}`,
+  );
+  const textMatches = (article: HelpArticle) => {
+    const text = rendered(article);
+    return [text.title ?? '', text.body ?? '', article.id]
+      .join(' ')
+      .toLocaleLowerCase(requestedLocale)
+      .includes(typed.toLocaleLowerCase(requestedLocale));
+  };
+  const rankedRows = ranked.resource.status === 'ready' ? ranked.resource.data : [];
+  // Until the ranking answers, no count or "no matches" is said: the labelled answer may only be found by the service.
+  const ranking = Boolean(typed) && ranked.resource.status === 'loading';
+  const rankedIds = new Set(rankedRows.map((row) => row.id));
+  const articles = !loaded
+    ? []
+    : !typed
+      ? loaded.articles
+      : [...rankedRows, ...loaded.articles.filter((article) => !rankedIds.has(article.id) && textMatches(article))];
   const article = visible?.status === 'ready' && visible.value.kind === 'article' ? visible.value.article : null;
   const missing =
     selection.kind === 'article' && selection.version !== undefined && visible?.status === 'failed' && missingHelpVersion(visible.failure);
   const invalid = selection.kind === 'invalid';
   const readyNull = visible?.status === 'ready' && visible.value.kind === 'article' && visible.value.article === null;
-  const title = invalid
-    ? t('invalid')
-    : selection.kind === 'browse'
-      ? t('title')
-      : article
-        ? (rendered(article).title ?? t('textUnavailable'))
-        : missing
-          ? t('versionMissing')
-          : readyNull
-            ? t('notReturned')
-            : visible?.status === 'failed'
-              ? t('unavailable')
-              : t('loadingArticle');
-  const titleLanguage = article ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
+  const title = switchedOff
+    ? t('title')
+    : invalid
+      ? t('invalid')
+      : selection.kind === 'browse'
+        ? t('title')
+        : article
+          ? (rendered(article).title ?? t('textUnavailable'))
+          : missing
+            ? t('versionMissing')
+            : readyNull
+              ? t('notReturned')
+              : visible?.status === 'failed'
+                ? t('unavailable')
+                : t('loadingArticle');
+  const instead = article && !switchedOff ? shownInstead(article) : null;
+  const titleLanguage =
+    article && !switchedOff ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
   const original = selection.kind === 'article' && (
     <div className="help__original">
       <p className="muted">{t('requestedArticle')}</p>
@@ -179,7 +224,7 @@ export function PublicHelp() {
   );
   return (
     <div className="help" lang={languageFor('title')}>
-      {selection.kind !== 'browse' && (
+      {selection.kind !== 'browse' && !switchedOff && (
         <a href="/help" className="help__link text-link">
           {t('back')}
         </a>
@@ -188,8 +233,8 @@ export function PublicHelp() {
         <h1 ref={heading} tabIndex={-1} lang={titleLanguage}>
           {title}
         </h1>
-        {selection.kind === 'browse' && <p className="muted">{t('description')}</p>}
-        {article && (
+        {selection.kind === 'browse' && !switchedOff && <p className="muted">{t('description')}</p>}
+        {article && !switchedOff && (
           <p className="help__caption muted">
             {helpVersion(article) === undefined ? (
               t('publishedAnswer')
@@ -204,9 +249,46 @@ export function PublicHelp() {
             </span>
           </p>
         )}
-        {article && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
+        {article && !switchedOff && offered && reading && (
+          <div className="help__language">
+            <label>
+              <span>{t('articleLanguage')}</span>{' '}
+              <select name="help-language" value={reading} onChange={(event) => setPicked({ id: article.id, code: event.target.value })}>
+                {offered.map((row) => (
+                  <option key={row.tag} value={row.code} lang={row.code}>
+                    {languageName(row.code, row.code)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {instead && (
+              <p className="help__caption" role="status" data-testid="help-language-fallback">
+                {t('languageFallback', {
+                  wanted: languageName(reading, requestedLocale),
+                  shown: languageName(instead, requestedLocale),
+                })}
+              </p>
+            )}
+          </div>
+        )}
+        {article && !switchedOff && !offered && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
       </header>
-      {invalid ? (
+      {settingsLoading ? (
+        <Loading label={t('loadingCatalogue')} />
+      ) : switchedOff ? (
+        <>
+          <section className="help__card help__measure" role="status" data-testid="help-centre-off">
+            <h2 lang={languageFor('switchedOffTitle')}>{t('switchedOffTitle')}</h2>
+            <p className="muted" lang={languageFor('switchedOffBody')}>
+              {t('switchedOffBody')}
+            </p>
+          </section>
+          <div className="help__request">
+            <RequestEntry />
+          </div>
+          {support()}
+        </>
+      ) : invalid ? (
         <>
           <section className="help__card help__measure">
             <p>{t('invalidBody')}</p>
@@ -237,8 +319,9 @@ export function PublicHelp() {
             <Button type="submit">{t('search')}</Button>
           </form>
           <div className="help__request">
-            <RequestEntry />
+            <RequestEntry query={typed} />
           </div>
+          <HelpLibraryNav />
           <p className="help__caption muted" role="status">
             {loaded ? (
               <>
@@ -262,20 +345,6 @@ export function PublicHelp() {
               )}
               {loaded && (
                 <>
-                  <div className="support-chips" role="group" aria-label={desk.t('categoriesLabel')}>
-                    {KB_CATEGORIES.filter((id) => kbCategoryCounts(loaded.articles.map((row) => row.id))[id]).map((id) => (
-                      <button
-                        type="button"
-                        key={id}
-                        className={`support-chip${category === id ? ' support-chip--on' : ''}`}
-                        aria-pressed={category === id}
-                        onClick={() => setCategory(id)}
-                      >
-                        {desk.t(CATEGORY_KEY[id])}{' '}
-                        <span aria-hidden="true">{kbCategoryCounts(loaded.articles.map((row) => row.id))[id]}</span>
-                      </button>
-                    ))}
-                  </div>
                   <div className="help__list">
                     {articles.map((row) => {
                       const text = rendered(row);
@@ -292,7 +361,7 @@ export function PublicHelp() {
                             </a>
                           </div>
                           <p className="muted" lang={text.bodyLanguage ?? languageFor('bodyUnavailable')}>
-                            {text.body?.split(/(?<=[.!?])\s+/)[0] ?? t('bodyUnavailable')}
+                            {paragraphs(row)[0] ?? t('bodyUnavailable')}
                           </p>
                           <p className="help__caption muted">
                             {helpVersion(row) === undefined ? (
@@ -308,13 +377,19 @@ export function PublicHelp() {
                       );
                     })}
                   </div>
-                  {!articles.length && (
+                  {!articles.length && !ranking && (
                     <div className="help__empty" role="status">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
                     </div>
                   )}
-                  {filterText && (
+                  {ranking && <Loading label={t('searching')} />}
+                  {typed && ranked.resource.status === 'failed' && (
+                    <p className="help__caption muted" role="status" data-testid="help-search-unranked">
+                      {t('searchUnranked')}
+                    </p>
+                  )}
+                  {typed && !ranking && (
                     <p className="help__caption muted" role="status">
                       <span lang="zxx">{articles.length}</span> {t('matches')}
                     </p>
@@ -339,9 +414,7 @@ export function PublicHelp() {
             <>
               <article className="help__body help__measure" lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}>
                 {rendered(article).body ? (
-                  rendered(article)
-                    .body!.split(/(?<=[.!?])\s+/)
-                    .map((paragraph, index) => <p key={index}>{paragraph}</p>)
+                  paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
                 ) : (
                   <p>{t('bodyUnavailable')}</p>
                 )}
@@ -407,4 +480,20 @@ export function PublicHelp() {
       )}
     </div>
   );
+}
+
+/** A tag in the catalogue's canonical spelling where the catalogue knows it (`pt-br` → `pt-BR`), else as the owner wrote it. */
+function canonicalLanguage(tag: string): string {
+  return canonicalUiLocale(tag) ?? tag;
+}
+
+/** A language by its name, written in the given language; the app's own name for a catalogue language, else the tag. */
+function languageName(code: string, inLanguage: string): string {
+  const known = canonicalUiLocale(code);
+  if (known && known === inLanguage) return uiLocaleDescriptor(known).nativeName;
+  try {
+    return new Intl.DisplayNames([inLanguage], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }

@@ -34,7 +34,12 @@ const STATE: Record<AcademyCourse['state'], { label: string; tone: ChipTone }> =
   deleted: { label: 'Deleted', tone: 'danger' },
 };
 
-function Outcome({ reply }: { reply: CourseDeskReply | null }) {
+/** The answer to the last change, as the desk and the lesson editor show it. */
+export function Outcome({
+  reply,
+}: {
+  reply: Pick<CourseDeskReply & { ok: true }, 'ok' | 'what'> | (CourseDeskReply & { ok: false }) | null;
+}) {
   if (!reply) return null;
   if (reply.ok)
     return (
@@ -58,7 +63,7 @@ function Outcome({ reply }: { reply: CourseDeskReply | null }) {
   );
 }
 
-function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
+export function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
   return (
     <div className="adm-callout" data-tone="danger" role="status" data-code={code ?? ''}>
       <strong>{title}</strong>
@@ -68,7 +73,7 @@ function Failed({ title, message, code }: { title: string; message: string; code
   );
 }
 
-function AcademyNav() {
+export function AcademyNav() {
   return (
     <nav aria-label="Sections" className="dk-row">
       {ACADEMY_PAGES.map((p) => (
@@ -333,9 +338,9 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
-          {/* Remounts only when the stored outline changes (a save writes new ids), so a details save keeps unsaved outline edits. */}
+          {/* Remounts when a stored section or item is added or removed, so new items take their ids; a details save keeps unsaved outline edits. */}
           <OutlineEditor
-            key={detail.data.outline.map((s) => s.id).join() || 'empty'}
+            key={detail.data.outline.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]).join() || 'empty'}
             detail={detail.data}
             busy={busy}
             onSave={(sections) => void send({ op: 'outline', courseId, revision: detail.data.course.revision, sections })}
@@ -390,7 +395,9 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
                       ? 'details saved'
                       : e.kind === 'outline'
                         ? 'outline saved'
-                        : `moved to ${e.toState}`}{' '}
+                        : e.kind === 'lesson'
+                          ? 'a lesson published to learners'
+                          : `moved to ${e.toState}`}{' '}
                   (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>

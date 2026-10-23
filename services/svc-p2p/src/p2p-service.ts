@@ -42,7 +42,13 @@ import {
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
 import type { P2pLimitDetails } from '@intafaced/contracts';
-import { ONGOING_TRADE_STATUSES, pairLimitRefusal, type TakeLimits } from './take-limits.js';
+import {
+  BUYER_CANCEL_REASON_PREFIX,
+  BUYER_TIMEOUT_REASON,
+  ONGOING_TRADE_STATUSES,
+  pairLimitRefusal,
+  type TakeLimits,
+} from './take-limits.js';
 import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
@@ -114,7 +120,7 @@ import {
 } from './reputation.js';
 import { InstrumentError, methodIdKey, methodsWithLiveDestination, missingSellDestinations, sellOfferBoardable } from './instruments.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
-import type { DenialSink } from './instrument-service.js';
+import type { DelistReason, DenialSink } from './instrument-service.js';
 import { withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
@@ -163,7 +169,9 @@ export type P2pErrorCode =
   | 'p2p.quote_expired'
   | 'p2p.quote_changed'
   | 'p2p.active_order_cap'
+  | 'p2p.buying_restricted'
   | 'p2p.pair_limit_exceeded'
+  | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
   | 'p2p.offer_not_active'
   | 'p2p.offer_method_unsupported'
@@ -586,6 +594,12 @@ export interface TradeInstrumentAttacher {
    * rail exists yet — not "any string the maker types is a method".
    */
   enabledMethodKeys(): Promise<ReadonlySet<string>>;
+
+  /**
+   * P-trade-orders-03: why a method is retired everywhere, or `null`. Read outside any take transaction (it runs on
+   * the instrument service's own pool). Optional so a test stub without a catalogue still builds.
+   */
+  retiredMethod?(methodId: string): Promise<{ reason: DelistReason; delistedAt: Date } | null>;
 }
 
 export interface P2pServiceOptions {
@@ -1215,6 +1229,60 @@ export class P2pService {
     });
   }
 
+  /**
+   * P-trade-orders-05: a buyer who cancelled the owner's number of orders within the window (their own cancels and
+   * payment windows they let run out) may not buy until the oldest of those leaves it: no take of a sell ad, no new
+   * buy ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
+   * instrument-owner lock on a take.
+   */
+  private async assertBuyingNotRestricted(
+    sql: Sql,
+    input: { buyerId: string; tradeId: string | null; /** The buyer is the ad's maker, not the person asking. */ asMaker: boolean },
+  ): Promise<void> {
+    if (!this.takeLimits) return;
+    const { limit, windowHours } = this.takeLimits.buyerCancels;
+    if (limit === null || windowHours === null) {
+      throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
+    }
+    const buyerId = input.buyerId;
+    const recent = await sql<{ until: Date }[]>`
+      SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
+        FROM p2p.p2p_trades
+       WHERE buyer_id = ${buyerId}
+         AND status = 'cancelled'
+         AND (starts_with(resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR resolution_reason = ${BUYER_TIMEOUT_REASON})
+         AND resolved_at > now() - make_interval(hours => ${windowHours})
+       ORDER BY resolved_at DESC
+       LIMIT ${limit}
+    `;
+    if (recent.length < limit) return;
+    // A retry of a take that already placed its trade is that trade (`p2p.trade_exists` below), never "paused,
+    // nothing placed" because of cancels made since.
+    if (input.tradeId && (await sql`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`).length > 0) return;
+    // A seller taking a paused buyer's ad is told only that the ad takes no orders: the pause is the buyer's own.
+    if (input.asMaker) throw new P2pError('This offer is not taking orders', 'p2p.offer_not_active');
+    // The latest `limit` cancels are all inside the window; buying returns when the oldest of them leaves it.
+    throw new P2pError(`You cancelled ${limit} orders within ${windowHours} hours, so buying is paused`, 'p2p.buying_restricted', {
+      until: recent[limit - 1]!.until.toISOString(),
+      cap: String(limit),
+      windowHours: String(windowHours),
+    });
+  }
+
+  /**
+   * P-trade-orders-03: an ad may still list a method the operator has since retired everywhere. The take refuses by
+   * name with the operator's reason; a retirement has no end time. A method merely without the seller's destination
+   * keeps the uniform take refusal, which says nothing about anyone's accounts.
+   */
+  private async assertMethodNotRetired(method: string): Promise<void> {
+    const retired = await this.instruments.retiredMethod?.(method);
+    if (!retired) return;
+    throw new P2pError(`The payment method ${method} is retired: ${retired.reason}`, 'p2p.method_delisted', {
+      until: null,
+      reason: retired.reason,
+    });
+  }
+
   /** P-trade-orders-03: the order's fiat amount against the owner's bounds for this asset and fiat pair. */
   private assertPairLimit(input: { asset: string; fiatCurrency: string; fiatAmount: Amount }): void {
     if (!this.takeLimits) return;
@@ -1359,6 +1427,8 @@ export class P2pService {
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
+    // A paused buyer posts no buy ad either (P-trade-orders-05).
+    if (input.side === 'buy') await this.assertBuyingNotRestricted(this.sql, { buyerId: input.makerId, tradeId: null, asMaker: false });
 
     const fiatCurrency = input.fiatCurrency.toUpperCase();
     if (!isSupportedFiat(fiatCurrency)) {
@@ -1801,116 +1871,118 @@ export class P2pService {
      * `finally`, once `transaction` has rolled back and given the connection
      * back. Same row, same reason, one connection at a time.
      */
-    return this.instruments.duringTake((sink) =>
-      transaction(
-        this.sql,
-        async (tx) => {
-          // BEFORE ANY ROW LOCK, and before the offer is even read: this take
-          // will copy one of these two people's bank details onto the trade,
-          // and `eraseFor` is the other writer of that data. Whichever of them
-          // arrives second must SEE the first rather than read around it —
-          // without this, an erase committing between this transaction's
-          // instrument read and its snapshot INSERT left cleartext account
-          // details on a trade the person had just been told was clear.
-          //
-          // Both parties, because either can be the seller depending on the
-          // offer's side; sorted inside the helper, so two takes cannot
-          // deadlock on each other. `preview.makerId` rather than the locked
-          // row's: locks must come before row locks, and `maker_id` is written
-          // once and never updated. See `instrument-lock.ts`.
-          await lockInstrumentOwners(tx, preview.makerId, input.takerId);
+    try {
+      return await this.instruments.duringTake((sink) =>
+        transaction(
+          this.sql,
+          async (tx) => {
+            // BEFORE ANY ROW LOCK, and before the offer is even read: this take
+            // will copy one of these two people's bank details onto the trade,
+            // and `eraseFor` is the other writer of that data. Whichever of them
+            // arrives second must SEE the first rather than read around it —
+            // without this, an erase committing between this transaction's
+            // instrument read and its snapshot INSERT left cleartext account
+            // details on a trade the person had just been told was clear.
+            //
+            // Both parties, because either can be the seller depending on the
+            // offer's side; sorted inside the helper, so two takes cannot
+            // deadlock on each other. `preview.makerId` rather than the locked
+            // row's: locks must come before row locks, and `maker_id` is written
+            // once and never updated. See `instrument-lock.ts`.
+            await lockInstrumentOwners(tx, preview.makerId, input.takerId);
 
-          const rows = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`;
-          const row = rows[0];
-          if (!row) throw new P2pError(`Offer ${input.offerId} not found`, 'p2p.offer_not_found');
+            const rows = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`;
+            const row = rows[0];
+            if (!row) throw new P2pError(`Offer ${input.offerId} not found`, 'p2p.offer_not_found');
 
-          const offer = toOffer(row);
-          if (offer.status !== 'active') {
-            throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
-          }
-          if (offer.makerId === input.takerId) {
-            // Self-trading manufactures a completion record, and a flawless P2P
-            // record raises limits platform-wide (§6.2 → §4.1).
-            throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
-          }
-          if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
-            throw new P2pError('p2p.blocked', 'p2p.blocked');
-          }
-          // Computed here rather than after pricing, because the refusal below
-          // has to name the seller in the access log.
-          const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
-          this.assertSellNotLocked(input.takerId === sellerId);
+            const offer = toOffer(row);
+            if (offer.status !== 'active') {
+              throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
+            }
+            if (offer.makerId === input.takerId) {
+              // Self-trading manufactures a completion record, and a flawless P2P
+              // record raises limits platform-wide (§6.2 → §4.1).
+              throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
+            }
+            if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
+              throw new P2pError('p2p.blocked', 'p2p.blocked');
+            }
+            // Computed here rather than after pricing, because the refusal below
+            // has to name the seller in the access log.
+            const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
+            this.assertSellNotLocked(input.takerId === sellerId);
 
-          if (!methodAllowed(offer.methods, input.method)) {
-            // NOT a distinct error any more. "The offer does not accept that
-            // method" and "the seller holds no destination for that method" are
-            // the same sentence to the caller, deliberately: any difference
-            // between them is a bit of information about someone else's bank
-            // accounts, handed out for free. See `TAKE_REFUSED_MESSAGE`.
-            await this.instruments.refuseTake({ takerId: input.takerId, sellerId, tradeId: input.tradeId, sink });
-          }
+            if (!methodAllowed(offer.methods, input.method)) {
+              // NOT a distinct error any more. "The offer does not accept that
+              // method" and "the seller holds no destination for that method" are
+              // the same sentence to the caller, deliberately: any difference
+              // between them is a bit of information about someone else's bank
+              // accounts, handed out for free. See `TAKE_REFUSED_MESSAGE`.
+              await this.instruments.refuseTake({ takerId: input.takerId, sellerId, tradeId: input.tradeId, sink });
+            }
 
-          // BEFORE ANY LOCK. Both bounds and the remaining liquidity, under the
-          // row lock, so two concurrent takers cannot both pass the same check.
-          assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
-          await this.assertActiveOrderCap(tx, { takerId: input.takerId, excludeTradeId: input.tradeId });
+            // BEFORE ANY LOCK. Both bounds and the remaining liquidity, under the
+            // row lock, so two concurrent takers cannot both pass the same check.
+            assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
+            await this.assertActiveOrderCap(tx, { takerId: input.takerId, excludeTradeId: input.tradeId });
+            await this.assertBuyingNotRestricted(tx, { buyerId, tradeId: input.tradeId, asMaker: input.takerId !== buyerId });
 
-          // P-trade-orders-06: a named quote holds its price. A floating ad is placed at the price it was quoted at,
-          // not at the reference read a moment ago; a fixed ad's price must be the one quoted.
-          const held = input.quoteId
-            ? await heldQuote(tx, {
-                quoteId: input.quoteId,
-                tradeId: input.tradeId,
-                takerId: input.takerId,
-                offerId: offer.id,
-                method: input.method,
-                amount: input.amount,
-              })
-            : null;
-          const priced = quote({
-            amount: input.amount,
-            ...(held && offer.priceType === 'float'
-              ? { priceType: 'fixed' as const, price: parseAmount(held.price), referencePrice: null }
-              : { priceType: offer.priceType, price: offer.price, referencePrice }),
-            fiatCurrency: offer.fiatCurrency,
-          });
-
-          const now = await txNow(tx);
-          const deadlineAt = deadlineFor('created', now, this.deadlines);
-          const deadlines = withDeadline({}, 'created', deadlineAt);
-          // Fee is constructor/`P2P_FEE_BPS` only — never a take-time argument.
-          // Unset refuses rather than inventing 30 (or 0).
-          const feeBps = publishedFeeBps(this.feeBps);
-          if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
-          this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
-          // Before inventory moves: a dust take that cannot post a release would
-          // lock value into a trade that can never settle.
-          assertReleasePostable(input.amount, feeBps);
-          if (this.verificationLimits.status !== 'absent') {
-            await this.assertBuyerVerificationLimit(tx, {
-              buyerId,
+            // P-trade-orders-06: a named quote holds its price. A floating ad is placed at the price it was quoted at,
+            // not at the reference read a moment ago; a fixed ad's price must be the one quoted.
+            const held = input.quoteId
+              ? await heldQuote(tx, {
+                  quoteId: input.quoteId,
+                  tradeId: input.tradeId,
+                  takerId: input.takerId,
+                  offerId: offer.id,
+                  method: input.method,
+                  amount: input.amount,
+                })
+              : null;
+            const priced = quote({
+              amount: input.amount,
+              ...(held && offer.priceType === 'float'
+                ? { priceType: 'fixed' as const, price: parseAmount(held.price), referencePrice: null }
+                : { priceType: offer.priceType, price: offer.price, referencePrice }),
               fiatCurrency: offer.fiatCurrency,
-              fiatAmount: priced.fiatAmount,
-              tier: this.buyerLimitTier({
-                takerId: input.takerId,
-                buyerId,
-                takerTier: input.tier,
-                makerTier: offer.makerTier,
-              }),
-              excludeTradeId: input.tradeId,
-              lock: true,
-              callerIsBuyer: input.takerId === buyerId,
             });
-          }
 
-          await tx`
+            const now = await txNow(tx);
+            const deadlineAt = deadlineFor('created', now, this.deadlines);
+            const deadlines = withDeadline({}, 'created', deadlineAt);
+            // Fee is constructor/`P2P_FEE_BPS` only — never a take-time argument.
+            // Unset refuses rather than inventing 30 (or 0).
+            const feeBps = publishedFeeBps(this.feeBps);
+            if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
+            this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
+            // Before inventory moves: a dust take that cannot post a release would
+            // lock value into a trade that can never settle.
+            assertReleasePostable(input.amount, feeBps);
+            if (this.verificationLimits.status !== 'absent') {
+              await this.assertBuyerVerificationLimit(tx, {
+                buyerId,
+                fiatCurrency: offer.fiatCurrency,
+                fiatAmount: priced.fiatAmount,
+                tier: this.buyerLimitTier({
+                  takerId: input.takerId,
+                  buyerId,
+                  takerTier: input.tier,
+                  makerTier: offer.makerTier,
+                }),
+                excludeTradeId: input.tradeId,
+                lock: true,
+                callerIsBuyer: input.takerId === buyerId,
+              });
+            }
+
+            await tx`
             UPDATE p2p.offers
                SET remaining_amt = remaining_amt - ${formatAmount(input.amount)}::numeric,
                    updated_at = now()
              WHERE id = ${offer.id}
           `;
 
-          const inserted = await tx<TradeRow[]>`
+            const inserted = await tx<TradeRow[]>`
             INSERT INTO p2p.p2p_trades (
               id, offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency,
               amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at,
@@ -1928,39 +2000,49 @@ export class P2pService {
             RETURNING *
           `;
 
-          if (!inserted[0]) {
-            // A retry of the same take. The inventory was already reserved by the
-            // original, so it must not be reserved again — abort the transaction
-            // rather than let the decrement above stand.
-            throw new P2pError(`Trade ${input.tradeId} already exists`, 'p2p.trade_exists');
-          }
+            if (!inserted[0]) {
+              // A retry of the same take. The inventory was already reserved by the
+              // original, so it must not be reserved again — abort the transaction
+              // rather than let the decrement above stand.
+              throw new P2pError(`Trade ${input.tradeId} already exists`, 'p2p.trade_exists');
+            }
 
-          // WHERE THE BUYER WILL SEND THE MONEY, frozen onto the trade in the same
-          // transaction that created it. Two things follow from it being here:
-          //
-          //   · a trade with no destination is not a state that can be committed,
-          //     so the buyer is never shown a payment step with nothing in it;
-          //   · a seller with no destination is refused BEFORE any lock, with the
-          //     rest of phase A. The alternative is escrowing their asset against
-          //     a payment nobody can make and letting them find out fifteen
-          //     minutes later, via a timeout, that it was knowable up front.
-          //
-          // The snapshot is taken now and never re-read, which is also what stops
-          // a seller swapping the destination once the buyer has started paying.
-          await this.instruments.attachToTrade(tx, {
-            tradeId: input.tradeId,
-            sellerId,
-            takerId: input.takerId,
-            methodId: input.method,
-            fiatCurrency: offer.fiatCurrency,
-            sink,
-          });
+            // WHERE THE BUYER WILL SEND THE MONEY, frozen onto the trade in the same
+            // transaction that created it. Two things follow from it being here:
+            //
+            //   · a trade with no destination is not a state that can be committed,
+            //     so the buyer is never shown a payment step with nothing in it;
+            //   · a seller with no destination is refused BEFORE any lock, with the
+            //     rest of phase A. The alternative is escrowing their asset against
+            //     a payment nobody can make and letting them find out fifteen
+            //     minutes later, via a timeout, that it was knowable up front.
+            //
+            // The snapshot is taken now and never re-read, which is also what stops
+            // a seller swapping the destination once the buyer has started paying.
+            await this.instruments.attachToTrade(tx, {
+              tradeId: input.tradeId,
+              sellerId,
+              takerId: input.takerId,
+              methodId: input.method,
+              fiatCurrency: offer.fiatCurrency,
+              sink,
+            });
 
-          return toTrade(inserted[0]);
-        },
-        { isolation: 'read committed', maxAttempts: 5 },
-      ),
-    );
+            return toTrade(inserted[0]);
+          },
+          { isolation: 'read committed', maxAttempts: 5 },
+        ),
+      );
+    } catch (err) {
+      // The uniform take refusal, explained when the method is retired everywhere (a catalogue fact, nothing about
+      // anyone's accounts). Asked only here, after the rollback has given the connection back (a pool request from
+      // inside the transaction is the queue described above), and only for a refused take: a retry of a take that
+      // already placed its trade answers `p2p.trade_exists` before any method check and is never relabelled.
+      if (err instanceof InstrumentError && err.code === 'p2p.take_refused' && methodAllowed(preview.methods, input.method)) {
+        await this.assertMethodNotRetired(input.method);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -3669,6 +3751,7 @@ export class P2pService {
     if (!methodAllowed(offer.methods, input.method)) {
       throw new InstrumentError(resolveP2pCopy(P2P_COPY.takeRefused), 'p2p.take_refused');
     }
+    await this.assertMethodNotRetired(input.method);
     const referencePrice =
       offer.priceType === 'float' ? ((await this.referencePrices?.price(offer.asset, offer.fiatCurrency)) ?? null) : null;
     if (input.fiatAmount !== undefined && quantiseFiat(input.fiatAmount, offer.fiatCurrency, 'floor') !== input.fiatAmount) {
@@ -3687,6 +3770,7 @@ export class P2pService {
     assertReleasePostable(amount, feeBps);
     // The take checks both again under its locks; here they let the review step refuse before a quote is held.
     await this.assertActiveOrderCap(this.sql, { takerId: input.takerId, excludeTradeId: null });
+    await this.assertBuyingNotRestricted(this.sql, { buyerId, tradeId: null, asMaker: input.takerId !== buyerId });
     this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
     if (this.verificationLimits.status !== 'absent') {
       await this.assertBuyerVerificationLimit(this.sql, {

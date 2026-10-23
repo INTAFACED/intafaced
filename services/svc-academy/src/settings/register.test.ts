@@ -11,6 +11,7 @@ import { PENDING_OWNER_SETTINGS, settingsRegister, type SettingsEnv } from './re
 const FULL: SettingsEnv = {
   ACADEMY_OUTLINE_MAX_SECTIONS: 20,
   ACADEMY_OUTLINE_MAX_ITEMS: 200,
+  ACADEMY_LESSON_IMPORT_MAX_BYTES: 8192,
   ACADEMY_MAX_ROOM_CAPACITY: 7,
   ACADEMY_PAPER_MARKETS_LIMIT: 3,
   TRADE_URL: 'http://trade.test',
@@ -75,6 +76,11 @@ describe('settingsRegister (AC-order-02)', () => {
     expect(row({}, 'watch_threshold').refusalCode).toBe('academy.watch_threshold_unset');
     expect(row({}, 'section_limit')).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.outline_limits_unset' });
     expect(row({}, 'item_limit')).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.outline_limits_unset' });
+    expect(row({}, 'lesson_import_size_limit')).toMatchObject({
+      state: 'not_set',
+      store: 'env',
+      refusalCode: 'academy.import_limit_unset',
+    });
     expect(row({}, 'cert_verify_rate').refusalCode).toBe('academy.verify_rate_unset');
     expect(row({}, 'ambassador_ifc_pay_law').refusalCode).toBe('academy.ambassador_pay.rates_unset');
     expect(row({}, 'ambassador_revenue_share_law').refusalCode).toBe('academy.ambassador_revenue_share.rates_unset');

@@ -37,8 +37,8 @@ function fetchWith(
     const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
     if (authority) return authority;
     if (opts.expectPath) expect(String(input)).toContain(opts.expectPath);
-    const body = JSON.parse(String(init?.body)) as { json?: { key?: string; product?: string } };
-    if (opts.expectProduct !== undefined) expect(body.json?.product).toBe(opts.expectProduct);
+    const body = JSON.parse(String(init?.body)) as { key?: string; product?: string };
+    if (opts.expectProduct !== undefined) expect(body.product).toBe(opts.expectProduct);
     const token = await accessToken();
     const json: Record<string, unknown> = { accessToken: token, ...opts.extra };
     if (opts.productScopes !== undefined) json.productScopes = opts.productScopes;
@@ -155,7 +155,7 @@ describe('API key product/module scope at the session door', () => {
   });
 
   it('forwards x-product to identity exchange; never a reserved header', async () => {
-    const seen: { url?: string; headers?: Headers; body?: { json?: { product?: string } } } = {};
+    const seen: { url?: string; headers?: Headers; body?: { product?: string } } = {};
     await exchangePrincipal(
       { authorization: 'Bearer ifc_bound', 'x-product': LISTED, 'x-intafaced-product': FOREIGN },
       {
@@ -163,7 +163,7 @@ describe('API key product/module scope at the session door', () => {
         fetch: async (input, init) => {
           seen.url = String(input);
           seen.headers = new Headers(init?.headers);
-          seen.body = JSON.parse(String(init?.body)) as { json?: { product?: string } };
+          seen.body = JSON.parse(String(init?.body)) as { product?: string };
           return new Response(null, { status: 401 });
         },
       },
@@ -171,7 +171,7 @@ describe('API key product/module scope at the session door', () => {
     expect(seen.url).toContain('/trpc/exchangeApiKeyForProduct');
     expect(seen.headers?.get('x-product')).toBe(LISTED);
     expect(seen.headers?.get('x-intafaced-product')).toBeNull();
-    expect(seen.body?.json?.product).toBe(LISTED);
+    expect(seen.body?.product).toBe(LISTED);
   });
 
   it('unbound key with a named product still proceeds (does not invent a bind)', async () => {

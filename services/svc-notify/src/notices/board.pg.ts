@@ -13,6 +13,7 @@ import {
   STATUS_COMPONENT_PATTERN,
   type IncidentImpact,
   type IncidentPhase,
+  type NoticeCursor,
   type NoticeKind,
   type NoticeRow,
   type NoticeStore,
@@ -159,21 +160,26 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows[0] ? fromPg(rows[0]) : null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
-    const rows =
-      kind == null
-        ? await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published'
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `
-        : await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published' AND kind = ${kind}
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `;
+  async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
+    // Newest first, ties by id: the page after a cursor is what sorts after it in that same order. The cursor's time is
+    // read from its row here, so the comparison keeps the column's microseconds (a JS Date holds milliseconds).
+    const rows = after
+      ? await this.sql<NoticePg[]>`
+          WITH c AS (SELECT published_at AS cursor_at FROM notify.notices WHERE id = ${after.id})
+          SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices, c
+           WHERE status = 'published'
+             ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+             AND (published_at < c.cursor_at OR (published_at = c.cursor_at AND id > ${after.id}))
+           ORDER BY published_at DESC, id ASC
+           LIMIT ${limit}
+        `
+      : await this.sql<NoticePg[]>`
+          SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+           WHERE status = 'published'
+             ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+           ORDER BY published_at DESC, id ASC
+           LIMIT ${limit}
+        `;
     return rows.map(fromPg);
   }
 
