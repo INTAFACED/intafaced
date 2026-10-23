@@ -13,6 +13,7 @@
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
  *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-ops (the outreach intake and CRM) ·
+ *   svc-protocol (the Web3 rooms' read side; no chain node) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
  *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
@@ -58,6 +59,7 @@ import notify from './local-stack-services/notify.mjs';
 import ops from './local-stack-services/ops.mjs';
 import p2p from './local-stack-services/p2p.mjs';
 import pay from './local-stack-services/pay.mjs';
+import protocol from './local-stack-services/protocol.mjs';
 import quant from './local-stack-services/quant.mjs';
 import support from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
@@ -136,6 +138,8 @@ const PORTS = {
   'mining-pool': 14518,
   // The outreach intake behind the invitation site, and the founders' CRM.
   ops: 14519,
+  // The Web3 rooms' read side (no chain node on this stack).
+  protocol: 14520,
   customer: 3210,
   invitation: 3220,
   admin: 3100,
@@ -169,6 +173,7 @@ const SCHEMAS = [
   'tax',
   'mining_pool',
   'ops',
+  'protocol',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -558,6 +563,7 @@ const BACKEND_PKGS = [
   'svc-tax',
   'svc-mining-pool',
   'svc-ops',
+  'svc-protocol',
 ];
 
 function gitHead() {
@@ -841,13 +847,13 @@ const EDGE_UPSTREAMS = {
   TAX_URL: 'tax',
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
+  PROTOCOL_URL: 'protocol',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
+  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
+  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -880,6 +886,7 @@ const SERVICES = [
   execution,
   tax,
   miningPool,
+  protocol,
   edge,
 ];
 
