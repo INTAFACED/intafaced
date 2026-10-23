@@ -12,7 +12,7 @@ import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
 import { dec, isPositive } from '../../../data/decimal';
 import { clearPending, readPending, runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
-import type { FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput } from './api';
+import type { ConditionalOrder, FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput, Protection } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
@@ -20,7 +20,13 @@ export type Intent =
   | { op: 'close'; positionId: string; symbol: string; side: 'long' | 'short'; size: string; clientCloseId: string }
   | { op: 'leverage'; input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string } }
   | { op: 'margin-add'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
-  | { op: 'margin-reduce'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } };
+  | { op: 'margin-reduce'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
+  | {
+      op: 'protection';
+      input: { symbol: string; positionId: string; takeProfit: string | null; stopLoss: string | null; clientRequestId: string };
+    }
+  /** Cancel one armed take profit, stop loss or stop. The order's own id names it, so a second send changes nothing. */
+  | { op: 'cancel-trigger'; input: { symbol: string; id: string } };
 
 export type Operation = Intent['op'];
 
@@ -30,6 +36,10 @@ export function intentId(intent: Intent): string {
       return intent.input.clientOpenId;
     case 'close':
       return `close:${intent.positionId}`;
+    case 'protection':
+      return intent.input.clientRequestId;
+    case 'cancel-trigger':
+      return `cancel-trigger:${intent.input.id}`;
     default:
       return intent.input.clientAdjustmentId;
   }
@@ -134,9 +144,21 @@ export interface WriteResult {
   orders?: FuturesOrder[];
   /** A split that a child's own refusal stopped: the children in `orders` are live, the rest were not placed. */
   stopped?: FuturesSplit['stopped'];
+  /** A take-profit and stop-loss replace: the legs now armed. */
+  protection?: Protection;
+  /** A cancelled take profit, stop loss or stop, as it now stands. */
+  trigger?: ConditionalOrder;
 }
 
 async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+  if (intent.op === 'protection') {
+    const set = await api.setProtection(intent.input);
+    return set.ok ? { ok: true, data: { protection: set.data } } : set;
+  }
+  if (intent.op === 'cancel-trigger') {
+    const cancelled = await api.cancelConditional(intent.input.id);
+    return cancelled.ok ? { ok: true, data: { trigger: cancelled.data } } : cancelled;
+  }
   const result = await sendPosition(api, intent);
   return result.ok ? { ok: true, data: { position: result.data } } : result;
 }
@@ -145,7 +167,10 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteRe
   return intent.op === 'open' || intent.op === 'close' ? sendOrder(api, intent) : sendAdjustment(api, intent);
 }
 
-function sendPosition(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<Position>> {
+function sendPosition(
+  api: FuturesApi,
+  intent: Exclude<Intent, { op: 'open' | 'close' | 'protection' | 'cancel-trigger' }>,
+): Promise<ApiResult<Position>> {
   switch (intent.op) {
     case 'leverage':
       return api.setLeverage(intent.input);
@@ -158,7 +183,15 @@ function sendPosition(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'c
 
 export type WriteOutcome =
   | { kind: 'blocked'; reason: BlockReason; pending?: Pending }
-  | { kind: 'done'; position?: Position; order?: FuturesOrder; orders?: FuturesOrder[]; stopped?: FuturesSplit['stopped'] }
+  | {
+      kind: 'done';
+      position?: Position;
+      order?: FuturesOrder;
+      orders?: FuturesOrder[];
+      stopped?: FuturesSplit['stopped'];
+      protection?: Protection;
+      trigger?: ConditionalOrder;
+    }
   | { kind: 'refused'; refusal: FuturesRefusal }
   /**
    * The outcome is unknown. The note stays, so no other trade write goes out until this one is looked up. `notFound`: a
@@ -172,7 +205,8 @@ export type WriteOutcome =
  * profitable close that fails the payout-grade mark check). The shared client calls any 5xx on a write "uncertain"; for these
  * codes the answer is definite, so they must not leave the device-wide note behind.
  */
-const ROLLED_BACK_CODES: ReadonlySet<string> = new Set(['trade.mark_missing', 'trade.mark_unusable']);
+// Answered as 503 but nothing was changed: a missing mark, and price triggers switched off (nothing is armed or replaced).
+const ROLLED_BACK_CODES: ReadonlySet<string> = new Set(['trade.mark_missing', 'trade.mark_unusable', 'trade.conditional_trigger_off']);
 const isDefinite = (result: { ok: boolean; reason?: string; code?: string }) =>
   !result.ok && result.reason === 'uncertain' && result.code !== undefined && ROLLED_BACK_CODES.has(result.code);
 
@@ -270,6 +304,14 @@ export async function checkPending(
     if (order === null) return { kind: 'uncertain', id: pending.id, notFound: true };
     const none = nothingDone(order);
     return settle(userId, pending.id, none ? { kind: 'refused', refusal: futuresRefusal(none) } : { kind: 'done', order });
+  }
+  if (intent.op === 'cancel-trigger') {
+    // Read the order first: cancelled is the answer; still armed is sent again; one that fired or ended cannot be cancelled.
+    const read = await api.conditionalOrder(intent.input.id);
+    if (!read.ok) return { kind: 'uncertain', id: pending.id };
+    if (read.data.status === 'cancelled') return settle(userId, pending.id, { kind: 'done', trigger: read.data });
+    if (read.data.status !== 'armed')
+      return settle(userId, pending.id, { kind: 'refused', refusal: futuresRefusal({ code: 'trade.conditional_not_cancellable' }) });
   }
   if (intent.op === 'close') {
     const found = await lookup(api, intent);

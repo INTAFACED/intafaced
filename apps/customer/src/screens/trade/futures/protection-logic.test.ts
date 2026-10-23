@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest';
+import type { Position } from '@intafaced/exchange-contract/schemas';
+import type { ConditionalOrder } from './api';
+import { estimatedResult, isLive, legsOf, priceProblem, sideOfMark } from './protection-logic';
+
+// TEST figures only: nothing here is a real balance or price.
+const position: Position = {
+  id: 'p1',
+  symbol: 'BTC/USDT:USDT',
+  timestamp: 1_700_000_000_000,
+  datetime: '2023-11-14T22:13:20.000Z',
+  side: 'long',
+  status: 'open',
+  closingReason: null,
+  contracts: '0.5',
+  contractSize: '1',
+  entryPrice: '100',
+  markPrice: '110',
+  notional: '55',
+  leverage: '10',
+  collateral: '5',
+  initialMargin: '5.5',
+  maintenanceMargin: '1',
+  unrealizedPnl: '5',
+  realizedPnl: '0',
+  liquidationPrice: '90',
+  marginMode: 'isolated',
+  percentage: '100',
+};
+
+const leg = (over: Partial<ConditionalOrder>): ConditionalOrder => ({
+  id: 'c1',
+  market: 'BTC/USDT:USDT',
+  kind: 'take_profit',
+  side: 'sell',
+  quantity: '0.5',
+  triggerPrice: '120',
+  limitPrice: null,
+  positionId: 'p1',
+  attachment: 'take_profit',
+  status: 'armed',
+  cancelReason: null,
+  failureReason: null,
+  createdAt: '2026-10-23T10:00:00.000Z',
+  ...over,
+});
+
+describe('legsOf', () => {
+  it('shows the live leg over a newer finished one, and the newest finished one when none is live', () => {
+    const orders = [
+      leg({ id: 'tp-old', status: 'cancelled', cancelReason: 'replaced', createdAt: '2026-10-23T09:00:00.000Z' }),
+      leg({ id: 'tp-live', createdAt: '2026-10-23T10:00:00.000Z' }),
+      leg({ id: 'tp-other-position', positionId: 'p2', createdAt: '2026-10-23T11:00:00.000Z' }),
+      leg({ id: 'sl-1', kind: 'stop_market', attachment: 'stop_loss', status: 'cancelled', createdAt: '2026-10-23T09:00:00.000Z' }),
+      leg({ id: 'sl-2', kind: 'stop_market', attachment: 'stop_loss', status: 'filled', createdAt: '2026-10-23T10:30:00.000Z' }),
+    ];
+    const legs = legsOf(orders, 'p1');
+    expect(legs.take_profit?.id).toBe('tp-live');
+    expect(legs.stop_loss?.id).toBe('sl-2');
+  });
+  it('ignores free-standing stops and has nothing for a position without an id', () => {
+    expect(legsOf([leg({ attachment: null })], 'p1')).toEqual({ take_profit: null, stop_loss: null });
+    expect(legsOf([leg({})], null)).toEqual({ take_profit: null, stop_loss: null });
+  });
+  it('counts a triggered leg as live: it is still closing the position', () => {
+    expect(isLive(leg({ status: 'triggered' }))).toBe(true);
+    expect(isLive(leg({ status: 'filled' }))).toBe(false);
+    expect(isLive(null)).toBe(false);
+  });
+});
+
+describe('estimatedResult', () => {
+  it('works out the whole position at a price, exact, signed by side', () => {
+    expect(estimatedResult(position, '120')).toBe('10');
+    expect(estimatedResult(position, '95.5')).toBe('-2.25');
+    expect(estimatedResult({ ...position, side: 'short' }, '95.5')).toBe('2.25');
+    expect(estimatedResult({ ...position, contractSize: '0.001' }, '120')).toBe('0.01');
+  });
+  it('is unknown, never zero, when a figure is missing or the price is not usable', () => {
+    expect(estimatedResult(position, '')).toBeNull();
+    expect(estimatedResult(position, '0')).toBeNull();
+    expect(estimatedResult({ ...position, contractSize: null as unknown as string }, '120')).toBeNull();
+  });
+});
+
+describe('sideOfMark and priceProblem', () => {
+  it('a long takes profit above the mark and stops below it; a short the other way round', () => {
+    expect(sideOfMark(position, 'take_profit')).toBe('above');
+    expect(sideOfMark(position, 'stop_loss')).toBe('below');
+    expect(sideOfMark({ ...position, side: 'short' }, 'take_profit')).toBe('below');
+    expect(sideOfMark({ ...position, side: 'short' }, 'stop_loss')).toBe('above');
+  });
+  it('allows an empty field (no leg) and refuses zero or a non-number', () => {
+    expect(priceProblem('')).toBeNull();
+    expect(priceProblem('64000.5')).toBeNull();
+    expect(priceProblem('0')).toBe('invalid');
+    expect(priceProblem('abc')).toBe('invalid');
+  });
+});
