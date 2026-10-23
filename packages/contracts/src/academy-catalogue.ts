@@ -168,6 +168,12 @@ export type AcademyAccessGrant = z.infer<typeof academyAccessGrantSchema>;
  * null when the window has closed) and its body is never part of the outline.
  */
 export const ACADEMY_ITEM_STATES = ['locked', 'unlocked', 'started', 'completed'] as const;
+/**
+ * AC-progress-01: what completes an item. `view` is met by opening it (the Complete button sits on the open item);
+ * `score` needs a passing quiz attempt; `watch` needs the video watched past the course threshold.
+ */
+export const ACADEMY_COMPLETION_RULES = ['view', 'score', 'watch'] as const;
+export type AcademyCompletionRule = (typeof ACADEMY_COMPLETION_RULES)[number];
 export const academyCourseOutlineItemSchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
@@ -176,6 +182,11 @@ export const academyCourseOutlineItemSchema = z.object({
   lock: z.enum(['prerequisite', 'window']).nullable(),
   missing: z.array(z.string().min(1)),
   opensAt: isoInstant.nullable(),
+  rule: z.enum(ACADEMY_COMPLETION_RULES),
+  /** Whether the caller has met `rule`; a completed item stays completed either way. */
+  ruleMet: z.boolean(),
+  /** When the current completion was recorded; null while the item is not complete (or was undone). */
+  completedAt: isoInstant.nullable(),
 });
 export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
 export const academyCourseOutlineSchema = z.object({
@@ -183,3 +194,19 @@ export const academyCourseOutlineSchema = z.object({
   items: z.array(academyCourseOutlineItemSchema).min(1),
 });
 export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;
+
+/** `markCurriculumComplete`: the stored completion. A repeat answers with the first one; nothing is recorded twice. */
+export const academyItemCompletionSchema = z.object({ userId: z.string().uuid(), itemSlug: z.string().min(1), completedAt: isoInstant });
+export type AcademyItemCompletion = z.infer<typeof academyItemCompletionSchema>;
+
+/** AC-progress-01 Undo. The request id is the learner's own key for this one press; a replay answers the same. */
+export const academyUndoCompletionInputSchema = z
+  .object({ itemSlug: z.string().min(1).max(120), clientRequestId: z.string().min(1).max(200) })
+  .strict();
+/** `undoneAt` null: nothing was complete, so nothing changed. */
+export const academyUndoCompletionSchema = z.object({
+  userId: z.string().uuid(),
+  itemSlug: z.string().min(1),
+  undoneAt: isoInstant.nullable(),
+});
+export type AcademyUndoCompletion = z.infer<typeof academyUndoCompletionSchema>;

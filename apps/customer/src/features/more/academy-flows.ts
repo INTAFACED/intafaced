@@ -190,7 +190,9 @@ export type RefusalKey =
   | 'refCurriculumNotFound'
   | 'refCourseNotFound'
   | 'refEnrolmentClosed'
-  | 'refItemNotOpen';
+  | 'refItemNotOpen'
+  | 'refCompletionRuleUnmet'
+  | 'refRequestReused';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -242,6 +244,10 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refEnrolmentClosed';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
+    case 'academy.completion_rule_unmet':
+      return 'refCompletionRuleUnmet';
+    case 'academy.request_reused':
+      return 'refRequestReused';
     default:
       return null;
   }

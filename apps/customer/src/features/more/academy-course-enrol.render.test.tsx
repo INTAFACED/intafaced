@@ -11,7 +11,8 @@ import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intaface
 import { SessionProvider } from '../session/session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
 import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
-import { CourseOutlineView, outlineNeighbours } from './AcademyCourseOutline';
+import { CourseOutlineView, ItemCompletionView, outlineNeighbours } from './AcademyCourseOutline';
+import { LockedItemNotice } from './AcademyReaderParts';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
 const terms: AcademyCourseEnrolment = {
@@ -115,6 +116,9 @@ const row = (slug: string, over: Partial<AcademyCourseOutlineItem> = {}): Academ
   lock: null,
   missing: [],
   opensAt: null,
+  rule: 'view',
+  ruleMet: true,
+  completedAt: null,
   ...over,
 });
 
@@ -151,5 +155,48 @@ describe('course outline (AC-course-structure-02)', () => {
     expect(out).toContain('No item in this course can be opened now.');
     expect(out).not.toContain('This is the first item you can open.');
     expect(out).not.toContain('rel="next"');
+  });
+});
+
+describe('Complete and continue, Undo, and a locked item (AC-progress-01, AC-release-access-02)', () => {
+  const controls = (items: AcademyCourseOutlineItem[], current: string, over: { sending?: boolean; undone?: boolean } = {}) =>
+    html(
+      <ItemCompletionView
+        outline={{ slug: 'markets', items }}
+        current={current}
+        sending={over.sending ?? false}
+        failure={null}
+        undone={over.undone ?? false}
+        onComplete={() => undefined}
+        onUndo={() => undefined}
+      />,
+    );
+
+  it('offers Complete and continue on an open item, turned off while a press is in flight', () => {
+    expect(controls([row('a')], 'a')).toMatch(/<button(?![^>]*disabled)[^>]*>Complete and continue/);
+    expect(controls([row('a')], 'a', { sending: true })).toMatch(/<button[^>]*disabled=""[^>]*>Complete and continue/);
+  });
+
+  it('shows the unmet course rule beside a button that is off, and nothing on a locked item', () => {
+    const quiz = controls([row('a', { rule: 'score', ruleMet: false })], 'a');
+    expect(quiz).toContain('Pass this item’s quiz to complete it.');
+    expect(quiz).toMatch(/<button[^>]*disabled=""/);
+    expect(controls([row('a', { rule: 'watch', ruleMet: false })], 'a')).toContain('past the course threshold');
+    expect(controls([row('a', { state: 'locked', lock: 'prerequisite', missing: ['b'] })], 'a')).toBe('');
+  });
+
+  it('a completed item says when and offers Undo; after an Undo it says progress dropped', () => {
+    const done = controls([row('a', { state: 'completed', completedAt: '2026-10-23T10:00:00.000Z' })], 'a');
+    expect(done).toContain('Completed on October 23, 2026.');
+    expect(done).toMatch(/>Undo</);
+    expect(done).not.toContain('Complete and continue');
+    expect(controls([row('a')], 'a', { undone: true })).toContain('Completion undone.');
+  });
+
+  it('a locked lesson links each earlier item by title, and says so in words when Academy names none', () => {
+    const out = html(<LockedItemNotice missing={['b']} lessons={[{ slug: 'b', title: 'Bee' } as never]} />);
+    expect(out).toContain('This item is locked');
+    expect(out).toMatch(/<a class="text-link" href="\/academy\/b" lang="und">Bee<\/a>/);
+    expect(html(<LockedItemNotice missing={[]} lessons={[]} />)).toContain('an earlier item must be completed first');
   });
 });

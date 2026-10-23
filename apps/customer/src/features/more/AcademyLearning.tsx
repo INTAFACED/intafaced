@@ -14,7 +14,8 @@ import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
-import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { LessonVideoLink, LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { academyCodeOf, missingProgrammes } from './academy-flows';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -69,6 +70,7 @@ export function progressFor(owner: string | null | undefined, certId: string, re
   );
 }
 const completion = z.object({ userId: z.string().uuid(), itemSlug: ref, completedAt: date });
+const touched = z.object({ lastItemSlug: ref.nullable() });
 type Context = { owner: string; certId: string; slug: string };
 const contextSchema = z.object({ owner: z.string().uuid(), certId: z.string(), slug: ref });
 const selectionKey = (owner: string) => `intafaced:academy:certificate:${owner}`;
@@ -222,7 +224,11 @@ export function AcademyLearning({
   const overview = useAcademyTracking();
   const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
   useEffect(() => {
-    if (openedLesson) rememberLastLesson(userId, openedLesson);
+    if (!openedLesson) return;
+    rememberLastLesson(userId, openedLesson);
+    // Academy keeps where this account last read, so Continue opens the same item on any device. One key per opening:
+    // a replay of this request is not counted twice. A failed write leaves the lesson readable and Continue where it was.
+    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${Date.now()}` }, touched);
   }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
@@ -427,7 +433,12 @@ export function AcademyLearning({
             <div className="academy-learning-stack">
               {recovery}
               {/* A lesson held by its course start or window is refused in words; the outline beside it says when it opens. */}
-              {reader.resource.status === 'failed' ? (
+              {reader.resource.status === 'failed' && academyCodeOf(reader.resource.failure) === 'academy.prerequisite_unmet' ? (
+                <LockedItemNotice
+                  missing={missingProgrammes(reader.resource.failure.message)}
+                  lessons={overview.resource.status === 'ready' ? overview.resource.data.lessons : []}
+                />
+              ) : reader.resource.status === 'failed' ? (
                 <AcademyRefusal failure={reader.resource.failure} retry={reader.reload} />
               ) : (
                 <Read resource={reader.resource} retry={reader.reload}>

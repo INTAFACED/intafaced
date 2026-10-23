@@ -156,6 +156,19 @@ Curriculum slugs the lesson screen already opens (journey J-academy-03 step 3). 
 
 **Follow-ups, not in this change:** cohort and course-wide extensions, staff reset, and audit rows for `setItemPrerequisites` and `setItemWindow`.
 
+### Completing an item (AC-progress-01)
+
+Journey J-academy-03 steps 1, 2 and 10. The course outline beside an open item carries Complete and continue and Undo.
+
+| Procedure                | Scope           | Purpose                                                                                                                                                                                               |
+| ------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `markCurriculumComplete` | `academy:write` | Records the completion once; a repeat answers with the stored one. An item whose course rule is unmet refuses `academy.completion_rule_unmet` with `rule=<rule>`                                      |
+| `undoCurriculumComplete` | `academy:write` | The item is no longer complete, so progress drops and anything it unlocked locks again. Replay key is the learner and `clientRequestId`; one reused for another item refuses `academy.request_reused` |
+| `courseOutline`          | `academy:read`  | Each item also says its `rule` (`view`, `score`, `watch`), whether this learner has met it (`ruleMet`), and `completedAt` for the current completion                                                  |
+| `touchLesson`            | `academy:write` | The customer reader calls it each time an item opens, so Continue in My learning opens the same item on any device                                                                                    |
+
+A rule is `score` when a quiz is published for the item (a passing attempt meets it), otherwise `view`, which opening the item meets. `cert_item_completions` holds what is complete now; `item_completion_events` (migration 0015) keeps every Complete and Undo, so completing again after an Undo is a new event. A certificate already granted is not taken back by an Undo.
+
 ### Video player tracks (AC-videos-01)
 
 Journey J-academy-03 step 4. The Videos screen already calls `videos` and `videoPlayback`. Those still play the file when captions, the transcript, or the watch threshold are blank.

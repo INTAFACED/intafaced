@@ -16,6 +16,8 @@ import {
   academyMyCourseSchema,
   academyAccessGrantSchema,
   academyCourseOutlineSchema,
+  academyUndoCompletionInputSchema,
+  academyUndoCompletionSchema,
   academyPublicHubSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -776,7 +778,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.video_captions_unpublished':
     case 'academy.video_transcript_unpublished':
     case 'academy.watch_threshold_unset':
+    case 'academy.completion_rule_unmet':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+
+    case 'academy.request_reused':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
     case 'academy.attempt_cooldown':
@@ -2228,6 +2234,20 @@ export function createAcademyRouter(
       .output(itemCompletionOut)
       .mutation(({ input, ctx }) =>
         guard(() => academy.markCurriculumComplete({ userId: ctx.principal!.userId, itemSlug: input.itemSlug })),
+      ),
+
+    /** AC-progress-01: Undo a completion. Progress drops and the history keeps both events; completing again adds one. */
+    undoCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyUndoCompletionInputSchema)
+      .output(academyUndoCompletionSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() =>
+          academy.undoCurriculumComplete({
+            userId: ctx.principal.userId,
+            itemSlug: input.itemSlug,
+            clientRequestId: input.clientRequestId,
+          }),
+        ),
       ),
 
     /**
