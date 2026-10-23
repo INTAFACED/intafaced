@@ -121,6 +121,7 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
+import { markSourceFromSpotIndex, parseIndexSpotMarkets, sqlIndexMarketLookup } from './futures/mark-from-spot-index.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -482,6 +483,12 @@ const futuresJobs = startFuturesJobs({
   matching,
   bus,
   venueMarkSource: venueMarkConfigured?.source ?? null,
+  indexMarkSource: markSourceFromSpotIndex({
+    pairs: parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS),
+    markets: sqlIndexMarketLookup(sql),
+    // Read time is the observation time, as for every depth mark here: the engine answers from its live book.
+    readDepth: async (marketId) => ({ ...(await matching.depth(marketId, 1)), observedAt: new Date() }),
+  }),
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
@@ -799,6 +806,7 @@ registerPublicRest(app, {
     };
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
+  futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -816,6 +824,8 @@ registerConditionalOrdersRest(app, {
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   orders: conditionalOrders,
+  // While futures orders go through the book, its routes own /api/v1/futures/orders (private-rest.ts).
+  restingRefusal: !env.TRADE_FUTURES_MATCHING_ENABLED,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -1005,6 +1015,15 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
+  ...(env.TRADE_FUTURES_MATCHING_ENABLED
+    ? {
+        futuresOrders: {
+          place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+          cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
+          list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+        },
+      }
+    : {}),
   listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),

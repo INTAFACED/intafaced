@@ -147,6 +147,8 @@ export interface PublicRestDeps {
    * listing appear on GET /markets. Does not enable TRADE_FUTURES_ENABLED.
    */
   futuresTestSeed?: boolean;
+  /** TRADE_FUTURES_MATCHING_ENABLED: the order-type catalogue follows the futures book instead of the at-mark doors. */
+  futuresMatchingEnabled?: boolean;
 }
 
 /** Send an already-mapped CCXT error. */
@@ -704,7 +706,9 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     );
     return reply.code(200).send({
       asOfMs: now(),
-      markets: markets.map((m) => buildFuturesOrderTypeCatalogue(m.symbol)),
+      markets: markets.map((m) =>
+        buildFuturesOrderTypeCatalogue(m.symbol, undefined, { throughBook: deps.futuresMatchingEnabled === true }),
+      ),
     });
   });
 

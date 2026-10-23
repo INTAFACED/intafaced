@@ -349,6 +349,31 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect(gate).toHaveBeenCalledTimes(1);
     });
 
+    it('a reduce-only order skips the email gate and the opening doors (exposure switch, ADL disclosure); an opening order meets both', async () => {
+      const { alice } = await aliceLongBobShort();
+      const email = vi.fn(async () => 'missing' as const);
+      const opening = vi.fn(async () => {
+        throw Object.assign(new Error('futures exposure cannot increase'), { code: 'trade.futures_disabled', status: 403 });
+      });
+      const svc = build({ emailProof: { get: email }, assertOpeningAllowed: opening });
+      const view = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('1'), reduceOnly: true, clientOrderId: 'no-email-reduce' }),
+      );
+      expect(view).toMatchObject({ reduceOnly: true, positionId: alice.id, status: 'open' });
+      expect(email).not.toHaveBeenCalled();
+      expect(opening).not.toHaveBeenCalled();
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'no-email-open' })),
+      ).rejects.toMatchObject({ code: 'trade.email_proof_required' });
+      const proved = build({ emailProof: { get: async () => 'accepted' }, assertOpeningAllowed: opening });
+      await expect(
+        proved.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'switch-off-open' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_disabled' });
+      expect(opening).toHaveBeenCalledTimes(1);
+      await assertBooksAgree();
+    });
+
     it('needs an open position on the other side', async () => {
       await aliceLongBobShort();
       await expect(reduce(ALICE, 'buy', A('1'))).rejects.toMatchObject({ code: 'trade.futures_reduce_only_no_position' });

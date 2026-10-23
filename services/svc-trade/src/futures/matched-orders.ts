@@ -239,6 +239,11 @@ export interface MatchedOrdersDeps {
   readonly assertDerivativesAccess?: DerivativesAccessGate | null;
   /** The same email-proof gate as every other new order (RC-identity-01). Absent refuses an opening order. */
   readonly emailProof?: EmailProofSource;
+  /**
+   * The doors an opening order answers to beyond the access gate, the same ones the at-mark open ran: the futures
+   * exposure switch and the ADL disclosure. Run after the client-order-id replay; never for a reduce-only order.
+   */
+  readonly assertOpeningAllowed?: (userId: string) => Promise<void>;
   /** The PX-S01 lifecycle proof for a PLACE on this market. Null is unset, and refuses. */
   readonly lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
   readonly admission?: TradingAdmissionPort;
@@ -598,7 +603,10 @@ export class MatchedFuturesOrders {
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
     // agreement or rules version was published meanwhile (the same order as the at-mark open). A reduce-only order
     // is never gated: while matching is on it is the only way to close, and a lapsed acceptance must not trap a position.
-    if (input.reduceOnly !== true) await assertEmailProved(this.deps.emailProof, input.userId);
+    if (input.reduceOnly !== true) {
+      await assertEmailProved(this.deps.emailProof, input.userId);
+      if (this.deps.assertOpeningAllowed) await this.deps.assertOpeningAllowed(input.userId);
+    }
     if (this.deps.assertDerivativesAccess && input.reduceOnly !== true) {
       await this.deps.assertDerivativesAccess({ userId: input.userId, tier: principal.tier ?? null, region: context.region ?? null });
     }
@@ -2104,6 +2112,27 @@ export class MatchedFuturesOrders {
   // ── cancel, release ───────────────────────────────────────────────────────
 
   /** Cancel a resting order we own, then release the part of its hold that no fill used. */
+  /**
+   * The caller's own matched orders, newest first. `open` is every order that can still fill or still holds margin
+   * for a fill on its way (`LIVE_OR_UNKNOWN` plus `pending`); `all` is every state. The page size is the caller's.
+   */
+  async listForUser(
+    userId: string,
+    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
+  ): Promise<(MatchedOrderView & { readonly symbol: string; readonly createdAt: string })[]> {
+    const live = ['pending', ...LIVE_OR_UNKNOWN];
+    const rows = await this.deps.sql<(OrderRow & { symbol: string; created_at: Date })[]>`
+      SELECT o.*, m.symbol FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
+       WHERE o.user_id = ${userId}
+         ${input.scope === 'open' ? this.deps.sql`AND o.status IN ${this.deps.sql(live)}` : this.deps.sql``}
+         ${input.symbol ? this.deps.sql`AND m.symbol = ${input.symbol}` : this.deps.sql``}
+         AND o.liquidation_rung_id IS NULL
+       ORDER BY o.created_at DESC, o.id
+       LIMIT ${input.limit}
+    `;
+    return rows.map((row) => ({ ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() }));
+  }
+
   async cancel(principal: Principal, orderId: string): Promise<MatchedOrderView> {
     const row = await this.loadOrder(orderId).catch(() => null);
     if (!row || row.user_id !== principal.userId) refuse('trade.futures_order_not_found', `futures order ${orderId} not found`, 404);

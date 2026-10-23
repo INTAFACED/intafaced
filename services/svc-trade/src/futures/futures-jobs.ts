@@ -115,6 +115,11 @@ export interface FuturesJobsDeps {
    */
   venueMarkSource?: MarkSource | null;
   /**
+   * Optional mark from our own spot book (`mark-from-spot-index.ts`, TRADE_FUTURES_INDEX_SPOT_MARKETS). Preferred over
+   * the futures market's own depth mid, after a venue source. Null keeps today's sources.
+   */
+  indexMarkSource?: MarkSource | null;
+  /**
    * Optional external rate publisher hook for tests.
    * Production ops publishes into memoryFundingRateBook via a real oracle later.
    */
@@ -323,8 +328,14 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   const getPublishedRate = (marketId: string) => rates.peek(marketId);
 
   // Mark path always assembled — public REST + liq share one non-inventing port.
-  const depthMarks = markSourceFromDepth((marketId) => deps.matching.depth(marketId, 1));
-  const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
+  // Matching's depth read carries no timestamp. The engine answers from its live book, so the read time is the
+  // observation time (as for the trailing mark in index.ts); without it no futures book could ever give a mark.
+  const depthMarks = markSourceFromDepth(async (marketId) => ({
+    ...(await deps.matching.depth(marketId, 1)),
+    observedAt: deps.now ? deps.now() : new Date(),
+  }));
+  const bookMarks: MarkSource = deps.indexMarkSource ? markSourcePrefer(deps.indexMarkSource, depthMarks) : depthMarks;
+  const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, bookMarks) : bookMarks;
   // Blank selection returns `baseMarks` itself: today's behaviour, untouched.
   const marks: MarkSource = deps.markConstruction
     ? markSourceWithConstruction(baseMarks, deps.markConstruction.selection, deps.markConstruction.inputs)
