@@ -225,6 +225,16 @@
       "service": "tax",
       "value": "customer",
       "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
+    },
+    "TOKEN_PROPOSER_RULE": {
+      "service": "token",
+      "value": "stake:1000",
+      "note": "TEST who may open a proposal: at least 1000 of the staking asset. Blank in production refuses token.proposer_rule_unset."
+    },
+    "TOKEN_PROPOSAL_LIMIT": {
+      "service": "token",
+      "value": "20:604800000",
+      "note": "TEST cap of 20 proposals per author per 7 days. Blank in production refuses token.proposal_limit_unset."
     }
   }
 }

@@ -2741,6 +2741,19 @@ describe('svc-token money PG-hard', () => {
     const opensAt = new Date('2026-07-15T00:00:00.000Z');
     const closesAt = new Date('2026-07-22T00:00:00.000Z');
 
+    // Published TEST rule so these cases still exercise voting. Not a product default.
+    beforeEach(async () => {
+      await sql`
+        UPDATE token.governance_proposer
+           SET kind = 'stake',
+               min_stake = '1000'::numeric,
+               accounts = NULL,
+               period_limit = 100,
+               period_ms = ${7 * 86_400_000}
+         WHERE id = true
+      `;
+    });
+
     it('lets a staked-tier holder open a proposal', async () => {
       await fund(USER_A, '1000');
       await token.stake({ userId: USER_A, amount: amt('1000'), tier: 'flex', stakeId: crypto.randomUUID() });

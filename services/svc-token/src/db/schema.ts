@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, numeric, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, index, integer, jsonb, numeric, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -35,8 +35,8 @@ export const proposalKindEnum = token.enum('proposal_kind', ['listing', 'fee_par
  *
  * `closeProposal` writes `passed` | `rejected` from the tally vs owner env bps.
  * `executed` and `cancelled` are still never written — grant/listing close
- * returns `token.governance_execute_unwired` and does not move value. `draft`
- * is still terminal: a future `opens_at` is never flipped to `open`.
+ * returns `token.governance_execute_unwired` and does not move value. A future
+ * `opens_at` stays `draft` until `openDueProposals` moves it to `open`.
  */
 export const proposalStatusEnum = token.enum('proposal_status', ['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']);
 
@@ -218,6 +218,15 @@ export const proposals = token.table(
     opensAt: tstz('opens_at').notNull(),
     closesAt: tstz('closes_at').notNull(),
     createdAt: createdAt(),
+    authorId: text('author_id'),
+    title: text('title'),
+    bodyMd: text('body_md'),
+    discussionLink: text('discussion_link'),
+    businessKey: text('business_key'),
+    requestHandle: text('request_handle'),
+    revision: integer('revision').notNull().default(1),
+    ordinal: integer('ordinal'),
+    spaceId: text('space_id'),
   },
   (t) => [
     /**
@@ -225,8 +234,43 @@ export const proposals = token.table(
      */
     index('proposals_status_closes_idx').on(t.status, t.closesAt),
     index('proposals_kind_idx').on(t.kind),
+    index('proposals_author_created_idx').on(t.authorId, t.createdAt),
   ],
 );
+
+/** The one governance space. Creating more is not this slice. */
+export const governanceSpaces = token.table('governance_spaces', {
+  id: text('id').primaryKey(),
+  createdAt: createdAt(),
+});
+
+/** Follow is a row whose `following` flag flips. A second follow of the same value changes nothing. */
+export const governanceFollows = token.table(
+  'governance_follows',
+  {
+    spaceId: text('space_id')
+      .notNull()
+      .references(() => governanceSpaces.id),
+    accountId: text('account_id').notNull(),
+    following: boolean('following').notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.accountId] })],
+);
+
+/**
+ * Who may propose, and how many times per period. Every column stays null
+ * until an owner publishes it. Blank is not a compiled tier and not zero.
+ */
+export const governanceProposer = token.table('governance_proposer', {
+  id: boolean('id').primaryKey().default(true),
+  kind: text('kind'),
+  minStake: amount('min_stake'),
+  accounts: jsonb('accounts'),
+  periodLimit: integer('period_limit'),
+  periodMs: bigint('period_ms', { mode: 'bigint' }),
+  updatedAt: updatedAt(),
+});
 
 /**
  * A single cast vote (§4.3).
@@ -325,6 +369,9 @@ export const schema = {
   buybackRuns,
   proposals,
   governanceVotes,
+  governanceSpaces,
+  governanceFollows,
+  governanceProposer,
   yieldWindows,
   yieldPayouts,
 };

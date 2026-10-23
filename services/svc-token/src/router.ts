@@ -107,6 +107,13 @@ const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
 const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled']);
 const voteChoice = z.enum(['for', 'against', 'abstain']);
 
+const proposalCountsOutput = z.object({
+  votes: z.number().int().nonnegative(),
+  for: z.number().int().nonnegative(),
+  against: z.number().int().nonnegative(),
+  abstain: z.number().int().nonnegative(),
+});
+
 const proposalOutput = z.object({
   id: z.string().uuid(),
   kind: proposalKind,
@@ -115,7 +122,21 @@ const proposalOutput = z.object({
   opensAt: z.string(),
   closesAt: z.string(),
   createdAt: z.string(),
+  title: z.string().nullable(),
+  bodyMd: z.string().nullable(),
+  discussionLink: z.string().nullable(),
+  businessKey: z.string().nullable(),
+  authorId: z.string().nullable(),
+  revision: z.number().int().nonnegative(),
+  counts: proposalCountsOutput,
 });
+
+const proposalAccessCode = z.enum([
+  'token.proposer_rule_unset',
+  'token.proposal_limit_unset',
+  'token.proposal_not_allowed',
+  'token.proposal_limit_reached',
+]);
 
 const tallyOutput = z.object({
   forWeight: z.string(),
@@ -203,6 +224,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.delegation_unavailable':
       case 'token.treasury_figure_unreadable':
       case 'token.proposal_list_limit_unset':
+      case 'token.proposer_rule_unset':
+      case 'token.proposal_limit_unset':
+      case 'token.proposal_limit_reached':
+      case 'token.proposal_not_editable':
       case 'token.stakes_list_limit_unset':
       case 'token.history_list_limit_unset':
       case 'token.emission_schedule_count_unset':
@@ -214,6 +239,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.history_cursor_invalid':
       case 'token.delegation_delegatee_unset':
       case 'token.delegation_delegatee_invalid':
+      case 'token.proposal_title_invalid':
+      case 'token.proposal_handle_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -264,6 +291,13 @@ function proposalToWire(p: {
   opensAt: Date;
   closesAt: Date;
   createdAt: Date;
+  title: string | null;
+  bodyMd: string | null;
+  discussionLink: string | null;
+  businessKey: string | null;
+  authorId: string | null;
+  revision: number;
+  counts: { votes: number; for: number; against: number; abstain: number };
 }) {
   return {
     id: p.id,
@@ -273,6 +307,13 @@ function proposalToWire(p: {
     opensAt: p.opensAt.toISOString(),
     closesAt: p.closesAt.toISOString(),
     createdAt: p.createdAt.toISOString(),
+    title: p.title,
+    bodyMd: p.bodyMd,
+    discussionLink: p.discussionLink,
+    businessKey: p.businessKey,
+    authorId: p.authorId,
+    revision: p.revision,
+    counts: p.counts,
   };
 }
 
@@ -888,6 +929,10 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           opensAt: z.string().datetime({ offset: true }).optional(),
           closesAt: z.string().datetime({ offset: true }).optional(),
           proposalId: z.string().uuid().optional(),
+          handle: z.string().optional(),
+          title: z.string().optional(),
+          bodyMd: z.string().optional(),
+          discussionLink: z.string().optional(),
         }),
       )
       .output(proposalOutput)
@@ -912,6 +957,10 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
             closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
             proposalId: input.proposalId,
+            handle: input.handle,
+            title: input.title,
+            bodyMd: input.bodyMd,
+            discussionLink: input.discussionLink,
           });
           return proposalToWire(proposal);
         }),
@@ -968,6 +1017,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
              * explicitly when that is the page you want.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            q: z.string().optional(),
           })
           .default({}),
       )
@@ -1022,6 +1072,76 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           };
         }),
       ),
+
+    editProposal: protectedProcedure
+      .input(
+        z.object({
+          proposalId: z.string().uuid(),
+          title: z.string().optional(),
+          bodyMd: z.string().optional(),
+          discussionLink: z.string().optional(),
+          body: z.record(z.unknown()).optional(),
+          opensAt: z.string().datetime({ offset: true }).optional(),
+          closesAt: z.string().datetime({ offset: true }).optional(),
+        }),
+      )
+      .output(proposalOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
+          if (!asAdmin && !hasScope(ctx.principal.scopes, 'token:stake')) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'editProposal requires token:stake or admin:write' });
+          }
+          const proposal = await token.editProposal({
+            proposalId: input.proposalId,
+            authorId: userId,
+            title: input.title,
+            bodyMd: input.bodyMd,
+            discussionLink: input.discussionLink,
+            body: input.body,
+            opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
+            closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
+          });
+          return proposalToWire(proposal);
+        }),
+      ),
+
+    followSpace: scopedProcedure('token:read', { module: 'token' })
+      .input(z.object({ following: z.boolean() }))
+      .output(z.object({ spaceId: z.string(), following: z.boolean() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          return token.followSpace(userId, input.following);
+        }),
+      ),
+
+    governanceHome: scopedProcedure('token:read', { module: 'token' })
+      .output(
+        z.object({
+          spaceId: z.string(),
+          following: z.boolean(),
+          proposal: z.object({
+            code: proposalAccessCode.nullable(),
+            minStake: amountString.nullable(),
+          }),
+        }),
+      )
+      .query(async ({ ctx }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
+          return token.governanceHome(userId, asAdmin);
+        }),
+      ),
+
+    openDueProposals: scopedProcedure('token:read', { module: 'token' })
+      .output(z.object({ opened: z.number().int().nonnegative() }))
+      .mutation(async () => guard(() => token.openDueProposals())),
   });
 }
 
