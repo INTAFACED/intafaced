@@ -29,7 +29,8 @@
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
- *      empty and refuses every payment method, and so every P2P ad, while it is).
+ *      empty and refuses every payment method, and so every P2P ad, while it is). It runs after 3, because svc-p2p
+ *      refuses an operator who has no verified tier.
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -1467,12 +1468,14 @@ async function main() {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       sayCharts(await publishCharts(ctx));
-      for (const r of await publishP2pMethods(ctx))
-        say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+      // After verify: svc-p2p refuses an operator without a verified tier, and a fresh stack's founders have none
+      // before it (every journeys shard stopped here in run 231).
+      for (const r of await publishP2pMethods(ctx))
+        say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
     } else if (cmd === 'p2p') {
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
