@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
-import { SUPPORT_FEEDBACK_RATE_EXCEEDED, readerActorId } from './kb-feedback.js';
+import { SUPPORT_FEEDBACK_RATE_EXCEEDED, SUPPORT_FEEDBACK_REQUEST_INVALID, readerActorId } from './kb-feedback.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 
@@ -127,6 +127,28 @@ if (!url) {
         SELECT query, result_count FROM support.kb_search_misses
       `;
       expect(misses).toEqual([{ query: 'no-such-word', result_count: 0 }]);
+    });
+
+    it('refuses a helpful vote with a comment when openRequest is true, and opens no ticket', async () => {
+      await publish('kb-fb-plain');
+      await expect(
+        support.kbFeedback({
+          userId: USER,
+          id: 'kb-fb-plain',
+          helpful: true,
+          comment: 'nice',
+          openRequest: true,
+          clientRequestId: 'bad-helpful',
+        }),
+      ).rejects.toMatchObject({ code: SUPPORT_FEEDBACK_REQUEST_INVALID });
+      const tickets = await db.sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.tickets WHERE user_id = ${USER}
+      `;
+      expect(tickets[0]!.n).toBe(0);
+      const votes = await db.sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.kb_feedback WHERE user_id = ${USER}
+      `;
+      expect(votes[0]!.n).toBe(0);
     });
 
     it('lets one of two racing public votes through', async () => {

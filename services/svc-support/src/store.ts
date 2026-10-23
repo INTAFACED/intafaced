@@ -2569,7 +2569,9 @@ export class PostgresSupportStore implements SupportStore {
       }
 
       const comment = input.comment?.trim() ?? '';
-      if (input.openRequest === true && comment.length === 0) return { status: 'refuse', reason: 'request_invalid' };
+      if (input.openRequest === true && (input.helpful || comment.length === 0 || input.userId.startsWith(READER_ACTOR_PREFIX))) {
+        return { status: 'refuse', reason: 'request_invalid' };
+      }
       const now = input.now ?? new Date().toISOString();
       if (input.rate === 'unset') return { status: 'refuse', reason: 'rate_unset' };
       if (input.rate) {
