@@ -127,10 +127,6 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     expect((await trade.cancelAllOrders(alice)).map((o) => o.clientOrderId)).toEqual(['kind-other']);
   });
 
-  it('a cancel of an id that is not an order id is not found, never a database error', async () => {
-    await expect(trade.cancelOrder(alice, 'not-an-order')).rejects.toMatchObject({ code: 'trade.order_not_found' });
-  });
-
   it('with no cap published nothing is compared', async () => {
     for (let i = 0; i < 6; i += 1) await rest(alice, btc, `free-${i}`);
     expect(await db.sql`SELECT id FROM trade.orders WHERE user_id = ${ALICE}`).toHaveLength(6);

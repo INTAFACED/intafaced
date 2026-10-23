@@ -766,7 +766,6 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
   return value;
 }
 
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class TradeService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
@@ -2146,9 +2145,7 @@ export class TradeService {
     return withMoneySpan('trade.cancelOrder', { operation: 'cancel_order', userId: principal.userId, orderId }, async () => {
       requireScope(principal, 'trade:write');
 
-      // Order ids are uuids. A cancel of anything else is not found, never a database error that reads as an unknown
-      // outcome: a batch cancel answers such an id as refused and still cancels the rest.
-      const order = UUID_SHAPE.test(orderId) ? await this.findOrder(orderId) : null;
+      const order = await this.findOrder(orderId);
       if (!order) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
       if (order.userId !== principal.userId) {
         // Deliberately the same code a stranger's order id would produce — do

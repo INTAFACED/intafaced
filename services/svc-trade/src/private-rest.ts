@@ -156,6 +156,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
   return (SPOT_ORDER_TYPES as readonly string[]).includes(type);
 }
 
+const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface PrivateRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
@@ -2621,6 +2623,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       }
       if (seen.has(orderId)) {
         results.push({ ...base, status: 'refused', error: invalidOrder('order id repeated in this batch', 'trade.batch_duplicate').body });
+        continue;
+      }
+      // Order ids are uuids. Anything else is no order of the caller's: refused as not found, never sent to the cancel
+      // path, where the database would refuse the id and the item would read as an unknown outcome.
+      if (!ORDER_ID_SHAPE.test(orderId)) {
+        const notFound = toCcxtError(new TradeError(`order ${orderId} not found`, 'trade.order_not_found'));
+        results.push({ ...base, status: 'refused', error: notFound?.body });
         continue;
       }
       seen.add(orderId);
