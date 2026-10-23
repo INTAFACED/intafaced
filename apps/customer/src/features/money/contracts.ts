@@ -190,6 +190,12 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
+export const destinationCheckSchema = z.object({
+  address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
+  lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
+});
+export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),

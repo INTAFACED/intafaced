@@ -20,6 +20,7 @@ import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import {
+  checkDestination,
   createOnramp,
   listDestinations,
   quoteOfframp,
@@ -29,6 +30,7 @@ import {
   saveDestination,
   type CustomerOnrampView,
   type CustomerRampDeps,
+  type DestinationCheck,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
@@ -306,8 +308,16 @@ export class RampService {
     return listWithdrawNetworks(this.withdrawNetworkSource);
   }
 
-  /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */
-  saveDestination(input: SaveDestinationInput) {
+  /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
+  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+    return checkDestination(this.customerDeps(), input);
+  }
+
+  /**
+   * Save an address-book entry (asset, network, address, optional memo or tag, unique label). An address that shows
+   * like a saved one but is not needs `confirmLookalike`.
+   */
+  saveDestination(input: SaveDestinationInput & { confirmLookalike?: boolean }) {
     return saveDestination(this.customerDeps(), input);
   }
 

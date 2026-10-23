@@ -7,7 +7,9 @@ import type { Destination, WithdrawAsset } from './contracts';
 /**
  * J-wallet-04 #2 and #4 on the screen: a mistyped address is refused with its reason before any call or any code is
  * asked for; a good one asks for a fresh confirmation and sends exactly that entry with the one-use token as its bearer;
- * Remove asks for the same confirmation and sends a business key, so a retry is the same removal.
+ * Remove asks for the same confirmation and sends a business key, so a retry is the same removal. J-wallet-04 #3: the
+ * bank's check runs before any code is asked for; a changed character is refused at the field, and a look-alike of a
+ * saved address shows a warning that must be ticked before the save, which then says the customer checked it.
  */
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -15,7 +17,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const mutate = vi.fn();
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate } }) }));
+const query = vi.fn();
+vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query } }) }));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({
   ...(await original<typeof import('./withdraw-step-up')>()),
@@ -54,6 +57,8 @@ let root: Root | null = null;
 beforeEach(async () => {
   mutate.mockReset();
   mint.mockReset();
+  query.mockReset();
+  query.mockResolvedValue({ ok: true, data: { address: 'ok', lookalike: null } });
   reloads.book = 0;
   rows = [];
   host = document.createElement('div');
@@ -146,6 +151,118 @@ describe('saving a withdrawal address', () => {
     expect(document.body.textContent).toContain('You already have a saved address with this name');
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).not.toBeNull();
     expect(reloads.book).toBe(0);
+  });
+});
+
+describe('checking the address before the confirmation (W-withdraw-03)', () => {
+  const LOOKALIKE = `0x5290${'1'.repeat(32)}9EE7`;
+  const tick = () => document.querySelector('[data-testid="address-lookalike"] input[type="checkbox"]') as HTMLInputElement;
+
+  it('asks the bank about the address first, and refuses a changed character at the field without asking for a code', async () => {
+    query.mockResolvedValue({ ok: true, data: { address: 'checksum_mismatch', lookalike: null } });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD.replace('E0F7', 'e0F7'));
+    await submit(addForm());
+    expect(query.mock.calls[0]!.slice(0, 3)).toEqual(['bank', 'ramps.destinations.check', { ref: GOOD.replace('E0F7', 'e0F7') }]);
+    expect(document.body.textContent).toContain('a character may have been changed');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it('warns about a look-alike of a saved address, waits for the tick, then saves saying the customer checked it', async () => {
+    query.mockResolvedValue({
+      ok: true,
+      data: {
+        address: 'ok',
+        lookalike: { destinationId: '11111111-1111-4111-8111-111111111111', label: 'Old wallet', refMasked: '0x5290…9EE7' },
+      },
+    });
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
+    mutate.mockResolvedValue({ ok: true, data: {} });
+    await mount();
+    await type('Label', 'New wallet');
+    await type('Asset', 'USDT');
+    await type('Address', LOOKALIKE);
+    await submit(addForm());
+    expect(document.querySelector('[data-testid="address-lookalike"]')!.textContent).toContain(
+      'It starts and ends like your saved address Old wallet (0x5290…9EE7) but is a different address',
+    );
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    await submit(addForm());
+    expect(document.body.textContent).toContain('Tick the box once you have checked the address');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    await act(async () => tick().click());
+    await submit(addForm());
+    expect(query).toHaveBeenCalledTimes(1);
+    await confirmWithCode();
+    expect(mutate.mock.calls[0]![2]).toEqual({
+      assetId: 'USDT',
+      network: 'base',
+      ref: LOOKALIKE,
+      label: 'New wallet',
+      confirmLookalike: true,
+    });
+  });
+
+  it('drops the warning and the tick when the address changes, and checks the new one', async () => {
+    query.mockResolvedValueOnce({
+      ok: true,
+      data: { address: 'ok', lookalike: { destinationId: '11111111-1111-4111-8111-111111111111', label: null, refMasked: '0x5290…9EE7' } },
+    });
+    await mount();
+    await type('Label', 'New wallet');
+    await type('Asset', 'USDT');
+    await type('Address', LOOKALIKE);
+    await submit(addForm());
+    expect(document.body.textContent).toContain('It starts and ends like your saved address 0x5290…9EE7 but');
+    await act(async () => tick().click());
+    await type('Address', GOOD);
+    expect(document.querySelector('[data-testid="address-lookalike"]')).toBeNull();
+    await submit(addForm());
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).not.toBeNull();
+  });
+
+  it('drops a check that answers after the address changed, and checks the new address instead', async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    query.mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)));
+    await mount();
+    await type('Label', 'New wallet');
+    await type('Asset', 'USDT');
+    await type('Address', LOOKALIKE);
+    await submit(addForm());
+    await type('Address', GOOD);
+    await act(async () => answerFirst({ ok: true, data: { address: 'ok', lookalike: null } }));
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    await submit(addForm());
+    expect(query.mock.calls[1]![2]).toEqual({ ref: GOOD });
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).not.toBeNull();
+  });
+
+  it('puts a look-alike refusal on save in the customer’s words', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T01:10:00Z' } });
+    mutate.mockResolvedValue({ ok: false, reason: 'error', message: 'This address starts and ends like', code: 'bank.address_lookalike' });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    await confirmWithCode();
+    expect(document.body.textContent).toContain('This address looks like one you saved, so it was not saved.');
+  });
+
+  it('saves nothing and asks for no code when the check itself fails', async () => {
+    query.mockResolvedValue({ ok: false, reason: 'network', message: 'offline' });
+    await mount();
+    await type('Label', 'Cold wallet');
+    await type('Asset', 'USDT');
+    await type('Address', GOOD);
+    await submit(addForm());
+    expect(document.body.textContent).toContain('The address could not be checked');
+    expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
   });
 });
 
