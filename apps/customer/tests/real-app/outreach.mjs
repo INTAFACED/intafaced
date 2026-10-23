@@ -75,3 +75,35 @@ export async function campaignTotals(campaignId) {
   const { ctx, token } = await founder();
   return data(await ctx.edge.query('ops', 'outreach.metrics', { campaignId }, token), 'outreach.metrics').totals;
 }
+
+/** The partner-page settings the founders publish: { joinUrl, partnerTerms, revision, updatedAt }. Public, so no token. */
+export async function publicSettings() {
+  const { ctx } = await founder();
+  return data(await ctx.edge.query('ops', 'outreach.publicSettings', undefined), 'outreach.publicSettings');
+}
+
+/** A founder sets the join address and terms (null clears one), from the revision now stored. */
+export async function setPublicSettings(settings, reason) {
+  const { ctx, token } = await founder();
+  const { revision } = await publicSettings();
+  return data(
+    await ctx.edge.mutate('ops', 'outreach.setPublicSettings', { ...settings, expectedRevision: revision, reason }, token),
+    'outreach.setPublicSettings',
+  );
+}
+
+/** The enquiries the CRM holds for one email: the completed partner submissions of its contact. */
+export async function enquiriesFor(email) {
+  const { ctx, token } = await founder();
+  const page = data(
+    await ctx.edge.query('ops', 'outreach.listOpportunities', { limit: 20, query: email }, token),
+    'outreach.listOpportunities',
+  );
+  const contacts = new Set(page.contacts.filter((contact) => contact.email === email).map((contact) => contact.id));
+  const opportunities = page.items.filter((item) => item.audience === 'partner' && contacts.has(item.contactId));
+  const submitted = new Set(opportunities.map((item) => item.submissionId));
+  return {
+    opportunities: opportunities.length,
+    submissions: page.submissions.filter((row) => submitted.has(row.submissionId) && row.completedAt !== null).length,
+  };
+}

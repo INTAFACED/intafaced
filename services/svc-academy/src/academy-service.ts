@@ -1749,23 +1749,13 @@ export class AcademyService {
    */
   async readCurriculumItem(input: { userId: string; slug: string; now?: Date }) {
     await this.release.assertMayRead({ userId: input.userId, itemSlug: input.slug, now: input.now });
-    const item = getCurriculumItem(input.slug.trim());
-    if (!item) {
-      throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
-    }
-    return {
-      slug: item.slug,
-      title: item.title,
-      kind: item.kind,
-      path: item.path,
-      order: item.order,
-      summary: item.summary,
-      estimatedMinutes: item.estimatedMinutes,
-      body: item.body,
-      objectives: [...item.objectives],
-      keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
-      selfCheck: [...item.selfCheck],
-    };
+    return curriculumItemView(input.slug);
+  }
+
+  /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */
+  async readPublicCurriculumItem(input: { slug: string; now?: Date }) {
+    await this.release.assertMayReadSignedOut({ itemSlug: input.slug, now: input.now });
+    return curriculumItemView(input.slug);
   }
 
   async readCurriculumItemLocalized(input: { userId: string; slug: string; locale?: string; now?: Date }) {
@@ -2143,4 +2133,24 @@ export class AcademyService {
       );
     }
   }
+}
+
+function curriculumItemView(slug: string) {
+  const item = getCurriculumItem(slug.trim());
+  if (!item) {
+    throw new AcademyError(`Curriculum item "${slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+  }
+  return {
+    slug: item.slug,
+    title: item.title,
+    kind: item.kind,
+    path: item.path,
+    order: item.order,
+    summary: item.summary,
+    estimatedMinutes: item.estimatedMinutes,
+    body: item.body,
+    objectives: [...item.objectives],
+    keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
+    selfCheck: [...item.selfCheck],
+  };
 }

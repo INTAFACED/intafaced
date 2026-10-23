@@ -74,6 +74,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./outreach-public": {
+      "types": "./dist/outreach-public.d.ts",
+      "default": "./dist/outreach-public.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"
@@ -105,6 +109,10 @@
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
+    },
+    "./academy-catalogue": {
+      "types": "./dist/academy-catalogue.d.ts",
+      "default": "./dist/academy-catalogue.js"
     }
   },
   "scripts": {
