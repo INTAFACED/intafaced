@@ -11,6 +11,7 @@
 import type { Amount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
 import { listVideoSpine, getVideoSpineItem } from './catalog.js';
+import { captionsPublished, transcriptFor } from './player.js';
 import { assertVideoEntitled, type VideoCaller, type VideoGateConfig } from './entitlement.js';
 import {
   assertPlaybackUrlGranted,
@@ -36,6 +37,8 @@ export type VideoListItem = {
   readonly thumbnailUrl: string | null;
   readonly language: string | null;
   readonly captionsUrl: string | null;
+  readonly captionsPublished: boolean;
+  readonly transcriptPublished: boolean;
 };
 
 export type VideoPlayback = {
@@ -91,6 +94,8 @@ export function listAcademyVideos(deps: VideoLibraryDeps): readonly VideoListIte
     thumbnailUrl: item.thumbnailUrl,
     language: item.language,
     captionsUrl: item.captionsUrl,
+    captionsPublished: captionsPublished(item),
+    transcriptPublished: transcriptFor(item.slug) !== null,
   }));
 }
 

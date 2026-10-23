@@ -58,6 +58,9 @@ describe('academy stored video — grant and signed URL', () => {
     const items = listAcademyVideos(deps());
     expect(items.length).toBeGreaterThanOrEqual(1);
     expect(items[0]?.slug).toBe('foundations-risk-first');
+    expect(items[0]?.captionsPublished).toBe(false);
+    expect(items[0]?.transcriptPublished).toBe(false);
+    expect(items[0]?.captionsUrl).toBeNull();
     expect(JSON.stringify(items)).not.toMatch(/X-Amz-Signature/);
   });
 

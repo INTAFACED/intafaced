@@ -86,6 +86,7 @@ import {
   unconfiguredVideoLibrary,
   type VideoLibraryDeps,
 } from './video/library.js';
+import { decideWatched, readVideoCaptions, readVideoTranscript, requireSpineItem } from './video/player.js';
 
 /**
  * svc-academy's API — lobbies + thin curriculum catalog (§8.3, §XIII).
@@ -750,6 +751,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.certificate_unpublished':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
+    case 'academy.video_captions_unpublished':
+    case 'academy.video_transcript_unpublished':
+    case 'academy.watch_threshold_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
@@ -1027,10 +1031,42 @@ export function createAcademyRouter(
             thumbnailUrl: z.string().nullable(),
             language: z.string().nullable(),
             captionsUrl: z.string().nullable(),
+            captionsPublished: z.boolean(),
+            transcriptPublished: z.boolean(),
           }),
         ),
       )
       .query(() => guard(async () => [...listAcademyVideos(video)])),
+
+    /**
+     * AC-videos-01 captions track. Unpublished URL refuses
+     * academy.video_captions_unpublished. Does not invent a file.
+     */
+    videoCaptions: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(
+        z.object({
+          slug: z.string(),
+          captionsUrl: z.string(),
+          language: z.string().nullable(),
+        }),
+      )
+      .query(({ input }) => guard(async () => readVideoCaptions(input.slug))),
+
+    /**
+     * AC-videos-01 transcript. Unpublished text refuses
+     * academy.video_transcript_unpublished. Does not invent words.
+     */
+    videoTranscript: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(
+        z.object({
+          slug: z.string(),
+          language: z.string(),
+          text: z.string(),
+        }),
+      )
+      .query(({ input }) => guard(async () => readVideoTranscript(input.slug))),
 
     /**
      * Signed expiring GET after tier/stake gate. URL without grant is refused.
@@ -2422,6 +2458,35 @@ export function createAcademyRouter(
         .input(z.object({ videoSlug: z.string().min(1).max(120) }))
         .output(videoProgressOut)
         .query(({ ctx, input }) => guard(() => academy.getVideoProgress({ userId: ctx.principal.userId, videoSlug: input.videoSlug }))),
+      /**
+       * Stored position against the owner watch threshold. Blank threshold
+       * refuses academy.watch_threshold_unset. A missing row is not watched.
+       * Caller-only: the user id comes from the session, never the input.
+       */
+      watched: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ videoSlug: z.string().min(1).max(120) }).strict())
+        .output(
+          z.object({
+            videoSlug: z.string(),
+            positionSeconds: z.number().int().nullable(),
+            thresholdSeconds: z.number().int(),
+            watched: z.boolean(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            requireSpineItem(input.videoSlug);
+            const progress = await academy.getVideoProgress({
+              userId: ctx.principal.userId,
+              videoSlug: input.videoSlug,
+            });
+            return decideWatched({
+              videoSlug: input.videoSlug,
+              positionSeconds: progress.positionSeconds,
+              thresholdSeconds: settings.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,
+            });
+          }),
+        ),
     }),
 
     myUpcomingSessions: scopedProcedure('academy:read', { module: 'academy' })
