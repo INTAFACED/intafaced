@@ -19,12 +19,28 @@ export interface SimulationInput {
   readonly slippageBps: Amount;
   /** Whole bar intervals between the signal bar's close and its fill, counted on the clock, not on the bars that traded. */
   readonly delayBars: number;
+  /** A margin account (ENGINE RK-5); absent, a cash account that never spends more than it holds. */
+  readonly account?: MarginAccount | null;
+}
+
+/** Leverage, and the margin-call and stop-out levels as a percent of the margin used, all checked before the run. */
+export interface MarginAccount {
+  readonly leverage: Amount;
+  readonly marginCallPercent: Amount;
+  readonly stopOutPercent: Amount;
+}
+
+export interface MarginEvent {
+  readonly ts: string;
+  readonly kind: 'margin_call' | 'stop_out';
+  readonly price: string;
+  readonly marginLevelPercent: string;
 }
 
 export interface SimulatedTrade {
   readonly ts: string;
   readonly side: 'buy' | 'sell';
-  readonly reason: 'signal' | 'stop_loss' | 'take_profit';
+  readonly reason: 'signal' | 'stop_loss' | 'take_profit' | 'stop_out';
   readonly qty: string;
   readonly barPrice: string;
   readonly price: string;
@@ -36,7 +52,8 @@ export interface SimulationResult {
   readonly trades: readonly SimulatedTrade[];
   readonly rejected: readonly { readonly ts: string; readonly side: 'buy' | 'sell'; readonly reason: RejectReason }[];
   readonly assumptions: readonly Assumption[];
-  readonly equity: readonly { readonly ts: string; readonly equity: string }[];
+  readonly equity: readonly { readonly ts: string; readonly equity: string; readonly marginLevelPercent?: string | null }[];
+  readonly marginEvents: readonly MarginEvent[];
   readonly totals: {
     readonly startCash: string;
     readonly gross: string;
@@ -59,6 +76,8 @@ function abs(value: Amount): Amount {
   return value < 0n ? -value : value;
 }
 const HUNDRED = parseAmount('100');
+/** Four decimal places in the scaled unit, so a margin level reads like every other percent on the result. */
+const PERCENT_CUT = parseAmount('0.0001');
 
 interface Pending {
   readonly side: 'buy' | 'sell';
@@ -97,18 +116,38 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
   const trades: SimulatedTrade[] = [];
   const rejected: { ts: string; side: 'buy' | 'sell'; reason: RejectReason }[] = [];
   const applied = new Set<Assumption>(['long_only', 'averages_over_traded_bars']);
-  const equity: { ts: string; equity: string }[] = [];
+  const equity: { ts: string; equity: string; marginLevelPercent?: string | null }[] = [];
+  const account = input.account ?? null;
+  const marginEvents: MarginEvent[] = [];
+  // The margin the open position took at entry, and whether this position has had its margin call.
+  let used = 0n;
+  let called = false;
+  if (account) applied.add('margin_level_at_bar_low');
+
+  /** Equity over the margin used, in percent, four places cut toward zero; null with no position. */
+  function levelAt(price: Amount): Amount | null {
+    if (!account || qty === 0n || used === 0n) return null;
+    const exact = div(mul(add(cash, mul(qty, price, 'half-up')), HUNDRED, 'floor'), used, 'floor');
+    return (exact / PERCENT_CUT) * PERCENT_CUT;
+  }
+
+  /** The price at which the margin level falls to `percent`: equity there is that share of the margin used. */
+  function priceAtLevel(percent: Amount): Amount {
+    return div(sub(mul(used, div(percent, HUNDRED, 'floor'), 'ceil'), cash), qty, 'ceil');
+  }
 
   function sizeAt(price: Amount): Amount {
     const value = parseAmount(rules.sizing.value);
     if (rules.sizing.kind === 'quantity') return value;
     const budget = rules.sizing.kind === 'cash' ? value : mul(cash, div(value, HUNDRED, 'floor'), 'floor');
-    // Leave room for the fee so the whole order stays inside the budget; rounding can leave it one unit over.
-    const perUnit = add(price, bpsOf(price, input.feeBps));
+    // The budget pays the order's margin (all of it on a cash account, one leverage-th on margin) and its fee, so the
+    // whole order stays inside the budget; rounding can leave it one unit over.
+    const marginOf = (notional: Amount) => (account ? div(notional, account.leverage, 'ceil') : notional);
+    const perUnit = add(marginOf(price), bpsOf(price, input.feeBps));
     const size = div(budget, perUnit, 'floor');
     const cost = (q: Amount) => {
       const notional = mul(q, price, 'half-up');
-      return add(notional, bpsOf(notional, input.feeBps));
+      return add(marginOf(notional), bpsOf(notional, input.feeBps));
     };
     return cost(size) > budget ? size - 1n : size;
   }
@@ -126,12 +165,16 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     const notional = mul(size, price, 'half-up');
     const barNotional = mul(size, barPrice, 'half-up');
     const fee = bpsOf(notional, input.feeBps);
-    if (side === 'buy' && add(notional, fee) > cash) {
+    const margin = account ? div(notional, account.leverage, 'ceil') : notional;
+    if (side === 'buy' && add(margin, fee) > cash) {
       rejected.push({ ts, side, reason: 'insufficient_cash' });
       return;
     }
     if (side === 'buy') {
+      // On margin the rest of the notional is borrowed: cash goes below zero by it and equity carries the position.
       cash = sub(cash, add(notional, fee));
+      used = margin;
+      called = false;
       grossCash = sub(grossCash, barNotional);
       qty = add(qty, size);
       entry = price;
@@ -140,6 +183,7 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       grossCash = add(grossCash, barNotional);
       qty = 0n;
       entry = null;
+      used = 0n;
     }
     fees = add(fees, fee);
     slippage = add(slippage, abs(sub(notional, barNotional)));
@@ -163,8 +207,30 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       fill(i, atOpen.side, 'signal', bar.open, true);
       pending = null;
     }
+    // Margin, against the bar's low (the worst it reached): the margin call is recorded once per position, and a
+    // stop-out closes the whole position at the price that reached its level, or at the open when the bar gapped past it.
+    let stoppedOut = false;
+    if (account && qty > 0n) {
+      const callAt = priceAtLevel(account.marginCallPercent);
+      const stopAt = priceAtLevel(account.stopOutPercent);
+      const ts = new Date(bar.openTimeMs).toISOString();
+      const event = (kind: MarginEvent['kind'], at: Amount) => {
+        const price = bar.open <= at ? bar.open : at;
+        marginEvents.push({ ts, kind, price: formatAmount(price), marginLevelPercent: formatAmount(levelAt(price) ?? 0n) });
+        return price;
+      };
+      if (!called && bar.low <= callAt) {
+        event('margin_call', callAt);
+        called = true;
+      }
+      if (bar.low <= stopAt) {
+        if (stopLoss !== null || takeProfit !== null) applied.add('stop_out_before_exits');
+        fill(i, 'sell', 'stop_out', event('stop_out', stopAt), true);
+        stoppedOut = true;
+      }
+    }
     // Exits on a held position. An entry at this bar's open is held for the rest of the bar.
-    if (qty > 0n && entry !== null) {
+    if (!stoppedOut && qty > 0n && entry !== null) {
       const stop = stopLoss === null ? null : sub(entry, mul(entry, stopLoss, 'half-up'));
       const target = takeProfit === null ? null : add(entry, mul(entry, takeProfit, 'half-up'));
       const stopHit = stop !== null && bar.low <= stop;
@@ -188,7 +254,11 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       const side: 'buy' | 'sell' | null = crossedUp && qty === 0n ? 'buy' : crossedDown && qty > 0n ? 'sell' : null;
       if (side) pending = { side, dueMs: bar.openTimeMs + (1 + input.delayBars) * input.spanMs };
     }
-    equity.push({ ts: new Date(bar.openTimeMs).toISOString(), equity: formatAmount(add(cash, mul(qty, bar.close, 'half-up'))) });
+    const point = { ts: new Date(bar.openTimeMs).toISOString(), equity: formatAmount(add(cash, mul(qty, bar.close, 'half-up'))) };
+    if (account) {
+      const level = levelAt(bar.close);
+      equity.push({ ...point, marginLevelPercent: level === null ? null : formatAmount(level) });
+    } else equity.push(point);
   }
   const unfilled = pending as Pending | null;
   if (unfilled) rejected.push({ ts: new Date(unfilled.dueMs).toISOString(), side: unfilled.side, reason: 'unfilled_at_window_end' });
@@ -201,6 +271,7 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     trades,
     rejected,
     equity,
+    marginEvents,
     assumptions: [...applied],
     totals: {
       startCash: formatAmount(input.cash),

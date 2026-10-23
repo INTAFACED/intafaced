@@ -26,6 +26,8 @@ describe('backtest run log', () => {
       variantCount: null,
       holdout: { enforced: false, from: null },
       ignoredInputs: [],
+      account: null,
+      marginEvents: [],
       simulated: true,
       live: false,
       claimLabel: 'Historical simulation — not a forecast',

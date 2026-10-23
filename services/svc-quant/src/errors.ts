@@ -50,6 +50,7 @@ export const QUANT_BACKTEST_HISTORY_RANGE = 'quant.backtest_history_range' as co
 export const QUANT_BACKTEST_RULES_REQUIRED = 'quant.backtest_rules_required' as const;
 export const QUANT_HOLDOUT_DATE_UNSET = 'quant.holdout_date_unset' as const;
 export const QUANT_HOLDOUT_OVERLAP = 'quant.holdout_overlap' as const;
+export const QUANT_ACCOUNT_RULE_UNSET = 'quant.account_rule_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -104,6 +105,7 @@ export type QuantCode =
   | typeof QUANT_BACKTEST_RULES_REQUIRED
   | typeof QUANT_HOLDOUT_DATE_UNSET
   | typeof QUANT_HOLDOUT_OVERLAP
+  | typeof QUANT_ACCOUNT_RULE_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

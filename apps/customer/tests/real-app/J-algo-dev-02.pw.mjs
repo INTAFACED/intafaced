@@ -35,7 +35,7 @@ async function closedBarsSince(minute) {
 }
 
 /** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
-async function saveSignalStrategy(page, name) {
+async function saveSignalStrategy(page, name, sizing = { kind: 'quantity', value: '0.01' }) {
   await page.goto('/quant/studio');
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
   if (await fresh.isVisible()) await fresh.click();
@@ -52,7 +52,8 @@ async function saveSignalStrategy(page, name) {
   await builder.getByLabel('Bar size').selectOption('1m');
   await builder.getByLabel('Fast average (bars)').fill('1');
   await builder.getByLabel('Slow average (bars)').fill('2');
-  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption(sizing.kind);
+  await builder.getByLabel('Size', { exact: true }).fill(sizing.value);
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
@@ -118,7 +119,7 @@ test(`${J} #1 sets the one-third preset: the out-of-sample part is the latest th
     if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
   });
   await room.getByLabel('From (UTC)').fill(utcMinute(30));
-  await room.locator('.quant-check-line').getByRole('checkbox').check();
+  await room.getByRole('checkbox', { name: /owner’s holdout/ }).check();
   await room.getByTestId('quant-backtest-run').click();
   await expect(room.getByTestId('quant-backtest-refusal')).toContainText('the in-sample part runs to');
   await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
@@ -128,7 +129,7 @@ test(`${J} #1 sets the one-third preset: the out-of-sample part is the latest th
   // ordered parts that meet at the preview's minute and do not overlap.
   room = await backtestForm(page, STRATEGY, window);
   await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
-  await room.locator('.quant-check-line').getByRole('checkbox').check();
+  await room.getByRole('checkbox', { name: /owner’s holdout/ }).check();
   await room.getByTestId('quant-backtest-run').click();
   await expect(room.getByTestId('quant-bar-result')).toBeVisible();
   await expect(room.getByTestId('quant-holdout')).toHaveAttribute('data-enforced', 'true');
@@ -259,4 +260,79 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
     await expect(check(name)).toContainText('Ruled out by design');
   }
   await expect(check('look_ahead')).toContainText('A test of the engine proves a bar cannot change anything that happened before it.');
+});
+
+test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin calls and stop-outs in the stated order; a blank leverage refuses by name`, async ({
+  page,
+}) => {
+  const { window } = run.read();
+  if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
+  await signIn(page, developer());
+  // Every entry spends all the simulated equity on margin, so the leverage decides how far the price may move.
+  const strategy = 'TEST margin strategy';
+  await saveSignalStrategy(page, strategy, { kind: 'percent_equity', value: '100' });
+  const room = await backtestForm(page, strategy, window);
+  const account = room.getByTestId('quant-account');
+  await expect(account).toContainText('Cash account: no order spends more than the simulated cash.');
+  await account.getByRole('checkbox', { name: 'Trade on margin' }).check();
+
+  // The owner's published rules show read only, with the netting mode; the developer sets only the leverage.
+  const rule = (name) => account.getByTestId('quant-account-rules').locator(`[data-rule="${name}"]`);
+  await expect(rule('maxLeverage')).toHaveAttribute('data-value', '100');
+  await expect(rule('marginCallPercent')).toHaveAttribute('data-value', '100');
+  await expect(rule('stopOutPercent')).toHaveAttribute('data-value', '90');
+  await expect(account).toContainText('One position, netted');
+
+  // A blank leverage refuses by name and nothing runs.
+  const started = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
+  });
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-backtest-refusal')).toHaveText('Fill in Leverage first. Nothing ran.');
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  expect(started).toEqual([400]);
+
+  await account.getByLabel('Leverage').fill('100');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  await expect(result.getByTestId('quant-bar-account')).toHaveText(
+    'Margin account at 100x leverage: margin call at 100 %, stop-out at 90 %, one netted position.',
+  );
+  await result.getByRole('button', { name: 'Orders and trades' }).click();
+  const events = await result
+    .getByTestId('quant-margin-event')
+    .evaluateAll((rows) =>
+      rows.map((row) => ({ kind: row.dataset.kind, ts: row.dataset.ts, level: row.dataset.level, price: row.dataset.price })),
+    );
+  const trades = await result
+    .getByTestId('quant-bar-trade')
+    .evaluateAll((rows) => rows.map((row) => ({ side: row.dataset.side, ts: row.dataset.ts, text: row.textContent })));
+  const stopOuts = events.filter((event) => event.kind === 'stop_out');
+  expect(stopOuts.length, 'the TEST tape gave no stop-out at 100x; rerun on a later window').toBeGreaterThan(0);
+
+  // The stated order: a position's margin call comes before its stop-out, at a level at or under each rule, and each
+  // stop-out closes the whole position with a sell at the same bar and price.
+  for (const stop of stopOuts) {
+    const index = events.indexOf(stop);
+    const call = events
+      .slice(0, index)
+      .reverse()
+      .find((event) => event.kind === 'margin_call');
+    expect(call, `stop-out at ${stop.ts} has no margin call before it`).toBeTruthy();
+    expect(Date.parse(call.ts)).toBeLessThanOrEqual(Date.parse(stop.ts));
+    expect(Number(call.level)).toBeLessThanOrEqual(100);
+    expect(Number(stop.level)).toBeLessThanOrEqual(90);
+    const sell = trades.find((trade) => trade.side === 'sell' && trade.ts === stop.ts && trade.text.includes('Stop-out'));
+    expect(sell, `no stop-out sell at ${stop.ts}`).toBeTruthy();
+    expect(sell.text).toContain(stop.price);
+  }
+
+  // The margin level is part of the series, and the run lists how it was checked.
+  await result.getByRole('button', { name: 'Charts' }).click();
+  const levels = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.marginLevel));
+  expect(levels.some((level) => level !== '')).toBe(true);
+  await result.getByRole('button', { name: 'Summary' }).click();
+  await expect(result.getByTestId('quant-bar-assumptions').locator('[data-assumption="margin_level_at_bar_low"]')).toHaveCount(1);
 });
