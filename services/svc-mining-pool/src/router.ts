@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { checkAccess, type KycTier } from '@intafaced/config';
+import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
 import { CREDENTIAL_NOT_ISSUED, readPoolConnection } from './connection.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
@@ -44,6 +45,19 @@ function refusal(code: string, message: string): never {
   throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: new MiningError(message, code) });
 }
 
+/** mining-pool on the fiat plane. Same `checkAccess` arguments as `workers.mine`, and no extra scope. */
+function refuseMiningPool(ctx: { readonly region: string; readonly principal: { readonly tier: KycTier } }): void {
+  const decision = checkAccess({
+    module: 'mining-pool',
+    plane: 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause: new JurisdictionError(decision) });
+  }
+}
+
 export type MiningPublishDeps = {
   /** When set, readers use this map instead of `process.env` (tests). */
   readonly env?: NodeJS.ProcessEnv;
@@ -56,9 +70,9 @@ export type MiningPublishDeps = {
  * Signed reads for the customer Mining room and the founder Mining desk.
  * Own-account procedures require `ledger:read`. Operator procedures require
  * `admin:read`. Overview, connection and the reachability probe are signed-in
- * reads with no extra scope, same as `terms`: the text is pool-wide, the
- * account id is the principal, and the probe dials only the configured host.
- * No `mining:*` scope is introduced here.
+ * reads with no extra scope. After authentication they run the same mining-pool
+ * fiat `checkAccess` as `workers.mine`, and refuse that decision before reading
+ * or dialing. No `mining:*` scope is introduced here.
  */
 export function createMiningRouter(
   reads: MiningReads,
@@ -71,7 +85,10 @@ export function createMiningRouter(
   const now = publish.now ?? Date.now;
   const dial = publish.dial ?? dialPool;
   const limiter = publish.limiter ?? new ProbeRateLimit();
-  const signed = protectedProcedure;
+  const signed = protectedProcedure.use(({ ctx, next }) => {
+    refuseMiningPool(ctx);
+    return next({ ctx });
+  });
   return router({
     workers: router({
       mine: customer

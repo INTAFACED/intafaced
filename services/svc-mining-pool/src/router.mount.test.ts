@@ -140,7 +140,7 @@ describe('mining tRPC mount', () => {
     };
     const router = createMiningRouter(store, undefined, { env });
     await expect(router.createCaller(anonymous()).overview()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
-    await expect(router.createCaller(signed(principal({ scopes: [], tier: 'none' }))).overview()).resolves.toMatchObject({
+    await expect(router.createCaller(signed(principal({ scopes: [] }))).overview()).resolves.toMatchObject({
       version: 'TEST-1',
       what: 'TEST pool',
       coin: null,
@@ -191,13 +191,74 @@ describe('mining tRPC mount', () => {
     expect(dial).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a signed caller when screening is unset, before the handler', async () => {
+  it('refuses a tier-none caller on overview, connection and probe with the workers.mine decision, and does not dial', async () => {
+    const store = reads();
+    const dial = vi.fn<Dial>(async () => ({ kind: 'reachable', roundTripMs: 4 }));
+    const env = {
+      MINING_OVERVIEW_VERSION: 'TEST-1',
+      MINING_OVERVIEW_WHAT: 'TEST pool',
+      MINING_POOL_HOST: 'pool.test',
+      MINING_POOL_PORT: '3999',
+      MINING_PROBE_LIMIT: '1',
+      MINING_PROBE_WINDOW_MS: '60000',
+      MINING_PROBE_TIMEOUT_MS: '1000',
+    };
+    const router = createMiningRouter(store, undefined, { env, dial, now: () => 10_000 });
+    const none = router.createCaller(signed(principal({ tier: 'none' })));
+    const mine = await none.workers.mine({ windowMinutes: 60 }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(mine).toMatchObject({ code: 'FORBIDDEN', cause: { code: 'denied.kyc_required', requiredTier: 'basic' } });
+    const decision = (mine as { cause: { code: string; requiredTier: string } }).cause;
+    await expect(none.overview()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: decision.code, requiredTier: decision.requiredTier },
+    });
+    await expect(none.connection()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: decision.code, requiredTier: decision.requiredTier },
+    });
+    await expect(none.probe()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: decision.code, requiredTier: decision.requiredTier },
+    });
+    expect(dial).not.toHaveBeenCalled();
+    expect(store.myWorkers).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed caller when screening is unset, before a read or a dial', async () => {
     vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'yes');
     const store = reads();
-    await expect(createMiningRouter(store).createCaller(signed()).workers.mine({ windowMinutes: 60 })).rejects.toMatchObject({
+    const dial = vi.fn<Dial>(async () => ({ kind: 'reachable', roundTripMs: 4 }));
+    const env = {
+      MINING_OVERVIEW_VERSION: 'TEST-1',
+      MINING_OVERVIEW_WHAT: 'TEST pool',
+      MINING_POOL_HOST: 'pool.test',
+      MINING_POOL_PORT: '3999',
+      MINING_PROBE_LIMIT: '1',
+      MINING_PROBE_WINDOW_MS: '60000',
+      MINING_PROBE_TIMEOUT_MS: '1000',
+    };
+    const router = createMiningRouter(store, undefined, { env, dial, now: () => 10_000 });
+    const caller = signed();
+    await expect(router.createCaller(caller).workers.mine({ windowMinutes: 60 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'denied.screening_unconfigured' },
+    });
+    await expect(router.createCaller(caller).overview()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'denied.screening_unconfigured' },
+    });
+    await expect(router.createCaller(caller).connection()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      cause: { code: 'denied.screening_unconfigured' },
+    });
+    await expect(router.createCaller(caller).probe()).rejects.toMatchObject({
       code: 'FORBIDDEN',
       cause: { code: 'denied.screening_unconfigured' },
     });
     expect(store.myWorkers).not.toHaveBeenCalled();
+    expect(dial).not.toHaveBeenCalled();
   });
 });
