@@ -70,6 +70,7 @@ import {
   QUANT_OPS_RUNS_FROM_UNSET,
   QUANT_OPS_RUNS_LIMIT_UNSET,
   QUANT_OPS_RUNS_TO_UNSET,
+  QUANT_RUN_IMMUTABLE,
   QUANT_RUN_NOT_FOUND,
   QUANT_RUN_NOT_SIMULATED,
   QUANT_RUN_RESULT_CAP_UNSET,
@@ -862,8 +863,12 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 return presentBacktest({ ...result, ignoredInputs: [...prepared.ignoredInputs] }, row?.id ?? '');
               };
               const prior = await runs.replay(accountId, prepared.key);
-              const stored = prior?.finished && prior.outcome === 'ok' ? readStoredBacktest(prior.response) : null;
-              if (stored) return withRun(stored);
+              if (prior?.finished && prior.outcome === 'ok') {
+                // A stored result is read back, never run again; one that no longer reads is refused, not replaced.
+                const stored = readStoredBacktest(prior.response);
+                if (!stored) throw new QuantError(QUANT_RUN_IMMUTABLE, 'run — its stored result cannot be read; it is not run again');
+                return withRun(stored);
+              }
               // Bars are read before the run row, so a history read that fails stores nothing and the same key can run later.
               const bars = await readWindowBars(prepared, history);
               const result = await trackRun(

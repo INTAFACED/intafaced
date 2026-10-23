@@ -1,21 +1,9 @@
-import type {
-  QuantBacktestResult,
-  QuantSampleSection,
-  QuantSplitPreset,
-  QuantVerdictCriteria,
-  QUANT_VERDICT_CRITERIA,
-} from '@intafaced/contracts';
+import type { QuantBacktestResult, QuantSampleSection, QuantVerdictCriteria, QUANT_VERDICT_CRITERIA } from '@intafaced/contracts';
 import { formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import { drawdownOf, percent, roundTripsOf } from './metrics.js';
 
 type Criterion = (typeof QUANT_VERDICT_CRITERIA)[number];
 type Sections = { readonly inSample: QuantSampleSection; readonly outOfSample: QuantSampleSection };
-
-/** What a split run stores to judge itself on every read: the split, and the owner's criteria as they stood then. */
-export interface StoredJudgement {
-  readonly split: { readonly preset: QuantSplitPreset; readonly outOfSampleFrom: string } | null;
-  readonly criteria: QuantVerdictCriteria;
-}
 
 const CRITERIA: readonly Criterion[] = ['minTrades', 'minReturnPercent', 'maxDrawdownPercent', 'maxShortfallPercent'];
 

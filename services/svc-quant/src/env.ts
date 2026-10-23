@@ -105,7 +105,9 @@ const schema = baseEnvSchema
        * enforce it. An instant with its UTC offset, or an ISO duration (PT6H, P30D) read as that long before the request.
        * NO DEFAULT: blank, a run that asks to enforce it refuses `quant.holdout_date_unset`.
        */
-      QUANT_HOLDOUT_START: blankable(z.string().regex(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})|P(\d+D)?(T(\d+H)?(\d+M)?)?)$/i)),
+      QUANT_HOLDOUT_START: blankable(
+        z.string().regex(/^(\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})|P(?=.*[1-9])(\d+D)?(T(?=\d)(\d+H)?(\d+M)?)?)$/i),
+      ),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

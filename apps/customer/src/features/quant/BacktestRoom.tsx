@@ -35,7 +35,7 @@ const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStr
 
 /** The inputs a refusal can name, by the word the service puts first in its message. */
 const NAMED = { cash: 'cash', fees: 'feeRole', slippage: 'slippage', delay: 'delay', from: 'from', to: 'to' } as const;
-type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'holdout';
+type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'oosFrom' | 'holdout';
 type Refusal = { input: Named; detail: string; blank: boolean };
 
 /**
@@ -50,8 +50,8 @@ function namedRefusal(message: string): Refusal | null {
   if (window) return { input: NAMED[window[1] as 'from' | 'to'], detail: window[2]!.trim(), blank: false };
   const timing = /^quant\.fill_timing_unset — (.*)$/.exec(message);
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
-  const split = /^quant\.backtest_window_invalid — (?:split — |out-of-sample start )(.*)$/.exec(message);
-  if (split) return { input: 'split', detail: split[1]!.trim(), blank: false };
+  const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
+  if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
   const holdout = /^quant\.holdout_(?:overlap|date_unset) — holdout — (.*)$/.exec(message);
   if (holdout) return { input: 'holdout', detail: holdout[1]!.trim(), blank: false };
   return null;
@@ -94,6 +94,7 @@ export function BacktestRoom() {
     to: t('to'),
     fillTiming: t('fillTiming'),
     split: t('split'),
+    oosFrom: t('oosFrom'),
     holdout: t('holdout'),
   };
   // A refusal shows once, next to the input it names.
@@ -235,6 +236,7 @@ export function BacktestRoom() {
                       type="datetime-local"
                       value={oosFrom}
                       onChange={(e) => edited(setOosFrom)(e.target.value)}
+                      error={errorFor('oosFrom')}
                     />
                   )}
                   {split && strategy?.modules && (
@@ -299,6 +301,9 @@ export function BacktestRoom() {
   );
 }
 
+/** An ISO instant as its UTC minute, "2026-10-23 03:40". */
+const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
+
 const SPLIT_WORDS = { '1/2': 'split_half', '1/3': 'split_third', '1/4': 'split_quarter', custom: 'split_custom' } as const;
 
 /** Both parts of the split as the service will cut them, shown before Run: the same rule, on the strategy's bar size. */
@@ -317,9 +322,9 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
         {t('splitShort')}
       </p>
     );
-  const minute = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+  const minute = (ms: number) => utcText(new Date(ms).toISOString());
   return (
-    <p data-testid="quant-split-preview" data-oos-from={new Date(cut).toISOString()} lang="zxx">
+    <p data-testid="quant-split-preview" data-oos-from={new Date(cut).toISOString()}>
       {t('splitPreview', { isFrom: minute(fromMs), isTo: minute(cut), oosFrom: minute(cut), oosTo: minute(toMs) })}
     </p>
   );
@@ -424,9 +429,7 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
       </p>
       <p className="muted">{t('variantsHelp')}</p>
       <p data-testid="quant-holdout" data-enforced={String(result.holdout.enforced)}>
-        {result.holdout.enforced && result.holdout.from
-          ? t('holdoutOn', { from: result.holdout.from.slice(0, 16).replace('T', ' ') })
-          : t('holdoutOff')}
+        {result.holdout.enforced && result.holdout.from ? t('holdoutOn', { from: utcText(result.holdout.from) }) : t('holdoutOff')}
       </p>
       {result.ignoredInputs.length > 0 && (
         <p role="note" data-testid="quant-ignored-inputs" data-fields={result.ignoredInputs.join(',')}>
@@ -444,7 +447,7 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
             <tr key={name} data-testid={`quant-section-${name}`} data-from={part.from} data-to={part.to}>
               <td>{t(name)}</td>
               <td lang="zxx">
-                {part.from.slice(0, 16).replace('T', ' ')} – {part.to.slice(0, 16).replace('T', ' ')}
+                {utcText(part.from)} – {utcText(part.to)}
               </td>
               <td lang="zxx">{percent(part.returnPercent)}</td>
               <td lang="zxx">{percent(part.maxDrawdownPercent)}</td>
@@ -530,7 +533,7 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
         <DataTable headers={[t('gapsTitle')]} label={t('gapsTitle')}>
           {coverage.gaps.map((gap) => (
             <tr key={gap.from} data-testid="quant-bar-gap" data-from={gap.from} data-to={gap.to}>
-              <td lang="zxx">{t('gap', { from: gap.from.slice(0, 16).replace('T', ' '), to: gap.to.slice(0, 16).replace('T', ' ') })}</td>
+              <td lang="zxx">{t('gap', { from: utcText(gap.from), to: utcText(gap.to) })}</td>
             </tr>
           ))}
         </DataTable>
@@ -580,7 +583,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
         >
           {result.trades.map((trade, i) => (
             <tr key={`${trade.ts}:${i}`} data-testid="quant-bar-trade" data-ts={trade.ts} data-side={trade.side}>
-              <td lang="zxx">{trade.ts.slice(0, 16).replace('T', ' ')}</td>
+              <td lang="zxx">{utcText(trade.ts)}</td>
               <td>{t(trade.side)}</td>
               <td>{t(trade.reason)}</td>
               <td lang="zxx">{trade.qty}</td>
@@ -598,7 +601,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
         <DataTable headers={[t('time'), t('side'), t('reason')]} label={t('rejectedTitle')}>
           {result.rejected.map((row, i) => (
             <tr key={`${row.ts}:${i}`} data-testid="quant-bar-rejected" data-reason={row.reason}>
-              <td lang="zxx">{row.ts.slice(0, 16).replace('T', ' ')}</td>
+              <td lang="zxx">{utcText(row.ts)}</td>
               <td>{t(row.side)}</td>
               <td>{t(row.reason)}</td>
             </tr>
@@ -648,7 +651,7 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
                   data-side={marker.side}
                   data-ts={marker.ts}
                 >
-                  <title>{t('markerTitle', { side: t(marker.side), time: marker.ts.slice(0, 16).replace('T', ' ') })}</title>
+                  <title>{t('markerTitle', { side: t(marker.side), time: utcText(marker.ts) })}</title>
                 </polygon>
               );
             })}
@@ -664,7 +667,7 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
         <DataTable headers={[t('time'), t('equity')]} label={t('equityTitle')}>
           {result.equity.map((point) => (
             <tr key={point.ts} data-testid="quant-bar-equity" data-equity={point.equity}>
-              <td lang="zxx">{point.ts.slice(0, 16).replace('T', ' ')}</td>
+              <td lang="zxx">{utcText(point.ts)}</td>
               <td lang="zxx">{point.equity}</td>
             </tr>
           ))}
@@ -718,7 +721,7 @@ function ResultLog({ result }: { result: QuantBacktestResult }) {
           {lines.map((line, i) => (
             <li key={`${line.code}:${line.ts ?? ''}:${i}`} data-testid="quant-log-line" data-level={line.level} data-code={line.code}>
               <strong>{line.level === 'warn' ? t('levelWarn') : t('levelInfo')}</strong>{' '}
-              {line.ts && <span lang="zxx">{line.ts.slice(0, 16).replace('T', ' ')} </span>}
+              {line.ts && <span lang="zxx">{utcText(line.ts)} </span>}
               {t(`log_${line.code}` as Parameters<typeof t>[0], readable(line.values))}
             </li>
           ))}

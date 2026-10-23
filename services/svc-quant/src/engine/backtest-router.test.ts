@@ -405,4 +405,19 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
       /quant\.backtest_window_invalid — split/,
     );
   });
+
+  it('refuses a replay whose stored result no longer reads, and runs nothing again', async () => {
+    const { a, runs, seen } = setup();
+    const strategy = await saved(a);
+    await a.backtest.start(request(strategy.id));
+    const replay = runs.replay;
+    runs.replay = async (userId, key) => {
+      const row = await replay(userId, key);
+      return row ? { ...row, response: { symbol: 'BTC/USDT' } } : row;
+    };
+    const bars = () => seen.filter((url) => url.includes('/ohlcv/')).length;
+    const reads = bars();
+    await expect(a.backtest.start(request(strategy.id))).rejects.toThrow(/quant\.run_immutable — run — its stored result cannot be read/);
+    expect(bars()).toBe(reads);
+  });
 });
