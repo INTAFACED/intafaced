@@ -419,6 +419,15 @@ export const rooms: readonly Room[] = [
   },
   { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
+  // The P2P Trading access room: what a person needs before taking an ad (eligibility) and their programme standing.
+  {
+    path: '/p2p/access',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    hidden: true,
+  },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },

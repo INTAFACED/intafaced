@@ -29,6 +29,7 @@ import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
 import { p2pDepth } from './personal/p2p-depth-copy';
+import { P2PEligibilityPanel } from './personal/Eligibility';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -48,7 +49,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const showOrders = current === '/uc/order' || current === '/p2p/orders';
   const showMine = current === '/uc/ad' || current === '/p2p/offers';
   const showMethods = current === '/p2p/methods' || params.get('view') === 'methods';
-  const showAccess = params.get('view') === 'access';
+  const showAccess = current === '/p2p/access' || params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   const inspectionReturn = p2pReturn(params.get('returnTo'));
@@ -117,7 +118,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
           <PayCopy k="paymentMethods" />
         </a>
-        <a href="/p2p?view=access" aria-current={showAccess ? 'page' : undefined}>
+        <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>
           <PayCopy k="tradingAccess" />
         </a>
       </nav>
@@ -164,11 +165,20 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <PublishAvailability pay={pay} />
         </div>
       ) : showAccess ? (
-        <TradingProgramme pay={pay} userId={userId} />
+        <div className="stack">
+          <P2PEligibilityPanel pay={pay} userId={userId} />
+          <TradingProgramme pay={pay} userId={userId} />
+        </div>
       ) : showMethods ? (
         <PaymentMethods pay={pay} userId={userId} />
+      ) : showMine ? (
+        <P2POffers pay={pay} userId={userId} mine />
       ) : (
-        <P2POffers pay={pay} userId={userId} mine={showMine} />
+        <div className="stack">
+          {/* An open ad has the same checks beside its take form; the hub lists them all. */}
+          {params.get('offerId') ? null : <P2PEligibilityPanel pay={pay} userId={userId} />}
+          <P2POffers pay={pay} userId={userId} mine={false} />
+        </div>
       )}
     </Page>
   );

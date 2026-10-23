@@ -15,6 +15,7 @@ import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
+import { metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
@@ -254,6 +255,7 @@ describe('svc-p2p payment instruments', () => {
     // quote/accept would PRECONDITION_FAILED and never scan a quote payload.
     api = createP2pRouter(p2p, instruments, new P2pErasure(sql), {
       blockRfq: new BlockRfqService(new MemoryBlockQuoteStore()),
+      takeGate: metTakeGate(),
     });
     await registerMethod();
   });
@@ -1230,6 +1232,9 @@ describe('svc-p2p payment instruments', () => {
         // instrument join. Unset owner tables refuse before any row is read.
         'limits.verification': undefined,
         'limits.securityChange': undefined,
+        'access.eligibility': undefined,
+        'risk.notice': undefined,
+        'risk.accept': { version: 'TEST' },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
