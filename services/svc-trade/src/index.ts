@@ -1055,6 +1055,10 @@ registerPrivateRest(app, {
       env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
       env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
     ),
+  readCancelAllAfter: async (principal) => ({
+    ...(await (trade as unknown as CancelAllAfterHost).readCancelAllAfter(principal)),
+    published: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+  }),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

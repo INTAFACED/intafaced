@@ -12,6 +12,7 @@ import { floorToLot } from './order-math';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
 import { CancelMany } from './CancelMany';
+import { DeadMan } from './DeadMan';
 import { EditOrder } from './EditOrder';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
@@ -91,6 +92,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
             />
           </>
         ) : null}
+        {userId ? <DeadMan onChanged={refresh} /> : null}
         {showAll && userId ? (
           <a className="dk-viewall" href={tab === 'trades' ? '/money/activity?tab=trades' : '/money/activity?tab=orders'}>
             {t('View all')}

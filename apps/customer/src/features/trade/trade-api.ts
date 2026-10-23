@@ -53,6 +53,18 @@ export interface HistoryQuery {
 }
 /** The most fills one order's detail reads (the service's own ceiling for a fills read). */
 export const ORDER_TRADES_LIMIT = 500;
+/**
+ * The dead-man switch (cancel-all-after): the caller's countdown and the timeouts the venue publishes, in whole seconds.
+ * `timeouts` is null while none are published, and the switch cannot be armed.
+ */
+export const cancelAllAfterSchema = z.object({
+  armed: z.boolean(),
+  timeout: z.number().int().nonnegative(),
+  triggerTime: z.string().datetime({ offset: true }).nullable(),
+  timeouts: z.array(z.number().int().nonnegative()).nullable().optional(),
+});
+export type CancelAllAfter = z.infer<typeof cancelAllAfterSchema>;
+
 /** One answer per id of a batch cancel, in the order sent: cancelled, refused with the service's reason, or unknown. */
 export const batchCancelSchema = z.object({
   atomic: z.literal(false),
@@ -439,6 +451,16 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       symbol.trim() === ''
         ? Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'symbol is required' })
         : api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
+    /** The dead-man switch as it stands, and the published timeouts. */
+    cancelAllAfter: (signal?: AbortSignal): Promise<ApiResult<CancelAllAfter>> =>
+      api.rest('/orders/cancel-all-after', cancelAllAfterSchema, { signal }),
+    /** Arm (or push out) the dead-man switch; 0 disarms. A reply that does not answer this timeout is refused. */
+    async armCancelAllAfter(timeout: number): Promise<ApiResult<CancelAllAfter>> {
+      const result = await api.rest('/orders/cancel-all-after', cancelAllAfterSchema, { method: 'POST', body: { timeout } });
+      return result.ok && (result.data.timeout !== timeout || result.data.armed !== timeout > 0)
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
     /** Cancel every open order in every market (DELETE /orders with no symbol). The reply lists the orders it cancelled. */
     cancelAllMarkets: (): Promise<ApiResult<Order[]>> => api.rest('/orders', z.array(orderSchema), { method: 'DELETE' }),
     /** Cancel every open order in every spot market, and none of another product's (DELETE /orders?kind=spot). */

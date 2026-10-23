@@ -623,6 +623,16 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
       'Dead-man switch. Body {timeout: seconds}; timeout 0 disarms. Allowed timeouts are the owner-published set (blank = refuse); the credential must outlive the deadline.',
   },
   {
+    name: 'fetchCancelAllAfter',
+    method: 'GET',
+    path: '/api/v1/orders/cancel-all-after',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: "The caller's dead-man switch (armed, timeout, triggerTime) and the owner-published timeouts (null while unpublished).",
+  },
+  {
     name: 'batchCancelOrders',
     method: 'POST',
     path: '/api/v1/orders/batch-cancel',
