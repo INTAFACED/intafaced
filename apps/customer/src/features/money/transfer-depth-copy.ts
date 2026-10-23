@@ -40,10 +40,8 @@ const en = {
   reviewTaken: 'Taken from your account',
   reviewLeftToday: 'Left to send today after this',
   reviewChecking: 'Reading the published fee and limits for this transfer…',
-  reviewTermsUnset:
-    'No fee or sending limit is published for {asset}, so Confirm stays off. Nothing can be sent until the bank publishes them (bank.personal_transfer_terms_unset).',
-  reviewFeeUnwired:
-    'A fee of {fee} {asset} is published, and this transfer has no way to charge it yet, so Confirm stays off (bank.personal_transfer_fee_unwired).',
+  reviewTermsUnset: 'No fee or sending limit is published for {asset}, so Confirm stays off and nothing can be sent in {asset} ({code}).',
+  reviewFeeUnwired: 'A fee of {fee} {asset} is published, and this transfer cannot charge it, so Confirm stays off ({code}).',
   reviewOverPayment: 'That is above the {limit} {asset} limit for a single transfer, so Confirm stays off.',
   reviewOverDaily: 'Only {left} {asset} is left to send today, so Confirm stays off.',
   reviewUnreadable: 'The fee and limits for this transfer could not be read, so Confirm stays off. Go back and review again.',
@@ -98,9 +96,9 @@ const es = {
   reviewLeftToday: 'Te quedará por enviar hoy',
   reviewChecking: 'Leyendo la comisión y los límites publicados para esta transferencia…',
   reviewTermsUnset:
-    'No hay comisión ni límite de envío publicados para {asset}, así que Confirmar está desactivado. No se puede enviar nada hasta que el banco los publique (bank.personal_transfer_terms_unset).',
+    'No hay comisión ni límite de envío publicados para {asset}, así que Confirmar está desactivado y no se puede enviar nada en {asset} ({code}).',
   reviewFeeUnwired:
-    'Hay publicada una comisión de {fee} {asset} y esta transferencia todavía no puede cobrarla, así que Confirmar está desactivado (bank.personal_transfer_fee_unwired).',
+    'Hay publicada una comisión de {fee} {asset} y esta transferencia no puede cobrarla, así que Confirmar está desactivado ({code}).',
   reviewOverPayment: 'Eso supera el límite de {limit} {asset} para una sola transferencia, así que Confirmar está desactivado.',
   reviewOverDaily: 'Hoy solo te quedan {left} {asset} por enviar, así que Confirmar está desactivado.',
   reviewUnreadable:
@@ -157,9 +155,9 @@ const fr = {
   reviewLeftToday: 'Reste à envoyer aujourd’hui après celui-ci',
   reviewChecking: 'Lecture des frais et des plafonds publiés pour ce virement…',
   reviewTermsUnset:
-    'Aucun frais ni plafond d’envoi n’est publié pour {asset}, donc Confirmer reste désactivé. Rien ne peut partir avant que la banque les publie (bank.personal_transfer_terms_unset).',
+    'Aucun frais ni plafond d’envoi n’est publié pour {asset}, donc Confirmer reste désactivé et rien ne peut partir en {asset} ({code}).',
   reviewFeeUnwired:
-    'Des frais de {fee} {asset} sont publiés et ce virement ne peut pas encore les prélever, donc Confirmer reste désactivé (bank.personal_transfer_fee_unwired).',
+    'Des frais de {fee} {asset} sont publiés et ce virement ne peut pas les prélever, donc Confirmer reste désactivé ({code}).',
   reviewOverPayment: 'Cela dépasse le plafond de {limit} {asset} pour un seul virement, donc Confirmer reste désactivé.',
   reviewOverDaily: 'Il ne reste que {left} {asset} à envoyer aujourd’hui, donc Confirmer reste désactivé.',
   reviewUnreadable:

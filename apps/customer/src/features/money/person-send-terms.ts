@@ -22,7 +22,8 @@ export type ReviewTerms = { rows: [string, string][]; blocked: string | null };
 export function personSendReview(answer: ApiResult<PersonSendQuote>, sent: string, assetId: string): ReviewTerms {
   const { t } = transferDepthCopy;
   if (!answer.ok) {
-    if (answer.code === 'bank.personal_transfer_terms_unset') return { rows: [], blocked: t('reviewTermsUnset', { asset: assetId }) };
+    if (answer.code === 'bank.personal_transfer_terms_unset')
+      return { rows: [], blocked: t('reviewTermsUnset', { asset: assetId, code: answer.code }) };
     // Any other refusal is the service's own: name its code rather than asking for a retry that cannot help.
     return { rows: [], blocked: answer.code ? t('reviewRefused', { code: answer.code }) : t('reviewUnreadable') };
   }
@@ -47,7 +48,14 @@ export function personSendReview(answer: ApiResult<PersonSendQuote>, sent: strin
       };
     // A fee this transfer cannot charge: nothing would leave, so no "taken" figure is shown beside the refusal.
     case 'feeUnwired':
-      return { rows: feeRows, blocked: t('reviewFeeUnwired', { fee: displayAmount(formatAmount(fee)), asset: assetId }) };
+      return {
+        rows: feeRows,
+        blocked: t('reviewFeeUnwired', {
+          fee: displayAmount(formatAmount(fee)),
+          asset: assetId,
+          code: quote.feeBlocker ?? 'bank.personal_transfer_fee_unwired',
+        }),
+      };
     case 'overPayment':
       return { rows: feeRows, blocked: t('reviewOverPayment', { limit: displayAmount(verdict.limit), asset: assetId }) };
     case 'overDaily':
