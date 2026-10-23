@@ -172,6 +172,12 @@ describe('second approval and the name', () => {
     expect(off).toContain('Second approval is off.');
     expect(off).toContain('Turn on second approval');
   });
+  it('says nothing about the setting while the profile is still loading', () => {
+    const out = html({ profile: { status: 'loading' } });
+    expect(out).not.toContain('We can’t read this setting');
+    expect(out).not.toContain('Second approval is');
+    expect(out).not.toContain('Turn on second approval');
+  });
   it('shows the name from the details on the page, not "Not set up yet"', () => {
     const out = html({ who: { ...base.who, displayName: null, legalName: null } });
     expect(out).toContain('TEST Shop');
