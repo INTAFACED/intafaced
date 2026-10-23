@@ -84,10 +84,12 @@ test('J-ops-console-04 #6 unfreezing needs a different approver: refused alone, 
   await desk.getByLabel(/to approve or run it$/).fill(phrase);
   await desk.getByRole('button', { name: 'Run the approved request' }).click();
   await expect(a.getByRole('heading', { name: 'Access permitted' })).toBeVisible({ timeout: 60_000 });
-  const row = a.locator('table tbody tr').filter({ hasText: `LOCAL TEST customer verified ${tag}` });
+  // Identity's history keeps the refused early run too; the change is the row with outcome "changed".
+  const rows = a.locator('table tbody tr').filter({ hasText: `LOCAL TEST customer verified ${tag}` });
+  await expect(rows.filter({ hasText: 'refused' })).toHaveCount(1);
+  const row = rows.filter({ hasText: 'changed' });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('restore');
-  await expect(row).toContainText('changed');
   await expect(row).toContainText(founderA.userId.slice(0, 8));
   await expect(row).toContainText(founderB.userId.slice(0, 8));
   expect((await login(who)).status, 'the customer can sign in again').toBe(200);
