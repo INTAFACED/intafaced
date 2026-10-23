@@ -8,6 +8,7 @@
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
@@ -21,6 +22,8 @@
  *   3. the operator who verifies test accounts,
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
  *   5. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
+ *   6. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
+ *      (every futures order refuses while none are published).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -53,6 +56,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
+import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -224,9 +228,12 @@ export function operatorIdentity(letter) {
   return { handle: `${MARKERS.operatorHandlePrefix}${l}`, email: `local-test-operator-${l}${MARKERS.operatorEmailDomain}` };
 }
 
-/** Which markets get a stand-in publication: orderable, active spot books on the 24/7 crypto schedule. */
+/** Which markets get a stand-in publication: orderable, active spot books on the 24/7 crypto schedule, and the
+ * labelled TEST perpetual (`test: true`, listed only by `local-test-gates.mjs futures`) for the derivatives journeys. */
 export function openableMarkets(markets) {
-  return markets.filter((m) => m.active && m.orderable && m.spot && !m.paper && m.schedule === OPENABLE_SCHEDULE);
+  return markets.filter(
+    (m) => m.active && m.orderable && (m.spot || (m.swap && m.test === true)) && !m.paper && m.schedule === OPENABLE_SCHEDULE,
+  );
 }
 
 /** Accounts that still need a `full` record: `have` maps userId -> Set of approved tiers. */
@@ -823,7 +830,120 @@ export async function publishPairRisk(ctx) {
   return out;
 }
 
-// ── 2e. Charts owner values (C-ops-04): LOCAL TEST values through svc-trade's own door ──
+// ── 2e. TEST perpetual and derivatives terms (two-person approval) ──────────
+
+/** The labelled TEST perpetual's fixture (seed-futures-test-listing.mjs reads and checks it). */
+export const TEST_FUTURES_FIXTURE = 'services/svc-trade/fixtures/btc-usdt-swap.TEST.json';
+/** Region the stack's Edge stamps on every request (svc-edge DEFAULT_REGION, unset on this stack). */
+export const TEST_AGREEMENT_REGION = 'XX';
+export const AGREEMENT_PUBLISH_ACTION = 'trade.agreement_publish';
+export const ELIGIBILITY_RULES_ACTION = 'trade.derivatives_eligibility_rules_set';
+
+export function agreementPublishHash({ kind, expectedVersion, texts, reason }) {
+  const sha = (body) => `sha256:${crypto.createHash('sha256').update(body, 'utf8').digest('hex')}`;
+  const rows = texts
+    .map((t) => ({ region: t.region.trim().toUpperCase(), title: t.title.trim(), bodySha256: sha(t.body.trim()) }))
+    .sort((a, b) => (a.region < b.region ? -1 : a.region > b.region ? 1 : 0));
+  const body = { actionType: AGREEMENT_PUBLISH_ACTION, kind, expectedVersion, texts: rows, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+export function eligibilityRulesHash({ questions, passMark, minKycTier, expectedVersion, reason }) {
+  const body = { actionType: ELIGIBILITY_RULES_ACTION, expectedVersion, questions, passMark, minKycTier, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/** svc-trade's own role on the stack's database: loopback, the marker's postgres port, the stack's secret. */
+function localDbUrl(ctx) {
+  return `postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+}
+
+/** Insert the TEST perpetual once, through the repo's own seed tool (it refuses any database that is not local). */
+export async function seedFuturesListing(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
+  const { evaluateSeedRequest, insertFuturesTestListing } = await import('./seed-futures-test-listing.mjs');
+  const fixturePath = path.join(REPO, TEST_FUTURES_FIXTURE);
+  const env = { TRADE_DATABASE_URL: localDbUrl(ctx) };
+  const decision = evaluateSeedRequest({ env, fixturePath, fixtureText: fs.readFileSync(fixturePath, 'utf8') });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(decision.databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    // Upserts only a row that is itself a TEST listing; a real listing of the same symbol is refused, never overwritten.
+    const row = await insertFuturesTestListing(sql, decision.listing);
+    ctx.log(`TEST perpetual ${row.symbol} listed as ${row.id} (${MARKERS.label})`);
+    return { symbol: row.symbol, marketId: row.id };
+  } finally {
+    await sql.end();
+  }
+}
+
+/** Publish the TEST agreements and quiz once each, through svc-trade's own doors with a second operator's approval. */
+export async function publishFuturesTerms(ctx) {
+  const pair = await approverSessions(ctx);
+  const out = [];
+  for (const [kind, text] of Object.entries(TEST_AGREEMENTS)) {
+    const current = data(await ctx.edge.query('trade', 'admin.agreements.get', { kind }, await pair.a.tradeOpsToken()));
+    if (!current) throw new Error(`trade admin.agreements.get ${kind} gave no answer`);
+    if (current.current) {
+      out.push({ what: kind, version: current.current.version, changed: false });
+      continue;
+    }
+    const expectedVersion = String(current.history?.[0]?.version ?? 0);
+    const texts = [{ region: TEST_AGREEMENT_REGION, ...text }];
+    const reason = `${MARKERS.label}: TEST ${kind} text`;
+    const ids = await twoPerson(ctx, pair, {
+      actionType: AGREEMENT_PUBLISH_ACTION,
+      targetService: 'svc-trade',
+      targetId: `agreement:${kind}`,
+      expectedVersion,
+      payloadHash: agreementPublishHash({ kind, expectedVersion, texts, reason }),
+      policyVersion: MARKERS.policyVersion,
+    });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.agreements.publish',
+      { kind, texts, expectedVersion, reason, approvalId: ids.approvalId, clientRequestId: ids.operationId },
+      await pair.a.tradeOpsToken(),
+    );
+    const row = data(res);
+    if (!row?.version) throw new Error(`trade admin.agreements.publish ${kind} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ what: kind, version: row.version, changed: true });
+  }
+  const rules = data(await ctx.edge.query('trade', 'admin.eligibilityRules.get', undefined, await pair.a.tradeOpsToken()));
+  if (!rules) throw new Error('trade admin.eligibilityRules.get gave no answer');
+  if (rules.version != null) {
+    out.push({ what: 'eligibility', version: rules.version, changed: false });
+  } else {
+    const expectedVersion = '0';
+    const reason = `${MARKERS.label}: TEST derivatives quiz`;
+    const content = TEST_ELIGIBILITY_RULES;
+    const ids = await twoPerson(ctx, pair, {
+      actionType: ELIGIBILITY_RULES_ACTION,
+      targetService: 'svc-trade',
+      targetId: 'derivatives_eligibility_rules',
+      expectedVersion,
+      payloadHash: eligibilityRulesHash({ ...content, expectedVersion, reason }),
+      policyVersion: MARKERS.policyVersion,
+    });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.eligibilityRules.set',
+      { ...content, expectedVersion, reason, approvalId: ids.approvalId, clientRequestId: ids.operationId },
+      await pair.a.tradeOpsToken(),
+    );
+    const row = data(res);
+    if (!row?.version) throw new Error(`trade admin.eligibilityRules.set refused (${res.status}): ${refusalText(res)}`);
+    out.push({ what: 'eligibility', version: row.version, changed: true });
+  }
+  for (const r of out)
+    ctx.log(`derivatives terms ${r.what}: version ${r.version}${r.changed ? '' : ' (already published)'} (${MARKERS.label})`);
+  return out;
+}
+
+// ── 2f. Charts owner values (C-ops-04): LOCAL TEST values through svc-trade's own door ──
 
 /**
  * LOCAL TEST charts owner values. Not owner values, and not product defaults: they let the charts journeys run on the
@@ -1121,7 +1241,13 @@ async function main() {
         );
     } else if (cmd === 'terms') {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published, approved by ${r.approvedBy}`);
+    } else if (cmd === 'futures') {
+      await seedFuturesListing(ctx);
+      await publishFuturesTerms(ctx);
     } else if (cmd === 'apply') {
+      // The TEST perpetual is listed first, so the lifecycle, book and limit steps below include it.
+      await seedFuturesListing(ctx);
+      await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
@@ -1160,7 +1286,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | futures | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

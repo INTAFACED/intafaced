@@ -404,6 +404,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   openSocket={openSocket}
                   onHost={(host) => onHost(i, host)}
                   command={commands[i] ?? null}
+                  markets={markets}
                 />
               ) : (
                 <StateBlock kind="empty" title={t('Market not found title')} body={t('Market not found body')} />

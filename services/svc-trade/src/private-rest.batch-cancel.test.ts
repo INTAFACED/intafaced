@@ -173,6 +173,23 @@ describe('POST /api/v1/orders/batch-cancel', () => {
     expect(calls).toBe(1);
   });
 
+  it('an id that is not an order id is refused as not found without reaching cancelOrder; the rest still cancel', async () => {
+    const seen: string[] = [];
+    const app = await build(
+      deps({
+        cancelOrder: async (_p, id) => {
+          seen.push(id);
+          return fakeOrder({ id, status: 'cancelled' });
+        },
+      }),
+    );
+    const res = await post(app, { ids: ['not-an-order', ID2] });
+    const results = (res.json() as { results: Array<{ status: string; error?: { intafacedCode: string } }> }).results;
+    expect(results.map((r) => r.status)).toEqual(['refused', 'success']);
+    expect(results[0]?.error?.intafacedCode).toBe('trade.order_not_found');
+    expect(seen).toEqual([ID2]);
+  });
+
   it.each([[{}], [{ ids: 'x' }], [{ ids: [] }]])('a bad body %j is refused request-wide with no cancel', async (body) => {
     const app = await build(
       deps({

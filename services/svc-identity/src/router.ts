@@ -609,6 +609,8 @@ export function createIdentityRouter(
     /** Sub-account trading features. Absent → `subAccounts.setFeatures` refuses `identity.sub_account_features_unset`. */
     subAccountFeatures?: SubAccountFeatureService;
     subAccountEdit?: SubAccountEditService;
+    /** Anti-phishing code (`profile.antiPhishing.*`). Absent: both doors refuse `identity.anti_phishing_unavailable`. */
+    antiPhishing?: import('./profile/anti-phishing.js').AntiPhishingService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -777,7 +779,7 @@ export function createIdentityRouter(
         return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
       }),
 
-    profile: createProfileRouter(options.profile),
+    profile: createProfileRouter(options.profile, options.antiPhishing),
     account: createAccountRouter(options.account),
     accountClosure: createAccountClosureRouter(options.closure),
 

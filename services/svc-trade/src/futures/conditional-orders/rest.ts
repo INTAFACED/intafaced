@@ -22,6 +22,11 @@ export interface ConditionalOrdersRestDeps {
   readonly edgeTrust?: EdgeTrust;
   readonly serviceName: string;
   readonly orders: Pick<ConditionalOrderService, 'create' | 'list' | 'get' | 'cancel' | 'replaceProtection' | 'placeResting'>;
+  /**
+   * Mount the resting-order refusal at RESTING_ORDERS_PATH. Default true. False while futures orders go through the
+   * matching book, whose own routes then answer that path.
+   */
+  readonly restingRefusal?: boolean;
 }
 
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
@@ -138,6 +143,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
     }
   }
 
+  if (deps.restingRefusal === false) return;
   app.post(RESTING_ORDERS_PATH, async (req, reply) => refuseResting(req, reply, true));
   app.get(RESTING_ORDERS_PATH, async (req, reply) => refuseResting(req, reply, false));
   app.delete<{ Params: { id: string } }>(`${RESTING_ORDERS_PATH}/:id`, async (req, reply) => refuseResting(req, reply, true));

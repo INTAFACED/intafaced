@@ -79,9 +79,9 @@ const en = {
   roleCan_admin:
     'Manage the team (not the owner or other admins), answer disputes, send invoices, change business details, request exports, manage webhooks, and request or approve payouts. Only the owner can refund payments, make payment links, send a payout or add a payout destination.',
   roleCan_finance:
-    'See everything. Answer disputes, send invoices, request exports, and request or approve payouts. Cannot refund, make payment links or send a payout.',
-  roleCan_developer: 'See everything and request exports.',
-  roleCan_viewer: 'See everything. Change nothing.',
+    'See everything except webhooks. Answer disputes, send invoices, request exports, change notification settings, and request or approve payouts. Cannot refund, make payment links or send a payout.',
+  roleCan_developer: 'See everything, request exports and manage webhooks. Cannot request or approve payouts.',
+  roleCan_viewer: 'See everything except webhooks. Change nothing.',
   byActor: 'By {actor}',
   addEvidence: 'Add evidence',
   evidence_shipping_proof: 'Proof of delivery',

@@ -413,10 +413,10 @@ const messages = {
   'Tickets and published answers': 'Tickets and published answers',
   Activities: 'Activities',
   'Signed-in campaigns': 'Signed-in campaigns',
-  chain: 'chain',
-  dex: 'dex',
-  protocol: 'protocol',
-  wallet: 'wallet',
+  chain: 'Chain',
+  dex: 'DEX',
+  protocol: 'Protocol',
+  wallet: 'Wallet',
   'Your wallet and its activity': 'Your wallet and its activity',
 } as const;
 
@@ -687,9 +687,10 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Tickets and published answers': 'Solicitudes y respuestas publicadas',
     Activities: 'Actividades',
     'Signed-in campaigns': 'Campañas con sesión iniciada',
-    chain: 'cadena',
-    dex: 'dex',
-    protocol: 'protocolo',
+    chain: 'Cadena',
+    dex: 'DEX',
+    protocol: 'Protocolo',
+    wallet: 'Monedero',
   },
   fr: {
     Home: 'Accueil',
@@ -957,9 +958,10 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Tickets and published answers': 'Demandes et réponses publiées',
     Activities: 'Activités',
     'Signed-in campaigns': 'Campagnes accessibles après connexion',
-    chain: 'chaîne',
-    dex: 'dex',
-    protocol: 'protocole',
+    chain: 'Chaîne',
+    dex: 'DEX',
+    protocol: 'Protocole',
+    wallet: 'Portefeuille',
   },
 });
 export type NavigationCopyKey = Parameters<typeof navigationCopy.t>[0];

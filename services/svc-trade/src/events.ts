@@ -25,6 +25,27 @@ import './spot/market-delisted-place.js';
 import { bindCloseSpotTrade } from './spot/close-position.js';
 
 /**
+ * The futures side of the same two subjects (futures ADR slice 6). A fill between two matched futures orders goes
+ * here; any other fill, including one on a futures market between orders the spot path placed, goes to the spot
+ * path. The route is the orders, not the market, the same way cancels are routed. `current` is null until
+ * PositionService is built.
+ */
+export interface MatchedFillsSink {
+  /** True when both orders are matched futures orders, false when neither is. A fill between one of each refuses. */
+  ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
+  settle(fill: {
+    marketId: string;
+    makerOrderId: string;
+    takerOrderId: string;
+    price: string;
+    qty: string;
+    sequence: number;
+  }): Promise<void>;
+  /** `remainingQty` is what left the book unfilled; fills the engine printed before it may still be on their way. */
+  releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+}
+
+/**
  * EVENT WIRING (§10, §5.2 step 3).
  *
  * svc-matching publishes every match and every departure from the book to
@@ -46,27 +67,6 @@ import { bindCloseSpotTrade } from './spot/close-position.js';
  * `intafaced.identity.xp.earned`, which the catalog already declares and which
  * §5.2 asks for per filled order.
  */
-/**
- * The futures side of the same two subjects (futures ADR slice 6). A fill between two matched futures orders goes
- * here; any other fill, including one on a futures market between orders the spot path placed, goes to the spot
- * path. The route is the orders, not the market, the same way cancels are routed. `current` is null until
- * PositionService is built.
- */
-export interface MatchedFillsSink {
-  /** True when both orders are matched futures orders, false when neither is. A fill between one of each refuses. */
-  ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
-  settle(fill: {
-    marketId: string;
-    makerOrderId: string;
-    takerOrderId: string;
-    price: string;
-    qty: string;
-    sequence: number;
-  }): Promise<void>;
-  /** `remainingQty` is what left the book unfilled; fills the engine printed before it may still be on their way. */
-  releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
-}
-
 export async function subscribeMatchingEvents(
   bus: EventBus,
   trade: TradeService,

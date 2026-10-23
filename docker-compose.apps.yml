@@ -696,6 +696,7 @@ services:
       TRADE_FUTURES_MAX_LEVERAGE: ${TRADE_FUTURES_MAX_LEVERAGE:-}
       TRADE_FUTURES_MATCHING_ENABLED: ${TRADE_FUTURES_MATCHING_ENABLED:-false}
       TRADE_FUTURES_PRICE_BAND: ${TRADE_FUTURES_PRICE_BAND:-}
+      TRADE_FUTURES_INDEX_SPOT_MARKETS: ${TRADE_FUTURES_INDEX_SPOT_MARKETS:-}
       # Dated futures settlement fixing (trade.futures / PTX-M10-R03). Empty =
       # refuse style=dated listing (`trade.dated_futures_fixing_unconfigured`).
       # Opaque stamp only — never invent last trade / mark as settlement.
