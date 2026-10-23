@@ -18,7 +18,7 @@ vi.mock('../more/support-contact', async (original) => {
 });
 
 // Same for the outreach desk: by default it answered and holds no join address or terms; a test may set what it holds.
-const partnerDesk = vi.hoisted(() => ({ read: { ok: true, joinUrl: null, partnerTerms: null } as const as unknown }));
+const partnerDesk = vi.hoisted(() => ({ read: { ok: true, joinUrl: null, partnerTerms: null, revision: 0 } as const as unknown }));
 vi.mock('./partner-settings', async (original) => {
   const real = await original<typeof import('./partner-settings')>();
   return {
@@ -36,7 +36,7 @@ const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</
 const TEST_ADDRESS = 'support@example.test';
 afterEach(() => {
   vi.unstubAllEnvs();
-  partnerDesk.read = { ok: true, joinUrl: null, partnerTerms: null };
+  partnerDesk.read = { ok: true, joinUrl: null, partnerTerms: null, revision: 0 };
 });
 
 describe('/findPwd', () => {
@@ -111,7 +111,7 @@ describe('other public pages', () => {
 
   it("links the founders' join address and shows their programme terms when the outreach desk holds them", () => {
     vi.stubEnv('VITE_JOIN_URL', 'https://build.example.test');
-    partnerDesk.read = { ok: true, joinUrl: 'https://join.example.test', partnerTerms: 'TEST terms\nsecond line' };
+    partnerDesk.read = { ok: true, joinUrl: 'https://join.example.test', partnerTerms: 'TEST terms\nsecond line', revision: 1 };
     const page = html(<PartnerPage />);
     expect(page).toContain('href="https://join.example.test/partner"');
     expect(page).not.toContain('build.example.test');

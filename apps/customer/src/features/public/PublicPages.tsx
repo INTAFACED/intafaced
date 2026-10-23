@@ -30,7 +30,7 @@ export function PartnerPage() {
       <section className="pub-card" aria-labelledby="partner-form">
         <h2 id="partner-form">{copy.t('partnerFormTitle')}</h2>
         <p>{copy.t(form ? 'partnerFormBody' : 'partnerNoFormBody')}</p>
-        {form ? (
+        {settings.status === 'loading' ? null : form ? (
           <a className="button button--primary" href={form} data-testid="partner-form-link">
             {copy.t('partnerOpenForm')} ↗
           </a>
@@ -43,7 +43,7 @@ export function PartnerPage() {
               <span lang="zxx">{to}</span>
             </p>
           </>
-        ) : contact.status === 'loading' || settings.status === 'loading' ? null : contact.status === 'unread' ? (
+        ) : contact.status === 'loading' ? null : contact.status === 'unread' ? (
           <p role="status" data-testid="support-contact-unread">
             {copy.t('partnerEmailUnread')}
           </p>
