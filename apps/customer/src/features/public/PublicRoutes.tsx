@@ -60,6 +60,7 @@ export function PublicHeader({ path }: { path: string }) {
 export function PublicRoutes({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
+  const library = helpLibraryPath(path);
   return (
     <div className="public-shell">
       <PublicHeader path={path} />
@@ -76,8 +77,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
-        ) : helpLibraryPath(path) ? (
-          <HelpLibrary at={helpLibraryPath(path)!} />
+        ) : library ? (
+          <HelpLibrary at={library} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
         ) : path === '/about-us' ? (

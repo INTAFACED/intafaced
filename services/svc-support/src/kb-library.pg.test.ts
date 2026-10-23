@@ -105,18 +105,27 @@ if (!url) {
       ]);
     });
 
-    it('the database refuses half a text, a bad language and a section that does not exist', async () => {
+    it('the database refuses half a text, a bad language and a section that does not exist or is retired', async () => {
       const store = new PostgresSupportStore(db.sql);
-      await expect(
+      const publish = (sectionId: string) =>
         store.putKbRevision({
           id: 'nowhere',
           baseRevision: 0,
           published: true,
           titleKey: 'support.kb.stored.title',
           bodyKey: 'support.kb.stored.body',
-          text: { title: 'T', body: 'B', language: 'en', sectionId: 'missing' },
-        }),
-      ).rejects.toThrow(/kb_article_versions_section_fk/);
+          text: { title: 'T', body: 'B', language: 'en', sectionId },
+        });
+      expect(await publish('missing')).toEqual({ status: 'refuse', reason: 'section_unknown' });
+      const book = new SqlKbLibraryBook(db.sql);
+      await book.saveCategory({ id: 'gone', name: 'Gone', position: 9, retired: false }, change);
+      await book.saveSection({ id: 'gone-1', categoryId: 'gone', name: 'Gone one', position: 0, retired: false }, change);
+      await book.saveCategory({ id: 'gone', name: 'Gone', position: 9, retired: true }, change);
+      expect(await publish('gone-1')).toEqual({ status: 'refuse', reason: 'section_unknown' });
+      expect(await store.getPublishedKb('nowhere')).toBeNull();
+      await expect(
+        db.sql`INSERT INTO support.kb_article_versions (id, version, title_key, body_key, title, body, language, section_id) VALUES ('raw-fk', 1, 'support.kb.x', 'support.kb.y', 'T', 'B', 'en', 'missing')`,
+      ).rejects.toThrow(/kb_article_versions_section_fk|foreign key/);
       await db.sql`INSERT INTO support.kb_articles (id, title_key, body_key, revision, published) VALUES ('raw', 'support.kb.x', 'support.kb.y', 1, true)`.catch(
         () => undefined,
       );

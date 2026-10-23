@@ -12,6 +12,7 @@ import type {
   SupportTicketEventKind,
   SupportTicketStatus,
 } from '@intafaced/contracts';
+import { SUPPORT_KB_STORED_BODY_KEY, SUPPORT_KB_STORED_TITLE_KEY } from '@intafaced/contracts';
 import { READER_ACTOR_PREFIX, feedbackRateCutoff, feedbackRequestCopy } from './kb-feedback.js';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
 import { checkTransition, isTerminal } from './lifecycle.js';
@@ -310,6 +311,9 @@ export interface SupportStore {
   recordSearchClick(input: { query: string; articleId: string; clientRequestId: string; at: string }): Promise<void>;
 }
 
+/** Text typed in the desk with its section (SP-kb-01). */
+export type PutKbRevisionText = { title: string; body: string; language: string; sectionId: string };
+
 export type PutKbRevisionInput =
   | {
       id: string;
@@ -320,7 +324,7 @@ export type PutKbRevisionInput =
       category?: string | null;
       tags?: readonly string[] | null;
       /** Text typed in the desk, with its section (SP-kb-01). Left out for a catalogue-keyed article. */
-      text?: { title: string; body: string; language: string; sectionId: string };
+      text?: PutKbRevisionText;
     }
   | {
       id: string;
@@ -458,7 +462,7 @@ export type SetKbAudienceResult =
 
 export type PutKbRevisionResult =
   | { readonly status: 'ok'; readonly article: SupportKbArticle }
-  | { readonly status: 'refuse'; readonly reason: 'revision_stale' | 'invalid' | 'vendor' };
+  | { readonly status: 'refuse'; readonly reason: 'revision_stale' | 'invalid' | 'vendor' | 'section_unknown' };
 
 function toIso(d: Date | string): string {
   if (typeof d === 'string') return d;
@@ -712,7 +716,13 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
   });
 }
 
-function assertPersistable(article: Pick<SupportKbArticle, 'id' | 'titleKey' | 'bodyKey'>): PutKbRevisionResult | null {
+function assertPersistable(
+  article: Pick<SupportKbArticle, 'id' | 'titleKey' | 'bodyKey'>,
+  text?: PutKbRevisionText,
+): PutKbRevisionResult | null {
+  // The stored-text markers name text on the version itself: a publish that carries them carries the text too.
+  const marked = article.titleKey === SUPPORT_KB_STORED_TITLE_KEY || article.bodyKey === SUPPORT_KB_STORED_BODY_KEY;
+  if (marked !== Boolean(text)) return { status: 'refuse', reason: 'invalid' };
   try {
     assertKbArticle({ id: article.id, titleKey: article.titleKey, bodyKey: article.bodyKey });
     return null;
@@ -1253,7 +1263,7 @@ export class MemorySupportStore implements SupportStore {
   async putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult> {
     const current = this.kb.get(input.id);
     if (input.published) {
-      const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey });
+      const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey }, input.text);
       if (bad) return bad;
       if (!current) {
         if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
@@ -2232,12 +2242,21 @@ export class PostgresSupportStore implements SupportStore {
       const current = locked[0] ? kbFromPg(locked[0]) : null;
 
       if (input.published) {
-        const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey });
+        const bad = assertPersistable({ id: input.id, titleKey: input.titleKey, bodyKey: input.bodyKey }, input.text);
         if (bad) return bad;
         const topic = topicOn(input);
         const category = topic.category ?? null;
         const tags = topic.tags ? tx.json(topic.tags) : null;
         const text = textColumns(input.text ?? {});
+        if (input.text) {
+          // The section is read under a share lock in this transaction, so a retire cannot slip in before the version lands.
+          const [open] = await tx<{ id: string }[]>`
+            SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
+            WHERE s.id = ${input.text.sectionId} AND NOT s.retired AND NOT c.retired
+            FOR SHARE OF s, c
+          `;
+          if (!open) return { status: 'refuse', reason: 'section_unknown' };
+        }
         if (!current) {
           if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
           const rows = await tx<PgKb[]>`

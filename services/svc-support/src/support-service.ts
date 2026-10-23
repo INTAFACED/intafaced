@@ -65,7 +65,17 @@ import {
   type ScanVerdict,
 } from './attachments.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
-import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
+import {
+  assertKbArticle,
+  assertKbTopic,
+  getKb,
+  KbCatalogError,
+  kbVersionOf,
+  namesVendor,
+  relatedPublished,
+  searchKb,
+  toPublicKb,
+} from './kb-catalog.js';
 import { isTerminal } from './lifecycle.js';
 import {
   OperatorQueueLimitUnsetError,
@@ -1035,6 +1045,7 @@ export class SupportService implements SupportContract {
       if (result.reason === 'revision_stale') {
         throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
       }
+      if (result.reason === 'section_unknown') throw new SupportError('KB section is not open', 'support.kb_section_unknown');
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
     }
     return toPublicKb(result.article);
@@ -1058,14 +1069,38 @@ export class SupportService implements SupportContract {
     if (titleProblem) throw new SupportError('KB title refused', titleProblem);
     const bodyProblem = supportKbBodyProblem(input.body);
     if (bodyProblem) throw new SupportError('KB body refused', bodyProblem);
-    return this.publishKb({
-      id: input.id,
-      titleKey: SUPPORT_KB_STORED_TITLE_KEY,
-      bodyKey: SUPPORT_KB_STORED_BODY_KEY,
-      baseRevision: input.baseRevision,
-      tags: input.tags ?? null,
-      text: { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId },
-    });
+    // Readers see this text, so it is held to the same no-vendor rule as the catalogue keys.
+    if (namesVendor(`${input.title} ${input.body} ${(input.tags ?? []).join(' ')}`)) {
+      throw new SupportError('KB text must stay vendor-clean', 'support.kb_vendor_name');
+    }
+    const text = { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId };
+    try {
+      return await this.publishKb({
+        id: input.id,
+        titleKey: SUPPORT_KB_STORED_TITLE_KEY,
+        bodyKey: SUPPORT_KB_STORED_BODY_KEY,
+        baseRevision: input.baseRevision,
+        tags: input.tags ?? null,
+        text,
+      });
+    } catch (err) {
+      // A lost reply retried: the head is the version this same publish made from this same base, so it is the answer.
+      if (!(err instanceof SupportError) || err.code !== 'support.kb.revision_stale') throw err;
+      const versions = await this.store.listKbVersions(input.id);
+      const head = versions[versions.length - 1];
+      const tags = [...(input.tags ?? [])].map((tag) => tag.trim()).filter(Boolean);
+      const same =
+        head &&
+        kbVersionOf(head) === input.baseRevision + 1 &&
+        head.title === text.title &&
+        head.body === text.body &&
+        head.language === text.language &&
+        head.sectionId === text.sectionId &&
+        JSON.stringify(head.tags ?? []) === JSON.stringify(tags) &&
+        (await this.store.getPublishedKb(input.id)) !== null;
+      if (same) return toPublicKb({ ...head, published: true });
+      throw err;
+    }
   }
 
   /** Every published article the viewer may read, unpaged: what the library counts and a section page draws from. */

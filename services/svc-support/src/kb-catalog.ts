@@ -205,6 +205,11 @@ export function assertKbTopic(input: { category?: string | null; tags?: readonly
 
 const VENDOR_SMELL = /\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i;
 
+/** Whether text a reader will see names a partner or vendor (the same list the keys are checked against). */
+export function namesVendor(text: string): boolean {
+  return VENDOR_SMELL.test(text);
+}
+
 export type KbCatalogErrorCode = 'support.kb_invalid' | 'support.kb_vendor_name' | 'support.kb_version_unknown';
 
 export class KbCatalogError extends Error {

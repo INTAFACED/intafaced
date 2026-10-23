@@ -142,6 +142,32 @@ describe('help library (SP-kb-01)', () => {
     expect((await visitor.kbLibrary()).categories[0]!.sections).toEqual([]);
   });
 
+  it('refuses a vendor name in article text and in category and section names', async () => {
+    const { staff, visitor } = await desk();
+    await expect(staff.kbSaveCategory({ id: 'x', name: 'Coinbase help', position: 0, reason })).rejects.toMatchObject({
+      message: 'support.kb_vendor_name',
+    });
+    await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
+    await expect(staff.kbSaveSection({ id: 's', categoryId: 'money', name: 'From Kraken', position: 0, reason })).rejects.toMatchObject({
+      message: 'support.kb_vendor_name',
+    });
+    await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
+    await expect(staff.kbPublishText(article({ body: 'Works like Binance.' }))).rejects.toMatchObject({
+      message: 'support.kb_vendor_name',
+    });
+    expect(await visitor.getKb({ id: 'withdraw-time' })).toBeNull();
+  });
+
+  it('a publish retried after a lost reply gets the version it made; a different text on the same base is stale', async () => {
+    const { staff } = await desk();
+    await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });
+    await staff.kbSaveSection({ id: 'withdrawals', categoryId: 'money', name: 'Withdrawals', position: 1, reason });
+    const first = await staff.kbPublishText(article());
+    const again = await staff.kbPublishText(article());
+    expect(again).toMatchObject({ id: first.id, version: first.version, revision: first.revision, body: first.body });
+    await expect(staff.kbPublishText(article({ body: 'Another body.' }))).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
   it('retiring a category takes it and its sections off the list; saving the same values writes no log row', async () => {
     const { staff, visitor, library } = await desk();
     await staff.kbSaveCategory({ id: 'money', name: 'Money', position: 1, reason });

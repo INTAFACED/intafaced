@@ -81,7 +81,7 @@ export const helpCopy = defineCopy(
     openSection: 'Open section',
     sectionEmptyTitle: 'No answers in this section',
     sectionEmptyBody: 'No answer is published in this section. You can search every answer from the help centre, or reach a person.',
-    sectionWindow: 'This page shows the first 100 answers in this section.',
+    sectionWindow: 'This page shows only the first answers in this section. Search to find the rest.',
     switchedOffTitle: 'The help centre is switched off',
     switchedOffBody:
       'The owner has switched the published answers off on this site, so none are shown. You can still reach a person below.',
@@ -170,7 +170,7 @@ export const helpCopy = defineCopy(
       sectionEmptyTitle: 'No hay respuestas en esta sección',
       sectionEmptyBody:
         'No hay ninguna respuesta publicada en esta sección. Puedes buscar en todas las respuestas desde el centro de ayuda o contactar con una persona.',
-      sectionWindow: 'Esta página muestra las primeras 100 respuestas de esta sección.',
+      sectionWindow: 'Esta página muestra solo las primeras respuestas de esta sección. Busca para encontrar el resto.',
       switchedOffTitle: 'El centro de ayuda está desactivado',
       switchedOffBody:
         'El propietario ha desactivado las respuestas publicadas en este sitio, así que no se muestra ninguna. Aún puedes contactar con una persona abajo.',
@@ -259,7 +259,7 @@ export const helpCopy = defineCopy(
       sectionEmptyTitle: 'Aucune réponse dans cette section',
       sectionEmptyBody:
         'Aucune réponse n’est publiée dans cette section. Vous pouvez chercher dans toutes les réponses depuis le centre d’aide, ou joindre une personne.',
-      sectionWindow: 'Cette page affiche les 100 premières réponses de cette section.',
+      sectionWindow: 'Cette page n’affiche que les premières réponses de cette section. Recherchez pour trouver les autres.',
       switchedOffTitle: 'Le centre d’aide est désactivé',
       switchedOffBody:
         'Le propriétaire a désactivé les réponses publiées sur ce site, donc aucune n’est affichée. Vous pouvez toujours joindre une personne ci-dessous.',

@@ -3,7 +3,7 @@ import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import { readContract } from '../../shared/contract-call';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useSession } from '../session/session';
 import { ContactSupport } from './ContactSupport';
 import { helpCopy as copy } from './help-copy';
 import { helpHref } from './help-guards';
@@ -23,8 +23,8 @@ import './help.css';
  */
 export function HelpLibraryNav() {
   const { t, languageFor } = copy.useCopy();
-  const api = useApi();
-  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), 'help-library');
+  const { api, userId } = useSession();
+  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), `help-library:${userId ?? 'public'}`);
   const read = library.resource;
   return (
     <nav className="help__card help__library" aria-label={t('libraryTitle')} data-testid="help-library">
@@ -124,8 +124,8 @@ function Refused({ kind }: { kind: 'off' | 'missing' }) {
 /** `/help/category/<id>`: one category and its sections, each with its count of published answers. */
 function CategoryPage({ id }: { id: string }) {
   const { t, languageFor } = copy.useCopy();
-  const api = useApi();
-  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), 'help-library');
+  const { api, userId } = useSession();
+  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), `help-library:${userId ?? 'public'}`);
   const read = library.resource;
   if (read.status === 'loading') return <Loading label={t('loadingLibrary')} />;
   if (read.status === 'failed') {
@@ -181,10 +181,10 @@ function CategoryPage({ id }: { id: string }) {
 /** `/help/section/<id>`: only the published answers filed under this section, or an honest empty state. */
 function SectionPage({ id }: { id: string }) {
   const { t, languageFor } = copy.useCopy();
-  const api = useApi();
+  const { api, userId } = useSession();
   const page = useResource(
     (signal) => readContract(api, helpSectionRead, { sectionId: id, limit: HELP_SECTION_WINDOW }, { signal }),
-    `help-section:${id}`,
+    `help-section:${id}:${userId ?? 'public'}`,
   );
   const read = page.resource;
   if (read.status === 'loading') return <Loading label={t('loadingCatalogue')} />;

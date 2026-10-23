@@ -18,15 +18,23 @@ import {
   type SupportKbLibrary,
 } from '@intafaced/contracts';
 import { KbCategoryUnknownError, type KbCategoryRow, type KbLibraryBook, type KbSectionRow } from './kb-library.js';
+import { namesVendor } from './kb-catalog.js';
 import { assertListKbLimit, kbViewerOf, requireSupportOps, type SupportService } from './support-service.js';
 
 type Gate = (principal: Pick<Principal, 'scopes'> | null | undefined) => Promise<void>;
 
 /** A section the reader may open: it and its category exist and neither is retired. */
-function openSection(sectionId: string, categories: KbCategoryRow[], sections: KbSectionRow[]) {
-  const section = sections.find((row) => row.id === sectionId && !row.retired);
-  const category = section && categories.find((row) => row.id === section.categoryId && !row.retired);
-  return section && category ? { section, category } : null;
+async function openSection(book: KbLibraryBook, sectionId: string): Promise<{ section: KbSectionRow; category: KbCategoryRow } | null> {
+  const section = await book.section(sectionId);
+  if (!section || section.retired) return null;
+  const category = (await book.categories()).find((row) => row.id === section.categoryId && !row.retired);
+  return category ? { section, category } : null;
+}
+
+/** Category and section names are shown to readers, so they follow the same no-vendor rule as article text. */
+function refuseName(name: string): void {
+  if (supportKbLibraryNameProblem(name)) throw new TRPCError({ code: 'BAD_REQUEST', message: SUPPORT_KB_LIBRARY_INVALID });
+  if (namesVendor(name)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'support.kb_vendor_name' });
 }
 
 const byTitle = (a: SupportKbArticle, b: SupportKbArticle) => (a.title ?? a.id).localeCompare(b.title ?? b.id) || a.id.localeCompare(b.id);
@@ -85,9 +93,9 @@ export function kbLibraryProcedures(
         await helpCentreOpen(ctx.principal);
         try {
           const limit = assertListKbLimit(input.limit);
-          const open = openSection(input.sectionId, await book.categories(), await book.sections());
+          const [open, visible] = await Promise.all([openSection(book, input.sectionId), support.listKbVisible(kbViewerOf(ctx.principal))]);
           if (!open) throw new TRPCError({ code: 'NOT_FOUND', message: SUPPORT_KB_SECTION_UNKNOWN });
-          const articles = (await support.listKbVisible(kbViewerOf(ctx.principal)))
+          const articles = visible
             .filter((article) => article.sectionId === open.section.id)
             .sort(byTitle)
             .slice(0, limit);
@@ -107,7 +115,7 @@ export function kbLibraryProcedures(
       .output(z.object({ id: z.string(), name: z.string(), position: z.number().int(), retired: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         requireSupportOps(ctx.principal!);
-        if (supportKbLibraryNameProblem(input.name)) throw new TRPCError({ code: 'BAD_REQUEST', message: SUPPORT_KB_LIBRARY_INVALID });
+        refuseName(input.name);
         return book.saveCategory(
           { id: input.id, name: input.name.trim(), position: input.position, retired: input.retired ?? false },
           { actorId: ctx.principal!.userId, reason: input.reason },
@@ -119,7 +127,7 @@ export function kbLibraryProcedures(
       .output(z.object({ id: z.string(), categoryId: z.string(), name: z.string(), position: z.number().int(), retired: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         requireSupportOps(ctx.principal!);
-        if (supportKbLibraryNameProblem(input.name)) throw new TRPCError({ code: 'BAD_REQUEST', message: SUPPORT_KB_LIBRARY_INVALID });
+        refuseName(input.name);
         try {
           return await book.saveSection(
             {
@@ -142,7 +150,8 @@ export function kbLibraryProcedures(
       .output(supportKbArticleSchema)
       .mutation(async ({ ctx, input }) => {
         requireSupportOps(ctx.principal!);
-        if (!openSection(input.sectionId, await book.categories(), await book.sections())) {
+        // Checked here for a clear refusal, and again under a lock where the version is written.
+        if (!(await openSection(book, input.sectionId))) {
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: SUPPORT_KB_SECTION_UNKNOWN });
         }
         try {

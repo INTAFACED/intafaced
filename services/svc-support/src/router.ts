@@ -124,7 +124,8 @@ function mapError(err: unknown): never {
       err.code === 'support.feedback_rate_limit_unset' ||
       err.code === 'support.comment_cap_unset' ||
       err.code === 'support.comment_cap_reached' ||
-      err.code === 'support.assistant_model_unset'
+      err.code === 'support.assistant_model_unset' ||
+      err.code === 'support.kb_section_unknown'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }

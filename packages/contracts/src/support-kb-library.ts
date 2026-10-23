@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { SUPPORT_KB_BODY_MAX, SUPPORT_KB_LIBRARY_ID_MAX, SUPPORT_KB_TITLE_MAX } from './support.js';
 
 export const SUPPORT_KB_TITLE_BLANK = 'support.kb_title_blank';
+export const SUPPORT_KB_TITLE_INVALID = 'support.kb_title_invalid';
 export const SUPPORT_KB_BODY_INVALID = 'support.kb_body_invalid';
 export const SUPPORT_KB_SECTION_UNKNOWN = 'support.kb_section_unknown';
 export const SUPPORT_KB_CATEGORY_UNKNOWN = 'support.kb_category_unknown';
@@ -16,6 +17,7 @@ export const SUPPORT_KB_LIBRARY_INVALID = 'support.kb_library_invalid';
 
 export const SUPPORT_KB_LIBRARY_ERROR_CODES = [
   SUPPORT_KB_TITLE_BLANK,
+  SUPPORT_KB_TITLE_INVALID,
   SUPPORT_KB_BODY_INVALID,
   SUPPORT_KB_SECTION_UNKNOWN,
   SUPPORT_KB_CATEGORY_UNKNOWN,
@@ -40,7 +42,7 @@ const BODY_CONTROL = /[\p{Cf}\u2028\u2029]|[\u0000-\u0008\u000b\u000c\u000e-\u00
 export function supportKbTitleProblem(value: string): string | null {
   const text = value.trim();
   if (text === '') return SUPPORT_KB_TITLE_BLANK;
-  if (text.length > SUPPORT_KB_TITLE_MAX || CONTROL.test(text)) return SUPPORT_KB_BODY_INVALID;
+  if (text.length > SUPPORT_KB_TITLE_MAX || CONTROL.test(text)) return SUPPORT_KB_TITLE_INVALID;
   return null;
 }
 
@@ -109,7 +111,8 @@ export type SupportKbSaveSectionInput = z.infer<typeof supportKbSaveSectionInput
 
 /**
  * Publish an article typed in the desk. `baseRevision` 0 creates it; otherwise it is the revision the author read, and
- * a stale one refuses `support.kb.revision_stale`. A replay of the publish that made the current revision returns it.
+ * a stale one refuses `support.kb.revision_stale`. A replay of the publish that made the current revision (same
+ * text, section, language and tags from the same `baseRevision`) returns that revision instead of refusing.
  */
 export const supportKbPublishTextInputSchema = z
   .object({
