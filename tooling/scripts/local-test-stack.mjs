@@ -1032,6 +1032,9 @@ function serviceDefs(secrets) {
         BANK_CARD_ISSUER: 'card-sim',
         BANK_ADDRESS_BOOK_CAP: '10',
         BANK_OFFRAMP_COOLING_HOURS: '24',
+        // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
+        BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
+        BANK_WALLET_PROOF_VALID_DAYS: '180',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',

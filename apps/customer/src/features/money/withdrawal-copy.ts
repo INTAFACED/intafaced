@@ -158,6 +158,29 @@ const en = {
   aLookalikeChecked: 'You confirmed the look-alike warning · {time}',
   aLookalikeRefused:
     'This address looks like one you saved, so it was not saved. Close this, check every character, and tick the box to save it.',
+  aProve: 'Prove ownership',
+  aProveTitle: 'Prove you control {label}',
+  aProveLead:
+    'Sign the message below in the wallet that holds {address}, then paste the signature here. Signing moves no funds and approves nothing else.',
+  aProveStarting: 'Preparing the message to sign…',
+  aProveMessage: 'Message to sign',
+  aProveUntil: 'Sign before {time}.',
+  aProveCopy: 'Copy message',
+  aProveCopied: 'Message copied.',
+  aProveSignature: 'Signature',
+  aProveSignatureHint: 'Paste the whole signature your wallet gives you. It starts with 0x.',
+  aProveSubmit: 'Check signature',
+  aProveChecking: 'Checking the signature…',
+  aProveDone: 'Ownership proved. It holds until {time}.',
+  aProveClose: 'Close',
+  aProveWrongSigner: 'This was signed by a different wallet. Sign the message with the wallet that holds {address}.',
+  aProveBadSignature: 'That is not a signature of this message. Paste the whole signature your wallet gave you.',
+  aProveLapsed: 'This message expired before it was signed. Close this and start again.',
+  aProveUnset: 'Wallet proofs are not open yet: the bank has not published how long a proof stays open or holds.',
+  aProveFailed: 'The proof could not be checked. Try again.',
+  aOwnVerified: 'Ownership proved · until {time}',
+  aOwnPending: 'Ownership proof waiting for a signature',
+  aOwnExpired: 'Ownership proof expired',
 } as const;
 
 const es = {
@@ -318,6 +341,29 @@ const es = {
   aLookalikeChecked: 'Confirmaste el aviso de dirección parecida · {time}',
   aLookalikeRefused:
     'Esta dirección se parece a una que guardaste, así que no se guardó. Cierra esto, comprueba cada carácter y marca la casilla para guardarla.',
+  aProve: 'Demostrar titularidad',
+  aProveTitle: 'Demuestra que controlas {label}',
+  aProveLead:
+    'Firma el mensaje de abajo con la billetera que contiene {address} y pega aquí la firma. Firmar no mueve fondos ni aprueba nada más.',
+  aProveStarting: 'Preparando el mensaje para firmar…',
+  aProveMessage: 'Mensaje para firmar',
+  aProveUntil: 'Firma antes de {time}.',
+  aProveCopy: 'Copiar mensaje',
+  aProveCopied: 'Mensaje copiado.',
+  aProveSignature: 'Firma',
+  aProveSignatureHint: 'Pega la firma completa que te da tu billetera. Empieza por 0x.',
+  aProveSubmit: 'Comprobar firma',
+  aProveChecking: 'Comprobando la firma…',
+  aProveDone: 'Titularidad demostrada. Vale hasta {time}.',
+  aProveClose: 'Cerrar',
+  aProveWrongSigner: 'Esto lo firmó otra billetera. Firma el mensaje con la billetera que contiene {address}.',
+  aProveBadSignature: 'Eso no es una firma de este mensaje. Pega la firma completa que te dio tu billetera.',
+  aProveLapsed: 'Este mensaje caducó antes de firmarse. Cierra esto y empieza de nuevo.',
+  aProveUnset: 'Las pruebas de billetera aún no están abiertas: el banco no ha publicado cuánto dura una prueba.',
+  aProveFailed: 'No se pudo comprobar la prueba. Inténtalo de nuevo.',
+  aOwnVerified: 'Titularidad demostrada · hasta {time}',
+  aOwnPending: 'Prueba de titularidad pendiente de firma',
+  aOwnExpired: 'Prueba de titularidad caducada',
 } as const;
 
 const fr = {
@@ -480,6 +526,29 @@ const fr = {
   aLookalikeChecked: 'Tu as confirmé l’avertissement de ressemblance · {time}',
   aLookalikeRefused:
     'Cette adresse ressemble à une adresse enregistrée, elle n’a donc pas été enregistrée. Ferme ceci, vérifie chaque caractère et coche la case pour l’enregistrer.',
+  aProve: 'Prouver la propriété',
+  aProveTitle: 'Prouve que tu contrôles {label}',
+  aProveLead:
+    'Signe le message ci-dessous avec le portefeuille qui détient {address}, puis colle la signature ici. Signer ne déplace aucun fonds et n’approuve rien d’autre.',
+  aProveStarting: 'Préparation du message à signer…',
+  aProveMessage: 'Message à signer',
+  aProveUntil: 'Signe avant {time}.',
+  aProveCopy: 'Copier le message',
+  aProveCopied: 'Message copié.',
+  aProveSignature: 'Signature',
+  aProveSignatureHint: 'Colle la signature complète donnée par ton portefeuille. Elle commence par 0x.',
+  aProveSubmit: 'Vérifier la signature',
+  aProveChecking: 'Vérification de la signature…',
+  aProveDone: 'Propriété prouvée. Valable jusqu’au {time}.',
+  aProveClose: 'Fermer',
+  aProveWrongSigner: 'Ceci a été signé par un autre portefeuille. Signe le message avec le portefeuille qui détient {address}.',
+  aProveBadSignature: 'Ce n’est pas une signature de ce message. Colle la signature complète donnée par ton portefeuille.',
+  aProveLapsed: 'Ce message a expiré avant d’être signé. Ferme ceci et recommence.',
+  aProveUnset: 'Les preuves de portefeuille ne sont pas encore ouvertes : la banque n’a pas publié leur durée.',
+  aProveFailed: 'La preuve n’a pas pu être vérifiée. Réessaie.',
+  aOwnVerified: 'Propriété prouvée · jusqu’au {time}',
+  aOwnPending: 'Preuve de propriété en attente de signature',
+  aOwnExpired: 'Preuve de propriété expirée',
 } as const;
 
 export const withdrawalCopy = defineCopy('customer.money.withdrawals', en, { es, fr });

@@ -1043,6 +1043,28 @@ export const withdrawDestinationRemovals = bank.table(
 );
 
 /**
+ * Signed-message proofs that a customer controls a saved wallet (W-withdraw-17, migration 0055). `pending` until the
+ * saved address signs the message; then `verified` with the signature and how long the proof holds.
+ */
+export const walletOwnershipProofs = bank.table(
+  'wallet_ownership_proofs',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    address: text('address').notNull(),
+    message: text('message').notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    expiresAt: tstz('expires_at').notNull(),
+    verifiedAt: tstz('verified_at'),
+    validUntil: tstz('valid_until'),
+    signature: text('signature'),
+  },
+  (t) => [index('wallet_ownership_proofs_entry_idx').on(t.userId, t.destinationId, t.createdAt)],
+);
+
+/**
  * Terms a rate source published for one customer on-ramp quote.
  * Amounts are that source's decimals, not a balance.
  */
