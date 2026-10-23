@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { inject } from 'vitest';
 import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
-import { claimsOf, hashOf, identityCall, randomHandle, totpCode, type Claims, type Issued } from './identity';
+import { claimsOf, hashOf, identityCall, proveEmail, randomHandle, totpCode, type Claims, type Issued } from './identity';
 import { createApiClient } from '../../src/shared/api';
 import { createTradeApi } from '../../src/features/trade/trade-api';
 import { fundJourneyCustomer } from '../../../../tooling/scripts/journey-fund.mjs';
@@ -66,7 +66,7 @@ export type Onboarding = 'signed_up' | 'kyc_pending' | 'kyc_approved';
  * access token identity issued. Nothing is forwarded or forced.
  */
 export async function newCustomer(
-  opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding; kycTier?: 'basic' | 'full' } = {},
+  opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding; kycTier?: 'basic' | 'full'; emailProved?: boolean } = {},
 ) {
   const onboarding = opts.onboarding ?? 'kyc_approved';
   const handle = randomHandle('journey');
@@ -74,6 +74,8 @@ export async function newCustomer(
   const password = randomBytes(18).toString('base64url');
   const issued = await identityCall<Issued>('auth.register', { handle, email, password, region: stack.region() }, null);
   let claims = claimsOf(issued.accessToken);
+  // A proved email, as every sign-up now ends with; `emailProved: false` keeps an unproved one for the refusal journeys.
+  if (opts.emailProved !== false) await proveEmail(email, claims);
   let recordId: string | null = null;
   if (onboarding !== 'signed_up') {
     const record = await identityCall<{ id: string }>(
