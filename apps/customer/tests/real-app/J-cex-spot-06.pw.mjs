@@ -5,7 +5,7 @@ import { awayBid, fundedTrader, held, openDesk, openOrders, signIn } from './des
 // J-cex-spot-06, in the running app (docs/roadmap/journeys.json): a person reads their order history, one order's
 // detail and what each fill cost. One test per step, titled "J-cex-spot-06 #<n>", run in order on one TEST account
 // funded with TEST USDT through the real ledger. The account starts with filled, cancelled, changed and many ended
-// orders; the partly filled order is made in #4, where it is read and cancelled. Step 6 (a triggered stop) is not here yet.
+// orders; the partly filled order is made in #4, where it is read and cancelled.
 const J = 'J-cex-spot-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const FUNDED = '5000';
@@ -281,6 +281,49 @@ test(`${J} #5 opens a fill's detail: price, amount, maker or taker, fee rate, fe
     await expect(rowValue(rows, 'Rank fee discount')).toHaveText(order.feeDiscount === '0' ? 'None' : /%/);
     await expect(rowValue(rows, 'Amount')).toContainText(fill.amount);
   }
+});
+
+test(`${J} #6 a stop that fired says why: its stop price, the price that reached it and when, and the slippage`, async ({ page }) => {
+  const who = account();
+  // A buy stop-limit at the best ask fires when a trade prints at or above it. Another TEST trader lifts the ask to make
+  // that trade; the stop's limit sits above it, so the order fills once it reaches the book.
+  const { ask } = await bestPrices();
+  const tick = toUnits('0.01');
+  const stopPrice = ask;
+  const limit = fromUnits(((toUnits(ask) * 102n) / 100n / tick) * tick);
+  const order = await place(who, { type: 'stop_limit', side: 'buy', amount: '0.001', price: limit, stopPrice, timeInForce: 'GTC' }, 'stop');
+  expect(order).toMatchObject({ type: 'stop_limit', stopPrice });
+  const lift = await (await api(otherTrader())).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'limit',
+    side: 'buy',
+    amount: '0.001',
+    price: limit,
+    timeInForce: 'IOC',
+    clientOrderId: `${J}-6-${order.id}`,
+  });
+  expect(lift.status).toBeLessThan(300);
+  await expect.poll(async () => (await orderById(who, order.id)).triggered ?? null, { timeout: 30_000 }).not.toBeNull();
+  await expect.poll(async () => (await orderById(who, order.id)).filled, { timeout: 30_000 }).toBe('0.001');
+  const fired = await orderById(who, order.id);
+  expect(fired.triggered.by).toBe('last');
+  // A buy stop fires when the last trade is at or above its stop price.
+  expect(toUnits(fired.triggered.referencePrice) >= toUnits(stopPrice)).toBe(true);
+  expect(Date.parse(fired.triggered.at)).toBeGreaterThanOrEqual(fired.timestamp);
+
+  await signIn(page, who);
+  await page.goto(`/trade/orders/${order.id}`);
+  const dl = detail(page);
+  const usd = (value) => Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  await expect(rowValue(dl, 'Stop price')).toHaveText(`${usd(stopPrice)} USDT`);
+  await expect(rowValue(dl, 'Trigger')).toContainText(`when the last trade price reached ${usd(fired.triggered.referencePrice)} USDT`);
+  await expect(rowValue(dl, 'Trigger')).toContainText(/Fired \d{1,2} \w{3}, \d{1,2}:\d{2}/);
+  // Slippage: the average fill against the stop price, worse for a buy when above it.
+  const worse = toUnits(fired.average) - toUnits(stopPrice);
+  await expect(rowValue(dl, 'Slippage')).toHaveText(
+    worse === 0n ? /None/ : worse > 0n ? new RegExp(`^${usd(fromUnits(worse)).replace('.', '\\.')} USDT \\(.+%\\) worse than the stop price$`) : /better than the stop price/,
+  );
+  await expect(rowValue(dl, 'Average price')).toHaveText(`${usd(fired.average)} USDT`);
 });
 
 test(`${J} #7 reads the order states and the amend trail: the same words everywhere, each change with its time`, async ({ page }) => {
