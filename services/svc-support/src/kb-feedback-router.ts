@@ -1,3 +1,4 @@
+import type { Principal } from '@intafaced/auth';
 import { z } from 'zod';
 import { supportKbArticleSchema, publicProcedure, scopedProcedure } from '@intafaced/contracts';
 import { SEARCH_QUERY_CONTRACT_MAX } from './kb-feedback.js';
@@ -20,7 +21,7 @@ const readerToken = z.string().regex(/^[A-Za-z0-9_-]{16,80}$/);
 export function kbFeedbackProcedures(
   support: SupportService,
   mapError: (err: unknown) => never,
-  helpCentreOpen: (principal: null) => Promise<void> = async () => {},
+  helpCentreOpen: (principal: Pick<Principal, 'scopes'> | null | undefined) => Promise<void> = async () => {},
 ) {
   return {
     /** Signed-out vote. Blank rate refuses and stores nothing. The token is not returned. */
@@ -90,6 +91,7 @@ export function kbFeedbackProcedures(
       .output(z.object({ recorded: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           return await support.kbSearchClick({
             ...input,
             viewer: { signedIn: Boolean(ctx.principal), staff: Boolean(ctx.principal?.scopes.includes('support:ops')) },
@@ -115,6 +117,7 @@ export function kbFeedbackProcedures(
       .output(z.object({ sources: z.array(supportKbArticleSchema) }))
       .query(async ({ ctx, input }) => {
         try {
+          await helpCentreOpen(ctx.principal);
           return await support.kbAnswer(input?.q ?? '', {
             limit: input?.limit,
             viewer: { signedIn: Boolean(ctx.principal), staff: Boolean(ctx.principal?.scopes.includes('support:ops')) },

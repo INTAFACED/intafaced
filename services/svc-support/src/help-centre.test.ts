@@ -157,6 +157,10 @@ describe('help centre settings', () => {
         readerToken: 'a-reader-token-1234567890',
       }),
     ).rejects.toMatchObject(off);
+    await expect(visitor.kbAnswer({ q: 'sign', limit: 5 })).rejects.toMatchObject(off);
+    await expect(
+      visitor.kbSearchClick({ articleId: 'kb-account-access', query: 'sign', clientRequestId: 'click-while-off-1' }),
+    ).rejects.toMatchObject(off);
     // The desk still reads its own answers, and the settings stay readable signed out.
     expect((await lead.listKb({ limit: 100 })).length).toBeGreaterThan(0);
     expect((await visitor.helpCentre()).published).toBe(false);
