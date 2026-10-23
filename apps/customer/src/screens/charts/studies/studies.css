@@ -49,6 +49,15 @@
     align-items: center;
     gap: 6px;
   }
+  /* The app's base reset strips native checkboxes to 0 by 0; the studies draw them at a usable size. */
+  .st input[type='checkbox'],
+  .st-dialog input[type='checkbox'] {
+    appearance: auto;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--if-accent);
+  }
   .st-legend {
     display: flex;
     flex-direction: column;

@@ -57,7 +57,8 @@ test('J-charts-desk-03 #1 types rsi into the indicator dialog, finds RSI under O
   await expect(oscillators).toContainText('Relative Strength Index');
   await oscillators.getByRole('button', { name: 'Add Relative Strength Index' }).click();
   await expect(row(page, 'rsi-1')).toHaveAttribute('data-pane', 'sub');
-  await expect(page.getByRole('button', { name: 'RSI 14' })).toBeVisible();
+  // The chip's accessible name is the study's name; its visible text carries the inputs.
+  await expect(page.getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
 });
 
 test('J-charts-desk-03 #2 adds a moving average with period 50 on High and sets its colour; it draws with those inputs and style', async ({
@@ -71,7 +72,7 @@ test('J-charts-desk-03 #2 adds a moving average with period 50 on High and sets 
   await page.getByRole('textbox', { name: 'Period' }).fill('50');
   await dialog.getByRole('combobox', { name: /^Colour/ }).selectOption('ma-2');
   await page.getByRole('button', { name: 'Apply' }).click();
-  await expect(page.getByRole('button', { name: 'SMA 50' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings for Simple moving average' })).toContainText('SMA 50');
   await expect(row(page, 'sma-1')).toContainText('SMA 50 high');
   // The saved study carries the inputs and the colour token the chart draws with.
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('charts-studies:guest:main') ?? 'null'));
