@@ -166,6 +166,11 @@
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
     },
+    "IDENTITY_API_KEYS_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
+    },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "30",
@@ -240,6 +245,71 @@
       "service": "ledger",
       "value": "6",
       "note": "TEST published decimal places for USDT. A receipt preview of 1234.5 shows every place. Not an owner decision. svc-pay reads the ledger registry; the local stack publishes this value."
+    },
+    "MINING_OVERVIEW_VERSION": {
+      "service": "mining-pool",
+      "value": "TEST-1",
+      "note": "TEST version stamp for the pool overview. Not a product default."
+    },
+    "MINING_OVERVIEW_WHAT": {
+      "service": "mining-pool",
+      "value": "TEST pool overview",
+      "note": "TEST sentence for what the pool is. Not a product default."
+    },
+    "MINING_OVERVIEW_COIN": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST coin name. Not a product default."
+    },
+    "MINING_OVERVIEW_HARDWARE": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST hardware line. Not a product default."
+    },
+    "MINING_OVERVIEW_REVENUE_SPLIT": {
+      "service": "mining-pool",
+      "value": "TEST in proportion to accepted work",
+      "note": "TEST revenue-split sentence. Not a product default."
+    },
+    "MINING_OVERVIEW_NOT_SUPPORTED": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST unsupported line. Not a product default."
+    },
+    "MINING_POOL_HOST": {
+      "service": "mining-pool",
+      "value": "127.0.0.1",
+      "note": "TEST pool host a miner copies. Not a product default."
+    },
+    "MINING_POOL_PORT": {
+      "service": "mining-pool",
+      "value": "3999",
+      "note": "TEST pool port a miner copies. Not a product default."
+    },
+    "MINING_POOL_SECURE_URL": {
+      "service": "mining-pool",
+      "value": "stratum+ssl://127.0.0.1:3999",
+      "note": "TEST secure URL, published only in this profile."
+    },
+    "MINING_WORKER_NAME_PATTERN": {
+      "service": "mining-pool",
+      "value": "TEST.{worker}",
+      "note": "TEST worker-name pattern. Not a product default."
+    },
+    "MINING_PROBE_LIMIT": {
+      "service": "mining-pool",
+      "value": "3",
+      "note": "TEST reachability presses one account may make in the window."
+    },
+    "MINING_PROBE_WINDOW_MS": {
+      "service": "mining-pool",
+      "value": "60000",
+      "note": "TEST reachability window. Not a product default."
+    },
+    "MINING_PROBE_TIMEOUT_MS": {
+      "service": "mining-pool",
+      "value": "1000",
+      "note": "TEST how long one reachability press waits. Not a product default."
     }
   }
 }
