@@ -2,6 +2,7 @@ import { dayTime } from './clock';
 import { homeCopy } from './copy';
 import {
   Amount,
+  classifyRefusal,
   detailHref,
   fmtAmount,
   groupActivity,
@@ -113,8 +114,16 @@ export function RecentActivity({
   );
 }
 
-/** The service said no (for example, this account is not verified for bank reads yet): its reason, never a bare failure. */
+/**
+ * The service said no: its reason, never a bare failure. The one exception is "verify first": Home's summary already
+ * asks for that with its own Verify now, so this card says only what it will hold, without a second copy of the ask.
+ */
 function Refused({ code }: { code: string }) {
+  const { t } = homeCopy.useCopy();
+  if (classifyRefusal(code) === 'verify')
+    return (
+      <StateBlock kind="empty" className={STATE_IN_COLUMN} title={t('Activity after verify')} body={t('Activity after verify body')} />
+    );
   const copy = refusalCopy(code);
   return (
     <StateBlock kind="refused" className={STATE_IN_COLUMN} title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
