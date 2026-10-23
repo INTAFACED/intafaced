@@ -109,6 +109,19 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.anti_phishing_unavailable': 'The anti-phishing code is not available on this service.',
   'identity.anti_phishing_unreadable': 'Your anti-phishing code cannot be read on this service. Set a new one, or remove it.',
   'identity.session_not_live': 'This sign-in has ended. Sign in again.',
+  'auth.scope_empty': 'Choose at least one permission for the key.',
+  'auth.scope_unknown': 'A permission on this key does not exist.',
+  'auth.scope_interactive_only': 'A permission you chose cannot be put on a key made here.',
+  'auth.scope_not_held': 'A key cannot hold a permission your sign-in does not have.',
+  'auth.ip_invalid': 'Enter single IPv4 or IPv6 addresses, one per line.',
+  'identity.key_name_invalid': 'Use a key name of 1 to 64 characters, with no control characters.',
+  'identity.key_name_taken': 'You already have a key with this name. Choose another name.',
+  'identity.key_expiry_invalid': 'Choose an end date in the future.',
+  'identity.key_cap_unset': 'API keys cannot be made yet. The number of keys an account may hold is not set.',
+  'identity.key_cap_reached': 'This account holds as many API keys as it may. Revoke one to make another.',
+  'identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
+  'auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys.',
+  'auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
