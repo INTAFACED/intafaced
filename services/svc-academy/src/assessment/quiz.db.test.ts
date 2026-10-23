@@ -257,7 +257,7 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
     expect({ deadlineAt, secondsLeft }).toEqual({ deadlineAt: null, secondsLeft: null });
     await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q1', choiceId: 'b' });
     await academy.answerQuizAttempt({ userId: USER, attemptId, questionId: 'q2', choiceId: 'c' });
-    expect((await academy.finishQuizAttempt({ userId: USER, attemptId })).result?.pass).toBe(true);
+    expect((await academy.finishQuizAttempt({ userId: USER, attemptId })).result).toMatchObject({ hidden: false, pass: true });
     expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({ ruleMet: true });
     expect((await academy.markCurriculumComplete({ userId: USER, itemSlug: SLUG })).itemSlug).toBe(SLUG);
   });
