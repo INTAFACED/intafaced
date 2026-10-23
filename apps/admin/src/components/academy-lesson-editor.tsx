@@ -277,6 +277,58 @@ function AssistantPanel({ lesson, busy, send }: { lesson: AcademyLesson; busy: b
   );
 }
 
+/**
+ * The Learn hub (AC-articles-01): a lesson learners can read may be the hub's featured article. Withdrawing it from
+ * learners takes it off the hub in the same step.
+ */
+function LearnHubPanel({ lesson, busy, send }: { lesson: AcademyLesson; busy: boolean; send: (body: Record<string, unknown>) => void }) {
+  const [featureWhy, setFeatureWhy] = useState('');
+  const [withdrawWhy, setWithdrawWhy] = useState('');
+  const live = lesson.item.liveRevision !== null;
+  return (
+    <section className="dk-stack" aria-labelledby="h-lesson-hub">
+      <h2 id="h-lesson-hub">Learn hub</h2>
+      <p className="dk-muted" data-testid="lesson-featured">
+        {lesson.featured
+          ? 'This lesson is the Learn hub’s featured article.'
+          : live
+            ? 'Not featured. Learners can read it, so it can be featured.'
+            : 'Not featured. Only a lesson learners can read is featured.'}
+      </p>
+      <form
+        className="dk-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send({ op: 'feature', reason: featureWhy });
+        }}
+      >
+        <div className="adm-field">
+          <label htmlFor="lesson-feature-reason">Why feature it</label>
+          <input id="lesson-feature-reason" value={featureWhy} maxLength={500} onChange={(e) => setFeatureWhy(e.target.value)} />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || lesson.featured}>
+          Feature on the Learn hub
+        </button>
+      </form>
+      <form
+        className="dk-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send({ op: 'withdraw', courseRevision: lesson.courseRevision, reason: withdrawWhy });
+        }}
+      >
+        <div className="adm-field">
+          <label htmlFor="lesson-withdraw-reason">Why withdraw it</label>
+          <input id="lesson-withdraw-reason" value={withdrawWhy} maxLength={500} onChange={(e) => setWithdrawWhy(e.target.value)} />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || !live}>
+          Withdraw from learners
+        </button>
+      </form>
+    </section>
+  );
+}
+
 /** The import's report: every block svc-academy did not accept, by its place in the file. */
 function ImportReport({ reply }: { reply: LessonDeskReply | null }) {
   if (!reply || reply.ok || !reply.problems) return null;
@@ -451,6 +503,7 @@ export function AcademyLessonEditor({
               </form>
             )}
           </section>
+          <LearnHubPanel lesson={lesson} busy={busy} send={(body) => void send(body)} />
           <section className="dk-stack" aria-labelledby="h-lesson-revisions">
             <h2 id="h-lesson-revisions">Revisions</h2>
             {lesson.revisions.length === 0 ? (

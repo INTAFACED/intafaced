@@ -21,6 +21,7 @@ import type {
   AcademyOutlineSection,
   AcademySaveOutlineInput,
   AcademySetCourseStateInput,
+  AcademySetCourseTopicsInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { ACADEMY_COURSE_STATES } from '@intafaced/contracts';
@@ -49,7 +50,7 @@ type CourseRow = {
 };
 
 type EventRow = {
-  kind: 'created' | 'updated' | 'state' | 'outline' | 'lesson';
+  kind: 'created' | 'updated' | 'state' | 'outline' | 'lesson' | 'topics' | 'withdrawn';
   revision: number;
   from_state: AcademyCourseState | null;
   to_state: AcademyCourseState;
@@ -165,6 +166,44 @@ export class CourseRecords {
         VALUES (${row.id}, ${next!.revision}, 'updated', ${row.state}, ${row.state}, ${input.operatorId}, NULL, ${input.now})
       `;
       return courseOf(next!);
+    });
+  }
+
+  /**
+   * AC-articles-01: the topics the course is filed under, as a whole, over the revision read. A repeat after a lost reply
+   * finds this founder's `topics` event at the next revision and answers with the course.
+   */
+  async setTopics(input: AcademySetCourseTopicsInput & { operatorId: string; now: Date }): Promise<AcademyCourseDetail> {
+    return this.sql.begin(async (tx) => {
+      const row = await this.lock(tx, input.courseId);
+      if (row.revision === input.revision + 1) {
+        const [own] = await tx<EventRow[]>`
+          SELECT kind FROM academy.course_events
+          WHERE course_id = ${row.id} AND revision = ${row.revision} AND actor = ${input.operatorId}
+        `;
+        const held = await tx<Array<{ topic_id: string }>>`SELECT topic_id FROM academy.course_topics WHERE course_id = ${row.id}`;
+        const same = held.length === input.topicIds.length && held.every((h) => input.topicIds.includes(h.topic_id));
+        if (own?.kind === 'topics' && same) return this.get(row.id, tx);
+      }
+      if (row.revision !== input.revision)
+        throw new AcademyError(`course is at revision ${row.revision}, not ${input.revision}`, 'academy.course_revision_stale');
+      if (row.state !== 'draft' && row.state !== 'published')
+        throw new AcademyError(`a ${row.state} course is not filed here`, 'academy.course_not_editable');
+      if (input.topicIds.length > 0) {
+        const found = await tx<Array<{ id: string }>>`SELECT id FROM academy.topics WHERE id IN ${tx(input.topicIds)}`;
+        if (found.length !== input.topicIds.length) throw new AcademyError('no topic with one of those ids', 'academy.topic_not_found');
+      }
+      await tx`DELETE FROM academy.course_topics WHERE course_id = ${row.id}`;
+      if (input.topicIds.length > 0)
+        await tx`INSERT INTO academy.course_topics ${tx(input.topicIds.map((topic_id) => ({ course_id: row.id, topic_id })))}`;
+      const [next] = await tx<Array<{ revision: number }>>`
+        UPDATE academy.courses SET revision = revision + 1, updated_at = ${input.now} WHERE id = ${row.id} RETURNING revision
+      `;
+      await tx`
+        INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at)
+        VALUES (${row.id}, ${next!.revision}, 'topics', ${row.state}, ${row.state}, ${input.operatorId}, NULL, ${input.now})
+      `;
+      return this.get(row.id, tx);
     });
   }
 
@@ -351,12 +390,17 @@ export class CourseRecords {
     >`SELECT c.*, (SELECT count(*)::int FROM academy.course_items i WHERE i.course_id = c.id AND i.kind <> 'subheader') AS items FROM academy.courses c WHERE c.id = ${courseId}`;
     if (!row) throw new AcademyError('no course with that id', 'academy.course_not_found');
     const outline = await this.outline(sql, courseId);
+    const topics = await sql<Array<{ id: string; slug: string; name: string; created_at: Date }>>`
+      SELECT t.id, t.slug, t.name, t.created_at FROM academy.course_topics ct JOIN academy.topics t ON t.id = ct.topic_id
+      WHERE ct.course_id = ${courseId} ORDER BY t.name, t.slug
+    `;
     const events = await sql<EventRow[]>`
       SELECT kind, revision, from_state, to_state, actor, reason, at FROM academy.course_events
       WHERE course_id = ${courseId} ORDER BY revision DESC LIMIT ${EVENTS_SHOWN}
     `;
     return {
       course: courseOf(row),
+      topics: topics.map((t) => ({ id: t.id, slug: t.slug, name: t.name, createdAt: t.created_at.toISOString() })),
       outline,
       limits: this.limits,
       events: events.map((e) => ({

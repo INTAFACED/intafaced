@@ -84,7 +84,7 @@ export const academyCourseSchema = z.object({
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson', 'topics', 'withdrawn'] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),
@@ -166,6 +166,8 @@ export const academyOutlineLimitsSchema = z.object({
 /** `admin.course`: one course with its outline, the owner's outline limits and its history, newest first. */
 export const academyCourseDetailSchema = z.object({
   course: academyCourseSchema,
+  /** AC-articles-01: the topics the course is filed under, by name. */
+  topics: z.array(z.lazy(() => academyTopicSchema)),
   outline: z.array(academyOutlineSectionSchema),
   limits: academyOutlineLimitsSchema,
   events: z.array(academyCourseEventSchema),
@@ -235,6 +237,15 @@ export const academyPublishLessonInputSchema = z
   .strict();
 export type AcademyPublishLessonInput = z.infer<typeof academyPublishLessonInputSchema>;
 
+/**
+ * `admin.withdrawLesson`: learners stop seeing the lesson (no revision is live) over the course revision read, with a
+ * reason. A featured lesson leaves the Learn hub's featured slot in the same step.
+ */
+export const academyWithdrawLessonInputSchema = z
+  .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyWithdrawLessonInput = z.infer<typeof academyWithdrawLessonInputSchema>;
+
 /** `admin.duplicateItem`: a copy of a draft course's item right after it, with its newest lesson as revision 1. */
 export const academyDuplicateItemInputSchema = z
   .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive() })
@@ -275,6 +286,8 @@ export const academyLessonSchema = z.object({
       createdAt: isoInstant,
     })
     .nullable(),
+  /** AC-articles-01: whether this lesson is the Learn hub's featured article. */
+  featured: z.boolean(),
 });
 export type AcademyLesson = z.infer<typeof academyLessonSchema>;
 
@@ -415,3 +428,71 @@ export const academySetItemCaptionsResultSchema = z.discriminatedUnion('outcome'
   /** The first line that is not a caption, with its number, and nothing stored. */
   z.object({ outcome: z.literal('invalid'), problem: z.string().min(1), media: academyItemMediaSchema }),
 ]);
+
+/**
+ * AC-articles-01: the Learn hub. Staff choose its featured article, a lesson learners can read (one with a revision
+ * published to learners; otherwise `academy.featured_not_live`); it leaves the slot when the lesson is withdrawn. Topics
+ * are staff-owned names with an address that is never an Academy tab (`academy.slug_reserved`); a course is filed under
+ * some of them. The topic list is read up to the owner's limit (`ACADEMY_TOPICS_LIST_LIMIT`; blank refuses
+ * `academy.topics_list_limit_unset`).
+ */
+export const academyTopicSchema = z.object({
+  id: z.string().guid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: isoInstant,
+});
+export type AcademyTopic = z.infer<typeof academyTopicSchema>;
+
+/**
+ * The hub's one featured slot holds a course lesson or a curriculum item (`admin.setFeatured`), never both; choosing
+ * either replaces the other. A lesson shows here while it is live in a draft or published course.
+ */
+export const academyFeaturedSlotSchema = z.object({
+  /** The curriculum item in the slot, or null. */
+  curriculum: z.object({ slug: z.string().min(1), title: z.string().min(1) }).nullable(),
+  /** The featured lesson, or null. */
+  lesson: z
+    .object({
+      itemId: z.string().guid(),
+      title: z.string().min(1),
+      courseId: z.string().guid(),
+      courseTitle: z.string().min(1),
+      courseState: z.enum(ACADEMY_COURSE_STATES),
+      liveRevision: z.number().int().positive(),
+    })
+    .nullable(),
+  reason: z.string().nullable(),
+  chosenBy: z.string().guid().nullable(),
+  chosenAt: isoInstant.nullable(),
+});
+export type AcademyFeaturedSlot = z.infer<typeof academyFeaturedSlotSchema>;
+
+/** `admin.topics`: the topics, newest first, up to the owner's list limit (shown with them). */
+export const academyTopicListSchema = z.object({
+  topics: z.array(academyTopicSchema),
+  limit: z.number().int().positive(),
+});
+export type AcademyTopicList = z.infer<typeof academyTopicListSchema>;
+
+/** `admin.featureLesson`: this lesson fills the featured slot, with the reason staff give. */
+export const academyFeatureLessonInputSchema = z.object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) }).strict();
+export type AcademyFeatureLessonInput = z.infer<typeof academyFeatureLessonInputSchema>;
+
+/** `admin.clearFeatured`: nothing is featured, with the reason. */
+export const academyClearFeaturedInputSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+
+/** `admin.createTopic`: a topic keyed by its address; a repeat with the same name answers with the stored topic. */
+export const academyCreateTopicInputSchema = z.object({ slug: academyCourseSlugSchema, name: z.string().trim().min(1).max(60) }).strict();
+export type AcademyCreateTopicInput = z.infer<typeof academyCreateTopicInputSchema>;
+
+/** `admin.setCourseTopics`: the course's topics as a whole, over the revision read. */
+export const academySetCourseTopicsInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    revision: z.number().int().positive(),
+    topicIds: z.array(z.string().guid()).max(20),
+  })
+  .strict()
+  .refine((t) => new Set(t.topicIds).size === t.topicIds.length, { message: 'a topic is named once' });
+export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsInputSchema>;

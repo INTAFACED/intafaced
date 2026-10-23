@@ -41,6 +41,7 @@ export interface SettingsEnv {
   readonly ACADEMY_OUTLINE_MAX_ITEMS?: number | undefined;
   readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -196,6 +197,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.import_limit_unset',
+    },
+    {
+      key: 'topics_list_limit',
+      state: state(positiveInt(env.ACADEMY_TOPICS_LIST_LIMIT)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.topics_list_limit_unset',
     },
     {
       key: 'upload_size_limit',

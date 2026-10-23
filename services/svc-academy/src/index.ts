@@ -133,6 +133,7 @@ const academy = new AcademyService(
     lessonImportMaxBytes: env.ACADEMY_LESSON_IMPORT_MAX_BYTES,
     mediaStorage: videoStorageFromEnv(env),
     uploadMaxBytes: env.ACADEMY_UPLOAD_MAX_BYTES,
+    topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
     uploadVideoTypes: env.ACADEMY_UPLOAD_VIDEO_TYPES,
     uploadHandoutTypes: env.ACADEMY_UPLOAD_HANDOUT_TYPES,
     videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,

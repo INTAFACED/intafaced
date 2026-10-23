@@ -57,6 +57,14 @@ import {
   academyDecideDraftInputSchema,
   academyImportLessonResultSchema,
   academyItemMediaSchema,
+  academyWithdrawLessonInputSchema,
+  academyFeaturedSlotSchema,
+  academyFeatureLessonInputSchema,
+  academyClearFeaturedInputSchema,
+  academyTopicListSchema,
+  academyCreateTopicInputSchema,
+  academyTopicSchema,
+  academySetCourseTopicsInputSchema,
   academyMediaIntentInputSchema,
   academyMediaIntentSchema,
   academyConfirmMediaInputSchema,
@@ -866,6 +874,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.outline_item_unknown':
     case 'academy.revision_stale':
     case 'academy.item_kind_locked':
+    case 'academy.topic_slug_taken':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.price_unset':
@@ -874,6 +883,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.outline_limits_unset':
     case 'academy.import_limit_unset':
     case 'academy.upload_limits_unset':
+    case 'academy.topics_list_limit_unset':
+    case 'academy.featured_not_live':
+    case 'academy.lesson_not_live':
     case 'academy.item_video_missing':
     case 'academy.upload_incomplete':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -890,6 +902,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.lesson_revision_unknown':
     case 'academy.draft_not_found':
     case 'academy.media_not_found':
+    case 'academy.topic_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -2917,6 +2930,46 @@ export function createAcademyRouter(
         .input(academySetItemCaptionsInputSchema)
         .output(academySetItemCaptionsResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setItemCaptions({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-articles-01: learners stop seeing the lesson; a featured lesson leaves the Learn hub's slot. */
+      withdrawLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyWithdrawLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.withdrawLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-articles-01: the Learn hub's featured slot as staff left it. */
+      featuredSlot: scopedProcedure('admin:read', { module: 'academy' })
+        .output(academyFeaturedSlotSchema)
+        .query(() => guard(() => academy.featuredSlot())),
+
+      /** AC-articles-01: a lesson learners can read fills the featured slot, with a reason. */
+      featureLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyFeatureLessonInputSchema)
+        .output(academyFeaturedSlotSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.featureLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-articles-01: nothing is featured, with a reason. */
+      clearFeatured: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyClearFeaturedInputSchema)
+        .output(academyFeaturedSlotSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.clearFeatured({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-articles-01: the topics, up to the owner's list limit. */
+      topics: scopedProcedure('admin:read', { module: 'academy' })
+        .output(academyTopicListSchema)
+        .query(() => guard(() => academy.topics())),
+
+      /** AC-articles-01: a topic keyed by its address; an Academy tab's address refuses `academy.slug_reserved`. */
+      createTopic: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCreateTopicInputSchema)
+        .output(academyTopicSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.createTopic({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-articles-01: the topics a course is filed under, over the revision read. */
+      setCourseTopics: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseTopicsInputSchema)
+        .output(academyCourseDetailSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setCourseTopics({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-course-structure-04: a template draft from the course's structure; the model path refuses `owner.decision`. */
       assistantDraft: scopedProcedure('admin:write', { module: 'academy' })

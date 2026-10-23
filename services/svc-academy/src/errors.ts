@@ -243,7 +243,17 @@ export type AcademyErrorCode =
   /** The stored object is missing or its size is not the declared size. */
   | 'academy.upload_incomplete'
   /** Captions need a stored video on the item first. */
-  | 'academy.item_video_missing';
+  | 'academy.item_video_missing'
+  /** AC-articles-01: only a lesson learners can read is featured. */
+  | 'academy.featured_not_live'
+  /** Withdrawing a lesson learners see no revision of. */
+  | 'academy.lesson_not_live'
+  /** No topic with that id. */
+  | 'academy.topic_not_found'
+  /** A topic already has that address under another name. */
+  | 'academy.topic_slug_taken'
+  /** The owner has not set how many topics a list shows. */
+  | 'academy.topics_list_limit_unset';
 
 export class AcademyError extends Error {
   constructor(
@@ -384,6 +394,11 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.media_not_found',
   'academy.upload_incomplete',
   'academy.item_video_missing',
+  'academy.featured_not_live',
+  'academy.lesson_not_live',
+  'academy.topic_not_found',
+  'academy.topic_slug_taken',
+  'academy.topics_list_limit_unset',
 ] as const;
 
 /** L3 — catalog size. */

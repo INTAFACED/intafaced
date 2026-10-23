@@ -1429,6 +1429,11 @@ const academySections: readonly DeskSection[] = [
         label: 'Courses',
         why: 'Create a course, set its price and publish it. Every course staff created is listed there.',
       },
+      {
+        href: '/academy-ops/catalogue/featured',
+        label: 'Learn hub',
+        why: 'The featured article as staff chose it, and the topic list courses are filed under.',
+      },
     ],
   },
   {

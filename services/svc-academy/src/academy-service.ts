@@ -44,6 +44,7 @@ import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
+import { LearnHub } from './curriculum/learn-hub.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
@@ -73,6 +74,9 @@ import type {
   AcademyAssistantDraftInput,
   AcademyDecideDraftInput,
   AcademyMediaIntentInput,
+  AcademyWithdrawLessonInput,
+  AcademyCreateTopicInput,
+  AcademySetCourseTopicsInput,
   AcademySetItemCaptionsInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
@@ -272,6 +276,8 @@ export interface AcademyServiceOptions {
   uploadVideoTypes?: readonly string[];
   uploadHandoutTypes?: readonly string[];
   mediaReadBack?: ReadBackFn;
+  /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
+  topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -304,6 +310,7 @@ export class AcademyService {
   private readonly courseRecords: CourseRecords;
   private readonly lessonRecords: LessonRecords;
   private readonly courseMedia: CourseMedia;
+  private readonly learnHub: LearnHub;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -329,6 +336,7 @@ export class AcademyService {
       maxItems: this.options.outlineMaxItems ?? null,
     });
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
+    this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -2233,6 +2241,36 @@ export class AcademyService {
 
   decideDraft(input: AcademyDecideDraftInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.decideDraft({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-articles-01: learners stop seeing the lesson; a featured lesson leaves the Learn hub's slot. */
+  withdrawLesson(input: AcademyWithdrawLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.withdraw({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-articles-01: the Learn hub's featured slot and topics on the founder console. */
+  featuredSlot() {
+    return this.learnHub.featuredSlot();
+  }
+
+  featureLesson(input: { itemId: string; reason: string; operatorId: string; now?: Date }) {
+    return this.learnHub.featureLesson({ ...input, now: input.now ?? new Date() });
+  }
+
+  clearFeatured(input: { reason: string; operatorId: string; now?: Date }) {
+    return this.learnHub.clearFeatured({ ...input, now: input.now ?? new Date() });
+  }
+
+  topics() {
+    return this.learnHub.topics();
+  }
+
+  createTopic(input: AcademyCreateTopicInput & { operatorId: string; now?: Date }) {
+    return this.learnHub.createTopic({ ...input, now: input.now ?? new Date() });
+  }
+
+  setCourseTopics(input: AcademySetCourseTopicsInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.setTopics({ ...input, now: input.now ?? new Date() });
   }
 
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */

@@ -630,7 +630,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.slug_reserved': {
     title: 'That address is an Academy tab',
-    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course can use one.',
+    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course or topic can use one.',
     next: 'Choose another address. Nothing was saved.',
   },
   'academy.course_slug_taken': {
@@ -757,6 +757,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'Upload the video first',
     body: 'Captions belong to a video, and this item has no checked video yet.',
     next: 'Upload and check the video, then add its captions. Nothing was saved.',
+  },
+  'academy.featured_not_live': {
+    title: 'Learners cannot read this lesson',
+    body: 'Only a lesson with a revision published to learners is featured on the Learn hub.',
+    next: 'Publish a revision to learners first. Nothing was featured.',
+  },
+  'academy.lesson_not_live': {
+    title: 'Learners see nothing here already',
+    body: 'No revision of this lesson is published to learners, so there is nothing to withdraw.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'academy.topic_not_found': {
+    title: 'No such topic',
+    body: 'One of the chosen topics is not on the Learn hub’s topic list.',
+    next: 'Read the course again and pick from the list. Nothing was saved.',
+  },
+  'academy.topic_slug_taken': {
+    title: 'That address is taken',
+    body: 'Another topic already has this address under a different name.',
+    next: 'Choose another address. Nothing was added.',
+  },
+  'academy.topics_list_limit_unset': {
+    title: 'The topic list limit is not set',
+    body: 'The owner has not set how many topics a list shows, so the list is not read.',
+    next: 'The owner sets the limit for this deployment.',
   },
   'owner.decision': {
     title: 'Waiting for an owner decision',
