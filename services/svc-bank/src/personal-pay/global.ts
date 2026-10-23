@@ -582,9 +582,11 @@ export class GlobalSendService {
     const compliance = canonicalCompliance(input.compliance);
     const space = await this.ownedSpace(input.userId, input.fromSpaceId, now);
     const recipient = await this.liveRecipient(input.userId, input.recipientId);
+    // A lock id in any letter case is the same lock; it is kept as Postgres writes it, so a replay compares equal.
+    const quoteId = input.quoteId?.trim().toLowerCase();
     // The lock must be this customer's, for this asset, amount and currency: a quote for other figures pays nothing.
-    if (input.quoteId !== undefined) {
-      const lock = await this.lockById(input.quoteId);
+    if (quoteId !== undefined) {
+      const lock = await this.lockById(quoteId);
       if (!lock || lock.user_id !== input.userId) throw personalPayError('bank.global_quote_not_found');
       if (lock.asset_id !== space.assetId.toUpperCase() || lock.amount !== money.text || lock.to_currency !== toCurrency) {
         throw personalPayError('bank.global_quote_mismatch');
@@ -601,7 +603,7 @@ export class GlobalSendService {
       country,
       deliveryMethod,
       compliance,
-      quoteId: input.quoteId ?? null,
+      quoteId: quoteId ?? null,
     });
     return this.drive(row, space, money.amount, now);
   }
@@ -968,7 +970,7 @@ export class GlobalSendService {
         'maxLength' in refusal ? `The reference can be at most ${refusal.maxLength} characters for this rail.` : undefined,
       );
 
-    const quote = await this.lockedQuote(row);
+    const quote = await this.lockedQuote(row, now);
     const railId = this.ports.payout.railId().trim();
     if (!railId || railId.length > 64) throw personalPayError('bank.global_payout_unusable');
     const account = accountForSpace(space);
@@ -1061,17 +1063,29 @@ export class GlobalSendService {
   }
 
   /**
-   * The figures a send is paid at: the rate lock it was confirmed on, exactly as the provider gave them. The send must
-   * have been confirmed (its row recorded) before the lock ran out. A replay of it, or its release from a hold, is still
-   * paid at that lock, because the customer agreed to it in time; nothing is quoted again here. A lock the payout partner
-   * will no longer honour is its refusal, which turns the posting back (`bank.global_payout_refused`).
+   * The figures a send is paid at: the rate lock it was confirmed on, exactly as the provider gave them; nothing is
+   * quoted again here. The send must have been confirmed (its row recorded) before the lock ran out, and must still be
+   * inside it as it posts, with two exceptions where the customer is not choosing the moment: a send held for review
+   * and then released, and a send whose forward entry already posted (only its payout is being retried). A send that
+   * was recorded in time but never driven cannot be replayed later at an old rate: that would be a free option on the
+   * rate. A lock the payout partner will no longer honour is its refusal, which turns the posting back.
    */
-  private async lockedQuote(row: SendRow): Promise<LockedQuote> {
+  private async lockedQuote(row: SendRow, now: Date): Promise<LockedQuote> {
     if (!row.quote_id) return this.definite(row, 'bank.global_quote_required');
     const lock = await this.lockById(row.quote_id);
     if (!lock || lock.user_id !== row.user_id) throw personalPayError('bank.global_outcome_unknown');
     if (lock.valid_until.getTime() <= row.created_at.getTime()) return this.definite(row, 'bank.global_quote_expired');
+    if (!row.ledger_tx_id && lock.valid_until.getTime() <= now.getTime() && !(await this.wasHeld(row.id))) {
+      return this.definite(row, 'bank.global_quote_expired');
+    }
     return lockView(lock);
+  }
+
+  private async wasHeld(sendId: string): Promise<boolean> {
+    const rows = await this.sql<{ held: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM bank.global_send_holds WHERE send_id = ${sendId}) AS held
+    `;
+    return rows[0]?.held === true;
   }
 
   private async lockById(id: string): Promise<LockRow | null> {

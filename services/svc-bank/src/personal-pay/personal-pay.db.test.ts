@@ -1496,6 +1496,32 @@ describe('personal bill pay and global send', () => {
       expect(await balance()).toBe(parseAmount('60'));
     });
 
+    it('a send recorded inside its lock but never driven is not paid at that lock once it has run out; a lock id in capitals is the same lock', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      // Stranded: the instruction was recorded while the lock lasted, and nothing drove it (a stop between the two).
+      const id = randomUUID();
+      await sql`
+        INSERT INTO bank.global_sends (id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
+                                       country, delivery_method, quote_id, status)
+        VALUES (${id}, ${USER}, ${body.idempotencyKey}, ${body.fromSpaceId}, 'USDT', '40', 'EUR', ${body.recipientId}, 'DE',
+                'sepa', ${lock.quoteId}, 'submitted')
+      `;
+      await sql`UPDATE bank.global_quotes SET valid_until = now() - interval '1 second' WHERE id = ${lock.quoteId}`;
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId.toUpperCase() })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_expired' },
+      });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('100'));
+      // Inside a lock, capitals change nothing: the send is recorded on the lock as written and paid at it.
+      const next = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      const again = { ...body, idempotencyKey: `send-${randomUUID()}` };
+      const sent = await me.global.send({ ...again, quoteId: next.quoteId.toUpperCase() });
+      expect(sent).toMatchObject({ status: 'sent', quoteId: next.quoteId, quoteReceive: '80' });
+      expect(await me.global.send({ ...again, quoteId: next.quoteId })).toMatchObject({ id: sent.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(1);
+    });
+
     it('a send held for review is paid at the lock it was confirmed on, even when released after the lock ran out', async () => {
       const { ledger, bank, me, body, balance } = await ready();
       await ledger.post(
