@@ -816,6 +816,12 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  bookHalt: async (market) => {
+    const board = await matching.listMarkets();
+    // An engine that omits its halt fields has reported no halt state: that is not an open book, so it refuses.
+    if (board.halted === undefined && board.venueHalted === undefined) throw new Error('matching reports no halt state');
+    return { halted: board.halted?.includes(market.id) === true, venueHalted: board.venueHalted === true };
+  },
   pairRiskForMarkets: async (markets) => {
     const risks = await currentRiskForMarkets(
       sql,
