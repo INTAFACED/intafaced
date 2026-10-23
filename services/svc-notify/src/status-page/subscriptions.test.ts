@@ -230,7 +230,7 @@ describe('status subscription review fixes', () => {
     const h = await harness({ mailer: new NoMailer() });
     const first = await h.subscribe('known@example.com');
     const stored = await h.subs.find('known@example.com');
-    await h.store.update((await h.store.byEmail('known@example.com'))!.id, { state: 'active' }, NOW);
+    await h.store.update((await h.store.byEmail('known@example.com'))!.id, { state: 'active' });
     expect(stored!.state).toBe('unconfirmed');
     expect(await h.subscribe('known@example.com')).toEqual(first);
     expect(await h.subscribe('stranger@example.com')).toEqual(first);
