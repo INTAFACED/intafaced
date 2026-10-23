@@ -79,6 +79,9 @@ export const copyFollowSchema = z.object({
   permittedMarkets: z.array(z.string()),
   maxNotionalPerOrder: decimalSchema,
   maxAggregateExposure: decimalSchema,
+  fixedOrderSize: decimalSchema.nullable().optional(),
+  /** What this follow may use of the spot balance. A limit, not a hold: nothing moved when it was set. */
+  reserve: z.object({ asset: z.string(), amount: decimalSchema, released: z.boolean() }).nullable().optional(),
   maxLoss: decimalSchema.nullable(),
   currentExposure: decimalSchema,
   remainingExposure: decimalSchema,

@@ -166,6 +166,30 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'The disclosure has changed',
     body: 'Accept the current version before new copies. Nothing was placed.',
   },
+  'trade.copy_fixed_size_above_cap': {
+    title: 'The fixed amount is above your limit',
+    body: 'Each copied order can use at most your most per order. Lower the fixed amount or raise that limit. Nothing was followed.',
+  },
+  'trade.copy_tier_unset': {
+    title: 'Copy trading isn’t open yet',
+    body: 'The platform hasn’t set the verification level copying needs, so no one can start a copy. Nothing was followed.',
+  },
+  'trade.tier_insufficient': {
+    title: 'More verification needed',
+    body: 'Copying needs a higher verification level than your account has. Finish verification, then start again. Nothing was followed.',
+  },
+  'trade.copy_subaccount_refused': {
+    title: 'Sub-accounts can’t copy',
+    body: 'Start copying from your main account. Nothing was followed.',
+  },
+  'trade.copy_reserve_exceeds_balance': {
+    title: 'Not enough free balance',
+    body: 'The most in total is more than you have free after your other copies. Lower it, or add funds. Nothing was followed or held.',
+  },
+  'trade.copy_market_quote_mixed': {
+    title: 'Markets settle in different assets',
+    body: 'Choose markets that settle in the same asset, so one amount can be set aside. Nothing was followed.',
+  },
   'trade.copy_trail_window_unset': {
     title: 'Choose a start and end',
     body: 'The copy history needs both dates. Nothing was exported.',
