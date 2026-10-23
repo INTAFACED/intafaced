@@ -16,3 +16,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.academy-course-outcomes {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.25em;
+  list-style: disc;
+}

@@ -429,6 +429,18 @@ if (!databaseUrl) {
       expect(await getPreferences(db.sql, callerA, 'trade.views')).toMatchObject({ version: 1, value: view });
     });
   });
+  describe('receipts under a race', () => {
+    it('two identical requests sent at once both answer stored at version 1 (one write, no 500)', async () => {
+      const a = await register();
+      const caller = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const view = [{ id: 'race', name: 'Race', sort: 'name', filters: {}, columns: ['name'] }];
+      const request = { namespace: 'trade.views', value: view, ifVersion: 0, clientRequestId: 'race-1' };
+      const [first, second] = await Promise.all([setPreferences(db.sql, caller, request), setPreferences(db.sql, caller, request)]);
+      expect(first).toMatchObject({ outcome: 'stored', version: 1 });
+      expect(second).toMatchObject({ outcome: 'stored', version: 1 });
+      expect(await getPreferences(db.sql, caller, 'trade.views')).toMatchObject({ version: 1, value: view });
+    });
+  });
   describe('view record', () => {
     it('follows the account to a second device, replays a request, refuses a stale version and stays per account', async () => {
       const a = await register();

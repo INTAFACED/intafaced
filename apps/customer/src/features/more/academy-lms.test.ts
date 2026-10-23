@@ -20,6 +20,7 @@ import {
   rememberLastLesson,
   resumeTarget,
   roomSummary,
+  academyCourseHref,
   academyRoute,
   academySectionRedirect,
   academyTabHref,
@@ -299,7 +300,7 @@ describe('moments', () => {
 describe('tab addresses (AC-order-01)', () => {
   it('gives each of the five tabs its own address, and the tab segment wins over a lesson', () => {
     expect(academyTabs.map(([name]) => name)).toEqual(['Learning', 'Certificates', 'Rooms', 'Videos', 'Programmes']);
-    expect(academyRoute('/academy')).toEqual({ kind: 'tab', tab: 'Learning' });
+    expect(academyRoute('/academy')).toEqual({ kind: 'tab', tab: 'Learning', hub: true });
     for (const [name, slug] of academyTabs) {
       expect(academyRoute(`/academy/${slug}`)).toEqual({ kind: 'tab', tab: name });
       expect(academyTabHref(name)).toBe(`/academy/${slug}`);
@@ -307,6 +308,9 @@ describe('tab addresses (AC-order-01)', () => {
     expect(academyRoute('/academy/progress')).toEqual({ kind: 'progress' });
     expect(academyRoute('/academy/foundations-risk-first')).toEqual({ kind: 'reader', slug: 'foundations-risk-first' });
     expect(academyRoute('/academy/%E0%A4%A')).toEqual({ kind: 'reader', slug: undefined });
+    expect(academyRoute('/academy/learning/course/markets')).toEqual({ kind: 'course', slug: 'markets' });
+    expect(academyRoute('/academy/learning/course')).toEqual({ kind: 'course', slug: undefined });
+    expect(academyCourseHref('a b')).toBe('/academy/learning/course/a%20b');
   });
 
   it('reserves exactly the segments the service refuses as lesson slugs', () => {

@@ -9,8 +9,8 @@ import { TRPCError } from '@trpc/server';
 import type { AcademyService } from '../academy-service.js';
 import { ReleaseAccess } from '../release/access.js';
 import { createAcademyRouter } from '../router.js';
-import { listCurriculum } from './catalog.js';
-import { searchPublicCurriculum } from './public-catalogue.js';
+import { getCurriculumItem, listCurriculum } from './catalog.js';
+import { listPublicCourses, publicCourse, searchPublicCurriculum } from './public-catalogue.js';
 
 const SECRET = 'academy-public-catalogue-edge-secret-32b';
 const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-academy' });
@@ -106,5 +106,81 @@ describe('ReleaseAccess.assertMayReadSignedOut', () => {
     await expect(
       new ReleaseAccess(fakeSql({ prerequisites: [], window: null })).assertMayReadSignedOut({ itemSlug: 'no-such-item', now }),
     ).rejects.toMatchObject({ code: 'academy.curriculum_not_found' });
+  });
+});
+
+describe('public course page (AC-catalogue-03)', () => {
+  it('lists a card per course with published items, and opens a course with its syllabus, outcomes and no invented text', async () => {
+    const caller = createAcademyRouter({
+      publicCourse: (slug: string) =>
+        publicCourse(
+          slug,
+          () => null,
+          async () => true,
+        ),
+    } as unknown as AcademyService).createCaller(anonymous());
+    const cards = await caller.publicCourses();
+    expect(new Set(cards.map((c) => c.slug))).toEqual(new Set(listCurriculum().map((r) => r.path)));
+    for (const card of cards) expect(card.items).toBe(listCurriculum({ path: card.slug }).length);
+
+    const course = await caller.publicCourse({ slug: 'foundations' });
+    expect(course.syllabus.map((r) => r.slug)).toEqual(listCurriculum({ path: 'foundations' }).map((r) => r.slug));
+    expect(course.summary).toBeNull();
+    expect(course.instructor).toBeNull();
+    expect(course.outcomes.length).toBe(new Set(course.outcomes).size);
+    expect(course.outcomes.length).toBeGreaterThan(0);
+  });
+
+  it('gives the same not-found for an unknown course and a lesson slug', async () => {
+    const caller = createAcademyRouter({
+      publicCourse: (slug: string) =>
+        publicCourse(
+          slug,
+          () => null,
+          async () => true,
+        ),
+    } as unknown as AcademyService).createCaller(anonymous());
+    await expect(caller.publicCourse({ slug: 'no-such-course' })).rejects.toSatisfy((e) => causeOf(e) === 'academy.course_not_found');
+    await expect(caller.publicCourse({ slug: first.slug })).rejects.toSatisfy((e) => causeOf(e) === 'academy.course_not_found');
+  });
+
+  it('names the certificate only when the owner published one for the path', async () => {
+    expect(
+      (
+        await publicCourse(
+          'foundations',
+          (p) => (p === 'foundations' ? 'Foundations' : null),
+          async () => true,
+        )
+      ).certificate,
+    ).toBe('Foundations');
+    const other = listPublicCourses().find((c) => c.slug !== 'foundations');
+    if (other)
+      expect(
+        (
+          await publicCourse(
+            other.slug,
+            () => null,
+            async () => true,
+          )
+        ).certificate,
+      ).toBeNull();
+  });
+
+  it('keeps the objectives of a lesson a visitor cannot open out of the outcomes, and the lesson in the syllabus', async () => {
+    const gated = listCurriculum({ path: 'foundations' })[1]!;
+    const own = new Set(getCurriculumItem(gated.slug)!.objectives);
+    const course = await publicCourse(
+      'foundations',
+      () => null,
+      async (slug) => slug !== gated.slug,
+    );
+    expect(course.syllabus.map((r) => r.slug)).toContain(gated.slug);
+    const others = new Set(
+      listCurriculum({ path: 'foundations' })
+        .filter((r) => r.slug !== gated.slug)
+        .flatMap((r) => getCurriculumItem(r.slug)!.objectives),
+    );
+    for (const objective of own) if (!others.has(objective)) expect(course.outcomes).not.toContain(objective);
   });
 });
