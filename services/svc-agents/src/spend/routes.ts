@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
+import { hasScope, type Principal } from '@intafaced/auth';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AgentError } from '../errors.js';
 import { UserSpendStore } from './store.js';
@@ -29,16 +30,6 @@ const limitView = z.object({
   period: z.enum(['day', 'week', 'month']),
 });
 
-const reservationView = z.object({
-  reservationKey: z.string(),
-  sessionId: z.string().uuid(),
-  assetId: z.string(),
-  amount: z.string(),
-  committedAmount: z.string().nullable(),
-  status: z.enum(['held', 'committed', 'released']),
-  replayed: z.boolean(),
-});
-
 function storeOf(sql: Sql | undefined): UserSpendStore {
   if (!sql) {
     throw new AgentError('Agents database is unset', 'agents.capability_unavailable', 'agents.error.capability_unavailable');
@@ -46,7 +37,19 @@ function storeOf(sql: Sql | undefined): UserSpendStore {
   return new UserSpendStore(sql);
 }
 
-/** User spend caps. The caller is the principal, never a user id in the body. */
+/**
+ * The person sets the cap. Other user doors in this service use `agents:read`,
+ * which a signed-in session already holds and which `agents:execute` does not
+ * imply. `identity:write` is that same session's own write. A delegated token
+ * (`kid` or `sub_account`) is not the person, even if it copied both scopes.
+ */
+function assertPersonSetsLimits(principal: Principal, service: string | null): void {
+  if (service || principal.kid || principal.sub_account || !hasScope(principal.scopes, 'identity:write')) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'A signed-in user session is required' });
+  }
+}
+
+/** User spend caps. The caller is the principal, never a user id in the body. Reserve, commit and release stay on the runtime. */
 export function spendRouter(sql: Sql | undefined) {
   return router({
     limits: router({
@@ -54,7 +57,7 @@ export function spendRouter(sql: Sql | undefined) {
         .output(z.object({ limits: limitView.nullable() }))
         .query(({ ctx }) => guard(async () => ({ limits: await storeOf(sql).get(ctx.principal.userId) }))),
 
-      set: scopedProcedure('agents:execute', { module: 'agents' })
+      set: scopedProcedure('agents:read', { module: 'agents' })
         .input(
           z.object({
             idempotencyKey: text,
@@ -66,49 +69,10 @@ export function spendRouter(sql: Sql | undefined) {
           }),
         )
         .output(z.object({ limits: limitView, replayed: z.boolean() }))
-        .mutation(({ ctx, input }) => guard(() => storeOf(sql).set({ userId: ctx.principal.userId, ...input }))),
-    }),
-
-    reserve: scopedProcedure('agents:execute', { module: 'agents' })
-      .input(
-        z.object({
-          reservationKey: text,
-          sessionId: text,
-          assetId: text,
-          amount: text,
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal, ctx.service);
+          return guard(() => storeOf(sql).set({ userId: ctx.principal.userId, ...input }));
         }),
-      )
-      .output(reservationView)
-      .mutation(({ ctx, input }) =>
-        guard(() =>
-          storeOf(sql).reserve({
-            userId: ctx.principal.userId,
-            sessionId: input.sessionId ?? '',
-            reservationKey: input.reservationKey ?? '',
-            assetId: input.assetId ?? '',
-            amount: input.amount ?? '',
-          }),
-        ),
-      ),
-
-    commit: scopedProcedure('agents:execute', { module: 'agents' })
-      .input(z.object({ reservationKey: text, amount: text }))
-      .output(reservationView)
-      .mutation(({ ctx, input }) =>
-        guard(() =>
-          storeOf(sql).commit({
-            userId: ctx.principal.userId,
-            reservationKey: input.reservationKey ?? '',
-            amount: input.amount ?? '',
-          }),
-        ),
-      ),
-
-    release: scopedProcedure('agents:execute', { module: 'agents' })
-      .input(z.object({ reservationKey: text }))
-      .output(reservationView)
-      .mutation(({ ctx, input }) =>
-        guard(() => storeOf(sql).release({ userId: ctx.principal.userId, reservationKey: input.reservationKey ?? '' })),
-      ),
+    }),
   });
 }

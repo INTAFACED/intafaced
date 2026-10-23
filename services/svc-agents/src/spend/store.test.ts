@@ -26,7 +26,7 @@ const OTHER_SESSION = '44444444-4444-4444-8444-444444444444';
 const SECRET = 'an-agents-spend-limit-test-secret';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
 
-function callerFor(scopes: string[]) {
+function callerFor(scopes: string[], extra: { kid?: string; sub_account?: string } = {}) {
   const principal = {
     sub: USER,
     userId: USER,
@@ -35,6 +35,8 @@ function callerFor(scopes: string[]) {
     tier: 'none',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
+    ...(extra.kid ? { kid: extra.kid } : {}),
+    ...(extra.sub_account ? { sub_account: extra.sub_account } : {}),
   } as Principal;
   const raw = encodePrincipal(principal);
   return edgeContext({
@@ -231,7 +233,7 @@ if (!available) {
       feeAssetId: 'IFC',
       sql,
     };
-    const caller = createAgentsRouter(deps).createCaller(callerFor(['agents:execute', 'agents:read']));
+    const caller = createAgentsRouter(deps).createCaller(callerFor(['agents:read', 'identity:write']));
     await expect(
       caller.spend.limits.set({ idempotencyKey: 'door', assetId: 'IFC', perCall: '', perSession: '1', perPeriod: '1', period: 'day' }),
     ).rejects.toMatchObject({
@@ -247,11 +249,51 @@ if (!available) {
       perPeriod: '1',
       period: 'day',
     });
-    const held = await caller.spend.reserve({ reservationKey: 'door-hold', sessionId: SESSION, assetId: 'IFC', amount: '1' });
-    expect(held.status).toBe('held');
-    expect(held.replayed).toBe(false);
-    const again = await caller.spend.reserve({ reservationKey: 'door-hold', sessionId: SESSION, assetId: 'IFC', amount: '1' });
-    expect(again.replayed).toBe(true);
+    expect(await caller.spend.limits.get()).toMatchObject({
+      limits: { perCall: '1', perSession: '1', perPeriod: '1', period: 'day', assetId: 'IFC' },
+    });
     expect(await store.get(OTHER)).toBeNull();
+  });
+
+  it('an agents:execute caller without the user session cannot set a limit, and there is no public release', async () => {
+    const deps = {
+      runtime: {} as AgentsRouterDeps['runtime'],
+      gateway: { routingTable: { routes: [] } } as unknown as AgentsRouterDeps['gateway'],
+      meter: {} as AgentsRouterDeps['meter'],
+      feeAssetId: 'IFC',
+      sql,
+    };
+    const router = createAgentsRouter(deps);
+    const person = router.createCaller(callerFor(['agents:read', 'identity:write']));
+    await person.spend.limits.set({
+      idempotencyKey: 'person-cap',
+      assetId: 'IFC',
+      perCall: '1',
+      perSession: '1',
+      perPeriod: '1',
+      period: 'day',
+    });
+    const raise = {
+      idempotencyKey: 'agent-raise',
+      assetId: 'IFC',
+      perCall: '9',
+      perSession: '9',
+      perPeriod: '9',
+      period: 'day' as const,
+    };
+    const executeOnly = router.createCaller(callerFor(['agents:execute']));
+    await expect(executeOnly.spend.limits.set(raise)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const withRead = router.createCaller(callerFor(['agents:execute', 'agents:read']));
+    await expect(withRead.spend.limits.set(raise)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const delegated = router.createCaller(
+      callerFor(['agents:read', 'identity:write', 'agents:execute'], { kid: '66666666-6666-4666-8666-666666666666' }),
+    );
+    await expect(delegated.spend.limits.set(raise)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await person.spend.limits.get()).toMatchObject({
+      limits: { perCall: '1', perSession: '1', perPeriod: '1', period: 'day', assetId: 'IFC' },
+    });
+    expect('release' in person.spend).toBe(false);
+    expect('reserve' in person.spend).toBe(false);
+    expect('commit' in person.spend).toBe(false);
   });
 }

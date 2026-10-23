@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
@@ -462,17 +463,18 @@ export class AgentRuntime {
     // 2c · User cap. The worst case is the price the route already declared.
     // A blank user limit refuses. This hold is not a ledger post.
     let reserved: Amount | null = null;
+    let reservationKey = input.requestId;
     if (this.spend) {
       try {
-        const held = await this.spend.reserve({
+        let held = await this.spend.reserve({
           userId: session.userId,
           sessionId: session.id,
-          reservationKey: input.requestId,
+          reservationKey,
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
         });
         // A committed hold is a metered replay. Metering-off must not invent
-        // agents.request_id_replay (D26-P1-A6) — the run continues.
+        // agents.request_id_replay (D26-P1-A6).
         if (held.status === 'committed' && shouldMeter) {
           if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
           throw new AgentError(
@@ -481,6 +483,21 @@ export class AgentRuntime {
             'agents.error.request_id_replay',
             { requestId: input.requestId },
           );
+        }
+        // A committed or in-flight row does not authorize another completion.
+        // Metering-off used to call the provider again on that row, with no new
+        // hold. Decide a new reservation against the committed total first.
+        // If it does not fit, reserve throws agents.spend_limit and the
+        // provider is not called.
+        if (held.replayed && (held.status === 'committed' || held.status === 'held')) {
+          reservationKey = randomUUID();
+          held = await this.spend.reserve({
+            userId: session.userId,
+            sessionId: session.id,
+            reservationKey,
+            assetId: this.feeAssetId,
+            amount: formatAmount(worstCaseCost),
+          });
         }
         reserved = parseAmount(held.amount);
       } catch (err) {
@@ -518,7 +535,7 @@ export class AgentRuntime {
       // reported counts, and there are none. A failed call cannot be billed,
       // and cannot be double-billed. Release the claim so the same request id
       // can be retried once the engine answers.
-      if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
+      if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey });
       if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       await this.appendFailure(session, {
         kind: 'completion',
@@ -547,19 +564,38 @@ export class AgentRuntime {
     // refuse the text. The session-ceiling path below finishes its hold
     // (it releases) before it refuses.
     const spend = this.spend;
+    const releaseHoldAndClaim = async (gate: NonNullable<typeof this.spend>, claim: boolean): Promise<void> => {
+      const steps: Array<Promise<unknown>> = [gate.release({ userId: session.userId, reservationKey })];
+      if (claim) steps.push(this.meter.releaseClaim(session.id, input.requestId));
+      const results = await Promise.allSettled(steps);
+      const failed = results.find((result) => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
+    };
     if (reserved !== null && spend && cost > reserved) {
       const heldAmount = reserved;
-      await transaction(
-        this.sql,
-        async (tx) => {
-          await spend.commitIn(tx, {
-            userId: session.userId,
-            reservationKey: input.requestId,
-            amount: formatAmount(heldAmount),
-          });
-        },
-        { isolation: 'read committed', maxAttempts: 5 },
-      );
+      const commitHeld = () =>
+        transaction(
+          this.sql,
+          async (tx) => {
+            await spend.commitIn(tx, {
+              userId: session.userId,
+              reservationKey,
+              amount: formatAmount(heldAmount),
+            });
+          },
+          { isolation: 'read committed', maxAttempts: 5 },
+        );
+      try {
+        await commitHeld();
+      } catch (first) {
+        try {
+          // The provider already ran. Retry the commit only.
+          await commitHeld();
+        } catch (again) {
+          await releaseHoldAndClaim(spend, claimed);
+          throw again instanceof Error ? again : first;
+        }
+      }
       if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       throw await this.appendRefusal(
         session,
@@ -627,7 +663,7 @@ export class AgentRuntime {
           // bill, not the cap.
           await this.spend.commitIn(tx, {
             userId: session.userId,
-            reservationKey: input.requestId,
+            reservationKey,
             amount: formatAmount(cost),
           });
         }
@@ -637,10 +673,10 @@ export class AgentRuntime {
       { isolation: 'read committed', maxAttempts: 5 },
     ).catch(async (err: unknown) => {
       if (reserved !== null && this.spend && !(err instanceof SessionSpendCeilingError)) {
-        await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
+        await this.spend.release({ userId: session.userId, reservationKey });
       }
       if (err instanceof SessionSpendCeilingError) {
-        if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey: input.requestId });
+        if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey });
         throw await this.appendRefusal(
           session,
           {
