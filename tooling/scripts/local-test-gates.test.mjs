@@ -37,6 +37,7 @@ import {
   chartDataClassProposal,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
+import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -264,6 +265,27 @@ assert.deepEqual(
   picked.map((m) => m.symbol),
   ['BTC/USDT'],
 );
+
+// TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker, and opened like any spot book.
+{
+  const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
+  assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
+  for (const l of TEST_SPOT_LISTINGS) {
+    assert.match(l.displayName, /TEST/);
+    assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
+    assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
+    assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+    assert.deepEqual(
+      openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
+      [l.symbol],
+    );
+  }
+  // The spot seed refuses production and any database that does not look local or test.
+  const local = 'postgres://u:p@127.0.0.1:15460/intafaced_local_test';
+  assert.equal(localTestDatabaseUrl(local, {}), local);
+  assert.throws(() => localTestDatabaseUrl(local, { NODE_ENV: 'production' }), /NODE_ENV is production/);
+  assert.throws(() => localTestDatabaseUrl('postgres://u:p@db.example:5432/intafaced', {}), /does not look local or test/);
+}
 
 // Tier planning: nobody with an approved full or institutional record is touched.
 const users = [{ id: 'u1' }, { id: 'u2' }, { id: 'u3' }, { id: 'u4' }];
