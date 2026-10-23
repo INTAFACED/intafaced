@@ -34,7 +34,14 @@ describe('DEX quote over a healthy indexer', () => {
     source.append([]);
     const indexer = new Indexer({ source, store, finalityDepth: 1, ingestEnabled: () => true, startHeight: 0 });
     await indexer.sync();
-    const router = createIndexerRouter({ store, indexer, chainId: 31337, finalityDepth: 1, ingestEnabled: () => true, chainSource: 'memory' });
+    const router = createIndexerRouter({
+      store,
+      indexer,
+      chainId: 31337,
+      finalityDepth: 1,
+      ingestEnabled: () => true,
+      chainSource: 'memory',
+    });
     const ctx = createEdgeContext({ secret: 'test-only-fixture-secret-32-bytes!', serviceName: 'svc-indexer' })({
       headers: { 'x-intafaced-region': 'DE' },
       id: 'fixture',
@@ -44,7 +51,14 @@ describe('DEX quote over a healthy indexer', () => {
       const data = String(url).includes('/status') ? await caller.status() : await caller.book({ market: 'IFC-USD', depth: 10 });
       return new Response(JSON.stringify({ result: { data } }), { status: 200, headers: { 'content-type': 'application/json' } });
     };
-    const venue = new IndexerQuoteVenue({ baseUrl: 'http://memory-fixture', timeoutMs: 2000, quoteTtlMs: 2000, feeBps: 0, settlementCost: 0n, fetch: fetcher });
+    const venue = new IndexerQuoteVenue({
+      baseUrl: 'http://memory-fixture',
+      timeoutMs: 2000,
+      quoteTtlMs: 2000,
+      feeBps: 0,
+      settlementCost: 0n,
+      fetch: fetcher,
+    });
 
     const depth = await venue.depth('IFC-USD', 10);
     expect(depth.asks.length).toBeGreaterThan(0);

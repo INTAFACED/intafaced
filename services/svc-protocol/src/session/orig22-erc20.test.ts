@@ -28,7 +28,14 @@ describe('session scope for ERC20 pool swaps', () => {
   it('refuses a swap whose output goes to someone other than the account', () => {
     const call = buildSwapExactIn(POOL, TOKEN, 1_000_000_000n, 0n, STRANGER);
     const spec = createSessionSpec(
-      { key: KEY, validAfter: 0, validUntil: NOW + 1000, spendLimitWei: '0', targets: [POOL], selectors: [call.data.slice(0, 10) as `0x${string}`] },
+      {
+        key: KEY,
+        validAfter: 0,
+        validUntil: NOW + 1000,
+        spendLimitWei: '0',
+        targets: [POOL],
+        selectors: [call.data.slice(0, 10) as `0x${string}`],
+      },
       { account: ACCOUNT, now: NOW },
     );
     const decision = evaluateSessionCall({ spec, account: ACCOUNT, target: POOL, value: 0n, data: call.data, spentWei: 0n, now: NOW });

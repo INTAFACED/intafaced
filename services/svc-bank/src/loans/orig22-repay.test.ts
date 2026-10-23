@@ -67,7 +67,14 @@ describe('loan repayment with a lost ledger acknowledgement', () => {
       minPrincipal: 0n,
       policy: DEFAULT_LIQUIDATION_POLICY,
     });
-    const { loan } = await loans.open({ loanId: randomUUID(), productId: product.id, userId: BORROWER, collateralAmount: amt('1'), principal: amt('5000'), now: NOW });
+    const { loan } = await loans.open({
+      loanId: randomUUID(),
+      productId: product.id,
+      userId: BORROWER,
+      collateralAmount: amt('1'),
+      principal: amt('5000'),
+      now: NOW,
+    });
     // Spare funds so a second collection would be executable if the service allowed it.
     await fund(ledger, BORROWER, 'USDT', '5000');
 
