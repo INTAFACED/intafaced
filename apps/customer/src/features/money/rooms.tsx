@@ -44,6 +44,8 @@ import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { linkedAccountsCopy } from './linked-accounts-copy';
+import { cashOutCopy } from './cash-out-copy';
+import { CashOut } from './CashOut';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -1369,6 +1371,15 @@ function LinkedAccountsRoom() {
     </BankPage>
   );
 }
+/** `/bank/ramps/cash-out`: cash out to a linked bank account, inside the Ramps room. */
+function CashOutRoom() {
+  const { t } = cashOutCopy.useCopy();
+  return (
+    <BankPage room="Ramps" title={t('title')} description={t('description')}>
+      <CashOut />
+    </BankPage>
+  );
+}
 function Analytics() {
   const depth = transferDepthCopy.useCopy();
   const held = useHoldings();
@@ -1795,6 +1806,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <AddMoneyRoom />;
     case '/bank/ramps/accounts':
       return <LinkedAccountsRoom />;
+    case '/bank/ramps/cash-out':
+      return <CashOutRoom />;
     case '/bank/analytics':
       return <Analytics />;
     case '/bank/business':
