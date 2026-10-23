@@ -77,6 +77,30 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'The book cannot be read right now',
     body: 'Raising leverage releases margin, and that needs a readable order book. Lowering leverage adds margin and still works.',
   },
+  'trade.ladder_unset': {
+    title: 'Margin tiers are not published',
+    body: 'The platform has not published the maintenance tiers for futures. Without them a position could not be closed when it runs out of margin, so nothing can be opened until they are.',
+    retryable: false,
+  },
+  'trade.calculator_invalid': {
+    title: 'Check the numbers',
+    body: 'Enter the size, entry price and leverage as plain positive numbers. The exit price is optional.',
+  },
+  'trade.margin_variant_unsupported': {
+    title: 'The calculator covers isolated linear contracts',
+    body: 'Inverse contracts and other margin modes are not offered, so the calculator does not work them out.',
+    retryable: false,
+  },
+  'trade.liquidation_price_between_tiers': {
+    title: 'No single liquidation price',
+    body: 'At this size the maintenance rate steps from one tier to the next right where the position would be closed, so no one price can be shown.',
+    retryable: false,
+  },
+  'trade.liquidation_price_no_price_above_zero': {
+    title: 'No liquidation price',
+    body: 'The margin covers the whole position, so no price above zero would close it.',
+    retryable: false,
+  },
   'trade.insufficient_margin': {
     title: 'Not enough free balance',
     body: 'The margin and fee for this are more than your free balance. Add funds, lower the size, or lower the leverage.',

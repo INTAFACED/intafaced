@@ -17,10 +17,16 @@ export interface FormKey {
   side: Side;
   size: string;
   leverage: string;
+  /** What the margin is posted from. Absent is cash; any other class is sent so the service can name its refusal. */
+  collateralClass?: string;
 }
 
 export const sameForm = (a: FormKey, b: FormKey): boolean =>
-  a.symbol === b.symbol && a.side === b.side && a.size === b.size && a.leverage === b.leverage;
+  a.symbol === b.symbol &&
+  a.side === b.side &&
+  a.size === b.size &&
+  a.leverage === b.leverage &&
+  (a.collateralClass ?? 'cash') === (b.collateralClass ?? 'cash');
 
 /** Contracts are offered only where one contract is a known positive amount of the base asset (linear, published size). */
 export function contractsAllowed(market: Pick<FuturesListing, 'linear' | 'contractSize'>): boolean {

@@ -11,7 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   InsufficientFundsError,
   MemoryLedger,
@@ -264,32 +264,35 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         taker_fee_bps: string;
         fee_charged: string;
         reduce_only: boolean;
+        status: string;
       }[]
     >`
       SELECT id, user_id, side, qty, limit_price, mark_price, leverage, applied_amount, released_amount,
-             band_high, maker_fee_bps::text, taker_fee_bps::text, fee_charged, reduce_only
+             band_high, maker_fee_bps::text, taker_fee_bps::text, fee_charged, reduce_only, status
         FROM trade.futures_orders WHERE market_id = ${MARKET}
     `;
     for (const o of orders) {
       const held = await bal(futuresOrderMarginAccount(o.user_id, USDT, o.id));
       // The hold an order locked is a function of its terms; nothing stores it as a figure. It is the margin part
-      // and the fee reserve at the rates the order kept (a reduce-only order locks neither).
-      const locked = o.reduce_only
-        ? 0n
-        : orderHoldAmount({
-            side: o.side,
-            qty: parseAmount(o.qty),
-            limit: parseAmount(o.limit_price),
-            mark: parseAmount(o.mark_price),
-            leverage: parseAmount(o.leverage),
-          }) +
-          orderFeeReserve({
-            side: o.side,
-            qty: parseAmount(o.qty),
-            limit: parseAmount(o.limit_price),
-            bandHigh: parseAmount(o.band_high),
-            rates: { makerBps: Number(o.maker_fee_bps), takerBps: Number(o.taker_fee_bps) },
-          });
+      // and the fee reserve at the rates the order kept (a reduce-only order locks neither, and a refused order was
+      // refused before its hold was posted: an unfunded hold or the owner's haircut).
+      const locked =
+        o.reduce_only || o.status === 'refused'
+          ? 0n
+          : orderHoldAmount({
+              side: o.side,
+              qty: parseAmount(o.qty),
+              limit: parseAmount(o.limit_price),
+              mark: parseAmount(o.mark_price),
+              leverage: parseAmount(o.leverage),
+            }) +
+            orderFeeReserve({
+              side: o.side,
+              qty: parseAmount(o.qty),
+              limit: parseAmount(o.limit_price),
+              bandHigh: parseAmount(o.band_high),
+              rates: { makerBps: Number(o.maker_fee_bps), takerBps: Number(o.taker_fee_bps) },
+            });
       expect(held, `hold of ${o.id} is what it locked less applied, fees paid and released`).toBe(
         locked - parseAmount(o.applied_amount) - parseAmount(o.fee_charged) - parseAmount(o.released_amount),
       );
@@ -1322,6 +1325,174 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       });
       expect(parseAmount(applied)).toBe(expected);
       await assertBooksAgree();
+    });
+  });
+
+  describe('collateral (D-margin-02): what an opening order is posted from, and the owner’s haircut', () => {
+    const saved: Record<string, string | undefined> = {};
+    const ENV = ['TRADE_COLLATERAL_HAIRCUT_BPS', 'TRADE_FUTURES_ENABLED', 'TRADE_FUTURES_JOBS_ENABLED'] as const;
+    beforeEach(() => {
+      for (const key of ENV) saved[key] = process.env[key];
+      process.env.TRADE_FUTURES_ENABLED = 'true';
+      process.env.TRADE_FUTURES_JOBS_ENABLED = 'true';
+      delete process.env.TRADE_COLLATERAL_HAIRCUT_BPS;
+    });
+    afterEach(() => {
+      for (const key of ENV) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    /** The production wiring: book orders through the position service, which supplies the haircut check. */
+    function positions(ledgerPort: LedgerClient = ledger): PositionService {
+      const marks = memoryMarkBook();
+      marks.set({ marketId: MARKET, symbol: SYMBOL, price: '100', quality: 'mid', asOfMs: NOW.getTime() });
+      return new PositionService(sql, ledgerPort, {
+        marks: marks.source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        accountAdmission: admission,
+        emailProof: { get: async () => 'accepted' } as never,
+        matchedOrders: {
+          matching: engine as unknown as MatchingClient,
+          enabled: true,
+          priceBand: A('0.05'),
+          lifecycleProof: async () => PROOF,
+          feeRates: async () => feeRates,
+        },
+      });
+    }
+
+    const ordersOf = (userId: string) =>
+      sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${userId} ORDER BY client_order_id
+      `;
+
+    it('a blank haircut refuses an opening order with trade.haircut_unset and holds nothing', async () => {
+      const svc = positions();
+      await expect(
+        svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'blank' })),
+      ).rejects.toMatchObject({ code: 'trade.haircut_unset' });
+      // The row records the refusal, as an unfunded hold does; nothing was held.
+      expect(await ordersOf(ALICE)).toEqual([{ client_order_id: 'blank', status: 'refused', refusal_code: 'trade.haircut_unset' }]);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      const figures = await svc.collateralFigures(ALICE, USDT);
+      expect(figures).toMatchObject({ free: A('1000'), haircutBps: null, credit: null, buyingPower: null });
+    });
+
+    it('the hold must fit inside posted cash less the haircut, counting what is already committed', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const svc = positions();
+      // 2 at 100, 10x: a hold of 20. Credit is 1000 less 10% = 900.
+      const first = await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'c1' }));
+      expect(first.holdAmount).toBe('20');
+      // Posted is still 1000 (980 free and 20 held), committed is 20, so 880 is left to hold.
+      expect(await svc.collateralFigures(ALICE, USDT)).toEqual({
+        free: A('980'),
+        posted: A('1000'),
+        committed: A('20'),
+        haircutBps: 1000,
+        credit: A('900'),
+        buyingPower: A('880'),
+      });
+      // A hold of 890 is past what is left: refused, nothing held, although 980 is free.
+      await expect(
+        svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('89'), clientOrderId: 'c2' })),
+      ).rejects.toMatchObject({ code: 'trade.haircut_credit_short' });
+      expect((await ordersOf(ALICE)).map((o) => [o.client_order_id, o.status, o.refusal_code])).toEqual([
+        ['c1', 'open', null],
+        ['c2', 'refused', 'trade.haircut_credit_short'],
+      ]);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('980'));
+      // A hold of exactly 880 fits.
+      const third = await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('88'), clientOrderId: 'c3' }));
+      expect(third.holdAmount).toBe('880');
+      expect((await svc.collateralFigures(ALICE, USDT)).buyingPower).toBe(0n);
+      await assertBooksAgree();
+    });
+
+    it('two opens placed together cannot both pass on credit that covers only one', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const svc = positions();
+      // Credit is 900. Each hold is 500 (50 at 100, 10x): either fits alone, both together do not.
+      const results = await Promise.allSettled(
+        ['p1', 'p2'].map((clientOrderId) =>
+          svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('50'), clientOrderId })),
+        ),
+      );
+      const refused = results.filter((r) => r.status === 'rejected');
+      expect(refused.length).toBeGreaterThanOrEqual(1);
+      for (const r of refused) expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'trade.haircut_credit_short' });
+      const figures = await svc.collateralFigures(ALICE, USDT);
+      expect(figures.committed <= figures.credit!).toBe(true);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('500') * BigInt(2 - refused.length));
+      await assertBooksAgree();
+    });
+
+    it('a ledger that cannot be read refuses with trade.collateral_unreadable (503), holds nothing, and leaves the order to retry', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '0';
+      const down = new Proxy(ledger, {
+        get(target, key) {
+          if (key === 'balance') return async () => Promise.reject(new Error('ledger read timed out'));
+          const value = Reflect.get(target, key) as unknown;
+          return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      await expect(
+        positions(down).placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'u1' })),
+      ).rejects.toMatchObject({ code: 'trade.collateral_unreadable', status: 503 });
+      expect(await ordersOf(ALICE)).toEqual([{ client_order_id: 'u1', status: 'pending', refusal_code: null }]);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      // With the ledger back, the same request resumes the order and holds it once.
+      const resumed = await positions().placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'u1' }),
+      );
+      expect(resumed.holdAmount).toBe('20');
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('980'));
+    });
+
+    it('a filled position counts its initial margin as committed and its pot as posted', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '0';
+      const svc = positions();
+      const buy = await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'f1' }));
+      const sell = await svc.placeMatchedOrder(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('2'), clientOrderId: 'f2' }));
+      await build().settleFill({
+        marketId: MARKET,
+        makerOrderId: buy.orderId,
+        takerOrderId: sell.orderId,
+        price: '100',
+        qty: '2',
+        sequence: 900,
+      });
+      expect(await svc.collateralFigures(ALICE, USDT)).toMatchObject({
+        free: A('980'),
+        posted: A('1000'),
+        committed: A('20'),
+        buyingPower: A('980'),
+      });
+    });
+
+    it('a non-cash class refuses an opening order on its code; omitted or cash is margin from cash', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '0';
+      const svc = positions();
+      for (const collateralClass of ['yield_bearing', 'staked', 'lending_idle', 'bonds']) {
+        await expect(
+          svc.placeMatchedOrder(
+            principal(ALICE),
+            order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: `k-${collateralClass}`, collateralClass }),
+          ),
+        ).rejects.toMatchObject({ code: 'trade.unsupported_collateral_class' });
+      }
+      // Refused before any row is written: the class is checked with the request's other fields.
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+      await svc.placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'k-cash', collateralClass: 'cash' }),
+      );
+      expect(await ordersOf(ALICE)).toHaveLength(1);
     });
   });
 });

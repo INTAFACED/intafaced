@@ -37,6 +37,7 @@ import { positionIdFor } from './ids.js';
 import {
   div,
   formatAmount,
+  futuresOrderMarginAccount,
   parseAmount,
   positionCollateralAccount,
   recipes,
@@ -71,13 +72,21 @@ import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-ma
 import { TradeError } from '../spot/types.js';
 import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
-import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
+import {
+  COLLATERAL_UNREADABLE,
+  HAIRCUT_CREDIT_SHORT,
+  HAIRCUT_UNSET,
+  collateralCredit,
+  decideOpenCredit,
+  readOwnerHaircutBps,
+  requireOwnerHaircutBps,
+} from './haircut-credit.js';
 import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
 import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
-import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { holdOf, MatchedFuturesOrders, type MatchedFillEvent, type OrderRow, type PlaceMatchedOrderInput } from './matched-orders.js';
 import type { FeeRates } from './matched-order-plan.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
@@ -444,12 +453,13 @@ export class PositionService {
       ...(deps.emailProof ? { emailProof: deps.emailProof } : {}),
       // An opening order takes on exposure the same way the at-mark open did, so it answers to the same two doors.
       assertOpeningAllowed: async (userId) => {
-        this.refuseIfFuturesExposureOff();
+        this.refuseNewPosition();
         if (deps.assertAdlDisclosureAcked) await deps.assertAdlDisclosureAcked(userId);
       },
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
       feeRates: matchedOrders?.feeRates ?? null,
+      assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
     });
   }
 
@@ -463,7 +473,7 @@ export class PositionService {
   /** The plane refusal an opening action would meet now, or null. The gated list shows it without throwing. */
   futuresExposureRefusal(): { code: string; message: string } | null {
     try {
-      this.refuseIfFuturesExposureOff();
+      this.refuseNewPosition();
       return null;
     } catch (err) {
       if (err instanceof FuturesError) return { code: err.code, message: err.message };
@@ -483,6 +493,108 @@ export class PositionService {
     if (off.length === 0) return;
     const verb = off.length === 1 ? 'is' : 'are';
     throw new FuturesError(`futures exposure cannot increase while ${off.join(' and ')} ${verb} off`, 'trade.futures_disabled', 403);
+  }
+
+  /**
+   * A new or growing position also needs the owner's maintenance ladder where one is wired: with none the
+   * liquidation tick refuses `trade.ladder_unset` and closes nothing, so the open would take on risk nothing can
+   * unwind. Adding margin to an open position is not an open and does not call this.
+   */
+  private refuseNewPosition(): void {
+    this.refuseIfFuturesExposureOff();
+    if (this.deps.ladder && !this.deps.ladder.policy) {
+      throw new FuturesError(
+        'the owner has not published the maintenance tiers (TRADE_FUTURES_LADDER_POLICY); no position opens until they do',
+        'trade.ladder_unset',
+        503,
+      );
+    }
+  }
+
+  /**
+   * What an account's cash in one settle asset backs right now, read from the ledger: its free balance, the pots of its
+   * open positions and the holds of its live futures orders. `committed` is what those positions require (their
+   * initial margin) plus what the orders hold. `haircutBps` is the owner's cut, or null while it is unset, and then
+   * `credit` and `buyingPower` are null too: nothing here guesses a haircut.
+   */
+  async collateralFigures(
+    userId: string,
+    asset: string,
+  ): Promise<{
+    free: Amount;
+    posted: Amount;
+    committed: Amount;
+    haircutBps: number | null;
+    credit: Amount | null;
+    buyingPower: Amount | null;
+  }> {
+    let haircutBps: number | null;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch {
+      haircutBps = null;
+    }
+    const positions = await this.sql<{ id: string; margin_initial: string }[]>`
+      SELECT id, margin_initial FROM trade.positions
+       WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
+    `;
+    const orders = await this.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+    `;
+    const balanceOf = async (account: Parameters<LedgerClient['balance']>[0]): Promise<Amount> =>
+      (await this.ledger.balance(account)).amount;
+    const [free, potRows, heldRows] = await Promise.all([
+      balanceOf(userAvailable(userId, asset)),
+      Promise.all(positions.map((row) => balanceOf(positionCollateralAccount(userId, asset, row.id)))),
+      Promise.all(orders.map((row) => balanceOf(futuresOrderMarginAccount(userId, asset, row.id)))),
+    ]);
+    let initial = 0n;
+    for (const row of positions) initial += parseAmount(String(row.margin_initial));
+    let pots = 0n;
+    for (const pot of potRows) if (pot > 0n) pots += pot;
+    let held = 0n;
+    let promised = 0n;
+    orders.forEach((row, n) => {
+      const inLedger = heldRows[n]! > 0n ? heldRows[n]! : 0n;
+      held += inLedger;
+      // A pending order has its row but not yet its hold: it commits the whole hold it is about to post (its cash is
+      // still in free), so a second open checked meanwhile sees it. Once posted the ledger's figure is the truth.
+      promised += row.status === 'pending' && inLedger < holdOf(row) ? holdOf(row) : inLedger;
+    });
+    const posted = (free + pots + held) as Amount;
+    const committed = (initial + promised) as Amount;
+    const credit = haircutBps === null ? null : collateralCredit(posted, haircutBps);
+    const buyingPower = credit === null ? null : ((credit > committed ? credit - committed : 0n) as Amount);
+    return { free, posted, committed, haircutBps, credit, buyingPower };
+  }
+
+  /**
+   * An opening order's hold answers to the owner's haircut like an at-mark open did: the account's posted cash, cut,
+   * must cover everything it has committed, the new order's hold included. Blank refuses `trade.haircut_unset`; short
+   * refuses `trade.haircut_credit_short`; a read that fails refuses `trade.collateral_unreadable` (503). Nothing is held.
+   */
+  private async assertMatchedCollateralCredit(input: { userId: string; asset: string }): Promise<void> {
+    let figures: Awaited<ReturnType<PositionService['collateralFigures']>>;
+    try {
+      figures = await this.collateralFigures(input.userId, input.asset);
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      // The service could not read the account, which says nothing about the owner's haircut: a 5xx, retried.
+      throw new FuturesError('collateral could not be read — refusing with no margin hold', COLLATERAL_UNREADABLE, 503);
+    }
+    if (figures.haircutBps === null) {
+      throw new FuturesError('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut', HAIRCUT_UNSET, 400);
+    }
+    // The same rule as the at-mark open: posted cash, cut, covers everything committed (this order's hold included).
+    const decision = decideOpenCredit({ postedCash: figures.posted, initialMargin: figures.committed, haircutBps: figures.haircutBps });
+    if (!decision.ok) {
+      throw new FuturesError(
+        'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
+        HAIRCUT_CREDIT_SHORT,
+        400,
+      );
+    }
   }
 
   /**
@@ -1273,7 +1385,7 @@ export class PositionService {
       });
     }
 
-    this.refuseIfFuturesExposureOff();
+    this.refuseNewPosition();
 
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);

@@ -974,6 +974,9 @@ function serviceDefs(secrets) {
         // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
         TRADE_FUTURES_MATCHING_ENABLED: 'true',
         TRADE_FUTURES_PRICE_BAND: '0.05',
+        // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
+        // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
+        TRADE_COLLATERAL_HAIRCUT_BPS: '0',
         TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
       }),
     },

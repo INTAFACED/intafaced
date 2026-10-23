@@ -137,6 +137,8 @@ import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import { liquidationPriceFor } from './futures/liquidation-price.js';
+import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
+import { registerCollateralRest } from './futures/collateral-rest.js';
 import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
@@ -885,6 +887,26 @@ registerPositionPreviewRest(app, {
       return null;
     }
   },
+});
+// The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
+// preview, and the same taker rate as the order path (`risk-calculator.ts`).
+registerRiskCalculatorRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  publishedLadder: () => futuresJobs.ladderGate.policy,
+  depthNotional: (input) => futuresJobs.ladderGate.depth.depthNotional(input),
+  leverageCap: maxLeverage,
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
+});
+// What counts as futures margin for the account, read the same way the opening order's haircut check reads it.
+registerCollateralRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  settleAssets: async () => (await trade.markets(500)).filter((m) => m.kind === 'futures').map((m) => m.quoteAsset),
+  figures: (userId, asset) => positions.collateralFigures(userId, asset),
 });
 registerGreeksWhatIfRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
