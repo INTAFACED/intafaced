@@ -82,6 +82,21 @@ node tooling/scripts/local-test-gates.mjs verify          # verifies those accou
 
 The first BTC/USDT trade, and so the first candle, follows within about a minute.
 
+### Chart history
+
+A wiped stack has no past trades, so a chart asking for 200 fifteen-minute bars has nothing to draw. To give it history, stop the market maker before `verify`, then write the history and start the maker again:
+
+```sh
+pnpm local:market stop                                   # after its accounts exist, before verify: nothing trades yet
+node tooling/scripts/local-test-gates.mjs verify
+node tooling/scripts/local-test-market.mjs history       # 210 bars of TEST trades per market, moved into the past
+pnpm local:market                                        # live quotes carry on from the last history price
+```
+
+`history` places real TEST trades now, through the same door and ledger as the market maker: a post-only maker order and an immediate-or-cancel taker order at the same TEST price, two trades per bar on the same price walk, with client ids starting `LTEST-TAPE-`. It then calls svc-trade's signed LOCAL TEST route, which moves those fills' times into the past, evenly inside 15-minute bars, the newest bar ending where the current bucket starts. Prices, amounts, fees, orders and ledger entries keep what they were. That gives 210 fifteen-minute bars, each with its own open and close, and about 53 hourly ones. It sends at most 14 orders a second, under Edge's local budget of 1200 a minute, so five markets take about five minutes. `--bars`, `--step-minutes`, `--trades-per-bar` and `--markets` change that.
+
+svc-trade has that route only with `TRADE_LOCAL_TEST_TAPE_RETIME=on`, which the stack sets, and refuses to start with it outside `APP_ENV` dev or test (`services/svc-trade/src/spot/local-test-tape.ts`). It refuses any market that already has a trade that is not a tape trade. So `history` skips every market with trades and says so. On a long-lived stack, wipe the state folder for history.
+
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
 
 ## Founder console

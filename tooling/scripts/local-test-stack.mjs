@@ -920,6 +920,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
         // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
         // integers; it does not compare orders against them. Test funds only.
+        // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
+        // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
+        TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
         TRADE_MAX_ORDER: '1000000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',

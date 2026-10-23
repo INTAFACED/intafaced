@@ -102,8 +102,12 @@ jobs:
       # A fresh stack trades only after the TEST gates open the markets and verify the market maker's two TEST accounts
       # (docs/LOCAL-TEST-STACK.md, "A fresh stack"). Matching reads its operator seats when it starts, so it restarts
       # after the founders enrolled. The market maker refuses to start on closed markets and creates its accounts when it
-      # starts, so `verify` runs after it.
-      - name: Open the TEST markets and start the TEST market maker
+      # starts, so `verify` runs after it. It stops again before `verify`, so no market trades before `history`: that
+      # writes the TEST tape history the chart journeys read (real TEST trades whose times svc-trade moves into the past,
+      # docs/LOCAL-TEST-STACK.md, "Chart history"), and it only writes on a market with no trades yet. It exits non-zero
+      # when any market comes up short, and that fails this step on purpose: chart journeys on a partial history would
+      # fail later for a reason the log no longer shows.
+      - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
@@ -113,7 +117,10 @@ jobs:
             grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
             sleep 2
           done
+          node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
+          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs
 
       - name: Wait for the first BTC/USDT trade
         run: |
