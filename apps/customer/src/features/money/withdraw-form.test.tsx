@@ -39,32 +39,81 @@ beforeEach(() => {
   };
 });
 
-describe('Withdraw leads with the whole form, and every way to send is off with its reason', () => {
-  it('shows asset, network, saved address, new address, amount, fee and review', () => {
+const WALLET = '0x52908400098527886E0F7030069857D2E4169EE7';
+const saved = (over: Partial<Destination> = {}): Destination => ({
+  destinationId: '22222222-2222-4222-8222-222222222222',
+  label: 'Cold wallet',
+  kind: 'crypto',
+  ref: WALLET,
+  addedAt: '2026-10-01T10:00:00Z',
+  coolingOffEndsAt: '2026-10-02T10:00:00Z',
+  coolingBlocker: null,
+  assetId: 'USDT',
+  network: 'ethereum',
+  state: 'active',
+  ...over,
+});
+
+describe('Withdraw leads with the whole form, read from the real catalogue, address book and balances', () => {
+  it('shows asset, the networks the asset list opens with its default chosen, saved address, amount, limit, fee and review', () => {
+    networks = {
+      status: 'ready',
+      data: [
+        {
+          assetId: 'USDT',
+          precision: 6,
+          networks: [
+            { networkId: 'ethereum', label: 'TEST Ethereum' },
+            { networkId: 'base', label: 'TEST Base' },
+          ],
+          defaultNetworkId: 'base',
+        },
+      ],
+    };
     const html = renderToStaticMarkup(<WithdrawForm />);
-    for (const label of ['Asset', 'Network', 'Saved address', 'Or enter a new address', 'Amount', 'Fee', 'Review'])
+    for (const label of ['Asset', 'Network', 'Saved address', 'Or enter a new address', 'Amount', 'Your limit', 'Fee', 'Review'])
       expect(html, label).toContain(label);
     expect(html).toMatch(/<option value="USDT"[^>]*>USDT<\/option>/);
     expect(html).toMatch(/<option value="BTC"[^>]*>BTC<\/option>/);
+    expect(html).toMatch(/<option value="base" selected="">TEST Base<\/option>/);
+    expect(html).toMatch(/<option value="ethereum">TEST Ethereum<\/option>/);
   });
   it('states the available balance exactly as the real read gave it', () => {
     const html = renderToStaticMarkup(<WithdrawForm />);
     expect(html).toContain('Available: 569.015372 USDT');
   });
   it('never invents a fee, a network or a saved address', () => {
+    networks = { status: 'ready', data: [] };
     const html = renderToStaticMarkup(<WithdrawForm />);
-    expect(html).toContain('Fee shown before you confirm');
-    expect(html).toContain('No networks available');
-    expect(html).toContain('No saved addresses yet');
+    expect(html).toContain('Get the fee to see it');
+    expect(html).toContain('No network is open for this asset');
+    expect(html).toContain('No saved address for this asset and network');
     expect(html).toMatch(/<select[^>]*disabled[^>]*aria-describedby="withdraw-network-why"/);
     expect(html).toMatch(/<select[^>]*disabled[^>]*aria-describedby="withdraw-saved-why"/);
   });
-  it('turns the review button off and says why beside it', () => {
+  it('offers only saved wallets for this asset and network, and only a ready one can be chosen', () => {
+    book = {
+      status: 'ready',
+      data: [
+        saved(),
+        saved({ destinationId: '33333333-3333-4333-8333-333333333333', label: 'New wallet', coolingOffEndsAt: '2999-01-01T00:00:00Z' }),
+        saved({ destinationId: '44444444-4444-4444-8444-444444444444', label: 'Base wallet', network: 'base' }),
+        saved({ destinationId: '55555555-5555-4555-8555-555555555555', label: 'Gone', state: 'archived' }),
+      ],
+    };
+    const html = renderToStaticMarkup(<WithdrawForm />);
+    expect(html).toMatch(/<option value="22222222-[^"]*">Cold wallet · 0x5290…9EE7 · Ready to use<\/option>/);
+    expect(html).toMatch(/<option value="33333333-[^"]*" disabled="">New wallet · 0x5290…9EE7 · Cooling off<\/option>/);
+    expect(html).not.toContain('Base wallet');
+    expect(html).not.toContain('Gone');
+  });
+  it('keeps confirm off with its reason until a ready address, an amount and a fee are in hand', () => {
     const html = renderToStaticMarkup(<WithdrawForm />);
     off(html, 'Review withdrawal');
-    expect(html).toContain('isn’t connected');
-    expect(html).toContain('Sending money out of INTAFACED');
+    expect(html).toContain('get the fee first');
+    off(html, 'Get the fee');
     expect(html.toLowerCase()).not.toContain('coming soon');
+    expect(html).not.toContain('isn’t connected');
   });
   it('still shows every field while balances load, and says when there is nothing to send', () => {
     resource = { status: 'loading' };

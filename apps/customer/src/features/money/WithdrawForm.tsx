@@ -1,22 +1,56 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
+import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session/session';
+import { date, useBankRead } from './components';
+import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
 import { INTERNAL_RAIL, useWithdrawDestination, type DestinationRead } from './withdraw-destination';
-import { checkAmount } from './withdraw-model';
+import { checkAddress, checkAmount, coolingOf, shortenAddress, shownState } from './withdraw-model';
+import {
+  above,
+  createWithdrawSend,
+  quoteCovers,
+  sendRefusalKey,
+  type WithdrawLimits,
+  type WithdrawQuote,
+  type WithdrawSend,
+} from './withdraw-send';
 import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
 import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import './bank-depth.css';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
+const STATE_WORDS = {
+  pending: 'aStatePending',
+  cooling: 'aStateCooling',
+  active: 'aStateActive',
+  blocked: 'aStateBlocked',
+  archived: 'aStateArchived',
+} as const;
+const newRef = () => crypto.randomUUID();
 
 type Copy = ReturnType<typeof withdrawalCopy.useCopy>['t'];
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+/** The answer to a send to an outside wallet: recorded, refused by name with nothing held, or not known. */
+type Outcome =
+  { kind: 'sent'; record: WithdrawalRecord } | { kind: 'refused'; failure: Failed; asset: string } | { kind: 'unknown'; failure: Failed };
+
+/**
+ * Whether a failed send is a definite "no" from svc-pay. A lost answer, a gateway error or an answer that could not be
+ * read may follow a withdrawal svc-pay recorded, so it is never shown as "nothing is held".
+ */
+const definite = (failure: Failed) =>
+  failure.status !== undefined && failure.status < 500 && failure.reason !== 'uncertain' && failure.reason !== 'invalid_response';
+
+/** A saved wallet can take money once the bank calls it active and its cooling-off has ended. */
+const ready = (row: Destination, now: number) => shownState(row.state ?? 'pending', coolingOf(row, now).state) === 'active';
 
 /** A send inside INTAFACED being confirmed: the terms asked under its client reference, and whether an ask went unanswered. */
 interface OpenSend {
@@ -83,63 +117,146 @@ function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
 }
 
 /**
- * The whole "send money out" form, shown first on `/uc/withdraw`: asset, network, where to, amount against the real
- * available balance, the fee line, and a review. Sending to a wallet, card or bank outside INTAFACED is not connected, so
- * for those the review button is off and says so beside it. An address that belongs to another INTAFACED account
- * (W-withdraw-14) is the one send that works: the form says it settles inside at once with no fee, and after a fresh
- * confirmation svc-pay settles it as one transfer. Its client reference and terms are kept while the answer is unknown, in this
- * tab too, so a reload or confirming again finishes the same withdrawal and never sends twice; the fields stay locked until
- * svc-pay answers. The choices are real (the customer's own balances); no network,
- * saved address or fee is invented.
+ * The whole "send money out" form, shown first on `/uc/withdraw` (J-wallet-05, J-wallet-07). The person picks an asset they
+ * hold and an amount, judged against their real available balance and the limit line svc-pay reads for their account level.
+ *
+ * - To an outside wallet: a network the asset list opens for the asset, and one of their saved addresses on it once its
+ *   cooling-off has ended. "Get the fee" stores a quote and shows its fee, what arrives, what leaves the balance and when it
+ *   expires. Confirming asks for a fresh step-up and sends once, under a reference fixed when the confirmation opened and
+ *   kept while an answer is unknown. A refusal says why in plain words and that nothing is held, with the balance read again.
+ * - To another INTAFACED account's address (W-withdraw-14), typed in: it settles inside at once with no fee. Its client
+ *   reference and terms are kept while the answer is unknown, in this tab too, so a reload or confirming again finishes the
+ *   same withdrawal and never sends twice; the fields stay locked until svc-pay answers.
+ *
+ * Nothing here invents a fee, a limit, a network or a saved address: a blank one refuses in words.
  */
 export function WithdrawForm() {
   const { t } = withdrawalCopy.useCopy();
   const { hideBalances } = usePreferences();
   const { api, userId } = useSession();
   const held = useHoldings();
+  const networks = useBankRead('ramps.destinations.networks', undefined);
+  const book = useBankRead('ramps.destinations.list', undefined);
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  // The withdrawal being sent: its terms and its client reference. Kept until svc-pay gives a final answer, so a send whose
-  // answer was lost is finished by confirming again with the same reference and the same terms.
+  // The send inside INTAFACED being confirmed: its terms and its client reference. Kept until svc-pay gives a final answer,
+  // so a send whose answer was lost is finished by confirming again with the same reference and the same terms.
   const [open, setOpenState] = useState<OpenSend | null>(() => storedOpen(userId));
   const setOpen = (next: OpenSend | null) => {
     setOpenState(next);
     keepOpen(userId, next);
   };
   const [picked, setPicked] = useState(() => open?.assetId ?? '');
+  const [pickedNetwork, setPickedNetwork] = useState('');
+  const [savedId, setSavedId] = useState('');
   const [amount, setAmount] = useState(() => open?.amount ?? '');
   const [address, setAddress] = useState(() => open?.ref ?? '');
+  const [quote, setQuote] = useState<
+    { status: 'idle' } | { status: 'busy' } | { status: 'ready'; quote: WithdrawQuote } | { status: 'failed'; failure: Failed }
+  >({ status: 'idle' });
+  const [confirmingInside, setConfirmingInside] = useState(false);
+  const [confirmingOut, setConfirmingOut] = useState<WithdrawSend | null>(null);
+  const [sentInside, setSentInside] = useState<WithdrawalRecord | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const quoting = useRef(false);
+  // One reference per send to an outside wallet: kept while the terms stay the same and the last answer was not definite,
+  // so a retry after a lost answer resumes that withdrawal in svc-pay instead of opening a second one.
+  const sendRef = useRef<{ terms: string; ref: string } | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  // The form looks at the clock again the moment the quote in hand expires, so confirm goes off on time.
+  useEffect(() => {
+    if (quote.status !== 'ready') return;
+    const wait = Date.parse(quote.quote.expiresAt) - Date.now();
+    if (!(wait > 0)) return;
+    const timer = setTimeout(() => setNow(Date.now()), wait + 50);
+    return () => clearTimeout(timer);
+  }, [quote]);
+
   const asset = assets.some((entry) => entry.assetId === picked) ? picked : (assets[0]?.assetId ?? '');
   const available = assets.find((entry) => entry.assetId === asset)?.available ?? null;
+  const catalogue = networks.resource.status === 'ready' ? networks.resource.data.find((entry) => entry.assetId === asset) : undefined;
+  const offered = catalogue?.networks ?? [];
+  const network = offered.some((entry) => entry.networkId === pickedNetwork)
+    ? pickedNetwork
+    : (offered.find((entry) => entry.networkId === catalogue?.defaultNetworkId)?.networkId ?? offered[0]?.networkId ?? '');
+  const networkLabel = offered.find((entry) => entry.networkId === network)?.label ?? '';
+  const saved =
+    book.resource.status === 'ready'
+      ? book.resource.data.filter(
+          (row) => row.kind === 'crypto' && row.assetId === asset && row.network === network && row.state !== 'archived',
+        )
+      : [];
+  const chosen = saved.find((row) => row.destinationId === savedId && ready(row, now)) ?? null;
+  const limits = useResource(
+    async (signal): Promise<ApiResult<WithdrawLimits>> =>
+      asset ? createWithdrawSend(api).limits(asset, signal) : { ok: false, reason: 'not_supported', message: '' },
+    `withdraw-limits:${asset}:${outcome || sentInside ? 'after' : 'before'}`,
+  );
+  const limit = limits.resource.status === 'ready' ? limits.resource.data : null;
+
   const check = checkAmount(amount, available);
+  const overLimit = check === 'ok' && limit !== null && above(amount, limit.maxNow);
   // While balances load there is nothing to say yet; once they fail or come back empty the amount cannot be judged.
   const problem =
     check in AMOUNT_ERROR && !(check === 'unknown' && held.resource.status === 'loading')
       ? t(AMOUNT_ERROR[check as keyof typeof AMOUNT_ERROR])
-      : undefined;
+      : overLimit
+        ? t('fOverLimit', { amount: displayAmount(limit?.maxNow), asset })
+        : undefined;
   const shown = (value: string) => (hideBalances ? '••••' : displayAmount(value));
+  const words = (failure: Failed) => {
+    const key = sendRefusalKey(failure.code);
+    return key ? t(key) : failure.message;
+  };
   const notChosen = t('rNotChosen');
+
+  // Where the typed address leads. Another INTAFACED account's address takes the send inside; any other address is only
+  // checked here, because money goes out only to a saved address.
   const place = useWithdrawDestination(address);
   const inside = place.state === 'known' && place.kind === 'internal';
-  const [confirming, setConfirming] = useState(false);
-  const [sent, setSent] = useState<WithdrawalRecord | null>(null);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  // An unanswered send locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
+  // An unanswered send inside locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
   const resuming = open?.unanswered === true;
-  const canSend = resuming || (inside && check === 'ok' && Boolean(asset));
+  const insideNow = inside || resuming;
+  const canSendInside = resuming || (inside && check === 'ok' && !overLimit && Boolean(asset));
+  const typedCheck = address.trim() ? checkAddress(address.trim()) : 'empty';
+  const typedSaved =
+    typedCheck === 'ok' && !insideNow ? saved.find((row) => row.ref.toLowerCase() === address.trim().toLowerCase()) : undefined;
 
-  function startSend() {
-    if (!canSend) return;
+  const terms = { assetId: asset, networkId: network, amount };
+  const current = quote.status === 'ready' && quoteCovers(quote.quote, terms, now) ? quote.quote : null;
+  const debitTooMuch = current !== null && available !== null && above(current.totalDebit, available);
+  const canQuote = !insideNow && check === 'ok' && !overLimit && Boolean(asset && network) && quote.status !== 'busy';
+  const canSendOut =
+    !insideNow && chosen !== null && current !== null && !debitTooMuch && check === 'ok' && !overLimit && limit !== null;
+
+  /** Any change to what would be sent drops the quote in hand, so a fee is never shown for other terms. */
+  const change = (apply: () => void) => {
+    apply();
+    setQuote({ status: 'idle' });
+    setOutcome(null);
     setRefusal(null);
-    setSent(null);
+  };
+
+  function startInside() {
+    if (!canSendInside) return;
+    setRefusal(null);
+    setSentInside(null);
     if (!resuming)
       setOpen({
         assetId: asset,
         amount: amount.trim(),
         ref: address.trim(),
-        clientRef: `internal-${crypto.randomUUID()}`,
+        clientRef: `internal-${newRef()}`,
         unanswered: false,
       });
-    setConfirming(true);
+    setConfirmingInside(true);
   }
 
   async function sendInside(token: string, send: OpenSend) {
@@ -157,14 +274,14 @@ export function WithdrawForm() {
       { bearer: token },
     );
     if (answer.ok) {
-      setSent(answer.data);
+      setSentInside(answer.data);
       setOpen(null);
       held.reload();
       return answer;
     }
     // svc-pay's own code, from the error data or the front of its message (a guard refusal carries it there).
     const payCode = [answer.code, answer.message].map((v) => /^pay\.[a-z0-9_.]+/.exec(v ?? '')?.[0]).find(Boolean);
-    const words =
+    const said =
       payCode === 'pay.withdrawal_self_send'
         ? t('dSelf')
         : payCode === 'pay.guard_screening_unavailable'
@@ -175,16 +292,58 @@ export function WithdrawForm() {
     // A named refusal of a first ask is final: nothing was claimed, the dialog closes and the form says why. A new send is a
     // new one. After an ask whose answer was lost, the earlier send may still have landed, so the reference is kept, unless
     // svc-bank itself answered that the transfer was refused (it checks its book first, so nothing moved).
-    const final = words && payCode !== 'pay.rail_outcome_unknown' && (!send.unanswered || payCode === 'pay.internal_settlement_refused');
+    const final = said && payCode !== 'pay.rail_outcome_unknown' && (!send.unanswered || payCode === 'pay.internal_settlement_refused');
     if (final) {
-      setRefusal(words);
+      setRefusal(said);
       setOpen(null);
       return { ok: true as const, data: null };
     }
     // No answer, or svc-pay does not know yet: the send may have happened. Keep the reference so confirming again finishes it.
     setOpen({ ...send, unanswered: true });
-    return { ...answer, message: words && payCode !== 'pay.rail_outcome_unknown' ? `${words} ${t('sUnknown')}` : t('sUnknown') };
+    return { ...answer, message: said && payCode !== 'pay.rail_outcome_unknown' ? `${said} ${t('sUnknown')}` : t('sUnknown') };
   }
+
+  /** Opens the confirmation for exactly these terms, unless the quote expired since the page last looked. */
+  function reviewOut() {
+    if (!chosen || !current) return;
+    if (!quoteCovers(current, terms, Date.now())) {
+      setNow(Date.now());
+      return;
+    }
+    const key = JSON.stringify([asset, network, chosen.destinationId, amount.trim()]);
+    if (sendRef.current?.terms !== key) sendRef.current = { terms: key, ref: `withdraw:${newRef()}` };
+    setConfirmingOut({ assetId: asset, networkId: network, address: chosen.ref, amount: amount.trim(), clientRef: sendRef.current.ref });
+  }
+
+  async function getQuote() {
+    if (!canQuote || quoting.current) return;
+    quoting.current = true;
+    setQuote({ status: 'busy' });
+    const answer = await createWithdrawSend(api).quote({ quoteRef: `withdraw-quote:${newRef()}`, ...terms, amount: amount.trim() });
+    quoting.current = false;
+    if (!alive.current) return;
+    setNow(Date.now());
+    setQuote(answer.ok ? { status: 'ready', quote: answer.data } : { status: 'failed', failure: answer });
+  }
+
+  async function sendOut(input: WithdrawSend, token: string): Promise<ApiResult<unknown>> {
+    const answer = await createWithdrawSend(api).send(input, token);
+    if (!alive.current) return { ok: true, data: null };
+    // The answer is shown on the page, with the balance as the ledger reads it now.
+    held.reload();
+    if (answer.ok) {
+      sendRef.current = null;
+      setOutcome({ kind: 'sent', record: answer.data });
+    } else if (definite(answer)) {
+      sendRef.current = null;
+      setOutcome({ kind: 'refused', failure: answer, asset: input.assetId });
+    } else {
+      setOutcome({ kind: 'unknown', failure: answer });
+    }
+    setQuote({ status: 'idle' });
+    return { ok: true, data: null };
+  }
+
   return (
     <div className="bd-stack" data-testid="withdraw-form">
       <DepthPanel title={t('formTitle')} lead={t('formLead')}>
@@ -200,7 +359,11 @@ export function WithdrawForm() {
           ) : (
             <label className="field">
               <span>{t('fAsset')}</span>
-              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0 || resuming}>
+              <select
+                value={asset}
+                onChange={(event) => change(() => setPicked(event.target.value))}
+                disabled={assets.length === 0 || resuming}
+              >
                 {assets.length === 0 && <option value="">—</option>}
                 {assets.map((entry) => (
                   <option key={entry.assetId} value={entry.assetId}>
@@ -211,43 +374,90 @@ export function WithdrawForm() {
               <small>{assets.length === 0 ? t('fNoAssets') : t('fAssetHint')}</small>
             </label>
           )}
-          <label className="field">
-            <span>{t('fNetwork')}</span>
-            <select disabled aria-describedby="withdraw-network-why">
-              <option>{t('fNetworkNone')}</option>
-            </select>
-            <small id="withdraw-network-why">{t('fNetworkWhy')}</small>
-          </label>
+          {networks.resource.status === 'failed' ? (
+            <Failure result={networks.resource.failure} retry={networks.reload} />
+          ) : (
+            <label className="field">
+              <span>{t('fNetwork')}</span>
+              <select
+                value={network}
+                onChange={(event) => change(() => setPickedNetwork(event.target.value))}
+                disabled={offered.length === 0 || insideNow}
+                aria-describedby="withdraw-network-why"
+              >
+                {offered.length === 0 && <option value="">{t('fNetworkNone')}</option>}
+                {offered.map((entry) => (
+                  <option key={entry.networkId} value={entry.networkId}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+              <small id="withdraw-network-why">{t('fNetworkWhy')}</small>
+            </label>
+          )}
           <fieldset className="bd-stack">
             <legend className="bd-subhead">{t('fWhere')}</legend>
-            <label className="field">
-              <span>{t('fSaved')}</span>
-              <select disabled aria-describedby="withdraw-saved-why">
-                <option>{t('fSavedNone')}</option>
-              </select>
-              <small id="withdraw-saved-why">
-                {t('fSavedWhy')}{' '}
-                <a className="text-link" href="/uc/withdraw/address">
-                  {t('fManage')}
-                </a>
-              </small>
-            </label>
+            {book.resource.status === 'failed' ? (
+              <Failure result={book.resource.failure} retry={book.reload} />
+            ) : (
+              <label className="field">
+                <span>{t('fSaved')}</span>
+                <select
+                  value={chosen?.destinationId ?? ''}
+                  onChange={(event) => change(() => setSavedId(event.target.value))}
+                  disabled={saved.length === 0 || insideNow}
+                  aria-describedby="withdraw-saved-why"
+                >
+                  <option value="">{saved.length === 0 ? t('fSavedNone') : t('fSavedPick')}</option>
+                  {saved.map((row) => {
+                    const state = shownState(row.state ?? 'pending', coolingOf(row, now).state);
+                    return (
+                      <option key={row.destinationId} value={row.destinationId} disabled={state !== 'active'}>
+                        {`${row.label ?? t('aNoLabel')} · ${shortenAddress(row.ref)} · ${t(STATE_WORDS[state])}`}
+                      </option>
+                    );
+                  })}
+                </select>
+                <small id="withdraw-saved-why">
+                  {t('fSavedWhy')}{' '}
+                  <a className="text-link" href="/uc/withdraw/address">
+                    {t('fManage')}
+                  </a>
+                </small>
+              </label>
+            )}
             <label className="field">
               <span>{t('fNew')}</span>
               <input
                 value={address}
-                onChange={(event) => {
-                  setAddress(event.target.value);
-                  setRefusal(null);
-                }}
+                onChange={(event) => change(() => setAddress(event.target.value))}
                 readOnly={resuming}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
+                aria-invalid={typedCheck === 'invalid' && place.state === 'known' && place.kind === 'external'}
                 aria-describedby="withdraw-new-hint"
               />
-              <small id="withdraw-new-hint">{t('fNewHint')}</small>
+              <small
+                id="withdraw-new-hint"
+                className={typedCheck === 'invalid' && place.state === 'known' && place.kind === 'external' ? 'error-text' : ''}
+              >
+                {insideNow || place.state !== 'known' || place.kind !== 'external'
+                  ? t('fNewHint')
+                  : typedCheck === 'invalid'
+                    ? t('fNewBad')
+                    : typedSaved
+                      ? t('fNewSaved', { label: typedSaved.label ?? shortenAddress(typedSaved.ref) })
+                      : t('fNewNotSaved')}
+              </small>
             </label>
+            {typedSaved && ready(typedSaved, now) && typedSaved.destinationId !== chosen?.destinationId && (
+              <div>
+                <button type="button" className="bd-link" onClick={() => change(() => setSavedId(typedSaved.destinationId))}>
+                  {t('fSavedPick')}
+                </button>
+              </div>
+            )}
             <DestinationNote place={place} t={t} />
           </fieldset>
           <label className="field">
@@ -255,7 +465,7 @@ export function WithdrawForm() {
             <input
               inputMode="decimal"
               value={amount}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => change(() => setAmount(event.target.value))}
               readOnly={resuming}
               autoComplete="off"
               aria-invalid={Boolean(problem)}
@@ -268,14 +478,59 @@ export function WithdrawForm() {
           {asset && <LockedRewards asset={asset} hidden={hideBalances} shown={shown} />}
           {available !== null && !hideBalances && !resuming && (
             <div>
-              <button type="button" className="bd-link" onClick={() => setAmount(available)}>
+              <button type="button" className="bd-link" onClick={() => change(() => setAmount(available))}>
                 {t('fMax')}
               </button>
             </div>
           )}
-          <dl className="bd-facts">
-            <Fact label={t('fFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
-          </dl>
+          <div className="bd-stack" data-testid="withdraw-limit">
+            <strong>{t('lTitle')}</strong>
+            {!asset ? null : limits.resource.status === 'loading' ? (
+              <Loading />
+            ) : limits.resource.status === 'failed' ? (
+              <p className="failure" role="status">
+                {words(limits.resource.failure)}
+              </p>
+            ) : (
+              <p>
+                {t('lLine', {
+                  max: displayAmount(limits.resource.data.maxNow),
+                  asset,
+                  perTx: displayAmount(limits.resource.data.perTx),
+                  left: displayAmount(limits.resource.data.remaining.rolling24h),
+                  rolling: displayAmount(limits.resource.data.rolling24h),
+                })}
+              </p>
+            )}
+          </div>
+          <div className="bd-stack" data-testid="withdraw-fee">
+            <dl className="bd-facts">
+              <Fact label={t('fFee')}>
+                {insideNow ? (
+                  t('rNoFee')
+                ) : current ? (
+                  <span className="numeric" lang="und">
+                    {displayAmount(current.feeTotal)} {current.assetId}
+                  </span>
+                ) : (
+                  t('fFeeValue')
+                )}
+              </Fact>
+            </dl>
+            {quote.status === 'failed' && (
+              <p className="failure" role="status">
+                {words(quote.failure)}
+              </p>
+            )}
+            {quote.status === 'ready' && !current && <p role="status">{t('qExpired')}</p>}
+            {!insideNow && (
+              <div>
+                <Button variant="secondary" disabled={!canQuote} onClick={() => void getQuote()}>
+                  {quote.status === 'busy' ? t('qGetting') : t('qGet')}
+                </Button>
+              </div>
+            )}
+          </div>
         </form>
       </DepthPanel>
       <DepthPanel title={t('fReviewTitle')} lead={t('fReviewLead')}>
@@ -289,19 +544,46 @@ export function WithdrawForm() {
               notChosen
             )}
           </Fact>
-          <Fact label={t('rNetwork')}>{inside || resuming ? t('rInside') : notChosen}</Fact>
+          <Fact label={t('rNetwork')}>{insideNow ? t('rInside') : networkLabel || notChosen}</Fact>
           <Fact label={t('rTo')}>
-            {address.trim() ? (
+            {insideNow && address.trim() ? (
               <span lang="und" data-withdrawal-private>
                 {address.trim()}
+              </span>
+            ) : !insideNow && chosen ? (
+              <span lang="und" data-withdrawal-private>
+                {chosen.label ? `${chosen.label} · ` : ''}
+                {chosen.ref}
               </span>
             ) : (
               notChosen
             )}
           </Fact>
-          <Fact label={t('rFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
+          {insideNow ? (
+            <Fact label={t('rFee')}>{t('rNoFee')}</Fact>
+          ) : (
+            <>
+              <Fact label={t('qFee')}>{current ? `${displayAmount(current.feeTotal)} ${current.assetId}` : t('fFeeValue')}</Fact>
+              {current && (
+                <>
+                  <Fact label={t('qNet')}>{`${shown(current.netAmount)} ${current.assetId}`}</Fact>
+                  <Fact label={t('qTotal')}>{`${shown(current.totalDebit)} ${current.assetId}`}</Fact>
+                </>
+              )}
+            </>
+          )}
         </dl>
-        {canSend ? (
+        {!insideNow && current && (
+          <p className="money-caption">
+            {current.feeMode === 'on_top' ? t('qOnTop') : t('qDeducted')} {t('qExpires', { time: date(current.expiresAt) })}
+          </p>
+        )}
+        {!insideNow && debitTooMuch && (
+          <p className="error-text" role="status">
+            {t('fTotalTooMuch')}
+          </p>
+        )}
+        {canSendInside ? (
           <div className="bd-stack">
             {resuming && (
               <p className="money-caption" role="status">
@@ -309,10 +591,16 @@ export function WithdrawForm() {
               </p>
             )}
             <div className="actions">
-              <Button variant="primary" onClick={startSend}>
+              <Button variant="primary" onClick={startInside}>
                 {resuming ? t('sFinish') : t('sSend')}
               </Button>
             </div>
+          </div>
+        ) : canSendOut ? (
+          <div className="actions">
+            <Button variant="primary" onClick={reviewOut}>
+              {t('xConfirm')}
+            </Button>
           </div>
         ) : (
           <DisabledAction variant="primary" label={inside ? t('sSend') : t('fReview')} reason={inside ? t('sNeedAmount') : t('fReason')} />
@@ -322,22 +610,66 @@ export function WithdrawForm() {
             {refusal}
           </p>
         )}
-        {sent && (
-          <div className="bd-address" role="status" data-testid="withdraw-outcome" data-status={sent.status}>
+        {sentInside && (
+          <div className="bd-address" role="status" data-testid="withdraw-outcome" data-status={sentInside.status}>
             <strong>{t('sDoneTitle')}</strong>
-            <p>{t('sDone', { amount: shown(sent.amount), asset: sent.assetId })}</p>
-            <a className="text-link" href={`/uc/withdraw?withdrawalId=${sent.id}`}>
+            <p>{t('sDone', { amount: shown(sentInside.amount), asset: sentInside.assetId })}</p>
+            <a className="text-link" href={`/uc/withdraw?withdrawalId=${sentInside.id}`}>
               {t('sOpen')}
             </a>
           </div>
         )}
+        {outcome && (
+          <div
+            className={outcome.kind === 'sent' ? 'bd-address' : 'failure'}
+            role="status"
+            data-testid="withdraw-outcome"
+            data-status={outcome.kind === 'sent' ? outcome.record.status : outcome.kind}
+          >
+            {outcome.kind === 'sent' ? (
+              <>
+                <strong>{t('xDoneTitle')}</strong>
+                <p>{t('xDone', { id: outcome.record.id })}</p>
+                <a className="text-link" href={`/uc/withdraw?withdrawalId=${encodeURIComponent(outcome.record.id)}`}>
+                  {t('sOpen')}
+                </a>
+              </>
+            ) : outcome.kind === 'unknown' ? (
+              <>
+                <strong>{t('xUnknownTitle')}</strong>
+                <p>{t('xUnknown')}</p>
+              </>
+            ) : (
+              <>
+                <strong>{t('sRefusedTitle')}</strong>
+                <p>{words(outcome.failure)}</p>
+                <p>
+                  {t('sHeldNothing')}{' '}
+                  {held.resource.status === 'ready' &&
+                    t('sBalance', {
+                      amount: shown(held.resource.data.assets.find((entry) => entry.assetId === outcome.asset)?.available ?? '0'),
+                      asset: outcome.asset,
+                    })}
+                </p>
+              </>
+            )}
+          </div>
+        )}
       </DepthPanel>
-      {confirming && open && (
+      {confirmingInside && open && (
         <WithdrawStepUp
           why={t('sWhy', { amount: shown(open.amount), asset: open.assetId })}
           run={(token) => sendInside(token, open)}
-          onDone={() => setConfirming(false)}
-          onCancel={() => setConfirming(false)}
+          onDone={() => setConfirmingInside(false)}
+          onCancel={() => setConfirmingInside(false)}
+        />
+      )}
+      {confirmingOut && (
+        <WithdrawStepUp
+          why={t('fConfirmWhy')}
+          run={(token) => sendOut(confirmingOut, token)}
+          onDone={() => setConfirmingOut(null)}
+          onCancel={() => setConfirmingOut(null)}
         />
       )}
     </div>

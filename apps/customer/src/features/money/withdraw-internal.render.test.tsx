@@ -8,7 +8,13 @@ const query = vi.fn();
 const mutate = vi.fn();
 // The form also reads the caller's campaign rewards (the locked-rewards note): none here.
 const noRewards = { ok: true, data: { rewards: [], totals: [], more: false } };
-const route = (module: string, ...rest: unknown[]) => (module === 'campaigns' ? Promise.resolve(noRewards) : query(module, ...rest));
+// Only where an address leads is answered here; the form's other reads (limits, the address book) are not, and say so.
+const route = (module: string, procedure: string, ...rest: unknown[]) =>
+  module === 'campaigns'
+    ? Promise.resolve(noRewards)
+    : procedure === 'withdrawal.destination'
+      ? query(module, procedure, ...rest)
+      : Promise.resolve({ ok: false, reason: 'unreachable', message: 'not in this test' });
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { query: route, mutate } }) }));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
@@ -21,9 +27,10 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 // The real dialog asks identity for a step-up token; here "Confirm" hands the action a TEST token and shows its refusal.
-vi.mock('./WithdrawStepUp', async () => {
+vi.mock('./WithdrawStepUp', async (original) => {
   const { useState } = await import('react');
   return {
+    ...(await original<typeof import('./WithdrawStepUp')>()),
     WithdrawStepUp: ({ run, onDone }: { run: (token: string) => Promise<{ ok: boolean; message?: string }>; onDone: () => void }) => {
       const [problem, setProblem] = useState('');
       return (
