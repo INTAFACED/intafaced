@@ -7,7 +7,14 @@ import {
   supportSurveyViewSchema,
   type SupportSurveyConfigureInput,
 } from '@intafaced/contracts';
-import { SurveyCapError, SurveyIdConflictError, SurveyNotFoundError, SurveyStaleError, type SurveyBook } from './survey-settings.js';
+import {
+  SurveyCapError,
+  SurveyIdConflictError,
+  SurveyNotFoundError,
+  SurveyStaleError,
+  surveyKey,
+  type SurveyBook,
+} from './survey-settings.js';
 import {
   ActionApprovalConsumeError,
   readApprovalIds,
@@ -74,6 +81,10 @@ export function surveyProcedures(
             targetService: 'svc-support',
             targetId: SURVEY_CONFIGURE_ACTION,
             expectedVersion: '1',
+            // Identity replays a consumed approval only for this same request id and actor.
+            // Anything else is action_approval.consumed, so a lost reply could not reach the book.
+            requestId: surveyKey(input.surveyId ?? input.newSurveyId ?? 'new', input.expectedRevision + 1),
+            consumerPrincipalId: actorId,
           });
           if (
             consumed.targetService !== 'svc-support' ||

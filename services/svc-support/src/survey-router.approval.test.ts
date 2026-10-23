@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import { type Context, type SupportSurveyConfigureInput } from '@intafaced/contracts';
+import { type ActionApproval, type ActionApprovalConsumeInput, type Context, type SupportSurveyConfigureInput } from '@intafaced/contracts';
 import { MemoryStaffBook } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
 import { founderApproves, withApprovalIds } from './survey-approval.fixture.js';
@@ -8,6 +8,7 @@ import { MemorySupportStore } from './store.js';
 import { SupportService } from './support-service.js';
 import { MemorySurveyBook } from './survey-settings.js';
 import { FakeIdentityApprovals, FOUNDER } from './survey-approval.fixture.js';
+import { type ActionApprovalConsumer } from './action-approval-consume.js';
 import { SURVEY_CONFIGURE_ACTION, surveyConfigurePayloadHash } from './survey-router.js';
 
 /** SP-csat-02 Security row :58: configureSurvey consumes a founder action approval bound to the action and payload. */
@@ -110,5 +111,83 @@ describe('configureSurvey dual control (SP-csat-02)', () => {
         approvalId: ids.approvalId,
       },
     ]);
+  });
+
+  it('replays a lost reply only when the same request id is presented again', async () => {
+    const staff = new MemoryStaffBook();
+    await staff.appoint({ userId: LEAD, role: 'lead', by: LEAD, at: AT });
+    const support = new SupportService(new MemorySupportStore(), undefined, undefined, staff);
+    const book = new MemorySurveyBook(undefined, 5);
+    const held = new Map<string, { requestId?: string; consumerPrincipalId?: string; row: ActionApproval }>();
+    const calls: ActionApprovalConsumeInput[] = [];
+    const identity: ActionApprovalConsumer = {
+      async consume(cmd) {
+        calls.push(cmd);
+        const prior = held.get(cmd.approvalId);
+        if (prior) {
+          const same =
+            cmd.requestId !== undefined &&
+            cmd.requestId === prior.requestId &&
+            (cmd.consumerPrincipalId ?? null) === (prior.consumerPrincipalId ?? null);
+          if (!same) {
+            const err = new Error('approval already consumed');
+            (err as Error & { code: string }).code = 'action_approval.consumed';
+            throw err;
+          }
+          return { ...prior.row, consumption: 'already_consumed_by_this_request' };
+        }
+        const row: ActionApproval = {
+          approvalId: cmd.approvalId,
+          operationId: cmd.operationId,
+          actionType: cmd.targetId,
+          targetService: cmd.targetService,
+          targetId: cmd.targetId,
+          expectedVersion: cmd.expectedVersion,
+          payloadHash: cmd.payloadHash,
+          requesterId: LEAD,
+          approverId: FOUNDER,
+          policyVersion: 'v1',
+          createdAt: AT,
+          expiresAt: '2026-10-22T04:10:00.000Z',
+          status: 'CONSUMED',
+        };
+        held.set(cmd.approvalId, { requestId: cmd.requestId, consumerPrincipalId: cmd.consumerPrincipalId, row });
+        return row;
+      },
+    };
+    const router = createSupportRouter(support, undefined, undefined, support, undefined, undefined, book, identity);
+    const lead = router.createCaller(await ctx(LEAD, ['support:ops', 'support:read']));
+    const newSurveyId = '55555555-5555-4555-8555-555555555555';
+    const create = {
+      surveyId: null,
+      newSurveyId,
+      expectedRevision: 0,
+      config: config as never,
+      reason: 'Launch CSAT',
+      approvalId: 'apr-replay',
+      operationId: 'op-replay',
+    };
+    const saved = await lead.configureSurvey(create);
+    expect(calls[0]).toMatchObject({ requestId: `support.survey:${newSurveyId}:r1`, consumerPrincipalId: LEAD });
+    await expect(identity.consume({ ...calls[0]!, requestId: 'support.survey:other:r9' })).rejects.toMatchObject({
+      code: 'action_approval.consumed',
+    });
+    const { requestId: _dropped, ...withoutRequestId } = calls[0]!;
+    await expect(identity.consume(withoutRequestId)).rejects.toMatchObject({ code: 'action_approval.consumed' });
+    expect(await lead.configureSurvey(create)).toEqual(saved);
+    expect(book.log).toHaveLength(1);
+
+    const edit = {
+      surveyId: saved.surveyId,
+      expectedRevision: 1,
+      config: { ...config, sendAfterMinutes: 5 } as never,
+      reason: 'Tune the delay',
+      approvalId: 'apr-edit',
+      operationId: 'op-edit',
+    };
+    const edited = await lead.configureSurvey(edit);
+    expect(calls.at(-1)).toMatchObject({ requestId: `support.survey:${saved.surveyId}:r2`, consumerPrincipalId: LEAD });
+    expect(await lead.configureSurvey(edit)).toEqual(edited);
+    expect(book.log).toHaveLength(2);
   });
 });
