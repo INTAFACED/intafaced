@@ -98,20 +98,28 @@ export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as 
 export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
 /** Blank actor on an operator write. Nothing is stored. */
 export const OPS_ALERT_ACTOR_UNSET = 'ops.alert_actor_unset' as const;
-/** No owner window for how long a heartbeat may stay quiet. Overdue is not invented. */
-export const OPS_ALERT_HEARTBEAT_WINDOW_UNSET = 'ops.alert_heartbeat_window_unset' as const;
-/** A window is set and no beat has ever been recorded. That is not "late by zero". */
+/** No owner window for how long a pipeline heartbeat may stay quiet. Overdue is not invented. Spec: alerts-013. */
+export const OPS_HEARTBEAT_WINDOW_UNSET = 'ops.heartbeat_window_unset' as const;
+/** A window is set and no pipeline beat has ever been recorded. That is not "late by zero". */
 export const OPS_ALERT_HEARTBEAT_ABSENT = 'ops.alert_heartbeat_absent' as const;
+export const OPS_ALERT_TEMPLATE_TITLE_UNSET = 'ops.alert_template_title_unset' as const;
 export const OPS_ALERT_TEMPLATE_BODY_UNSET = 'ops.alert_template_body_unset' as const;
 export const OPS_ALERT_TEMPLATE_NOT_FOUND = 'ops.alert_template_not_found' as const;
 export const OPS_ALERT_TEMPLATE_VERSION_STALE = 'ops.alert_template_version_stale' as const;
+/** A create used a name that already has a template. An update still uses the stale-version code. */
+export const OPS_TEMPLATE_NAME_TAKEN = 'ops.template_name_taken' as const;
+export const OPS_ALERT_TEMPLATE_VARIABLE_INVALID = 'ops.alert_template_variable_invalid' as const;
 export const OPS_ALERT_QUALITY_POLICY_UNSET = 'ops.alert_quality_policy_unset' as const;
 export const OPS_ALERT_QUALITY_NOTHING_REQUIRED = 'ops.alert_quality_nothing_required' as const;
 export const OPS_ALERT_QUALITY_REQUIREMENT_INVALID = 'ops.alert_quality_requirement_invalid' as const;
 export const OPS_ALERT_QUALITY_VERSION_STALE = 'ops.alert_quality_version_stale' as const;
-/** An enforced quality requirement is missing. The rule was not saved. */
-export const OPS_ALERT_QUALITY_ENFORCED = 'ops.alert_quality_enforced' as const;
-export const OPS_ALERT_PANEL_LINK_INCOMPLETE = 'ops.alert_panel_link_incomplete' as const;
+/**
+ * An enforced quality requirement is missing, or a template references a variable it does not declare while enforcement is on.
+ * The row was not saved. Spec name: alerts-013.
+ */
+export const OPS_ALERT_LABEL_REQUIRED = 'ops.alert_label_required' as const;
+/** A panel link needs both the dashboard and the panel. Spec name: alerts-013. */
+export const OPS_PANEL_LINK_INCOMPLETE = 'ops.panel_link_incomplete' as const;
 export const OPS_PROTOCOL_REASON_CODES_UNSET = 'owner.decision' as const;
 export const OPS_PROTOCOL_REASON_CODE_UNKNOWN = 'protocol.ops_reason_code_unknown' as const;
 export const OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED = 'ops.protocol_listing_storage_unconfigured' as const;
@@ -177,17 +185,20 @@ export type OpsRefuseCode =
   | typeof OPS_ALERT_SOURCE_UNCONFIGURED
   | typeof OPS_ALERT_PROBE_UNCONFIGURED
   | typeof OPS_ALERT_ACTOR_UNSET
-  | typeof OPS_ALERT_HEARTBEAT_WINDOW_UNSET
+  | typeof OPS_HEARTBEAT_WINDOW_UNSET
   | typeof OPS_ALERT_HEARTBEAT_ABSENT
+  | typeof OPS_ALERT_TEMPLATE_TITLE_UNSET
   | typeof OPS_ALERT_TEMPLATE_BODY_UNSET
   | typeof OPS_ALERT_TEMPLATE_NOT_FOUND
   | typeof OPS_ALERT_TEMPLATE_VERSION_STALE
+  | typeof OPS_TEMPLATE_NAME_TAKEN
+  | typeof OPS_ALERT_TEMPLATE_VARIABLE_INVALID
   | typeof OPS_ALERT_QUALITY_POLICY_UNSET
   | typeof OPS_ALERT_QUALITY_NOTHING_REQUIRED
   | typeof OPS_ALERT_QUALITY_REQUIREMENT_INVALID
   | typeof OPS_ALERT_QUALITY_VERSION_STALE
-  | typeof OPS_ALERT_QUALITY_ENFORCED
-  | typeof OPS_ALERT_PANEL_LINK_INCOMPLETE
+  | typeof OPS_ALERT_LABEL_REQUIRED
+  | typeof OPS_PANEL_LINK_INCOMPLETE
   | typeof OPS_COST_AMOUNT_INVALID
   | typeof OPS_COST_CATEGORY_INVALID
   | typeof OPS_COST_PERIOD_INVALID

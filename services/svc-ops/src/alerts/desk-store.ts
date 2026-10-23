@@ -7,12 +7,15 @@ import type { Sql } from 'postgres';
 import type { RuleFields } from './rules.js';
 import {
   OPS_ALERT_ACTOR_UNSET,
-  OPS_ALERT_QUALITY_ENFORCED,
+  OPS_ALERT_LABEL_REQUIRED,
   OPS_ALERT_QUALITY_REQUIREMENT_INVALID,
   OPS_ALERT_QUALITY_VERSION_STALE,
   OPS_ALERT_TEMPLATE_BODY_UNSET,
+  OPS_ALERT_TEMPLATE_TITLE_UNSET,
+  OPS_ALERT_TEMPLATE_VARIABLE_INVALID,
   OPS_ALERT_TEMPLATE_VERSION_STALE,
   OPS_IDEMPOTENCY_CONFLICT,
+  OPS_TEMPLATE_NAME_TAKEN,
   OpsError,
 } from '../codes.js';
 
@@ -27,15 +30,34 @@ export interface QualityRequirement {
   readonly mode: 'detect' | 'enforce';
 }
 
+/** Fixed actor on a pipeline beat. Not an operator session, and not a test beat. */
+export const ALERT_EVALUATOR_ACTOR = 'system:alert-evaluator';
+/** Fixed reason stored with the pipeline beat. The operator does not supply it. */
+export const ALERT_EVALUATOR_REASON = 'evaluator cycle completed';
+
+/** Business key of one completed evaluator cycle. The cycle start is the clock reading when that tick began. */
+export function pipelineHeartbeatKey(cycleStart: string): string {
+  return `heartbeat:${cycleStart}`;
+}
+
 export interface HeartbeatRow {
+  /** Pipeline beats use `heartbeat:<cycle start>`. A test beat uses the operator's idempotency key. */
+  readonly key: string;
   readonly actor: string;
   readonly reason: string;
   readonly recordedAt: string;
 }
 
+export interface TemplateVariable {
+  readonly name: string;
+  readonly source: 'label' | 'query';
+}
+
 export interface TemplateRow {
   readonly name: string;
+  readonly title: string;
   readonly body: string;
+  readonly variables: TemplateVariable[];
   readonly version: number;
   readonly actor: string;
   readonly reason: string;
@@ -51,7 +73,16 @@ export interface QualityPolicy {
 }
 
 export interface AlertDeskStore {
+  /** Pipeline beat only. `heartbeatStatus` reads these rows and nothing else. */
   recordHeartbeat(input: {
+    readonly key: string;
+    readonly fingerprint: string;
+    readonly actor: string;
+    readonly reason: string;
+    readonly at: string;
+  }): Promise<HeartbeatRow>;
+  /** Operator test beat. Stored apart so it cannot move the pipeline clock. */
+  recordTestBeat(input: {
     readonly key: string;
     readonly fingerprint: string;
     readonly actor: string;
@@ -61,7 +92,9 @@ export interface AlertDeskStore {
   latestHeartbeat(): Promise<HeartbeatRow | null>;
   saveTemplate(input: {
     readonly name: string;
+    readonly title: string;
     readonly body: string;
+    readonly variables: readonly TemplateVariable[];
     readonly expectedVersion?: number;
     readonly key: string;
     readonly fingerprint: string;
@@ -144,6 +177,104 @@ function enforcedMessage(missing: readonly QualityRequirement[]): string {
   return `Enforced quality requirements are missing (${names}). The rule was not saved.`;
 }
 
+function placeholder(): RegExp {
+  return /\{\{(label|query):([a-z][a-z0-9_]{0,62})\}\}/g;
+}
+
+/** No `enforce` requirement is on. An unset policy is not enforcement, so a missing variable may be saved. */
+export function isDetectOnly(policy: { readonly requirements: readonly QualityRequirement[] } | null): boolean {
+  if (!policy) return true;
+  return policy.requirements.every((req) => req.mode === 'detect');
+}
+
+export function parseTemplateVariables(raw: readonly { name: string; source: string }[]): TemplateVariable[] {
+  if (raw.length > 40) {
+    throw new OpsError(OPS_ALERT_TEMPLATE_VARIABLE_INVALID, 'A template declares at most 40 variables. Nothing was saved.');
+  }
+  const seen = new Set<string>();
+  return raw.map((variable) => {
+    if (variable.source !== 'label' && variable.source !== 'query') {
+      throw new OpsError(OPS_ALERT_TEMPLATE_VARIABLE_INVALID, 'A template variable is a label or a query value. Nothing was saved.');
+    }
+    if (!LABEL_KEY.test(variable.name)) {
+      throw new OpsError(OPS_ALERT_TEMPLATE_VARIABLE_INVALID, `"${variable.name}" is not a variable name. Nothing was saved.`);
+    }
+    const id = `${variable.source}:${variable.name}`;
+    if (seen.has(id)) throw new OpsError(OPS_ALERT_TEMPLATE_VARIABLE_INVALID, `${id} is listed twice. Nothing was saved.`);
+    seen.add(id);
+    return { name: variable.name, source: variable.source };
+  });
+}
+
+export interface TemplatePreviewData {
+  readonly sample: 'TEST' | 'custom';
+  readonly labels?: Readonly<Record<string, string>>;
+  readonly query?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Renders title and body. A referenced variable with no usable value is left in place and named in `missing`.
+ * The built-in sample sets every declared variable to the literal TEST, so the preview cannot be read as a live alert.
+ */
+export function previewTemplate(input: {
+  readonly title: string;
+  readonly body: string;
+  readonly variables: readonly TemplateVariable[];
+  readonly data: TemplatePreviewData;
+}): { readonly title: string; readonly body: string; readonly missing: readonly string[]; readonly sample: 'TEST' | 'custom' } {
+  const declared = new Set(input.variables.map((variable) => `${variable.source}:${variable.name}`));
+  const labels: Record<string, string> = {};
+  const query: Record<string, string> = {};
+  if (input.data.sample === 'TEST') {
+    for (const variable of input.variables) {
+      if (variable.source === 'label') labels[variable.name] = 'TEST';
+      else query[variable.name] = 'TEST';
+    }
+  } else {
+    Object.assign(labels, input.data.labels ?? {});
+    Object.assign(query, input.data.query ?? {});
+  }
+  const missing: string[] = [];
+  const fill = (text: string): string =>
+    text.replace(placeholder(), (token, source: string, name: string) => {
+      const id = `${source}:${name}`;
+      const value = source === 'query' ? query[name] : labels[name];
+      if (!declared.has(id) || value === undefined || value.trim() === '') {
+        if (!missing.includes(id)) missing.push(id);
+        return token;
+      }
+      return value;
+    });
+  return { title: fill(input.title), body: fill(input.body), missing, sample: input.data.sample };
+}
+
+/** Save may keep a missing variable only while nothing is enforced. The TEST preview is the check. */
+export function assertTemplateVariablesSavable(
+  policy: { readonly requirements: readonly QualityRequirement[] } | null,
+  title: string,
+  body: string,
+  variables: readonly TemplateVariable[],
+): void {
+  const preview = previewTemplate({ title, body, variables, data: { sample: 'TEST' } });
+  if (preview.missing.length === 0 || isDetectOnly(policy)) return;
+  throw new OpsError(
+    OPS_ALERT_LABEL_REQUIRED,
+    `The template is missing ${preview.missing.join(', ')}. Save is allowed with a missing variable only while every quality requirement is detect. Nothing was saved.`,
+  );
+}
+
+function preparedTemplate(input: { readonly title: string; readonly body: string; readonly variables: readonly TemplateVariable[] }): {
+  readonly title: string;
+  readonly body: string;
+  readonly variables: TemplateVariable[];
+} {
+  const title = input.title.trim();
+  const body = input.body.trim();
+  if (!title) throw new OpsError(OPS_ALERT_TEMPLATE_TITLE_UNSET, 'The template title is blank. Nothing was saved.');
+  if (!body) throw new OpsError(OPS_ALERT_TEMPLATE_BODY_UNSET, 'The template body is blank. Nothing was saved.');
+  return { title, body, variables: parseTemplateVariables(input.variables) };
+}
+
 interface HeartbeatHit extends HeartbeatRow {
   readonly key: string;
   readonly fingerprint: string;
@@ -155,8 +286,23 @@ interface TemplateHit {
   readonly row: TemplateRow;
 }
 
+function appendBeat(rows: HeartbeatHit[], input: Parameters<AlertDeskStore['recordHeartbeat']>[0]): HeartbeatRow {
+  const actor = assertActor(input.actor);
+  const prior = rows.find((row) => row.key === input.key);
+  if (prior) {
+    if (prior.fingerprint !== input.fingerprint) {
+      throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different heartbeat.');
+    }
+    return { key: prior.key, actor: prior.actor, reason: prior.reason, recordedAt: prior.recordedAt };
+  }
+  const row = { key: input.key, actor, reason: input.reason, recordedAt: input.at };
+  rows.push({ ...row, fingerprint: input.fingerprint });
+  return row;
+}
+
 export function createMemoryAlertDesk(): AlertDeskStore {
   const beats: HeartbeatHit[] = [];
+  const testBeats: HeartbeatHit[] = [];
   const templates = new Map<string, TemplateRow>();
   const templateKeys: TemplateHit[] = [];
   let policy: QualityPolicy | null = null;
@@ -164,26 +310,17 @@ export function createMemoryAlertDesk(): AlertDeskStore {
 
   return {
     async recordHeartbeat(input) {
-      const actor = assertActor(input.actor);
-      const prior = beats.find((row) => row.key === input.key);
-      if (prior) {
-        if (prior.fingerprint !== input.fingerprint) {
-          throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different heartbeat.');
-        }
-        return { actor: prior.actor, reason: prior.reason, recordedAt: prior.recordedAt };
-      }
-      const row = { actor, reason: input.reason, recordedAt: input.at };
-      beats.push({ ...row, key: input.key, fingerprint: input.fingerprint });
-      return row;
+      return appendBeat(beats, input);
+    },
+    async recordTestBeat(input) {
+      return appendBeat(testBeats, input);
     },
     async latestHeartbeat() {
       const last = beats[beats.length - 1];
-      return last ? { actor: last.actor, reason: last.reason, recordedAt: last.recordedAt } : null;
+      return last ? { key: last.key, actor: last.actor, reason: last.reason, recordedAt: last.recordedAt } : null;
     },
     async saveTemplate(input) {
       const actor = assertActor(input.actor);
-      const body = input.body.trim();
-      if (!body) throw new OpsError(OPS_ALERT_TEMPLATE_BODY_UNSET, 'The template body is blank. Nothing was saved.');
       const prior = templateKeys.find((row) => row.key === input.key);
       if (prior) {
         if (prior.fingerprint !== input.fingerprint) {
@@ -191,7 +328,11 @@ export function createMemoryAlertDesk(): AlertDeskStore {
         }
         return prior.row;
       }
+      const prepared = preparedTemplate(input);
       const current = templates.get(input.name) ?? null;
+      if (current && input.expectedVersion === undefined) {
+        throw new OpsError(OPS_TEMPLATE_NAME_TAKEN, `A template named ${input.name} already exists. Nothing was saved.`);
+      }
       if (current?.version !== input.expectedVersion && !(current === null && input.expectedVersion === undefined)) {
         throw new OpsError(
           OPS_ALERT_TEMPLATE_VERSION_STALE,
@@ -200,9 +341,12 @@ export function createMemoryAlertDesk(): AlertDeskStore {
             : 'No such template to update.',
         );
       }
+      assertTemplateVariablesSavable(policy, prepared.title, prepared.body, prepared.variables);
       const row: TemplateRow = {
         name: input.name,
-        body,
+        title: prepared.title,
+        body: prepared.body,
+        variables: prepared.variables,
         version: (current?.version ?? 0) + 1,
         actor,
         reason: input.reason,
@@ -253,63 +397,109 @@ export function createMemoryAlertDesk(): AlertDeskStore {
     async assertWritable(fields) {
       if (!policy || policy.requirements.length === 0) return;
       const missing = missingRequirements(fields, policy.requirements).filter((req) => req.mode === 'enforce');
-      if (missing.length > 0) throw new OpsError(OPS_ALERT_QUALITY_ENFORCED, enforcedMessage(missing));
+      if (missing.length > 0) throw new OpsError(OPS_ALERT_LABEL_REQUIRED, enforcedMessage(missing));
     },
   };
 }
 
 const iso = (d: Date) => d.toISOString();
 
-export function createPgAlertDesk(sql: Sql): AlertDeskStore {
+type BeatInput = Parameters<AlertDeskStore['recordHeartbeat']>[0];
+
+function templateFrom(row: {
+  name: string;
+  title: string;
+  body: string;
+  variables: TemplateVariable[];
+  version: number;
+  actor: string;
+  reason: string;
+  at: Date;
+}): TemplateRow {
   return {
-    async recordHeartbeat(input) {
-      const actor = assertActor(input.actor);
-      return sql.begin(async (tx) => {
-        const [prior] = await tx<{ actor: string; reason: string; recorded_at: Date; fingerprint: string }[]>`
-          SELECT actor, reason, recorded_at, fingerprint FROM ops.alert_heartbeats WHERE idempotency_key = ${input.key}`;
-        if (prior) {
-          if (prior.fingerprint !== input.fingerprint) {
-            throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different heartbeat.');
-          }
-          return { actor: prior.actor, reason: prior.reason, recordedAt: iso(prior.recorded_at) };
+    name: row.name,
+    title: row.title,
+    body: row.body,
+    variables: row.variables,
+    version: row.version,
+    actor: row.actor,
+    reason: row.reason,
+    updatedAt: iso(row.at),
+  };
+}
+
+export function createPgAlertDesk(sql: Sql): AlertDeskStore {
+  const writeBeat = async (table: 'ops.alert_heartbeats' | 'ops.alert_test_beats', input: BeatInput): Promise<HeartbeatRow> => {
+    const actor = assertActor(input.actor);
+    return sql.begin(async (tx) => {
+      const [prior] =
+        table === 'ops.alert_heartbeats'
+          ? await tx<{ actor: string; reason: string; recorded_at: Date; fingerprint: string }[]>`
+              SELECT actor, reason, recorded_at, fingerprint FROM ops.alert_heartbeats WHERE idempotency_key = ${input.key}`
+          : await tx<{ actor: string; reason: string; recorded_at: Date; fingerprint: string }[]>`
+              SELECT actor, reason, recorded_at, fingerprint FROM ops.alert_test_beats WHERE idempotency_key = ${input.key}`;
+      if (prior) {
+        if (prior.fingerprint !== input.fingerprint) {
+          throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different heartbeat.');
         }
-        const [row] = await tx<{ actor: string; reason: string; recorded_at: Date }[]>`
+        return { key: input.key, actor: prior.actor, reason: prior.reason, recordedAt: iso(prior.recorded_at) };
+      }
+      if (table === 'ops.alert_heartbeats') {
+        await tx`
           INSERT INTO ops.alert_heartbeats (idempotency_key, fingerprint, actor, reason, recorded_at)
-          VALUES (${input.key}, ${input.fingerprint}, ${actor}, ${input.reason}, ${input.at})
-          RETURNING actor, reason, recorded_at`;
-        return { actor: row!.actor, reason: row!.reason, recordedAt: iso(row!.recorded_at) };
-      });
+          VALUES (${input.key}, ${input.fingerprint}, ${actor}, ${input.reason}, ${input.at})`;
+      } else {
+        await tx`
+          INSERT INTO ops.alert_test_beats (idempotency_key, fingerprint, actor, reason, recorded_at)
+          VALUES (${input.key}, ${input.fingerprint}, ${actor}, ${input.reason}, ${input.at})`;
+      }
+      return { key: input.key, actor, reason: input.reason, recordedAt: input.at };
+    });
+  };
+
+  return {
+    recordHeartbeat(input) {
+      return writeBeat('ops.alert_heartbeats', input);
+    },
+    recordTestBeat(input) {
+      return writeBeat('ops.alert_test_beats', input);
     },
     async latestHeartbeat() {
-      const [row] = await sql<{ actor: string; reason: string; recorded_at: Date }[]>`
-        SELECT actor, reason, recorded_at FROM ops.alert_heartbeats ORDER BY id DESC LIMIT 1`;
-      return row ? { actor: row.actor, reason: row.reason, recordedAt: iso(row.recorded_at) } : null;
+      const [row] = await sql<{ idempotency_key: string; actor: string; reason: string; recorded_at: Date }[]>`
+        SELECT idempotency_key, actor, reason, recorded_at FROM ops.alert_heartbeats ORDER BY id DESC LIMIT 1`;
+      return row ? { key: row.idempotency_key, actor: row.actor, reason: row.reason, recordedAt: iso(row.recorded_at) } : null;
     },
     async saveTemplate(input) {
       const actor = assertActor(input.actor);
-      const body = input.body.trim();
-      if (!body) throw new OpsError(OPS_ALERT_TEMPLATE_BODY_UNSET, 'The template body is blank. Nothing was saved.');
+      const prepared = preparedTemplate(input);
       return sql.begin(async (tx) => {
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`ops.alert.template:${input.name}`}))`;
         const [prior] = await tx<
-          { fingerprint: string; body: string; version: number; actor: string; reason: string; at: Date; name: string }[]
+          {
+            fingerprint: string;
+            title: string;
+            body: string;
+            variables: TemplateVariable[];
+            version: number;
+            actor: string;
+            reason: string;
+            at: Date;
+            name: string;
+          }[]
         >`
-          SELECT name, body, version, actor, reason, at, fingerprint FROM ops.alert_template_versions WHERE idempotency_key = ${input.key}`;
+          SELECT name, title, body, variables, version, actor, reason, at, fingerprint
+          FROM ops.alert_template_versions WHERE idempotency_key = ${input.key}`;
         if (prior) {
           if (prior.fingerprint !== input.fingerprint) {
             throw new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different template.');
           }
-          return {
-            name: prior.name,
-            body: prior.body,
-            version: prior.version,
-            actor: prior.actor,
-            reason: prior.reason,
-            updatedAt: iso(prior.at),
-          };
+          return templateFrom(prior);
         }
         const [current] = await tx<{ version: number }[]>`SELECT version FROM ops.alert_templates WHERE name = ${input.name}`;
         const currentVersion = current?.version;
+        if (current && input.expectedVersion === undefined) {
+          throw new OpsError(OPS_TEMPLATE_NAME_TAKEN, `A template named ${input.name} already exists. Nothing was saved.`);
+        }
         if (currentVersion !== input.expectedVersion && !(currentVersion === undefined && input.expectedVersion === undefined)) {
           throw new OpsError(
             OPS_ALERT_TEMPLATE_VERSION_STALE,
@@ -318,37 +508,67 @@ export function createPgAlertDesk(sql: Sql): AlertDeskStore {
               : 'No such template to update.',
           );
         }
+        const [policyRow] = await tx<{ requirements: QualityRequirement[] }[]>`
+          SELECT requirements FROM ops.alert_quality_policy WHERE id = 1`;
+        const policy = policyRow ? { requirements: policyRow.requirements } : null;
+        assertTemplateVariablesSavable(policy, prepared.title, prepared.body, prepared.variables);
         const version = (currentVersion ?? 0) + 1;
         if (!current) {
-          await tx`INSERT INTO ops.alert_templates (name, body, version, actor, reason, updated_at)
-            VALUES (${input.name}, ${body}, ${version}, ${actor}, ${input.reason}, ${input.at})`;
+          await tx`INSERT INTO ops.alert_templates (name, title, body, variables, version, actor, reason, updated_at)
+            VALUES (${input.name}, ${prepared.title}, ${prepared.body}, ${tx.json(prepared.variables as never)}, ${version}, ${actor}, ${input.reason}, ${input.at})`;
         } else {
-          await tx`UPDATE ops.alert_templates SET body = ${body}, version = ${version}, actor = ${actor}, reason = ${input.reason}, updated_at = ${input.at}
+          await tx`UPDATE ops.alert_templates
+            SET title = ${prepared.title}, body = ${prepared.body}, variables = ${tx.json(prepared.variables as never)}, version = ${version},
+                actor = ${actor}, reason = ${input.reason}, updated_at = ${input.at}
             WHERE name = ${input.name}`;
         }
-        await tx`INSERT INTO ops.alert_template_versions (name, version, body, actor, reason, idempotency_key, fingerprint, at)
-          VALUES (${input.name}, ${version}, ${body}, ${actor}, ${input.reason}, ${input.key}, ${input.fingerprint}, ${input.at})`;
-        return { name: input.name, body, version, actor, reason: input.reason, updatedAt: input.at };
+        await tx`INSERT INTO ops.alert_template_versions
+          (name, version, title, body, variables, actor, reason, idempotency_key, fingerprint, at)
+          VALUES (${input.name}, ${version}, ${prepared.title}, ${prepared.body}, ${tx.json(prepared.variables as never)}, ${actor}, ${input.reason},
+                  ${input.key}, ${input.fingerprint}, ${input.at})`;
+        return {
+          name: input.name,
+          title: prepared.title,
+          body: prepared.body,
+          variables: prepared.variables,
+          version,
+          actor,
+          reason: input.reason,
+          updatedAt: input.at,
+        };
       });
     },
     async getTemplate(name) {
-      const [row] = await sql<{ name: string; body: string; version: number; actor: string; reason: string; updated_at: Date }[]>`
-        SELECT name, body, version, actor, reason, updated_at FROM ops.alert_templates WHERE name = ${name}`;
-      return row
-        ? { name: row.name, body: row.body, version: row.version, actor: row.actor, reason: row.reason, updatedAt: iso(row.updated_at) }
-        : null;
+      const [row] = await sql<
+        {
+          name: string;
+          title: string;
+          body: string;
+          variables: TemplateVariable[];
+          version: number;
+          actor: string;
+          reason: string;
+          updated_at: Date;
+        }[]
+      >`
+        SELECT name, title, body, variables, version, actor, reason, updated_at FROM ops.alert_templates WHERE name = ${name}`;
+      return row ? templateFrom({ ...row, at: row.updated_at }) : null;
     },
     async listTemplates(limit) {
-      const rows = await sql<{ name: string; body: string; version: number; actor: string; reason: string; updated_at: Date }[]>`
-        SELECT name, body, version, actor, reason, updated_at FROM ops.alert_templates ORDER BY name LIMIT ${limit}`;
-      return rows.map((row) => ({
-        name: row.name,
-        body: row.body,
-        version: row.version,
-        actor: row.actor,
-        reason: row.reason,
-        updatedAt: iso(row.updated_at),
-      }));
+      const rows = await sql<
+        {
+          name: string;
+          title: string;
+          body: string;
+          variables: TemplateVariable[];
+          version: number;
+          actor: string;
+          reason: string;
+          updated_at: Date;
+        }[]
+      >`
+        SELECT name, title, body, variables, version, actor, reason, updated_at FROM ops.alert_templates ORDER BY name LIMIT ${limit}`;
+      return rows.map((row) => templateFrom({ ...row, at: row.updated_at }));
     },
     async getPolicy() {
       const [row] = await sql<{ requirements: QualityRequirement[]; version: number; actor: string; reason: string; updated_at: Date }[]>`
@@ -406,7 +626,7 @@ export function createPgAlertDesk(sql: Sql): AlertDeskStore {
       const policy = await this.getPolicy();
       if (!policy || policy.requirements.length === 0) return;
       const missing = missingRequirements(fields, policy.requirements).filter((req) => req.mode === 'enforce');
-      if (missing.length > 0) throw new OpsError(OPS_ALERT_QUALITY_ENFORCED, enforcedMessage(missing));
+      if (missing.length > 0) throw new OpsError(OPS_ALERT_LABEL_REQUIRED, enforcedMessage(missing));
     },
   };
 }

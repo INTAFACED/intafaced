@@ -7,20 +7,21 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { AlertRules } from './rules.js';
 import type { AlertStateStore } from './state-store.js';
-import { fingerprintOf, missingRequirements, type AlertDeskStore, type HeartbeatRow } from './desk-store.js';
+import { fingerprintOf, missingRequirements, previewTemplate, type AlertDeskStore, type HeartbeatRow } from './desk-store.js';
 import {
   OPS_ALERT_ACTOR_UNSET,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HEARTBEAT_ABSENT,
-  OPS_ALERT_HEARTBEAT_WINDOW_UNSET,
   OPS_ALERT_LIST_LIMIT_UNSET,
   OPS_ALERT_QUALITY_NOTHING_REQUIRED,
   OPS_ALERT_QUALITY_POLICY_UNSET,
   OPS_ALERT_STORAGE_UNCONFIGURED,
   OPS_ALERT_TEMPLATE_NOT_FOUND,
+  OPS_HEARTBEAT_WINDOW_UNSET,
   OPS_IDEMPOTENCY_CONFLICT,
   OPS_ALERT_QUALITY_VERSION_STALE,
   OPS_ALERT_TEMPLATE_VERSION_STALE,
+  OPS_TEMPLATE_NAME_TAKEN,
   OpsError,
 } from '../codes.js';
 import { assertIdempotencyKey } from '../operator-desks.js';
@@ -36,7 +37,7 @@ const requirementSchema = z.object({
 
 export function heartbeatJudgement(last: HeartbeatRow | null, maxAgeSeconds: number | null, nowIso: string) {
   if (maxAgeSeconds === null) {
-    return { last, maxAgeSeconds: null, overdue: null, code: OPS_ALERT_HEARTBEAT_WINDOW_UNSET };
+    return { last, maxAgeSeconds: null, overdue: null, code: OPS_HEARTBEAT_WINDOW_UNSET };
   }
   if (!last) {
     return { last: null, maxAgeSeconds, overdue: null, code: OPS_ALERT_HEARTBEAT_ABSENT };
@@ -54,7 +55,8 @@ function deskError(err: unknown): never {
           ? 'NOT_FOUND'
           : err.code === OPS_IDEMPOTENCY_CONFLICT ||
               err.code === OPS_ALERT_TEMPLATE_VERSION_STALE ||
-              err.code === OPS_ALERT_QUALITY_VERSION_STALE
+              err.code === OPS_ALERT_QUALITY_VERSION_STALE ||
+              err.code === OPS_TEMPLATE_NAME_TAKEN
             ? 'CONFLICT'
             : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.code} — ${err.message}`, cause: err });
@@ -161,12 +163,13 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
 
   const heartbeat = writer
     .input(z.object({ reason: reasonField, idempotencyKey: z.string() }))
-    .output(z.object({ actor: z.string(), reason: z.string(), recordedAt: z.string() }))
+    .output(z.object({ key: z.string(), actor: z.string(), reason: z.string(), recordedAt: z.string() }))
     .mutation(({ ctx, input }) =>
       (async () => {
         try {
           const who = staff(ctx, input.reason, input.idempotencyKey);
-          return await needDesk().recordHeartbeat({
+          // A pressed beat is a test. It is not the pipeline beat heartbeatStatus reads.
+          return await needDesk().recordTestBeat({
             key: who.key,
             fingerprint: fingerprintOf({ reason: input.reason }),
             actor: who.actor,
@@ -182,7 +185,7 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
   const heartbeatStatus = reader
     .output(
       z.object({
-        last: z.object({ actor: z.string(), reason: z.string(), recordedAt: z.string() }).nullable(),
+        last: z.object({ key: z.string(), actor: z.string(), reason: z.string(), recordedAt: z.string() }).nullable(),
         maxAgeSeconds: z.number().int().positive().nullable(),
         overdue: z.boolean().nullable(),
         code: z.string().nullable(),
@@ -202,13 +205,30 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
       })(),
     );
 
+  const variableSchema = z.object({ name: z.string().min(1).max(63), source: z.enum(['label', 'query']) });
   const templateRow = z.object({
     name: z.string(),
+    title: z.string(),
     body: z.string(),
+    variables: z.array(variableSchema),
     version: z.number().int(),
     actor: z.string(),
     reason: z.string(),
     updatedAt: z.string(),
+  });
+  const previewData = z.discriminatedUnion('sample', [
+    z.object({ sample: z.literal('TEST') }),
+    z.object({
+      sample: z.literal('custom'),
+      labels: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), z.string().max(200)).optional(),
+      query: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), z.string().max(200)).optional(),
+    }),
+  ]);
+  const previewOut = z.object({
+    title: z.string(),
+    body: z.string(),
+    missing: z.array(z.string()),
+    sample: z.enum(['TEST', 'custom']),
   });
 
   const templates = router({
@@ -239,11 +259,49 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
           }
         })(),
       ),
+    preview: reader
+      .input(
+        z.union([
+          z.object({ name: z.string(), data: previewData }),
+          z.object({
+            title: z.string().max(500),
+            body: z.string().max(4000),
+            variables: z.array(variableSchema).max(40),
+            data: previewData,
+          }),
+        ]),
+      )
+      .output(previewOut)
+      .query(({ input }) =>
+        (async () => {
+          try {
+            const source =
+              'name' in input
+                ? await (async () => {
+                    const found = await needDesk().getTemplate(input.name);
+                    if (!found) throw new OpsError(OPS_ALERT_TEMPLATE_NOT_FOUND, 'No such template.');
+                    return found;
+                  })()
+                : { title: input.title, body: input.body, variables: input.variables };
+            const rendered = previewTemplate({
+              title: source.title,
+              body: source.body,
+              variables: source.variables,
+              data: input.data.sample === 'TEST' ? { sample: 'TEST' } : input.data,
+            });
+            return { ...rendered, missing: [...rendered.missing] };
+          } catch (err) {
+            return deskError(err);
+          }
+        })(),
+      ),
     save: writer
       .input(
         z.object({
           name: z.string().regex(/^[a-z][a-z0-9_-]{0,62}$/),
+          title: z.string().max(500),
           body: z.string().max(4000),
+          variables: z.array(variableSchema).max(40),
           reason: reasonField,
           idempotencyKey: z.string(),
           expectedVersion: z.number().int().min(1).optional(),
@@ -256,10 +314,18 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
             const who = staff(ctx, input.reason, input.idempotencyKey);
             return await needDesk().saveTemplate({
               name: input.name,
+              title: input.title,
               body: input.body,
+              variables: input.variables,
               ...(input.expectedVersion !== undefined ? { expectedVersion: input.expectedVersion } : {}),
               key: who.key,
-              fingerprint: fingerprintOf({ name: input.name, body: input.body.trim(), expectedVersion: input.expectedVersion ?? null }),
+              fingerprint: fingerprintOf({
+                name: input.name,
+                title: input.title.trim(),
+                body: input.body.trim(),
+                variables: input.variables,
+                expectedVersion: input.expectedVersion ?? null,
+              }),
               actor: who.actor,
               reason: input.reason,
               at: deps.now(),

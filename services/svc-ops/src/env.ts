@@ -66,7 +66,7 @@ export const opsEnvSchema = baseEnvSchema
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
       /**
        * How long a recorded heartbeat may age before it is overdue, in seconds.
-       * Blank → heartbeatStatus reports ops.alert_heartbeat_window_unset and overdue stays null. Never invented.
+       * Blank → heartbeatStatus reports ops.heartbeat_window_unset and overdue stays null. Never invented.
        */
       OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
       /**

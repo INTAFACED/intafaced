@@ -84,7 +84,7 @@ export const opsAlertAnnotationsSchema = z
     if ((ann.dashboardUid === undefined) === (ann.panelId === undefined)) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'ops.alert_panel_link_incomplete — a panel link needs both the dashboard and the panel',
+      message: 'ops.panel_link_incomplete — a panel link needs both the dashboard and the panel',
       path: ann.dashboardUid === undefined ? ['dashboardUid'] : ['panelId'],
     });
   });

@@ -229,7 +229,12 @@ notificationTimer.unref();
 // outbox: no bus is wired from this process yet, so nothing is published and /ready says so.
 const alertEvaluator =
   alertRuleStore && alertState
-    ? new AlertEvaluator({ rules: alertRuleStore, state: alertState, signals: warehouseSignalReader(ops) })
+    ? new AlertEvaluator({
+        rules: alertRuleStore,
+        state: alertState,
+        signals: warehouseSignalReader(ops),
+        ...(alertDesk ? { desk: alertDesk } : {}),
+      })
     : null;
 let alertRun: Promise<void> | null = null;
 const alertTimer = setInterval(() => {

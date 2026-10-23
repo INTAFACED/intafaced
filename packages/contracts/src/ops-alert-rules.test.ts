@@ -83,7 +83,7 @@ describe('alert rule', () => {
     expect(opsAlertRuleDraftSchema.safeParse({ ...base, annotations: pair }).success).toBe(true);
     const half = opsAlertRuleDraftSchema.safeParse({ ...base, annotations: { dashboardUid: 'dash-1' } });
     expect(half.success).toBe(false);
-    if (!half.success) expect(half.error.issues.some((issue) => issue.message.includes('ops.alert_panel_link_incomplete'))).toBe(true);
+    if (!half.success) expect(half.error.issues.some((issue) => issue.message.includes('ops.panel_link_incomplete'))).toBe(true);
   });
 
   it('names six refusals, all in the ops namespace', () => {
