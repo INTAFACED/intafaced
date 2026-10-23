@@ -8,6 +8,7 @@ import type { HomeTilesValue } from '@intafaced/contracts/home-tiles-preferences
  */
 export const HOME_TILES = [
   { id: 'started', column: 'side', pro: true },
+  { id: 'work', column: 'main', pro: true },
   { id: 'holdings', column: 'main', pro: true },
   { id: 'markets', column: 'main', pro: true },
   { id: 'movers', column: 'main', pro: false },
@@ -27,7 +28,7 @@ const known = (id: string): id is HomeTileId => (HOME_TILE_IDS as readonly strin
  */
 const SHIPPED: Record<'simple' | 'pro', readonly HomeTileId[]> = {
   simple: HOME_TILE_IDS,
-  pro: ['started', 'holdings', 'activity', 'markets', 'movers', 'learn', 'your-crypto', 'watchlist'],
+  pro: ['started', 'work', 'holdings', 'activity', 'markets', 'movers', 'learn', 'your-crypto', 'watchlist'],
 };
 
 /**
