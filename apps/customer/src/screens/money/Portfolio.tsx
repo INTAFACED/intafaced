@@ -33,6 +33,8 @@ import {
 } from './deps';
 import { balanceEntriesHref } from './balance-entries-model';
 import { allAdd, heldFor, spacesFor, type Held, type Spaces } from './held-breakdown';
+import { setAsideWhat } from './set-aside';
+import { setAsideLabel } from './SetAside';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
 import { clockTime } from './time';
@@ -215,26 +217,32 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
 }
 
 /**
+ * Hover detail for the In orders cell (holds) or the Locked cell (every other lock): what each claim is for, in the
+ * balance page's words. Nothing when balances are hidden.
+ */
+function claimsTitle(held: Held, copy: Copy, holds: boolean, hidden: boolean): string | undefined {
+  const claims = held.claims.filter((claim) => (claim.kind === 'hold') === holds);
+  return hidden || claims.length === 0
+    ? undefined
+    : claims.map((claim) => `${setAsideLabel(setAsideWhat(claim.kind, claim.purpose), copy)}: ${claim.amount}`).join('\n');
+}
+
+/**
  * Pro columns: what can be spent now (Available), what is set aside for open orders (In orders) and what sits in named
  * spaces (In spaces), as the bank returned them. A figure the bank did not return shows a dash.
  */
-/** Hover detail for the Locked cell: which escrow, stake or collateral the figure is, named by the bank. Nothing when hidden. */
-function lockTitle(held: Held): string | undefined {
-  const named = held.claims.filter((claim) => claim.kind !== 'hold');
-  return named.length === 0 ? undefined : named.map((claim) => `${claim.kind} ${claim.purpose}: ${claim.amount}`).join('\n');
-}
-
 function HeldCells({ held, hidden }: { held: Held; hidden: boolean }) {
+  const copy = moneyCopy.useCopy();
   const show = (value: string | null) => (value === null ? '—' : fmtAmount(value, { round: 'down' }));
   return (
     <>
       <td className="money-num money-cell--pro" data-col="available">
         <Amount value={show(held.available)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--pro" data-col="in-orders">
+      <td className="money-num money-cell--pro" data-col="in-orders" title={claimsTitle(held, copy, true, hidden)}>
         <Amount value={show(held.inOrders)} hidden={hidden} />
       </td>
-      <td className="money-num money-cell--pro" data-col="locked" title={lockTitle(held)}>
+      <td className="money-num money-cell--pro" data-col="locked" title={claimsTitle(held, copy, false, hidden)}>
         <Amount value={show(held.locked)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--pro" data-col="in-spaces">
