@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { draftNotice, publishNotice } from './notices.mjs';
-import { campaignTotals, inviteCampaign } from './outreach.mjs';
+import { campaignTotals, enquiriesFor, inviteCampaign, publicSettings, setPublicSettings } from './outreach.mjs';
 import { ORIGIN, tool } from './stack.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the join and partner enquiry forms live. */
@@ -49,7 +49,8 @@ test(`${J} #2 /partner with no join address and no support email: no mailto, no 
   await expect(main.getByTestId('support-email-unset')).toHaveText('Support email is not set, so there is no email link on this page.');
   await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0);
   await expect(main.getByRole('link', { name: /partner enquiry form/ })).toHaveCount(0);
-  await expect(main.getByText('No partner tiers, terms or prices are published, so none are shown.', { exact: false })).toBeVisible();
+  await expect(main.getByTestId('partner-terms-unset')).toHaveText('Programme terms are not published.');
+  await expect(main.getByText('No partner tiers or prices are published, so none are shown.', { exact: false })).toBeVisible();
   await page.context().close();
 });
 
@@ -73,13 +74,8 @@ const next = async (page) => {
   await expect(page.locator('#intake-heading')).toBeFocused();
 };
 
-test(`${J} #4 joining from an invite link captures one enquiry for that invite, and a failed store refuses`, async ({ browser }) => {
-  test.setTimeout(240_000);
-  const key = `${J}-4-${Date.now()}`;
-  const invite = await inviteCampaign(key);
-  const page = await visitor(browser);
-  await page.goto(`${JOIN}/partner?source=${invite.sourceKey}`);
-  await contact(page, `${key.toLowerCase()}@example.org`);
+/** The partner questions, review and send, from the first question to the thank-you heading. */
+async function partnerEnquiry(page) {
   await expect(page.getByRole('heading', { name: 'What’s your area of expertise?', exact: true })).toBeVisible();
   await control(page, 'Your expertise').fill('LOCAL TEST expertise');
   await next(page);
@@ -100,6 +96,46 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
   await expect(page.getByRole('heading', { name: 'Before you send.', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Send enquiry', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toBeVisible();
+}
+
+test(`${J} #3 /partner with the founders' join address set: the form opens and one enquiry is recorded`, async ({ browser }) => {
+  test.setTimeout(240_000);
+  const key = `${J}-3-${Date.now()}`;
+  const email = `${key.toLowerCase()}@example.org`;
+  const before = await publicSettings();
+  const terms = `LOCAL TEST programme terms ${key}`;
+  await setPublicSettings({ joinUrl: JOIN, partnerTerms: terms }, 'LOCAL TEST journey sets the partner join address');
+  try {
+    const page = await visitor(browser);
+    await page.goto('/partner');
+    const main = page.locator('main');
+    await expect(main.getByTestId('partner-terms')).toHaveText(terms);
+    const form = main.getByRole('link', { name: 'Open the partner enquiry form' });
+    await expect(form).toHaveAttribute('href', `${JOIN}/partner`);
+    await form.click();
+    await expect(page).toHaveURL(`${JOIN}/partner`);
+    await contact(page, email);
+    await partnerEnquiry(page);
+    // Exactly one enquiry for this visitor: one partner opportunity carrying one completed submission.
+    await expect.poll(() => enquiriesFor(email)).toEqual({ opportunities: 1, submissions: 1 });
+    await page.context().close();
+  } finally {
+    // Step 2 needs the page with nothing set: put back what was stored.
+    await setPublicSettings(
+      { joinUrl: before.joinUrl, partnerTerms: before.partnerTerms },
+      'LOCAL TEST journey restores the partner settings',
+    );
+  }
+});
+
+test(`${J} #4 joining from an invite link captures one enquiry for that invite, and a failed store refuses`, async ({ browser }) => {
+  test.setTimeout(240_000);
+  const key = `${J}-4-${Date.now()}`;
+  const invite = await inviteCampaign(key);
+  const page = await visitor(browser);
+  await page.goto(`${JOIN}/partner?source=${invite.sourceKey}`);
+  await contact(page, `${key.toLowerCase()}@example.org`);
+  await partnerEnquiry(page);
   // One enquiry, attributed to the invite the link carried.
   await expect.poll(async () => (await campaignTotals(invite.campaignId)).submissions).toBe(1);
   await page.context().close();
