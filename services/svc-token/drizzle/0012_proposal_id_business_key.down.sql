@@ -1,3 +1,4 @@
+-- intafaced:destructive — reversal of 0012_proposal_id_business_key.sql. A non-uuid id cannot be cast back, so the statement fails rather than deleting the row.
 -- Reverse of 0012.
 -- A proposal id that is not a uuid cannot be cast back. This refuses rather
 -- than dropping the row. No amount and no rate is rewritten.
