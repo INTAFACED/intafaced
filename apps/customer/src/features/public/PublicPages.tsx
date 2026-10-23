@@ -128,10 +128,10 @@ export function AppPage() {
 }
 
 /**
- * Campaigns and activities, for the public /lab page and the signed-in /campaigns room. No campaign service exists, so no
- * campaign, task or prize is shown. What a person can take part in today comes from rooms that do exist.
+ * Campaigns and activities, for the signed-in /campaigns room. No campaign service exists, so no campaign, task or prize is
+ * shown. What a person can take part in today comes from rooms that do exist. The public /lab page is its own screen.
  */
-export function CampaignsOverview({ heading = true, detail = false }: { heading?: boolean; detail?: boolean }) {
+export function CampaignsOverview({ heading = true }: { heading?: boolean }) {
   const copy = pagesCopy.useCopy();
   const { session } = useSession();
   return (
@@ -142,13 +142,8 @@ export function CampaignsOverview({ heading = true, detail = false }: { heading?
         </header>
       )}
       <section className="pub-notice" role="status">
-        <h2>{copy.t(detail ? 'campDetailTitle' : 'campNoneTitle')}</h2>
-        <p>{copy.t(detail ? 'campDetailBody' : 'campNoneBody')}</p>
-        {detail && (
-          <a className="text-link" href="/lab">
-            ← {copy.t('campBack')}
-          </a>
-        )}
+        <h2>{copy.t('campNoneTitle')}</h2>
+        <p>{copy.t('campNoneBody')}</p>
       </section>
       <section className="pub-card" aria-labelledby="camp-today">
         <h2 id="camp-today">{copy.t('campTodayTitle')}</h2>

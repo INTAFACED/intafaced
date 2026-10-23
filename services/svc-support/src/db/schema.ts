@@ -208,10 +208,39 @@ export const kbFeedback = schema.table(
     userId: text('user_id').notNull(),
     helpful: boolean('helpful').notNull(),
     clientRequestId: text('client_request_id').notNull(),
+    /** Set when the reader added a comment. Never required for a plain vote. */
+    comment: text('comment'),
+    /** The request opened from an unhelpful vote, when they asked for one. */
+    ticketId: uuid('ticket_id').references(() => tickets.id, { onDelete: 'restrict' }),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('kb_feedback_user_article_version_idx').on(t.userId, t.articleId, t.version),
     uniqueIndex('kb_feedback_user_request_idx').on(t.userId, t.clientRequestId),
+    index('kb_feedback_reader_at_idx').on(t.userId, t.createdAt),
   ],
+);
+
+/**
+ * A search that found nothing. The query, a zero count and the time.
+ * No reader column: the log must not identify who searched.
+ */
+export const kbSearchMisses = schema.table('kb_search_misses', {
+  id: pk(),
+  query: text('query').notNull(),
+  resultCount: integer('result_count').notNull().default(0),
+  createdAt: createdAt(),
+});
+
+/** A click on a search result, keyed by the caller's request id. No reader column. */
+export const kbSearchClicks = schema.table(
+  'kb_search_clicks',
+  {
+    id: pk(),
+    query: text('query').notNull(),
+    articleId: text('article_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('kb_search_clicks_request_uq').on(t.clientRequestId)],
 );

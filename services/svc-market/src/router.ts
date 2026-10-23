@@ -157,12 +157,13 @@ function mapError(err: unknown): never {
     // simply taken. Retrying after a release is correct client behaviour and a
     // 403 would tell them not to.
     if (err.code === 'market.slots_exhausted') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
-    if (err.code === 'market.stake_unavailable') {
+    if (err.code === 'market.stake_unavailable' || err.code === 'market.vendor_listing_count_unreadable') {
       // OUR infrastructure, not the caller's request, and the distinction
       // matters to a client: a 403 sends somebody off to go and stake, and
       // telling them that because svc-token was unreachable sends them to do
       // something they have already done. A 500 says "try again". Same mapping,
-      // and the same reasoning, as `academy.stake_unavailable`.
+      // and the same reasoning, as `academy.stake_unavailable`. An unreadable
+      // active-listing count is the same class: the row is there, the count is not.
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message, cause: err });
     }
     if (
@@ -242,6 +243,37 @@ export const listingOut = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+
+/**
+ * A listing stores no copy-leader, bot or signal id, so this read has no
+ * performance source. `reported: false` carries no figure.
+ */
+const NO_LISTING_PERFORMANCE = { reported: false } as const;
+
+/** Public listing detail. Strict so a seller user id cannot ride along. */
+export const listingDetailOut = z
+  .object({
+    listing: listingOut.strict(),
+    vendor: publicVendorOut.strict(),
+    activeListingCount: z.number().int().positive(),
+    reviews: z
+      .object({
+        count: z.string().regex(/^(0|[1-9][0-9]*)$/),
+        mean: z.string().nullable(),
+        meanRounding: z.literal(REVIEW_MEAN_ROUNDING),
+      })
+      .strict(),
+    terms: z
+      .object({
+        offerType: z.enum(['one_time', 'subscription']),
+        assetId: z.string(),
+        price: z.string(),
+        periodSeconds: z.number().int().positive().nullable(),
+      })
+      .strict(),
+    performance: z.object({ reported: z.literal(false) }).strict(),
+  })
+  .strict();
 
 const purchaseOut = z.object({
   id: z.string().uuid(),
@@ -899,6 +931,40 @@ export function createMarketRouter(
         mapError(err);
       }
     }),
+
+    /**
+     * One shopfront listing by id (MC-market-01). Public, like `listings`.
+     * Unknown and not-on-the-shopfront are both `market.listing_not_found`.
+     * Blank commission is `market.commission_not_configured`, before the read.
+     * No seller user id. Performance is unreported: there is no source id to read.
+     */
+    listing: publicProcedure
+      .input(z.object({ listingId: z.string().uuid() }))
+      .output(listingDetailOut)
+      .query(async ({ input }) => {
+        requireCommerce(commerce);
+        try {
+          const detail = await commerce.publicListing(input.listingId);
+          if (!detail) throw new MarketError('market.listing_not_found', 'market.listing_not_found');
+          requireReviews(reviews);
+          const summary = await reviews.summaryForListing(input.listingId);
+          return {
+            listing: detail.listing,
+            vendor: detail.vendor,
+            activeListingCount: detail.activeListingCount,
+            reviews: summary,
+            terms: {
+              offerType: detail.listing.offerType,
+              assetId: detail.listing.assetId,
+              price: detail.listing.price,
+              periodSeconds: detail.listing.periodSeconds,
+            },
+            performance: NO_LISTING_PERFORMANCE,
+          };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
 
     /**
      * Public catalogue — empty when commission blank; else listed vendors only.
