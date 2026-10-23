@@ -599,7 +599,7 @@ export const postingFreeze = ledger.table(
 );
 
 /**
- * One row per operator read of an owner's account detail (0024). Append-only by trigger; written BEFORE the read is
+ * One row per operator read of an owner's account detail (0024) or lookup of one transaction (0026). Append-only by trigger; written BEFORE the read is
  * answered, so a read that cannot be recorded is refused.
  */
 export const operatorAccessLog = ledger.table(
@@ -618,7 +618,7 @@ export const operatorAccessLog = ledger.table(
   (t) => [
     index('operator_access_log_target_idx').on(t.targetOwnerType, t.targetOwnerId, t.accessedAt),
     check('operator_access_log_actor_ck', sql`length(actor_id) > 0`),
-    check('operator_access_log_action_ck', sql`action IN ('owner_balances.read')`),
+    check('operator_access_log_action_ck', sql`action IN ('owner_balances.read', 'transaction.read', 'trace.read')`),
   ],
 );
 

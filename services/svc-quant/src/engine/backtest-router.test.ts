@@ -211,6 +211,12 @@ describe('bar backtest disclosures and races', () => {
     const result = await a.backtest.start(request(strategy.id));
     expect(result.fillTiming).toBe('next_open');
     expect(result.assumptions).toEqual(['long_only', 'averages_over_traded_bars', 'risk_limits_not_simulated']);
+    // The report comes from the run's own trades: one round trip, 115 - 0.115 fee - (110 + 0.11 fee).
+    expect(result.metrics.roundTrips.map((trip) => trip.profit)).toEqual(['4.775']);
+    expect(result.metrics.trades.winRate).toEqual({ value: '100', reason: null });
+    expect(result.metrics.returns.sharpe).toEqual({ value: null, reason: 'quant.risk_free_unset' });
+    // A stored run read back carries the same report, derived again from what was stored.
+    expect((await a.backtest.result({ runId: result.runId })).metrics).toEqual(result.metrics);
   });
 
   it('answers two presses under one key with the one stored run', async () => {

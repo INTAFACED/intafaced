@@ -5,6 +5,9 @@ import { LedgerError } from '@intafaced/ledger-client';
 import { ASSET_EDIT_STALE, ASSET_OPERATION_CONFLICT, REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import { LOOKUP_UNRECORDED, LookupUnrecordedError, type LookupActor } from './ledger/operator-lookup.js';
+import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
+import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -49,7 +52,8 @@ import type { LedgerService } from './service.js';
  * one line each, and nothing reachable that is not named here.
  *
  * Routes: GET/POST `/operator/freeze`, POST `/operator/unfreeze`,
- * POST `/operator/reconcile`. Reconcile was the residual of the original
+ * POST `/operator/reconcile`, and the two object lookups GET
+ * `/operator/transactions/:txId` and GET `/operator/trace?businessKey=`. Reconcile was the residual of the original
  * freeze-only ship — freeze was wired first because halt is more urgent than
  * audit, and apps/admin kept an honest-simulated reconcile button until this
  * path existed for edge to proxy.
@@ -139,6 +143,21 @@ export function statusForAuthError(err: AuthError): number {
   }
 }
 
+/** The parts of a Fastify request the operator routes read. */
+interface OperatorRequest {
+  readonly headers: Record<string, string | string[] | undefined>;
+  readonly body: unknown;
+  readonly params?: unknown;
+  readonly query?: unknown;
+  readonly id?: string;
+}
+
+export { LOOKUP_UNRECORDED };
+/** A transaction id that is not a UUID, or a blank or over-long business key. Nothing was recorded or read. */
+export const LOOKUP_INPUT_INVALID = 'ledger.lookup_input_invalid' as const;
+/** A recorded lookup the ledger could not answer (the database did not respond, or the answer failed its schema). */
+export const LOOKUP_UNAVAILABLE = 'ledger.lookup_unavailable' as const;
+
 export function registerOperatorHttp(
   app: FastifyInstance,
   ledger: LedgerService,
@@ -156,8 +175,8 @@ export function registerOperatorHttp(
   };
 
   const guarded =
-    (handle: (operator: Principal, body: unknown) => Promise<unknown>) =>
-    async (req: { headers: Record<string, string | string[] | undefined>; body: unknown }, reply: FastifyReply) => {
+    (handle: (operator: Principal, body: unknown, req: OperatorRequest, reply: FastifyReply) => Promise<unknown>) =>
+    async (req: OperatorRequest, reply: FastifyReply) => {
       let operator: Principal;
       try {
         const header = req.headers.authorization;
@@ -168,7 +187,7 @@ export function registerOperatorHttp(
       }
 
       try {
-        return await handle(operator, req.body);
+        return await handle(operator, req.body, req, reply);
       } catch (err) {
         // Different attribution while already frozen: first reason stands
         // (STOP §4.2b #3). Must not look like a successful freeze — soft-200
@@ -304,6 +323,68 @@ export function registerOperatorHttp(
         );
       }
       return snapshot;
+    }),
+  );
+
+  /**
+   * Object lookup (OPS-rules-monitoring-12 on OPS-ledger-desk-01's reads): one booked transaction by its id, or the
+   * transaction a business key booked. Reads, never posts, and they answer while the posting freeze is on.
+   *
+   * Each lookup writes one `operator_access_log` row FIRST, inside the read function (`operator-lookup.ts`); a row that
+   * cannot be written refuses with 503 and reads nothing. An unknown transaction id is 404 `ledger.tx_not_found`; a key
+   * that never booked is an honest `found: false`. A read that fails after it was recorded is 503 with a fixed message,
+   * never a 400 that would blame the operator, and never the driver's text. Answers are checked against the same output
+   * schemas the tRPC procedures declare. Postings name opaque account ids only.
+   */
+  const lookup = <I, T>(spec: {
+    input: (req: OperatorRequest) => unknown;
+    inputSchema: z.ZodType<I>;
+    invalid: string;
+    read: (actor: LookupActor, input: I) => Promise<T>;
+    output: z.ZodType<T>;
+  }) =>
+    guarded(async (operator, _body, req, reply) => {
+      const input = spec.inputSchema.safeParse(spec.input(req));
+      if (!input.success) return reply.code(400).send({ message: spec.invalid, code: LOOKUP_INPUT_INVALID });
+      try {
+        return spec.output.parse(await spec.read({ actorId: operator.userId, requestId: req.id ?? null }, input.data));
+      } catch (err) {
+        if (err instanceof LookupUnrecordedError) {
+          app.log.error({ err, actor: operator.userId }, 'operator lookup refused: access row not written');
+          return reply.code(503).send({ message: 'The lookup could not be recorded, so it was not read.', code: LOOKUP_UNRECORDED });
+        }
+        if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
+          return reply.code(404).send({ message: 'No transaction has that id.', code: LEDGER_TX_NOT_FOUND });
+        }
+        if (err instanceof TraceInconsistentError) {
+          // The book's own integrity, not the operator's request: a server fault, as the tRPC procedure reports it.
+          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
+          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
+        }
+        app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
+        return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
+      }
+    });
+
+  app.get(
+    '/operator/transactions/:txId',
+    lookup({
+      input: (req) => ({ txId: (req.params as { txId?: unknown } | undefined)?.txId }),
+      inputSchema: operatorTxGetInputSchema,
+      invalid: 'A transaction id is a UUID.',
+      read: (actor, input) => operatorTxGet(ledger, actor, input),
+      output: operatorTxGetOutputSchema,
+    }),
+  );
+
+  app.get(
+    '/operator/trace',
+    lookup({
+      input: (req) => ({ businessKey: (req.query as { businessKey?: unknown } | undefined)?.businessKey }),
+      inputSchema: operatorTraceInputSchema,
+      invalid: 'A business key is 1 to 512 characters.',
+      read: (actor, input) => traceBusinessKey(ledger, actor, input),
+      output: operatorTraceOutputSchema,
     }),
   );
 

@@ -26,6 +26,7 @@ const core: ContractPart = {
     { method: 'notifications', run: (p) => p.notifications(undefined, false, '') },
     { method: 'unreadCount', run: (p) => p.unreadCount() },
     { method: 'preferences', run: (p) => p.preferences() },
+    { method: 'preferenceHistory', run: (p) => p.preferenceHistory(undefined) },
   ],
   notMocked: {
     userId: 'a value, not a call',

@@ -54,6 +54,7 @@ import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForEntry,
@@ -378,8 +379,13 @@ interface PresentExtras {
   markPrice?: string | null;
   markReason?: 'mark_missing' | 'mark_unusable' | 'mark_not_read' | null;
   realizedPnl?: string | null;
+  /** A closed matched position: the summed quantity of its applied reduce fills. */
+  closedSize?: string | null;
   maintenanceMargin?: string | null;
   maintenanceReason?: string | null;
+  /** The ladder's liquidation price at today's depth (`liquidation-price.ts`); shown only, never stored. */
+  liquidationPrice?: string | null;
+  liquidationReason?: string | null;
   replayed?: boolean;
 }
 
@@ -446,6 +452,17 @@ export class PositionService {
       throw new FuturesError('listing leverage cap is unset — refusing to invent a production leverage limit', LEVERAGE_CAP_UNSET, 503);
     }
     return this.maxLeverage;
+  }
+
+  /** The plane refusal an opening action would meet now, or null. The gated list shows it without throwing. */
+  futuresExposureRefusal(): { code: string; message: string } | null {
+    try {
+      this.refuseIfFuturesExposureOff();
+      return null;
+    } catch (err) {
+      if (err instanceof FuturesError) return { code: err.code, message: err.message };
+      throw err;
+    }
   }
 
   /**
@@ -1055,7 +1072,34 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    return Promise.all(rows.map((row) => this.presentListed(row)));
+    const realized = await this.matchedRealized(rows);
+    return Promise.all(rows.map((row) => this.presentListed(row, realized.get(row.id))));
+  }
+
+  /**
+   * A position closed by reduce-only orders through the book realised its result fill by fill: the sum of its applied
+   * reduce fills, each the amount that was paid, owed or booked (migration 0096). The row's accepted mark is only the
+   * last reduce's price, so it would report the last fill alone. Closed rows only; a liquidation also hands part to ADL.
+   */
+  private async matchedRealized(rows: readonly PositionRow[]): Promise<Map<string, { realizedPnl: string | null; closedSize: string }>> {
+    const ids = rows.filter((row) => row.status === 'closed').map((row) => row.id);
+    if (ids.length === 0) return new Map();
+    const sums = await this.sql<{ position_id: string; realized: string | null; closed: string }[]>`
+      SELECT position_id::text AS position_id, (CASE WHEN count(*) = count(realized_pnl) THEN sum(realized_pnl) END)::text AS realized, sum(qty)::text AS closed
+      FROM trade.futures_order_fills
+      WHERE kind = 'reduce' AND state = 'applied' AND position_id IN ${this.sql(ids)}
+      GROUP BY position_id
+    `;
+    // A fill with no recorded result (a liquidation fill keeps its result on the rung) leaves the sum unknown, never zero.
+    return new Map(
+      sums.map((row) => [
+        row.position_id,
+        {
+          realizedPnl: row.realized == null ? null : formatAmount(parseAmount(row.realized)),
+          closedSize: formatAmount(parseAmount(row.closed)),
+        },
+      ]),
+    );
   }
 
   /**
@@ -1075,7 +1119,8 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    return this.presentListed(row);
+    const realized = await this.matchedRealized([row]);
+    return this.presentListed(row, realized.get(row.id));
   }
 
   /**
@@ -2816,18 +2861,26 @@ export class PositionService {
     }
     let maintenanceMargin = extras?.maintenanceMargin;
     let maintenanceReason = extras?.maintenanceReason ?? null;
+    let liquidationPrice = extras?.liquidationPrice;
+    let liquidationReason = extras?.liquidationReason ?? null;
     // A settled row has no maintenance requirement. Do not read depth for it.
     if (row.status === 'closed' || row.status === 'liquidated') {
       maintenanceMargin = null;
       maintenanceReason = 'position_closed';
+      liquidationPrice = null;
+      liquidationReason = 'position_closed';
     } else if (maintenanceMargin === undefined) {
       if (markPrice == null) {
         maintenanceMargin = null;
         maintenanceReason = markReason;
+        liquidationPrice = null;
+        liquidationReason = markReason;
       } else {
         const maint = await this.maintenanceAt(row, parseAmount(markPrice));
         maintenanceMargin = maint.amount;
         maintenanceReason = maint.reason;
+        liquidationPrice = maint.liquidationPrice;
+        liquidationReason = maint.liquidationReason;
       }
     }
     return presentPosition(row, {
@@ -2836,22 +2889,43 @@ export class PositionService {
       markReason,
       maintenanceMargin,
       maintenanceReason,
+      ...(liquidationPrice === undefined ? {} : { liquidationPrice, liquidationReason }),
     });
   }
 
-  /** Same `planLadderRung` the liquidation tick plans with. No copied ladder. */
-  private async maintenanceAt(row: PositionRow, markPrice: Amount): Promise<{ amount: string | null; reason: string | null }> {
+  /**
+   * Same `planLadderRung` the liquidation tick plans with. No copied ladder. The liquidation price is read from the
+   * same policy and depth (`liquidation-price.ts`), so the two figures describe one ladder.
+   */
+  private async maintenanceAt(
+    row: PositionRow,
+    markPrice: Amount,
+  ): Promise<{ amount: string | null; reason: string | null; liquidationPrice: string | null; liquidationReason: string | null }> {
+    const none = (reason: string) => ({ amount: null, reason, liquidationPrice: null, liquidationReason: reason });
     const ladder = this.deps.ladder;
-    if (!ladder?.policy) return { amount: null, reason: 'maintenance_policy_unset' };
+    if (!ladder?.policy) return none('maintenance_policy_unset');
     let depthNotional: Amount | null;
     try {
       depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
-      return { amount: null, reason: 'depth_unknown' };
+      if (err instanceof FuturesLadderError) return none(err.code);
+      return none('depth_unknown');
     }
-    if (depthNotional == null || depthNotional <= 0n) return { amount: null, reason: 'depth_unknown' };
+    if (depthNotional == null || depthNotional <= 0n) return none('depth_unknown');
     try {
+      const margin = parseAmount(row.margin_current ?? row.margin_initial);
+      const liq = liquidationPriceFor({
+        side: row.side,
+        size: parseAmount(row.size),
+        entryPrice: parseAmount(row.entry_price),
+        margin,
+        depthNotional,
+        policy: ladder.policy,
+      });
+      const liquidation =
+        liq.price === null
+          ? { liquidationPrice: null, liquidationReason: liq.reason }
+          : { liquidationPrice: formatAmount(liq.price), liquidationReason: null };
       const rung = planLadderRung({
         position: {
           positionId: row.id,
@@ -2866,10 +2940,10 @@ export class PositionService {
         depthNotional,
         policy: ladder.policy,
       });
-      if (rung.action === 'refuse') return { amount: null, reason: rung.reason };
-      return { amount: formatAmount(rung.maintenanceRequired), reason: null };
+      if (rung.action === 'refuse') return { amount: null, reason: rung.reason, ...liquidation };
+      return { amount: formatAmount(rung.maintenanceRequired), reason: null, ...liquidation };
     } catch (err) {
-      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      if (err instanceof FuturesLadderError) return none(err.code);
       throw err;
     }
   }
@@ -2904,7 +2978,9 @@ function isoOf(value: Date | string | null | undefined): string | null {
 
 /** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
 export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
-  const size = parseAmount(row.size);
+  // A position closed by reduce fills through the book keeps the size of its last remainder on the row; what it closed
+  // in all is the sum of those fills, which is the size a closed position reports.
+  const size = extras?.closedSize != null ? parseAmount(extras.closedSize) : parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);
   // W4 R6: collateral = residual margin; initialMargin stays the open stake.
@@ -2915,7 +2991,8 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const SCALE = 10n ** 18n;
   const notional = (size * entry) / SCALE;
   const opened = row.opened_at instanceof Date ? row.opened_at : new Date(row.opened_at);
-  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null;
+  // A stored price wins; otherwise the ladder's price at today's depth, when the caller read one.
+  const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : (extras?.liquidationPrice ?? null);
 
   const markPrice = extras?.markPrice === undefined ? null : extras.markPrice;
   let markReason = extras?.markReason ?? null;
@@ -2982,6 +3059,10 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   const fieldReasons: Record<string, string> = {};
   if (markPrice == null && markReason) fieldReasons.markPrice = markReason;
   if (maintenanceMargin == null && maintenanceReason) fieldReasons.maintenanceMargin = maintenanceReason;
+  if (liq == null) {
+    const liquidationReason = settled ? 'position_closed' : (extras?.liquidationReason ?? maintenanceReason);
+    if (liquidationReason) fieldReasons.liquidationPrice = liquidationReason;
+  }
   if (unrealized == null && unrealizedReason) fieldReasons.unrealizedPnl = unrealizedReason;
   if (percentage == null && percentageReason) fieldReasons.percentage = percentageReason;
   if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;

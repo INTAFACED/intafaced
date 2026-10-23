@@ -1,6 +1,4 @@
-import { Arrives } from '../ExtensionTools';
 import { extensionCopy as c, portalCopy } from './copy';
-import { reason } from '../chrome/copy';
 import { useUnsavedForm } from '../useUnsavedForm';
 import { useCallback, useEffect, useState } from 'react';
 import { useResource, type Resource } from '../../../../shared/resource';
@@ -9,11 +7,14 @@ import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
 import { DateTime } from '../ui/DateTime';
 import { Gate, ListShell, MoreFooter, SelectField } from '../components';
-import { useCursorList, useUrlParam, type ListState } from '../hooks';
+import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../hooks';
+import { useSession } from '../../../session/session';
+import { Timeline } from '../ui/Timeline';
+import { actorName } from './account/actors';
 import { isDecimalThreshold } from './model';
 import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
-import { notificationKinds, type Notification, type NotificationKind, type Preference } from '../schemas';
+import { notificationKinds, type Notification, type NotificationKind, type Preference, type PreferenceChange } from '../schemas';
 
 type View = 'feed' | 'preferences';
 
@@ -28,6 +29,13 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
     (n) => n.notificationId,
   );
   const prefs = useResource((s) => portal.preferences(s), 'portal:notification-prefs');
+  const history = useCursorList(
+    (cursor, s) => portal.preferenceHistory(cursor, s),
+    'portal:notification-pref-history',
+    (e) => e.seq,
+  );
+  const names = useMemberNames(portal);
+  const { userId } = useSession();
   return (
     <NotificationsView
       portal={portal}
@@ -43,6 +51,11 @@ export function Notifications({ portal, preferencesOnly = false }: { portal: Por
       loadMore={feed.loadMore}
       reload={() => feed.reload()}
       reloadPrefs={prefs.reload}
+      history={history.state}
+      loadMoreHistory={history.loadMore}
+      reloadHistory={() => history.reload(true)}
+      names={names}
+      myUserId={userId}
     />
   );
 }
@@ -61,6 +74,11 @@ export function NotificationsView({
   loadMore,
   reload,
   reloadPrefs,
+  history,
+  loadMoreHistory,
+  reloadHistory,
+  names,
+  myUserId,
 }: {
   portal: PortalApi;
   hideTabs?: boolean;
@@ -75,6 +93,11 @@ export function NotificationsView({
   loadMore: () => void;
   reload: () => void;
   reloadPrefs: () => void;
+  history: ListState<PreferenceChange>;
+  loadMoreHistory: () => void;
+  reloadHistory: () => void;
+  names: ReadonlyMap<string, string>;
+  myUserId: string | null;
 }) {
   const { t } = portalCopy.useCopy();
   const [markState, setMarkState] = useState<'idle' | 'busy' | string>('idle');
@@ -156,13 +179,42 @@ export function NotificationsView({
             {t('inAppOnly')}
           </p>
           <Gate resource={prefs} retry={reloadPrefs} rows={4}>
-            {(rows) => <PreferenceRows rows={rows} portal={portal} />}
+            {(rows) => (
+              <PreferenceRows rows={rows} portal={portal} onSaved={reloadHistory} actor={(id) => actorName(id, myUserId, names)} />
+            )}
           </Gate>
-          <Arrives reason={reason('reasonHistory')}>{c.t('preferenceAuditGap')}</Arrives>
+        </PaySection>
+      )}
+      {view === 'preferences' && (
+        <PaySection title={c.t('prefHistoryTitle')} description={c.t('prefHistoryBody')}>
+          <ListShell
+            state={history}
+            retry={reloadHistory}
+            empty={{ title: c.t('prefHistoryEmptyTitle'), body: c.t('prefHistoryEmptyBody') }}
+          >
+            {(events) => (
+              <>
+                <Timeline
+                  label={c.t('prefHistoryTitle')}
+                  items={events.map((e) => ({
+                    at: e.createdAt,
+                    title: changeTitle(e, t(`notifKind_${e.kind}` as 'notifKind_dispute_due')),
+                    detail: t('byActor', { actor: actorName(e.actorId, myUserId, names) }),
+                  }))}
+                />
+                {history.status === 'ready' && <MoreFooter state={history} onMore={loadMoreHistory} />}
+              </>
+            )}
+          </ListShell>
         </PaySection>
       )}
     </div>
   );
+}
+
+function changeTitle(e: PreferenceChange, kind: string): string {
+  if (!e.inApp) return c.t('prefTurnedOff', { kind });
+  return e.threshold ? c.t('prefTurnedOnAt', { kind, threshold: e.threshold }) : c.t('prefTurnedOn', { kind });
 }
 
 const subjectHref = (n: Notification): string | null => {
@@ -222,10 +274,14 @@ function PrefRow({
   pref,
   portal,
   onDirty,
+  onSaved,
+  actor,
 }: {
   pref: Preference;
   portal: PortalApi;
   onDirty: (kind: NotificationKind, dirty: boolean) => void;
+  onSaved: () => void;
+  actor: (id: string) => string;
 }) {
   const { t } = portalCopy.useCopy();
   const [saved, setSaved] = useState(pref);
@@ -247,7 +303,8 @@ function PrefRow({
         <p className="muted">{t(`notifHelp_${kind}` as 'notifHelp_dispute_due')}</p>
         {saved.updatedAt && (
           <small className="muted">
-            {c.t('preferenceChanged')} <DateTime value={saved.updatedAt} />
+            {saved.updatedBy ? c.t('preferenceChangedBy', { actor: actor(saved.updatedBy) }) : c.t('preferenceChanged')}{' '}
+            <DateTime value={saved.updatedAt} />
           </small>
         )}
         {hasThreshold && (
@@ -276,7 +333,10 @@ function PrefRow({
               inApp: on,
               ...(hasThreshold ? { threshold: threshold.trim() === '' ? null : threshold.trim() } : {}),
             });
-            if (result.ok) setSaved(result.data);
+            if (result.ok) {
+              setSaved(result.data);
+              onSaved();
+            }
             setState(result.ok ? 'saved' : refusalText(result));
           }}
         >
@@ -297,7 +357,17 @@ function PrefRow({
   );
 }
 
-function PreferenceRows({ rows, portal }: { rows: Preference[]; portal: PortalApi }) {
+function PreferenceRows({
+  rows,
+  portal,
+  onSaved,
+  actor,
+}: {
+  rows: Preference[];
+  portal: PortalApi;
+  onSaved: () => void;
+  actor: (id: string) => string;
+}) {
   const [dirtyKinds, setDirtyKinds] = useState<ReadonlySet<NotificationKind>>(() => new Set());
   const onDirty = useCallback((kind: NotificationKind, dirty: boolean) => {
     setDirtyKinds((current) => {
@@ -312,7 +382,7 @@ function PreferenceRows({ rows, portal }: { rows: Preference[]; portal: PortalAp
   return (
     <ul className="pp-prefs">
       {rows.map((pref) => (
-        <PrefRow key={pref.kind} pref={pref} portal={portal} onDirty={onDirty} />
+        <PrefRow key={pref.kind} pref={pref} portal={portal} onDirty={onDirty} onSaved={onSaved} actor={actor} />
       ))}
     </ul>
   );

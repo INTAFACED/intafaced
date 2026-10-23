@@ -72,6 +72,9 @@ import {
 import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-ledger.js';
 import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
 import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
+import { attemptFromRailAuthorize, type PaymentAttemptView } from './payments/attempts.js';
+import { boundAmount } from './payments/amounts.js';
+import { paymentListSummaryFromText, type PaymentListSummary } from './payments/list-summary.js';
 import { safeFailure, type MerchantFailure } from './merchant-failure.js';
 import { assertPayoutReserveWired } from './control/reserve.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
@@ -364,6 +367,12 @@ export type PayErrorCode =
   | 'pay.list_search_invalid'
   | 'pay.list_asset_invalid'
   | 'pay.list_range_invalid'
+  /** Amount filter was blank or not a decimal string. Not treated as zero. */
+  | 'pay.list_amount_invalid'
+  /** amountMin is above amountMax. */
+  | 'pay.list_amount_range_invalid'
+  /** The count query did not return integer text. The page is not guessed. */
+  | 'pay.list_summary_unreadable'
   /** A stored checkout profile is not an object, or its domain list is not strings. */
   | 'pay.checkout_settings_unreadable'
   // ── User money in and out (`user-money-service.ts`) ──
@@ -823,6 +832,8 @@ export interface PaymentRead extends PaymentView {
 export interface PaymentPage {
   items: PaymentRead[];
   nextCursor: string | null;
+  /** Every row matching the filter, including rows past this page. */
+  summary: PaymentListSummary;
 }
 
 export interface PaymentEventRecord {
@@ -1615,13 +1626,16 @@ export class PayService {
    * Status is whatever `payments.status` currently projects from `payment_events`.
    *
    * Pages are keyset-ordered by `(created_at, id)` descending. Search matches the
-   * payment id, the rail reference, or the customer reference stored on the
-   * created event. The fee snapshot and failure are the stored rows, or null.
+   * payment id, the rail reference, the customer reference, or the merchant
+   * reference (`metadata.reference` on the created event). It does not match a
+   * name, an email, or any other metadata key. The fee snapshot and failure
+   * are the stored rows, or null.
    *
-   * `linkId` keeps payments whose checkout session names that link. The seek
-   * uses `checkout_sessions_link_status_idx` (`link_id`, `status`). A link that
-   * is missing or belongs to another merchant matches no session of this
-   * merchant, so the page is empty. That is not an error.
+   * `summary` counts every row of the filter, not this page. `linkId` keeps
+   * payments whose checkout session names that link. The seek uses
+   * `checkout_sessions_link_status_idx` (`link_id`, `status`). A link that is
+   * missing or belongs to another merchant matches no session of this merchant,
+   * so the page is empty. That is not an error.
    */
   async listPayments(input: {
     merchantId: string;
@@ -1633,6 +1647,8 @@ export class PayService {
     from?: string;
     to?: string;
     linkId?: string;
+    amountMin?: string;
+    amountMax?: string;
     /**
      * Sandbox keys pass `sandbox` so the page and its cursor are chosen from
      * sandbox rails only. Filtering after the page would let `nextCursor`
@@ -1644,6 +1660,18 @@ export class PayService {
     const limit = assertPaymentListLimit(input.limit);
     const filters = listFilters(input);
     this.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+    const min = boundAmount(input.amountMin);
+    const max = boundAmount(input.amountMax);
+    if (min.kind === 'invalid' || max.kind === 'invalid') {
+      throw new PayError('Payment amount filter is blank or not a decimal string', 'pay.list_amount_invalid');
+    }
+    if (min.kind === 'amount' && max.kind === 'amount' && min.scaled > max.scaled) {
+      throw new PayError('Payment amount filter starts above its end', 'pay.list_amount_range_invalid');
+    }
+    const amountMin = min.kind === 'amount' ? min.canonical : '0';
+    const amountMax = max.kind === 'amount' ? max.canonical : '0';
+    const hasMin = min.kind === 'amount';
+    const hasMax = max.kind === 'amount';
     const cursorAt = filters.cursor?.createdAtCursor ?? null;
     const cursorId = filters.cursor?.id ?? null;
     const sandboxOnly = input.railMode === 'sandbox';
@@ -1658,26 +1686,36 @@ export class PayService {
                 AND s.merchant_id = ${input.merchantId}
                 AND s.payment_id IS NOT NULL
            )`;
+    const match = this.sql`
+      p.merchant_id = ${input.merchantId}
+      ${linkFilter}
+      AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
+      AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
+      AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
+      AND (${filters.from}::timestamptz IS NULL OR p.created_at >= ${filters.from})
+      AND (${filters.to}::timestamptz IS NULL OR p.created_at < ${filters.to})
+      AND (${hasMin}::boolean = false OR p.amount >= ${amountMin}::numeric)
+      AND (${hasMax}::boolean = false OR p.amount <= ${amountMax}::numeric)
+      AND (
+        ${filters.search}::text IS NULL
+        OR p.id::text = lower(${filters.search})
+        OR p.rail_ref = ${filters.search}
+        OR EXISTS (
+          SELECT 1 FROM pay.payment_events e
+           WHERE e.payment_id = p.id
+             AND e.event = 'created'
+             AND (
+               e.payload->>'customerRef' = ${filters.search}
+               OR e.payload->'metadata'->>'reference' = ${filters.search}
+             )
+        )
+      )
+    `;
     const rows = await this.sql<Array<PaymentRow & { created_at_cursor: string }>>`
       SELECT p.id, p.merchant_id, p.profile_id, p.amount::text, p.currency, p.method, p.rail_adapter, p.rail_ref, p.status, p.created_at,
              to_char(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payments p
-       WHERE p.merchant_id = ${input.merchantId}
-         ${linkFilter}
-         AND (${sandboxOnly}::boolean = false OR right(p.rail_adapter, 8) = '-sandbox')
-         AND (${input.status ?? null}::text IS NULL OR p.status::text = ${input.status ?? null})
-         AND (${filters.assetId}::text IS NULL OR p.currency = ${filters.assetId})
-         AND (${filters.from}::timestamptz IS NULL OR p.created_at >= ${filters.from})
-         AND (${filters.to}::timestamptz IS NULL OR p.created_at < ${filters.to})
-         AND (
-           ${filters.search}::text IS NULL
-           OR p.id::text = lower(${filters.search})
-           OR p.rail_ref = ${filters.search}
-           OR EXISTS (
-             SELECT 1 FROM pay.payment_events e
-              WHERE e.payment_id = p.id AND e.event = 'created' AND e.payload->>'customerRef' = ${filters.search}
-           )
-         )
+       WHERE ${match}
          AND (
            ${cursorAt}::timestamptz IS NULL
            OR (p.created_at, p.id) < (${cursorAt}::timestamptz, ${cursorId}::uuid)
@@ -1685,6 +1723,19 @@ export class PayService {
        ORDER BY p.created_at DESC, p.id DESC
        LIMIT ${limit + 1}
     `;
+    const [totals] = await this.sql<Array<{ matched: string; succeeded: string; failed: string }>>`
+      SELECT count(*)::text AS matched,
+             count(*) FILTER (WHERE p.status::text IN ('captured', 'settled', 'refunded', 'disputed'))::text AS succeeded,
+             count(*) FILTER (WHERE p.status::text = 'failed')::text AS failed
+        FROM pay.payments p
+       WHERE ${match}
+    `;
+    let summary: PaymentListSummary;
+    try {
+      summary = paymentListSummaryFromText(totals?.matched ?? '', totals?.succeeded ?? '', totals?.failed ?? '');
+    } catch {
+      throw new PayError('Payment list totals could not be read', 'pay.list_summary_unreadable');
+    }
     const pageRows = rows.slice(0, limit);
     const items: PaymentRead[] = [];
     const views: PaymentView[] = [];
@@ -1696,7 +1747,28 @@ export class PayService {
     }
     const last = pageRows[pageRows.length - 1];
     const nextCursor = rows.length > limit && last ? encodeListCursor(last.created_at_cursor, last.id) : null;
-    return { items, nextCursor };
+    return { items, nextCursor, summary };
+  }
+
+  /**
+   * Rail tries for one payment, oldest first. Each `rail.authorize` event is
+   * one try. An event that is not a readable rail result is left out, not
+   * invented. A payment that has not been sent to a rail has an empty list.
+   * The caller has already checked ownership.
+   */
+  async listPaymentAttempts(paymentId: string): Promise<PaymentAttemptView[]> {
+    const rows = await this.sql<Array<{ id: string; payload: unknown; ts: Date }>>`
+      SELECT id, payload, ts
+        FROM pay.payment_events
+       WHERE payment_id = ${paymentId} AND event = 'rail.authorize'
+       ORDER BY seq ASC
+    `;
+    const attempts: PaymentAttemptView[] = [];
+    for (const row of rows) {
+      const attempt = attemptFromRailAuthorize(row);
+      if (attempt) attempts.push(attempt);
+    }
+    return attempts;
   }
 
   /** Stored snapshot and safe failure for one payment. Null when nothing was recorded. */

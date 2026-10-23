@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { SecurityStepUpError, type SecurityStepUp } from './auth/security-step-up.js';
-import { SelfFreezeLift } from './auth/self-freeze-lift.js';
+import { SelfFreezeLift, SelfFreezeLiftError } from './auth/self-freeze-lift.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 
 const tokenConfig = {
@@ -39,10 +39,26 @@ describe('selfFreezeManage.lift door', () => {
   it('asks for the self_freeze_lift step-up and does not lift without it', async () => {
     const require = vi.fn().mockRejectedValue(new SecurityStepUpError('identity.step_up_required'));
     const lift = new SelfFreezeLift(vi.fn() as never, 0);
+    vi.spyOn(lift, 'assertDue').mockResolvedValue(undefined);
     const spy = vi.spyOn(lift, 'lift');
     const caller = createSelfFreezeLiftRouter(lift, { require } as unknown as SecurityStepUp).createCaller(await ctx());
     await expect(caller.selfFreezeManage.lift({ clientRequestId: 'c1' })).rejects.toBeTruthy();
     expect(require).toHaveBeenCalledWith(expect.anything(), 'identity.step_up.self_freeze_lift', { clientRequestId: 'c1' }, undefined);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('refuses too soon before spending any step-up approval', async () => {
+    const require = vi.fn();
+    const lift = new SelfFreezeLift(vi.fn() as never, 3600);
+    const availableAt = new Date('2026-10-23T00:00:00Z');
+    vi.spyOn(lift, 'assertDue').mockRejectedValue(new SelfFreezeLiftError('identity.self_freeze_lift_too_soon', availableAt));
+    const spy = vi.spyOn(lift, 'lift');
+    const caller = createSelfFreezeLiftRouter(lift, { require } as unknown as SecurityStepUp).createCaller(await ctx());
+    await expect(caller.selfFreezeManage.lift({ clientRequestId: 'c1' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'identity.self_freeze_lift_too_soon', availableAt: availableAt.toISOString() },
+    });
+    expect(require).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();
   });
 });
