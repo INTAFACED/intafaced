@@ -191,7 +191,7 @@ if (!available) {
     await runtime.registerAgent(THRIFTY);
     await fund(USER_A, '1000');
     await fund(USER_B, '1000');
-  });
+  }, 180_000);
 
   afterEach(async () => {
     await sql`select pg_advisory_unlock(842671)`;

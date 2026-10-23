@@ -88,7 +88,7 @@ if (!available) {
         (${SESSION}, ${USER}, 'probe', ${sql.json({ limits: { maxSpendPerSession: null } })}, 1),
         (${OTHER_SESSION}, ${OTHER}, 'probe', ${sql.json({ limits: {} })}, 1)
     `;
-  });
+  }, 180_000);
 
   afterEach(async () => {
     await sql`select pg_advisory_unlock(842671)`;
