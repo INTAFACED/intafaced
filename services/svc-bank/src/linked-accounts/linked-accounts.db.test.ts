@@ -58,7 +58,7 @@ describe('linked bank accounts (J-bank-02 #6)', () => {
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE bank.linked_bank_accounts`;
+    await sql`TRUNCATE bank.linked_bank_accounts CASCADE`;
     ledger = new MemoryLedger();
   });
 

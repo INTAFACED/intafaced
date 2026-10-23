@@ -390,6 +390,10 @@ export type BankErrorCode =
   | 'bank.linked_account_invalid'
   /** The customer has as many linked bank accounts as the owner's address-book cap allows. */
   | 'bank.linked_accounts_full'
+  /** The linked account is not verified: only a banking partner (`rail.bank`) can verify it, so it cannot be cashed out to. */
+  | 'bank.linked_account_unverified'
+  /** The amount to cash out is more than the ledger's available balance for the asset. Nothing was kept. */
+  | 'bank.cash_out_over_available'
   /** No linked bank account of this customer has this id. */
   | 'bank.linked_account_not_found'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
