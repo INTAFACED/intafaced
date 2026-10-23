@@ -100,8 +100,9 @@ export function finishInvitation(original: InvitationRecord): boolean {
   );
 }
 
-/** Exact ShareService refusals before UPDATE hits. Referral errors happen after the hit
- * and have no safe before-effect classification, including generic HTTP4xx/5xx. */
+/** Known final answers: exact ShareService refusals before the visit counts, and the named referral refusals
+ * (CM-referral-01), each a typed code with its own status, after which nothing was attached. A self-referral is
+ * refused before the visit counts; the others after it. Any other 4xx/5xx stays unknown. */
 export function isInvitationRefusal(answer: ApiResult<unknown>): boolean {
   if (answer.ok || answer.messageCopy) return false;
   switch (answer.code) {

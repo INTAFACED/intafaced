@@ -20,6 +20,7 @@ import {
   type CurrentReferrer,
   type InvitationJournal,
   type InvitationRecord,
+  type ReferralRefusal,
 } from './invitation-guards';
 import './invitation.css';
 
@@ -38,6 +39,14 @@ type CurrentRead = { context: Context } & (
   { status: 'loading' } | { status: 'ready'; data: CurrentReferrer } | { status: 'failed'; failure: FailureResult }
 );
 const emptyJournal: InvitationJournal = { records: [], failed: false };
+const REFUSAL_COPY = {
+  'referral.self': 'refusalSelf',
+  'referral.already_set': 'refusalAlreadySet',
+  'referral.cycle': 'refusalCycle',
+  'referral.depth': 'refusalDepth',
+  'referral.attach_window_closed': 'refusalWindowClosed',
+  'referral.attach_window_unset': 'refusalWindowNotSet',
+} as const satisfies Record<ReferralRefusal, string>;
 
 export function Invitation() {
   useLocation();
@@ -113,7 +122,7 @@ export function Invitation() {
   const knownBody = (receipt: Receipt) => {
     if (receipt.answer.ok) return receipt.answer.data.attributed ? 'attributedBody' : 'checkedBody';
     const refusal = referralRefusal(receipt.answer.code);
-    return refusal ? (`refusal.${refusal}` as const) : 'refusedBody';
+    return refusal ? REFUSAL_COPY[refusal] : 'refusedBody';
   };
 
   function discardPrivate() {

@@ -129,10 +129,10 @@ if (!available) {
       expect(edge.userId).toBe(OLD);
     });
 
-    it('reads the account creation time for the window screen', async () => {
-      const created = await referral.accountCreatedAt(OLD);
-      expect(Date.now() - created!.getTime()).toBeGreaterThanOrEqual(3_599_000);
-      expect(await referral.accountCreatedAt('dddddddd-dddd-4ddd-8ddd-dddddddddddd')).toBeNull();
+    it('reads the account creation time and the database clock for the window screen', async () => {
+      const age = await referral.accountAge(OLD);
+      expect(age!.now.getTime() - age!.createdAt.getTime()).toBeGreaterThanOrEqual(3_599_000);
+      expect(await referral.accountAge('dddddddd-dddd-4ddd-8ddd-dddddddddddd')).toBeNull();
     });
   });
 
@@ -157,6 +157,14 @@ if (!available) {
       const codes = new ReferralCodeService(db.sql, 8, () => draws.shift()!);
       expect((await codes.createCode(REF)).code).toBe('AAAAAAAA');
       expect((await codes.createCode(FRIEND)).code).toBe('BBBBBBBB');
+    });
+
+    it('when every draw collides it refuses by name and makes nothing', async () => {
+      await new ReferralCodeService(db.sql, 8, () => 'CCCCCCCC').createCode(REF);
+      await expect(new ReferralCodeService(db.sql, 8, () => 'CCCCCCCC').createCode(FRIEND)).rejects.toMatchObject({
+        code: 'referral.code_exhausted',
+      });
+      expect(await new ReferralCodeService(db.sql, 8).codeOf(FRIEND)).toBeNull();
     });
 
     it('a person who already has a code keeps it even while the length is blank', async () => {

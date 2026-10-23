@@ -162,7 +162,7 @@ export class ReferralService {
   async attribute(
     input: { userId: string; referrerId: string },
     /** Set for a link attach after sign-up (CM-referral-01): the owner window, blank refusing. Sign-up completion omits it. */
-    late?: { readonly windowSeconds: number | undefined; readonly now?: Date },
+    late?: { readonly windowSeconds: number | undefined },
   ): Promise<ReferralEdge> {
     const userId = input.userId.trim();
     const referrerId = input.referrerId.trim();
@@ -189,8 +189,10 @@ export class ReferralService {
             throw new ReferralError('Referral already set for this user', 'referral.already_set');
           }
           if (late) {
-            const created = await tx<Array<{ created_at: Date }>>`SELECT created_at FROM users WHERE id = ${userId}`;
-            assertAttachWindowOpen(created[0]!.created_at, late.windowSeconds, late.now ?? new Date());
+            // Both instants from the database, so the app host's clock cannot move the window edge.
+            const [row] = await tx<Array<{ created_at: Date; now: Date }>>`SELECT created_at, now() AS now FROM users WHERE id = ${userId}`;
+            if (!row) throw new ReferralError('Referrer is not a known user', 'referral.unknown_referrer');
+            assertAttachWindowOpen(row.created_at, late.windowSeconds, row.now);
           }
           if (wouldCreateCycle(parent, userId, referrerId)) {
             throw new ReferralError('Referral would create a cycle', 'referral.cycle');
@@ -256,10 +258,10 @@ export class ReferralService {
     };
   }
 
-  /** When the account was made, for the attach-window read; null for an unknown account. */
-  async accountCreatedAt(userId: string): Promise<Date | null> {
-    const rows = await this.sql<Array<{ created_at: Date }>>`SELECT created_at FROM users WHERE id = ${userId}`;
-    return rows[0]?.created_at ?? null;
+  /** When the account was made and the database's now, for the attach-window read; null for an unknown account. */
+  async accountAge(userId: string): Promise<{ createdAt: Date; now: Date } | null> {
+    const rows = await this.sql<Array<{ created_at: Date; now: Date }>>`SELECT created_at, now() AS now FROM users WHERE id = ${userId}`;
+    return rows[0] ? { createdAt: rows[0].created_at, now: rows[0].now } : null;
   }
 
   async ancestorsOf(userId: string): Promise<string[]> {

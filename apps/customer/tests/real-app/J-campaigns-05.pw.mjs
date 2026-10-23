@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, journeyState } from './stack.mjs';
+import { randomBytes } from 'node:crypto';
+import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-campaigns-05, in the running app (docs/roadmap/journeys.json): I get my referral link and bring a friend. One test
@@ -35,6 +36,28 @@ async function identity(who, procedure, input = {}) {
     data: res.body?.result?.data,
     code: res.body?.error?.data?.intafacedCode ?? res.body?.error?.data?.cause?.code ?? res.body?.error?.data?.code,
   };
+}
+
+/** The friend signs up from the invitation's own "Create account" link (details, then the mailed code) and lands back
+ * on the invitation, as the sign-up page sends a person who came from one. */
+async function signUpFromInvitation(page, token) {
+  const handle = `jc5f${Date.now().toString(36)}`;
+  const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+  await page.goto(`/invite?token=${token}`);
+  await page.getByRole('link', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(`/register?invite=${token}`);
+  const seen = mailedCodes(who.email).length;
+  await page.getByLabel('Email address').fill(who.email);
+  await page.getByLabel('Handle').fill(who.handle);
+  await page.getByLabel('Password').fill(who.password);
+  await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByLabel('Date of birth').fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.getByLabel('Code from the email').fill(await nextMailedCode(who.email, seen));
+  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await expect(page).toHaveURL(`/invite?token=${token}`);
+  return who;
 }
 
 /** Opens an invitation link signed in as the page's person, reviews it and accepts; returns the outcome card. */
@@ -115,14 +138,13 @@ test(`${J} #4 my friend signs up from the link and is attached to me once`, asyn
   expect(me.data.token).toBe(token);
   const referrerId = me.data.referrerId;
 
-  // The friend opens the link signed out, creates an account from it and lands back on the invitation.
+  // The friend opens the link signed out, creates an account from it and lands back on the invitation. The account is
+  // made with the link's referrer (sign-up completion, outside the late-attach window); accepting confirms it.
   const friendContext = await browser.newContext();
   const friendPage = await friendContext.newPage();
-  await friendPage.goto(`/invite?token=${token}`);
-  await expect(friendPage.getByRole('link', { name: 'Create account' })).toHaveAttribute('href', `/register?invite=${token}`);
-  const friend = await signUp(friendPage, 'jc5f');
+  const friend = await signUpFromInvitation(friendPage, token);
   run.write({ friend });
-  await friendPage.goto(`/invite?token=${token}`);
+  expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data.referrerId).toBe(referrerId);
   await expect(
     friendPage.getByRole('status').filter({ hasText: 'can still attach a referrer through an invitation link until' }),
   ).toBeVisible();

@@ -23,7 +23,8 @@ export type ReferralErrorCode =
   | 'referral.invalid'
   | 'referral.attach_window_unset'
   | 'referral.attach_window_closed'
-  | 'referral.code_length_unset';
+  | 'referral.code_length_unset'
+  | 'referral.code_exhausted';
 
 export class ReferralError extends Error {
   constructor(

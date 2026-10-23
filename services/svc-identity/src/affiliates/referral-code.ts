@@ -71,6 +71,9 @@ export class ReferralCodeService {
       const raced = await this.codeOf(userId);
       if (raced) return raced;
     }
-    throw new Error('referral code draws kept colliding');
+    throw new ReferralError(
+      'No free referral code was found at the owner length; nothing was made [referral.code_exhausted]',
+      'referral.code_exhausted',
+    );
   }
 }

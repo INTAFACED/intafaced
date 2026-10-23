@@ -173,6 +173,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'referral.attach_window_unset':
       case 'referral.code_length_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'referral.code_exhausted':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
   }
 
@@ -997,6 +999,12 @@ export function createIdentityRouter(
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().uuid().optional(),
+            /**
+             * The invitation link the person signed up from (CM-referral-01, ENGINE RF-1): its referrer is attached when
+             * the account is made, outside the late-attach window. An unknown or revoked link names no one; it never
+             * blocks the sign-up.
+             */
+            inviteToken: z.string().uuid().optional(),
           }),
         )
         .output(signUpAccepted)
@@ -1010,8 +1018,9 @@ export function createIdentityRouter(
               );
             }
             if (!input.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter an email address.' });
-            const { channel: _channel, phone: _phone, email, ...rest } = input;
-            return await auth.signUpStart({ ...rest, email });
+            const { channel: _channel, phone: _phone, email, inviteToken, ...rest } = input;
+            const invitedBy = !rest.referrerId && inviteToken && share ? await share.referrerOf(inviteToken) : null;
+            return await auth.signUpStart({ ...rest, email, ...(invitedBy ? { referrerId: invitedBy } : {}) });
           } catch (err) {
             throw signUpTrpcError(err);
           }
@@ -2427,13 +2436,14 @@ export function createIdentityRouter(
         .output(z.object({ hits: z.number().int(), attributed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
+            // The link owner opening their own link is refused before it counts as a visit.
+            if (ctx.principal && (await requireShare().referrerOf(input.token)) === ctx.principal.userId) {
+              throw new ReferralError('Self-referral is refused', 'referral.self');
+            }
             const rec = await requireShare().shareHits(input.token);
             let attributed = false;
             if (ctx.principal) {
-              // The visit counts; a signed-in person then attaches once, and only to this link's referrer (J-campaigns-05 #4).
-              if (ctx.principal.userId === rec.referrerId) {
-                throw new ReferralError('Self-referral is refused', 'referral.self');
-              }
+              // A signed-in person attaches once, and only to this link's referrer (J-campaigns-05 #4).
               try {
                 await requireReferral().attribute({ userId: ctx.principal.userId, referrerId: rec.referrerId }, lateAttach());
                 attributed = true;
@@ -2514,9 +2524,9 @@ export function createIdentityRouter(
         )
         .query(async ({ ctx }) => {
           try {
-            const createdAt = await requireReferral().accountCreatedAt(ctx.principal.userId);
-            if (!createdAt) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
-            const status = attachWindowStatus(createdAt, options.referralAttachWindowSeconds, new Date());
+            const age = await requireReferral().accountAge(ctx.principal.userId);
+            if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
+            const status = attachWindowStatus(age.createdAt, options.referralAttachWindowSeconds, age.now);
             return {
               state: status.state,
               accountCreatedAt: status.accountCreatedAt.toISOString(),

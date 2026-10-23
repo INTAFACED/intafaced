@@ -2082,6 +2082,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       createShare: async (referrerId: string) => store.createShare(referrerId),
       revokeShare: async (referrerId: string) => store.revokeShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
+      referrerOf: async (token: string) => store.referrerOf(token),
     } as unknown as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }) => {
@@ -2137,7 +2138,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     expect(attributeCalls).toHaveLength(0);
   });
 
-  it('the link owner opening their own link is refused (referral.self) after the visit counts', async () => {
+  it('the link owner opening their own link is refused (referral.self) and counts no visit', async () => {
     const { api, attributeCalls } = shareRouter();
     const owner = api.createCaller(await ctx(['identity:write']));
     const created = await owner.affiliates.createShare();
@@ -2145,6 +2146,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     expect(codeOf(err)).toBe('CONFLICT');
     expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('referral.self');
     expect(attributeCalls).toHaveLength(0);
+    expect((await owner.affiliates.createShare()).hits).toBe(0);
   });
 
   it('a link attach runs under the owner attach window; same referrer again is the same relationship', async () => {
@@ -2157,6 +2159,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     const share = {
       createShare: async (referrerId: string) => store.createShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
+      referrerOf: async (token: string) => store.referrerOf(token),
     } as unknown as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }, late?: { windowSeconds: number | undefined }) => {
@@ -2183,7 +2186,9 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
 
   it('attachWindow reads unset while the owner window is blank, and open or closed from the account age', async () => {
     const created = new Date(Date.now() - 120_000);
-    const referral = { accountCreatedAt: async () => created } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const referral = {
+      accountAge: async () => ({ createdAt: created, now: new Date() }),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
     const unset = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral });
     expect(await unset.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
       state: 'unset',
@@ -2213,6 +2218,38 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       .catch((e: unknown) => e);
     expect(codeOf(err)).toBe('PRECONDITION_FAILED');
     expect((err as { message?: string }).message).toContain('referral.code_length_unset');
+  });
+
+  it('signUpStart from an invitation link names its referrer for the account; a revoked link names no one', async () => {
+    const { store } = shareRouter();
+    const live = store.createShare(USER);
+    const seen: Array<{ referrerId?: string }> = [];
+    const auth = {
+      ...stub.auth,
+      signUpStart: async (input: { referrerId?: string }) => {
+        seen.push(input);
+        return { accepted: true, next: 'confirm_email', flowId: '77777777-7777-4777-8777-777777777777', resendAfterSeconds: 60 };
+      },
+    } as unknown as typeof stub.auth;
+    const share = {
+      referrerOf: async (token: string) => store.referrerOf(token),
+    } as unknown as import('./affiliates/share-service.js').ShareService;
+    const api = createIdentityRouter(auth, stub.rank, { registrationOpen: true, share });
+    const anon = api.createCaller(await ctx([]));
+    const form = {
+      channel: 'email' as const,
+      handle: 'friend_one',
+      email: 'friend@example.com',
+      password: 'a-long-test-password',
+      country: 'DE',
+      dateOfBirth: '1990-05-01',
+      accountType: 'individual' as const,
+    };
+    await anon.auth.signUpStart({ ...form, inviteToken: live.token });
+    store.revokeShare(USER);
+    await anon.auth.signUpStart({ ...form, inviteToken: live.token });
+    expect(seen.map((input) => input.referrerId)).toEqual([USER, undefined]);
+    expect(seen.every((input) => !('inviteToken' in input))).toBe(true);
   });
 
   it('deleted profile refuses shareHits (share.profile_gone)', async () => {
