@@ -359,6 +359,25 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     expect(await avail(ALICE, 'USDT')).toBe('1000');
   });
 
+  it("accepts the engine's own self-trade mode said out loud, on the input or in the body, as the desk sends it", async () => {
+    const { bob } = await setup();
+    matching.scriptFills([{ makerOrderId: bob.id, makerAccountId: BOB, price: '100', qty: '1' }]);
+    const input = carryPlacementBody(bracketReq({ stpMode: 'cancel_maker' }) as never, {
+      ...bracketReq(),
+      stpMode: 'cancel_maker',
+    }) as never;
+    const entry = await trade.placeOrder(principalFor(ALICE), input);
+    expect(entry.status).toBe('filled');
+    expect(exitSubmits()).toHaveLength(1);
+  });
+
+  it('refuses any other self-trade mode on a bracket entry', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const input = carryPlacementBody(bracketReq() as never, { ...bracketReq(), stpMode: 'cancel_both' }) as never;
+    await expect(trade.placeOrder(principalFor(ALICE), input)).rejects.toMatchObject({ code: 'trade.order_type_unsupported' });
+    expect(matching.submitted).toHaveLength(0);
+  });
+
   it('a carried tif alias cannot turn the entry into a resting post-only order', async () => {
     await fund(ALICE, 'USDT', '1000');
     const input = carryPlacementBody(bracketReq() as never, { ...bracketReq(), timeInForce: 'IOC', tif: 'PO' }) as never;

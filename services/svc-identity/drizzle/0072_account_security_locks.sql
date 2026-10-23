@@ -2,7 +2,7 @@
 -- to withdrawal addresses, the password and verification. Not users.status (the staff freeze), not account_self_freezes
 -- and not the ledger freeze. One open lock per user. An unlock is a request: unlocks_at is fixed when it is asked for and
 -- never moved earlier; the lock holds until then.
--- Reversal: 0070_account_security_locks.down.sql
+-- Reversal: 0072_account_security_locks.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."account_security_locks" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

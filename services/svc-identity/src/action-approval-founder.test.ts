@@ -153,6 +153,7 @@ describe('audience table: what each registered approval type needs', () => {
     T('token.buyback.record', 'svc-token', 'token.buyback.record', 'founder'),
     T('identity.change_fee_tier', 'svc-identity', 'identity.change_fee_tier', 'founder'),
     T('identity.change_limit', 'svc-identity', 'identity.change_limit', 'founder'),
+    T('identity.account_tier_move', 'svc-identity', '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'founder'),
     T('affiliates.payout', 'svc-identity', 'affiliates.payout', 'founder'),
     // operator-level: judged not to move money or a venue (see the report)
     T('edge.kill', 'svc-edge', 'kill:trade', 'founder'),

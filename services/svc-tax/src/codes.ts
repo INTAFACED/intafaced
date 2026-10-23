@@ -23,6 +23,13 @@ export const TAX_LOT_BOOK_INCOMPLETE = 'tax.lot_book_incomplete' as const;
 /** More is open in lots than the customer holds: coins left another way, so their cost is unknown. */
 export const TAX_LOT_BOOK_UNRECONCILED = 'tax.lot_book_unreconciled' as const;
 
+/** Short or long term is a tax rule value the owner has not published; only days held is shown. */
+export const TAX_TERM_RULE_UNSET = 'tax.term_rule_unset' as const;
+/** How a deposit's cost is set (its value on arrival, or entered by the customer) is an owner policy that is not set. */
+export const TAX_DEPOSIT_BASIS_POLICY_UNSET = 'tax.deposit_basis_policy_unset' as const;
+/** No candle priced a coin at the time it arrived, so its value then is not known. */
+export const TAX_PRICE_AT_TIME_UNAVAILABLE = 'tax.price_at_time_unavailable' as const;
+
 export type TaxRefuseCode =
   | typeof TAX_JURISDICTION_UNMAPPED
   | typeof TAX_JURISDICTION_MAP_INVALID
@@ -39,7 +46,10 @@ export type TaxRefuseCode =
   | typeof TAX_EXPORT_INCOMPLETE
   | typeof TAX_HISTORY_YEARS_UNSET
   | typeof TAX_LOT_BOOK_INCOMPLETE
-  | typeof TAX_LOT_BOOK_UNRECONCILED;
+  | typeof TAX_LOT_BOOK_UNRECONCILED
+  | typeof TAX_TERM_RULE_UNSET
+  | typeof TAX_DEPOSIT_BASIS_POLICY_UNSET
+  | typeof TAX_PRICE_AT_TIME_UNAVAILABLE;
 
 export class TaxError extends Error {
   readonly code: TaxRefuseCode;

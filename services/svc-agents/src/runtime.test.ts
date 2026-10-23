@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { describe, expect, it, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
@@ -15,7 +15,9 @@ import { usageCost, windowCost } from './metering/pricing.js';
 import { MockModelProvider, mockUsage } from './providers/mock.js';
 import type { CompletionRequest } from './providers/provider.js';
 import { ProviderError, AgentError } from './errors.js';
-import { AgentRuntime, RefusedError } from './runtime.js';
+import { AgentRuntime, RefusedError, estimateInputTokens } from './runtime.js';
+import type { SpendGate } from './spend/gate.js';
+import { UserSpendStore } from './spend/store.js';
 import { hashAction } from './fleet/audit.js';
 import { createAgentsRouter } from './router.js';
 import type { AgentsRouterDeps } from './router.js';
@@ -140,8 +142,6 @@ if (!available) {
   // Owns its database, or does not run. Must precede the first migration.
   await assertTestDatabase(sql, 'svc-agents');
 
-  for (const migration of migrations) await sql.unsafe(migration);
-
   let ledger: MemoryLedger;
   let bus: MemoryEventBus;
   let provider: MockModelProvider;
@@ -171,9 +171,22 @@ if (!available) {
   const balanceOf = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, 'IFC'))).amount);
   const houseOf = async () => formatAmount((await ledger.balance(houseFees('agents', 'IFC'))).amount);
 
+  let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
+
+  beforeAll(async () => {
+    lockConn = await sql.reserve();
+    await lockConn`select pg_advisory_lock(842671)`;
+    try {
+      for (const migration of migrations) await sql.unsafe(migration);
+    } finally {
+      await lockConn`select pg_advisory_unlock(842671)`;
+    }
+  }, 120_000);
+
   beforeEach(async () => {
+    await lockConn`select pg_advisory_lock(842671)`;
     await sql`
-      TRUNCATE agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
+      TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
       RESTART IDENTITY CASCADE
     `;
 
@@ -188,9 +201,14 @@ if (!available) {
     await runtime.registerAgent(THRIFTY);
     await fund(USER_A, '1000');
     await fund(USER_B, '1000');
+  }, 30_000);
+
+  afterEach(async () => {
+    await lockConn`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {
+    lockConn.release();
     await sql.end({ timeout: 5 });
   });
 
@@ -1063,6 +1081,524 @@ if (!available) {
       expect(stored!.guardrail.limits.maxSpendPerSession).toBeNull();
       const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
       expect(rows).toHaveLength(2);
+    });
+
+    it('refuses a run when the user has set no spend limit, before the provider is called', async () => {
+      const session = await open();
+      const gated = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: new UserSpendStore(sql),
+      });
+      const before = provider.callCount;
+      await expect(
+        gated.think({ sessionId: session.id, requestId: 'no-user-cap', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({
+        refusal: { code: 'agents.spend_limit', userMessageKey: 'agents.refused.spend_limit_unset' },
+      });
+      expect(provider.callCount).toBe(before);
+      expect(ledger.totalsByAsset().IFC).toBe('0');
+    });
+
+    it('holds the route worst case, commits the real cost once, and refuses a second call that would pass the cap', async () => {
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'quick')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: 1 }, route.price);
+      const cap = formatAmount(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: cap,
+        perSession: cap,
+        perPeriod: cap,
+        period: 'day',
+        idempotencyKey: 'cap-once',
+      });
+      const session = await open();
+      const gated = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const result = await gated.think({
+        sessionId: session.id,
+        requestId: 'cap-a',
+        task: 'quick',
+        messages: MESSAGES,
+        maxOutputTokens: 1,
+      });
+      expect(typeof result.cost).toBe('bigint');
+      expect(result.cost).toBeLessThanOrEqual(worst);
+      const held = await sql<Array<{ status: string; n: string }>>`
+        SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
+      `;
+      expect(held).toEqual([{ status: 'committed', n: '1' }]);
+      await expect(
+        gated.think({ sessionId: session.id, requestId: 'cap-b', task: 'quick', messages: MESSAGES, maxOutputTokens: 1 }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+      expect(provider.callCount).toBe(before + 1);
+    });
+
+    it('an over-cap completion commits the hold, releases the claim, then refuses the text', async () => {
+      // The provider can outrun the worst case that was reserved. Throwing
+      // before the reservation finishes leaves the hold `held` and the meter
+      // claim stuck, so the same request id can never be retired.
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const { usage } = expectedUsage('plan');
+      const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
+      const inflated = usageCost(inflatedUsage, route.price);
+      expect(inflated).toBeGreaterThan(worst);
+      const cap = formatAmount(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: cap,
+        perSession: cap,
+        perPeriod: cap,
+        period: 'day',
+        idempotencyKey: 'over-cap',
+      });
+      const session = await open();
+      const wrapped = Object.create(gateway) as ModelGateway;
+      wrapped.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
+        const done = await gateway.complete(task, request);
+        return { ...done, result: { ...done.result, usage: inflatedUsage, text: 'over-cap secret' } };
+      };
+      const gated = new AgentRuntime(sql, wrapped, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, spend: store });
+      const before = provider.callCount;
+      await expect(gated.think({ sessionId: session.id, requestId: 'over-cap', task: 'plan', messages: MESSAGES })).rejects.toMatchObject({
+        refusal: {
+          code: 'agents.spend_limit',
+          userMessageKey: 'agents.refused.spend_cap',
+          userMessageParams: { limit: cap, asset: 'IFC', scope: 'call' },
+        },
+      });
+      expect(provider.callCount).toBe(before + 1);
+      const rows = await sql<Array<{ status: string; held: string; committed: string | null }>>`
+        SELECT status, amount::text AS held, committed_amount::text AS committed
+          FROM agents.spend_reservations
+         WHERE user_id = ${USER_A} AND reservation_key = 'over-cap'
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.status).toBe('committed');
+      expect(amt(rows[0]!.held)).toBe(worst);
+      expect(rows[0]!.committed).not.toBeNull();
+      expect(amt(rows[0]!.committed!)).toBe(worst);
+      expect(amt(rows[0]!.committed!)).not.toBe(inflated);
+      const claims = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM agents.think_claims WHERE session_id = ${session.id} AND request_id = 'over-cap'
+      `;
+      expect(claims[0]!.n).toBe('0');
+      const usageRows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usageRows).toHaveLength(0);
+      const log = await gated.sessionLog(session.id, 50);
+      expect(log.some((row) => row.status === 'executed' && row.outputDigest != null)).toBe(false);
+      expect(log.some((row) => row.kind === 'completion' && row.status === 'refused')).toBe(true);
+    });
+
+    function overCapGateway(): { gateway: ModelGateway; worst: bigint; cap: string } {
+      const route = TABLE.routes.find((row) => row.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const { usage } = expectedUsage('plan');
+      const inflatedUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens + 1_000_000 };
+      const wrapped = Object.create(gateway) as ModelGateway;
+      wrapped.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
+        const done = await gateway.complete(task, request);
+        return { ...done, result: { ...done.result, usage: inflatedUsage, text: 'over-cap secret' } };
+      };
+      return { gateway: wrapped, worst, cap: formatAmount(worst) };
+    }
+
+    function flakyCommit(store: UserSpendStore, failTimes: number, releaseError?: Error): SpendGate {
+      let commits = 0;
+      return {
+        reserve: (input) => store.reserve(input),
+        release: (input) => {
+          if (releaseError) return Promise.reject(releaseError);
+          return store.release(input);
+        },
+        commitIn: (tx, input) => {
+          commits += 1;
+          if (commits <= failTimes) return Promise.reject(new Error('commit unavailable'));
+          return store.commitIn(tx, input);
+        },
+      };
+    }
+
+    it('retries an over-cap commit without calling the provider again', async () => {
+      const store = new UserSpendStore(sql);
+      const inflated = overCapGateway();
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: inflated.cap,
+        perSession: inflated.cap,
+        perPeriod: inflated.cap,
+        period: 'day',
+        idempotencyKey: 'over-cap-retry',
+      });
+      const session = await open();
+      const gated = new AgentRuntime(sql, inflated.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: flakyCommit(store, 1),
+      });
+      const before = provider.callCount;
+      await expect(
+        gated.think({ sessionId: session.id, requestId: 'over-cap-retry', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({
+        refusal: { code: 'agents.spend_limit', userMessageKey: 'agents.refused.spend_cap' },
+      });
+      expect(provider.callCount).toBe(before + 1);
+      const rows = await sql<Array<{ status: string; committed: string | null }>>`
+        SELECT status, committed_amount::text AS committed
+          FROM agents.spend_reservations
+         WHERE user_id = ${USER_A} AND reservation_key = 'over-cap-retry'
+      `;
+      expect(rows[0]!.status).toBe('committed');
+      expect(amt(rows[0]!.committed!)).toBe(inflated.worst);
+      const claims = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM agents.think_claims WHERE session_id = ${session.id} AND request_id = 'over-cap-retry'
+      `;
+      expect(claims[0]!.n).toBe('0');
+    });
+
+    it('releases the claim and the hold together when an over-cap commit still fails', async () => {
+      const store = new UserSpendStore(sql);
+      const inflated = overCapGateway();
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: inflated.cap,
+        perSession: inflated.cap,
+        perPeriod: inflated.cap,
+        period: 'day',
+        idempotencyKey: 'over-cap-give-up',
+      });
+      const session = await open();
+      const gated = new AgentRuntime(sql, inflated.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: flakyCommit(store, 2, new Error('release unavailable')),
+      });
+      const before = provider.callCount;
+      await expect(gated.think({ sessionId: session.id, requestId: 'over-cap-give-up', task: 'plan', messages: MESSAGES })).rejects.toThrow(
+        'release unavailable',
+      );
+      expect(provider.callCount).toBe(before + 1);
+      const rows = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'over-cap-give-up'
+      `;
+      expect(rows[0]!.status).toBe('held');
+      const claims = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM agents.think_claims WHERE session_id = ${session.id} AND request_id = 'over-cap-give-up'
+      `;
+      expect(claims[0]!.n).toBe('0');
+    });
+
+    it('releases the hold when an over-cap commit cannot be retried', async () => {
+      const store = new UserSpendStore(sql);
+      const inflated = overCapGateway();
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: inflated.cap,
+        perSession: inflated.cap,
+        perPeriod: inflated.cap,
+        period: 'day',
+        idempotencyKey: 'over-cap-release',
+      });
+      const session = await open();
+      const gated = new AgentRuntime(sql, inflated.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: true,
+        spend: flakyCommit(store, 2),
+      });
+      const before = provider.callCount;
+      await expect(gated.think({ sessionId: session.id, requestId: 'over-cap-release', task: 'plan', messages: MESSAGES })).rejects.toThrow(
+        'commit unavailable',
+      );
+      expect(provider.callCount).toBe(before + 1);
+      const rows = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'over-cap-release'
+      `;
+      expect(rows[0]!.status).toBe('released');
+      const claims = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM agents.think_claims WHERE session_id = ${session.id} AND request_id = 'over-cap-release'
+      `;
+      expect(claims[0]!.n).toBe('0');
+    });
+
+    it('an unmetered run commits the real cost so the user cap accumulates', async () => {
+      // recorded ? cost : 0n commits zero while metering is off, so a second
+      // call still fits under a cap that the first call already spent.
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const { usage } = expectedUsage('plan');
+      const cost = usageCost(usage, route.price);
+      expect(cost).toBeGreaterThan(0n);
+      expect(cost).toBeLessThan(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: formatAmount(worst),
+        perSession: formatAmount(worst),
+        perPeriod: formatAmount(worst),
+        period: 'day',
+        idempotencyKey: 'unmetered-accum',
+      });
+      const session = await open();
+      const unbilled = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const result = await unbilled.think({ sessionId: session.id, requestId: 'unmetered-cost', task: 'plan', messages: MESSAGES });
+      expect(result.metered).toBe(false);
+      expect(result.cost).toBe(0n);
+      const rows = await sql<Array<{ status: string; committed: string | null }>>`
+        SELECT status, committed_amount::text AS committed
+          FROM agents.spend_reservations
+         WHERE user_id = ${USER_A} AND reservation_key = 'unmetered-cost'
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.status).toBe('committed');
+      expect(amt(rows[0]!.committed!)).toBe(cost);
+      expect(amt(rows[0]!.committed!)).not.toBe(0n);
+      const log = await unbilled.sessionLog(session.id, 50);
+      const executed = log.find((row) => row.kind === 'completion' && row.status === 'executed');
+      expect(executed?.cost).toBe(0n);
+      const usageRows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usageRows).toHaveLength(0);
+      const before = provider.callCount;
+      await expect(
+        unbilled.think({ sessionId: session.id, requestId: 'unmetered-cost-2', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+      expect(provider.callCount).toBe(before);
+    });
+
+    it('metering-off does not call the provider again on a committed hold that no longer fits', async () => {
+      // A committed row is not a free replay and not agents.request_id_replay.
+      // The next call needs its own hold, decided against the committed total.
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const cap = formatAmount(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: cap,
+        perSession: cap,
+        perPeriod: cap,
+        period: 'day',
+        idempotencyKey: 'off-replay-hold',
+      });
+      const session = await open();
+      const unbilled = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const first = await unbilled.think({
+        sessionId: session.id,
+        requestId: 'off-committed',
+        task: 'plan',
+        messages: MESSAGES,
+      });
+      expect(first.metered).toBe(false);
+      expect(first.cost).toBe(0n);
+      await expect(
+        unbilled.think({
+          sessionId: session.id,
+          requestId: 'off-committed',
+          task: 'plan',
+          messages: MESSAGES,
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+      expect(provider.callCount).toBe(before + 1);
+      const { usage } = expectedUsage('plan');
+      const cost = usageCost(usage, route.price);
+      const rows = await sql<Array<{ status: string; committed: string | null }>>`
+        SELECT status, committed_amount::text AS committed
+          FROM agents.spend_reservations
+         WHERE user_id = ${USER_A}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.status).toBe('committed');
+      expect(amt(rows[0]!.committed!)).toBe(cost);
+      const usageRows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usageRows).toHaveLength(0);
+      expect(await balanceOf(USER_A)).toBe('1000');
+      expect(await houseOf()).toBe('0');
+    });
+
+    it('metering-off repeats a request id only after a new hold that fits the committed total', async () => {
+      const store = new UserSpendStore(sql);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '1000',
+        perSession: '1000',
+        perPeriod: '1000',
+        period: 'day',
+        idempotencyKey: 'off-replay-fits',
+      });
+      const session = await open();
+      const unbilled = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const first = await unbilled.think({
+        sessionId: session.id,
+        requestId: 'off-fits',
+        task: 'plan',
+        messages: MESSAGES,
+      });
+      const second = await unbilled.think({
+        sessionId: session.id,
+        requestId: 'off-fits',
+        task: 'plan',
+        messages: MESSAGES,
+      });
+      expect(first.metered).toBe(false);
+      expect(second.metered).toBe(false);
+      expect(first.cost).toBe(0n);
+      expect(second.cost).toBe(0n);
+      expect(provider.callCount).toBe(before + 2);
+      const { usage, route } = expectedUsage('plan');
+      const cost = usageCost(usage, route.price);
+      const rows = await sql<Array<{ reservation_key: string; status: string; committed: string | null }>>`
+        SELECT reservation_key, status, committed_amount::text AS committed
+          FROM agents.spend_reservations
+         WHERE user_id = ${USER_A}
+         ORDER BY reservation_key
+      `;
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.reservation_key)).toEqual(['off-fits', 'off-fits:1']);
+      expect(rows.every((row) => row.status === 'committed')).toBe(true);
+      expect(amt(rows[0]!.committed!) + amt(rows[1]!.committed!)).toBe(cost + cost);
+      const usageRows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(usageRows).toHaveLength(0);
+    });
+
+    it('an in-flight hold does not authorize another provider call when a new one does not fit', async () => {
+      const store = new UserSpendStore(sql);
+      const route = TABLE.routes.find((row) => row.task === 'plan')!;
+      const worst = usageCost({ inputTokens: estimateInputTokens(undefined, MESSAGES), outputTokens: route.maxOutputTokens }, route.price);
+      const cap = formatAmount(worst);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: cap,
+        perSession: cap,
+        perPeriod: cap,
+        period: 'day',
+        idempotencyKey: 'off-inflight',
+      });
+      const session = await open();
+      await store.reserve({
+        userId: USER_A,
+        sessionId: session.id,
+        reservationKey: 'off-inflight',
+        assetId: 'IFC',
+        amount: cap,
+      });
+      const unbilled = new AgentRuntime(sql, gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const before = provider.callCount;
+      await expect(
+        unbilled.think({
+          sessionId: session.id,
+          requestId: 'off-inflight',
+          task: 'plan',
+          messages: MESSAGES,
+        }),
+      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
+      expect(provider.callCount).toBe(before);
+      const rows = await sql<Array<{ status: string; n: string }>>`
+        SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
+      `;
+      expect(rows).toEqual([{ status: 'held', n: '1' }]);
+    });
+
+    it('concurrent metering-off thinks with one request id call the provider once', async () => {
+      const store = new UserSpendStore(sql);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '1000',
+        perSession: '1000',
+        perPeriod: '1000',
+        period: 'day',
+        idempotencyKey: 'off-concurrent',
+      });
+      const session = await open();
+      const gate = gateComplete(gateway, 'first');
+      const unbilled = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const first = unbilled.think({ sessionId: session.id, requestId: 'off-same', task: 'plan', messages: MESSAGES });
+      await gate.ready;
+      await expect(
+        unbilled.think({ sessionId: session.id, requestId: 'off-same', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
+      expect(gate.entered()).toBe(1);
+      expect(provider.callCount).toBe(before);
+      gate.release();
+      const done = await first;
+      expect(done.metered).toBe(false);
+      expect(provider.callCount).toBe(before + 1);
+      const rows = await sql<Array<{ status: string; n: string }>>`
+        SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
+      `;
+      expect(rows).toEqual([{ status: 'committed', n: '1' }]);
+    });
+
+    it('reconcileSpendHolds releases an old hold only when an age is set', async () => {
+      const store = new UserSpendStore(sql);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '1000',
+        perSession: '1000',
+        perPeriod: '1000',
+        period: 'day',
+        idempotencyKey: 'reconcile-age',
+      });
+      const session = await open();
+      await store.reserve({
+        userId: USER_A,
+        sessionId: session.id,
+        reservationKey: 'stale-runtime',
+        assetId: 'IFC',
+        amount: '1',
+        now: new Date('2020-01-01T00:00:00Z'),
+      });
+      const gated = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, spend: store });
+      await expect(gated.reconcileSpendHolds('   ')).rejects.toMatchObject({ code: 'agents.spend_hold_max_age_unset' });
+      const rowsHeld = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'stale-runtime'
+      `;
+      expect(rowsHeld[0]?.status).toBe('held');
+      const released = await gated.reconcileSpendHolds('1', new Date());
+      expect(released.released).toBe(1);
+      const rows = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'stale-runtime'
+      `;
+      expect(rows[0]?.status).toBe('released');
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {

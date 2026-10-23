@@ -213,6 +213,13 @@ const schema = serviceEnvSchema
        * can be read.
        */
       IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
+      /**
+       * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
+       * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
+       * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
+       * refuses. A tier with a null term cannot be assigned (`identity.tier_terms_unset`).
+       */
+      IDENTITY_ACCOUNT_TIERS: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

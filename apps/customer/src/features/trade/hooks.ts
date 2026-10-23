@@ -1,5 +1,5 @@
 import { tradeRefusal, tradeCopy as copy } from './copy';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { LinkedDepth } from './depth';
@@ -139,22 +139,36 @@ export function useLinkedBook(api: TradeApi, market: Listing) {
     : { key: market.id, book: new LinkedDepth(market.id).read(), status: copy.t('loadingDepth'), failure: null };
 }
 export function useDeviceSetting<T>(key: string, initial: T, validate: (value: unknown) => value is T) {
-  const [value, setValue] = useState<T>(() => {
+  const read = (k: string): T => {
     try {
-      const stored: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+      const stored: unknown = JSON.parse(localStorage.getItem(k) ?? 'null');
       return validate(stored) ? stored : initial;
     } catch {
       return initial;
     }
-  });
+  };
+  const [state, setState] = useState<{ key: string; value: T }>(() => ({ key, value: read(key) }));
+  // When the key changes (another user signs in, another market), the value is read again in this same render, so the
+  // value held for the old key is never written under the new one.
+  let current = state;
+  if (state.key !== key) {
+    current = { key, value: read(key) };
+    setState(current);
+  }
   useEffect(() => {
+    if (state.key !== key) return;
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      localStorage.setItem(key, JSON.stringify(state.value));
     } catch {
       /* Display settings remain usable without browser storage. */
     }
-  }, [key, value]);
-  return [value, setValue] as const;
+  }, [key, state]);
+  const setValue = useCallback(
+    (next: T | ((prev: T) => T)) =>
+      setState((s) => ({ key: s.key, value: typeof next === 'function' ? (next as (prev: T) => T)(s.value) : next })),
+    [],
+  );
+  return [current.value, setValue] as const;
 }
 export function useTradeApi(factory: () => TradeApi, dependency: unknown) {
   return useMemo(factory, [dependency]);

@@ -234,10 +234,10 @@ describe('row detail and actions', () => {
     ]);
     const freezeHtml = renderToStaticMarkup(<AmbassadorActions row={rowOf(active)} userId={ME} onChanged={() => undefined} />);
     expect(freezeHtml).toContain('FREEZE AMBASSADOR 9f8e7d6c');
-    expect(freezeHtml).toContain('id="dk-reason"');
+    expect(freezeHtml).toMatch(/id="[^"]*dk-reason"/);
     const liftHtml = renderToStaticMarkup(<AmbassadorActions row={rowOf(frozen)} userId={ME} onChanged={() => undefined} />);
     expect(liftHtml).toContain('UNFREEZE AMBASSADOR 9f8e7d6c');
-    expect(liftHtml).not.toContain('id="dk-reason"');
+    expect(liftHtml).not.toMatch(/id="[^"]*dk-reason"/);
   });
 });
 
@@ -395,7 +395,7 @@ describe('academy decide residency and appoint ambassador', () => {
     expect(html).toContain('ACCEPT RESIDENCY 5a3b9c10');
     expect(html).toContain('Ask a second operator to approve: accept the application');
     expect(html).toContain('No note is sent');
-    expect(html).not.toContain('id="dk-reason"');
+    expect(html).not.toMatch(/id="[^"]*dk-reason"/);
   });
   it('a decided application has no decision to take', () => {
     const decided = okOutcome('academy', 'academy.residencies', [{ ...APPLICATION, status: 'accepted' }]);

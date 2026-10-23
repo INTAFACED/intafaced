@@ -59,6 +59,7 @@ export function BusinessSettings({ portal, merchantId }: { portal: PortalApi; me
       me={userId}
       names={names}
       mayEdit={mayEdit}
+      mayChangeRule={ready?.role === 'owner'}
       interactive={ready?.sessionInteractive ?? null}
       loadMoreHistory={history.loadMore}
       reload={() => {
@@ -77,6 +78,8 @@ export function BusinessSettingsView(props: {
   me: string | null;
   names: ReadonlyMap<string, string>;
   mayEdit: boolean;
+  /** Second approval binds admins, so only the owner switches it (svc-pay refuses anyone else). */
+  mayChangeRule: boolean;
   interactive: boolean | null;
   loadMoreHistory: () => void;
   reload: () => void;
@@ -124,7 +127,7 @@ export function BusinessSettingsView(props: {
       <SecondApproval
         portal={props.portal}
         merchantId={who.merchantId}
-        mayEdit={props.mayEdit}
+        mayEdit={props.mayChangeRule}
         loading={profile.status === 'loading'}
         fromService={read?.secondApprovalEnabled}
         reload={props.reload}
@@ -458,7 +461,7 @@ function SecondApproval({
             perform={() => portal.profileSecondApproval(merchantId, turnOn)}
             onConfirmed={reload}
             disabled={!mayEdit}
-            disabledReason={t('whoMayEditNot')}
+            disabledReason={t('secondApprovalOwnerOnly')}
           />
         </div>
       )}

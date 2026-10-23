@@ -1,4 +1,4 @@
--- Reverses 0070_account_security_locks.sql. Refuses while any lock is open: dropping the table would end those locks
+-- Reverses 0072_account_security_locks.sql. Refuses while any lock is open: dropping the table would end those locks
 -- silently. End or keep them first; ended history is dropped.
 DO $$
 BEGIN

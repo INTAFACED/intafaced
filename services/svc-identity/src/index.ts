@@ -47,6 +47,7 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { parseAccountTiers } from './controls/account-tiers.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
@@ -448,7 +449,7 @@ await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
 });
 await sql`SELECT id FROM account_security_locks LIMIT 0`.catch(() => {
   throw new Error(
-    'identity schema is out of date: account_security_locks is missing — apply drizzle/0070_account_security_locks.sql before starting svc-identity',
+    'identity schema is out of date: account_security_locks is missing — apply drizzle/0072_account_security_locks.sql before starting svc-identity',
   );
 });
 await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
@@ -485,6 +486,7 @@ const p2pClosureCheck = httpClosureChecker({
   secret: closureSecret,
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
 });
+founderControls.useAccountTiers(parseAccountTiers(env.IDENTITY_ACCOUNT_TIERS));
 // A staff close (J-ops-console-04 #7) runs the same checks as a customer closure before the approval is spent.
 founderControls.useClosureChecks(async (input) => {
   const results = await Promise.all([bankClosureCheck.check(input), tradeClosureCheck.check(input), p2pClosureCheck.check(input)]);
