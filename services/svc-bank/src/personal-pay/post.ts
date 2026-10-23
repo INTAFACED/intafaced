@@ -1,4 +1,11 @@
-import { bankTransferIdempotencyKey, railBoundary, type AccountRef, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  bankTransferIdempotencyKey,
+  railBoundary,
+  type AccountRef,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { postBankTransfer } from '../transfers/book-bank-transfer.js';
 
 /**

@@ -284,10 +284,7 @@ export class PersonalPayService {
           detail: 'personal pay receipt does not match the request',
         });
         await this.abandon(input.transferId, requestId);
-        throw new LedgerError(
-          `Transfer ${input.transferId} returned a different movement`,
-          IDEMPOTENCY_CONFLICT_CODE,
-        );
+        throw new LedgerError(`Transfer ${input.transferId} returned a different movement`, IDEMPOTENCY_CONFLICT_CODE);
       }
       ledgerTxId = tx.id;
     } catch (err) {

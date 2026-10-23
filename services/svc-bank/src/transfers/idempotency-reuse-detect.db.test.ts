@@ -59,7 +59,11 @@ const ledgerMigrations = readdirSync(ledgerDrizzle)
   .map((f) => readFileSync(join(ledgerDrizzle, f), 'utf8'))
   .map((body) => (schema: string) => rewriteSchemaSql(body, 'ledger', schema));
 
-const emptyHistory: LedgerHistory = { async entriesFor() { return []; } };
+const emptyHistory: LedgerHistory = {
+  async entriesFor() {
+    return [];
+  },
+};
 
 describe('reused transfer id under a detect-mode Postgres ledger', () => {
   let bankDb: TestDatabase;

@@ -2,14 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { findMatchingBankTransfer, oneOffTransferBooked, postBankTransfer } from './book-bank-transfer.js';
 import { attachTransferMessageTx, bindTransferMessage } from './transfer-message.js';
-import {
-  InsufficientFundsError,
-  LedgerError,
-  formatAmount,
-  parseAmount,
-  type Amount,
-  type LedgerClient,
-} from '@intafaced/ledger-client';
+import { InsufficientFundsError, LedgerError, formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
 import { assertTransferDueLimit } from '../job-batch-limit.js';
@@ -828,7 +821,7 @@ export class TransferService {
    *   · crash after the ledger post, before the commit — the database rolls the
    *     claim back while the ledger transaction stands. The next pass re-claims
    *     and re-posts; the post is idempotent on
-     *     `bank.transfer.sched:<schedule>:<occurrence>` so it returns the SAME
+   *     `bank.transfer.sched:<schedule>:<occurrence>` so it returns the SAME
    *     transaction and the row is written against it. Money moved once, the
    *     record catches up. Nobody's funds are stranded — the value is in the
    *     destination account the whole time, and the only thing that was ever

@@ -61,10 +61,7 @@ export async function postBankTransfer(ledger: LedgerClient, input: BankTransfer
         ledgerTxId: legacy.id,
         detail: 'legacy key booked a different movement',
       });
-      throw new LedgerError(
-        `Idempotency key ${legacyKey} already booked a different movement`,
-        IDEMPOTENCY_CONFLICT_CODE,
-      );
+      throw new LedgerError(`Idempotency key ${legacyKey} already booked a different movement`, IDEMPOTENCY_CONFLICT_CODE);
     }
   }
 
@@ -77,10 +74,7 @@ export async function postBankTransfer(ledger: LedgerClient, input: BankTransfer
     ledgerTxId: tx.id,
     detail: 'returned transaction does not match the request',
   });
-  throw new LedgerError(
-    `Idempotency key ${request.idempotencyKey} returned a different movement`,
-    IDEMPOTENCY_CONFLICT_CODE,
-  );
+  throw new LedgerError(`Idempotency key ${request.idempotencyKey} returned a different movement`, IDEMPOTENCY_CONFLICT_CODE);
 }
 
 /** Lane or pre-lane row, and only when its legs are this request. */

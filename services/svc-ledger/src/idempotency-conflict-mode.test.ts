@@ -10,7 +10,7 @@ describe('idempotency conflict boot', () => {
   it('defaults to refuse', () => {
     expect(DEFAULT_IDEMPOTENCY_CONFLICT_MODE).toBe('refuse');
     const env = readFileSync(join(here, 'env.ts'), 'utf8');
-    expect(env).toContain(".default(DEFAULT_IDEMPOTENCY_CONFLICT_MODE)");
+    expect(env).toContain('.default(DEFAULT_IDEMPOTENCY_CONFLICT_MODE)');
     const compose = readFileSync(join(here, '..', '..', '..', 'docker-compose.apps.yml'), 'utf8');
     expect(compose).toContain('LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-refuse}');
   });
