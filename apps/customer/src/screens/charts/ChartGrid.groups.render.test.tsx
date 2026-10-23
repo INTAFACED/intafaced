@@ -18,7 +18,9 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../../features/session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../../features/session/session', () => ({
+  useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
+}));
 vi.mock('../trade/desk/data', () => ({ useDeskMarkets: () => world.markets }));
 vi.mock('../trade/chart/candles', async (original) => ({
   ...(await original<typeof import('../trade/chart/candles')>()),

@@ -308,6 +308,11 @@ export interface OpenAdmissionInput {
   readonly size: Amount;
   /** The entry mark this open is about to be priced at. */
   readonly entryPrice: Amount;
+  /**
+   * The size max-order is checked on, when it is not the whole `size`: a split order's largest child, while
+   * max-position and max-loss take the children's total.
+   */
+  readonly orderSize?: Amount;
   /** `hedge`: each side is its own position. Anything else is one net position. */
   readonly positionMode?: unknown;
   /** Mark for ANOTHER open position's market (refuses when the feed cannot value it). */
@@ -333,7 +338,7 @@ export async function checkOpenAdmission(input: OpenAdmissionInput): Promise<Pre
     limits,
     quoteAsset: input.quoteAsset,
     price: input.entryPrice,
-    qty: input.size,
+    qty: input.orderSize ?? input.size,
     what: 'open',
   });
   if (order) return order;

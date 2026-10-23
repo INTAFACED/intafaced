@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test';
 import { EDGE } from './stack.mjs';
 
 // J-charts-desk-03 "I add indicators, tune them, and read their values" (docs/roadmap/journeys.json). One test per step,
-// titled "J-charts-desk-03 #<n>". Steps 7 (chart settings) and 8 (price-line overlay) belong to the chart-core slice and
-// are not drafted here. This is a DRAFT: it has not been run against the local stack. Each test opens the workbench on
+// titled "J-charts-desk-03 #<n>", run in the Real-app journeys workflow. Each test opens the workbench on
 // its own (a fresh browser context), so the studies it needs are added inside the test. Every value is read back from the
 // public candle route the chart itself draws from (`GET /api/v1/ohlcv/:symbol`), and the expected value is worked here
 // from the formula, not read from the page.
@@ -19,6 +18,45 @@ async function candles(timeframe = '15m', limit = BAR_LIMIT) {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${MARKET_PATH}?timeframe=${timeframe}&limit=${limit}`);
   if (!res.ok) throw new Error(`the public candle route answered ${res.status}`);
   return res.json();
+}
+
+/**
+ * The last BAR_LIMIT closes the chart draws, worked here from the public candles: one bar per 15 minutes up to the
+ * current one, a quiet interval repeating the previous close, as a person sees the chart. The chart may load more bars
+ * before these; the 20-bar studies checked here are the same to the cent either way. The market maker trades all the
+ * time, so the closes are read again until they and the legend show the same bar.
+ */
+async function drawnCloses() {
+  const step = 15 * 60_000;
+  const rows = await candles();
+  if (rows.length === 0) throw new Error('the public candle route has no BTC/USDT bars; is the TEST market maker running?');
+  const byBucket = new Map(rows.map((r) => [Math.floor(r[0] / step) * step, Number(r[4])]));
+  const end = Math.max(Math.floor(Date.now() / step) * step, ...byBucket.keys());
+  const from = Math.max(Math.min(...byBucket.keys()), end - (BAR_LIMIT - 1) * step);
+  let carry =
+    [...byBucket]
+      .filter(([t]) => t < from)
+      .sort(([a], [b]) => a - b)
+      .at(-1)?.[1] ?? null;
+  const closes = [];
+  for (let t = from; t <= end; t += step) {
+    carry = byBucket.get(t) ?? carry;
+    if (carry !== null) closes.push(carry);
+  }
+  return closes;
+}
+
+/** Waits until a study's legend row shows the value worked from the closes the chart draws. */
+async function expectWorked(page, id, work) {
+  await expect
+    .poll(
+      async () => {
+        const expected = work(await drawnCloses()).toFixed(2);
+        return (await row(page, id).innerText()).includes(expected);
+      },
+      { timeout: 30_000, message: `the ${id} legend never showed the value worked from the drawn bars` },
+    )
+    .toBe(true);
 }
 
 /** Opens the workbench and waits for the chart and its studies bar. */
@@ -100,11 +138,9 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   }
   const rows = await candles();
   expect(rows.length).toBeGreaterThanOrEqual(BAR_LIMIT);
-  const closes = rows.map((r) => Number(r[4]));
-  // The legend reads the last bar. EMA(20) is worked on the public closes; the chart forward-fills silent buckets, so this
-  // check holds on a market with no silent bucket in the 200 bars (the draft's precondition, to confirm on the stack).
+  // The legend reads the last bar. EMA(20) is worked on the closes the chart draws (quiet intervals forward-filled).
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  await expect(row(page, 'ema-1')).toContainText(ema(closes, 20).toFixed(2));
+  await expectWorked(page, 'ema-1', (closes) => ema(closes, 20));
   await expect(legend(page)).not.toContainText('This market has no volume in the loaded bars.');
 });
 
@@ -130,10 +166,9 @@ test('J-charts-desk-03 #5 sets the legend to always show: the values of the last
   await addStudy(page, 'sma', 'Simple moving average');
   await expect(row(page, 'sma-1').getByText(/^\d+\.\d\d$/)).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  const closes = (await candles()).map((r) => Number(r[4]));
   // The OHLC legend of the chart shows the last bar with no pointer over the chart, and the indicator values sit beside it.
   await expect(page.getByTestId('chart-legend')).toBeVisible();
-  await expect(row(page, 'sma-1')).toContainText(sma(closes, 20).toFixed(2));
+  await expectWorked(page, 'sma-1', (closes) => sma(closes, 20));
 });
 
 test('J-charts-desk-03 #6 with the data window open, moving the crosshair over a bar shows every series value at that bar', async ({
