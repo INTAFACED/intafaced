@@ -76,6 +76,7 @@ import { bindCollar, installCollarPlace } from './spot/collar-place.js';
 import { bindCombo, installComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
+import { resolveAdmissionLimits } from './futures/pretrade-limits.js';
 import { registerGreeksWhatIfRest } from './greeks/what-if-rest.js';
 import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
@@ -887,6 +888,13 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The band, slippage cap and max-order the order path holds an open to, read the same way it reads them.
+  priceBand: futuresPriceBand,
+  slippageCapBps: futuresSlippageCapBps,
+  maxOrder: () => {
+    const resolved = resolveAdmissionLimits();
+    return 'refusal' in resolved ? null : resolved.limits.maxOrder;
+  },
   // The rate an opening order would keep as taker, from the same schedule the order path reads.
   takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
   // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is

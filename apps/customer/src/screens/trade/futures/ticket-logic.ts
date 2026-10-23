@@ -19,6 +19,11 @@ export interface FormKey {
   leverage: string;
   /** What the margin is posted from. Absent is cash; any other class is sent so the service can name its refusal. */
   collateralClass?: string;
+  /** Absent is market. A limit carries its price, so the review names that price's band and correction. */
+  type?: 'market' | 'limit';
+  limitPrice?: string;
+  /** A limit outside the band is moved to the nearer edge. Absent refuses it. */
+  priceCorrection?: 'adjust';
 }
 
 export const sameForm = (a: FormKey, b: FormKey): boolean =>
@@ -26,7 +31,24 @@ export const sameForm = (a: FormKey, b: FormKey): boolean =>
   a.side === b.side &&
   a.size === b.size &&
   a.leverage === b.leverage &&
-  (a.collateralClass ?? 'cash') === (b.collateralClass ?? 'cash');
+  (a.collateralClass ?? 'cash') === (b.collateralClass ?? 'cash') &&
+  (a.type ?? 'market') === (b.type ?? 'market') &&
+  a.limitPrice === b.limitPrice &&
+  a.priceCorrection === b.priceCorrection;
+
+/** The max-order refusal a split answers. */
+export const MAX_ORDER_REFUSAL = 'trade.limit_max_order';
+
+/**
+ * The review as a split would see it: the same preview without the max-order line, when the service named a split and
+ * that line is its only refusal. Null when there is no split to offer.
+ */
+export function splitPreview(preview: PositionPreview | null): PositionPreview | null {
+  if (!preview?.split || preview.split.parts < 2) return null;
+  const rest = preview.refusals.filter((r) => r.code !== MAX_ORDER_REFUSAL);
+  if (rest.length !== preview.refusals.length - 1) return null;
+  return { ...preview, orderable: rest.length === 0, refusals: rest };
+}
 
 /** Contracts are offered only where one contract is a known positive amount of the base asset (linear, published size). */
 export function contractsAllowed(market: Pick<FuturesListing, 'linear' | 'contractSize'>): boolean {

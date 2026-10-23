@@ -86,9 +86,16 @@ export function marketOpenLimit(side: OrderSide, mark: Amount, band: PriceBand, 
 }
 
 /**
+ * The most children one split request places. A request bound, not a money limit: it keeps one call from planning,
+ * looking up and placing an unbounded number of orders. Max-position still bounds the total.
+ */
+export const SPLIT_MAX_CHILDREN = 100;
+
+/**
  * An opening order above the owner's max-order notional (valued at the mark) as children of at most the cap each: as
  * many full children as fit, then the rest. Each child is the largest lot multiple whose notional at the mark is
- * within the cap, so none of them is refused for size. Not splittable when one lot is already over the cap.
+ * within the cap, so none of them is refused for size. Not splittable when one lot is already over the cap
+ * (`lot_over_cap`) or when it would take more than `SPLIT_MAX_CHILDREN` children (`too_many_children`).
  */
 export function splitPlan(input: {
   qty: Amount;
@@ -97,13 +104,15 @@ export function splitPlan(input: {
   lotSize: Amount | null;
   /** The child size an earlier attempt of the same request already used: a retry keeps it, so its keys still match. */
   childSize?: Amount;
-}): { ok: true; parts: Amount[] } | { ok: false } {
+}): { ok: true; parts: Amount[] } | { ok: false; reason: 'lot_over_cap' | 'too_many_children'; children?: bigint } {
   let child = input.childSize ?? (input.maxOrderNotional * SCALE) / input.mark;
   if (input.childSize === undefined && input.lotSize !== null && input.lotSize > 0n) child -= child % input.lotSize;
-  if (child <= 0n) return { ok: false };
+  if (child <= 0n) return { ok: false, reason: 'lot_over_cap' };
   if (input.qty <= child) return { ok: true, parts: [input.qty] };
   const full = input.qty / child;
   const rest = input.qty - full * child;
+  const children = full + (rest > 0n ? 1n : 0n);
+  if (children > BigInt(SPLIT_MAX_CHILDREN)) return { ok: false, reason: 'too_many_children', children };
   const parts: Amount[] = Array.from({ length: Number(full) }, () => child);
   if (rest > 0n) parts.push(rest);
   return { ok: true, parts };

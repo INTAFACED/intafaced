@@ -6,12 +6,14 @@ import {
   adverseDistance,
   adverseNumerator,
   bankruptcyPrice,
+  correctToBand,
   feeSplit,
   fillFee,
   fillMargin,
   fillWithinLimit,
   limitWithinBand,
   marginNeed,
+  marketOpenLimit,
   marketReduceLimit,
   orderFeeReserve,
   perpetualFeeRates,
@@ -23,6 +25,8 @@ import {
   reduceFillProfitId,
   reduceFillRecipes,
   reducingSide,
+  SPLIT_MAX_CHILDREN,
+  splitPlan,
   weightedEntry,
   withinBankruptcy,
 } from './matched-order-plan.js';
@@ -71,6 +75,75 @@ describe('matched order plan: the owner band', () => {
     const band = priceBandAround(A('100'), A('0.05'));
     expect(protectiveLimit('buy', band)).toBe(A('105'));
     expect(protectiveLimit('sell', band)).toBe(A('95'));
+  });
+});
+
+describe('matched order plan: slippage cap, price correction and split (D-orders-06)', () => {
+  const band = priceBandAround(A('100'), A('0.05'));
+
+  it('a market open stops at the slippage cap when it is tighter than the band, else at the band edge', () => {
+    expect(marketOpenLimit('buy', A('100'), band, 50)).toBe(A('100.5'));
+    expect(marketOpenLimit('sell', A('100'), band, 50)).toBe(A('99.5'));
+    // A cap wider than the band never lets the limit past the band.
+    expect(marketOpenLimit('buy', A('100'), band, 900)).toBe(A('105'));
+    expect(marketOpenLimit('sell', A('100'), band, 900)).toBe(A('95'));
+    // The cap's distance rounds down: the limit never sits past the cap.
+    expect(marketOpenLimit('buy', A('0.000000000000000333'), priceBandAround(A('0.000000000000000333'), A('0.5')), 1)).toBe(
+      A('0.000000000000000333'),
+    );
+  });
+
+  it('adjust moves a limit outside the band to the nearer edge and leaves one inside alone', () => {
+    expect(correctToBand(A('120'), band)).toBe(A('105'));
+    expect(correctToBand(A('80'), band)).toBe(A('95'));
+    expect(correctToBand(A('101'), band)).toBe(A('101'));
+    expect(correctToBand(A('105'), band)).toBe(A('105'));
+  });
+
+  it('an order above the cap splits into full children of the largest lot multiple within the cap, then the rest', () => {
+    // 1000 at a mark of 100 is 10 a child; 10 lots of 0.001 fit exactly.
+    const plan = splitPlan({ qty: A('25'), mark: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') });
+    expect(plan).toEqual({ ok: true, parts: [A('10'), A('10'), A('5')] });
+    // A mark that does not divide the cap: each child rounds down to a lot, so its notional stays within the cap.
+    const odd = splitPlan({ qty: A('1'), mark: A('300'), maxOrderNotional: A('100'), lotSize: A('0.01') });
+    expect(odd.ok).toBe(true);
+    if (!odd.ok) return;
+    expect(odd.parts.slice(0, -1).every((p) => p === A('0.33'))).toBe(true);
+    for (const part of odd.parts) expect((part * A('300')) / SCALE <= A('100')).toBe(true);
+    expect(odd.parts.reduce((a, b) => a + b, 0n)).toBe(A('1'));
+  });
+
+  it('within the cap is one part; one lot over the cap and too many children are not splittable', () => {
+    expect(splitPlan({ qty: A('5'), mark: A('100'), maxOrderNotional: A('1000'), lotSize: A('0.001') })).toEqual({
+      ok: true,
+      parts: [A('5')],
+    });
+    expect(splitPlan({ qty: A('5'), mark: A('100'), maxOrderNotional: A('10'), lotSize: A('1') })).toEqual({
+      ok: false,
+      reason: 'lot_over_cap',
+    });
+    const many = splitPlan({ qty: A('1000'), mark: A('100'), maxOrderNotional: A('100'), lotSize: A('1') });
+    expect(many).toEqual({ ok: false, reason: 'too_many_children', children: 1000n });
+    expect(splitPlan({ qty: A(String(SPLIT_MAX_CHILDREN)), mark: A('100'), maxOrderNotional: A('100'), lotSize: A('1') }).ok).toBe(true);
+  });
+
+  it('a retry keeps the child size its first attempt used, whatever the mark is now', () => {
+    const retry = splitPlan({ qty: A('25'), mark: A('125'), maxOrderNotional: A('1000'), lotSize: A('0.001'), childSize: A('10') });
+    expect(retry).toEqual({ ok: true, parts: [A('10'), A('10'), A('5')] });
+  });
+
+  it('the children always add up to the order, across random sizes, marks and lots', () => {
+    const next = rng(6);
+    for (let i = 0; i < 500; i++) {
+      const lot = (next(999n) + 1n) * 10n ** 12n;
+      const qty = (next(10_000n) + 1n) * lot;
+      const mark = (next(100_000n) + 1n) * SCALE;
+      const cap = (next(1_000_000n) + 1n) * SCALE;
+      const plan = splitPlan({ qty, mark, maxOrderNotional: cap, lotSize: lot });
+      if (!plan.ok) continue;
+      expect(plan.parts.reduce((a, b) => a + b, 0n)).toBe(qty);
+      if (plan.parts.length > 1) for (const part of plan.parts) expect((part * mark) / SCALE <= cap).toBe(true);
+    }
   });
 });
 

@@ -101,6 +101,7 @@ import {
   marketOpenLimit,
   correctToBand,
   splitPlan,
+  SPLIT_MAX_CHILDREN,
   reduceFillProfitId,
   reduceFillRecipes,
   reducingSide,
@@ -718,6 +719,13 @@ export class MatchedFuturesOrders {
     }
     const base = input.clientOrderId?.trim() ?? '';
     if (base.length === 0) refuse('trade.client_order_id_required', 'clientOrderId is required: each child is keyed by it');
+    refuseMalformedOrder(input);
+    // The precheck below sizes the children's hold with this leverage, so it is checked first; each child checks it again.
+    if (this.deps.maxLeverage == null || this.deps.maxLeverage <= 0n) {
+      refuse('trade.leverage_cap_unset', 'the leverage cap is unset on this deployment — refuse rather than invent one');
+    }
+    const leverageCheck = checkLeverage(input.leverage, this.deps.maxLeverage);
+    if (!leverageCheck.ok) refuse(leverageCheck.code ?? 'trade.leverage_invalid', leverageCheck.reason ?? 'leverage refused');
     const resolved = resolveAdmissionLimits();
     if ('refusal' in resolved) throw new MatchedOrderError(resolved.refusal.message, resolved.refusal.code, 400);
     const maxOrder = resolved.limits.maxOrder;
@@ -735,7 +743,13 @@ export class MatchedFuturesOrders {
       ...(first ? { childSize: parseAmount(first.qty) } : {}),
     });
     if (!plan.ok) {
-      refuse(LIMIT_MAX_ORDER, `one lot at the mark is already above the max-order limit of ${maxOrder} ${market.quote_asset}`, PRETRADE_LIMIT_HTTP_STATUS);
+      refuse(
+        LIMIT_MAX_ORDER,
+        plan.reason === 'lot_over_cap'
+          ? `one lot at the mark is already above the max-order limit of ${maxOrder} ${market.quote_asset}`
+          : `the order would take ${plan.children} orders of at most ${maxOrder} ${market.quote_asset} each, and one request places at most ${SPLIT_MAX_CHILDREN}`,
+        PRETRADE_LIMIT_HTTP_STATUS,
+      );
     }
     if (plan.parts.length === 1) return { parts: 1, orders: [await this.place(principal, input, context)] };
     const ids = plan.parts.map((_, n) => `${base}:${n + 1}`);
@@ -816,18 +830,7 @@ export class MatchedFuturesOrders {
     // product. A reduce-only order posts none, so it is never refused for this.
     const classCheck = input.reduceOnly === true ? { ok: true as const } : checkCollateralClassForMargin(input.collateralClass);
     if (!classCheck.ok) refuse(classCheck.code ?? UNSUPPORTED_COLLATERAL_CLASS, classCheck.reason ?? 'collateral class refused');
-    if (input.priceCorrection !== undefined && input.priceCorrection !== 'reject' && input.priceCorrection !== 'adjust') {
-      refuse('trade.price_correction_invalid', 'priceCorrection is reject or adjust');
-    }
-    if (input.side !== 'buy' && input.side !== 'sell') refuse('trade.side_invalid', 'side must be buy or sell');
-    if (input.type !== 'limit' && input.type !== 'market') refuse('trade.order_type_invalid', 'type must be limit or market');
-    if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
-    if (input.type === 'limit' && (input.limitPrice === undefined || input.limitPrice <= 0n)) {
-      refuse('trade.invalid_price', 'a limit order needs a positive limitPrice');
-    }
-    if (input.type === 'market' && input.limitPrice !== undefined) {
-      refuse('trade.limit_price_on_market_order', 'a market order takes no limitPrice: its protective limit is the band edge');
-    }
+    refuseMalformedOrder(input);
 
     const existing = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
     if (existing) {
@@ -2662,6 +2665,22 @@ export class MatchedFuturesOrders {
     `;
     if (!m) refuse('trade.market_not_found', `market ${marketId} not found`, 404);
     return m;
+  }
+}
+
+/** The order's own shape, before anything is read: the same refusals for a single order and a split. */
+function refuseMalformedOrder(input: PlaceMatchedOrderInput): void {
+  if (input.priceCorrection !== undefined && input.priceCorrection !== 'reject' && input.priceCorrection !== 'adjust') {
+    refuse('trade.price_correction_invalid', 'priceCorrection is reject or adjust');
+  }
+  if (input.side !== 'buy' && input.side !== 'sell') refuse('trade.side_invalid', 'side must be buy or sell');
+  if (input.type !== 'limit' && input.type !== 'market') refuse('trade.order_type_invalid', 'type must be limit or market');
+  if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
+  if (input.type === 'limit' && (input.limitPrice === undefined || input.limitPrice <= 0n)) {
+    refuse('trade.invalid_price', 'a limit order needs a positive limitPrice');
+  }
+  if (input.type === 'market' && input.limitPrice !== undefined) {
+    refuse('trade.limit_price_on_market_order', 'a market order takes no limitPrice: its protective limit is the band edge');
   }
 }
 

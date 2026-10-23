@@ -12,8 +12,8 @@ import {
   limitWithinBand,
   marketOpenLimit,
   priceBandAround,
-  protectiveLimit,
   splitPlan,
+  SPLIT_MAX_CHILDREN,
 } from './matched-order-plan.js';
 import { LIMIT_MAX_ORDER, limitAmount } from './pretrade-limits.js';
 import type { Market } from '../spot/types.js';
@@ -70,16 +70,16 @@ export interface PositionPreviewRestDeps {
    * typed refusal on the fee line: the preview never shows a fee the order would not pay.
    */
   takerFeeBps: ((userId: string) => Promise<number>) | null;
+  /** The owner's band as a fraction of the mark (`TRADE_FUTURES_PRICE_BAND`); null or absent is unset. */
+  priceBand?: Amount | null;
+  /** The slippage cap a market open on this market answers to, as the order path reads it; absent is unset. */
+  slippageCapBps?: (marketId: string) => Promise<number | null>;
+  /** The owner's max-order in whole quote units (TRADE_MAX_ORDER), as the order path reads it; null or absent is unset. */
+  maxOrder?: () => number | null;
   /**
    * Optional execution-policy calculator. Production leaves this absent until
    * a named maintenance/depth policy exists; preview must not invent one.
    */
-  /** The owner's band as a fraction of the mark (`TRADE_FUTURES_PRICE_BAND`); null is unset. */
-  priceBand?: Amount | null;
-  /** The slippage cap a market open on this market answers to, as the order path reads it. */
-  slippageCapBps?: (marketId: string) => Promise<number | null>;
-  /** The owner's max-order in whole quote units (TRADE_MAX_ORDER), as the order path reads it; null is unset. */
-  maxOrder?: () => number | null;
   liquidationPriceFor?(input: {
     market: Market;
     side: 'long' | 'short';
@@ -253,7 +253,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
             message: 'no slippage cap is published for this market, so a market open is refused; use a limit',
           });
         } else {
-          orderPrice = deps.slippageCapBps ? marketOpenLimit(bookSide, markAmount, at, slippageCapBps) : protectiveLimit(bookSide, at);
+          orderPrice = marketOpenLimit(bookSide, markAmount, at, slippageCapBps);
         }
       } else {
         const asked = askedPrice!;
@@ -281,7 +281,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
         qty: size,
         mark: markAmount,
         maxOrderNotional: limitAmount(maxOrder),
-        lotSize: market.lotSize == null ? null : parseAmount(market.lotSize),
+        lotSize: market.lotSize,
       });
       if (plan.ok) split = { parts: plan.parts.length, sizes: plan.parts.map((p) => formatAmount(p)) };
       refusals.push({
@@ -289,7 +289,9 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
         field: 'size',
         message: plan.ok
           ? `the order is worth more than the max-order of ${maxOrder} ${market.quoteAsset}; it can be placed as ${plan.parts.length} orders`
-          : `one lot is worth more than the max-order of ${maxOrder} ${market.quoteAsset}`,
+          : plan.reason === 'lot_over_cap'
+            ? `one lot is worth more than the max-order of ${maxOrder} ${market.quoteAsset}`
+            : `the order would take ${plan.children} orders of at most ${maxOrder} ${market.quoteAsset} each, more than the ${SPLIT_MAX_CHILDREN} one request places`,
       });
     }
 

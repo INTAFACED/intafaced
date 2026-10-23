@@ -197,6 +197,32 @@ describe('futures orders through the book: REST', () => {
     expect(seen).toHaveLength(1);
   });
 
+  it('the split door reads the same body, passes priceCorrection as sent and answers every child placed', async () => {
+    const seen: PlaceMatchedOrderInput[] = [];
+    const children = [
+      { ...order, clientOrderId: 'desk-1:1' },
+      { ...order, clientOrderId: 'desk-1:2' },
+    ];
+    const server = await app({
+      placeSplit: async (_p, input) => {
+        seen.push(input);
+        return { parts: 2, orders: children };
+      },
+    });
+    const res = await server.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: { ...body, priceCorrection: 'adjust' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ parts: 2, orders: children });
+    expect(seen[0]).toMatchObject({ clientOrderId: 'desk-1', qty: parseAmount('0.01'), priceCorrection: 'adjust' });
+    // A malformed body never reaches the service; an unwired split door is 503.
+    expect((await server.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: { ...body, amount: 1 } })).statusCode).toBe(400);
+    expect(seen).toHaveLength(1);
+    const bare = await app({ place: async () => order });
+    const unwired = await bare.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: body });
+    expect(unwired.statusCode).toBe(503);
+    const out = await app({ placeSplit: async () => ({ parts: 1, orders: [order] }) }, { jurisdiction: false });
+    expect((await out.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: body })).statusCode).toBe(403);
+  });
+
   it('signed out is 401 and an unwired door is 503, never a pretend order', async () => {
     const out = await app({ place: async () => order }, { signedIn: false });
     expect((await out.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: body })).statusCode).toBe(401);
