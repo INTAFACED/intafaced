@@ -294,6 +294,10 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
 
 export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'globalHolds' | 'spaces'>, stepUp: StepUpGate) {
   return router({
+    /** Whether a TEST stand-in answers global sends on this deployment, and its label; null standIn means it does not. */
+    partner: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ standIn: z.string().nullable() }))
+      .query(() => bank.globalSend.partner()),
     corridors: router({
       list: scopedProcedure('bank:read', { module: 'bank' })
         .output(
@@ -545,6 +549,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               bic: z.enum(['unset', 'live']),
               travelRule: z.enum(['undecided', 'recorded']),
               blocker: z.literal('socket.psp-partners'),
+              standIn: z.string().nullable(),
             }),
           }),
         )

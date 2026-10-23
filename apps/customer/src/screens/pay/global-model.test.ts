@@ -111,6 +111,7 @@ describe('refusals', () => {
       'bank.global_bic_format_invalid',
       'bank.global_payout_refused',
       'bank.global_corridor_unknown',
+      'bank.global_amount_outside_corridor',
       'bank.global_travel_rule_incomplete',
       'bank.payee_blocked',
       'bank.exchange_allowance_exceeded',

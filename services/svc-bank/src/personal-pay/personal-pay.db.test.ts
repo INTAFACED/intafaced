@@ -16,13 +16,14 @@ import {
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
-import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, railBoundary, recipes, userAvailable } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, bankActionPayloadHash } from '../action-approval-consume.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
 import type { BillPorts, GlobalPorts } from './ports.js';
+import { GLOBAL_SIM_RAIL, globalSimPorts, parseGlobalSim } from './global-sim.js';
 import { billPayStepUp } from './step-up-fields.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1117,6 +1118,84 @@ describe('personal bill pay and global send', () => {
         expect(await balance()).toBe(parseAmount('90'));
         expect(await row()).toMatchObject({ status: 'submitted', provider_ref: null });
       }
+    });
+  });
+
+  describe('with the TEST global-send stand-in the local stack runs (global-sim.ts, the bank profile catalogue)', () => {
+    const profile = JSON.parse(readFileSync(join(here, '../../../../tooling/profiles/test-owner-values/bank.json'), 'utf8')) as {
+      values: Record<string, { value: string }>;
+    };
+    const stackValue = (name: string) => profile.values[name]!.value;
+
+    async function ready() {
+      const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'));
+      if (!catalogue) throw new Error('the bank profile catalogue does not parse');
+      const { ledger, bank } = mount({ sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'), global: globalSimPorts(catalogue) });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: 'DE89370400440532013000',
+        country: 'DE',
+      });
+      const body = {
+        fromSpaceId: space.id,
+        amount: '40',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'sepa',
+        idempotencyKey: `send-${randomUUID()}`,
+      };
+      const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+      const rail = async () => (await ledger.balance(railBoundary(GLOBAL_SIM_RAIL, 'USDT'))).amount;
+      return { ledger, me, body, balance, rail };
+    }
+
+    it('posts the send once to the stand-in rail boundary, keeps its TEST quote, and a retry posts nothing', async () => {
+      const { ledger, me, body, balance, rail } = await ready();
+      const sent = await me.global.send(body);
+      expect(sent).toMatchObject({ status: 'sent', quoteRate: '2', quoteFee: '0', quoteReceive: '80', ledgerTxId: expect.any(String) });
+      expect(sent.providerRef).toBe(`TEST-${sent.id}`);
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+      // Exactly the amount reached the stand-in's rail boundary: one leg in, nothing else.
+      expect(await rail()).toBe(parseAmount('40'));
+      // The same request again is the same send: nothing more leaves the account.
+      expect(await me.global.send(body)).toMatchObject({ id: sent.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('refuses a delivery method or corridor the catalogue does not hold, and an amount outside its TEST bounds, posting nothing', async () => {
+      const { ledger, me, body, balance } = await ready();
+      await expect(me.global.send({ ...body, deliveryMethod: 'bank_account' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_corridor_unknown', blocker: 'socket.psp-partners' },
+      });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, toCurrency: 'GBP' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_corridor_unknown' },
+      });
+      // The catalogue's TEST bounds are the corridor's bounds: 1 to 1000.
+      await expect(
+        me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '1000.000000000000000001' }),
+      ).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+        message: expect.stringContaining('1000') as unknown as string,
+      });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '0.5' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+      });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('100'));
+    });
+
+    it('names itself: the customer read and the ops summary carry its TEST label, and no other ports do', async () => {
+      const { me } = await ready();
+      expect(await me.global.partner()).toEqual({ standIn: expect.stringMatching(/^TEST\b/) });
+      const ops = caller(mount({ global: globalSimPorts(parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'))!) }).bank, OP_A, compliance);
+      expect((await ops.global.ops.summary()).rails).toMatchObject({ corridors: 'live', standIn: expect.stringMatching(/^TEST\b/) });
+      expect(await caller(mount().bank, USER, read).global.partner()).toEqual({ standIn: null });
     });
   });
 });

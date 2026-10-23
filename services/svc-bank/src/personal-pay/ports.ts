@@ -122,6 +122,8 @@ export interface BillPorts {
 }
 
 export interface GlobalPorts {
+  /** Set only by the TEST stand-in (`global-sim.ts`): its catalogue's TEST label, shown beside every number it gives. */
+  readonly standIn?: { readonly label: string };
   readonly corridors: CorridorPort;
   readonly bic: BicDirectoryPort;
   readonly fx: FxPort;

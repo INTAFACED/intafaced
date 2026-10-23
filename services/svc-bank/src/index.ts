@@ -21,6 +21,7 @@ import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-con
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
+import { globalPortsFor } from './personal-pay/global-sim.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
@@ -222,6 +223,11 @@ const bank = createBankServices(sql, ledger, history, {
         }
       : {}),
   },
+  /** Who answers a global send: unset ports unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  global: globalPortsFor(env.BANK_GLOBAL_PARTNER, env.BANK_GLOBAL_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
   /** Purpose, source-of-funds and reference rules of a global send: the owner's table, blank refuses. */
   sendFieldRules: env.BANK_SEND_FIELD_RULES_JSON,
   /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
