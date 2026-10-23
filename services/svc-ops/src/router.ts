@@ -42,6 +42,7 @@ import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
 import type { FounderAuthority } from './outreach/authority.js';
 import { createOutreachRouter } from './outreach/router.js';
+import type { PublicSettingsBook } from './outreach/public-settings.js';
 import {
   alertList,
   alertSourcePosture,
@@ -226,7 +227,7 @@ export interface OperatorDeskConfig {
 
 export function createOpsRouter(
   ops: OpsService,
-  outreach?: { crm: OutreachCrm; authority: FounderAuthority },
+  outreach?: { crm: OutreachCrm; authority: FounderAuthority; publicSettings?: PublicSettingsBook },
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
@@ -245,7 +246,7 @@ export function createOpsRouter(
     mapError(err);
   };
   return router({
-    ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority) } : {}),
+    ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority, outreach.publicSettings) } : {}),
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-ops') }))
       .query(() => ({ ok: true as const, service: 'svc-ops' as const })),
