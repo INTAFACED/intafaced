@@ -35,6 +35,18 @@ const en = {
   period30d: 'Last 30 days',
   periodMonth: 'This month',
   periodLastMonth: 'Last month',
+  reviewFee: 'Transfer fee',
+  reviewFeeTotal: 'Fees in total',
+  reviewTaken: 'Taken from your account',
+  reviewLeftToday: 'Left to send today after this',
+  reviewChecking: 'Reading the published fee and limits for this transfer…',
+  reviewTermsUnset:
+    'No fee or sending limit is published for {asset}, so Confirm stays off. Nothing can be sent until the bank publishes them (bank.personal_transfer_terms_unset).',
+  reviewFeeUnwired:
+    'A fee of {fee} {asset} is published, and this transfer has no way to charge it yet, so Confirm stays off (bank.personal_transfer_fee_unwired).',
+  reviewOverPayment: 'That is above the {limit} {asset} limit for a single transfer, so Confirm stays off.',
+  reviewOverDaily: 'Only {left} {asset} is left to send today, so Confirm stays off.',
+  reviewUnreadable: 'The fee and limits for this transfer could not be read, so Confirm stays off. Go back and review again.',
   periodCustom: 'Choose dates',
 } as const;
 const es = {
@@ -72,6 +84,19 @@ const es = {
   period30d: 'Últimos 30 días',
   periodMonth: 'Este mes',
   periodLastMonth: 'Mes pasado',
+  reviewFee: 'Comisión de la transferencia',
+  reviewFeeTotal: 'Comisiones en total',
+  reviewTaken: 'Se descuenta de tu cuenta',
+  reviewLeftToday: 'Te quedará por enviar hoy',
+  reviewChecking: 'Leyendo la comisión y los límites publicados para esta transferencia…',
+  reviewTermsUnset:
+    'No hay comisión ni límite de envío publicados para {asset}, así que Confirmar está desactivado. No se puede enviar nada hasta que el banco los publique (bank.personal_transfer_terms_unset).',
+  reviewFeeUnwired:
+    'Hay publicada una comisión de {fee} {asset} y esta transferencia todavía no puede cobrarla, así que Confirmar está desactivado (bank.personal_transfer_fee_unwired).',
+  reviewOverPayment: 'Eso supera el límite de {limit} {asset} para una sola transferencia, así que Confirmar está desactivado.',
+  reviewOverDaily: 'Hoy solo te quedan {left} {asset} por enviar, así que Confirmar está desactivado.',
+  reviewUnreadable:
+    'No se pudieron leer la comisión y los límites de esta transferencia, así que Confirmar está desactivado. Vuelve y revisa otra vez.',
   periodCustom: 'Elegir fechas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -110,6 +135,19 @@ const fr = {
   period30d: '30 derniers jours',
   periodMonth: 'Ce mois-ci',
   periodLastMonth: 'Mois dernier',
+  reviewFee: 'Frais du virement',
+  reviewFeeTotal: 'Total des frais',
+  reviewTaken: 'Prélevé sur votre compte',
+  reviewLeftToday: 'Reste à envoyer aujourd’hui après celui-ci',
+  reviewChecking: 'Lecture des frais et des plafonds publiés pour ce virement…',
+  reviewTermsUnset:
+    'Aucun frais ni plafond d’envoi n’est publié pour {asset}, donc Confirmer reste désactivé. Rien ne peut partir avant que la banque les publie (bank.personal_transfer_terms_unset).',
+  reviewFeeUnwired:
+    'Des frais de {fee} {asset} sont publiés et ce virement ne peut pas encore les prélever, donc Confirmer reste désactivé (bank.personal_transfer_fee_unwired).',
+  reviewOverPayment: 'Cela dépasse le plafond de {limit} {asset} pour un seul virement, donc Confirmer reste désactivé.',
+  reviewOverDaily: 'Il ne reste que {left} {asset} à envoyer aujourd’hui, donc Confirmer reste désactivé.',
+  reviewUnreadable:
+    'Les frais et les plafonds de ce virement n’ont pas pu être lus, donc Confirmer reste désactivé. Revenez et vérifiez à nouveau.',
   periodCustom: 'Choisir des dates',
 } satisfies Record<keyof typeof en, string>;
 

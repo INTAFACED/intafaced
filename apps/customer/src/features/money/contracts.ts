@@ -353,6 +353,18 @@ export const linkedAccountWrites = {
   link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
   remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
 };
+/** svc-bank `bank.transfers.quote` (J-bank-04 #3): the published limits and fee for one send to a person, as exact strings. */
+export const personSendQuoteSchema = z.object({
+  assetId: z.string(),
+  amount: money,
+  perTransferLimit: money,
+  dailyLimit: money,
+  spentToday: money,
+  fee: money,
+  feeBlocker: z.string().nullable(),
+  withinPerTransfer: z.boolean(),
+  withinDaily: z.boolean(),
+});
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
 export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
@@ -403,6 +415,7 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'cashOut.quote': cashOutQuoteSchema,
+  'transfers.quote': personSendQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),

@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
@@ -133,6 +133,14 @@ export type ActionSpec = {
   /** Plain-words rows for a confirmed result, in place of the raw field list. Return null to fall back to it. */
   describeOutcome?: (data: unknown, input: Record<string, unknown>) => [string, string][] | null;
   transferSpaces?: Space[];
+  /**
+   * What the service itself says about this exact request, read when the review opens (fees and limits). Its rows show in
+   * the review; while it is reading, or when it names a reason, Confirm stays off and the reason is shown.
+   */
+  reviewTerms?: {
+    checking: string;
+    read: (input: Record<string, unknown>, signal: AbortSignal) => Promise<{ rows: [string, string][]; blocked: string | null }>;
+  };
   submit?: string;
   unit?: string;
 };
@@ -305,6 +313,22 @@ export function MutationDialog({
     spec.fields?.length ? null : spec.input(spec.initial ?? {}, requestId),
   );
   const reviewed = useRef(reviewInput);
+  // The service's terms for the request under review. Kept with the request they were read for, so a stale answer never shows.
+  const [terms, setTerms] = useState<{ for: Record<string, unknown>; rows: [string, string][]; blocked: string | null } | null>(null);
+  const termsFor = spec.reviewTerms && reviewInput ? (terms?.for === reviewInput ? terms : null) : null;
+  const termsHold = Boolean(spec.reviewTerms) && (termsFor === null || termsFor.blocked !== null);
+  useEffect(() => {
+    if (!spec.reviewTerms || stage !== 'review' || !reviewInput) return;
+    const controller = new AbortController();
+    const input = reviewInput;
+    spec.reviewTerms
+      .read(input, controller.signal)
+      .catch(() => ({ rows: [], blocked: copyText('components.review.check.failed.no.request.sent') }))
+      .then((read) => {
+        if (!controller.signal.aborted) setTerms({ for: input, ...read });
+      });
+    return () => controller.abort();
+  }, [spec, stage, reviewInput]);
   const staged = useRef({ reviewInput, values });
   staged.current = { reviewInput, values };
   const rendering = {};
@@ -383,7 +407,7 @@ export function MutationDialog({
     setStage('review');
   }
   async function submit() {
-    if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput) return;
+    if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput || termsHold) return;
     const run = {};
     sending.current = run;
     const input = reviewInput;
@@ -615,7 +639,19 @@ export function MutationDialog({
                   <dd>{value}</dd>
                 </div>
               ))}
+              {termsFor?.rows.map(([label, value]) => (
+                <div key={label} data-testid="review-terms-row">
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
             </dl>
+            {spec.reviewTerms && stage === 'review' && termsFor === null && <Loading label={spec.reviewTerms.checking} />}
+            {termsFor?.blocked && (
+              <p className="notice" role="alert" data-testid="review-terms-blocked">
+                {termsFor.blocked}
+              </p>
+            )}
             <p className="money-reference">
               <Text k="components.request.reference" />
               {requestId}
@@ -624,7 +660,9 @@ export function MutationDialog({
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
               <div className="actions">
-                <Button onClick={() => void submit()}>{spec.submit ?? copyText('components.confirm')}</Button>
+                <Button disabled={termsHold} onClick={() => void submit()}>
+                  {spec.submit ?? copyText('components.confirm')}
+                </Button>
                 {Boolean(spec.fields?.length) && (
                   <Button variant="secondary" onClick={edit}>
                     <Text k="components.edit" />
