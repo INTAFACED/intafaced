@@ -88,6 +88,11 @@
     color: var(--if-fg);
   }
   /* The total's own door to the Assets room (Money). */
+  .hp-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin: -8px 0 8px;
+  }
   .hp-tile-link {
     display: inline-flex;
     align-items: center;
