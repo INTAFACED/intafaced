@@ -271,6 +271,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.revertLesson',
         'admin.publishLesson',
         'admin.duplicateItem',
+        'admin.importLesson',
         'admin.setItemPrerequisites',
         'admin.setItemWindow',
         'admin.grantItemExtension',

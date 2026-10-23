@@ -58,6 +58,7 @@ export async function postLessonChange(body: Record<string, unknown>): Promise<L
         next: answer.next,
         code: typeof answer.code === 'string' ? answer.code : null,
         changed: answer.changed === 'unknown' ? 'unknown' : 'no',
+        ...(Array.isArray(answer.problems) ? { problems: answer.problems as { block: number | null; problem: string }[] } : {}),
       };
     return unknown('The console answered in a shape it does not understand.');
   } catch {

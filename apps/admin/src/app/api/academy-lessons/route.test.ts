@@ -86,6 +86,7 @@ const LESSON = {
       at: '2026-10-23T10:00:00.000Z',
     },
   ],
+  importMaxBytes: 8192,
 };
 
 describe('academy lesson editor BFF', () => {
@@ -141,5 +142,27 @@ describe('academy lesson editor BFF', () => {
     expect(sent(c, 'admin.publishLesson')).toEqual({ itemId: ITEM_ID, lessonRevision: 1, courseRevision: 3, reason: 'first cut' });
     await POST(post({ op: 'duplicate', itemId: ITEM_ID, courseRevision: 3 }));
     expect(sent(c, 'admin.duplicateItem')).toEqual({ itemId: ITEM_ID, courseRevision: 3 });
+  });
+
+  it('an import report lists each bad block with nothing created; an imported file answers with the lesson', async () => {
+    configure();
+    const problems = [{ block: 2, problem: 'unknown block type "iframe"' }];
+    upstream({ 'admin.importLesson': () => ok({ outcome: 'invalid', problems, lesson: LESSON }) });
+    const res = await POST(post({ op: 'import', itemId: ITEM_ID, revision: 1, document: '{}' }));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ ok: false, code: 'academy.import_invalid', changed: 'no', problems });
+    upstream({ 'admin.importLesson': () => ok({ outcome: 'imported', lesson: LESSON }) });
+    const good = await POST(post({ op: 'import', itemId: ITEM_ID, revision: 1, document: '{}' }));
+    expect(await good.json()).toMatchObject({ ok: true, what: 'imported', lesson: LESSON });
+  });
+
+  it('a file over the owner limit comes back by name; this route takes a lesson larger than 16 KiB', async () => {
+    configure();
+    const c = upstream({ 'admin.importLesson': () => refusal('academy.import_too_large', 400) });
+    const document = 'x'.repeat(40_000);
+    const res = await POST(post({ op: 'import', itemId: ITEM_ID, revision: 1, document }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: 'academy.import_too_large', title: 'The file is over the size limit' });
+    expect(sent(c, 'admin.importLesson').document).toHaveLength(40_000);
   });
 });

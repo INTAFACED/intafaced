@@ -12,6 +12,8 @@ import { changeLesson, isLessonOp, loadLesson } from '@/lib/academy/lessons-serv
  *   POST { op: 'revert', itemId, revision, toRevision }   a new revision with an older one's blocks
  *   POST { op: 'publish', itemId, lessonRevision, courseRevision, reason }   learners see this revision from now on
  *   POST { op: 'duplicate', itemId, courseRevision }   a copy of the item and its newest lesson, right after it
+ *   POST { op: 'import', itemId, revision, document }   a lesson file as a new revision; over the owner's size limit
+ *        it is refused before it is read, and a bad block comes back in a report with nothing created
  *
  * Founder-only. svc-academy records the founder from their own token.
  */
@@ -19,6 +21,7 @@ import { changeLesson, isLessonOp, loadLesson } from '@/lib/academy/lessons-serv
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;
+const LESSON_BODY_BYTES = 262_144;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const incomplete = (body: string) =>
@@ -50,7 +53,8 @@ export async function POST(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   try {
-    const body = await readAdminJson(request);
+    // A lesson (and a lesson file) is a document, so this route takes up to 256 KiB rather than the console's 16 KiB.
+    const body = await readAdminJson(request, LESSON_BODY_BYTES);
     if (!isLessonOp(body.op)) return incomplete('Unknown action.');
     const answer = await changeLesson(session, body.op, body);
     if ('why' in answer) return incomplete(answer.why);

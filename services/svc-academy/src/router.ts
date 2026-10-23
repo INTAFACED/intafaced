@@ -52,6 +52,8 @@ import {
   academyRevertLessonInputSchema,
   academyPublishLessonInputSchema,
   academyDuplicateItemInputSchema,
+  academyImportLessonInputSchema,
+  academyImportLessonResultSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -858,10 +860,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.course_outline_empty':
     case 'academy.courses_list_limit_unset':
     case 'academy.outline_limits_unset':
+    case 'academy.import_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
     case 'academy.item_has_no_lesson':
+    case 'academy.import_too_large':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
 
     case 'academy.lesson_revision_unknown':
@@ -2862,6 +2866,12 @@ export function createAcademyRouter(
         .input(academyDuplicateItemInputSchema)
         .output(academyLessonSchema)
         .mutation(({ input, ctx }) => guard(() => academy.duplicateItem({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: a lesson file as a new revision; over the size limit refuses before parsing, a bad block is reported. */
+      importLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyImportLessonInputSchema)
+        .output(academyImportLessonResultSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })

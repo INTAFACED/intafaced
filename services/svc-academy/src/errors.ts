@@ -221,7 +221,11 @@ export type AcademyErrorCode =
   /** A subheader or a link holds no lesson. */
   | 'academy.item_has_no_lesson'
   /** An item with a lesson does not become a subheader or a link. */
-  | 'academy.item_kind_locked';
+  | 'academy.item_kind_locked'
+  /** The owner has not set the lesson import size limit. */
+  | 'academy.import_limit_unset'
+  /** The lesson file is over the owner's size limit; it was not parsed. */
+  | 'academy.import_too_large';
 
 export class AcademyError extends Error {
   constructor(
@@ -351,6 +355,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.lesson_revision_unknown',
   'academy.item_has_no_lesson',
   'academy.item_kind_locked',
+  'academy.import_limit_unset',
+  'academy.import_too_large',
 ] as const;
 
 /** L3 — catalog size. */

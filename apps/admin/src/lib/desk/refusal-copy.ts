@@ -698,6 +698,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'An item with lesson revisions stays a type that holds a lesson, so it does not become a subheader or a link.',
     next: 'Add a new subheader or link instead. Nothing was saved.',
   },
+  'academy.import_limit_unset': {
+    title: 'The import size limit is not set',
+    body: 'The owner has not set the largest lesson file the desk imports, so no file is imported.',
+    next: 'The owner sets the limit for this deployment. Nothing was read or created.',
+  },
+  'academy.import_too_large': {
+    title: 'The file is over the size limit',
+    body: 'This lesson file is larger than the owner allows, so it was refused before it was read.',
+    next: 'Split the lesson or shorten it. Nothing was created.',
+  },
   'academy.course_not_found': {
     title: 'No such course',
     body: 'svc-academy has no course with this id.',

@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
-import { ACADEMY_LESSON_BLOCK_TYPES, type AcademyLessonBlockType } from '@intafaced/contracts/academy-courses';
+import { useCallback, useRef, useState } from 'react';
+import { ACADEMY_LESSON_BLOCK_TYPES, ACADEMY_LESSON_FORMAT, type AcademyLessonBlockType } from '@intafaced/contracts/academy-courses';
 import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -11,6 +11,7 @@ import { fetchLesson, postLessonChange } from '@/lib/academy/lessons-browser';
 import { liveOf, type AcademyLesson, type AcademyLessonBlock, type LessonDeskReply, type LessonView } from '@/lib/academy/lessons-model';
 import { AcademyNav, Failed, Outcome } from '@/components/academy-courses-desk';
 import { move } from '@/components/academy-outline-editor';
+import { explainRefusal } from '@/lib/desk/refusal-copy';
 
 /**
  * LESSON EDITOR (AC-course-structure-03).
@@ -209,7 +210,65 @@ function BlocksEditor({ lesson, busy, onSave }: { lesson: AcademyLesson; busy: b
   );
 }
 
-const SOURCE_WORDS = { saved: 'saved', reverted: 'reverted', duplicated: 'duplicated' } as const;
+const SOURCE_WORDS = { saved: 'saved', reverted: 'reverted', duplicated: 'duplicated', imported: 'imported' } as const;
+
+/** The import's report: every block svc-academy did not accept, by its place in the file. */
+function ImportReport({ reply }: { reply: LessonDeskReply | null }) {
+  if (!reply || reply.ok || !reply.problems) return null;
+  return (
+    <ul className="dk-stack" data-testid="lesson-import-report">
+      {reply.problems.map((p, i) => (
+        <li key={i}>
+          {p.block === null ? 'The file' : `Block ${p.block}`}: {p.problem}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A lesson file is checked against the owner's size limit before a byte of it is read or sent; svc-academy checks the
+ * size again before parsing it.
+ */
+function ImportForm({
+  lesson,
+  busy,
+  onImport,
+  onRefused,
+}: {
+  lesson: AcademyLesson;
+  busy: boolean;
+  onImport: (document: string) => void;
+  onRefused: (reply: LessonDeskReply) => void;
+}) {
+  // Read from the input when pressed, so a file chosen before the page was interactive still counts.
+  const input = useRef<HTMLInputElement>(null);
+  const max = lesson.importMaxBytes;
+  const submit = async () => {
+    const file = input.current?.files?.[0];
+    if (!file) return;
+    if (max === null) return onRefused({ ok: false, ...explainRefusal('academy.import_limit_unset', 412) });
+    if (file.size > max) return onRefused({ ok: false, ...explainRefusal('academy.import_too_large', 400) });
+    onImport(await file.text());
+  };
+  return (
+    <section className="dk-stack" aria-labelledby="h-lesson-import">
+      <h2 id="h-lesson-import">Import</h2>
+      <p className="dk-muted" data-testid="lesson-import-limit">
+        A <code>{ACADEMY_LESSON_FORMAT}</code> file: <code>{'{ "format": "' + ACADEMY_LESSON_FORMAT + '", "blocks": [...] }'}</code>.{' '}
+        {max === null ? 'The owner has not set the size limit, so nothing is imported.' : `Up to ${max} bytes.`} It becomes a new revision;
+        learners keep the published one.
+      </p>
+      <div className="dk-row">
+        <label htmlFor="lesson-import-file">Lesson file</label>
+        <input id="lesson-import-file" ref={input} type="file" accept="application/json,.json" />
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => void submit()}>
+          Import file
+        </button>
+      </div>
+    </section>
+  );
+}
 
 export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: string; itemId: string; initial: LessonView | null }) {
   const router = useRouter();
@@ -280,6 +339,13 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
             busy={busy}
             onSave={(blocks) => void send({ op: 'save', revision: newest?.revision ?? 0, blocks })}
           />
+          <ImportForm
+            lesson={lesson}
+            busy={busy}
+            onImport={(document) => void send({ op: 'import', revision: newest?.revision ?? 0, document })}
+            onRefused={setReply}
+          />
+          <ImportReport reply={reply} />
           <section className="dk-stack" aria-labelledby="h-lesson-live">
             <h2 id="h-lesson-live">What learners see</h2>
             {live ? (

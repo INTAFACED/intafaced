@@ -14,13 +14,20 @@ import { randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type {
   AcademyDuplicateItemInput,
+  AcademyImportLessonInput,
+  AcademyImportLessonResult,
   AcademyLesson,
   AcademyLessonBlock,
   AcademyPublishLessonInput,
   AcademyRevertLessonInput,
   AcademySaveLessonInput,
 } from '@intafaced/contracts';
-import { ACADEMY_ITEMS_WITHOUT_LESSON } from '@intafaced/contracts';
+import {
+  ACADEMY_ITEMS_WITHOUT_LESSON,
+  ACADEMY_LESSON_BLOCK_TYPES,
+  ACADEMY_LESSON_FORMAT,
+  academyLessonBlockSchema,
+} from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import type { CourseRecords } from './courses.js';
 
@@ -43,7 +50,7 @@ type ItemRow = {
 
 type RevisionRow = {
   revision: number;
-  source: 'saved' | 'reverted' | 'duplicated';
+  source: 'saved' | 'reverted' | 'duplicated' | 'imported';
   from_revision: number | null;
   from_item_id: string | null;
   blocks: AcademyLessonBlock[];
@@ -63,10 +70,49 @@ const canonical = (value: unknown): string =>
       : JSON.stringify(value);
 const sameBlocks = (a: readonly AcademyLessonBlock[], b: readonly AcademyLessonBlock[]) => canonical(a) === canonical(b);
 
+type Problem = { block: number | null; problem: string };
+
+/**
+ * A lesson file, parsed as data only: `{ "format": "intafaced.lesson.v1", "blocks": [...] }`. Every problem is named
+ * (an unknown block type, a missing or bad field, an address that is not https), not only the first.
+ */
+export function checkLessonFile(document: string): { ok: true; blocks: AcademyLessonBlock[] } | { ok: false; problems: Problem[] } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(document);
+  } catch {
+    return { ok: false, problems: [{ block: null, problem: 'the file is not JSON' }] };
+  }
+  const file = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  if (!file || file.format !== ACADEMY_LESSON_FORMAT)
+    return { ok: false, problems: [{ block: null, problem: `the file is not an ${ACADEMY_LESSON_FORMAT} lesson` }] };
+  if (!Array.isArray(file.blocks) || file.blocks.length === 0 || file.blocks.length > 200)
+    return { ok: false, problems: [{ block: null, problem: 'a lesson file has 1 to 200 blocks' }] };
+  const problems: Problem[] = [];
+  const blocks: AcademyLessonBlock[] = [];
+  file.blocks.forEach((raw, i) => {
+    const type = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>).type : undefined;
+    if (typeof type !== 'string' || !(ACADEMY_LESSON_BLOCK_TYPES as readonly string[]).includes(type)) {
+      problems.push({ block: i + 1, problem: `unknown block type ${JSON.stringify(type ?? null).slice(0, 40)}` });
+      return;
+    }
+    const block = academyLessonBlockSchema.safeParse(raw);
+    if (block.success) blocks.push(block.data);
+    else
+      problems.push({
+        block: i + 1,
+        problem: `a ${type} block with ${block.error.issues.map((x) => (x.path.length ? x.path.join('.') : x.message)).join(', ')} not valid`,
+      });
+  });
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, blocks };
+}
+
 export class LessonRecords {
   constructor(
     private readonly sql: Sql,
     private readonly courses: CourseRecords,
+    /** `ACADEMY_LESSON_IMPORT_MAX_BYTES`; null is not set, and an import refuses. */
+    private readonly importMaxBytes: number | null = null,
   ) {}
 
   async save(input: AcademySaveLessonInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
@@ -183,6 +229,31 @@ export class LessonRecords {
     });
   }
 
+  /**
+   * A lesson file as a new revision over the one read. The size is checked before the file is parsed; a file that
+   * parses but is not a lesson answers with a report of every problem and creates nothing. Keyed like a save: a repeat of
+   * the same file after a lost reply finds its own revision.
+   */
+  async import(input: AcademyImportLessonInput & { operatorId: string; now: Date }): Promise<AcademyImportLessonResult> {
+    if (this.importMaxBytes === null)
+      throw new AcademyError('the owner has not set the lesson import size limit', 'academy.import_limit_unset');
+    const bytes = Buffer.byteLength(input.document, 'utf8');
+    if (bytes > this.importMaxBytes)
+      throw new AcademyError(`the file is ${bytes} bytes; the limit is ${this.importMaxBytes}`, 'academy.import_too_large');
+    const checked = checkLessonFile(input.document);
+    if (!checked.ok) return { outcome: 'invalid', problems: checked.problems, lesson: await this.get(input.itemId) };
+    return this.sql.begin(async (tx) => {
+      const item = await this.lockItem(tx, input.itemId);
+      const newest = await this.newest(tx, item.id);
+      if (newest?.revision === input.revision + 1 && newest.source === 'imported' && newest.actor === input.operatorId)
+        if (sameBlocks(newest.blocks, checked.blocks)) return { outcome: 'imported' as const, lesson: await this.read(tx, item.id) };
+      if ((newest?.revision ?? 0) !== input.revision)
+        throw new AcademyError(`lesson is at revision ${newest?.revision ?? 0}, not ${input.revision}`, 'academy.revision_stale');
+      await this.insert(tx, item.id, input.revision + 1, 'imported', null, null, checked.blocks, input.operatorId, input.now);
+      return { outcome: 'imported' as const, lesson: await this.read(tx, item.id) };
+    });
+  }
+
   async get(itemId: string): Promise<AcademyLesson> {
     return this.read(this.sql, itemId);
   }
@@ -218,6 +289,7 @@ export class LessonRecords {
         lessonRevision: row.lesson_revision,
         liveRevision: row.live_revision,
       },
+      importMaxBytes: this.importMaxBytes,
       revisions: revisions.map((r) => ({
         revision: r.revision,
         source: r.source,

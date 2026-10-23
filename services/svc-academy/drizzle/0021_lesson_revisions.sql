@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS "academy"."lesson_revisions" (
   "at"             timestamptz NOT NULL,
   PRIMARY KEY ("item_id", "revision"),
   CONSTRAINT "lesson_revisions_revision_chk" CHECK ("revision" > 0),
-  CONSTRAINT "lesson_revisions_source_chk" CHECK ("source" IN ('saved', 'reverted', 'duplicated')),
+  CONSTRAINT "lesson_revisions_source_chk" CHECK ("source" IN ('saved', 'reverted', 'duplicated', 'imported')),
   CONSTRAINT "lesson_revisions_from_chk" CHECK (("source" = 'reverted') = ("from_revision" IS NOT NULL)
     AND ("source" = 'duplicated') = ("from_item_id" IS NOT NULL)),
   CONSTRAINT "lesson_revisions_blocks_chk" CHECK (jsonb_typeof("blocks") = 'array' AND jsonb_array_length("blocks") > 0)

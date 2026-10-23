@@ -313,3 +313,51 @@ describe('lesson revisions (AC-course-structure-03)', () => {
     expect(read.item.liveRevision).toBe(1);
   });
 });
+
+describe('lesson import (AC-course-structure-03)', () => {
+  const file = (blocks: unknown[]) => JSON.stringify({ format: 'intafaced.lesson.v1', blocks });
+
+  it('a blank size limit refuses; a file over it refuses before it is parsed; nothing is created', async () => {
+    const { lesson } = await draftWithOutline();
+    await expect(
+      new LessonRecords(db.sql, courses()).import({ itemId: lesson.id, revision: 0, document: '{}', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.import_limit_unset' });
+    // Not JSON at all, and over the limit: the size answers first, so the file was never parsed.
+    const big = 'x'.repeat(65);
+    await expect(
+      new LessonRecords(db.sql, courses(), 64).import({ itemId: lesson.id, revision: 0, document: big, operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.import_too_large' });
+    expect((await lessons().get(lesson.id)).revisions).toEqual([]);
+  });
+
+  it('an unknown block and a bad block are each listed and nothing is created; a good file is a new revision', async () => {
+    const { lesson } = await draftWithOutline();
+    const importer = new LessonRecords(db.sql, courses(), 8192);
+    const bad = await importer.import({
+      itemId: lesson.id,
+      revision: 0,
+      document: file([
+        { type: 'text', markdown: 'Fine' },
+        { type: 'iframe', src: 'https://example.com' },
+        { type: 'image', url: 'javascript:alert(1)', alt: 'x' },
+      ]),
+      operatorId: A,
+      now: NOW,
+    });
+    expect(bad.outcome).toBe('invalid');
+    if (bad.outcome !== 'invalid') throw new Error('unreachable');
+    expect(bad.problems.map((p) => p.block)).toEqual([2, 3]);
+    expect(bad.problems[0]!.problem).toBe('unknown block type "iframe"');
+    expect(bad.lesson.revisions).toEqual([]);
+    for (const document of ['not json', JSON.stringify({ format: 'other', blocks: [] })]) {
+      const r = await importer.import({ itemId: lesson.id, revision: 0, document, operatorId: A, now: NOW });
+      expect(r).toMatchObject({ outcome: 'invalid', problems: [{ block: null }] });
+    }
+    const good = file([{ type: 'code', language: 'python', source: 'size = risk / stop' }]);
+    const done = await importer.import({ itemId: lesson.id, revision: 0, document: good, operatorId: A, now: NOW });
+    expect(done.outcome).toBe('imported');
+    expect(done.lesson.revisions.map((r) => [r.revision, r.source])).toEqual([[1, 'imported']]);
+    expect(await importer.import({ itemId: lesson.id, revision: 0, document: good, operatorId: A, now: LATER })).toEqual(done);
+    expect(done.lesson.importMaxBytes).toBe(8192);
+  });
+});

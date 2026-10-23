@@ -22,6 +22,8 @@ export type LessonDeskReply =
       readonly next: string;
       readonly code: string | null;
       readonly changed: 'no' | 'unknown';
+      /** An import's report: each block (from 1, or null for the whole file) and what is wrong with it. */
+      readonly problems?: readonly { readonly block: number | null; readonly problem: string }[];
     };
 
 /** The revision learners see, or null when none is published. */

@@ -241,7 +241,7 @@ export const academyDuplicateItemInputSchema = z
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
 
-export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated'] as const;
+export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported'] as const;
 export const academyLessonRevisionSchema = z.object({
   revision: z.number().int().positive(),
   source: z.enum(ACADEMY_LESSON_SOURCES),
@@ -263,5 +263,29 @@ export const academyLessonSchema = z.object({
   courseRevision: z.number().int().positive(),
   item: academyOutlineItemSchema,
   revisions: z.array(academyLessonRevisionSchema),
+  /** The owner's lesson import size limit in bytes (`ACADEMY_LESSON_IMPORT_MAX_BYTES`), or null when it is not set. */
+  importMaxBytes: z.number().int().positive().nullable(),
 });
 export type AcademyLesson = z.infer<typeof academyLessonSchema>;
+
+/**
+ * `admin.importLesson`: a lesson file (`intafaced.lesson.v1`: `{ "format": "intafaced.lesson.v1", "blocks": [...] }`)
+ * as a new revision over the one read. A file over the owner's size limit is refused before it is parsed
+ * (`academy.import_too_large`; a blank limit refuses `academy.import_limit_unset`). A file that parses but holds an
+ * unknown block type or a bad block answers with a report naming each one, and nothing is created.
+ */
+export const ACADEMY_LESSON_FORMAT = 'intafaced.lesson.v1';
+export const academyImportLessonInputSchema = z
+  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), document: z.string().max(1_048_576) })
+  .strict();
+export type AcademyImportLessonInput = z.infer<typeof academyImportLessonInputSchema>;
+export const academyImportProblemSchema = z.object({
+  /** The block's place in the file, from 1, or null for the file as a whole. */
+  block: z.number().int().positive().nullable(),
+  problem: z.string().min(1),
+});
+export const academyImportLessonResultSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('imported'), lesson: academyLessonSchema }),
+  z.object({ outcome: z.literal('invalid'), problems: z.array(academyImportProblemSchema).min(1), lesson: academyLessonSchema }),
+]);
+export type AcademyImportLessonResult = z.infer<typeof academyImportLessonResultSchema>;

@@ -269,3 +269,57 @@ test(`${J} #4 a lesson's edits stay off learners until republished; revert makes
   await expect(page.getByTestId('course-history')).toContainText('a lesson published to learners');
   await page.context().close();
 });
+
+test(`${J} #5 a lesson file over the size limit is refused before it is read; an unknown block is listed and nothing is created`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to import into`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('lesson-import-limit')).toContainText('Up to 8192 bytes');
+  const revisions = page.getByTestId('lesson-revisions').locator('li');
+  const before = await revisions.count();
+  const outcome = page.getByTestId('course-desk-outcome');
+  const sent = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/academy-lessons')) sent.push(r.url());
+  });
+  const lessonFile = (name, blocks) => ({
+    name,
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ format: 'intafaced.lesson.v1', blocks })),
+  });
+
+  // 20 KiB against the stack's TEST limit of 8 KiB: refused by name before a byte is read or sent.
+  const big = lessonFile('TEST-big.json', [{ type: 'text', markdown: `TEST ${'x'.repeat(20_000)}` }]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(big);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'academy.import_too_large');
+  await expect(outcome).toContainText('The file is over the size limit');
+  expect(sent).toEqual([]);
+  await expect(revisions).toHaveCount(before);
+
+  // An unknown block type: svc-academy lists it by its place in the file, and nothing is created.
+  const unknown = lessonFile('TEST-unknown.json', [
+    { type: 'text', markdown: 'TEST fine' },
+    { type: 'iframe', src: 'https://example.com/embed' },
+  ]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(unknown);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'academy.import_invalid');
+  await expect(page.getByTestId('lesson-import-report')).toContainText('Block 2: unknown block type "iframe"');
+  await expect(revisions).toHaveCount(before);
+  await page.reload();
+  await expect(revisions).toHaveCount(before);
+
+  // A good file becomes the next revision, and learners keep the published one.
+  const good = lessonFile('TEST-good.json', [{ type: 'text', markdown: 'TEST Imported words.' }]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(good);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toContainText('Done: imported');
+  await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: imported`);
+  await expect(page.getByTestId('lesson-live-revision')).toHaveText('Revision 2');
+  await page.context().close();
+});

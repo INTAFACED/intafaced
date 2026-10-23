@@ -1,6 +1,8 @@
 import 'server-only';
 import {
   academyDuplicateItemInputSchema,
+  academyImportLessonInputSchema,
+  academyImportLessonResultSchema,
   academyLessonSchema,
   academyPublishLessonInputSchema,
   academyRevertLessonInputSchema,
@@ -24,6 +26,7 @@ const ACADEMY: PartLabels = {
 };
 
 const readLesson = parseWith(academyLessonSchema);
+const readImport = parseWith(academyImportLessonResultSchema);
 
 export async function loadLesson(ctx: FounderCallContext, itemId: string): Promise<LessonView> {
   const lesson = await founderCall(ctx, 'academy', 'admin.lesson', 'GET', { itemId }, readLesson);
@@ -79,14 +82,37 @@ const OPS = {
   },
 } as const;
 
-export type LessonOp = keyof typeof OPS;
-export const isLessonOp = (op: unknown): op is LessonOp => typeof op === 'string' && Object.hasOwn(OPS, op);
+export type LessonOp = keyof typeof OPS | 'import';
+export const isLessonOp = (op: unknown): op is LessonOp => typeof op === 'string' && (op === 'import' || Object.hasOwn(OPS, op));
+
+/** A lesson file: refused by size before it is read, or a report of each bad block with nothing created. */
+async function importLesson(ctx: FounderCallContext, body: Record<string, unknown>) {
+  const { op: _op, ...input } = body;
+  const parsed = academyImportLessonInputSchema.safeParse(input);
+  if (!parsed.success) return { why: 'Which lesson, read at which revision, and which file?' };
+  const result = await founderCall(ctx, 'academy', 'admin.importLesson', 'POST', parsed.data, readImport);
+  if (result.kind === 'ok' && result.data?.outcome === 'invalid')
+    return {
+      status: 422,
+      reply: {
+        ok: false as const,
+        title: 'The file has problems',
+        body: 'svc-academy read the file and found blocks it does not accept. They are listed below.',
+        next: 'Fix the file and import it again. Nothing was created.',
+        code: 'academy.import_invalid',
+        changed: 'no' as const,
+        problems: result.data.problems,
+      },
+    };
+  return reply(result.kind === 'ok' ? { ...result, data: result.data?.lesson ?? null } : result, 'imported');
+}
 
 export async function changeLesson(
   ctx: FounderCallContext,
   op: LessonOp,
   body: Record<string, unknown>,
 ): Promise<{ status: number; reply: LessonDeskReply } | { why: string }> {
+  if (op === 'import') return importLesson(ctx, body);
   const spec = OPS[op];
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);

@@ -67,6 +67,7 @@ import type {
   AcademyRevertLessonInput,
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
+  AcademyImportLessonInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -257,6 +258,8 @@ export interface AcademyServiceOptions {
   /** AC-course-structure-02: owner-set sections and items per course outline. Undefined: unset, an outline save refuses. */
   outlineMaxSections?: number;
   outlineMaxItems?: number;
+  /** AC-course-structure-03: the owner's lesson import size limit in bytes. Unset, an import refuses `academy.import_limit_unset`. */
+  lessonImportMaxBytes?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -312,7 +315,7 @@ export class AcademyService {
       maxSections: this.options.outlineMaxSections ?? null,
       maxItems: this.options.outlineMaxItems ?? null,
     });
-    this.lessonRecords = new LessonRecords(sql, this.courseRecords);
+    this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2194,6 +2197,10 @@ export class AcademyService {
 
   duplicateItem(input: AcademyDuplicateItemInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.duplicate({ ...input, now: input.now ?? new Date() });
+  }
+
+  importLesson(input: AcademyImportLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.import({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
