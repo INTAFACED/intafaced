@@ -155,6 +155,22 @@ const en = {
     'You cancelled {cap} orders, or let their payment time run out, within {hours} hours, so buying is paused until {time}. Selling is not paused. Nothing was placed.',
   failBuyingPausedPlain:
     'You cancelled too many orders, or let their payment time run out, in a short time, so buying is paused; selling is not. Nothing was placed.',
+  failStepUp: 'Confirm this order with your authenticator app or a passkey before it is placed. Nothing was placed.',
+  failStepUpExpired:
+    'Your last confirmation has ended. Confirm this order again with your authenticator app or a passkey. Nothing was placed.',
+  failStepUpFailed:
+    'That confirmation could not be used for this order. Confirm it again with a new code or your passkey. Nothing was placed.',
+  failStepUpUnchecked: 'Your confirmation could not be checked just now, so nothing was placed. Try again in a moment.',
+  failStepUpSetUp: 'Set up an authenticator app or a passkey in Security',
+  takeStepUpWhy:
+    'Placing an order holds the seller’s coins in escrow, so it needs a fresh check that it’s you. One check covers your next orders here for up to ten minutes.',
+  takeStepUpCode: 'Authenticator code',
+  takeStepUpCodeHint: 'The 6 digits your authenticator app shows now.',
+  takeStepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
+  takeStepUpNoFactor:
+    'Placing an order needs your authenticator app or a passkey, and none is saved on this account. Add one in Security first; placing without one is refused and nothing is held.',
+  takeStepUpSendWithout: 'Place order',
+  takeStepUpConfirmed: 'You confirmed it’s you here, so this order needs no new check until {time}.',
   takeFiatAmount: 'Or the amount in {fiat}',
   takeFiatHint: 'The service turns it into {asset} at this ad’s price, rounded down so you never pay more than you typed.',
   takeFiatConverting: 'Working out the {asset} amount…',
@@ -428,6 +444,21 @@ const es = {
     'Cancelaste {cap} pedidos, o dejaste que se acabara su plazo de pago, en {hours} horas, así que las compras quedan en pausa hasta las {time}. Las ventas no se pausan. No se hizo nada.',
   failBuyingPausedPlain:
     'Cancelaste demasiados pedidos, o dejaste que se acabara su plazo de pago, en poco tiempo, así que las compras quedan en pausa; las ventas no. No se hizo nada.',
+  failStepUp: 'Confirma este pedido con tu app de autenticación o una passkey antes de hacerlo. No se hizo nada.',
+  failStepUpExpired:
+    'Tu última confirmación ha terminado. Confirma este pedido de nuevo con tu app de autenticación o una passkey. No se hizo nada.',
+  failStepUpFailed: 'Esa confirmación no sirve para este pedido. Confírmalo de nuevo con un código nuevo o tu passkey. No se hizo nada.',
+  failStepUpUnchecked: 'No pudimos comprobar tu confirmación ahora mismo, así que no se hizo nada. Inténtalo de nuevo en un momento.',
+  failStepUpSetUp: 'Configura una app de autenticación o una passkey en Seguridad',
+  takeStepUpWhy:
+    'Hacer un pedido retiene en garantía las monedas del vendedor, así que necesita una comprobación nueva de que eres tú. Una comprobación cubre tus próximos pedidos aquí durante un máximo de diez minutos.',
+  takeStepUpCode: 'Código del autenticador',
+  takeStepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
+  takeStepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
+  takeStepUpNoFactor:
+    'Hacer un pedido necesita tu app de autenticación o una passkey, y esta cuenta no tiene ninguna. Añade una en Seguridad primero; sin ella el pedido se rechaza y no se retiene nada.',
+  takeStepUpSendWithout: 'Hacer el pedido',
+  takeStepUpConfirmed: 'Confirmaste aquí que eres tú, así que este pedido no necesita otra comprobación hasta las {time}.',
   takeFiatAmount: 'O el importe en {fiat}',
   takeFiatHint:
     'El servicio lo convierte en {asset} al precio de este anuncio, redondeando a la baja para que nunca pagues más de lo escrito.',
@@ -703,6 +734,22 @@ const fr = {
     'Vous avez annulé {cap} commandes, ou laissé passer leur délai de paiement, en {hours} heures, les achats sont donc en pause jusqu’à {time}. Les ventes ne sont pas en pause. Rien n’a été passé.',
   failBuyingPausedPlain:
     'Vous avez annulé trop de commandes, ou laissé passer leur délai de paiement, en peu de temps, les achats sont donc en pause ; les ventes non. Rien n’a été passé.',
+  failStepUp: 'Confirmez cette commande avec votre app d’authentification ou une passkey avant qu’elle soit passée. Rien n’a été passé.',
+  failStepUpExpired:
+    'Votre dernière confirmation a pris fin. Confirmez de nouveau cette commande avec votre app d’authentification ou une passkey. Rien n’a été passé.',
+  failStepUpFailed:
+    'Cette confirmation ne vaut pas pour cette commande. Confirmez-la de nouveau avec un nouveau code ou votre passkey. Rien n’a été passé.',
+  failStepUpUnchecked: 'Votre confirmation n’a pas pu être vérifiée, donc rien n’a été passé. Réessayez dans un moment.',
+  failStepUpSetUp: 'Configurez une app d’authentification ou une passkey dans Sécurité',
+  takeStepUpWhy:
+    'Passer une commande bloque en séquestre les cryptos du vendeur, il faut donc vérifier de nouveau que c’est vous. Une vérification couvre vos prochaines commandes ici pendant dix minutes au plus.',
+  takeStepUpCode: 'Code d’authentification',
+  takeStepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre app d’authentification.',
+  takeStepUpCodeShort: 'Saisissez les 6 chiffres de votre app d’authentification.',
+  takeStepUpNoFactor:
+    'Passer une commande demande votre app d’authentification ou une passkey, et ce compte n’en a aucune. Ajoutez-en une dans Sécurité d’abord ; sans elle la commande est refusée et rien n’est bloqué.',
+  takeStepUpSendWithout: 'Passer la commande',
+  takeStepUpConfirmed: 'Vous avez confirmé ici que c’est vous, cette commande ne demande donc pas d’autre vérification avant {time}.',
   takeFiatAmount: 'Ou le montant en {fiat}',
   takeFiatHint:
     'Le service le convertit en {asset} au prix de cette annonce, arrondi à l’inférieur pour ne jamais payer plus que le montant saisi.',

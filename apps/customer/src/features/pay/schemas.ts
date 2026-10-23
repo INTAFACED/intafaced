@@ -268,6 +268,8 @@ export const reputationSchema = z
       .optional(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
+/** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
+export const takeStepUpWindowSchema = z.object({ confirmedUntil: z.string().datetime({ offset: true }).nullable() });
 /** What `trades.quote` returns: exact figures for one take, before anything is locked. */
 export const takeQuoteSchema = z.object({
   amount: positiveAmount,
