@@ -10,9 +10,14 @@ name: Main trust
 #   green                move the `last-green` branch forward, close the "Main is red" issue it settles
 #
 # No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs.
+#
+# After a post-merge check on main finishes (Order-path CX-8, Customer Money browser checks, Real-app journeys), it
+# opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
+# passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
+# tooling/ci/post-merge-trust.mjs.
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Order-path CX-8, Customer Money browser checks, Real-app journeys]
     types: [completed]
     branches: [main]
 
@@ -25,7 +30,7 @@ concurrency:
 jobs:
   trust:
     name: Main trust
-    if: github.event.workflow_run.event == 'push'
+    if: github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
@@ -44,3 +49,29 @@ jobs:
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: node tooling/ci/main-trust.mjs
+
+  post-merge:
+    name: Post-merge checks
+    if: >-
+      github.event.workflow_run.name != 'CI' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: under a minute (three journey reports at most)
+    permissions:
+      contents: read # compare commits
+      actions: write # re-run failed jobs once, read runs and their journey reports
+      issues: write # open, comment on and close the break issues
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare with the earlier runs and act on a break
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node tooling/ci/post-merge-trust.mjs

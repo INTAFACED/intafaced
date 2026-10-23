@@ -1,0 +1,23 @@
+/* The Exchange | Web3 switch, drawn in the top bar of either shell. */
+@layer components {
+  .web3-switch {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--tb-line);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .web3-switch a {
+    padding: 4px 12px;
+    color: var(--tb-fg-2);
+    text-decoration: none;
+  }
+  .web3-switch a:hover {
+    color: var(--tb-fg);
+  }
+  .web3-switch a[aria-current='page'] {
+    background: var(--tb-hover);
+    color: var(--tb-fg);
+  }
+}

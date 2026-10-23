@@ -264,10 +264,10 @@ describe('startWalletProof and verifyWalletProof', () => {
   });
 
   it.each([
-    ['window', { windowRaw: () => undefined }, 'bank.wallet_proof_window_unset'],
-    ['window as zero', { windowRaw: () => '0' }, 'bank.wallet_proof_window_unset'],
-    ['validity', { validityRaw: () => ' ' }, 'bank.wallet_proof_validity_unset'],
-    ['validity as a fraction', { validityRaw: () => '1.5' }, 'bank.wallet_proof_validity_unset'],
+    ['window', { windowRaw: (): string | undefined => undefined }, 'bank.wallet_proof_window_unset'],
+    ['window as zero', { windowRaw: (): string | undefined => '0' }, 'bank.wallet_proof_window_unset'],
+    ['validity', { validityRaw: (): string | undefined => ' ' }, 'bank.wallet_proof_validity_unset'],
+    ['validity as a fraction', { validityRaw: (): string | undefined => '1.5' }, 'bank.wallet_proof_validity_unset'],
   ] as const)('refuses to offer a proof while the owner %s is blank, and stores nothing', async (_name, over, code) => {
     const r = rig(over);
     const entry = await r.save();

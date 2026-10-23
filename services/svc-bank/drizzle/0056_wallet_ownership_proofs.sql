@@ -6,7 +6,7 @@
 -- nothing rewrites the row to say so. The address is copied from the entry when the proof starts, so a later change of
 -- the entry never inherits a proof made for another address.
 --
--- Reversal: 0055_wallet_ownership_proofs.down.sql
+-- Reversal: 0056_wallet_ownership_proofs.down.sql
 
 CREATE TABLE IF NOT EXISTS "bank"."wallet_ownership_proofs" (
   "id" uuid PRIMARY KEY,

@@ -13,6 +13,7 @@ import {
 } from './ramp-journey';
 import { rampDepthCopy } from './ramp-depth-copy';
 import { addMoneyCopy } from './add-money-copy';
+import { linkedAccountsCopy } from './linked-accounts-copy';
 import { positiveMoney, useBankRead, type ActionSpec } from './components';
 import { assetSelectField, useHoldings } from './holdings';
 import './bank-depth.css';
@@ -37,6 +38,7 @@ function Steps({ active, off }: { active: RampStep; off: ReadonlySet<RampStep> }
 export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = rampDepthCopy.useCopy();
   const addMoney = addMoneyCopy.useCopy();
+  const linked = linkedAccountsCopy.useCopy();
   const programme = useBankRead('ramps.programme', undefined);
   const fiat = useBankRead('ramps.fiatSettle', undefined);
   const held = useHoldings();
@@ -115,6 +117,9 @@ export function RampJourneys({ open }: { open: (spec: ActionSpec) => void }) {
           <div className="actions">
             <a className="button button--primary" href="/bank/ramps/new">
               {addMoney.t('open')}
+            </a>
+            <a className="button" href="/bank/ramps/accounts">
+              {linked.t('open')}
             </a>
           </div>
         </DepthPanel>
