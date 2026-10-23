@@ -119,3 +119,6 @@ export function createAccountStateClient(
     },
   };
 }
+
+// PROOF ONLY, never merged: a deliberate type error to show the CI annotation.
+export const whyRedProof: number = "not a number";
