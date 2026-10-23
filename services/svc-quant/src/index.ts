@@ -49,6 +49,15 @@ export const appRouter = createQuantRouter({
   lake,
   history,
   fees,
+  judgement: {
+    criteria: {
+      minTrades: env.QUANT_OOS_MIN_TRADES ?? null,
+      minReturnPercent: env.QUANT_OOS_MIN_RETURN_PERCENT ?? null,
+      maxDrawdownPercent: env.QUANT_OOS_MAX_DRAWDOWN_PERCENT ?? null,
+      maxShortfallPercent: env.QUANT_OOS_MAX_SHORTFALL_PERCENT ?? null,
+    },
+    holdoutStart: env.QUANT_HOLDOUT_START ?? null,
+  },
   strategies: strategies.repository,
   runs: runs.repository,
   disclosure: disclosure.repository,

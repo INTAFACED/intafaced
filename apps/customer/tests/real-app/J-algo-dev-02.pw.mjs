@@ -1,0 +1,204 @@
+import { test, expect } from '@playwright/test';
+import { EDGE, journeyState } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+
+// J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
+// or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
+// who starts signed in, verified, with a saved signal-rules strategy and one completed backtest. The out-of-sample
+// criteria and the holdout come from the local stack's TEST owner values (tooling/profiles/test-owner-values.json):
+// minimum one round trip, minimum return 0 %, maximum drawdown 10 %, the holdout the last 15 minutes, and the maximum
+// shortfall left blank on purpose. Every figure in Algo dev is simulated; nothing here moves money.
+const J = 'J-algo-dev-02';
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+test.describe.configure({ mode: 'default' });
+
+function developer() {
+  const who = run.read().account;
+  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
+  return who;
+}
+
+/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
+function utcMinute(minutesAgo) {
+  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
+  return new Date(at).toISOString().slice(0, 16);
+}
+
+/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
+async function closedBarsSince(minute) {
+  const since = Date.parse(`${minute}:00Z`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
+}
+
+/** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
+async function saveSignalStrategy(page, name) {
+  await page.goto('/quant/studio');
+  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
+  if (await fresh.isVisible()) await fresh.click();
+  await page.getByLabel('Strategy name').fill(name);
+  await page.getByLabel('Simulated starting cash').fill('1000');
+  await page.getByLabel('Block 1 symbol').fill('BTC/USDT');
+  await page.getByLabel('Block 1 quantity').fill('0.01');
+  await page.getByLabel('Max drawdown (service unit unspecified)').fill('100');
+  await page.getByLabel('Max notional (service unit unspecified)').fill('500');
+  await page.getByLabel('Kill threshold (service unit unspecified)').fill('50');
+  await page.getByLabel('How the strategy trades').selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Symbol').fill('BTC/USDT');
+  await builder.getByLabel('Bar size').selectOption('1m');
+  await builder.getByLabel('Fast average (bars)').fill('1');
+  await builder.getByLabel('Slow average (bars)').fill('2');
+  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
+}
+
+/** Opens the backtest room on a strategy and fills the run inputs; the split and holdout stay as the caller sets them. */
+async function backtestForm(page, strategy, { from, to, slippage = '5' }) {
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: strategy });
+  await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 1: BTC/USDT, 1m bars.');
+  await room.getByLabel('From (UTC)').fill(from);
+  await room.getByLabel('To (UTC)').fill(to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill(slippage);
+  return room;
+}
+
+const STRATEGY = 'TEST honest strategy';
+const WINDOW_MINUTES = 60;
+
+test(`${J} #1 sets the one-third preset: the out-of-sample part is the latest third, in UTC with no overlap; a window touching the owner holdout is refused`, async ({
+  page,
+}) => {
+  test.setTimeout(15 * 60_000);
+  // The start: a verified developer with a saved strategy and one completed backtest on the TEST tape.
+  const who = await signUp(page, 'jh');
+  await verify(page, who);
+  run.reset({ account: who });
+  await signIn(page, developer());
+  await saveSignalStrategy(page, STRATEGY);
+  const window = { from: utcMinute(WINDOW_MINUTES), to: utcMinute(0) };
+  await expect
+    .poll(async () => (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length, {
+      timeout: 12 * 60_000,
+      intervals: [15_000],
+      message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
+    })
+    .toBeGreaterThanOrEqual(8);
+  let room = await backtestForm(page, STRATEGY, window);
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-bar-result')).toBeVisible();
+  // Unsplit, the run has no out-of-sample part, so its verdict is inconclusive and says why.
+  await expect(room.getByTestId('quant-verdict')).toHaveAttribute('data-status', 'inconclusive');
+  await expect(room.getByTestId('quant-verdict-reasons').locator('[data-reason="not_split"]')).toHaveCount(1);
+
+  // The one-third preset: before anything runs, the preview cuts the window at its latest third, in UTC.
+  const toMs = Date.parse(`${window.to}:00Z`);
+  const cut = new Date(toMs - (WINDOW_MINUTES / 3) * 60_000);
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  const preview = room.getByTestId('quant-split-preview');
+  await expect(preview).toHaveAttribute('data-oos-from', cut.toISOString());
+  const minute = (at) => at.toISOString().slice(0, 16).replace('T', ' ');
+  await expect(preview).toHaveText(
+    `In sample ${window.from.replace('T', ' ')} to ${minute(cut)} UTC, then out of sample ${minute(cut)} to ${window.to.replace('T', ' ')} UTC. No overlap; the out-of-sample part is always the latest.`,
+  );
+
+  // The holdout is the last 15 minutes. A 30 minute window cut at its latest third has its in-sample part running into
+  // the holdout: refused by name, and nothing runs.
+  const started = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/backtest.start')) started.push(res.status());
+  });
+  await room.getByLabel('From (UTC)').fill(utcMinute(30));
+  await room.locator('.quant-check-line').getByRole('checkbox').check();
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-backtest-refusal')).toContainText('the in-sample part runs to');
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  expect(started).toEqual([400]);
+
+  // The hour-long window clears it: the in-sample part ends 20 minutes back, before the holdout. The run is cut into two
+  // ordered parts that meet at the preview's minute and do not overlap.
+  room = await backtestForm(page, STRATEGY, window);
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  await room.locator('.quant-check-line').getByRole('checkbox').check();
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-bar-result')).toBeVisible();
+  await expect(room.getByTestId('quant-holdout')).toHaveAttribute('data-enforced', 'true');
+  const inSample = room.getByTestId('quant-section-inSample');
+  const outOfSample = room.getByTestId('quant-section-outOfSample');
+  await expect(inSample).toHaveAttribute('data-from', `${window.from}:00.000Z`);
+  await expect(inSample).toHaveAttribute('data-to', cut.toISOString());
+  await expect(outOfSample).toHaveAttribute('data-from', cut.toISOString());
+  await expect(outOfSample).toHaveAttribute('data-to', `${window.to}:00.000Z`);
+  run.write({ window });
+});
+
+test(`${J} #2 runs with a typed verdict of "passed" in the request: the verdict shown is the computed one, the typed field is listed as ignored, and a blank criterion reads inconclusive with its name`, async ({
+  page,
+}) => {
+  const { window } = run.read();
+  if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
+  await signIn(page, developer());
+  const room = await backtestForm(page, STRATEGY, { ...window, slippage: '6' });
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+
+  // The developer edits the request on its way out, adding a verdict and a variant count of their own.
+  await page.route('**/api/quant/trpc/backtest.start', (route) =>
+    route.continue({
+      postData: JSON.stringify({ ...route.request().postDataJSON(), outOfSampleStatus: 'passed', strategyVariantCount: 1 }),
+    }),
+  );
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-bar-result')).toBeVisible();
+
+  // The service computed the verdict. The owner left the maximum shortfall blank, so it cannot pass: it reads
+  // inconclusive and names the missing criterion; the others show as set.
+  const verdict = room.getByTestId('quant-verdict');
+  await expect(verdict).toHaveAttribute('data-status', 'inconclusive');
+  await expect(room.getByTestId('quant-verdict-status')).toHaveText('Inconclusive');
+  await expect(room.getByTestId('quant-verdict-reasons').locator('[data-reason="criteria_unset"]')).toHaveCount(1);
+  await expect(room.getByTestId('quant-verdict-unset')).toHaveAttribute('data-unset', 'maxShortfallPercent');
+  await expect(room.getByTestId('quant-verdict-unset')).toHaveText(
+    'Not set by the owner: Maximum shortfall against in sample (percentage points).',
+  );
+  const criterion = (name) => room.getByTestId('quant-verdict-criteria').locator(`[data-criterion="${name}"]`);
+  await expect(criterion('minTrades')).toHaveAttribute('data-value', '1');
+  await expect(criterion('maxShortfallPercent')).toHaveAttribute('data-value', '');
+  await expect(criterion('maxShortfallPercent').locator('dd')).toHaveText('not set');
+
+  // The typed fields changed nothing and are named as ignored.
+  await expect(room.getByTestId('quant-ignored-inputs')).toHaveAttribute('data-fields', 'outOfSampleStatus,strategyVariantCount');
+  await expect(room.getByTestId('quant-variant-count')).not.toHaveAttribute('data-count', '1');
+});
+
+test(`${J} #3 runs one strategy five times with different inputs: the variant count reads five on the result`, async ({ page }) => {
+  const { window } = run.read();
+  if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
+  await signIn(page, developer());
+  // A second strategy starts its own count; each run with a different slippage is a new variant, counted by the service.
+  const strategy = 'TEST variant strategy';
+  await saveSignalStrategy(page, strategy);
+  for (const [i, slippage] of ['1', '2', '3', '4', '5'].entries()) {
+    const room = await backtestForm(page, strategy, { ...window, slippage });
+    await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+    await room.getByTestId('quant-backtest-run').click();
+    await expect(room.getByTestId('quant-bar-result')).toBeVisible();
+    await expect(room.getByTestId('quant-variant-count')).toHaveAttribute('data-count', String(i + 1));
+  }
+  const room = page.getByTestId('quant-bar-backtest');
+  await expect(room.getByTestId('quant-variant-count')).toHaveText('Variants tried: 5');
+
+  // Running the fifth inputs again reads back the stored run: still five, not six.
+  const runId = await room.getByTestId('quant-bar-result').getAttribute('data-run-id');
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-bar-result')).toHaveAttribute('data-run-id', runId ?? '');
+  await expect(room.getByTestId('quant-variant-count')).toHaveText('Variants tried: 5');
+});

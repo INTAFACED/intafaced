@@ -29,3 +29,10 @@
   height: 1rem;
   accent-color: var(--if-lime);
 }
+
+/* The holdout choice in the Backtest form: the tick and its words on one line. */
+.quant-check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

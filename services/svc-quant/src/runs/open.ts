@@ -19,6 +19,7 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     claimOnce: async () => fail(),
     history: async () => fail(),
     setLabel: async () => fail(),
+    variantCount: async () => fail(),
   };
 }
 
