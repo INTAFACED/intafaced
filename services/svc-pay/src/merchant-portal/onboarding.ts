@@ -6,7 +6,7 @@ import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { maskDestination, safeDestinationLabel } from '../control/mask-destination.js';
 import type { PayService } from '../payment-service.js';
 import { SubMerchantError } from '../submerchants.js';
-import { ONBOARDING_BLOCKERS, type MerchantBusinessProfile } from '@intafaced/contracts';
+import { ONBOARDING_BLOCKERS, type MerchantBusinessProfile, type MerchantTermsState } from '@intafaced/contracts';
 
 type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
 
@@ -14,8 +14,8 @@ type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
  * Onboarding and go-live progress, derived from rows this service already has.
  *
  * Documents stay `pending_vendor`: no KYB document vendor is configured, and
- * this read does not pretend one is. Terms stay `not_configured`: no terms
- * version is published, so there is nothing to accept. Destinations are masked
+ * this read does not pretend one is. Terms are `not_configured` while the owner
+ * has published no version, so there is nothing to accept (`terms.ts`). Destinations are masked
  * with the same function the payout approval list uses. A PayFac parent sees
  * those masked destinations only when it holds `settlement.payout` over the
  * subject. The owner and an active team member still see them.
@@ -27,6 +27,7 @@ export async function readOnboardingProgress(
   team: MerchantTeamRead,
   userId: string | undefined,
   profile: MerchantBusinessProfile,
+  readTerms: () => Promise<MerchantTermsState>,
 ) {
   await allowMerchantRead({
     ownerCheck: () => assertMerchantAreaAccess(pay, userId, profile.merchantId, 'merchant.profile', trees),
@@ -49,14 +50,16 @@ export async function readOnboardingProgress(
   if (missing.length > 0) blocking.push('business_incomplete');
   blocking.push('documents_pending_vendor');
   if (destinations.length === 0) blocking.push('destination_missing');
-  blocking.push('terms_not_configured');
+  const terms = await readTerms();
+  if (terms.state === 'not_configured') blocking.push('terms_not_configured');
+  else if (terms.state === 'not_accepted') blocking.push('terms_not_accepted');
   if (merchant.kybStatus !== 'approved') blocking.push('kyb_not_approved');
   if (merchant.status !== 'active') blocking.push('merchant_not_active');
   return {
     merchantId: profile.merchantId,
     business: { done: missing.length === 0, missing },
     documents: { state: 'pending_vendor' as const },
-    terms: { state: 'not_configured' as const },
+    terms,
     destination: {
       present: destinations.length > 0,
       destinations: showDestinations

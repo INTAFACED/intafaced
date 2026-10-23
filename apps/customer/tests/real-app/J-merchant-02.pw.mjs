@@ -80,3 +80,28 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   await expect(page.getByText('Send your verification reference for review (step 2).')).toBeVisible();
   expect(refused).toEqual([]);
 });
+
+test(`${J} part of #6 the owner reads the published merchant terms and accepts them before going live`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mtc', '/pay/onboarding');
+  await openBusiness(page, owner, 'TEST Terms Ltd');
+  const refused = refusedPayCalls(page);
+
+  await page.goto('/pay/onboarding');
+  await expect(page.getByText('Accept the terms of service (step 3).')).toBeVisible();
+  await page.goto('/pay/onboarding/go-live');
+  const terms = page.locator('.stack').filter({ has: page.getByRole('heading', { name: 'Terms of service' }) });
+  await expect(terms.getByRole('link', { name: 'Read the terms (version TEST-merchant-terms-1)' })).toHaveAttribute(
+    'href',
+    'https://terms.example/TEST-merchant-terms-1',
+  );
+  await expect(page.getByText('No terms of service to accept')).toHaveCount(0);
+  await terms.getByRole('button', { name: 'Accept the terms' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Accept the terms' }).click();
+  await expect(terms.getByRole('status')).toContainText('Version TEST-merchant-terms-1 accepted.');
+  await page.reload();
+  await expect(terms.getByRole('status')).toContainText('Version TEST-merchant-terms-1 accepted.');
+  await page.goto('/pay/onboarding');
+  await expect(page.getByText('Accept the terms of service (step 3).')).toHaveCount(0);
+  expect(refused).toEqual([]);
+});

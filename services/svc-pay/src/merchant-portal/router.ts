@@ -20,6 +20,8 @@ import {
   merchantProfileHistorySchema,
   merchantProfileSecondApprovalInputSchema,
   merchantProfileSecondApprovalResultSchema,
+  merchantTermsAcceptInputSchema,
+  merchantTermsAcceptResultSchema,
   anyScopeProcedure,
   router,
   scopedProcedure,
@@ -37,6 +39,7 @@ import { MerchantAnalyticsService } from './analytics.js';
 import { PortalError, wrapPortal } from './errors.js';
 import { readOnboardingProgress } from './onboarding.js';
 import { MerchantProfileService, type ProfileWriter } from './profile.js';
+import { acceptTerms, readTermsState, type MerchantTermsConfig } from './terms.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
@@ -61,6 +64,8 @@ export function merchantPortalExtensions(deps: {
   trees: MerchantAreaFence | null;
   team: MerchantTeamRead;
   approvals?: ActionApprovalConsumer;
+  /** The published merchant terms (`terms.ts`). Absent or null: none published. */
+  terms?: MerchantTermsConfig | null;
 }) {
   const approvals = deps.approvals ?? unwiredApprovalConsumer();
   const profile = new MerchantProfileService(deps.sql, deps.pay, deps.trees, deps.team);
@@ -92,6 +97,7 @@ export function merchantPortalExtensions(deps: {
     scope: ctx.profileScope,
   });
   const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
+  const termsWrite = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
 
   const userIdOf = (principal: { userId?: string } | null | undefined): string => {
     if (!principal?.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -171,8 +177,25 @@ export function merchantPortalExtensions(deps: {
         .query(({ ctx, input }) =>
           wrapPortal(async () => {
             const loaded = await profile.get(ctx.principal?.userId, input.merchantId);
-            return readOnboardingProgress(deps.sql, deps.pay, deps.trees, deps.team, ctx.principal?.userId, loaded);
+            return readOnboardingProgress(deps.sql, deps.pay, deps.trees, deps.team, ctx.principal?.userId, loaded, () =>
+              readTermsState(deps.sql, deps.terms ?? null, input.merchantId),
+            );
           }),
+        ),
+    }),
+    terms: router({
+      /** The owner accepts the published terms, on `pay:write` or before verification on `pay:onboard`. Interactive only. */
+      accept: termsWrite
+        .input(merchantTermsAcceptInputSchema)
+        .output(merchantTermsAcceptResultSchema)
+        .mutation(({ ctx, input }) =>
+          wrapPortal(async () =>
+            acceptTerms(
+              { sql: deps.sql, pay: deps.pay, team: deps.team, config: deps.terms ?? null },
+              { userId: interactive(ctx.principal), scope: hasScope(ctx.principal.scopes, 'pay:write') ? 'pay:write' : 'pay:onboard' },
+              input,
+            ),
+          ),
         ),
     }),
     // Not merged as its own `merchant` key: `createPayRouter` already owns that key and spreads this object.
