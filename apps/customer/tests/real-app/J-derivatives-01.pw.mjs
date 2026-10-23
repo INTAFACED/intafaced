@@ -235,7 +235,14 @@ test(`${J} #8 confirms "Open long": one position opens and its margin is locked`
   if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
   // A double press sends one order: the request id holds until the numbers change.
   await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
-  await expect(page.getByText('Order filled')).toBeVisible({ timeout: 20_000 });
+  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
+  const filled = page.getByText('Order filled');
+  await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+  if (!(await filled.isVisible())) {
+    if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  }
+  await expect(filled).toBeVisible({ timeout: 20_000 });
   const positions = await until(
     () => positionsOf(who),
     (list) => list.length === 1 && list[0].contracts === SIZE,

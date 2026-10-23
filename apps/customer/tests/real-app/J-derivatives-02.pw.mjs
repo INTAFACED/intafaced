@@ -412,7 +412,11 @@ test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the 
   await expect(confirm).toBeVisible();
   await expect(tierStep).toHaveCount(0);
   await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-  await expect(page.getByText('Order filled')).toBeVisible({ timeout: 20_000 });
+  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures and asks once more.
+  const firstFilled = page.getByText('Order filled');
+  await expect(firstFilled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+  if (!(await firstFilled.isVisible())) await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+  await expect(firstFilled).toBeVisible({ timeout: 20_000 });
   await until(positionSize, (s) => s === FIRST, 'the tier-1 position');
 
   // Adding 0.004 crosses out of tier 1. The service refuses the add until the tier is named, and holds nothing.
@@ -568,4 +572,116 @@ test(`${J} #7 opens beyond the open-interest share and with no limit published: 
   }
   const back = (await preview('0.001')).body.openInterest;
   expect([back?.limit, back?.shareBps]).toEqual([published.limit, published.shareBps]);
+});
+
+test(`${J} #8 previews while the dynamic price range is wider than usual: the band shown with its current width, an order outside refused`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = account();
+  const me = await api(who);
+  const tick = 10n ** 16n; // 0.01 USDT, the TEST perp's price step
+  const preview = (body = {}) =>
+    me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE, ...body });
+  // TEST values through the two-person risk door: widen up to 20% past any premium, worked out every second (the band
+  // job itself runs on the stack's 15 s futures cadence).
+  const RANGE = ['priceRangeMax=0.2', 'priceRangeTrigger=0', 'priceRangeCadenceSeconds=1'];
+  const UNSET = ['priceRangeMax=unset', 'priceRangeTrigger=unset', 'priceRangeCadenceSeconds=unset'];
+
+  // No range is published on the stack: the owner's static band (LOCAL TEST 5%) is in force, and says why.
+  tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
+  await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');
+  expect((await preview()).body.band).toMatchObject({ fraction: '0.05', staticFraction: '0.05', source: 'static', max: null });
+
+  try {
+    tool('local-test-gates.mjs', 'risk', SYMBOL, ...RANGE);
+    // The TEST perp is quoted on the spot book's prices, so its premium over the mark is small and comes and goes as
+    // the market maker quotes the two books: about half the time the futures mid sits a step away from the mark. While
+    // it does, the band in force is the static band plus that premium. Each check below reads one preview, so its
+    // band and its verdict belong together.
+    const dynamic = async (body) => {
+      let res = null;
+      await expect
+        .poll(
+          async () => {
+            res = await preview(body);
+            return res.body.band?.source;
+          },
+          { timeout: 120_000, intervals: [1_000], message: 'the band job widens the band by the premium it reads' },
+        )
+        .toBe('dynamic');
+      return res.body;
+    };
+    const wide = await dynamic();
+    expect(wide.band).toMatchObject({ staticFraction: '0.05', source: 'dynamic', reason: 'widened', max: '0.2' });
+    const fraction = toUnits(wide.band.fraction);
+    expect(fraction).toBe(toUnits('0.05') + toUnits(wide.band.premium));
+    expect(fraction > toUnits('0.05') && fraction < toUnits('0.2')).toBe(true);
+    const mark = toUnits(wide.markPrice);
+    expect(toUnits(wide.band.high)).toBe(mark + (mark * fraction) / 10n ** 18n);
+
+    // A limit between the usual edge and the wider one is inside the band in force.
+    const inside = await dynamic({ type: 'limit', limitPrice: wide.band.high });
+    const usualHigh = toUnits(inside.markPrice) + (toUnits(inside.markPrice) * 5n) / 100n;
+    if (toUnits(inside.band.high) - tick > usualHigh) {
+      const between = fromUnits(((usualHigh + toUnits(inside.band.high)) / 2n / tick) * tick);
+      const check = await dynamic({ type: 'limit', limitPrice: between });
+      expect(toUnits(between) > usualHigh && toUnits(between) <= toUnits(check.band.high)).toBe(true);
+      expect(check.refusals.map((r) => r.code)).not.toContain('trade.futures_price_outside_band');
+    }
+
+    // The review shows the band at its current width, and says it is wider than usual and why.
+    await desk(page);
+    const ticket = page.getByRole('region', { name: 'Order ticket' });
+    await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
+    await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+    const wider = ticket.getByText(
+      /Wider than usual: the mark plus or minus [\d.]+%, not the usual 5\.00%, while the futures price is [\d.]+% away/,
+    );
+    await expect
+      .poll(
+        async () => {
+          await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+          await expect(ticket.getByText('Price band', { exact: true })).toBeVisible();
+          return wider.isVisible();
+        },
+        { timeout: 120_000, intervals: [2_000], message: 'the review shows the wider band' },
+      )
+      .toBe(true);
+
+    // Past the band in force refuses, in the review and at the service, before anything is held. 100 USDT past the
+    // wider edge is past it whichever way the premium moves meanwhile (it moves by a few USDT on the TEST book).
+    const past = fromUnits(((toUnits(wide.band.high) + 100n * 10n ** 18n) / tick) * tick);
+    const outside = await preview({ type: 'limit', limitPrice: past });
+    expect(outside.body.refusals).toContainEqual(
+      expect.objectContaining({
+        code: 'trade.futures_price_outside_band',
+        message: expect.stringContaining(`to ${outside.body.band.high}`),
+      }),
+    );
+    await ticket.getByRole('group', { name: 'Order type' }).getByRole('button', { name: 'Limit' }).click();
+    await ticket.getByRole('textbox', { name: 'Limit price' }).fill(past);
+    await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+    await expect(ticket.locator('[data-code="trade.futures_price_outside_band"]')).toContainText('outside the band');
+    await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+    const before = await me.balances();
+    const refused = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'limit',
+      price: past,
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-8-outside-${Date.now()}`,
+      confirmTier: 4,
+    });
+    expect(refused.status, JSON.stringify(refused.body)).toBeGreaterThanOrEqual(400);
+    expect(refused.body.error).toBe('trade.futures_price_outside_band');
+    expect(await me.balances()).toEqual(before);
+  } finally {
+    tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
+  }
+  // With the range cleared, the static band is in force again.
+  await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');
 });

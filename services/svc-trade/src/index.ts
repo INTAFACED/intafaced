@@ -87,6 +87,14 @@ import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
 import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
+  bandInForce,
+  readPriceRangeSettings,
+  runPriceBandTick,
+  sqlPriceBandStore,
+  staticBandInForce,
+  type BandInForce,
+} from './futures/dynamic-price-band.js';
+import {
   ADL_DISCLOSURE_VERSION,
   assertAdlDisclosureAcked,
   presentAdlDisclosureWire,
@@ -153,7 +161,7 @@ import { startAlgoJobs } from './algo/algo-jobs.js';
 import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
@@ -551,6 +559,25 @@ const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+// D-instruments-08: the operator's dynamic price range on the market's limits row, worked out by the futures.price_band
+// job below. Anything short of a fresh working for the limits in force, an unreadable read included, is the static band.
+const priceBands = sqlPriceBandStore(sql);
+const futuresBandInForce = async (staticBand: Amount, marketId: string): Promise<BandInForce> => {
+  try {
+    const risk = await currentRisk(sql, marketId);
+    return bandInForce({
+      staticBand,
+      settings: readPriceRangeSettings(risk),
+      riskVersion: risk?.version ?? '0',
+      current: await priceBands.current(marketId),
+      now: new Date(),
+      jobIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    });
+  } catch (err) {
+    app.log.error({ err, marketId }, 'the futures price band in force could not be read; the static band applies');
+    return staticBandInForce(staticBand, 'unreadable');
+  }
+};
 const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =>
   (await operatorSlippageCapBps(sql, marketId)) ?? env.TRADE_MARKET_SLIPPAGE_CAP_BPS ?? null;
 /** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
@@ -572,6 +599,11 @@ const positions = new PositionService(sql, ledger, {
     matching,
     enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
     priceBand: futuresPriceBand,
+    ...(futuresPriceBand !== null
+      ? {
+          priceBandFor: async (marketId: string) => (await futuresBandInForce(futuresPriceBand, marketId)).fraction,
+        }
+      : {}),
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
     // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
     feeRates: futuresFeeRates,
@@ -609,6 +641,39 @@ futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, 
     app.log.error(
       { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
       'resting futures orders not checked against the band',
+    );
+  }
+});
+// The dynamic price range (D-instruments-08): each market whose operator range is set is worked out once per its cadence,
+// from the mark and the futures book's own mid, and the band in force and every change to it are kept.
+futuresJobs.host.every('futures.price_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const tick = await runPriceBandTick({
+    staticBand: futuresPriceBand,
+    markets: () => sql<{ id: string; symbol: string }[]>`SELECT id, symbol FROM trade.markets WHERE kind = 'futures' ORDER BY id`,
+    limitsFor: async (marketIds) => {
+      const rows = await currentRiskForMarkets(sql, marketIds);
+      return new Map([...rows].map(([id, risk]) => [id, { version: risk.version, settings: readPriceRangeSettings(risk) }]));
+    },
+    // The mark as the public ticker publishes it: a mark that fails the marking policy (stale, or too thin) is none.
+    mark: async (marketId, symbol) => {
+      const mark = await futuresJobs.publicMark(marketId, symbol);
+      return mark == null ? null : parseAmount(mark.price);
+    },
+    bookMid: async (marketId) => {
+      // The futures book's own mid, read as the trailing-stop pump reads a book (a thin or one-sided book is null).
+      const mid = await trailingMarkSource.markPrice({ marketId, at: new Date() });
+      return mid == null ? null : parseAmount(mid);
+    },
+    store: priceBands,
+    now: () => new Date(),
+  });
+  for (const item of tick.failed) {
+    app.log.error({ job: 'futures.price_band', marketId: item.marketId, err: item.message }, 'the futures price band was not worked out');
+  }
+  for (const item of tick.worked.filter((w) => w.changed)) {
+    app.log.info(
+      { job: 'futures.price_band', marketId: item.marketId, band: item.band, reason: item.reason },
+      'futures price band changed',
     );
   }
 });
@@ -893,6 +958,7 @@ registerPositionPreviewRest(app, {
   leverageCap: maxLeverage,
   // The band, slippage cap and max-order the order path holds an open to, read the same way it reads them.
   priceBand: futuresPriceBand,
+  ...(futuresPriceBand !== null ? { priceBandInForce: (marketId: string) => futuresBandInForce(futuresPriceBand, marketId) } : {}),
   slippageCapBps: futuresSlippageCapBps,
   maxOrder: () => {
     const resolved = resolveAdmissionLimits();

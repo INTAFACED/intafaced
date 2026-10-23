@@ -23,6 +23,7 @@ import { bpsToRate } from '../public-rest.js';
 import { FuturesError } from './position-service.js';
 import { RISK_TIER_UNAVAILABLE, type RiskTierCrossing } from './risk-tier-confirm.js';
 import { OI_ROOM_UNAVAILABLE, openInterestRefusal, type OpenInterestRoom } from './open-interest-limits.js';
+import type { BandInForce, BandReason } from './dynamic-price-band.js';
 
 export interface PositionPreviewRefusal {
   code: string;
@@ -56,8 +57,24 @@ export interface PositionPreviewWire {
   liquidationPrice: string | null;
   /** What the ticket would send: a market open, or a limit at `limitPrice`. */
   type: 'market' | 'limit';
-  /** The owner's band around the mark this order must stay inside; null while the band is unset or there is no mark. */
-  band: { fraction: string; low: string; high: string } | null;
+  /**
+   * The band around the mark this order must stay inside, and why it is that wide: the owner's static band, or wider
+   * while the operator's dynamic range has widened it (D-instruments-08). Null while the band is unset or there is no mark.
+   */
+  band: {
+    fraction: string;
+    low: string;
+    high: string;
+    staticFraction: string;
+    source: 'static' | 'dynamic';
+    reason: BandReason;
+    /** The widest the range may go; null while the range is unset. */
+    max: string | null;
+    /** The futures book's premium over the mark at the last working; null when none was read. */
+    premium: string | null;
+    /** When the band last changed value; null before the first working. */
+    changedAt: string | null;
+  } | null;
   /** A market open's slippage cap in bps; null is unset, and a market open refuses. */
   slippageCapBps: number | null;
   /** The price the order would be held and sent at: the protective limit of a market open, or the limit itself. */
@@ -115,6 +132,8 @@ export interface PositionPreviewRestDeps {
   takerFeeBps: ((userId: string) => Promise<number>) | null;
   /** The owner's band as a fraction of the mark (`TRADE_FUTURES_PRICE_BAND`); null or absent is unset. */
   priceBand?: Amount | null;
+  /** The band a new order on the market is held to now, as the order path reads it; absent is the static band. */
+  priceBandInForce?: (marketId: string) => Promise<BandInForce>;
   /** The slippage cap a market open on this market answers to, as the order path reads it; absent is unset. */
   slippageCapBps?: (marketId: string) => Promise<number | null>;
   /** The owner's max-order in whole quote units (TRADE_MAX_ORDER), as the order path reads it; null or absent is unset. */
@@ -315,8 +334,20 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     if (bandFraction === null) {
       refusals.push({ code: FUTURES_PRICE_BAND_UNSET, field: 'price', message: 'the owner has not published the futures price band' });
     } else if (markAmount !== null) {
-      const at = priceBandAround(markAmount, bandFraction);
-      band = { fraction: formatAmount(bandFraction), low: formatAmount(at.low), high: formatAmount(at.high) };
+      const inForce = deps.priceBandInForce ? await deps.priceBandInForce(market.id) : null;
+      const fraction = inForce?.fraction ?? bandFraction;
+      const at = priceBandAround(markAmount, fraction);
+      band = {
+        fraction: formatAmount(fraction),
+        low: formatAmount(at.low),
+        high: formatAmount(at.high),
+        staticFraction: formatAmount(bandFraction),
+        source: inForce?.source ?? 'static',
+        reason: inForce?.reason ?? 'price_range_unset',
+        max: inForce?.max == null ? null : formatAmount(inForce.max),
+        premium: inForce?.premium == null ? null : formatAmount(inForce.premium),
+        changedAt: inForce?.changedAt ? inForce.changedAt.toISOString() : null,
+      };
       if (type === 'market') {
         slippageCapBps = honouredSlippageCapBps(deps.slippageCapBps ? await deps.slippageCapBps(market.id) : null);
         if (slippageCapBps === null) {

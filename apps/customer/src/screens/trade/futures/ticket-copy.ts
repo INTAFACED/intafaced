@@ -37,6 +37,10 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Band range': '{low} to {high}',
   'Band hint': 'The mark plus or minus {pct}. An order outside it is refused or moved to the edge.',
   'Band unset hint': 'No price band is published, so no order is placed.',
+  'Band wider hint':
+    'Wider than usual: the mark plus or minus {pct}, not the usual {usual}, while the futures price is {premium} away from the mark. An order outside it is refused or moved to the edge.',
+  'Band wider capped hint':
+    'Wider than usual and at its widest: the mark plus or minus {pct}, not the usual {usual}, while the futures price is {premium} away from the mark. An order outside it is refused or moved to the edge.',
   'Order price market': 'Protection price',
   'Order price limit': 'Order price',
   'Slippage cap': 'Slippage cap',

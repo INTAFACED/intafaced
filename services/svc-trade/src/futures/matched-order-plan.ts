@@ -61,6 +61,15 @@ export function priceBandAround(mark: Amount, band: Amount): PriceBand {
   return { low: mark - delta, high: mark + delta };
 }
 
+/**
+ * The band fraction an order was accepted under, from the mark and high edge stored on it. Rounded up, so the band it
+ * gives around that mark reaches the stored edge. Zero when the row holds no band above its mark.
+ */
+export function bandFractionOf(mark: Amount, high: Amount): Amount {
+  if (mark <= 0n || high <= mark) return 0n;
+  return ((high - mark) * SCALE + mark - 1n) / mark;
+}
+
 export function limitWithinBand(limit: Amount, band: PriceBand): boolean {
   return limit >= band.low && limit <= band.high;
 }
