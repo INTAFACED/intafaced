@@ -190,6 +190,20 @@ function fractionBelowOne(text: string, zeroAllowed: boolean): boolean {
   return (zeroAllowed ? value >= 0n : value > 0n) && value < parseAmount('1');
 }
 
+/**
+ * The dynamic price range is three values that only work together: a version with one or two of them would be
+ * approved and then never widen anything. All three set, or none, is the only shape a version may hold.
+ */
+export function assertPriceRangeWhole(limits: Pick<RiskLimits, 'priceRangeMax' | 'priceRangeTrigger' | 'priceRangeCadenceSeconds'>): void {
+  const set = [limits.priceRangeMax, limits.priceRangeTrigger, limits.priceRangeCadenceSeconds].filter((v) => v != null).length;
+  if (set !== 0 && set !== 3) {
+    throw new TradeOpsError(
+      'risk_limit_not_exact',
+      'the price range is priceRangeMax, priceRangeTrigger and priceRangeCadenceSeconds together: set all three, or clear all three',
+    );
+  }
+}
+
 /** The new version's carried fields: what the write sent, else the current version's value, else unset. */
 export function carriedLimits(limits: RiskLimitsInput, current: RiskLimits | null): Pick<RiskLimits, CarriedRiskField> {
   const out = {} as Record<CarriedRiskField, string | null>;

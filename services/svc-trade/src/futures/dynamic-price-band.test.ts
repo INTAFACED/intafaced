@@ -44,10 +44,11 @@ function memoryStore(): PriceBandStore & { rows: Map<string, PriceBandRecord>; l
     },
     async record(w) {
       const prev = rows.get(w.marketId);
+      if (prev && prev.checkedAt.getTime() >= w.checkedAt.getTime()) return { recorded: false, changed: false };
       const changed = !prev || prev.band !== w.band;
       rows.set(w.marketId, { ...w, changedAt: changed ? w.checkedAt : prev.changedAt });
       if (changed) log.push({ ...w, previousBand: prev?.band ?? null, changedAt: w.checkedAt });
-      return { changed };
+      return { recorded: true, changed };
     },
     async changes(marketId) {
       return log.filter((c) => c.marketId === marketId).reverse();
@@ -96,13 +97,20 @@ describe('dynamic price range (D-instruments-08)', () => {
   });
 
   it('holds new orders to the static band unless a fresh working for these exact limits says wider', () => {
-    const inForce = (over: { settings?: PriceRangeSettings | null; riskVersion?: string; current?: PriceBandRecord | null; now?: Date }) =>
+    const inForce = (over: {
+      settings?: PriceRangeSettings | null;
+      riskVersion?: string;
+      current?: PriceBandRecord | null;
+      now?: Date;
+      jobIntervalMs?: number;
+    }) =>
       bandInForce({
         staticBand: STATIC,
         settings: over.settings === undefined ? RANGE : over.settings,
         riskVersion: over.riskVersion ?? '4',
         current: over.current === undefined ? record() : over.current,
         now: over.now ?? at(10),
+        jobIntervalMs: over.jobIntervalMs ?? 15_000,
       });
     expect(inForce({})).toMatchObject({ fraction: A('0.08'), staticFraction: STATIC, source: 'dynamic', reason: 'widened', max: A('0.2') });
     expect(inForce({ settings: null })).toMatchObject({ fraction: STATIC, source: 'static', reason: 'price_range_unset', max: null });
@@ -112,6 +120,10 @@ describe('dynamic price range (D-instruments-08)', () => {
     // Two cadences is still good; one millisecond more is stale.
     expect(inForce({ now: at(60) })).toMatchObject({ fraction: A('0.08'), source: 'dynamic' });
     expect(inForce({ now: new Date(at(60).getTime() + 1) })).toMatchObject({ fraction: STATIC, reason: 'stale' });
+    // A cadence shorter than the job's own runs is good for two runs: the job cannot work it any sooner.
+    const fast = { ...RANGE, cadenceSeconds: 1 };
+    expect(inForce({ settings: fast, now: at(30) })).toMatchObject({ fraction: A('0.08'), source: 'dynamic' });
+    expect(inForce({ settings: fast, now: at(31) })).toMatchObject({ fraction: STATIC, reason: 'stale' });
     // A working that found the premium within the trigger reads as the static band, with its reason.
     expect(inForce({ current: record({ band: STATIC, reason: 'within_trigger' }) })).toMatchObject({
       fraction: STATIC,
@@ -122,7 +134,7 @@ describe('dynamic price range (D-instruments-08)', () => {
     expect(inForce({ current: record({ band: A('0.5') }) })).toMatchObject({ fraction: A('0.2') });
   });
 
-  it('a resting order is held to the widest band the range allows, so a narrowing band never cancels it', () => {
+  it('the widest a band may go is the range max, never narrower than the static band', () => {
     expect(widestBand(STATIC, RANGE)).toBe(A('0.2'));
     expect(widestBand(STATIC, null)).toBe(STATIC);
     expect(widestBand(STATIC, { ...RANGE, max: A('0.01') })).toBe(STATIC);
@@ -141,7 +153,7 @@ describe('dynamic price range (D-instruments-08)', () => {
           { id: 'm', symbol: 'BTC/USDT:USDT' },
           { id: 'unset', symbol: 'ETH/USDT:USDT' },
         ],
-        limitsFor: async (marketId) => ({ version, settings: marketId === 'unset' ? null : settings }),
+        limitsFor: async (ids) => new Map(ids.map((id) => [id, { version, settings: id === 'unset' ? null : settings }])),
         mark: async () => A('65000'),
         bookMid: async () => bookMid,
         store,
@@ -183,7 +195,7 @@ describe('dynamic price range (D-instruments-08)', () => {
         { id: 'bad', symbol: 'X' },
         { id: 'm', symbol: 'BTC/USDT:USDT' },
       ],
-      limitsFor: async () => ({ version: '1', settings: RANGE }),
+      limitsFor: async (ids) => new Map(ids.map((id) => [id, { version: '1', settings: RANGE }])),
       mark: async () => A('65000'),
       bookMid: async () => Promise.reject(new Error('matching down')),
       store: failing,
@@ -193,12 +205,19 @@ describe('dynamic price range (D-instruments-08)', () => {
     expect(out.worked).toEqual([{ marketId: 'm', band: '0.05', reason: 'inputs_missing', changed: true }]);
   });
 
+  it('a working older than the one kept (another host read it earlier) is dropped, not recorded over the newer one', async () => {
+    const store = memoryStore();
+    await store.record({ ...record({ band: A('0.08') }), checkedAt: at(10) });
+    expect(await store.record({ ...record({ band: STATIC }), checkedAt: at(5) })).toEqual({ recorded: false, changed: false });
+    expect(store.rows.get('m')).toMatchObject({ band: A('0.08'), checkedAt: at(10) });
+  });
+
   it('works nothing while the static band is unset: every new order refuses anyway', async () => {
     const store = memoryStore();
     const out = await runPriceBandTick({
       staticBand: null,
       markets: async () => [{ id: 'm', symbol: 'BTC/USDT:USDT' }],
-      limitsFor: async () => ({ version: '1', settings: RANGE }),
+      limitsFor: async (ids) => new Map(ids.map((id) => [id, { version: '1', settings: RANGE }])),
       mark: async () => A('65000'),
       bookMid: async () => A('70000'),
       store,

@@ -19,9 +19,12 @@
  * Each working is kept as the market's band in force, and every change to the band is kept as a record of what it
  * was, what it became and why. The band in force is the static one whenever any of the three values is blank, when no
  * working has happened yet, when the limits row or the static band changed since the last working, or when the last
- * working is older than two cadences (`stale`): a range that is not being kept up never stays wide. A band change
- * applies to new orders only; a resting order is held to the widest band the range allows (`widestBand`), so a band
- * narrowing again never cancels an order accepted inside it.
+ * working is older than two cadences, or two runs of the job if those are longer (`stale`): a range that is not being
+ * kept up never stays wide. A band change applies to new orders only; a resting order is held to the band it was
+ * accepted under (`matched-orders.ts`, `cancelOutsideBand`), so a band narrowing again, or the range being cleared,
+ * never cancels an order accepted inside it.
+ *
+ * The job runs on the futures job cadence, so a range cadence shorter than that is worked at the job's own pace.
  */
 import type { Sql } from 'postgres';
 import { randomUUID } from 'node:crypto';
@@ -43,7 +46,7 @@ export type BandReason =
   | 'not_worked_yet'
   /** The limits row or the static band changed since the last working: the static band until the next. */
   | 'limits_changed'
-  /** The last working is older than two cadences: the static band. */
+  /** The last working is older than two cadences (or two job runs, if longer): the static band. */
   | 'stale'
   /** The range or the last working could not be read: the static band. */
   | 'unreadable'
@@ -156,9 +159,9 @@ export function staticBandInForce(staticBand: Amount, reason: BandReason, max: A
   };
 }
 
-/** How long a working stays good: two cadences. */
-export function staleAfterMs(settings: PriceRangeSettings): number {
-  return 2 * settings.cadenceSeconds * 1000;
+/** How long a working stays good: two cadences, or two runs of the job that works it when those are longer. */
+export function staleAfterMs(settings: PriceRangeSettings, jobIntervalMs: number): number {
+  return 2 * Math.max(settings.cadenceSeconds * 1000, jobIntervalMs);
 }
 
 /** The band a new order is held to now. Anything short of a fresh working for these exact limits is the static band. */
@@ -169,6 +172,8 @@ export function bandInForce(input: {
   readonly riskVersion: string;
   readonly current: PriceBandRecord | null;
   readonly now: Date;
+  /** How often the job that works the band runs. */
+  readonly jobIntervalMs: number;
 }): BandInForce {
   const { staticBand, settings, current } = input;
   const fallback = (reason: BandReason): BandInForce => ({
@@ -180,7 +185,7 @@ export function bandInForce(input: {
   if (!settings) return fallback('price_range_unset');
   if (!current) return fallback('not_worked_yet');
   if (current.riskVersion !== input.riskVersion || current.staticBand !== staticBand) return fallback('limits_changed');
-  if (input.now.getTime() - current.checkedAt.getTime() > staleAfterMs(settings)) return fallback('stale');
+  if (input.now.getTime() - current.checkedAt.getTime() > staleAfterMs(settings, input.jobIntervalMs)) return fallback('stale');
   // A stored band is held to the range it was worked under: never below the static band, never past the widest.
   const widest = widestBand(staticBand, settings);
   const band = current.band < staticBand ? staticBand : current.band > widest ? widest : current.band;
@@ -209,8 +214,11 @@ export interface PriceBandChange {
 
 export interface PriceBandStore {
   current(marketId: string): Promise<PriceBandRecord | null>;
-  /** Keep a working as the band in force; a change of value is also kept as a change. */
-  record(working: Omit<PriceBandRecord, 'changedAt'>): Promise<{ readonly changed: boolean }>;
+  /**
+   * Keep a working as the band in force; a change of value is also kept as a change. A working older than the one
+   * already kept (another host's, read later) is dropped: `recorded` is false.
+   */
+  record(working: Omit<PriceBandRecord, 'changedAt'>): Promise<{ readonly recorded: boolean; readonly changed: boolean }>;
   changes(marketId: string, limit: number): Promise<PriceBandChange[]>;
 }
 
@@ -245,6 +253,58 @@ function presentCurrent(row: CurrentRow): PriceBandRecord {
   };
 }
 
+/** The operator's read of a market's band: the last working kept and the changes, newest first, as decimal strings. */
+export interface PriceBandView {
+  readonly marketId: string;
+  readonly current: {
+    readonly band: string;
+    readonly staticBand: string;
+    readonly premium: string | null;
+    readonly mark: string | null;
+    readonly bookMid: string | null;
+    readonly reason: BandWorking['reason'];
+    readonly riskVersion: string;
+    readonly checkedAt: string;
+    readonly changedAt: string;
+  } | null;
+  readonly changes: readonly {
+    readonly band: string;
+    readonly previousBand: string | null;
+    readonly staticBand: string;
+    readonly premium: string | null;
+    readonly reason: BandWorking['reason'];
+    readonly riskVersion: string;
+    readonly changedAt: string;
+  }[];
+}
+
+export async function priceBandView(store: PriceBandStore, marketId: string, limit = 50): Promise<PriceBandView> {
+  const [current, changes] = await Promise.all([store.current(marketId), store.changes(marketId, limit)]);
+  return {
+    marketId,
+    current: current && {
+      band: formatAmount(current.band),
+      staticBand: formatAmount(current.staticBand),
+      premium: textOrNull(current.premium),
+      mark: textOrNull(current.mark),
+      bookMid: textOrNull(current.bookMid),
+      reason: current.reason,
+      riskVersion: current.riskVersion,
+      checkedAt: current.checkedAt.toISOString(),
+      changedAt: current.changedAt.toISOString(),
+    },
+    changes: changes.map((c) => ({
+      band: formatAmount(c.band),
+      previousBand: textOrNull(c.previousBand),
+      staticBand: formatAmount(c.staticBand),
+      premium: textOrNull(c.premium),
+      reason: c.reason,
+      riskVersion: c.riskVersion,
+      changedAt: c.changedAt.toISOString(),
+    })),
+  };
+}
+
 export function sqlPriceBandStore(sql: Sql): PriceBandStore {
   return {
     async current(marketId) {
@@ -255,9 +315,12 @@ export function sqlPriceBandStore(sql: Sql): PriceBandStore {
     },
     async record(w) {
       return sql.begin(async (tx) => {
-        // One working at a time per market: two hosts working the same market keep one history between them.
-        const [prev] = await tx<{ band: string; changed_at: Date }[]>`
-          SELECT band, changed_at FROM trade.futures_price_band_current WHERE market_id = ${w.marketId} FOR UPDATE`;
+        // One working at a time per market, the first one included (a row lock has no row to lock yet): two hosts
+        // working the same market keep one history between them, and an older working never replaces a newer one.
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.futures_price_band:${w.marketId}`}, 0))`;
+        const [prev] = await tx<{ band: string; checked_at: Date; changed_at: Date }[]>`
+          SELECT band, checked_at, changed_at FROM trade.futures_price_band_current WHERE market_id = ${w.marketId}`;
+        if (prev && prev.checked_at.getTime() >= w.checkedAt.getTime()) return { recorded: false, changed: false };
         const band = formatAmount(w.band);
         const changed = !prev || prev.band !== band;
         const changedAt = changed ? w.checkedAt : prev.changed_at;
@@ -279,7 +342,7 @@ export function sqlPriceBandStore(sql: Sql): PriceBandStore {
                     ${textOrNull(w.premium)}, ${textOrNull(w.mark)}, ${textOrNull(w.bookMid)}, ${w.reason},
                     ${w.riskVersion}::bigint, ${w.checkedAt.toISOString()})`;
         }
-        return { changed };
+        return { recorded: true, changed };
       });
     },
     async changes(marketId, limit) {
@@ -319,8 +382,10 @@ export interface PriceBandTickDeps {
   readonly staticBand: Amount | null;
   /** Every futures market whose band may be worked. */
   readonly markets: () => Promise<readonly { readonly id: string; readonly symbol: string }[]>;
-  /** The market's limits row now: its version and its three range values. */
-  readonly limitsFor: (marketId: string) => Promise<{ readonly version: string; readonly settings: PriceRangeSettings | null }>;
+  /** The markets' limits rows now, in one read: each one's version and three range values. A market with none is absent. */
+  readonly limitsFor: (
+    marketIds: readonly string[],
+  ) => Promise<ReadonlyMap<string, { readonly version: string; readonly settings: PriceRangeSettings | null }>>;
   readonly mark: (marketId: string, symbol: string) => Promise<Amount | null>;
   readonly bookMid: (marketId: string, symbol: string) => Promise<Amount | null>;
   readonly store: PriceBandStore;
@@ -341,10 +406,12 @@ export async function runPriceBandTick(deps: PriceBandTickDeps): Promise<PriceBa
   const failed: PriceBandTickResult['failed'][number][] = [];
   if (deps.staticBand == null) return { worked, failed };
   const staticBand = deps.staticBand;
-  for (const market of await deps.markets()) {
+  const markets = await deps.markets();
+  const limitsOf = markets.length === 0 ? new Map() : await deps.limitsFor(markets.map((m) => m.id));
+  for (const market of markets) {
     try {
-      const limits = await deps.limitsFor(market.id);
-      if (!limits.settings) continue;
+      const limits = limitsOf.get(market.id);
+      if (!limits?.settings) continue;
       const now = deps.now();
       const current = await deps.store.current(market.id);
       const due =
@@ -358,7 +425,7 @@ export async function runPriceBandTick(deps: PriceBandTickDeps): Promise<PriceBa
         deps.bookMid(market.id, market.symbol).catch(() => null),
       ]);
       const w = workBand({ staticBand, settings: limits.settings, mark, bookMid });
-      const { changed } = await deps.store.record({
+      const { recorded, changed } = await deps.store.record({
         marketId: market.id,
         band: w.band,
         staticBand,
@@ -369,7 +436,7 @@ export async function runPriceBandTick(deps: PriceBandTickDeps): Promise<PriceBa
         riskVersion: limits.version,
         checkedAt: now,
       });
-      worked.push({ marketId: market.id, band: formatAmount(w.band), reason: w.reason, changed });
+      if (recorded) worked.push({ marketId: market.id, band: formatAmount(w.band), reason: w.reason, changed });
     } catch (err) {
       failed.push({ marketId: market.id, message: err instanceof Error ? err.message : String(err) });
     }

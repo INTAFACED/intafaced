@@ -1192,7 +1192,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
 
     it('a wider band in force takes a limit the static band refuses, sends that band as the collar, and a narrower band later does not cancel it (D-instruments-08)', async () => {
       // Mark 100: the static 5% band is 95 to 105; the dynamic range has widened it to 20%, 80 to 120.
-      const wide = build({ priceBandFor: async () => A('0.2'), restingBandFor: async () => A('0.2') });
+      const wide = build({ priceBandFor: async () => A('0.2') });
       await expect(
         build().place(
           principal(ALICE),
@@ -1211,12 +1211,12 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         SELECT band_low::numeric::text AS band_low, band_high::numeric::text AS band_high FROM trade.futures_orders WHERE id = ${placed.orderId}`;
       expect([A(stored!.band_low), A(stored!.band_high)]).toEqual([A('80'), A('120')]);
       expect(engine.submits[0]).toMatchObject({ price: '110', collar: true, min: '80', max: '120' });
-      // The band narrows back to the static one for new orders; the sweep holds the resting order to the widest band
-      // the range allows, so it stays on the book.
-      const narrowed = build({ priceBandFor: async () => A('0.05'), restingBandFor: async () => A('0.2') });
+      // The band narrows back to the static one for new orders; the sweep holds the resting order to the band it was
+      // accepted under (its stored 20%), so it stays on the book.
+      const narrowed = build({ priceBandFor: async () => A('0.05') });
       expect(await narrowed.cancelOutsideBand()).toEqual({ cancelled: [], skipped: [] });
       expect((await orderRow(placed.orderId)).status).toBe('open');
-      // Past the widest it comes off, as any resting order does: mark 92 is 73.6 to 110.4, mark 91 is 72.8 to 109.2.
+      // Past its own band it comes off, as any resting order does: mark 92 is 73.6 to 110.4, mark 91 is 72.8 to 109.2.
       mark = A('92');
       expect((await narrowed.cancelOutsideBand()).cancelled).toEqual([]);
       mark = A('91');

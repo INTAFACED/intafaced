@@ -41,8 +41,18 @@ import {
 import { AgreementsAdmin } from './agreements.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
-import { carriedLimits, currentRisk, riskHistory, riskView, validateLimits, type RiskLimitsInput, type RiskVersion } from './risk.js';
+import {
+  assertPriceRangeWhole,
+  carriedLimits,
+  currentRisk,
+  riskHistory,
+  riskView,
+  validateLimits,
+  type RiskLimitsInput,
+  type RiskVersion,
+} from './risk.js';
 import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
+import { priceBandView, sqlPriceBandStore, type PriceBandView } from '../futures/dynamic-price-band.js';
 import { feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
@@ -289,6 +299,12 @@ export class TradeOpsAdmin {
     return riskHistory(this.deps.sql, market);
   }
 
+  /** The market's dynamic price band (D-instruments-08): the band the job last worked out, and each change to it. */
+  async riskPriceBand(principal: Principal, market: string): Promise<PriceBandView> {
+    requireOperator(principal);
+    return priceBandView(sqlPriceBandStore(this.deps.sql), market);
+  }
+
   async riskSet(
     principal: Principal,
     input: { market: string; limits: RiskLimitsInput; expectedVersion: string; reason: string; approvalId: string; operationId: string },
@@ -301,6 +317,10 @@ export class TradeOpsAdmin {
     if (version !== input.expectedVersion) {
       throw new TradeOpsError('risk_limit_stale', `expectedVersion ${input.expectedVersion} is stale; current is ${version}`);
     }
+    // A write that leaves out a carried field keeps the value of the version it was approved against (`expectedVersion`).
+    // Checked before the approval is used, so a write that cannot stand leaves it unused.
+    const carried = carriedLimits(limits, current);
+    assertPriceRangeWhole(carried);
     const body = { actionType: 'trade.risk_set', market: input.market, limits, expectedVersion: input.expectedVersion, reason };
     const consumed = await consumeApproval(this.deps.approvals, {
       approvalId: input.approvalId,
@@ -313,8 +333,6 @@ export class TradeOpsAdmin {
     const next = (BigInt(version) + 1n).toString();
     const id = randomUUID();
     const at = nowOf(this.deps);
-    // A write that leaves out a carried field keeps the value of the version it was approved against (`expectedVersion`).
-    const carried = carriedLimits(limits, current);
     await this.deps.sql`INSERT INTO trade.operator_risk_limits (
       id, market_id, version, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
       price_range_max, price_range_trigger, price_range_cadence_seconds,

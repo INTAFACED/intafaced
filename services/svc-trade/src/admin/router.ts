@@ -170,6 +170,9 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       history: operator
         .input(z.object({ market: id }).strict())
         .query(({ ctx, input }) => ready().riskHistory(ctx.principal, input.market).catch(fail)),
+      priceBand: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().riskPriceBand(ctx.principal, input.market).catch(fail)),
       set: operatorWrite
         .input(
           z.object({

@@ -92,7 +92,6 @@ import {
   runPriceBandTick,
   sqlPriceBandStore,
   staticBandInForce,
-  widestBand,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
 import {
@@ -572,18 +571,11 @@ const futuresBandInForce = async (staticBand: Amount, marketId: string): Promise
       riskVersion: risk?.version ?? '0',
       current: await priceBands.current(marketId),
       now: new Date(),
+      jobIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
     });
   } catch (err) {
     app.log.error({ err, marketId }, 'the futures price band in force could not be read; the static band applies');
     return staticBandInForce(staticBand, 'unreadable');
-  }
-};
-const futuresRestingBand = async (staticBand: Amount, marketId: string): Promise<Amount> => {
-  try {
-    return widestBand(staticBand, readPriceRangeSettings(await currentRisk(sql, marketId)));
-  } catch (err) {
-    app.log.error({ err, marketId }, 'the futures price range could not be read; resting orders are held to the static band');
-    return staticBand;
   }
 };
 const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =>
@@ -610,7 +602,6 @@ const positions = new PositionService(sql, ledger, {
     ...(futuresPriceBand !== null
       ? {
           priceBandFor: async (marketId: string) => (await futuresBandInForce(futuresPriceBand, marketId)).fraction,
-          restingBandFor: (marketId: string) => futuresRestingBand(futuresPriceBand, marketId),
         }
       : {}),
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
@@ -659,13 +650,14 @@ futuresJobs.host.every('futures.price_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, 
   const tick = await runPriceBandTick({
     staticBand: futuresPriceBand,
     markets: () => sql<{ id: string; symbol: string }[]>`SELECT id, symbol FROM trade.markets WHERE kind = 'futures' ORDER BY id`,
-    limitsFor: async (marketId) => {
-      const risk = await currentRisk(sql, marketId);
-      return { version: risk?.version ?? '0', settings: readPriceRangeSettings(risk) };
+    limitsFor: async (marketIds) => {
+      const rows = await currentRiskForMarkets(sql, marketIds);
+      return new Map([...rows].map(([id, risk]) => [id, { version: risk.version, settings: readPriceRangeSettings(risk) }]));
     },
-    mark: async (marketId) => {
-      const mark = await futuresJobs.markPrice(marketId);
-      return mark == null ? null : parseAmount(mark);
+    // The mark as the public ticker publishes it: a mark that fails the marking policy (stale, or too thin) is none.
+    mark: async (marketId, symbol) => {
+      const mark = await futuresJobs.publicMark(marketId, symbol);
+      return mark == null ? null : parseAmount(mark.price);
     },
     bookMid: async (marketId) => {
       // The futures book's own mid, read as the trailing-stop pump reads a book (a thin or one-sided book is null).

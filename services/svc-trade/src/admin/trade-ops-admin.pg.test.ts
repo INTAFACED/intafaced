@@ -519,18 +519,32 @@ describe('trade operator procedures', () => {
     });
     // A write that sends only the first five keeps the range, as it keeps the open-interest pair.
     expect(await write({ ...BLANK_LIMITS, fatFinger: '50' }, '1', 'range-2')).toMatchObject({ version: '2', ...range });
-    const cleared = await write({ ...BLANK_LIMITS, priceRangeTrigger: null }, '2', 'range-3');
-    expect(cleared).toMatchObject({ version: '3', priceRangeMax: '0.2', priceRangeTrigger: null });
+    // One value cleared would leave a range that never widens anything: refused before the approval is used.
+    await expect(write({ ...BLANK_LIMITS, priceRangeTrigger: null }, '2', 'range-3')).rejects.toMatchObject({
+      code: 'risk_limit_not_exact',
+    });
+    const none = { priceRangeMax: null, priceRangeTrigger: null, priceRangeCadenceSeconds: null };
+    const cleared = await write({ ...BLANK_LIMITS, ...none }, '2', 'range-4');
+    expect(cleared).toMatchObject({ version: '3', ...none });
     expect(readPriceRangeSettings(await currentRisk(db.sql, marketId))).toBeNull();
 
     // The band record: the band in force is upserted on each working; a change of value is kept once.
     const store = sqlPriceBandStore(db.sql);
     const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 12, 0, s));
     const working = { marketId, staticBand: amt('0.05'), premium: amt('0.01'), mark: amt('65000'), bookMid: amt('65650') };
-    expect(await store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) })).toEqual({
-      changed: true,
-    });
+    // Two hosts working the market at once, with no row yet: one change is kept, not two.
+    const raced = await Promise.all([
+      store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) }),
+      store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) }),
+    ]);
+    expect(raced.map((r) => r.recorded).sort()).toEqual([false, true]);
     expect(await store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(30) })).toEqual({
+      recorded: true,
+      changed: false,
+    });
+    // A working older than the one kept is dropped.
+    expect(await store.record({ ...working, band: amt('0.09'), reason: 'widened', riskVersion: '3', checkedAt: at(20) })).toEqual({
+      recorded: false,
       changed: false,
     });
     expect(await store.current(marketId)).toMatchObject({ band: amt('0.06'), checkedAt: at(30), changedAt: at(0), riskVersion: '3' });
@@ -540,6 +554,16 @@ describe('trade operator procedures', () => {
       [amt('0.05'), amt('0.06'), 'within_trigger'],
       [amt('0.06'), null, 'widened'],
     ]);
+    // The operator reads the same, as decimal strings; an unworked market reads as nothing kept.
+    expect(await admin.riskPriceBand(operator(), marketId)).toMatchObject({
+      marketId,
+      current: { band: '0.05', reason: 'within_trigger', riskVersion: '3', checkedAt: at(60).toISOString() },
+      changes: [
+        { band: '0.05', previousBand: '0.06' },
+        { band: '0.06', previousBand: null },
+      ],
+    });
+    expect(await admin.riskPriceBand(operator(), randomUUID())).toEqual({ marketId: expect.any(String), current: null, changes: [] });
   });
 
   it('reads the latest version as the newest one past version 9, not by its text', async () => {

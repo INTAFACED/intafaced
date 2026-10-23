@@ -98,6 +98,7 @@ import {
   planLiquidationFill,
   planLiquidationSettlement,
   planReduceFill,
+  bandFractionOf,
   priceBandAround,
   liquidationSettlementRoot,
   protectiveLimit,
@@ -281,11 +282,7 @@ export interface MatchedOrdersDeps {
    * operator's dynamic range has widened it. Absent holds every order to the static band.
    */
   readonly priceBandFor?: (marketId: string) => Promise<Amount>;
-  /**
-   * The widest band a resting order on a market may still sit in: the dynamic range's widest, else the static band. A
-   * band narrowing again never cancels an order it accepted. Absent uses the static band.
-   */
-  readonly restingBandFor?: (marketId: string) => Promise<Amount>;
+
   /** The owner's leverage cap. Null is unset, and refuses. */
   readonly maxLeverage: Amount | null;
   readonly now: () => Date;
@@ -2762,12 +2759,16 @@ export class MatchedFuturesOrders {
         skipped.push({ marketId: market.market_id, reason: typeof code === 'string' ? code : 'trade.mark_unavailable' });
         continue;
       }
-      const bandAt = priceBandAround(mark, this.deps.restingBandFor ? await this.deps.restingBandFor(market.market_id) : band);
+      const bandAt = priceBandAround(mark, band);
       const resting = await this.deps.sql<OrderRow[]>`
         SELECT * FROM trade.futures_orders WHERE market_id = ${market.market_id} AND status = 'open' ORDER BY id
       `;
       for (const order of resting) {
-        if (limitWithinBand(parseAmount(order.limit_price), bandAt)) continue;
+        // An order answers to the wider of the static band and the band it was accepted under (D-instruments-08): a band
+        // narrowing again, or the dynamic range being cleared, never cancels an order its band accepted.
+        const accepted = bandFractionOf(parseAmount(order.mark_price), parseAmount(order.band_high));
+        const own = accepted > band ? priceBandAround(mark, accepted) : bandAt;
+        if (limitWithinBand(parseAmount(order.limit_price), own)) continue;
         const result = await matching.cancel(order.market_id, order.id);
         if (!result.cancelled) continue;
         await this.deps.sql`
