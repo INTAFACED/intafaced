@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { describe, expect, it, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
@@ -76,8 +76,9 @@ if (!available) {
   };
 
   beforeEach(async () => {
+    await sql`select pg_advisory_lock(842671)`;
     await sql`
-      TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.agent_sessions
+      TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_sessions
       RESTART IDENTITY CASCADE
     `;
     await sql`
@@ -86,6 +87,10 @@ if (!available) {
         (${SESSION}, ${USER}, 'probe', ${sql.json({ limits: { maxSpendPerSession: null } })}, 1),
         (${OTHER_SESSION}, ${OTHER}, 'probe', ${sql.json({ limits: {} })}, 1)
     `;
+  });
+
+  afterEach(async () => {
+    await sql`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {

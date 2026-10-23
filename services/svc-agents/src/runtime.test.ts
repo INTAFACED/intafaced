@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { describe, expect, it, beforeEach, afterAll } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
@@ -174,6 +174,7 @@ if (!available) {
   const houseOf = async () => formatAmount((await ledger.balance(houseFees('agents', 'IFC'))).amount);
 
   beforeEach(async () => {
+    await sql`select pg_advisory_lock(842671)`;
     await sql`
       TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
       RESTART IDENTITY CASCADE
@@ -190,6 +191,10 @@ if (!available) {
     await runtime.registerAgent(THRIFTY);
     await fund(USER_A, '1000');
     await fund(USER_B, '1000');
+  });
+
+  afterEach(async () => {
+    await sql`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {
