@@ -24,7 +24,12 @@ export type ReferralErrorCode =
   | 'referral.attach_window_unset'
   | 'referral.attach_window_closed'
   | 'referral.code_length_unset'
-  | 'referral.code_exhausted';
+  | 'referral.code_exhausted'
+  | 'referral.rebind_not_needed'
+  | 'referral.rebind_open'
+  | 'referral.rebind_not_found'
+  | 'referral.rebind_not_open'
+  | 'referral.rebind_stale';
 
 export class ReferralError extends Error {
   constructor(

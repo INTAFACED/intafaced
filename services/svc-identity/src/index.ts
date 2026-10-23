@@ -20,6 +20,7 @@ import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './au
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
+import { ReferralRebindService } from './affiliates/referral-rebind.js';
 import { ReferralCodeService, parseReferralCodeLength } from './affiliates/referral-code.js';
 import { parseAttachWindowSeconds } from './affiliates/attach-window.js';
 import { FreezeService } from './affiliates/freeze-service.js';
@@ -536,6 +537,7 @@ export const appRouter = mergeRouters(
     share,
     referralCodes,
     referralAttachWindowSeconds,
+    referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
     freeze,
     accruals,
     accrualTierLaw,
