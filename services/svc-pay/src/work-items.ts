@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { hasScope } from '@intafaced/auth';
+import { hasScope, requireScope } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { TRPCError } from '@trpc/server';
 import { protectedProcedure, router, type Context } from '@intafaced/contracts';
 import { workItemsOutputSchema, type WorkItem, type WorkItemsOutput } from '@intafaced/contracts/home-work-items';
@@ -23,8 +24,11 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
  *
  * Every signed-in person may ask, because Home asks for everyone: a caller with no business, or whose session carries
  * neither `pay:onboard` nor `pay:read` (an API key or a sub-account without them), or a sandbox key (live payouts are
- * not its to see), gets an empty answer, not an error. A scope the owner grant has withdrawn counts as not held; any
- * other failure of that recheck is an error, never an empty list.
+ * not its to see), gets an empty answer, not an error. The gate is the one every other own-merchant read passes
+ * (`anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })`), answered empty where that read refuses: a
+ * scope the session cannot use (a second factor missing) or the owner grant has withdrawn counts as not held, and a
+ * KYC tier or region the jurisdiction matrix refuses for `pay` sees nothing. Any other failure of the grant recheck is
+ * an error, never an empty list.
  */
 
 /** The copy key the customer app words. */
@@ -98,20 +102,34 @@ export function payoutWaitingItems(rows: readonly WaitingPayout[], canSend: bool
 
 const PAY_SCOPES = ['pay:onboard', 'pay:read'] as const;
 
-/** Whether the session may see its own business's payouts: it holds a pay scope the live owner grant still allows. */
+/**
+ * Whether the session may see its own business's payouts: it holds a pay scope it can use and the live owner grant
+ * still allows, and the jurisdiction matrix lets its tier and region into `pay`. Mirrors `anyScopeProcedure` with
+ * `{ module: 'pay' }`, but answers false where that guard throws.
+ */
 async function mayReadOwnPayouts(ctx: Context & { principal: NonNullable<Context['principal']> }): Promise<boolean> {
+  let held = false;
   for (const scope of PAY_SCOPES) {
     if (!hasScope(ctx.principal.scopes, scope)) continue;
-    if (!ctx.ownerPayGrant) return true;
     try {
-      await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
-      return true;
-    } catch (err) {
-      // A withdrawn grant: try the next scope, as anyScopeProcedure does. Anything else (the lookup failed) is an error.
-      if (!(err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn')) throw err;
+      requireScope(ctx.principal, scope);
+    } catch {
+      continue;
     }
+    if (ctx.ownerPayGrant) {
+      try {
+        await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
+      } catch (err) {
+        // A withdrawn grant: try the next scope, as anyScopeProcedure does. Anything else (the lookup failed) is an error.
+        if (!(err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn')) throw err;
+        continue;
+      }
+    }
+    held = true;
+    break;
   }
-  return false;
+  if (!held) return false;
+  return checkAccess({ module: 'pay', plane: 'fiat', region: ctx.region, kycTier: ctx.principal.tier }).allowed;
 }
 
 /** `workItems.list` (the contract's `WORK_ITEMS_PROCEDURE`), answered for the signed principal only. */

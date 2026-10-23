@@ -19,7 +19,7 @@ function signed(scopes: string[], withdrawn: string[] = [], extra: Record<string
     sid: '22222222-2222-4222-8222-222222222222',
     scopes,
     tier: 'full',
-    mfa: false,
+    mfa: true,
     expiresAt: new Date(Date.now() + 60_000),
     ...extra,
   } as Principal);
@@ -126,6 +126,22 @@ describe('workItems.list', () => {
   it('is empty for a sandbox key, which does not see live payouts', async () => {
     const { src, asked } = source();
     const caller = createWorkItemsRouter(src).createCaller(signed(['pay:read'], [], { key_env: 'sandbox' }));
+    expect(await caller.workItems.list()).toEqual({ items: [] });
+    expect(asked).toEqual([]);
+  });
+
+  it('is empty, and does not read, for a KYC tier the jurisdiction matrix keeps out of pay', async () => {
+    for (const tier of ['none', 'basic']) {
+      const { src, asked } = source();
+      const caller = createWorkItemsRouter(src).createCaller(signed(['pay:read'], [], { tier }));
+      expect(await caller.workItems.list()).toEqual({ items: [] });
+      expect(asked).toEqual([]);
+    }
+  });
+
+  it('is empty, and does not read, for an onboarding session still short of its second factor', async () => {
+    const { src, asked } = source();
+    const caller = createWorkItemsRouter(src).createCaller(signed(['pay:onboard'], [], { mfa: false }));
     expect(await caller.workItems.list()).toEqual({ items: [] });
     expect(asked).toEqual([]);
   });
