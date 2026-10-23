@@ -38,7 +38,8 @@ export type AgentErrorCode =
   | 'agents.spend_idempotency_conflict'
   | 'agents.spend_reservation_conflict'
   | 'agents.spend_reservation_not_found'
-  | 'agents.spend_reservation_closed';
+  | 'agents.spend_reservation_closed'
+  | 'agents.spend_hold_max_age_unset';
 
 export class AgentError extends Error {
   constructor(

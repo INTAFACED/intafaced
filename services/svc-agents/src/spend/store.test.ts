@@ -63,7 +63,6 @@ if (!available) {
     onnotice: () => undefined,
   });
   await assertTestDatabase(sql, 'svc-agents');
-  for (const migration of migrations) await sql.unsafe(migration);
   const store = new UserSpendStore(sql);
 
   const caps = {
@@ -80,7 +79,13 @@ if (!available) {
 
   beforeAll(async () => {
     lockConn = await sql.reserve();
-  });
+    await lockConn`select pg_advisory_lock(842671)`;
+    try {
+      for (const migration of migrations) await sql.unsafe(migration);
+    } finally {
+      await lockConn`select pg_advisory_unlock(842671)`;
+    }
+  }, 120_000);
 
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
@@ -310,5 +315,179 @@ if (!available) {
     expect('release' in person.spend).toBe(false);
     expect('reserve' in person.spend).toBe(false);
     expect('commit' in person.spend).toBe(false);
+  });
+
+  it('a blank hold age releases nothing', async () => {
+    await store.set(caps);
+    const now = new Date('2026-10-23T12:00:00Z');
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'stay-blank',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date('2020-01-01T00:00:00Z'),
+    });
+    for (const maxAge of ['', '   ', null, undefined] as const) {
+      await expect(store.releaseStaleHolds({ maxAge, now })).rejects.toMatchObject({
+        code: 'agents.spend_hold_max_age_unset',
+        userMessageKey: 'agents.refused.spend_hold_max_age_unset',
+      });
+    }
+    await expect(store.releaseStaleHolds({ maxAge: '-1', now })).rejects.toMatchObject({ code: 'agents.spend_limit_invalid' });
+    await expect(store.releaseStaleHolds({ maxAge: 'nope', now })).rejects.toMatchObject({ code: 'agents.spend_limit_invalid' });
+    const rows = await sql<Array<{ status: string }>>`
+      SELECT status FROM agents.spend_reservations WHERE user_id = ${USER} AND reservation_key = 'stay-blank'
+    `;
+    expect(rows[0]?.status).toBe('held');
+  });
+
+  it('releases an old hold with no usage and leaves a younger hold', async () => {
+    await store.set(caps);
+    const now = new Date('2026-10-23T12:00:00Z');
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'old-free',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date('2026-10-23T10:00:00Z'),
+    });
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'young',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date('2026-10-23T11:59:30Z'),
+    });
+    const first = await store.releaseStaleHolds({ maxAge: '3600', now });
+    expect(first.released).toBe(1);
+    const rows = await sql<Array<{ reservation_key: string; status: string }>>`
+      SELECT reservation_key, status
+        FROM agents.spend_reservations
+       WHERE user_id = ${USER}
+       ORDER BY reservation_key
+    `;
+    expect(rows).toEqual([
+      { reservation_key: 'old-free', status: 'released' },
+      { reservation_key: 'young', status: 'held' },
+    ]);
+    const again = await store.releaseStaleHolds({ maxAge: '3600', now });
+    expect(again.released).toBe(0);
+  });
+
+  it('leaves an old hold when a usage record matches the reservation key', async () => {
+    await store.set(caps);
+    const now = new Date('2026-10-23T12:00:00Z');
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'used-key',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date('2026-10-23T10:00:00Z'),
+    });
+    await sql`
+      INSERT INTO agents.usage_windows (session_id, window_id)
+      VALUES (${SESSION}, 'w-stale')
+    `;
+    await sql`
+      INSERT INTO agents.usage_records (
+        session_id, window_id, request_id, task, provider_id, model,
+        input_tokens, output_tokens, input_price_per_million, output_price_per_million
+      ) VALUES (
+        ${SESSION}, 'w-stale', 'used-key', 'plan', 'primary', 'reasoning-lg',
+        1, 1, 1, 1
+      )
+    `;
+    await sql`
+      INSERT INTO agents.think_claims (session_id, request_id)
+      VALUES (${SESSION}, 'used-key')
+    `;
+    const result = await store.releaseStaleHolds({ maxAge: '60', now });
+    expect(result.released).toBe(0);
+    const rows = await sql<Array<{ status: string }>>`
+      SELECT status FROM agents.spend_reservations WHERE user_id = ${USER} AND reservation_key = 'used-key'
+    `;
+    expect(rows[0]?.status).toBe('held');
+    const claims = await sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n FROM agents.think_claims WHERE session_id = ${SESSION} AND request_id = 'used-key'
+    `;
+    expect(claims[0]?.n).toBe('1');
+  });
+
+  it('releases an old hold and deletes its think claim in the same transaction', async () => {
+    await store.set(caps);
+    const now = new Date('2026-10-23T12:00:00Z');
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'crashed',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date('2026-10-23T10:00:00Z'),
+    });
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'fresh',
+      assetId: 'IFC',
+      amount: '1',
+      now,
+    });
+    await sql`
+      INSERT INTO agents.think_claims (session_id, request_id)
+      VALUES (${SESSION}, 'crashed'), (${SESSION}, 'fresh')
+    `;
+    const result = await store.releaseStaleHolds({ maxAge: '60', now });
+    expect(result.released).toBe(1);
+    const rows = await sql<Array<{ reservation_key: string; status: string }>>`
+      SELECT reservation_key, status
+        FROM agents.spend_reservations
+       WHERE user_id = ${USER}
+       ORDER BY reservation_key
+    `;
+    expect(rows).toEqual([
+      { reservation_key: 'crashed', status: 'released' },
+      { reservation_key: 'fresh', status: 'held' },
+    ]);
+    const claims = await sql<Array<{ request_id: string }>>`
+      SELECT request_id FROM agents.think_claims WHERE session_id = ${SESSION} ORDER BY request_id
+    `;
+    expect(claims).toEqual([{ request_id: 'fresh' }]);
+  });
+
+  it('treats a zero max age as a real age and keeps a row that is not strictly older', async () => {
+    await store.set(caps);
+    const now = new Date('2026-10-23T12:00:00.000Z');
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'exact',
+      assetId: 'IFC',
+      amount: '1',
+      now,
+    });
+    await store.reserve({
+      userId: USER,
+      sessionId: SESSION,
+      reservationKey: 'older',
+      assetId: 'IFC',
+      amount: '1',
+      now: new Date(now.getTime() - 1),
+    });
+    const result = await store.releaseStaleHolds({ maxAge: '0', now });
+    expect(result.released).toBe(1);
+    const rows = await sql<Array<{ reservation_key: string; status: string }>>`
+      SELECT reservation_key, status
+        FROM agents.spend_reservations
+       WHERE user_id = ${USER}
+       ORDER BY reservation_key
+    `;
+    expect(rows).toEqual([
+      { reservation_key: 'exact', status: 'held' },
+      { reservation_key: 'older', status: 'released' },
+    ]);
   });
 }

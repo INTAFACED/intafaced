@@ -292,6 +292,7 @@ export const en = {
   'agents.refused.spend_reservation_conflict': 'Refused: this reservation key is already in use for a different amount or session.',
   'agents.refused.spend_reservation_missing': 'Refused: that spend reservation does not exist.',
   'agents.refused.spend_reservation_closed': 'Refused: this reservation is already finished, so it was not changed.',
+  'agents.refused.spend_hold_max_age_unset': 'Refused: a maximum age for unfinished spend holds was not set, so none were released.',
   'agents.refused.output_limit': 'Refused: the request asked for more output than this agent is allowed to produce.',
   'agents.refused.approval_required': 'Held for your approval: {tool} needs you to confirm before it runs.',
   'agents.refused.session_closed': 'Refused: this session is closed. Start a new one to continue.',

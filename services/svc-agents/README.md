@@ -167,6 +167,10 @@ A retried completion is still logged — the engine really was called again — 
 
 ---
 
+## Spend holds
+
+A held reservation stays until `reconcileSpendHolds` is called with an owner-set age. A blank age refuses `agents.spend_hold_max_age_unset`. A replayed held row refuses `agents.spend_reservation_conflict` instead of calling the provider.
+
 ## Guardrails: refused before execution, not after
 
 Each agent declares a toolset and limits. `parseGuardrail` rejects contradictions at write time — a tool granted in a module the agent may not act in is refused where it is written, because a contradiction in a security policy resolves however the enforcement code happens to be ordered.

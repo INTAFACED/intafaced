@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
@@ -22,6 +21,7 @@ import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
+import { UserSpendStore } from './spend/store.js';
 import { withEngineSpan } from './tracing.js';
 
 /**
@@ -484,15 +484,22 @@ export class AgentRuntime {
             { requestId: input.requestId },
           );
         }
-        // An in-flight hold for this request id is the reservation. Reuse that
-        // row and finish the call on it. A new key would be a second hold, and
-        // refusing here would leave the crashed run held forever.
         // A committed row is a finished call. Metering-off must not invent
-        // agents.request_id_replay. A new reservation is decided against the
-        // committed total. If it does not fit, reserve throws agents.spend_limit
-        // and the provider is not called.
+        // agents.request_id_replay. The next key is requestId:N, where N is
+        // how many committed keys already use that id. If it does not fit,
+        // reserve throws agents.spend_limit and the provider is not called.
         if (held.replayed && held.status === 'committed' && !shouldMeter) {
-          reservationKey = randomUUID();
+          const counted = await this.sql<Array<{ n: string }>>`
+            SELECT count(*)::text AS n
+              FROM agents.spend_reservations
+             WHERE user_id = ${session.userId}
+               AND status = 'committed'
+               AND (
+                 reservation_key = ${input.requestId}
+                 OR strpos(reservation_key, ${`${input.requestId}:`}) = 1
+               )
+          `;
+          reservationKey = `${input.requestId}:${counted[0]?.n ?? '0'}`;
           held = await this.spend.reserve({
             userId: session.userId,
             sessionId: session.id,
@@ -500,6 +507,16 @@ export class AgentRuntime {
             assetId: this.feeAssetId,
             amount: formatAmount(worstCaseCost),
           });
+        }
+        // One hold does not authorize a second provider call. A crashed hold
+        // stays held until reconcileSpendHolds; this retry does not finish it.
+        if (held.replayed && (held.status === 'held' || held.status === 'committed')) {
+          if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+          throw new AgentError(
+            `Reservation ${reservationKey} is still held`,
+            'agents.spend_reservation_conflict',
+            'agents.refused.spend_reservation_conflict',
+          );
         }
         reserved = parseAmount(held.amount);
       } catch (err) {
@@ -873,6 +890,16 @@ export class AgentRuntime {
          AND tool = ${tool}
          AND result_json IS NULL
     `;
+  }
+
+  /**
+   * Release held reservations older than an owner-set age.
+   *
+   * There is no default age and no timer. A blank age refuses and releases nothing.
+   */
+  async reconcileSpendHolds(maxAge: string | null | undefined, now?: Date): Promise<{ released: number }> {
+    const store = this.spend instanceof UserSpendStore ? this.spend : new UserSpendStore(this.sql);
+    return store.releaseStaleHolds({ maxAge, now });
   }
 
   // ── Settle ─────────────────────────────────────────────────────────────────

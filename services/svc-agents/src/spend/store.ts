@@ -26,6 +26,26 @@ interface ReservationRow {
   status: 'held' | 'committed' | 'released';
 }
 
+/** Seconds, as a decimal string. Blank is unset. Zero is a real age. Never invent one. */
+function parseHoldMaxAge(maxAge: string | null | undefined): string {
+  if (maxAge == null || maxAge.trim() === '') {
+    throw new AgentError(
+      'Spend hold max age is unset — refusing rather than inventing an age',
+      'agents.spend_hold_max_age_unset',
+      'agents.refused.spend_hold_max_age_unset',
+    );
+  }
+  const age = maxAge.trim();
+  if (!/^\d+(\.\d+)?$/.test(age)) {
+    throw new AgentError(
+      'Spend hold max age is not a number of seconds',
+      'agents.spend_limit_invalid',
+      'agents.refused.spend_limit_invalid',
+    );
+  }
+  return age;
+}
+
 function spendLimit(cap: Amount, assetId: string, scope: SpendScope): AgentError {
   return new AgentError(
     `Spend ${scope} cap ${canonicalAmount(cap)} ${assetId} would be exceeded`,
@@ -306,6 +326,66 @@ export class UserSpendStore implements SpendGate {
 
   async commit(input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {
     return transaction(this.sql, async (tx) => this.commitIn(tx, input), { isolation: 'read committed', maxAttempts: 5 });
+  }
+
+  /**
+   * Release held rows older than `maxAge` seconds.
+   *
+   * A row with a usage record for the same session and reservation key stays
+   * held: an effect already happened. The matching think claim is deleted in
+   * the same transaction as the release. Idempotent. No default age.
+   */
+  async releaseStaleHolds(input: { maxAge: string | null | undefined; now?: Date }): Promise<{ released: number }> {
+    const maxAge = parseHoldMaxAge(input.maxAge);
+    const now = input.now ?? new Date();
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const users = await tx<Array<{ user_id: string }>>`
+          SELECT DISTINCT user_id
+            FROM agents.spend_reservations
+           WHERE status = 'held'
+             AND created_at < ${now}::timestamptz - (${maxAge}::numeric * interval '1 second')
+           ORDER BY user_id
+        `;
+        for (const user of users) await lockUser(tx, user.user_id);
+        const rows = await tx<Array<{ n: string }>>`
+          WITH doomed AS (
+            SELECT r.user_id, r.reservation_key, r.session_id
+              FROM agents.spend_reservations r
+             WHERE r.status = 'held'
+               AND r.created_at < ${now}::timestamptz - (${maxAge}::numeric * interval '1 second')
+               AND NOT EXISTS (
+                 SELECT 1
+                   FROM agents.usage_records u
+                  WHERE u.session_id = r.session_id
+                    AND u.request_id = r.reservation_key
+               )
+             FOR UPDATE OF r
+          ),
+          released_rows AS (
+            UPDATE agents.spend_reservations r
+               SET status = 'released',
+                   updated_at = ${now}
+              FROM doomed d
+             WHERE r.user_id = d.user_id
+               AND r.reservation_key = d.reservation_key
+               AND r.status = 'held'
+            RETURNING r.session_id, r.reservation_key
+          ),
+          dropped AS (
+            DELETE FROM agents.think_claims c
+             USING released_rows rel
+             WHERE c.session_id = rel.session_id
+               AND c.request_id = rel.reservation_key
+            RETURNING c.session_id
+          )
+          SELECT count(*)::text AS n FROM released_rows
+        `;
+        return { released: Number(rows[0]?.n ?? '0') };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   async release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView> {

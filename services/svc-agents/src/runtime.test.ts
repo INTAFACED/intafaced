@@ -142,8 +142,6 @@ if (!available) {
   // Owns its database, or does not run. Must precede the first migration.
   await assertTestDatabase(sql, 'svc-agents');
 
-  for (const migration of migrations) await sql.unsafe(migration);
-
   let ledger: MemoryLedger;
   let bus: MemoryEventBus;
   let provider: MockModelProvider;
@@ -177,7 +175,13 @@ if (!available) {
 
   beforeAll(async () => {
     lockConn = await sql.reserve();
-  });
+    await lockConn`select pg_advisory_lock(842671)`;
+    try {
+      for (const migration of migrations) await sql.unsafe(migration);
+    } finally {
+      await lockConn`select pg_advisory_unlock(842671)`;
+    }
+  }, 120_000);
 
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
@@ -1470,13 +1474,14 @@ if (!available) {
       expect(provider.callCount).toBe(before + 2);
       const { usage, route } = expectedUsage('plan');
       const cost = usageCost(usage, route.price);
-      const rows = await sql<Array<{ status: string; committed: string | null }>>`
-        SELECT status, committed_amount::text AS committed
+      const rows = await sql<Array<{ reservation_key: string; status: string; committed: string | null }>>`
+        SELECT reservation_key, status, committed_amount::text AS committed
           FROM agents.spend_reservations
          WHERE user_id = ${USER_A}
-         ORDER BY created_at
+         ORDER BY reservation_key
       `;
       expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.reservation_key)).toEqual(['off-fits', 'off-fits:1']);
       expect(rows.every((row) => row.status === 'committed')).toBe(true);
       expect(amt(rows[0]!.committed!) + amt(rows[1]!.committed!)).toBe(cost + cost);
       const usageRows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
@@ -1511,18 +1516,89 @@ if (!available) {
         spend: store,
       });
       const before = provider.callCount;
-      const finished = await unbilled.think({
-        sessionId: session.id,
-        requestId: 'off-inflight',
-        task: 'plan',
-        messages: MESSAGES,
+      await expect(
+        unbilled.think({
+          sessionId: session.id,
+          requestId: 'off-inflight',
+          task: 'plan',
+          messages: MESSAGES,
+        }),
+      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
+      expect(provider.callCount).toBe(before);
+      const rows = await sql<Array<{ status: string; n: string }>>`
+        SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
+      `;
+      expect(rows).toEqual([{ status: 'held', n: '1' }]);
+    });
+
+    it('concurrent metering-off thinks with one request id call the provider once', async () => {
+      const store = new UserSpendStore(sql);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '1000',
+        perSession: '1000',
+        perPeriod: '1000',
+        period: 'day',
+        idempotencyKey: 'off-concurrent',
       });
-      expect(finished.metered).toBe(false);
+      const session = await open();
+      const gate = gateComplete(gateway, 'first');
+      const unbilled = new AgentRuntime(sql, gate.gateway, meter, bus, {
+        feeAssetId: 'IFC',
+        meteringEnabled: false,
+        spend: store,
+      });
+      const before = provider.callCount;
+      const first = unbilled.think({ sessionId: session.id, requestId: 'off-same', task: 'plan', messages: MESSAGES });
+      await gate.ready;
+      await expect(
+        unbilled.think({ sessionId: session.id, requestId: 'off-same', task: 'plan', messages: MESSAGES }),
+      ).rejects.toMatchObject({ code: 'agents.spend_reservation_conflict' });
+      expect(gate.entered()).toBe(1);
+      expect(provider.callCount).toBe(before);
+      gate.release();
+      const done = await first;
+      expect(done.metered).toBe(false);
       expect(provider.callCount).toBe(before + 1);
       const rows = await sql<Array<{ status: string; n: string }>>`
         SELECT status, count(*)::text AS n FROM agents.spend_reservations WHERE user_id = ${USER_A} GROUP BY status
       `;
       expect(rows).toEqual([{ status: 'committed', n: '1' }]);
+    });
+
+    it('reconcileSpendHolds releases an old hold only when an age is set', async () => {
+      const store = new UserSpendStore(sql);
+      await store.set({
+        userId: USER_A,
+        assetId: 'IFC',
+        perCall: '1000',
+        perSession: '1000',
+        perPeriod: '1000',
+        period: 'day',
+        idempotencyKey: 'reconcile-age',
+      });
+      const session = await open();
+      await store.reserve({
+        userId: USER_A,
+        sessionId: session.id,
+        reservationKey: 'stale-runtime',
+        assetId: 'IFC',
+        amount: '1',
+        now: new Date('2020-01-01T00:00:00Z'),
+      });
+      const gated = new AgentRuntime(sql, gateway, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true, spend: store });
+      await expect(gated.reconcileSpendHolds('   ')).rejects.toMatchObject({ code: 'agents.spend_hold_max_age_unset' });
+      const rowsHeld = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'stale-runtime'
+      `;
+      expect(rowsHeld[0]?.status).toBe('held');
+      const released = await gated.reconcileSpendHolds('1', new Date());
+      expect(released.released).toBe(1);
+      const rows = await sql<Array<{ status: string }>>`
+        SELECT status FROM agents.spend_reservations WHERE user_id = ${USER_A} AND reservation_key = 'stale-runtime'
+      `;
+      expect(rows[0]?.status).toBe('released');
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {
