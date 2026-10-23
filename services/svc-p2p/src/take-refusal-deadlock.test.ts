@@ -80,6 +80,7 @@ const migrations = [
   '0014_p2p_escrow_lock_attempts.sql',
   '0015_p2p_customer_depth.sql',
   '0016_p2p_ops_escalation.sql',
+  '0019_p2p_maker_verification_tier.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';

@@ -1099,7 +1099,7 @@ export function createP2pRouter(
                 amount: parseAmount(input.amount),
                 tradeId: input.tradeId,
                 method: input.method,
-                tier: ctx.principal.tier,
+                ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
               }),
             ),
           ),
@@ -1231,7 +1231,7 @@ export function createP2pRouter(
               takerId: ctx.principal.userId,
               amount: parseAmount(input.amount),
               method: input.method,
-              tier: ctx.principal.tier,
+              ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
             });
             return {
               amount: formatAmount(quoted.amount),
