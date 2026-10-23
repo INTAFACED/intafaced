@@ -524,8 +524,15 @@ export function createPayRouter(
         ),
       )
       .query(async ({ ctx }) => {
-        // Platform-wide, so a pay:onboard caller sees it only once it owns a business.
-        if (!hasScope(ctx.principal.scopes, 'pay:read') && !(await pay.getMerchantByUserId(ctx.principal.userId))) {
+        // Platform-wide, so a pay:onboard caller sees it only once it owns a business or works on one's team. Rail
+        // health names no merchant, so a member of a business still in review sees it, as that business's owner does.
+        const onTeam = async () =>
+          portalSql
+            ? (
+                await portalSql`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${ctx.principal.userId} AND status = 'active' LIMIT 1`
+              ).length > 0
+            : false;
+        if (!hasScope(ctx.principal.scopes, 'pay:read') && !(await pay.getMerchantByUserId(ctx.principal.userId)) && !(await onTeam())) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'pay.merchant_not_found' });
         }
         return rails.health().map((h) => ({
