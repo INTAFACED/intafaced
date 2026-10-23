@@ -252,6 +252,62 @@ export function spendFiguresOf(cause: unknown): { assetId: string; available: st
   return { assetId, available, onHold, inEarn };
 }
 
+const P2P_LIMIT_CODES = new Set([
+  'p2p.active_order_cap',
+  'p2p.pair_limit_exceeded',
+  'p2p.verification_order_min',
+  'p2p.verification_order_max',
+  'p2p.verification_daily_limit',
+  'p2p.verification_lifetime_limit',
+]);
+const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining'] as const;
+const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface P2pLimitDetails {
+  /** When the refusal stops applying, as an ISO instant; `null` when it has no end time. */
+  until: string | null;
+  cap?: string;
+  min?: string;
+  max?: string;
+  remaining?: string;
+  currency?: string;
+  openTradeIds?: string[];
+}
+
+/**
+ * The figures behind a P2P take limit (P-trade-orders-03, P-disputes-security-15): when it ends, the published
+ * bounds, what is left, and the caller's own open orders on the order cap. Decimal strings, an ISO instant, a
+ * currency code and trade ids only; any malformed field drops the lot, so a sentence cannot ride out on it.
+ */
+export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string') return undefined;
+  if (!P2P_LIMIT_CODES.has(cause.code) || !('limit' in cause)) return undefined;
+  const raw = cause.limit;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const row = raw as Record<string, unknown>;
+  const until = row.until;
+  if (!(until === null || (typeof until === 'string' && P2P_LIMIT_INSTANT.test(until)))) return undefined;
+  const out: P2pLimitDetails = { until };
+  for (const key of P2P_LIMIT_DECIMALS) {
+    const value = row[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !ALGO_DECIMAL.test(value)) return undefined;
+    out[key] = value;
+  }
+  if (row.currency !== undefined) {
+    if (typeof row.currency !== 'string' || !/^[A-Z]{3}$/.test(row.currency)) return undefined;
+    out.currency = row.currency;
+  }
+  if (row.openTradeIds !== undefined) {
+    const ids = row.openTradeIds;
+    if (!Array.isArray(ids) || ids.length > 50) return undefined;
+    if (!ids.every((id): id is string => typeof id === 'string' && P2P_LIMIT_UUID.test(id))) return undefined;
+    out.openTradeIds = [...ids];
+  }
+  return out;
+}
+
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
@@ -264,6 +320,7 @@ const t = initTRPC.context<Context>().create({
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
     const accountState = accountStateOf(cause);
+    const p2pLimit = p2pLimitOf(cause);
     return {
       ...shape,
       data: {
@@ -295,6 +352,8 @@ const t = initTRPC.context<Context>().create({
         ...(preview ? { preview } : {}),
         // Only on `bank.insufficient_funds`.
         ...(spend ? { spend } : {}),
+        // Only on the P2P take limits: active order cap, pair limit, verification-level limits.
+        ...(p2pLimit ? { p2pLimit } : {}),
       },
     };
   },

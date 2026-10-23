@@ -41,6 +41,8 @@ import {
   type ChatMessage,
 } from './customer-depth.js';
 import { lockInstrumentOwners } from './instrument-lock.js';
+import type { P2pLimitDetails } from '@intafaced/contracts';
+import { ONGOING_TRADE_STATUSES, pairLimitRefusal, type TakeLimits } from './take-limits.js';
 import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
@@ -160,6 +162,8 @@ export type P2pErrorCode =
   | 'p2p.quote_mismatch'
   | 'p2p.quote_expired'
   | 'p2p.quote_changed'
+  | 'p2p.active_order_cap'
+  | 'p2p.pair_limit_exceeded'
   | 'p2p.offer_not_found'
   | 'p2p.offer_not_active'
   | 'p2p.offer_method_unsupported'
@@ -319,6 +323,8 @@ export class P2pError extends Error {
   constructor(
     message: string,
     readonly code: P2pErrorCode,
+    /** The figures behind a take limit, copied onto the error as `data.p2pLimit` (contracts `p2pLimitOf`). */
+    readonly limit?: P2pLimitDetails,
   ) {
     super(message);
     this.name = 'P2pError';
@@ -638,6 +644,11 @@ export interface P2pServiceOptions {
    * publish the change time, and 24 hours is not assumed.
    */
   securityChangeLockSeconds?: number | null;
+  /**
+   * P-trade-orders-03. The ongoing-order cap and the per-pair fiat bounds. `index.ts` always passes the owner's
+   * values, where blank refuses every take `p2p.config_unset`; omitted is a service built without them (tests).
+   */
+  takeLimits?: TakeLimits;
 }
 
 /**
@@ -1023,6 +1034,7 @@ export class P2pService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly verificationLimits: VerificationLimitConfig;
   private readonly securityChangeLockSeconds: number | null;
+  private readonly takeLimits: TakeLimits | undefined;
   private tradingEnabled: boolean;
 
   constructor(
@@ -1049,6 +1061,7 @@ export class P2pService {
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.verificationLimits = options.verificationLimits ?? { status: 'absent' };
     this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
+    this.takeLimits = options.takeLimits;
   }
 
   /**
@@ -1168,6 +1181,70 @@ export class P2pService {
     };
   }
 
+  /**
+   * P-trade-orders-03: the taker's ongoing orders against the owner's cap. In a take this runs after
+   * `lockInstrumentOwners`, which holds the taker's key until the transaction ends, so one person's takes run one after
+   * another and two cannot both take the last place; a quote reads without a lock and the take checks again.
+   *
+   * The refusal lists the open orders (the first 50) and the soonest deadline still ahead among those that end by
+   * themselves: an order not yet paid is cancelled when its window runs out. A paid or disputed order frees its place
+   * only when someone acts, so it gives no end time, and with only those open the refusal has none.
+   */
+  private async assertActiveOrderCap(sql: Sql, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
+    if (!this.takeLimits) return;
+    const cap = this.takeLimits.activeOrderCap;
+    if (cap === null) throw new P2pError('The most ongoing orders one person may hold is not set', 'p2p.config_unset');
+    const open = await sql<{ id: string; ends_at: Date | null; total: string }[]>`
+      SELECT id,
+             CASE WHEN status IN ('created', 'escrowed') AND deadline_at > now() THEN deadline_at END AS ends_at,
+             count(*) OVER () AS total
+        FROM p2p.p2p_trades
+       WHERE (seller_id = ${input.takerId} OR buyer_id = ${input.takerId})
+         AND taker_id = ${input.takerId}
+         AND status::text IN ${sql([...ONGOING_TRADE_STATUSES])}
+         AND id IS DISTINCT FROM ${input.excludeTradeId}::uuid
+       ORDER BY ends_at ASC NULLS LAST, created_at ASC, id ASC
+       LIMIT 50
+    `;
+    if (Number(open[0]?.total ?? 0) < cap) return;
+    const soonest = open[0]?.ends_at ?? null;
+    throw new P2pError(`You already have ${cap} ongoing orders, the most one person may hold at once`, 'p2p.active_order_cap', {
+      until: soonest ? soonest.toISOString() : null,
+      cap: String(cap),
+      openTradeIds: open.map((row) => row.id),
+    });
+  }
+
+  /** P-trade-orders-03: the order's fiat amount against the owner's bounds for this asset and fiat pair. */
+  private assertPairLimit(input: { asset: string; fiatCurrency: string; fiatAmount: Amount }): void {
+    if (!this.takeLimits) return;
+    const refusal = pairLimitRefusal(this.takeLimits.pairLimits, {
+      asset: input.asset,
+      fiat: input.fiatCurrency,
+      fiatAmount: input.fiatAmount,
+    });
+    if (!refusal) return;
+    if (refusal.code === 'p2p.config_unset') {
+      const pair = `${input.asset}/${input.fiatCurrency}`;
+      const message =
+        refusal.reason === 'pair_unlisted'
+          ? `No order limits are published for ${pair}`
+          : refusal.reason === 'invalid'
+            ? 'The per-pair order limits are not a complete decimal table'
+            : 'The per-pair order limits are not set';
+      throw new P2pError(message, 'p2p.config_unset');
+    }
+    const currency = input.fiatCurrency.toUpperCase();
+    const min = formatAmount(refusal.bounds.min);
+    const max = formatAmount(refusal.bounds.max);
+    throw new P2pError(`An order on ${input.asset}/${currency} is between ${min} and ${max} ${currency}`, 'p2p.pair_limit_exceeded', {
+      until: null,
+      min,
+      max,
+      currency,
+    });
+  }
+
   private async assertBuyerVerificationLimit(
     sql: Sql,
     input: {
@@ -1177,6 +1254,8 @@ export class P2pService {
       tier: string | undefined;
       excludeTradeId: string | null;
       lock: boolean;
+      /** The figures are the buyer's own: they go out only when the caller is the buyer. */
+      callerIsBuyer: boolean;
     },
   ): Promise<void> {
     if (this.verificationLimits.status === 'absent') return;
@@ -1213,7 +1292,34 @@ export class P2pService {
                 : code === 'p2p.verification_daily_limit'
                   ? 'This buy would pass the verification-level daily maximum'
                   : 'This buy would pass the verification-level lifetime maximum';
-    throw new P2pError(message, code);
+    throw new P2pError(message, code, input.callerIsBuyer ? await this.verificationLimitDetails(sql, code, input.tier, used) : undefined);
+  }
+
+  /**
+   * The figures a person needs to act on a verification-level refusal: the bound they crossed, what is left, and
+   * when the daily allowance starts again (the next UTC day, the same boundary `buyerFiatUsed` counts by). The
+   * lifetime and per-order bounds have no end time; a higher verification level is the way past them.
+   */
+  private async verificationLimitDetails(
+    sql: Sql,
+    code: string,
+    tier: string | undefined,
+    used: { daily: Amount; lifetime: Amount },
+  ): Promise<P2pLimitDetails | undefined> {
+    const config = this.verificationLimits;
+    if (config.status !== 'active' || !isVerificationTier(tier)) return undefined;
+    const caps = config.tiers[tier];
+    const currency = config.currency;
+    if (code === 'p2p.verification_order_min') return { until: null, min: formatAmount(caps.orderMin), currency };
+    if (code === 'p2p.verification_order_max') return { until: null, max: formatAmount(caps.orderMax), currency };
+    if (code === 'p2p.verification_lifetime_limit') {
+      return { until: null, remaining: formatAmount(remaining(caps.lifetimeMax, used.lifetime)), currency };
+    }
+    if (code !== 'p2p.verification_daily_limit') return undefined;
+    const [row] = await sql<{ until: Date }[]>`
+      SELECT (date_trunc('day', timezone('UTC', now())) + interval '1 day') AT TIME ZONE 'UTC' AS until
+    `;
+    return { until: row ? row.until.toISOString() : null, remaining: formatAmount(remaining(caps.dailyMax, used.daily)), currency };
   }
 
   /**
@@ -1747,6 +1853,7 @@ export class P2pService {
           // BEFORE ANY LOCK. Both bounds and the remaining liquidity, under the
           // row lock, so two concurrent takers cannot both pass the same check.
           assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
+          await this.assertActiveOrderCap(tx, { takerId: input.takerId, excludeTradeId: input.tradeId });
 
           // P-trade-orders-06: a named quote holds its price. A floating ad is placed at the price it was quoted at,
           // not at the reference read a moment ago; a fixed ad's price must be the one quoted.
@@ -1775,6 +1882,7 @@ export class P2pService {
           // Unset refuses rather than inventing 30 (or 0).
           const feeBps = publishedFeeBps(this.feeBps);
           if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
+          this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
           // Before inventory moves: a dust take that cannot post a release would
           // lock value into a trade that can never settle.
           assertReleasePostable(input.amount, feeBps);
@@ -1791,6 +1899,7 @@ export class P2pService {
               }),
               excludeTradeId: input.tradeId,
               lock: true,
+              callerIsBuyer: input.takerId === buyerId,
             });
           }
 
@@ -3576,6 +3685,9 @@ export class P2pService {
     });
     const feeBps = publishedFeeBps(this.feeBps);
     assertReleasePostable(amount, feeBps);
+    // The take checks both again under its locks; here they let the review step refuse before a quote is held.
+    await this.assertActiveOrderCap(this.sql, { takerId: input.takerId, excludeTradeId: null });
+    this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
     if (this.verificationLimits.status !== 'absent') {
       await this.assertBuyerVerificationLimit(this.sql, {
         buyerId,
@@ -3589,6 +3701,7 @@ export class P2pService {
         }),
         excludeTradeId: null,
         lock: false,
+        callerIsBuyer: input.takerId === buyerId,
       });
     }
     const fee = mulBps(amount, feeBps);

@@ -6,6 +6,7 @@ import {
   algoRefusalDetails,
   previewRefusalOf,
   withdrawalAllowanceOf,
+  p2pLimitOf,
   publicProcedure,
   retryAfterSecondsOf,
   accountStateOf,
@@ -246,5 +247,55 @@ describe('errorFormatter preview refusals', () => {
     expect(previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), kind: 'live' })).toBeUndefined();
     const extra = previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), secret: 'x' });
     expect(extra).toEqual(previewRefusal('bank.loan_schedule', 'repay'));
+  });
+});
+
+describe('errorFormatter p2p take limits', () => {
+  const refused = (code: string, limit: unknown) => Object.assign(new Error(code), { code, limit });
+  const trade = '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+
+  it('copies the order cap figures onto the error data and keeps the code', async () => {
+    const cause = refused('p2p.active_order_cap', { until: '2026-10-23T18:04:05.123Z', cap: '2', openTradeIds: [trade] });
+    const take = router({
+      take: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'CONFLICT', message: cause.message, cause });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/take'),
+      router: take,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: 'p2p.active_order_cap' });
+    expect(data.p2pLimit).toEqual({ until: '2026-10-23T18:04:05.123Z', cap: '2', openTradeIds: [trade] });
+  });
+
+  it('keeps a limit with no end time and its bounds', () => {
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
+      until: null,
+      min: '10',
+      max: '500',
+      currency: 'EUR',
+    });
+    expect(
+      p2pLimitOf(refused('p2p.verification_daily_limit', { until: '2026-10-24T00:00:00Z', remaining: '0.5', currency: 'EUR' })),
+    ).toEqual({
+      until: '2026-10-24T00:00:00Z',
+      remaining: '0.5',
+      currency: 'EUR',
+    });
+  });
+
+  it('drops a sentence, a malformed figure, a missing end time and every other code', () => {
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: 'tomorrow', min: '1' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { min: '1' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, max: 500 }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, currency: 'euros' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, openTradeIds: ['not a trade'] }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.active_order_cap', { until: null, cap: '2', note: 'internal' }))).toEqual({ until: null, cap: '2' });
+    expect(p2pLimitOf(refused('p2p.quote_expired', { until: null }))).toBeUndefined();
+    expect(p2pLimitOf(undefined)).toBeUndefined();
   });
 });
