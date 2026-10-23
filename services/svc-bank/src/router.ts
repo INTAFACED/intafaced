@@ -155,6 +155,7 @@ const destinationViewOutput = z.object({
   addedAt: z.string(),
   coolingOffEndsAt: z.string().nullable(),
   coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+  lookalikeConfirmedAt: z.string().nullable(),
 });
 
 const balanceAccountsOutput = z.object({
