@@ -485,3 +485,43 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     expect(bars()).toBe(reads);
   });
 });
+
+describe('simulated margin account (AL-backtest-02)', () => {
+  const RULES_SET = { mode: 'netting' as const, maxLeverage: '20', marginCallPercent: '80', stopOutPercent: '50' };
+
+  it('refuses a blank leverage, any blank owner rule by name, and a leverage over the maximum, storing nothing', async () => {
+    const { a, runs } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+    const strategy = await saved(a);
+    const margin = (leverage: string) => ({ ...request(strategy.id), simulatedAccount: { leverage } });
+    await expect(a.backtest.start(margin(' '))).rejects.toThrow(/quant\.account_rule_unset — leverage — fill in the leverage/);
+    await expect(a.backtest.start(margin('21'))).rejects.toThrow(/leverage — must be from 1 up to the published maximum of 20/);
+    await expect(a.backtest.start(margin('0.5'))).rejects.toThrow(/quant\.account_rule_unset — leverage/);
+    for (const [rule, name] of [
+      ['maxLeverage', 'maximum leverage'],
+      ['marginCallPercent', 'margin call level'],
+      ['stopOutPercent', 'stop-out level'],
+    ] as const) {
+      const blank = setup({ judgement: { ...NO_JUDGEMENT, account: { ...RULES_SET, [rule]: null } } });
+      const theirs = await saved(blank.a);
+      await expect(blank.a.backtest.start({ ...request(theirs.id), simulatedAccount: { leverage: '5' } })).rejects.toThrow(
+        new RegExp(`quant\\.account_rule_unset — ${name} — the owner has not published it`),
+      );
+    }
+    expect((await runs.history({ userId: ACCOUNT_A, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 10, cursor: null })).runs).toEqual([]);
+    expect(await a.backtest.accountRules()).toEqual(RULES_SET);
+  });
+
+  it('runs on margin under its own key, with the account and its events on the result; a cash run keeps its key', async () => {
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, account: RULES_SET } });
+    const strategy = await saved(a);
+    const cash = await a.backtest.start(request(strategy.id));
+    expect(cash.account).toBeNull();
+    expect(cash.marginEvents).toEqual([]);
+    const margin = await a.backtest.start({ ...request(strategy.id), simulatedAccount: { leverage: '5' } });
+    expect(margin.runKey).not.toBe(cash.runKey);
+    expect(margin.account).toEqual({ ...RULES_SET, leverage: '5' });
+    expect(Array.isArray(margin.marginEvents)).toBe(true);
+    expect(margin.equity.some((point) => point.marginLevelPercent !== undefined)).toBe(true);
+    expect(await a.backtest.result({ runId: margin.runId })).toEqual(margin);
+  });
+});

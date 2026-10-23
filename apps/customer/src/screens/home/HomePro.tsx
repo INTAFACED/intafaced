@@ -28,7 +28,7 @@ import {
   useFavorites,
   useMarkets,
   useHomePortfolio,
-  DerivedTotalNote,
+  DerivedTotalTag,
   useSparklines,
   useTickers,
   type HomeHolding,
@@ -320,8 +320,8 @@ function Summary({
               <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
             </span>
           ) : null}
+          <DerivedTotalTag source={data.source} className="hp-total__note" />
         </div>
-        <DerivedTotalNote source={data.source} className="hp-total__note" />
       </div>
       <div className="hp-stats">
         <Stat label={t('Cash')}>

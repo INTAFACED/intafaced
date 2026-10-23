@@ -46,6 +46,7 @@ import { LinkedAccounts } from './LinkedAccounts';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
+import { PlanRule } from './PlanRule';
 import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
@@ -731,6 +732,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
             );
           }}
         </ResourceView>
+        <PlanRule />
       </Section>
       <Schedules open={open} />
     </BankPage>

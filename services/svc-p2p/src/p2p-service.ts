@@ -65,6 +65,13 @@ import {
 import { ownStats, payTiming, type OwnStats } from './user-center.js';
 import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
 import {
+  isVerificationTier,
+  remaining,
+  verificationBuyRefusal,
+  type VerificationLimitConfig,
+  type VerificationTier,
+} from './verification-limits.js';
+import {
   DEFAULT_DEADLINES,
   assertTransition,
   deadlineFor,
@@ -254,7 +261,20 @@ export type P2pErrorCode =
   | 'p2p.ops_count_invalid'
   | 'p2p.dispute_resolve_no_four_eyes'
   | 'p2p.dispute_resolve_approval_mismatch'
-  | 'p2p.dispute_resolve_approval_consumed';
+  | 'p2p.dispute_resolve_approval_consumed'
+  // P-disputes-security-15. Blank is not a zero cap and not "5000 USD".
+  | 'p2p.verification_limits_unset'
+  | 'p2p.verification_limits_invalid'
+  | 'p2p.verification_level_unwired'
+  | 'p2p.verification_limit_currency'
+  | 'p2p.verification_order_min'
+  | 'p2p.verification_order_max'
+  | 'p2p.verification_daily_limit'
+  | 'p2p.verification_lifetime_limit'
+  // No identity event carries the change time. A published duration is not 24h.
+  | 'p2p.security_change_lock_unset'
+  | 'p2p.invalid_security_change_lock'
+  | 'p2p.security_change_lock_unwired';
 
 /**
  * A lowercase canonical UUID — the natural-person identifier space, and the ONE
@@ -591,6 +611,18 @@ export interface P2pServiceOptions {
    * unwind escrowRelease. Body is `{ feeEventId }` only.
    */
   affiliatePayout?: AffiliatePayoutPort;
+  /**
+   * P-disputes-security-15. Omit or `{ status: 'absent' }` leaves takes as they
+   * are. `invalid` refuses every new buy. `active` caps the buyer's fiat in
+   * the named currency only.
+   */
+  verificationLimits?: VerificationLimitConfig;
+  /**
+   * Owner seconds a security-setting change would lock selling. Null or omit
+   * is unpublished. A positive integer cannot be applied: identity does not
+   * publish the change time, and 24 hours is not assumed.
+   */
+  securityChangeLockSeconds?: number | null;
 }
 
 /**
@@ -635,6 +667,8 @@ export interface OfferRecord {
   remainingAmt: Amount;
   methods: unknown[];
   terms: string;
+  /** Maker verification tier at create. Null when it was never stored. */
+  makerTier: string | null;
   status: 'active' | 'paused' | 'closed';
   createdAt: Date;
 }
@@ -741,6 +775,7 @@ interface OfferRow {
   remaining_amt: string;
   methods: unknown[];
   terms: string;
+  maker_tier: string | null;
   status: 'active' | 'paused' | 'closed';
   created_at: Date;
 }
@@ -867,6 +902,8 @@ export class P2pService {
   private readonly instruments: TradeInstrumentAttacher;
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
+  private readonly verificationLimits: VerificationLimitConfig;
+  private readonly securityChangeLockSeconds: number | null;
   private tradingEnabled: boolean;
 
   constructor(
@@ -891,6 +928,8 @@ export class P2pService {
     this.merchantStatusOf = options.merchantStatusOf;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
+    this.verificationLimits = options.verificationLimits ?? { status: 'absent' };
+    this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
   }
 
   /**
@@ -910,6 +949,169 @@ export class P2pService {
     return this.tradingEnabled;
   }
 
+  /**
+   * A published sell lock cannot see when the password, phone, email or
+   * authenticator last changed. Refusing the sell is the closed door. An
+   * unpublished duration does not pretend the seller is clear.
+   */
+  private assertSellNotLocked(selling: boolean): void {
+    if (!selling) return;
+    const seconds = this.securityChangeLockSeconds;
+    if (seconds == null) return;
+    if (!Number.isInteger(seconds) || seconds < 1) {
+      throw new P2pError('P2P_SECURITY_CHANGE_LOCK_SECONDS is not a positive whole number of seconds', 'p2p.invalid_security_change_lock');
+    }
+    throw new P2pError(
+      'A security-change sell lock is published, but identity does not publish the change time, so the sell is refused rather than timed from an invented 24 hours',
+      'p2p.security_change_lock_unwired',
+    );
+  }
+
+  securityChangeLock(): { seconds: number } {
+    const seconds = this.securityChangeLockSeconds;
+    if (seconds == null) {
+      throw new P2pError(
+        'P2P_SECURITY_CHANGE_LOCK_SECONDS is unset — refusing rather than claiming no lock',
+        'p2p.security_change_lock_unset',
+      );
+    }
+    if (!Number.isInteger(seconds) || seconds < 1) {
+      throw new P2pError('P2P_SECURITY_CHANGE_LOCK_SECONDS is not a positive whole number of seconds', 'p2p.invalid_security_change_lock');
+    }
+    throw new P2pError(
+      'A security-change sell lock is published, but identity does not publish the change time',
+      'p2p.security_change_lock_unwired',
+    );
+  }
+
+  async verificationAllowance(input: { buyerId: string; tier: string | undefined }): Promise<{
+    tier: VerificationTier;
+    currency: string;
+    orderMin: string;
+    orderMax: string;
+    dailyMax: string;
+    lifetimeMax: string;
+    dailyUsed: string;
+    lifetimeUsed: string;
+    dailyRemaining: string;
+    lifetimeRemaining: string;
+  }> {
+    const config = this.verificationLimits;
+    if (config.status === 'absent') {
+      throw new P2pError(
+        'Verification-level trading limits are unset — refusing rather than inventing a cap',
+        'p2p.verification_limits_unset',
+      );
+    }
+    if (config.status === 'invalid') {
+      throw new P2pError('Verification-level trading limits are not a complete decimal table', 'p2p.verification_limits_invalid');
+    }
+    if (!isVerificationTier(input.tier)) {
+      throw new P2pError(
+        'The signed-in verification level is missing, so the published cap cannot be applied',
+        'p2p.verification_level_unwired',
+      );
+    }
+    const caps = config.tiers[input.tier];
+    const used = await this.buyerFiatUsed(this.sql, { buyerId: input.buyerId, currency: config.currency, excludeTradeId: null });
+    return {
+      tier: input.tier,
+      currency: config.currency,
+      orderMin: formatAmount(caps.orderMin),
+      orderMax: formatAmount(caps.orderMax),
+      dailyMax: formatAmount(caps.dailyMax),
+      lifetimeMax: formatAmount(caps.lifetimeMax),
+      dailyUsed: formatAmount(used.daily),
+      lifetimeUsed: formatAmount(used.lifetime),
+      dailyRemaining: formatAmount(remaining(caps.dailyMax, used.daily)),
+      lifetimeRemaining: formatAmount(remaining(caps.lifetimeMax, used.lifetime)),
+    };
+  }
+
+  private async buyerFiatUsed(
+    sql: Sql,
+    input: { buyerId: string; currency: string; excludeTradeId: string | null },
+  ): Promise<{ daily: Amount; lifetime: Amount }> {
+    const [row] = await sql<{ daily: string; lifetime: string }[]>`
+      SELECT COALESCE(SUM(fiat_amount) FILTER (
+               WHERE created_at >= date_trunc('day', timezone('UTC', now())) AT TIME ZONE 'UTC'
+             ), 0)::text AS daily,
+             COALESCE(SUM(fiat_amount), 0)::text AS lifetime
+        FROM p2p.p2p_trades
+       WHERE buyer_id = ${input.buyerId}
+         AND fiat_currency = ${input.currency}
+         AND status IN ('created', 'escrowed', 'fiat_sent', 'released', 'disputed')
+         AND (${input.excludeTradeId}::uuid IS NULL OR id <> ${input.excludeTradeId}::uuid)
+    `;
+    return {
+      daily: parseAmount(row?.daily ?? '0'),
+      lifetime: parseAmount(row?.lifetime ?? '0'),
+    };
+  }
+
+  private async assertBuyerVerificationLimit(
+    sql: Sql,
+    input: {
+      buyerId: string;
+      fiatCurrency: string;
+      fiatAmount: Amount;
+      tier: string | undefined;
+      excludeTradeId: string | null;
+      lock: boolean;
+    },
+  ): Promise<void> {
+    if (this.verificationLimits.status === 'absent') return;
+    if (input.lock && this.verificationLimits.status === 'active') {
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${input.buyerId}))`;
+    }
+    const used =
+      this.verificationLimits.status === 'active'
+        ? await this.buyerFiatUsed(sql, {
+            buyerId: input.buyerId,
+            currency: this.verificationLimits.currency,
+            excludeTradeId: input.excludeTradeId,
+          })
+        : { daily: 0n, lifetime: 0n };
+    const code = verificationBuyRefusal(this.verificationLimits, {
+      tier: input.tier,
+      fiatCurrency: input.fiatCurrency,
+      fiatAmount: input.fiatAmount,
+      dailyUsed: used.daily,
+      lifetimeUsed: used.lifetime,
+    });
+    if (!code) return;
+    const message =
+      code === 'p2p.verification_limits_invalid'
+        ? 'Verification-level trading limits are not a complete decimal table'
+        : code === 'p2p.verification_level_unwired'
+          ? 'The signed-in verification level is missing, so the published cap cannot be applied'
+          : code === 'p2p.verification_limit_currency'
+            ? `This buy is in ${input.fiatCurrency}, which is not the published limit currency, and no rate is invented`
+            : code === 'p2p.verification_order_min'
+              ? 'This buy is below the verification-level minimum'
+              : code === 'p2p.verification_order_max'
+                ? 'This buy is above the verification-level per-order maximum'
+                : code === 'p2p.verification_daily_limit'
+                  ? 'This buy would pass the verification-level daily maximum'
+                  : 'This buy would pass the verification-level lifetime maximum';
+    throw new P2pError(message, code);
+  }
+
+  /**
+   * The taker's signed-in tier counts only when the taker is the buyer.
+   * On a buy ad the maker is the buyer, so the tier stored at create is the cap.
+   * A row that never stored one is `undefined`, which a published table refuses.
+   */
+  private buyerLimitTier(input: {
+    takerId: string;
+    buyerId: string;
+    takerTier: string | undefined;
+    makerTier: string | null;
+  }): string | undefined {
+    if (input.takerId === input.buyerId) return input.takerTier;
+    return input.makerTier ?? undefined;
+  }
+
   // ── Offers (§6.2) ──────────────────────────────────────────────────────────
 
   async createOffer(input: {
@@ -927,8 +1129,11 @@ export class P2pService {
     offerId?: string;
     /** Client-chosen key. A retry with the same key and the same body returns the first offer. */
     idempotencyKey?: string;
+    /** Signed-in maker tier at create. Anything else is stored as never-set. */
+    makerTier?: string;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
+    this.assertSellNotLocked(input.side === 'sell');
 
     const fiatCurrency = input.fiatCurrency.toUpperCase();
     if (!isSupportedFiat(fiatCurrency)) {
@@ -1010,6 +1215,7 @@ export class P2pService {
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
+    const makerTier = isVerificationTier(input.makerTier) ? input.makerTier : null;
     const createHashValue = requestHash([
       input.makerId,
       input.side,
@@ -1023,6 +1229,7 @@ export class P2pService {
       JSON.stringify(input.methods ?? []),
       input.terms ?? '',
       clientOfferId ?? '',
+      makerTier ?? '',
     ]);
 
     let replayId: string | null = null;
@@ -1044,7 +1251,7 @@ export class P2pService {
           } else if (clientOfferId) {
             const existing = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`;
             if (existing[0]) {
-              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt)) {
+              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt, makerTier)) {
                 throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
               }
               return { replayId: clientOfferId };
@@ -1054,14 +1261,14 @@ export class P2pService {
           const rows = await tx<OfferRow[]>`
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
-              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status
+              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
               ${input.priceType}, ${formatAmount(input.price)}::numeric,
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
-              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active'
+              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier}
             )
             RETURNING *
           `;
@@ -1242,6 +1449,9 @@ export class P2pService {
    */
   async resumeOffer(offerId: string, makerId: string): Promise<OfferRecord> {
     this.assertTradingEnabled();
+    const preview = await this.loadOfferRaw(offerId);
+    if (preview.makerId !== makerId) throw new P2pError('Only the maker can resume an offer', 'p2p.not_a_party');
+    if (preview.side === 'sell') this.assertSellNotLocked(true);
     const rows = await this.sql<OfferRow[]>`
       UPDATE p2p.offers SET status = 'active', updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused'
@@ -1300,6 +1510,8 @@ export class P2pService {
      * that lets a hostile take set fee to zero.
      */
     tradeId: string;
+    /** Signed-in verification tier. Required only once a limit table is published. */
+    tier?: string;
   }): Promise<TradeRecord> {
     this.assertTradingEnabled();
 
@@ -1312,7 +1524,7 @@ export class P2pService {
       'p2p.takeOffer',
       { operation: 'escrow.lock', tradeId, offerId: input.offerId, amount: formatAmount(input.amount) },
       async (span) => {
-        const reserved = await this.reserveTrade({ ...input, tradeId });
+        const reserved = await this.reserveTrade({ ...input, tradeId, tier: input.tier });
         span.setAttribute('intafaced.sellerId', reserved.sellerId);
         span.setAttribute('intafaced.buyerId', reserved.buyerId);
         span.setAttribute('intafaced.fiatAmount', formatAmount(reserved.fiatAmount));
@@ -1329,6 +1541,7 @@ export class P2pService {
     takerId: string;
     amount: Amount;
     method: string;
+    tier?: string;
   }): Promise<TradeRecord> {
     // Read the offer once, unlocked, purely to decide whether a reference price
     // is needed. Fetching a mark price is a network call; holding the offer's
@@ -1395,6 +1608,7 @@ export class P2pService {
           // Computed here rather than after pricing, because the refusal below
           // has to name the seller in the access log.
           const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
+          this.assertSellNotLocked(input.takerId === sellerId);
 
           if (!methodAllowed(offer.methods, input.method)) {
             // NOT a distinct error any more. "The offer does not accept that
@@ -1426,6 +1640,21 @@ export class P2pService {
           // Before inventory moves: a dust take that cannot post a release would
           // lock value into a trade that can never settle.
           assertReleasePostable(input.amount, feeBps);
+          if (this.verificationLimits.status !== 'absent') {
+            await this.assertBuyerVerificationLimit(tx, {
+              buyerId,
+              fiatCurrency: offer.fiatCurrency,
+              fiatAmount: priced.fiatAmount,
+              tier: this.buyerLimitTier({
+                takerId: input.takerId,
+                buyerId,
+                takerTier: input.tier,
+                makerTier: offer.makerTier,
+              }),
+              excludeTradeId: input.tradeId,
+              lock: true,
+            });
+          }
 
           await tx`
             UPDATE p2p.offers
@@ -3054,6 +3283,9 @@ export class P2pService {
     }
     const idempotencyKey = input.idempotencyKey.trim();
     if (!idempotencyKey) throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
+    const previewForLock = await this.loadOfferRaw(input.offerId);
+    if (previewForLock.makerId !== input.makerId) throw new P2pError('Only the maker can edit an offer', 'p2p.not_a_party');
+    if (previewForLock.side === 'sell') this.assertSellNotLocked(true);
     const hash = requestHash([
       input.offerId,
       input.price === undefined ? '' : formatAmount(input.price),
@@ -3160,7 +3392,7 @@ export class P2pService {
    * Fee and reservation preview. Does not lock inventory and does not post.
    * Fee comes from the service policy. Unset fee refuses. No estimate.
    */
-  async quoteTake(input: { offerId: string; takerId: string; amount: Amount; method: string }): Promise<{
+  async quoteTake(input: { offerId: string; takerId: string; amount: Amount; method: string; tier?: string }): Promise<{
     amount: Amount;
     price: Amount;
     fiatAmount: Amount;
@@ -3175,6 +3407,8 @@ export class P2pService {
       throw new P2pError(`Offer ${offer.id} is ${offer.status} and cannot be taken`, 'p2p.offer_not_active');
     }
     if (offer.makerId === input.takerId) throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
+    const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
+    this.assertSellNotLocked(input.takerId === sellerId);
     if (await eitherBlocked(this.sql, offer.makerId, input.takerId)) {
       throw new P2pError('p2p.blocked', 'p2p.blocked');
     }
@@ -3193,6 +3427,21 @@ export class P2pService {
     });
     const feeBps = publishedFeeBps(this.feeBps);
     assertReleasePostable(input.amount, feeBps);
+    if (this.verificationLimits.status !== 'absent') {
+      await this.assertBuyerVerificationLimit(this.sql, {
+        buyerId,
+        fiatCurrency: offer.fiatCurrency,
+        fiatAmount: priced.fiatAmount,
+        tier: this.buyerLimitTier({
+          takerId: input.takerId,
+          buyerId,
+          takerTier: input.tier,
+          makerTier: offer.makerTier,
+        }),
+        excludeTradeId: null,
+        lock: false,
+      });
+    }
     const fee = mulBps(input.amount, feeBps);
     const netAmount = sub(input.amount, fee);
     const reservationExpiresAt = deadlineFor('created', new Date(), this.deadlines);
@@ -3704,6 +3953,7 @@ function toOffer(row: OfferRow): OfferRecord {
     remainingAmt: parseAmount(row.remaining_amt),
     methods: Array.isArray(row.methods) ? row.methods : [],
     terms: row.terms,
+    makerTier: row.maker_tier ?? null,
     status: row.status,
     createdAt: row.created_at,
   };
@@ -3921,6 +4171,7 @@ function sameCreate(
   },
   fiatCurrency: string,
   totalAmt: Amount,
+  makerTier: string | null,
 ): boolean {
   return (
     offer.makerId === input.makerId &&
@@ -3933,7 +4184,8 @@ function sameCreate(
     offer.maxAmt === input.maxAmt &&
     offer.totalAmt === totalAmt &&
     offer.terms === (input.terms ?? '') &&
-    JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? [])
+    JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? []) &&
+    (offer.makerTier ?? null) === makerTier
   );
 }
 

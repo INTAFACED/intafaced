@@ -593,6 +593,101 @@ describe('merchant portal procedures', () => {
       )`;
   };
 
+  it('takes pay:onboard alone from the owner before verification and from an admin of a verified business, and from nobody else', async () => {
+    const onboard = { scopes: ['pay:onboard'] as Principal['scopes'] };
+    const user = id();
+    const merchantId = id();
+    await seedMerchant(merchantId, user, 'none');
+    // J-merchant-02 #1: a new owner fills in the address before sending verification.
+    const entered = await as(user, onboard).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: '0',
+      reason: 'our address',
+      address: ADDRESS,
+    });
+    expect(entered.outcome).toBe('applied');
+    expect(entered.profile.address).toEqual(ADDRESS);
+    await as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true });
+    await as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: false });
+
+    const helper = id();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${helper}, 'admin', 'active', ${user}, now())`;
+    const unverifiedAdmin = await refusal(() =>
+      as(helper, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: entered.version,
+        reason: 'early',
+        website: 'https://a.example',
+      }),
+    );
+    expect(unverifiedAdmin.message).toBe('pay.owner_grant_withdrawn');
+    // `admin` owns no business here but works for verified Beta; a pay:write session it holds says nothing about this one.
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${admin}, 'admin', 'active', ${user}, now())`;
+    const otherWrite = await refusal(() =>
+      as(admin).merchant.businessProfile.submit({ merchantId, expectedVersion: entered.version, reason: 'rename', legalName: 'Taken Ltd' }),
+    );
+    expect(otherWrite.message).toBe('pay.owner_grant_withdrawn');
+    const outsider = await refusal(() => as(id(), onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(outsider).toMatchObject({ code: 'NOT_FOUND', message: `Merchant ${merchantId} not found` });
+    await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${merchantId}`;
+    const shutOwner = await refusal(() => as(user, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(shutOwner.message).toBe('pay.owner_grant_withdrawn');
+    await sql`UPDATE pay.merchants SET status = 'active' WHERE id = ${merchantId}`;
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).legalName).toBeNull();
+
+    await sql`UPDATE pay.merchants SET kyb_status = 'approved' WHERE id = ${merchantId}`;
+    const withdrawn = await refusal(() =>
+      as(user, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: entered.version,
+        reason: 'after approval',
+        website: 'https://shop.example',
+      }),
+    );
+    expect(withdrawn).toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).website).toBeNull();
+
+    // The owner grant law never gives an admin pay:write, so an admin of a verified business writes on pay:onboard.
+    const changed = await as(helper, onboard).merchant.businessProfile.submit({
+      merchantId,
+      expectedVersion: entered.version,
+      reason: 'support contact',
+      supportEmail: 'help@shop.example',
+    });
+    expect(changed.outcome).toBe('applied');
+    // Second approval binds admins, so it is the owner's alone to switch.
+    const adminRule = await refusal(() => as(helper, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: false }));
+    expect(adminRule.message).toBe('pay.team_role_forbidden');
+    await sql`UPDATE pay.merchants SET status = 'suspended' WHERE id = ${merchantId}`;
+    const shut = await refusal(() =>
+      as(helper, onboard).merchant.businessProfile.submit({
+        merchantId,
+        expectedVersion: changed.version,
+        reason: 'while shut',
+        website: 'https://b.example',
+      }),
+    );
+    expect(shut.message).toBe('pay.owner_grant_withdrawn');
+    await sql`UPDATE pay.merchants SET status = 'active' WHERE id = ${merchantId}`;
+
+    const reader = id();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${merchantId}, ${reader}, 'viewer', 'active', ${user}, now())`;
+    const viewerWrite = await refusal(() => as(reader, onboard).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }));
+    expect(viewerWrite.message).toBe('pay.team_role_forbidden');
+    const keyed = await refusal(() =>
+      as(user, { ...onboard, kid: 'ifc_test' }).merchant.businessProfile.setSecondApproval({ merchantId, enabled: true }),
+    );
+    // An API key never carries pay:onboard as a write.
+    expect(keyed.code).toBe('FORBIDDEN');
+    expect((await as(user).merchant.businessProfile.get({ merchantId })).secondApprovalEnabled).toBe(false);
+  });
+
   it('applies sensitive identity before KYB is submitted, refuses it while pending, and holds it once approved', async () => {
     const user = id();
     const merchantId = id();
