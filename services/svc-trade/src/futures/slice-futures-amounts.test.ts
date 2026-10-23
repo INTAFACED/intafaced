@@ -237,6 +237,8 @@ function creditBook(options?: { balanceThrows?: boolean; ladder?: { depth: Depth
       return [];
     }
     if (text.includes('liquidation_rungs') || text.includes('liquidation_attempts')) return [];
+    // This book places no matched orders: no opening order holds anything.
+    if (text.includes('FROM trade.futures_orders') && text.includes('hold_asset')) return [];
     if (text.includes('INSERT INTO trade.position_margin_adjustments')) {
       adjustments.push({
         position_id: String(values[0]),

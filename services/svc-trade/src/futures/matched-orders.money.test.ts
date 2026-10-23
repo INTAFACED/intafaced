@@ -1718,6 +1718,46 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       await assertBooksAgree();
     });
 
+    it('a leverage change counts what live opening orders hold and commit, so it cannot spend credit they rely on', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const svc = positions();
+      // Alice opens 2 at 100, 10x: a position whose initial margin is 20.
+      const buy = await svc.placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'lev-open' }),
+      );
+      const sell = await build().place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', qty: A('2'), limitPrice: A('100'), clientOrderId: 'lev-bob' }),
+      );
+      await build().settleFill({
+        marketId: MARKET,
+        makerOrderId: buy.orderId,
+        takerOrderId: sell.orderId,
+        price: '100',
+        qty: '2',
+        sequence: 1,
+      });
+      const [position] = await positionsOf(ALICE);
+      // A resting opening order holds 860 (86 at 100, 10x). Posted is 1000 (120 free, 20 in the position, 860 held),
+      // committed 880, credit 900: 20 of buying power left.
+      await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('86'), clientOrderId: 'lev-rest' }));
+      expect(await svc.collateralFigures(ALICE, USDT)).toMatchObject({ free: A('120'), committed: A('880'), buyingPower: A('20') });
+      const target = { userId: ALICE, symbol: SYMBOL, positionId: position!.id };
+      // 2x needs 80 more. The 120 free covers it, and so would the haircut without the order (126 against 100), but not
+      // with it: 900 against 960. Nothing moves.
+      await expect(svc.setLeverage({ ...target, leverage: A('2'), clientAdjustmentId: 'lev-2x' }, principal(ALICE))).rejects.toMatchObject({
+        code: 'trade.haircut_credit_short',
+      });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('120'));
+      // 5x needs exactly the 20 left: it fits.
+      await svc.setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'lev-5x' }, principal(ALICE));
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
+      expect((await svc.collateralFigures(ALICE, USDT)).buyingPower).toBe(0n);
+      await assertBooksAgree();
+    });
+
     /** The ledger with some of its methods replaced; everything else is the real one. */
     function withLedger(overrides: Partial<Record<keyof LedgerClient, unknown>>): LedgerClient {
       return new Proxy(ledger, {

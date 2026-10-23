@@ -433,6 +433,24 @@ export function positionPercentage(unrealized: Amount, initialMarginAmount: Amou
   return div(unrealized * 100n, initialMarginAmount, POSITION_PERCENTAGE_ROUNDING);
 }
 
+/**
+ * What live opening orders hold and commit. `held` is what the ledger holds in each order's pot. What an order commits
+ * comes from its row: the hold its terms lock less what its fills applied, paid and released. A pending order counts the
+ * whole hold it is about to post (its cash is still in free), and an order whose hold posted after the ledger read still
+ * counts, so a second check made meanwhile sees it.
+ */
+function orderCommitments(orders: readonly OrderRow[], inLedger: readonly Amount[]): { held: bigint; promised: bigint } {
+  let held = 0n;
+  let promised = 0n;
+  orders.forEach((row, n) => {
+    const pot = inLedger[n]!;
+    held += pot;
+    const fromRow = holdOf(row) - parseAmount(row.applied_amount) - parseAmount(row.fee_charged) - parseAmount(row.released_amount);
+    promised += fromRow > pot ? fromRow : pot;
+  });
+  return { held, promised };
+}
+
 export class PositionService {
   private readonly bus: EventBus | null;
   private readonly markPolicy: MarkPolicy;
@@ -662,10 +680,7 @@ export class PositionService {
       SELECT id, margin_initial FROM trade.positions
        WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
     `;
-    const orders = await this.sql<OrderRow[]>`
-      SELECT * FROM trade.futures_orders
-       WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
-    `;
+    const orders = await this.liveOrderRows(userId, asset);
     const accountOf = (ref: { kind: string; purpose?: string }) => amountOf(ref.kind, ref.purpose ?? '');
     const free = accountOf(userAvailable(userId, asset));
     const potRows = positions.map((row) => accountOf(positionCollateralAccount(userId, asset, row.id)));
@@ -674,17 +689,7 @@ export class PositionService {
     for (const row of positions) initial += parseAmount(String(row.margin_initial));
     let pots = 0n;
     for (const pot of potRows) pots += pot;
-    let held = 0n;
-    let promised = 0n;
-    orders.forEach((row, n) => {
-      const inLedger = heldRows[n]!;
-      held += inLedger;
-      // What the order commits comes from its row: the hold its terms lock less what its fills applied, paid and
-      // released. A pending order counts the whole hold it is about to post (its cash is still in free), and an order
-      // whose hold posted after the ledger read still counts, so a second open checked meanwhile sees it.
-      const fromRow = holdOf(row) - parseAmount(row.applied_amount) - parseAmount(row.fee_charged) - parseAmount(row.released_amount);
-      promised += fromRow > inLedger ? fromRow : inLedger;
-    });
+    const { held, promised } = orderCommitments(orders, heldRows);
     const posted = (free + pots + held) as Amount;
     const committed = (initial + promised) as Amount;
     const credit = haircutBps === null ? null : collateralCredit(posted, haircutBps);
@@ -725,9 +730,17 @@ export class PositionService {
     }
   }
 
+  /** The account's opening orders that hold, or are about to hold, margin in `asset`. */
+  private liveOrderRows(userId: string, asset: string): Promise<OrderRow[]> {
+    return this.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+    `;
+  }
+
   /**
-   * credit(available + Σ position collateral pots) must cover Σ margin_initial + the new
-   * requirement. The pots are read from the ledger, never from `margin_current`: that column is a mirror and can drift
+   * credit(available + Σ position collateral pots + Σ live order holds) must cover Σ margin_initial + Σ what live orders
+   * commit + the new requirement. The pots are read from the ledger, never from `margin_current`: that column is a mirror and can drift
    * from what the ledger holds, and no service-held figure may decide how much credit a customer has. A shortfall or a failed read refuses and
    * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
    * delta when setLeverage is raising margin.
@@ -772,20 +785,31 @@ export class PositionService {
 
     let sumCurrent = 0n;
     let sumInitial = 0n;
+    let orderHolds: { held: bigint; promised: bigint };
     try {
       for (const row of rows) {
         sumInitial += parseAmount(String(row.margin_initial));
         const pot = (await this.ledger.balance(positionCollateralAccount(input.userId, input.asset, row.id))).amount;
         if (pot > 0n) sumCurrent += pot;
       }
+      // Live opening orders hold cash out of available into their own pots: that cash is posted, and what each order
+      // commits counts against it, by the same rule as the matched-order check (`collateralFigures`). Left out, a
+      // leverage change or an at-mark open could spend credit a resting order already relies on.
+      const orders = await this.liveOrderRows(input.userId, input.asset);
+      const inLedger: Amount[] = [];
+      for (const row of orders) {
+        const held = (await this.ledger.balance(futuresOrderMarginAccount(input.userId, input.asset, row.id))).amount;
+        inLedger.push((held > 0n ? held : 0n) as Amount);
+      }
+      orderHolds = orderCommitments(orders, inLedger);
     } catch (err) {
       if (err instanceof FuturesError) throw err;
       throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
     }
 
     const decision = decideOpenCredit({
-      postedCash: (available + sumCurrent) as Amount,
-      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
+      postedCash: (available + sumCurrent + orderHolds.held) as Amount,
+      initialMargin: (sumInitial + orderHolds.promised + input.additionalInitialMargin) as Amount,
       haircutBps,
     });
     if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
