@@ -146,6 +146,14 @@ describe('placing an order', () => {
     expect(result.ok && result.data.id).toBe(body.tradeId);
     expect(guard.status(journalKey)).toBe(null);
   });
+  it('sends the fresh confirmation of the review with the take, and reads until when this session needs none', async () => {
+    const svc = happy({ 'trades.stepUpWindow': () => ok({ confirmedUntil: '2026-10-23T19:40:00.000Z' }) });
+    const pay = createPersonalPayApi(svc.api, ME, fresh().guard);
+    const approval = '7d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a';
+    expect(await pay.takeOffer(offer(), asked(), { ...reviewed(), stepUpApprovalId: approval })).toMatchObject({ ok: true });
+    expect(svc.posts()[0]!.body).toMatchObject({ offerId: OFFER_ID, amount: '100', method: 'sepa', stepUpApprovalId: approval });
+    expect(await pay.takeStepUpWindow()).toEqual({ ok: true, data: { confirmedUntil: '2026-10-23T19:40:00.000Z' } });
+  });
   it('reads the offer and the quote again first and sends nothing if the figures moved since review', async () => {
     const svc = happy({ 'trades.quote': () => ok(quote({ feeBps: 50, fee: '0.5', netAmount: '99.5' })) });
     const pay = createPersonalPayApi(svc.api, ME, fresh().guard);

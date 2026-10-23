@@ -26,6 +26,7 @@ import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createTakeStepUp } from './take-step-up.js';
 import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
@@ -213,6 +214,10 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
+// P-trade-orders-07: a take is confirmed with identity's single-use same-person approval; without IDENTITY_URL
+// no confirmation can be spent and every take refuses.
+const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
+
 export const appRouter = createP2pRouter(
   p2p,
   instruments,
@@ -226,6 +231,7 @@ export const appRouter = createP2pRouter(
     opsReads: new OpsReads(sql),
     disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
     takeGate,
+    takeStepUp,
   },
   merchants,
 );

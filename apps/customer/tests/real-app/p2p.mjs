@@ -1,5 +1,8 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { EDGE, ORIGIN, mailedConfirmLinks } from './stack.mjs';
+import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { EDGE, ORIGIN, ROOT, mailedConfirmLinks } from './stack.mjs';
+import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 
 // What every P2P journey needs: svc-p2p's own doors through Edge, and a taker who meets the take requirements.
 
@@ -10,17 +13,46 @@ export const TEST_IBAN = 'DE89370400440532013000';
 // Edge allows 1200 requests a minute per address on the stack: keep the setup well under it.
 const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
 
-/** svc-p2p through Edge as `who` (an api() session): queries as GET, mutations as POST; the answer or a thrown refusal. */
-export function p2p(who) {
+/** The scope and purpose a take is confirmed under (svc-p2p take-step-up.ts, contracts CUSTOMER_STEP_UP_DOORS). */
+export const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades.take' };
+
+/**
+ * svc-p2p through Edge as `who` (an api() session): queries as GET, mutations as POST; the answer or a thrown refusal.
+ *
+ * With `passkey` (a `testPasskey` saved on the account), a take is confirmed the way the person does it: identity's
+ * step-up for exactly that take, sent with it, which then covers this session's takes for ten minutes (svc-p2p
+ * `trades.stepUpWindow`). `bare` never confirms anything, so a journey can see a take refused for want of it.
+ */
+export function p2p(who, passkey = null) {
   const unwrap = (what, res) => {
     if (res.status !== 200) throw new Error(`${what} refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
     return res.body.result.data;
   };
+  const bare = {
+    query: (proc, input) =>
+      who.get(`/api/p2p/trpc/${proc}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`),
+    mutate: (proc, input) => who.post(`/api/p2p/trpc/${proc}`, input),
+  };
+  let confirmedUntil = 0;
+  const take = async (input) => {
+    if (!passkey || input.stepUpApprovalId) return bare.mutate('trades.take', input);
+    // Inside this session's confirmed window (with a margin for the request itself), the take needs nothing more,
+    // unless svc-p2p's clock says the window has ended or this is another session: then it is confirmed after all.
+    if (Date.now() < confirmedUntil - 30_000) {
+      const res = await bare.mutate('trades.take', input);
+      if (res.status !== 403 || !['auth.step_up_required', 'auth.step_up_expired'].includes(refusalCode(res))) return res;
+    }
+    const stepUpApprovalId = await confirmTake(who, passkey, input);
+    const res = await bare.mutate('trades.take', { ...input, stepUpApprovalId });
+    const window = await bare.query('trades.stepUpWindow');
+    confirmedUntil = Date.parse(window.body?.result?.data?.confirmedUntil ?? '') || 0;
+    return res;
+  };
   return {
+    bare,
     raw: {
-      query: (proc, input) =>
-        who.get(`/api/p2p/trpc/${proc}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`),
-      mutate: (proc, input) => who.post(`/api/p2p/trpc/${proc}`, input),
+      query: bare.query,
+      mutate: (proc, input) => (proc === 'trades.take' ? take(input) : bare.mutate(proc, input)),
     },
     async query(proc, input) {
       await pace();
@@ -29,6 +61,127 @@ export function p2p(who) {
     async mutate(proc, input) {
       await pace();
       return unwrap(proc, await this.raw.mutate(proc, input));
+    },
+  };
+}
+
+/** What a take's confirmation names: the reviewed ad, coin amount and method, and the held quote when there is one. */
+export const takeStepUpRequest = (input) => ({
+  ...TAKE_STEP_UP,
+  target: input.offerId,
+  amount: input.amount,
+  fields: {
+    offerId: input.offerId,
+    amount: input.amount,
+    method: input.method,
+    ...(input.quoteId ? { quoteId: input.quoteId } : {}),
+  },
+});
+
+/** Identity's step-up for one take, answered with `passkey`: returns the single-use stepUpApprovalId. */
+export async function confirmTake(session, passkey, input) {
+  const begun = await session.post('/api/identity/trpc/stepUp.begin', takeStepUpRequest(input));
+  const challenge = begun.body?.result?.data?.webauthn?.challenge;
+  if (begun.status !== 200 || !challenge)
+    throw new Error(`step-up begin refused: ${begun.status} ${JSON.stringify(begun.body).slice(0, 300)}`);
+  const done = await session.post('/api/identity/trpc/stepUp.complete', {
+    challengeId: begun.body.result.data.challengeId,
+    webauthn: await passkey.assertion(challenge),
+  });
+  const approval = done.body?.result?.data?.stepUpApprovalId;
+  if (done.status !== 200 || !approval)
+    throw new Error(`step-up complete refused: ${done.status} ${JSON.stringify(done.body).slice(0, 300)}`);
+  return approval;
+}
+
+let webauthnHelpers;
+async function webauthn() {
+  const load = (rel) => import(pathToFileURL(path.join(ROOT, 'services/svc-identity/dist/auth', rel)).href);
+  webauthnHelpers ??= Promise.all([load('webauthn.js'), load('cbor.js')]).then(([w, c]) => ({ ...w, encodeCbor: c.encodeCbor }));
+  return webauthnHelpers;
+}
+
+/**
+ * A TEST passkey saved on `session`'s account through identity's own doors, standing in for a device: a P-256 key
+ * held here, attestation "none", for the stack's relying party (localhost) and the customer app's localhost origin. A
+ * passkey, unlike an authenticator app, leaves password sign-in as it was, so api() sessions keep working.
+ */
+export async function testPasskey(session) {
+  const w = await webauthn();
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const credId = randomBytes(16);
+  const rpID = new URL(PASSKEY_ORIGIN).hostname;
+  const options = await session.post('/api/identity/trpc/webauthn.registerOptions', {});
+  const challenge = options.body?.result?.data?.challenge;
+  if (options.status !== 200 || !challenge)
+    throw new Error(`passkey options refused: ${options.status} ${JSON.stringify(options.body).slice(0, 300)}`);
+  const clientDataJSON = w.buildClientDataJSON({ type: 'webauthn.create', challenge, origin: PASSKEY_ORIGIN });
+  const authData = w.buildAuthenticatorData({
+    rpID,
+    counter: 0,
+    credential: { id: credId, publicKeyCose: w.coseKeyFromJwk(publicKey.export({ format: 'jwk' })) },
+  });
+  const attestationObject = Buffer.from(
+    w.encodeCbor(
+      new Map([
+        ['fmt', 'none'],
+        ['attStmt', new Map()],
+        ['authData', new Uint8Array(authData)],
+      ]),
+    ),
+  );
+  const saved = await session.post('/api/identity/trpc/webauthn.registerVerify', {
+    id: w.b64urlEncode(credId),
+    rawId: w.b64urlEncode(credId),
+    type: 'public-key',
+    response: {
+      clientDataJSON: w.b64urlEncode(clientDataJSON),
+      attestationObject: w.b64urlEncode(attestationObject),
+      transports: ['internal'],
+    },
+  });
+  if (saved.status !== 200) throw new Error(`passkey save refused: ${saved.status} ${JSON.stringify(saved.body).slice(0, 300)}`);
+  return heldPasskey(w, {
+    credentialId: w.b64urlEncode(credId),
+    privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
+    signCount: 0,
+  });
+}
+
+/**
+ * The same TEST passkey from what `testPasskey(…).saved()` returned, so a later step (or the browser's virtual
+ * authenticator, `browserHoldsPasskey`) answers with the key the account already has.
+ */
+export async function restorePasskey(saved) {
+  return heldPasskey(await webauthn(), saved);
+}
+
+function heldPasskey(w, saved) {
+  const privateKey = createPrivateKey({ key: Buffer.from(saved.privateKey, 'base64'), format: 'der', type: 'pkcs8' });
+  const rpID = new URL(PASSKEY_ORIGIN).hostname;
+  const credId = Buffer.from(saved.credentialId, 'base64url');
+  let counter = saved.signCount;
+  return {
+    /** What a later step needs to answer with this passkey: the TEST key and how far its counter has gone. */
+    saved: () => ({ credentialId: saved.credentialId, privateKey: saved.privateKey, signCount: counter }),
+    async assertion(challengeText) {
+      counter += 1;
+      const data = w.buildClientDataJSON({ type: 'webauthn.get', challenge: challengeText, origin: PASSKEY_ORIGIN });
+      const auth = w.buildAuthenticatorData({ rpID, counter });
+      const signature = sign('SHA256', Buffer.concat([auth, createHash('sha256').update(data).digest()]), {
+        key: privateKey,
+        dsaEncoding: 'der',
+      });
+      return {
+        id: w.b64urlEncode(credId),
+        rawId: w.b64urlEncode(credId),
+        type: 'public-key',
+        response: {
+          clientDataJSON: w.b64urlEncode(data),
+          authenticatorData: w.b64urlEncode(auth),
+          signature: w.b64urlEncode(signature),
+        },
+      };
     },
   };
 }
@@ -75,10 +228,13 @@ export async function unconfirmedAccount(prefix) {
   return who;
 }
 
-/** A taker who meets every take requirement: email confirmed and the current risk notice accepted. */
-export async function readyTaker(session, who) {
+/**
+ * A taker who meets every take requirement: email confirmed, the current risk notice accepted, and a TEST passkey to
+ * confirm takes with. Pass the account's passkey when it already has one.
+ */
+export async function readyTaker(session, who, passkey = null) {
   await confirmEmail(session, who);
-  const client = p2p(session);
+  const client = p2p(session, passkey ?? (await testPasskey(session)));
   const notice = await client.query('risk.notice');
   await client.mutate('risk.accept', { version: notice.version });
   return client;
@@ -174,4 +330,24 @@ export async function retireRetiringMethod(reason) {
     { methodId: RETIRING_METHOD, country: 'DE', enabled: 'false', reason },
     input,
   );
+}
+
+/**
+ * The browser's virtual authenticator holding the account's TEST passkey, so the person confirms in the app with the
+ * passkey their account already has (an account with one cannot add another without confirming first). The page must
+ * be on the passkey origin (`PASSKEY_ORIGIN`).
+ */
+export async function browserHoldsPasskey(page, saved) {
+  const { cdp, authenticatorId } = await virtualAuthenticator(page);
+  await cdp.send('WebAuthn.addCredential', {
+    authenticatorId,
+    credential: {
+      credentialId: Buffer.from(saved.credentialId, 'base64url').toString('base64'),
+      isResidentCredential: false,
+      rpId: new URL(PASSKEY_ORIGIN).hostname,
+      privateKey: saved.privateKey,
+      // Past every count the account's earlier answers used, so identity sees the counter move on.
+      signCount: saved.signCount + 1,
+    },
+  });
 }
