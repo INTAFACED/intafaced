@@ -6,7 +6,7 @@ import { lotBookSchema, type LotBook, type LotMethod } from './pnl-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
-/** `null` is a method the service does not offer: nothing is asked, and the read is refused with the service's own code. */
+/** `null` is a method the service does not offer: nothing is asked (the service refuses it too), and the screen says so. */
 export function useLotBook(method: LotMethod | null): Loadable<LotBook> {
   const env = useDataEnv();
   return useSource(

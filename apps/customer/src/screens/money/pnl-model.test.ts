@@ -89,7 +89,7 @@ describe('pnlView', () => {
 });
 
 describe('average price and the method in the link', () => {
-  it('average price is cost over the bought quantity, fee inside: 0.0999 BTC received for 7.7 USDT is 77.077077...', () => {
+  it('average price is open cost over open quantity, fee inside: 0.0999 BTC received for 7.7 USDT is 77.077077...', () => {
     const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '0.0999', openCostUsd: '7.7', held: '0.0999' }] }), [
       row('BTC', '0.0999', '13.2867'),
     ]);

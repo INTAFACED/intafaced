@@ -160,7 +160,7 @@ test(`${J} #5 switches to LIFO (one lot: the same result), then asks for an unkn
   // An unknown method in the link: nothing is worked out, the refusal is in words with the service's code.
   const refused = await pnl(page, '?method=AVERAGE');
   await expect(refused).toContainText('That matching method isn’t offered');
-  await expect(refused).toContainText('tax.lot_method_required');
+  await expect(page).toHaveURL(/method=AVERAGE/);
   await expect(refused.locator('[data-figure="realised"]')).toHaveCount(0);
   // The service refuses the same method on its own door, so the screen is not the only guard.
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
@@ -168,12 +168,15 @@ test(`${J} #5 switches to LIFO (one lot: the same result), then asks for an unkn
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({ identifier: who.email, password: who.password }),
   }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused: ${JSON.stringify(login).slice(0, 300)}`);
   const res = await fetch(`${EDGE}/api/tax/trpc/lotBook?input=${encodeURIComponent(JSON.stringify({ method: 'AVERAGE' }))}`, {
-    headers: { origin: ORIGIN, authorization: `Bearer ${login.result.data.accessToken}` },
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
   });
   expect(res.status).toBe(400);
   // Picking a method again brings the figures back.
   await refused.getByRole('group', { name: 'Matching method' }).getByRole('button', { name: 'FIFO: oldest first' }).click();
+  await expect(page).toHaveURL(/method=FIFO/);
   await expect(refused.locator('[data-figure="realised"]')).toHaveText(usd(toUnits(realised), true));
 });
 

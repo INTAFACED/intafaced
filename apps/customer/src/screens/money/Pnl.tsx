@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
 import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
@@ -179,9 +179,10 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
   const { hideBalances } = usePreferences();
+  // The link is the one source of the method, so a copied or reloaded link shows what was on screen.
   const asked = useMemo(() => methodFromQuery(search), [search]);
-  const [picked, setPicked] = useState<LotMethod | null>(null);
-  const method = picked ?? (typeof asked === 'string' ? asked : null);
+  const method = typeof asked === 'string' ? asked : null;
+  const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
   const book = useLotBook(method);
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
@@ -201,15 +202,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
       />
     );
   } else if (book.status === 'refused' && method === null) {
-    body = (
-      <StateBlock
-        kind="refused"
-        className="money-state"
-        title={t('Method not offered')}
-        body={t('Method not offered body')}
-        code={book.code}
-      />
-    );
+    body = <StateBlock kind="refused" className="money-state" title={t('Method not offered')} body={t('Method not offered body')} />;
   } else if (book.status === 'refused') {
     const words = refusalCopy(book.code);
     body = (
@@ -275,7 +268,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
       <p className="money-note" data-indicator="true">
         {t('Pnl indicator label')}
       </p>
-      <MethodSwitch method={method} onChange={setPicked} copy={copy} />
+      <MethodSwitch method={method} onChange={pick} copy={copy} />
       <p className="money-note">{t('Pnl method rule')}</p>
       {body}
       <p className="money-note">

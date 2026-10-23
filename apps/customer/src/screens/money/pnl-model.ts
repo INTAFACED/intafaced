@@ -50,7 +50,7 @@ export interface AssetPnl {
   /** Quantity held that no trade accounts for (arrived by deposit or transfer, or left another way). */
   otherQty: Decimal;
   costUsd: Decimal | null;
-  /** Cost per coin of the bought quantity (cost / bought quantity), fee included; null when the cost is unknown. */
+  /** Cost per coin of the quantity still open (open cost / open quantity), buy fees included; null when the cost is unknown. */
   avgPriceUsd: Decimal | null;
   valueUsd: Decimal | null;
   unrealisedUsd: Decimal | null;
