@@ -115,6 +115,19 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Distance to liquidation': 'Distance to liquidation',
   'Distance hint': 'Of the mark price, on the way to liquidation',
   'Leverage cap': 'Leverage cap',
+  'Margin tier': 'Margin tier',
+  'Tier value': 'Tier {tier}, maintenance {rate}',
+  'Tier hint': 'From the published tiers at today’s order book depth.',
+  'Tier confirm hint': 'Higher than the tier your position sits in now. You confirm it before the order goes.',
+  'Tier confirm title': 'New margin tier',
+  'Tier confirm heading': 'New margin tier: tier {tier}',
+  'Tier confirm opens': 'This order opens your position in tier {tier}.',
+  'Tier confirm moves': 'This order moves your position from tier {from} into tier {tier}.',
+  'Tier confirm rate':
+    'Tier {tier} keeps {rate} of the position’s value as maintenance margin, so the liquidation price sits nearer the mark than in a lower tier.',
+  'Tier confirm leverage': 'Leverage {leverage}. Every tier allows up to the listing cap of {cap}.',
+  'Tier confirm leverage no cap': 'Leverage {leverage}. No listing leverage cap is published.',
+  'Tier confirm accept': 'I accept tier {tier}',
   'Unknown figure': 'The service did not publish this figure.',
 
   // Open

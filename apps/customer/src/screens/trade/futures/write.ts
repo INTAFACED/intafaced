@@ -90,6 +90,7 @@ function openOrder(input: OpenInput): PlaceOrderInput {
     leverage: input.leverage,
     clientOrderId: input.clientOpenId,
     ...(input.collateralClass ? { collateralClass: input.collateralClass } : {}),
+    ...(input.confirmTier !== undefined ? { confirmTier: input.confirmTier } : {}),
   };
 }
 

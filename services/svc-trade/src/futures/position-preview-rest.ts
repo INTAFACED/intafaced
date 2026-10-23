@@ -19,10 +19,13 @@ import {
 import { LIMIT_MAX_ORDER, limitAmount, MAX_ORDER_UNSET, notionalCeil } from './pretrade-limits.js';
 import type { Market } from '../spot/types.js';
 import type { EdgeTrust } from '../edge-trust.js';
+import { bpsToRate } from '../public-rest.js';
+import { FuturesError } from './position-service.js';
+import type { RiskTierCrossing } from './risk-tier-confirm.js';
 
 export interface PositionPreviewRefusal {
   code: string;
-  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral' | 'price' | 'slippage' | 'size';
+  field: 'symbol' | 'markPrice' | 'leverage' | 'fee' | 'liquidationPrice' | 'collateral' | 'price' | 'slippage' | 'size' | 'tier';
   message: string;
 }
 
@@ -53,6 +56,19 @@ export interface PositionPreviewWire {
   maxOrderNotional: string | null;
   /** Above the max-order: the children `POST /api/v1/futures/orders/split` would place, largest first. */
   split: { parts: number; sizes: string[] } | null;
+  /**
+   * The margin tier this side sits in now and would sit in with this order (`risk-tier-confirm.ts`). When
+   * `confirmRequired`, the order goes through only with `confirmTier` naming `projected`. Null while the ladder, the
+   * depth or the mark is unreadable (named in `refusals`); absent where the deployment does not wire it.
+   */
+  riskTier?: {
+    current: number | null;
+    projected: number;
+    maintenanceBps: number;
+    maintenanceRate: string;
+    notional: string;
+    confirmRequired: boolean;
+  } | null;
   orderable: boolean;
   refusals: PositionPreviewRefusal[];
 }
@@ -89,6 +105,17 @@ export interface PositionPreviewRestDeps {
     markPrice: Amount;
     initialMargin: Amount;
   }): Promise<Amount | null>;
+  /**
+   * The margin tier the caller's side sits in now and with this order, as the order path rates it
+   * (`PositionService.riskTierCrossing`). A FuturesError (ladder unset, depth unknown) is named in the refusals.
+   */
+  riskTierFor?(input: {
+    userId: string;
+    market: Market;
+    side: 'long' | 'short';
+    size: Amount;
+    markPrice: Amount;
+  }): Promise<RiskTierCrossing>;
 }
 
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
@@ -312,6 +339,24 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       });
     }
 
+    let riskTier: PositionPreviewWire['riskTier'] = null;
+    if (deps.riskTierFor && markAmount !== null) {
+      try {
+        const crossing = await deps.riskTierFor({ userId: principal.userId, market, side, size, markPrice: markAmount });
+        riskTier = {
+          current: crossing.currentTier,
+          projected: crossing.projectedTier,
+          maintenanceBps: crossing.maintenanceBps,
+          maintenanceRate: bpsToRate(crossing.maintenanceBps),
+          notional: formatAmount(crossing.notional),
+          confirmRequired: crossing.confirmRequired,
+        };
+      } catch (err) {
+        if (!(err instanceof FuturesError)) throw err;
+        refusals.push({ code: err.code, field: 'tier', message: err.message });
+      }
+    }
+
     if (liquidationPrice === null) {
       refusals.push({
         code: 'trade.position_preview_liquidation_unavailable',
@@ -340,6 +385,7 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
       priceCorrection,
       maxOrderNotional: maxOrder === null ? null : String(maxOrder),
       split,
+      ...(deps.riskTierFor ? { riskTier } : {}),
       orderable: refusals.length === 0,
       refusals,
     };

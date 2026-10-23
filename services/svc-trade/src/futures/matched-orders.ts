@@ -76,6 +76,7 @@ import { checkOpenAdmission, LIMIT_MAX_ORDER, limitAmount, PRETRADE_LIMIT_HTTP_S
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
+import { unconfirmedTierRefusal, type RiskTierCrossing } from './risk-tier-confirm.js';
 import { checkInsuranceBound, INSURANCE_UNDERFUNDED, recipeInsuranceAccount } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
@@ -200,6 +201,12 @@ export interface PlaceMatchedOrderInput {
    * the order rests or fills there. Any other value refuses.
    */
   readonly priceCorrection?: unknown;
+  /**
+   * The highest margin tier the trader has accepted for this order (`risk-tier-confirm.ts`). An opening order that
+   * would carry its side into a higher tier than it sits in now refuses `trade.risk_limit_confirm_required` naming
+   * the tier, until this names it. Not part of the request's identity: a retry with it finds the same order.
+   */
+  readonly confirmTier?: number;
 }
 
 /** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
@@ -312,6 +319,19 @@ export interface MatchedOrdersDeps {
    * Absent in tests that do not wire it (the band edge alone); production always wires it.
    */
   readonly slippageCapBps?: (marketId: string) => Promise<number | null>;
+  /**
+   * The margin tier the side's exposure sits in now and would sit in with `qty` more, at `mark` against today's depth
+   * (`PositionService.riskTierCrossing`). Throws a typed refusal when the ladder is unset or the depth unreadable.
+   * Absent in tests that do not wire it; production always wires it.
+   */
+  readonly riskTier?: (input: {
+    readonly userId: string;
+    readonly marketId: string;
+    readonly symbol: string;
+    readonly side: PositionSide;
+    readonly qty: Amount;
+    readonly mark: Amount;
+  }) => Promise<RiskTierCrossing>;
 }
 
 export interface OrderRow {
@@ -809,6 +829,8 @@ export class MatchedFuturesOrders {
       if (pretrade) {
         throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
       }
+      // The children not yet placed, together, cross into the tier the trader must name before the first is placed.
+      await this.refuseUnconfirmedTier(input, market, total, mark);
       const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
       const rates = await this.openingFeeRates(input.userId);
       const hold = waiting.reduce(
@@ -966,6 +988,7 @@ export class MatchedFuturesOrders {
     if (pretrade) {
       throw new MatchedOrderError(pretrade.message, pretrade.code, pretrade.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS);
     }
+    await this.refuseUnconfirmedTier(input, market, input.qty, mark);
 
     if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
     const proof = await this.deps.lifecycleProof(market.id);
@@ -1007,6 +1030,24 @@ export class MatchedFuturesOrders {
 
     const row = await this.loadOrder(orderId);
     return this.continueOrder(row, market, proof);
+  }
+
+  /**
+   * An opening order that carries its side into a higher margin tier than it sits in now refuses until `confirmTier`
+   * names that tier (`risk-tier-confirm.ts`). Before anything is held or written, so the refusal locks nothing.
+   */
+  private async refuseUnconfirmedTier(input: PlaceMatchedOrderInput, market: MarketRow, qty: Amount, mark: Amount): Promise<void> {
+    if (!this.deps.riskTier) return;
+    const crossing = await this.deps.riskTier({
+      userId: input.userId,
+      marketId: market.id,
+      symbol: market.symbol,
+      side: positionSideOf(input.side),
+      qty,
+      mark,
+    });
+    const refusal = unconfirmedTierRefusal(crossing, input.confirmTier, input.leverage, this.deps.maxLeverage);
+    if (refusal) refuse(refusal.code, refusal.message, 409);
   }
 
   /**

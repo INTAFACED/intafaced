@@ -96,6 +96,11 @@ export function percentSize(
 }
 
 /** Server values of two previews are identical. Order of keys is the schema's, so JSON equality is exact. */
+/** The margin tier the trader must name before this order is sent, or null when the order stays in its tier. */
+export function tierToConfirm(preview: PositionPreview): number | null {
+  return preview.riskTier?.confirmRequired ? preview.riskTier.projected : null;
+}
+
 export const previewsEqual = (a: PositionPreview, b: PositionPreview): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /** Distance from the previewed mark to the previewed liquidation price, percent of mark at 2 places; null if either is unknown. */

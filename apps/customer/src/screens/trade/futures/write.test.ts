@@ -422,6 +422,18 @@ describe('a split open (D-orders-06): above the max-order, placed as children ke
     });
   });
 
+  it('the margin tier the trader confirmed goes with the order, on both doors; none confirmed sends none', async () => {
+    const { api, typed } = fakeApi();
+    api.placeSplit.mockResolvedValue(ok({ parts: 2, orders: [child(1), child(2)], stopped: null }));
+    api.placeOrder.mockResolvedValue(ok(child(1)));
+    await runIntent(typed, USER, { op: 'open', input: { ...splitIntent.input, confirmTier: 3 } } as Intent);
+    expect(api.placeSplit.mock.calls[0]![0]).toMatchObject({ clientOrderId: 'open-abc', confirmTier: 3 });
+    await runIntent(typed, USER, { op: 'open', input: { ...openInput, clientOpenId: 'open-t2', confirmTier: 2 } });
+    expect(api.placeOrder.mock.calls[0]![0]).toMatchObject({ clientOrderId: 'open-t2', confirmTier: 2 });
+    await runIntent(typed, USER, { op: 'open', input: { ...openInput, clientOpenId: 'open-t0' } });
+    expect(api.placeOrder.mock.calls[1]![0]).not.toHaveProperty('confirmTier');
+  });
+
   it('children that all did nothing are the first one’s refusal; a split stopped early is done with what is live', async () => {
     const { api, typed } = fakeApi();
     const dead = { status: 'cancelled', refusalCode: 'trade.futures_order_unfilled' };

@@ -596,7 +596,12 @@ async function runLoop(opts, home) {
   const assets = [...new Set(markets.flatMap((m) => [m.base, m.quote]))];
   await ensureFunds(maker, 'maker', assets, 1);
   await ensureFunds(taker, 'taker', assets, 10);
-  if (markets.some((m) => m.swap)) await prepareFuturesMaker(maker);
+  const acceptedTiers = markets.some((m) => m.swap)
+    ? await prepareFuturesMaker(
+        maker,
+        markets.filter((m) => m.swap),
+      )
+    : new Map();
 
   let saved = {};
   try {
@@ -627,7 +632,7 @@ async function runLoop(opts, home) {
   const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
-      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`)
+      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, acceptedTiers.get(m.symbol))
       : client.http('POST', '/api/v1/orders', {
           symbol: m.symbol,
           type: 'limit',
@@ -931,8 +936,13 @@ const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_u
  * does: a proved email, the published TEST agreements accepted, the TEST quiz passed, the ADL notice acknowledged.
  * Hedge mode, so the maker's bids and asks can rest at once. Each step logs what it got; a refusal stays visible, and
  * the quotes then refuse with the same code.
+ *
+ * The maker's quotes are most of the TEST book's depth, so they sit in the top margin tier of the stack's TEST ladder,
+ * and an order that crosses into a higher tier must name it (`confirmTier`, svc-trade `risk-tier-confirm.ts`). The
+ * maker accepts the top published tier of each market; with no tiers published nothing is accepted and the quotes
+ * refuse with the ladder's own code. Answers the accepted tier per market symbol.
  */
-async function prepareFuturesMaker(maker) {
+async function prepareFuturesMaker(maker, swaps) {
   const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
   const mode = await maker.http('PUT', '/api/v1/futures/position-mode', { mode: 'hedge', clientModeId: 'LTEST-maker-position-mode-hedge' });
   say('position mode hedge', mode, mode.status === 200);
@@ -953,9 +963,17 @@ async function prepareFuturesMaker(maker) {
   say('TEST quiz', quiz, quiz.status === 200);
   const adl = await maker.http('POST', '/api/v1/futures/adl-disclosure/ack', {});
   say('ADL notice acknowledged', adl, adl.status === 200);
+  const accepted = new Map();
+  for (const m of swaps) {
+    const tiers = await maker.http('GET', `/api/v1/futures/tiers?symbol=${encodeURIComponent(m.symbol)}`);
+    const top = tiers.status === 200 && Array.isArray(tiers.json?.tiers) ? tiers.json.tiers.length : 0;
+    say(`accepts TEST margin tier ${top} on ${m.symbol}`, tiers, top > 0);
+    if (top > 0) accepted.set(m.symbol, top);
+  }
+  return accepted;
 }
 
-function placeFutures(client, m, side, price, amount, clientOrderId) {
+function placeFutures(client, m, side, price, amount, clientOrderId, confirmTier) {
   return client.http('POST', '/api/v1/futures/orders', {
     symbol: m.symbol,
     side,
@@ -964,6 +982,7 @@ function placeFutures(client, m, side, price, amount, clientOrderId) {
     price,
     leverage: FUTURES_QUOTE_LEVERAGE,
     clientOrderId,
+    ...(confirmTier ? { confirmTier } : {}),
   });
 }
 
