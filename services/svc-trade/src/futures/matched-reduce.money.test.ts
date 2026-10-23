@@ -19,6 +19,7 @@ import {
   formatAmount,
   futuresLossSink,
   futuresOrderMarginAccount,
+  houseFees,
   parseAmount,
   positionCollateralAccount,
   recipes,
@@ -31,9 +32,12 @@ import type { EngineCancelResult, EngineSubmitRequest, EngineSubmitResult, Match
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { FeeRates } from './matched-order-plan.js';
+import { perpetualFeeRates } from './matched-order-plan.js';
+import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from '../spot/fee-schedule.js';
 import { PositionService } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
-import { orderHoldAmount } from './matched-order-plan.js';
+import { orderFeeReserve, orderHoldAmount } from './matched-order-plan.js';
 import { unrealizedPnl } from './liquidation-planner.js';
 import { runPayoutTick } from './futures-payouts.js';
 import { sqlFundingPositionLoader } from './position-loaders.js';
@@ -133,6 +137,8 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
   let engine: RestingEngine;
   let mark: bigint;
   let admission: TradingAdmissionPort;
+  /** The perpetual rates the injected schedule gives every account. */
+  let feeRates: FeeRates;
   let sequence: number;
 
   beforeEach(async () => {
@@ -141,6 +147,9 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
                trade.account_position_modes, trade.liquidation_rungs, trade.futures_adl_pairs, trade.liquidation_attempts
       RESTART IDENTITY CASCADE
     `;
+    // The listing row's maker_bps/taker_bps are not a fee schedule and are never charged: the rates come from `feeRates`
+    // (the owner's perpetual schedule in production). They are zero here, so these tests prove the margin path and a zero
+    // fee posts exactly what it did before fees; the trading-fee tests publish rates themselves.
     await sql`
       INSERT INTO trade.markets (
         id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
@@ -154,6 +163,7 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
     mark = A('100');
     sequence = 0;
     admission = { admit: vi.fn(async () => ({})) } as unknown as TradingAdmissionPort;
+    feeRates = { makerBps: 0, takerBps: 0 };
     for (const userId of [ALICE, BOB, CAROL]) {
       await ledger.post(
         recipes.deposit({ userId, assetId: USDT, amount: A('1000'), rail: 'test', railRef: `fund-${userId}-${randomUUID()}` }),
@@ -175,6 +185,7 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       lifecycleProof: async () => PROOF,
       admission,
       emailProof: { get: async () => 'accepted' },
+      feeRates: async () => feeRates,
       ...overrides,
     });
   }
@@ -278,6 +289,10 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
         applied_amount: string;
         released_amount: string;
         reduce_only: boolean;
+        band_high: string;
+        maker_fee_bps: string;
+        taker_fee_bps: string;
+        fee_charged: string;
       }[]
     >`SELECT * FROM trade.futures_orders WHERE market_id = ${MARKET}`;
     for (const o of orders) {
@@ -290,8 +305,17 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
             limit: parseAmount(o.limit_price),
             mark: parseAmount(o.mark_price),
             leverage: parseAmount(o.leverage),
+          }) +
+          orderFeeReserve({
+            side: o.side,
+            qty: parseAmount(o.qty),
+            limit: parseAmount(o.limit_price),
+            bandHigh: parseAmount(o.band_high),
+            rates: { makerBps: Number(o.maker_fee_bps), takerBps: Number(o.taker_fee_bps) },
           });
-      expect(held, `hold of ${o.id}`).toBe(locked - parseAmount(o.applied_amount) - parseAmount(o.released_amount));
+      expect(held, `hold of ${o.id}`).toBe(
+        locked - parseAmount(o.applied_amount) - parseAmount(o.fee_charged) - parseAmount(o.released_amount),
+      );
     }
     expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE state = 'pending'`).toHaveLength(0);
   }
@@ -930,6 +954,270 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect((await positionRow(alice.id)).status).toBe('open');
       expect(await bal(positionCollateralAccount(ALICE, USDT, alice.id))).toBe(A('20'));
       expect(reducePosts()).toEqual([]);
+    });
+  });
+
+  describe('trading fees (migration 0099)', () => {
+    const FEES = houseFees('trade', USDT);
+
+    /** The schedule gives 10 bps for a maker and 20 for a taker. Orders keep the rates they were accepted at. */
+    async function publishFees(): Promise<void> {
+      feeRates = { makerBps: 10, takerBps: 20 };
+    }
+
+    async function fillFees(orderId: string) {
+      return sql<
+        { kind: string; fee: string; fee_waived: string; fee_role: string | null; margin_release: string | null; pot_out: string | null }[]
+      >`
+        SELECT kind, fee, fee_waived, fee_role, margin_release, pot_out FROM trade.futures_order_fills
+         WHERE order_id = ${orderId} ORDER BY created_at
+      `;
+    }
+
+    function positions(): PositionService {
+      return new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+    }
+
+    it('an opening fill pays its own side’s fee from the hold into house fees, once, and the unused reserve comes back', async () => {
+      await publishFees();
+      const buy = await place(ALICE, 'buy', A('2'), { limitPrice: A('100') });
+      const sell = await place(BOB, 'sell', A('2'), { limitPrice: A('100') });
+      // Margin 20 each. The reserve is the higher rate on the most the quantity can cost: 2 × 100 × 0.2% for the buy,
+      // 2 × 105 (the top of the band, the best a sell can fill at) × 0.2% for the sell.
+      expect(buy.holdAmount).toBe('20.4');
+      expect(sell.holdAmount).toBe('20.42');
+      const fill = await settle(buy, sell, A('100'), A('2'));
+
+      // Alice rested (maker, 0.1% of 200 = 0.2); Bob took (taker, 0.2% of 200 = 0.4).
+      expect(await bal(FEES)).toBe(A('0.6'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') - A('0.2'));
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20') - A('0.4'));
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, buy.orderId))).toBe(0n);
+      expect(await bal(futuresOrderMarginAccount(BOB, USDT, sell.orderId))).toBe(0n);
+      const [aliceFill] = await fillFees(buy.orderId);
+      const [bobFill] = await fillFees(sell.orderId);
+      expect(aliceFill).toMatchObject({ kind: 'open', fee_role: 'maker' });
+      expect(parseAmount(aliceFill!.fee)).toBe(A('0.2'));
+      expect(parseAmount(aliceFill!.fee_waived)).toBe(0n);
+      expect(bobFill).toMatchObject({ kind: 'open', fee_role: 'taker' });
+      expect(parseAmount(bobFill!.fee)).toBe(A('0.4'));
+      const [alice] = await openOf(ALICE);
+      expect(parseAmount(alice!.margin_current)).toBe(A('20'));
+      expect((await positions().get(ALICE, alice!.id)).fees).toBe('0.2');
+      await assertBooksAgree();
+
+      // Replayed, the fill pays nothing more.
+      const keys = ledger.journal().length;
+      await build().settleFill(fill);
+      await build().settleFill(fill);
+      expect(ledger.journal()).toHaveLength(keys);
+      expect(await bal(FEES)).toBe(A('0.6'));
+      await assertBooksAgree();
+    });
+
+    it('a reducing fill pays its fee from the margin share it returns: the margin left and what leaves the pot are unchanged', async () => {
+      await publishFees();
+      const { alice, bob } = await aliceLongBobShort();
+      const aR = await reduce(ALICE, 'sell', A('2'), { limitPrice: A('100') });
+      const bR = await reduce(BOB, 'buy', A('2'), { limitPrice: A('100') });
+      expect(aR.holdAmount).toBe('0');
+      const first = await settle(aR, bR, A('100'), A('1'));
+
+      // Each gets half of 20 back, less its fee: Alice 0.1 as maker, Bob 0.2 as taker.
+      expect(parseAmount((await positionRow(alice.id)).margin_current)).toBe(A('10'));
+      expect(parseAmount((await positionRow(bob.id)).margin_current)).toBe(A('10'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20.2') + A('10') - A('0.1'));
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20.4') + A('10') - A('0.2'));
+      expect(await bal(FEES)).toBe(A('0.9'));
+      const [aliceReduce] = await fillFees(aR.orderId);
+      expect(aliceReduce).toMatchObject({ kind: 'reduce', fee_role: 'maker' });
+      expect(parseAmount(aliceReduce!.fee)).toBe(A('0.1'));
+      expect(parseAmount(aliceReduce!.margin_release!)).toBe(A('9.9'));
+      expect(parseAmount(aliceReduce!.pot_out!)).toBe(A('10'));
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+
+      const second = await settle(aR, bR, A('100'), A('1'));
+      expect((await positionRow(alice.id)).status).toBe('closed');
+      expect(await bal(positionCollateralAccount(ALICE, USDT, alice.id))).toBe(0n);
+      // Every unit is still on the books: what the traders lack is exactly what house fees hold.
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('0.4'));
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('0.8'));
+      expect(await bal(FEES)).toBe(A('1.2'));
+      const [closed] = await positions().listClosed(ALICE, { limit: 10 });
+      expect(closed).toMatchObject({ realizedPnl: '0', contracts: '2', fees: '0.4' });
+      expect((await positions().get(BOB, bob.id)).fees).toBe('0.8');
+      await assertBooksAgree();
+
+      const posted = reducePosts();
+      await build().settleFill(first);
+      await build().settleFill(second);
+      expect(reducePosts()).toEqual(posted);
+      expect(await bal(FEES)).toBe(A('1.2'));
+    });
+
+    it('a share a loss nearly took pays what it has as a fee-only release; the rest of the fee is recorded as waived', async () => {
+      await publishFees();
+      const { alice } = await aliceLongBobShort();
+      // Alice (long 2 at 100, margin 20) is bankrupt at 90. Selling 1 at 90.05 loses 9.95 of its 10 share: 0.05 is left,
+      // and her maker fee is 0.09005.
+      mark = A('90.05');
+      const aR = await reduce(ALICE, 'sell', A('1'), { limitPrice: A('90.05') });
+      const carol = await place(CAROL, 'buy', A('1'), { limitPrice: A('90.05') });
+      const feesBefore = await bal(FEES);
+      const availableBefore = await bal(userAvailable(ALICE, USDT));
+      await settle(aR, carol, A('90.05'), A('1'));
+
+      const [reduceFill] = await fillFees(aR.orderId);
+      expect(parseAmount(reduceFill!.fee)).toBe(A('0.05'));
+      expect(parseAmount(reduceFill!.fee_waived)).toBe(A('0.04005'));
+      expect(parseAmount(reduceFill!.margin_release!)).toBe(0n);
+      // Nothing comes back to Alice; the 0.05 goes to house fees with Carol's opening taker fee (0.2% of 90.05).
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(availableBefore);
+      expect(await bal(FEES)).toBe(feesBefore + A('0.05') + A('0.1801'));
+      const release = ledger.journal().find((t) => t.reason === 'futures.margin.release');
+      expect(release?.meta).toMatchObject({ fee: A('0.05').toString() });
+      expect(parseAmount((await positionRow(alice.id)).margin_current)).toBe(A('10'));
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('rates are the ones the order was accepted at: a schedule published later does not reprice a resting order', async () => {
+      const buy = await place(ALICE, 'buy', A('1'), { limitPrice: A('100') });
+      expect(buy.holdAmount).toBe('10');
+      await publishFees();
+      const sell = await place(BOB, 'sell', A('1'), { limitPrice: A('100') });
+      await settle(buy, sell, A('100'), A('1'));
+      const [aliceFill] = await fillFees(buy.orderId);
+      expect(parseAmount(aliceFill!.fee)).toBe(0n);
+      expect(await bal(FEES)).toBe(A('0.2'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('10'));
+      await assertBooksAgree();
+    });
+    it('no wired schedule, or an unpublished one, refuses an opening order before anything is held or sent', async () => {
+      const before = await bal(userAvailable(ALICE, USDT));
+      const unwired = await build({ feeRates: null })
+        .place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'no-fees' }))
+        .catch((e) => e);
+      expect(unwired).toMatchObject({ code: 'trade.fee_schedule_blank' });
+      const unpublished = await build({
+        feeRates: async () => perpetualFeeRates(UNPUBLISHED_FEE_SCHEDULE, 0),
+      })
+        .place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'blank-fees' }))
+        .catch((e) => e);
+      expect(unpublished).toMatchObject({ code: 'trade.fee_schedule_blank' });
+      const spotOnly = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v1', makerBps: '8', takerBps: '10' }));
+      const noPerpetual = await build({ feeRates: async () => perpetualFeeRates(spotOnly, 0) })
+        .place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'spot-only-fees' }))
+        .catch((e) => e);
+      expect(noPerpetual).toMatchObject({ code: 'trade.fee_product_unpublished' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(before);
+      expect(await sql`SELECT 1 FROM trade.futures_orders`).toHaveLength(0);
+    });
+
+    it('a reduce-only order is never trapped by a withdrawn schedule: it closes and its fills pay no fee', async () => {
+      await publishFees();
+      const { alice } = await aliceLongBobShort();
+      const feesAfterOpen = await bal(FEES);
+      const withdrawn = build({ feeRates: async () => perpetualFeeRates(UNPUBLISHED_FEE_SCHEDULE, 0) });
+      const aR = await withdrawn.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('2'), reduceOnly: true, clientOrderId: `r-${randomUUID()}` }),
+      );
+      const bR = await reduce(BOB, 'buy', A('2'));
+      await settle(aR, bR, A('100'), A('2'));
+      expect((await positionRow(alice.id)).status).toBe('closed');
+      const [aliceReduce] = await fillFees(aR.orderId);
+      expect(parseAmount(aliceReduce!.fee)).toBe(0n);
+      expect(parseAmount(aliceReduce!.fee_waived)).toBe(0n);
+      // Bob's reduce kept the published rates: 0.2% of 200 as the taker.
+      expect(await bal(FEES)).toBe(feesAfterOpen + A('0.4'));
+      await assertBooksAgree();
+    });
+
+    it('a rank discount lowers the rate an order keeps, as a fraction of the published fee', async () => {
+      const schedule = parseFeeScheduleJson(
+        JSON.stringify({ published: true, version: 'v1', makerBps: '8', takerBps: '10', perpetual: { makerBps: '10', takerBps: '20' } }),
+      );
+      // A 5000 bps discount is half of each fee: 5 and 10 bps.
+      const svc = build({ feeRates: async () => perpetualFeeRates(schedule, 5000) });
+      const buy = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('2'), limitPrice: A('100'), clientOrderId: 'disc' }),
+      );
+      expect(buy.holdAmount).toBe('20.2');
+      const [row] = await sql<{ maker_fee_bps: string; taker_fee_bps: string }[]>`
+        SELECT maker_fee_bps::text, taker_fee_bps::text FROM trade.futures_orders WHERE id = ${buy.orderId}
+      `;
+      expect(row).toEqual({ maker_fee_bps: '5', taker_fee_bps: '10' });
+    });
+  });
+
+  describe('closed-position figures', () => {
+    it('the table refuses a reduce fill with no recorded result, so the summed result can never be partial', async () => {
+      await aliceLongBobShort();
+      const aR = await reduce(ALICE, 'sell', A('1'));
+      const bR = await reduce(BOB, 'buy', A('1'));
+      await settle(aR, bR, A('100'), A('1'));
+      await expect(sql`UPDATE trade.futures_order_fills SET realized_pnl = NULL WHERE order_id = ${aR.orderId}`).rejects.toThrow(
+        /check constraint/,
+      );
+    });
+
+    it('a position opened through the book but shrunk some other way reports its result as unknown, not a partial sum', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('102');
+      const aR = await reduce(ALICE, 'sell', A('2'), { limitPrice: A('102') });
+      const bR = await reduce(BOB, 'buy', A('2'), { limitPrice: A('104') });
+      await settle(aR, bR, A('102'), A('0.5'));
+      mark = A('104');
+      await settle(aR, bR, A('104'), A('1.5'));
+      // As if auto-deleveraging had taken the first 0.5: it shrinks a position with no fill row.
+      await sql`
+        DELETE FROM trade.futures_order_fills
+         WHERE position_id = ${alice.id} AND kind = 'reduce' AND qty = ${'0.5'}::numeric
+      `;
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+      const [closed] = await positions.listClosed(ALICE, { limit: 10 });
+      expect(closed!.realizedPnl).toBeNull();
+      expect(closed!.fieldReasons).toMatchObject({ realizedPnl: 'realized_pnl_not_recorded' });
+    });
+
+    it('a closed position whose fills do not cover its whole history reports its own row, not a partial sum', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('102');
+      const aR = await reduce(ALICE, 'sell', A('2'), { limitPrice: A('102') });
+      const bR = await reduce(BOB, 'buy', A('2'), { limitPrice: A('104') });
+      await settle(aR, bR, A('102'), A('0.5'));
+      mark = A('104');
+      await settle(aR, bR, A('104'), A('1.5'));
+      // As if the position had opened before orders went through the book: no opening fill on record.
+      await sql`DELETE FROM trade.futures_order_fills WHERE position_id = ${alice.id} AND kind = 'open'`;
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+      // Not the summed 7 over 2: the row's own figures, its last remainder at the mark the row accepted.
+      const [row] = await sql<{ accepted_mark: string; entry_price: string }[]>`
+        SELECT accepted_mark, entry_price FROM trade.positions WHERE id = ${alice.id}
+      `;
+      const own = unrealizedPnl('long', A('1.5'), parseAmount(row!.entry_price), parseAmount(row!.accepted_mark));
+      const [closed] = await positions.listClosed(ALICE, { limit: 10 });
+      expect(closed).toMatchObject({ contracts: '1.5', realizedPnl: formatAmount(own) });
+      expect(closed!.realizedPnl).not.toBe('7');
     });
   });
 
