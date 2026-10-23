@@ -12,14 +12,23 @@ import {
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusPageError, type StatusPageBook } from './book.js';
 import { buildStatusPage, uptimeStart } from './page.js';
+import type { StatusSubscriptions } from './subscriptions.js';
+import { statusSubscriptionsRouter } from './subscriptions-router.js';
 
-export type StatusPageDeps = { book: StatusPageBook; notices: NoticeBoard | null; now?: () => Date };
+export type StatusPageDeps = {
+  book: StatusPageBook;
+  notices: NoticeBoard | null;
+  subscriptions?: StatusSubscriptions;
+  now?: () => Date;
+};
 
 const definitionOutput = z.object({
   components: z.array(z.object({ id: z.string(), name: z.string(), group: z.string().nullable(), source: z.string().nullable() })),
   componentCap: z.number().int().nullable(),
   stalenessSeconds: z.number().int().nullable(),
   uptimeDays: z.number().int().nullable(),
+  challengeBits: z.number().int().nullable(),
+  subscribeRatePerHour: z.number().int().nullable(),
   revision: z.number().int(),
   updatedAt: z.string().nullable(),
 });
@@ -44,6 +53,8 @@ export function statusPageRouter(deps?: StatusPageDeps) {
     }
   }
   return router({
+    subscriptions: statusSubscriptionsRouter(deps?.subscriptions),
+
     read: publicProcedure.output(statusPageSchema).query(() =>
       call(async ({ book, notices }) => {
         const at = now();

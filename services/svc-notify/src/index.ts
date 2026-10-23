@@ -24,6 +24,9 @@ import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
 import { SqlStatusPageBook } from './status-page/book.js';
+import { openStatusMailer } from './status-page/mailer.js';
+import { StatusSubscriptions } from './status-page/subscriptions.js';
+import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -183,12 +186,27 @@ const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), command
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const statusBook = new SqlStatusPageBook(sql);
+const statusSubscriptions = new StatusSubscriptions({
+  store: new SqlSubscriptionStore(sql),
+  page: statusBook,
+  mailer: openStatusMailer({
+    appEnv: env.APP_ENV,
+    transport: env.NOTIFY_STATUS_MAIL_TRANSPORT,
+    outboxPath: env.NOTIFY_STATUS_MAIL_OUTBOX,
+    email: channels.get('email'),
+    publicOrigin: env.NOTIFY_PUBLIC_ORIGIN,
+  }),
+  secret: env.NOTIFY_STATUS_LINK_SECRET ?? null,
+  linkTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES ?? null,
+  webhookTimeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+});
 const notices = new NoticeBoard(
   new PostgresNoticeStore(sql),
   noticeApprovalConsumerFromProcessEnv(s2sKey),
   commandLog,
   undefined,
   async () => (await statusBook.definition()).components.map((component) => component.id),
+  (row) => statusSubscriptions.fanOut(row),
 );
 const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
 const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
@@ -323,7 +341,7 @@ export const appRouter = createNotifyRouter(
     unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
     retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
   },
-  { book: statusBook, notices },
+  { book: statusBook, notices, subscriptions: statusSubscriptions },
 );
 export type AppRouter = typeof appRouter;
 

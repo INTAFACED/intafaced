@@ -31,6 +31,8 @@ export type StatusDefinition = {
   readonly componentCap: number | null;
   readonly stalenessSeconds: number | null;
   readonly uptimeDays: number | null;
+  readonly challengeBits: number | null;
+  readonly subscribeRatePerHour: number | null;
   readonly revision: number;
   readonly updatedAt: string | null;
 };
@@ -67,6 +69,8 @@ const blank = (): StatusDefinition => ({
   componentCap: null,
   stalenessSeconds: null,
   uptimeDays: null,
+  challengeBits: null,
+  subscribeRatePerHour: null,
   revision: 0,
   updatedAt: null,
 });
@@ -80,6 +84,8 @@ export function applyStatusChange(prior: StatusDefinition, input: StatusPageConf
     componentCap: input.componentCap === undefined ? prior.componentCap : input.componentCap,
     stalenessSeconds: input.stalenessSeconds === undefined ? prior.stalenessSeconds : input.stalenessSeconds,
     uptimeDays: input.uptimeDays === undefined ? prior.uptimeDays : input.uptimeDays,
+    challengeBits: input.challengeBits === undefined ? prior.challengeBits : input.challengeBits,
+    subscribeRatePerHour: input.subscribeRatePerHour === undefined ? prior.subscribeRatePerHour : input.subscribeRatePerHour,
   };
   if (next.components.length > 0 && next.componentCap === null) throw new StatusPageError('status.component_cap_unset');
   if (next.componentCap !== null && next.components.length > next.componentCap) throw new StatusPageError('status.component_cap_reached');
@@ -87,13 +93,21 @@ export function applyStatusChange(prior: StatusDefinition, input: StatusPageConf
 }
 
 const sameValues = (a: Values, b: Values): boolean =>
-  JSON.stringify([a.components, a.componentCap, a.stalenessSeconds, a.uptimeDays]) ===
-  JSON.stringify([b.components, b.componentCap, b.stalenessSeconds, b.uptimeDays]);
+  JSON.stringify([a.components, a.componentCap, a.stalenessSeconds, a.uptimeDays, a.challengeBits, a.subscribeRatePerHour]) ===
+  JSON.stringify([b.components, b.componentCap, b.stalenessSeconds, b.uptimeDays, b.challengeBits, b.subscribeRatePerHour]);
 
 /** What identifies one change: its fields and reason. The actor and the time are not part of it. */
 export function statusFingerprint(input: StatusPageConfigureInput): string {
   const { expectedRevision: _revision, ...rest } = input;
-  const fields = ['components', 'componentCap', 'stalenessSeconds', 'uptimeDays', 'reason'] as const;
+  const fields = [
+    'components',
+    'componentCap',
+    'stalenessSeconds',
+    'uptimeDays',
+    'challengeBits',
+    'subscribeRatePerHour',
+    'reason',
+  ] as const;
   return createHash('sha256')
     .update(JSON.stringify(fields.map((field) => (rest[field] === undefined ? null : [field, rest[field]]))))
     .digest('hex');
@@ -172,6 +186,8 @@ type PageRow = {
   component_cap: number | null;
   staleness_seconds: number | null;
   uptime_days: number | null;
+  challenge_bits: number | null;
+  subscribe_rate_per_hour: number | null;
   revision: number;
   updated_at: Date | string | null;
 };
@@ -185,6 +201,8 @@ const fromPage = (row: PageRow | undefined): StatusDefinition =>
         componentCap: row.component_cap,
         stalenessSeconds: row.staleness_seconds,
         uptimeDays: row.uptime_days,
+        challengeBits: row.challenge_bits,
+        subscribeRatePerHour: row.subscribe_rate_per_hour,
         revision: row.revision,
         updatedAt: row.updated_at === null ? null : new Date(row.updated_at).toISOString(),
       }
@@ -202,7 +220,7 @@ export class SqlStatusPageBook implements StatusPageBook {
 
   async definition(): Promise<StatusDefinition> {
     const rows = await this.sql<PageRow[]>`
-      SELECT components, component_cap, staleness_seconds, uptime_days, revision, updated_at FROM notify.status_page
+      SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, revision, updated_at FROM notify.status_page
     `;
     return fromPage(rows[0]);
   }
@@ -214,7 +232,7 @@ export class SqlStatusPageBook implements StatusPageBook {
       // The single row is the lock: every writer serialises on it.
       await tx`INSERT INTO notify.status_page (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
       const [locked] = await tx<PageRow[]>`
-        SELECT components, component_cap, staleness_seconds, uptime_days, revision, updated_at
+        SELECT components, component_cap, staleness_seconds, uptime_days, challenge_bits, subscribe_rate_per_hour, revision, updated_at
         FROM notify.status_page WHERE singleton FOR UPDATE
       `;
       const prior = fromPage(locked);
@@ -229,7 +247,8 @@ export class SqlStatusPageBook implements StatusPageBook {
       await tx`
         UPDATE notify.status_page
         SET components = ${tx.json(after.components as never)}, component_cap = ${after.componentCap},
-            staleness_seconds = ${after.stalenessSeconds}, uptime_days = ${after.uptimeDays}, revision = ${after.revision},
+            staleness_seconds = ${after.stalenessSeconds}, uptime_days = ${after.uptimeDays},
+            challenge_bits = ${after.challengeBits}, subscribe_rate_per_hour = ${after.subscribeRatePerHour}, revision = ${after.revision},
             updated_by = ${change.by}, updated_at = ${change.at}
         WHERE singleton
       `;

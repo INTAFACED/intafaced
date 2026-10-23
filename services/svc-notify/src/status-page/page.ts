@@ -96,6 +96,8 @@ export function buildStatusPage(input: {
       componentCap: definition.componentCap,
       stalenessSeconds: definition.stalenessSeconds,
       uptimeDays: definition.uptimeDays,
+      challengeBits: definition.challengeBits,
+      subscribeRatePerHour: definition.subscribeRatePerHour,
     },
     overall,
     components,

@@ -84,6 +84,9 @@ export const statusPageConfigureInputSchema = z
     componentCap: ownerValue(STATUS_COMPONENTS_MAX).optional(),
     stalenessSeconds: ownerValue(STATUS_STALENESS_SECONDS_MAX).optional(),
     uptimeDays: ownerValue(STATUS_UPTIME_DAYS_MAX).optional(),
+    /** Subscriptions (SP-status-04): proof-of-work strength in leading zero bits, and subscribe requests per address per hour. */
+    challengeBits: ownerValue(32).optional(),
+    subscribeRatePerHour: ownerValue(1000).optional(),
     expectedRevision: z.number().int().min(0).max(2_147_483_646),
     reason: text(STATUS_PAGE_REASON_MAX),
   })
@@ -112,6 +115,8 @@ export const statusPageSettingsSchema = z
     componentCap: z.number().int().nullable(),
     stalenessSeconds: z.number().int().nullable(),
     uptimeDays: z.number().int().nullable(),
+    challengeBits: z.number().int().nullable(),
+    subscribeRatePerHour: z.number().int().nullable(),
   })
   .strict();
 export type StatusPageSettings = z.infer<typeof statusPageSettingsSchema>;

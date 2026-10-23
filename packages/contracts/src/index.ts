@@ -74,6 +74,7 @@ export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './outreach-public.js';
 export * from './status-page.js';
+export * from './status-subscriptions.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './support-survey.js';

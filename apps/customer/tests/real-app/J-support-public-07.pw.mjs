@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { draftNotice, publishNotice } from './notices.mjs';
-import { configureStatusPage, recordReading } from './status-page.mjs';
-import { ORIGIN } from './stack.mjs';
+import { configureStatusPage, findSubscriber, recordReading } from './status-page.mjs';
+import { ORIGIN, statusMail } from './stack.mjs';
 
 // J-support-public-07, in the running app (docs/roadmap/journeys.json): a signed-out visitor checks /status and sees
 // only states the platform recorded or published. Tests titled "J-support-public-07 #<n>" prove a whole step.
@@ -24,6 +24,36 @@ const COMPONENTS = [
 
 /** The labelled TEST owner values this journey runs with. Production has none until the owner sets them. */
 const TEST_VALUES = { componentCap: 5, stalenessSeconds: 600, uptimeDays: 7 };
+/** TEST subscription safeguards: proof-of-work strength (leading zero bits) and subscribe requests per address per hour. */
+const TEST_SAFEGUARDS = { challengeBits: 12, subscribeRatePerHour: 5 };
+const SUBSCRIBER = `status-${RUN}@example.com`;
+
+/** The app path of the first link to `path` in a status message. */
+const linkIn = (mail, path) => {
+  const match = new RegExp(`(${path}\\?token=\\S+)`).exec(mail.text);
+  if (!match) throw new Error(`no ${path} link in "${mail.subject}"`);
+  return match[1];
+};
+
+/** Status mail to `email` once there are `count` messages; fan-out runs just after the publish answers. */
+async function statusMailAtLeast(email, count, waitMs = 15_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const mail = statusMail(email);
+    if (mail.length >= count || Date.now() >= until) return mail;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+/** A public tRPC mutation through Edge, as the browser sends it, signed out. */
+async function publicMutate(procedure, input) {
+  const res = await fetch(`${ORIGIN}/api/notify/trpc/${procedure}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input ?? {}),
+  });
+  return { status: res.status, json: await res.json() };
+}
 
 const component = (page, id) => page.locator(`[data-testid="status-component-${id}"]`);
 
@@ -192,5 +222,137 @@ test(`${J} #5 /notice lists published notices with their kind, and maintenance a
   // Only maintenance carries a phase.
   await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
   await expect(main.getByText('No public notices are published')).toHaveCount(0);
+  await page.context().close();
+});
+
+test(`${J} #6 subscribe to status updates by email: proof of work in the browser, a failed check stores nothing, SMS and push named not connected`, async ({
+  browser,
+}) => {
+  await configureStatusPage({ components: COMPONENTS, ...TEST_VALUES, ...TEST_SAFEGUARDS });
+  // A request whose proof of work does not hold is refused, and no subscriber or confirmation is stored for it.
+  const challenge = await publicMutate('statusPage.subscriptions.challenge');
+  const token = challenge.json.result.data.token;
+  const refused = await publicMutate('statusPage.subscriptions.subscribe', {
+    email: SUBSCRIBER,
+    componentIds: null,
+    challenge: { token, nonce: 'zzzzzzzz' },
+  });
+  expect(refused.status).toBe(400);
+  expect(JSON.stringify(refused.json)).toContain('status.challenge_failed');
+  expect(await findSubscriber(SUBSCRIBER)).toBeNull();
+  expect(statusMail(SUBSCRIBER)).toHaveLength(0);
+
+  const page = await visitor(browser);
+  await page.goto('/status');
+  const form = page.getByTestId('status-subscribe');
+  await expect(form.getByRole('heading', { name: 'Get status updates' })).toBeVisible();
+  await expect(form.getByTestId('status-subscribe-channels')).toContainText('Text messages: not connected in this build.');
+  await expect(form.getByTestId('status-subscribe-email-off')).toHaveCount(0);
+  await expect(form.getByTestId('status-subscribe-channels')).toContainText('vendor.sms');
+  await expect(form.getByTestId('status-subscribe-channels')).toContainText('vendor.push');
+  await form.getByLabel('Email address').fill(SUBSCRIBER);
+  await form.getByLabel('Only these components').check();
+  await form.getByLabel('Trading').check();
+  await form.getByRole('button', { name: 'Subscribe' }).click();
+  await expect(form.getByTestId('status-subscribe-sent')).toContainText('Check your inbox');
+
+  const stored = await findSubscriber(SUBSCRIBER);
+  expect(stored).toMatchObject({ state: 'unconfirmed', componentIds: ['trading'], webhookUrl: null });
+  const mail = statusMail(SUBSCRIBER);
+  expect(mail).toHaveLength(1);
+  expect(mail[0].subject).toBe('Confirm your status updates');
+  await page.context().close();
+});
+
+test(`${J} #7 confirm by the emailed link, twice is one subscriber; choose components; a private webhook is refused`, async ({
+  browser,
+}) => {
+  const [confirmMail] = statusMail(SUBSCRIBER);
+  const link = linkIn(confirmMail, '/status/confirm');
+  const page = await visitor(browser);
+  await page.goto(link);
+  // Opening the link changes nothing until Confirm is pressed.
+  await expect(page.getByRole('heading', { level: 1, name: 'Confirm status updates' })).toBeVisible();
+  expect((await findSubscriber(SUBSCRIBER)).state).toBe('unconfirmed');
+  await expect(page).toHaveURL(/\/status\/confirm$/);
+  await page.getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'You’re subscribed' })).toBeVisible();
+  const manage = page.getByTestId('status-subscription-manage');
+  await expect(manage.getByTestId('status-subscription-state')).toHaveText('Active');
+
+  for (const url of ['https://127.0.0.1/status-hook', 'https://10.1.2.3/status-hook', 'https://localhost/status-hook']) {
+    await manage.getByLabel('Webhook (optional, https only)').fill(url);
+    await manage.getByRole('button', { name: 'Save choices' }).click();
+    await expect(manage.getByTestId('status-subscription-refused')).toContainText('status.webhook_target_refused');
+  }
+  expect((await findSubscriber(SUBSCRIBER)).webhookUrl).toBeNull();
+  await manage.getByLabel('Webhook (optional, https only)').fill('');
+  await manage.getByLabel('Only these components').check();
+  await manage.getByLabel('Wallets').check();
+  await manage.getByRole('button', { name: 'Save choices' }).click();
+  await expect(manage.getByTestId('status-subscription-saved')).toBeVisible();
+  expect((await findSubscriber(SUBSCRIBER)).componentIds.sort()).toEqual(['trading', 'wallets']);
+
+  // The same link a second time: the same one active subscriber, nothing new sent.
+  const again = await visitor(browser);
+  await again.goto(link);
+  await again.getByRole('button', { name: 'Confirm' }).click();
+  await expect(again.getByTestId('status-subscription-state')).toHaveText('Active');
+  const stored = await findSubscriber(SUBSCRIBER);
+  expect(stored).toMatchObject({ state: 'active', email: SUBSCRIBER });
+  expect(statusMail(SUBSCRIBER)).toHaveLength(1);
+  await page.context().close();
+  await again.context().close();
+});
+
+test(`${J} #8 a published incident on a chosen component is emailed once with an unsubscribe link that works`, async ({ browser }) => {
+  const publish = async (suffix, components) => {
+    const key = `${J}-notify-${suffix}-${RUN}`;
+    return publishNotice(
+      await draftNotice({
+        kind: 'incident',
+        title: `TEST ${suffix} incident ${RUN}`,
+        body: `TEST ${suffix}`,
+        minutes: 15,
+        key,
+        impact: 'minor',
+        components,
+      }),
+      key,
+    );
+  };
+  const before = statusMail(SUBSCRIBER).length;
+  const opened = [];
+  const card = await publish('card', ['card-network']);
+  opened.push(card);
+  expect(await statusMailAtLeast(SUBSCRIBER, before + 1, 2_000)).toHaveLength(before);
+  const notice = await publish('trading', ['trading']);
+  opened.push(notice);
+  const updates = (await statusMailAtLeast(SUBSCRIBER, before + 1)).filter((mail) => mail.subject.startsWith('Status update'));
+  expect(updates).toHaveLength(1);
+  expect(updates[0].subject).toBe(`Status update: TEST trading incident ${RUN}`);
+  expect(updates[0].key).toBe(`${notice.id}:${(await findSubscriber(SUBSCRIBER)).deliveries[0].subscriberId}:email`);
+  const delivered = (await findSubscriber(SUBSCRIBER)).deliveries.filter((row) => row.event === notice.id);
+  expect(delivered).toEqual([expect.objectContaining({ channel: 'email', status: 'accepted', attempts: 1 })]);
+
+  const page = await visitor(browser);
+  await page.goto(linkIn(updates[0], '/status/unsubscribe'));
+  await expect(page.getByRole('heading', { level: 1, name: 'Stop status updates' })).toBeVisible();
+  expect((await findSubscriber(SUBSCRIBER)).state).toBe('active');
+  await page.getByRole('button', { name: 'Unsubscribe' }).click();
+  await expect(page.getByTestId('status-subscription-left')).toContainText('No more status updates');
+  expect((await findSubscriber(SUBSCRIBER)).state).toBe('unsubscribed');
+
+  const sent = statusMail(SUBSCRIBER).length;
+  opened.push(await publish('after', ['trading']));
+  expect(await statusMailAtLeast(SUBSCRIBER, sent + 1, 2_000)).toHaveLength(sent);
+  // Resolve what this step opened, so a later run on the same stack starts with no open incident.
+  for (const row of opened) {
+    const key = `${J}-notify-resolve-${row.id}`;
+    await publishNotice(
+      await draftNotice({ kind: 'incident', title: row.title, body: 'TEST resolved', minutes: 15, key, parentId: row.id, resolves: true }),
+      key,
+    );
+  }
   await page.context().close();
 });
