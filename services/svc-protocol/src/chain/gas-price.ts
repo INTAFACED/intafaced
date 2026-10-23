@@ -93,14 +93,14 @@ function column(reward: readonly (readonly bigint[])[] | null, index: number): b
 
 /**
  * A pre-EIP-1559 node reports no base fee. viem fills that as an all-zero array
- * and omits rewards. A reported zero next to a non-zero base fee stays zero.
+ * and omits rewards. All-zero base fees are absent only in that case. When reward
+ * columns are present, the last base fee is returned, including 0. A zero beside
+ * a non-zero base fee stays zero.
  */
 function reportedBaseFee(baseFeePerGas: readonly bigint[] | null, reward: readonly (readonly bigint[])[] | null): bigint | null {
   if (!baseFeePerGas || baseFeePerGas.length === 0) return null;
   const anyFee = baseFeePerGas.some((fee) => fee > 0n);
-  const anyReward = reward?.some((row) => row.some((fee) => fee > 0n)) ?? false;
-  if (!anyFee && !anyReward) return null;
-  if (!anyFee) return null;
+  if (!anyFee && reward == null) return null;
   return baseFeePerGas[baseFeePerGas.length - 1]!;
 }
 

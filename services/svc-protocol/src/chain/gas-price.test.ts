@@ -76,6 +76,24 @@ describe('quoteFromHistory', () => {
     expect(quote.baseFeePerGasWei).toBeNull();
     expect(quote.priorityFeeWei).toBeNull();
   });
+
+  it('keeps a zero base fee and the reward columns when eth_feeHistory returns both', () => {
+    const quote = quoteFromHistory({
+      gasPrice: 7n,
+      baseFeePerGas: [0n, 0n, 0n],
+      reward: [
+        [10n, 100n, 1000n],
+        [20n, 100n, 1000n],
+        [30n, 100n, 1000n],
+      ],
+      setting: SETTING,
+      asOf: AS_OF,
+      chainId: 84532,
+    });
+    expect(quote.gasPriceWei).toBe('7');
+    expect(quote.baseFeePerGasWei).toBe('0');
+    expect(quote.priorityFeeWei).toEqual({ low: '20', average: '100', high: '1000' });
+  });
 });
 
 describe('readGasPrice', () => {
