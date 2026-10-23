@@ -5,9 +5,8 @@
  * This door exposes owner-wiring honesty for operators.
  */
 import { describeIngestCaptureLakeBatch } from '@intafaced/connect-data-lake';
-import { AuthError } from '@intafaced/auth';
 import type { FastifyInstance } from 'fastify';
-import { statusForAuthError } from './admin-api.js';
+import { sendOperatorAuthFailure } from './admin-api.js';
 
 export const CONNECT_DATA_LAKE_PERSIST_CONSUMER_PATH = '/connect/data-lake/persist-consumer' as const;
 
@@ -30,9 +29,7 @@ export function registerConnectDataLakePersistConsumerRoutes(
     try {
       await authenticate(request.headers.authorization);
     } catch (err) {
-      if (err instanceof AuthError) {
-        return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
-      }
+      if (sendOperatorAuthFailure(reply, err)) return;
       throw err;
     }
     return describeConnectDataLakePersistConsumerDoor();

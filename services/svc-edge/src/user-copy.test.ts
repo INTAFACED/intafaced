@@ -23,6 +23,7 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('edge.rate_limited')).toBe('Too many requests. Wait a moment.');
     expect(userCopy('error.rateLimited')).toBe('Too many requests. Wait a moment.');
     expect(userCopy('edge.upstream_unavailable')).toBe('No connection. Check your network.');
+    expect(userCopy('edge.authority_unavailable')).toBe('Something went wrong. Try again.');
     expect(userCopy('edge.upstream_unwired')).toBe('No connection. Check your network.');
     expect(userCopy('edge.geo_blocked')).toBe('This is not available in your region.');
     expect(userCopy('edge.geo_region_unknown')).toBe('This is not available in your region.');

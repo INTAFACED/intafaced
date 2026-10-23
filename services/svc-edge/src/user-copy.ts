@@ -26,6 +26,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.csrf_origin_required': 'error.forbidden',
   'edge.rate_limited': 'error.rateLimited',
   'edge.upstream_unavailable': 'error.network',
+  'edge.authority_unavailable': 'error.generic',
   'edge.upstream_unwired': 'error.network',
   'edge.geo_blocked': 'error.region.blocked',
   'edge.geo_region_unknown': 'error.region.blocked',

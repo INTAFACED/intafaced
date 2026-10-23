@@ -153,6 +153,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The edge address or the treasury credential is missing on this deployment, so nothing was sent.',
     next: 'Ask engineering to configure the console. Nothing was changed.',
   },
+  'edge.authority_unavailable': {
+    title: 'Temporary, retrying',
+    body: 'Identity did not answer the sign-in check in time, so this was not sent on. The session stays signed in.',
+    next: 'Retry in a moment. A revoked session is still refused.',
+  },
   'edge.ledger_unreachable': {
     title: 'The edge cannot reach the ledger',
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',

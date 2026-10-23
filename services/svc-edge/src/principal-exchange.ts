@@ -53,8 +53,12 @@ export interface ExchangeResult {
   headers: Record<string, string>;
   /** Null for an anonymous request — which is a valid outcome, not an error. */
   principal: Principal | null;
-  /** Why a token was refused. Null when accepted or when none was offered. */
-  rejected: 'malformed' | 'expired' | 'invalid' | null;
+  /**
+   * Why a presented token was not forwarded as that caller.
+   * `unavailable` is not a refusal of the credential: identity could not be
+   * asked, and the proxy must answer 503 without forwarding anonymous.
+   */
+  rejected: 'malformed' | 'expired' | 'invalid' | 'unavailable' | null;
 }
 
 export interface ExchangeOptions {
@@ -88,6 +92,13 @@ export interface ExchangeOptions {
    * Missing configuration refuses authenticated forwarding.
    */
   identityOwnershipSecret?: string;
+  /**
+   * Cap for the live authority read. Money, security, and writes use the strict
+   * cap; non-money reads use the higher cap. Both come from env at the proxy.
+   */
+  timeoutMs?: number;
+  /** Reuse window for a positive authority proof. The proxy passes the 1s burst cache. */
+  positiveCacheMs?: number;
   /**
    * The merchant request the edge is about to forward. Present so an opted-in
    * key can be signed over these bytes. Absent on callers that only exchange
@@ -280,6 +291,11 @@ export async function exchangeApiKeyForAccessToken(
  * service as ANONYMOUS rather than as a 500 — `protectedProcedure` will refuse
  * it there with the right status. Failing closed means failing quietly to
  * anonymous, not failing loudly.
+ *
+ * That anonymous landing is only for a token we could judge. When identity
+ * cannot be asked (timeout, network, 5xx, malformed), `rejected` is
+ * `unavailable` and the proxy answers 503 without forwarding. A slow identity
+ * must not look like a signed-out session.
  */
 export async function exchangePrincipal(
   headers: Record<string, string | string[] | undefined>,
@@ -393,10 +409,13 @@ export async function exchangePrincipal(
     accountId: requestAccountId(headers),
     product: options.resolvedProduct ?? requestProduct(headers),
     apiKeyBearerSatisfied: presentedApiKey,
+    timeoutMs: options.timeoutMs,
+    positiveCacheMs: options.positiveCacheMs,
   });
-  if (!authority) return { headers: forward, principal: null, rejected: 'invalid' };
+  if (authority.status === 'unavailable') return { headers: forward, principal: null, rejected: 'unavailable' };
+  if (authority.status !== 'eligible') return { headers: forward, principal: null, rejected: 'invalid' };
   // Identity's current tier may have changed since this JWT was minted.
-  principal = { ...principal, tier: authority.account.kycTier };
+  principal = { ...principal, tier: authority.proof.account.kycTier };
 
   const raw = encodePrincipal(principal);
   forward[EDGE_PRINCIPAL_HEADER] = raw;

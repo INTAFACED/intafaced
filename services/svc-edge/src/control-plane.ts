@@ -6,7 +6,7 @@ import {
   type ComplianceQueueItem,
   type ComplianceQueueKind,
 } from '@intafaced/config';
-import { statusForAuthError, type AdminApi } from './admin-api.js';
+import { sendOperatorAuthFailure, type AdminApi } from './admin-api.js';
 import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
 import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
@@ -303,10 +303,7 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
       const principal = kind === 'treasury' ? await admin.authenticateTreasury(header) : await admin.authenticate(header);
       return { principal, bearer: header as string };
     } catch (err) {
-      if (err instanceof AuthError) {
-        reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
-        return null;
-      }
+      if (sendOperatorAuthFailure(reply, err)) return null;
       throw err;
     }
   };
@@ -753,7 +750,7 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     try {
       principal = await admin.authenticateRead(req.headers.authorization);
     } catch (err) {
-      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      if (sendOperatorAuthFailure(reply, err)) return;
       throw err;
     }
     return forwardMatching(

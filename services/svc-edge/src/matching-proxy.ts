@@ -18,7 +18,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { actionApprovalSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
-import { statusForAuthError } from './admin-api.js';
+import { sendOperatorAuthFailure } from './admin-api.js';
 import { MATCHING_OPERATOR_EDGE_PATHS } from './routes.js';
 
 export const MATCHING_SERVICE_NAME = 'svc-edge' as const;
@@ -303,13 +303,7 @@ export function registerMatchingOperatorRoutes(app: FastifyInstance, deps: Match
     return principal;
   };
 
-  const authError = (err: unknown, reply: FastifyReply): boolean => {
-    if (err instanceof AuthError) {
-      sendJson(reply, statusForAuthError(err), { error: err.message, code: err.code });
-      return true;
-    }
-    return false;
-  };
+  const authError = (err: unknown, reply: FastifyReply): boolean => sendOperatorAuthFailure(reply, err);
 
   const openMatching = (): MatchingControlCall | null => (deps.blocked !== null || !deps.matching ? null : deps.matching);
 

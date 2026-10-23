@@ -187,6 +187,24 @@ describe('a call with its own bearer', () => {
     await api.mutate('identity', 'auth.stepUpPay', {}, z.unknown(), own);
     expect(ended).toEqual(['session-token', 'session-token']);
   });
+  it('keeps the session on 503 edge.authority_unavailable and only a 401 clears it', async () => {
+    const ended: Array<string | undefined> = [];
+    const api = createApiClient({
+      token: () => 'session-token',
+      onUnauthorized: (t) => ended.push(t),
+      fetch: async () =>
+        new Response(JSON.stringify({ error: 'Something went wrong. Try again.', code: 'edge.authority_unavailable' }), {
+          status: 503,
+          headers: { 'retry-after': '1' },
+        }),
+    });
+    expect(await api.query('pay', 'notifications.list', {}, z.unknown())).toMatchObject({
+      ok: false,
+      status: 503,
+      code: 'edge.authority_unavailable',
+    });
+    expect(ended).toEqual([]);
+  });
   it('asks the registered resolver for a mutation, by procedure, and for nothing else', async () => {
     const seen: Array<string | undefined> = [];
     const api = createApiClient({

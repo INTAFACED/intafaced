@@ -18,6 +18,13 @@ describe('typed refusals are explained in plain words', () => {
     expect(explainRefusal('action_approval.expired', 412).title).toContain('expired');
     expect(explainRefusal('action_approval.founder_only', 403).title).toContain('two current founders');
   });
+  it('a slow identity check is temporary, retrying, and changed nothing', () => {
+    const r = explainRefusal('edge.authority_unavailable', 503);
+    expect(r.title).toBe('Temporary, retrying');
+    expect(r.changed).toBe('no');
+    expect(r.body).toContain('not sent on');
+    expect(r.next).toContain('Retry');
+  });
   it('an unknown 5xx or a dropped connection on a write is "not known", never "failed"', () => {
     const r = explainRefusal(null, 503);
     expect(r.changed).toBe('unknown');

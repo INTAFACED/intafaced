@@ -82,6 +82,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.matching_unavailable': 'tryAgain',
   'edge.gateway': 'tryAgain',
   'edge.upstream_unavailable': 'tryAgain',
+  'edge.authority_unavailable': 'tryAgain',
   'edge.no_route': 'tryAgain',
   'edge.module_killed': 'tryAgain',
   'edge.kill_switch_undecidable': 'tryAgain',

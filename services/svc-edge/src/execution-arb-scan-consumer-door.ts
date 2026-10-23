@@ -5,9 +5,8 @@
  * Scan execution remains on svc-execution via /api/execution — this door refuses
  * partial wiring rather than inventing opportunities.
  */
-import { AuthError } from '@intafaced/auth';
 import type { FastifyInstance } from 'fastify';
-import { statusForAuthError } from './admin-api.js';
+import { sendOperatorAuthFailure } from './admin-api.js';
 
 export const EXECUTION_ARB_SCAN_CONSUMER_PATH = '/execution/arb/scan-consumer' as const;
 
@@ -28,9 +27,7 @@ export function registerExecutionArbScanConsumerRoutes(
     try {
       await authenticate(request.headers.authorization);
     } catch (err) {
-      if (err instanceof AuthError) {
-        return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
-      }
+      if (sendOperatorAuthFailure(reply, err)) return;
       throw err;
     }
     return describeExecutionArbScanConsumerDoor();

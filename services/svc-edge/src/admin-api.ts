@@ -33,7 +33,9 @@ import { EdgeComplianceQueue, edgeComplianceHonesty, type EdgeComplianceHonesty 
 import { readConfirmOperatorId, requireDualControl } from './dual-control.js';
 
 import type { KillSwitchAuditEntry, KillSwitchDurability, KillSwitchState } from './kill-switch.js';
+import { EDGE_AUTHORITY_UNAVAILABLE, EdgeAuthorityUnavailableError } from './live-authority.js';
 import { ENFORCEABLE_MODULES, OUTSIDE_THE_DOOR } from './routes.js';
+import { userCopy } from './user-copy.js';
 
 export type WarehouseDoorSnapshot = {
   readonly replicaConfigured: boolean;
@@ -586,6 +588,29 @@ function resolveDoorLagProbe(deps: AdminApiDeps): WarehouseLagProbe | null {
   // Vitest must not open sockets when a leftover ANALYTICS_REPLICA_*_URL is set.
   if (process.env.VITEST === 'true') return null;
   return createEdgeWarehouseLagProbe();
+}
+
+type OperatorReply = {
+  code: (status: number) => { send: (body: unknown) => unknown };
+  header?: (name: string, value: string) => unknown;
+};
+
+/**
+ * Answer an operator auth failure. A slow identity is 503
+ * `edge.authority_unavailable` (session kept). A judged bad token stays 401.
+ * Returns true when the reply was sent.
+ */
+export function sendOperatorAuthFailure(reply: OperatorReply, err: unknown): boolean {
+  if (err instanceof EdgeAuthorityUnavailableError) {
+    reply.header?.('retry-after', String(err.retryAfterSeconds));
+    reply.code(503).send({ error: userCopy(EDGE_AUTHORITY_UNAVAILABLE), code: err.code });
+    return true;
+  }
+  if (err instanceof AuthError) {
+    reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+    return true;
+  }
+  return false;
 }
 
 /** Map an `AuthError` to the status an operator console can branch on. */

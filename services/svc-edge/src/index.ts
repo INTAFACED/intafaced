@@ -2,7 +2,13 @@ import Fastify from 'fastify';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
-import { readEdgeAuthority } from './live-authority.js';
+import {
+  AUTHORITY_POSITIVE_CACHE_MS,
+  authorityTimeoutFor,
+  authorityUnavailableHttp,
+  EdgeAuthorityUnavailableError,
+  readEdgeAuthority,
+} from './live-authority.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
 import { httpMatchingOperator } from './matching-operator-door.js';
@@ -180,15 +186,15 @@ const tokenConfig = {
 const killSwitches = new KillSwitchState({ statePath: env.EDGE_KILL_STATE_PATH });
 
 const sessionLive = async (principal: Principal) => {
-  if (
-    principal.kid ||
-    principal.sub_account ||
-    !(await readEdgeAuthority(principal, {
-      identityUrl: env.IDENTITY_URL,
-      identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
-    }))
-  )
-    throw new AuthError('Operator session is not live', 'token.invalid');
+  if (principal.kid || principal.sub_account) throw new AuthError('Operator session is not live', 'token.invalid');
+  const authority = await readEdgeAuthority(principal, {
+    identityUrl: env.IDENTITY_URL,
+    identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+    timeoutMs: env.EDGE_AUTHORITY_STRICT_TIMEOUT_MS,
+    positiveCacheMs: AUTHORITY_POSITIVE_CACHE_MS,
+  });
+  if (authority.status === 'unavailable') throw new EdgeAuthorityUnavailableError();
+  if (authority.status !== 'eligible') throw new AuthError('Operator session is not live', 'token.invalid');
 };
 
 const admin = createAdminApi(killSwitches, {
@@ -404,7 +410,27 @@ await app.register(async (api) => {
       clientIp: req.ip,
       resolvedProduct: target.upstream.module,
       request: { method: req.method, path: `${url.pathname}${url.search}`, body: rawBody },
+      timeoutMs: authorityTimeoutFor({
+        method: req.method,
+        module: target.upstream.module,
+        strictMs: env.EDGE_AUTHORITY_STRICT_TIMEOUT_MS,
+        readMs: env.EDGE_AUTHORITY_READ_TIMEOUT_MS,
+      }),
+      positiveCacheMs: AUTHORITY_POSITIVE_CACHE_MS,
     });
+
+    // Identity could not be asked. Do not forward anonymous: the upstream would
+    // answer 401 and the customer app would clear a session that is still valid.
+    // Money and security writes stop here — nothing is executed.
+    const held = authorityUnavailableHttp(exchanged.rejected);
+    if (held) {
+      req.log.warn({ path: url.pathname }, 'edge: identity authority unavailable, not forwarding');
+      markAuthOutcome(req, 'refused');
+      return reply
+        .header('retry-after', String(held.retryAfterSeconds))
+        .code(held.status)
+        .send({ error: userCopy(held.code), code: held.code });
+    }
 
     // A refused token is logged and the request continues as ANONYMOUS. The
     // service decides — `protectedProcedure` answers UNAUTHORIZED with the right

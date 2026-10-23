@@ -208,6 +208,22 @@ const schema = baseEnvSchema
         .int()
         .min(1024)
         .max(32 * 1024 * 1024),
+
+      /**
+       * Cap on the identity currentAuthority read for money routes, the identity
+       * (security) module, and every write. Default 3000ms is the cap that used
+       * to be a literal in live-authority.ts. A slow read answers 503
+       * edge.authority_unavailable; it does not forward anonymous.
+       */
+      EDGE_AUTHORITY_STRICT_TIMEOUT_MS: z.coerce.number().int().min(100).max(5_000).default(3_000),
+
+      /**
+       * Cap for non-money GET/HEAD (academy, protocol, notify, and the other
+       * modules that are not money doors and not identity). Default 8000ms.
+       * Money and security stay on EDGE_AUTHORITY_STRICT_TIMEOUT_MS. A proof is
+       * still admitted only while its lease is inside the 5000ms revocation SLA.
+       */
+      EDGE_AUTHORITY_READ_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(15_000).default(8_000),
     }),
   );
 

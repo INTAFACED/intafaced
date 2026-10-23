@@ -4,9 +4,8 @@
  * Documents the public OMS/EMS surface proxied to svc-execution. Does not
  * invent plans or parent/child orders — refuses partial wiring honestly.
  */
-import { AuthError } from '@intafaced/auth';
 import type { FastifyInstance } from 'fastify';
-import { statusForAuthError } from './admin-api.js';
+import { sendOperatorAuthFailure } from './admin-api.js';
 
 export const EXECUTION_OMS_CONSUMER_PATH = '/execution/oms/consumer' as const;
 
@@ -37,9 +36,7 @@ export function registerExecutionOmsConsumerRoutes(
     try {
       await authenticate(request.headers.authorization);
     } catch (err) {
-      if (err instanceof AuthError) {
-        return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
-      }
+      if (sendOperatorAuthFailure(reply, err)) return;
       throw err;
     }
     return describeExecutionOmsConsumerDoor();

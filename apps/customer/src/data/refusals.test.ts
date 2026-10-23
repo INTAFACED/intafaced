@@ -128,6 +128,7 @@ describe('classifyRefusal', () => {
       ['edge.rate_limited', 'rateLimited'],
       ['edge.gateway', 'tryAgain'],
       ['edge.no_route', 'tryAgain'],
+      ['edge.authority_unavailable', 'tryAgain'],
       ['trade.matching_unavailable', 'tryAgain'],
       ['trade.order_not_found', 'orderGone'],
       ['trade.convert_price_moved', 'priceMoved'],
@@ -149,6 +150,12 @@ describe('classifyRefusal', () => {
       ['trade.convert_invalid_qty', 'quoteFailed'],
     ];
     for (const [code, kind] of cases) expect(classifyRefusal(code), code).toBe(kind);
+  });
+  it('tells the customer a slow identity check is temporary and to retry', () => {
+    expect(refusalCopy('edge.authority_unavailable')).toEqual({
+      title: 'Something went wrong on our side',
+      body: 'Nothing was changed. Try again in a moment.',
+    });
   });
   it('is case-insensitive and tolerant of blanks', () => {
     expect(classifyRefusal('  KYC.TIER_REQUIRED ')).toBe('verify');
@@ -195,6 +202,7 @@ describe('customer words', () => {
       'trade.no_book',
       'x.y',
       'edge.no_route',
+      'edge.authority_unavailable',
     ];
     for (const code of codes) {
       const copy = refusalCopy(code, { asset: 'BTC', available: '1', recipient: '@a', pair: 'BTC-USDT' });

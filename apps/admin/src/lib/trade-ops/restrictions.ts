@@ -95,6 +95,7 @@ export const REFUSAL_WORDS: Record<string, string> = {
   'operator.denied': 'You are not allowed to change this. Your operator access is missing or was revoked.',
   'mfa.required': 'A second sign-in factor is needed. Verify your second factor, then try again.',
   'authority.unavailable': 'The service that decides account authority could not be reached, so nothing was changed. Try again shortly.',
+  'edge.authority_unavailable': 'Temporary, retrying. The sign-in check did not finish, so nothing was changed.',
   'target.not_found': 'No trading account exists for that user id.',
   'restore.not_permitted': 'This restriction cannot be lifted by you. It needs a different authority.',
   'request.conflict': 'This request id was already used for a different change. Start a new request.',

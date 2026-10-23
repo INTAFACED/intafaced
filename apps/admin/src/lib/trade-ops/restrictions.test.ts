@@ -83,6 +83,7 @@ describe('history', () => {
       'operator.denied',
       'mfa.required',
       'authority.unavailable',
+      'edge.authority_unavailable',
       'target.not_found',
       'restore.not_permitted',
       'request.conflict',
