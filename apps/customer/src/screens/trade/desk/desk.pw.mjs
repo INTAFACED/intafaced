@@ -453,7 +453,12 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   await shotBoth(page, 'desk-checking-not-found', { full: true });
   // The service shows the order; the check finds it and the desk is free again.
   exchange.opts.hideOrders = false;
-  await notice.getByRole('button', { name: 'Check order' }).click();
+  // The desk's own timed check may find it first: the note then goes away under the click (#5951). Either way the
+  // outcome below is the same, and it is what this step proves.
+  await notice
+    .getByRole('button', { name: 'Check order' })
+    .click({ timeout: 5_000 })
+    .catch(() => undefined);
   await expect(page.locator('.dk-note--warn')).toHaveCount(0);
   await expect(page.getByText(/Checked: your order is/)).toBeVisible();
   expect(await page.evaluate((k) => localStorage.getItem(k), key)).toBeNull();
