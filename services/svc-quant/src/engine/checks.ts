@@ -1,4 +1,11 @@
-import type { QuantBacktestResult, QuantCheck, QuantCheckThresholds, QuantMetric, QuantSampleSection } from '@intafaced/contracts';
+import {
+  QUANT_BAR_SIZES,
+  type QuantBacktestResult,
+  type QuantCheck,
+  type QuantCheckThresholds,
+  type QuantMetric,
+  type QuantSampleSection,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import { percent } from './metrics.js';
 
@@ -80,8 +87,14 @@ export function checksOf(result: Checked, sections: Sections | null, thresholds:
     );
   }
 
-  // Bars: time bars built from the exchange's own trades, the standard kind; no range, renko or tick bars are offered.
-  checks.push({ name: 'bar_type', status: 'clear', threshold: null, evidence: { barSize: result.coverage.barSize, kind: 'time' } });
+  // Bars: time bars built from the exchange's own trades; a bar size outside the standard time sizes warns.
+  const standard = (QUANT_BAR_SIZES as readonly string[]).includes(result.coverage.barSize);
+  checks.push({
+    name: 'bar_type',
+    status: standard ? 'clear' : 'warning',
+    threshold: null,
+    evidence: { barSize: result.coverage.barSize, kind: standard ? 'time' : 'non_standard' },
+  });
   checks.push({ name: 'look_ahead', status: 'by_construction', threshold: null, evidence: { rule: 'closed_bars_only' } });
   checks.push({ name: 'repainting', status: 'by_construction', threshold: null, evidence: { rule: 'stored_run_immutable' } });
   return checks;

@@ -256,6 +256,8 @@ const en = {
   na_not_counted: 'This run was not counted.',
   na_too_few_bars: 'The window has too few bars to start one bar later.',
   na_return_undefined: 'The run has no return to compare.',
+  na_other: 'Not checked ({reason}).',
+  d_bar_type_other: 'Bars of {barSize} are not a standard time bar size, so the result may not match the market’s own bars.',
   na_not_run: 'This run was stored before the check existed; run it again to make it.',
 } as const;
 

@@ -472,10 +472,6 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
 type MetricKey = keyof QuantBacktestMetrics['returns'] | keyof QuantBacktestMetrics['risk'] | keyof QuantBacktestMetrics['trades'];
 const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_equity_points', 'zero_base'] as const;
 
-/**
- * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
- * could not define shows the reason in words, never a zero.
- */
 const NOT_CHECKED = ['not_split', 'section_undefined', 'not_counted', 'too_few_bars', 'return_undefined', 'not_run'] as const;
 
 /** Every check the service made on the run, with what it measured; nothing is folded away or hidden. */
@@ -485,7 +481,9 @@ function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   const detail = (check: QuantCheck): string => {
     if (check.status === 'not_applicable') {
       const reason = check.evidence.reason ?? '';
-      return (NOT_CHECKED as readonly string[]).includes(reason) ? t(`na_${reason as (typeof NOT_CHECKED)[number]}`) : reason;
+      return (NOT_CHECKED as readonly string[]).includes(reason)
+        ? t(`na_${reason as (typeof NOT_CHECKED)[number]}`)
+        : t('na_other', { reason });
     }
     switch (check.name) {
       case 'sample_gap':
@@ -504,7 +502,9 @@ function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
           shift: figure(check, 'shiftPercent'),
         });
       case 'bar_type':
-        return t('d_bar_type', { barSize: figure(check, 'barSize') });
+        return check.evidence.kind === 'time'
+          ? t('d_bar_type', { barSize: figure(check, 'barSize') })
+          : t('d_bar_type_other', { barSize: figure(check, 'barSize') });
       case 'look_ahead':
         return t('d_look_ahead');
       case 'repainting':
@@ -536,6 +536,10 @@ function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
   );
 }
 
+/**
+ * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
+ * could not define shows the reason in words, never a zero.
+ */
 function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
   const { t } = backtestCopy.useCopy();
   const reasonText = (reason: string) =>

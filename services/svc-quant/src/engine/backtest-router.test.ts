@@ -13,7 +13,7 @@ import { trackRun } from '../runs/track.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
 import { HISTORY_BARS_BACK, tradeFeePort, tradeHistoryPort, type FeePort, type HistoryPort } from './ports.js';
-import { NO_JUDGEMENT, type Judgement } from './run.js';
+import { NO_JUDGEMENT, prepareBacktest, type Judgement } from './run.js';
 
 const SECRET = 'a-quant-bar-backtest-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
@@ -426,6 +426,20 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     });
     expect(second.checks.find((check) => check.name === 'variant_count')).toMatchObject({ status: 'warning', evidence: { variants: '2' } });
     expect((await a.backtest.result({ runId: second.runId })).checks).toEqual(second.checks);
+  });
+
+  it('keeps the run key when the owner changes a criterion or a threshold, so the same inputs stay one variant', async () => {
+    const fees: FeePort = { wired: true, fee: async () => ({ version: 'TEST-1', makerBps: 5, takerBps: 10 }) };
+    const strategy = { id: 'strategy-1', version: 1, modules: RULES, risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    const input = { ...request(strategy.id), split: { preset: '1/3' } };
+    const before = await prepareBacktest(input, strategy, fees, NOW, NO_JUDGEMENT);
+    const after = await prepareBacktest(input, strategy, fees, NOW, {
+      ...NO_JUDGEMENT,
+      criteria: { minTrades: '1', minReturnPercent: '0', maxDrawdownPercent: '10', maxShortfallPercent: '5' },
+      checks: { maxSampleGapPercent: '5', maxVariants: '3', maxOffsetShiftPercent: '1' },
+    });
+    expect(after.key).toBe(before.key);
+    expect(after.checks.maxVariants).toBe('3');
   });
 
   it('refuses a replay whose stored result no longer reads, and runs nothing again', async () => {

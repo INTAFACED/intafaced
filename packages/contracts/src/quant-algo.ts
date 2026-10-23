@@ -406,7 +406,10 @@ export const quantBacktestResultSchema = z.object({
   holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
   /** Fields the request sent that only the service may set; they were ignored. */
   ignoredInputs: z.array(z.string()),
-  /** The same rules and costs run again from one bar later, to show how much the result leans on where it starts. */
+  /**
+   * The same rules and costs run again from one bar after the window opens, to show how much the result leans on where
+   * it starts. Null when it was not made; the `bar_offset` check says why (too few bars, or a run stored before it).
+   */
   offsetRun: z.object({ from: z.string(), returnPercent: quantMetricSchema, trades: z.number().int().nonnegative() }).nullable(),
   /** Overfitting, look-ahead and repainting checks, derived on every read; every check is listed, none is hidden. */
   checks: z.array(quantCheckSchema),

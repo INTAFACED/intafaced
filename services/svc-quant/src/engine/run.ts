@@ -261,11 +261,9 @@ export async function prepareBacktest(
   };
   // The split and the holdout choice are part of the window; the criteria decide the verdict, so a changed one is a new run.
   const windowHash = split || holdout.enforced ? hash([fromMs, toMs, split, holdout.enforced]) : hash([fromMs, toMs]);
-  const judged = [
-    ...(split ? [prepared.criteria] : []),
-    ...(Object.values(prepared.checks).some((v) => v !== null) ? [prepared.checks] : []),
-  ];
-  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet, ...judged]);
+  // The owner's criteria and thresholds are stored with the run, not hashed into its key: the same inputs after the owner
+  // changes them read back the stored run, judged as it was, and stay one variant.
+  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
   return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
