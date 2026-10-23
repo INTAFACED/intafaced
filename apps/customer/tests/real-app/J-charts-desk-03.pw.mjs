@@ -122,6 +122,8 @@ test('J-charts-desk-03 #5 sets the legend to always show: the values of the last
   await expect(row(page, 'sma-1').getByText(/^\d+\.\d\d$/)).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
   const closes = (await candles()).map((r) => Number(r[4]));
+  // The OHLC legend of the chart shows the last bar with no pointer over the chart, and the indicator values sit beside it.
+  await expect(page.getByTestId('chart-legend')).toBeVisible();
   await expect(row(page, 'sma-1')).toContainText(sma(closes, 20).toFixed(2));
 });
 

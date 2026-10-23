@@ -140,10 +140,14 @@ async function addStudy(search: string, name: string) {
   await click(buttonNamed(`Add ${name}`));
 }
 
+const EMPTY = JSON.stringify({ studies: [], remembered: {}, legendAlways: false });
 beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
   localStorage.clear();
+  // Most tests start from a workbench with no studies; the Volume default has its own tests below.
+  localStorage.setItem('charts-studies:u1:main', EMPTY);
+  localStorage.setItem('charts-studies:u1:w2', EMPTY);
   fake = fakeHost();
   world.tape = { status: 'empty' };
   world.higher = { status: 'empty' };
@@ -153,6 +157,19 @@ afterEach(() => {
   root = null;
   host.remove();
   document.body.innerHTML = '';
+});
+
+describe('a fresh workbench', () => {
+  it('starts with Volume on, and removing it is kept', async () => {
+    localStorage.clear();
+    await render();
+    expect(chips()).toEqual(['Volume']);
+    expect(fake.made.filter((s) => !s.removed && s.pane === 1)).toHaveLength(1);
+    await click(buttonNamed('Settings for Volume'));
+    await click(buttonNamed('Remove study'));
+    expect(chips()).toEqual([]);
+    expect(store().studies).toEqual([]);
+  });
 });
 
 describe('the indicator dialog', () => {
@@ -327,10 +344,10 @@ describe('refusals say what is missing', () => {
     expect(legend()).toContain('Higher bars read: 60');
   });
 
-  it('studies belong to one workbench: another workbench starts empty', async () => {
+  it('studies belong to one workbench: another workbench keeps its own list', async () => {
     await render({ workbench: 'w2' });
     await addStudy('sma', 'Simple moving average');
-    expect(store('w2').studies).toHaveLength(1);
-    expect(localStorage.getItem('charts-studies:u1:main')).toBeNull();
+    expect(store('w2').studies.map((s: { kind: string }) => s.kind)).toEqual(['sma']);
+    expect(store('main').studies).toEqual([]);
   });
 });

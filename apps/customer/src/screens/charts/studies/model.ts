@@ -31,6 +31,13 @@ export interface StudyStore {
 
 export const EMPTY_STORE: StudyStore = { studies: [], remembered: {}, legendAlways: false };
 
+/** A workbench nobody has studied yet: Volume is on, as the desk's first chart always had it. Removing it is kept like any change. */
+export const FRESH_STORE: StudyStore = {
+  studies: [{ id: 'volume-1', kind: 'volume', inputs: {}, color: 'ma-1', hiddenOn: [] }],
+  remembered: {},
+  legendAlways: false,
+};
+
 export const defaultInputs = (kind: StudyKind): Record<string, string> =>
   Object.fromEntries(studyDef(kind).inputs.map((input) => [input.key, input.default]));
 

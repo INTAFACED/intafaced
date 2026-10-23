@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { usePreferences } from '../../shared/preferences';
+import type { Candle } from '../../data/types';
 import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
 import { zoneName } from '../trade/desk/time';
 import type { DeskMarket } from '../trade/desk/market';

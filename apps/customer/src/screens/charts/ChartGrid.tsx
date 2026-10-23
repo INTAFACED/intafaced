@@ -36,6 +36,7 @@ import {
   type SyncSet,
 } from './grid';
 import { MarketChartWidget, type WidgetProps } from './MarketChartWidget';
+import { StudiesBar } from './studies/StudiesBar';
 import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerValues } from './owner-values';
 import { chartsHref, type WorkbenchSetting } from './workbench';
 
@@ -408,6 +409,15 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   addons={i === 0 ? mainAddons : undefined}
                   command={commands[i] ?? null}
                   markets={markets}
+                  addons={(host, bars) => (
+                    <StudiesBar
+                      host={host}
+                      market={cellMarket}
+                      interval={cell.interval}
+                      bars={bars}
+                      workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                    />
+                  )}
                 />
               ) : (
                 <StateBlock kind="empty" title={t('Market not found title')} body={t('Market not found body')} />

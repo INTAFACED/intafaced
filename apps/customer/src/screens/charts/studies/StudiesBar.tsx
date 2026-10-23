@@ -19,7 +19,7 @@ import { ALL_INTERVALS, intervalLabel } from '../workbench';
 import { studyDef, type StudyKind } from './catalogue';
 import { computeStudy, type Refusal, type SeriesOut, type StudyContext, type StudyResult } from './compute';
 import {
-  EMPTY_STORE,
+  FRESH_STORE,
   addStudy,
   isStudyStore,
   removeStudy,
@@ -226,7 +226,7 @@ export function StudiesBar({ host, market, interval, bars, workbench = 'main' }:
   const words = useWords();
   const { t, word } = words;
   const { userId } = useSession();
-  const [store, setStore] = useDeviceSetting<StudyStore>(storeKey(userId, workbench), EMPTY_STORE, isStudyStore);
+  const [store, setStore] = useDeviceSetting<StudyStore>(storeKey(userId, workbench), FRESH_STORE, isStudyStore);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [showWindow, setShowWindow] = useState(false);
