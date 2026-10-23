@@ -8,9 +8,21 @@ import { listedSymbol } from './model';
 
 export const EXPORT_HEADER = ['symbol', 'section', 'last', 'change_pct_24h', 'high_24h', 'low_24h', 'volume_24h'] as const;
 
+/** Largest import file read, in bytes. A bigger file is refused before it is read. */
+export const IMPORT_MAX_BYTES = 256 * 1024;
+/** Most data rows read from one import. A file with more is refused whole, so nothing is half added. */
+export const IMPORT_MAX_ROWS = 1000;
+/** Longest refused value echoed back to the person. */
+const REFUSED_VALUE_MAX = 64;
+
 function cell(value: string | null | undefined): string {
   const text = value ?? '';
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** A typed text cell that a spreadsheet would read as a formula gets a leading apostrophe. */
+function textCell(value: string): string {
+  return cell(/^[=+\-@\t\r]/.test(value) ? `'${value}` : value);
 }
 
 /** The list in section order: one row per symbol. A quote with no value is an empty cell, not a zero. */
@@ -22,7 +34,7 @@ export function exportListCsv(list: WatchlistValue, tickers: Readonly<Record<str
       lines.push(
         [
           cell(symbol),
-          cell(section.title),
+          textCell(section.title),
           cell(ticker?.last),
           cell(ticker?.changePct24h),
           cell(ticker?.high24h),
@@ -74,6 +86,8 @@ export interface ImportResult {
   /** Rows that named a symbol already on the list (or repeated in the file). Not an error. */
   already: number;
   refused: ImportRefusal[];
+  /** The file has more data rows than IMPORT_MAX_ROWS; nothing was read from it. */
+  tooMany: boolean;
 }
 
 /**
@@ -86,18 +100,21 @@ export function readImportCsv(text: string, markets: readonly MarketRow[], onLis
   const refused: ImportRefusal[] = [];
   let already = 0;
   const lines = text.split(/\r?\n/);
+  const dataRows = lines.filter((raw, index) => raw.trim() && !(index === 0 && splitCsvLine(raw)[0]?.trim().toLowerCase() === 'symbol'));
+  if (dataRows.length > IMPORT_MAX_ROWS) return { accepted, already, refused, tooMany: true };
   lines.forEach((raw, index) => {
     if (!raw.trim()) return;
     const value = splitCsvLine(raw)[0]?.trim() ?? '';
     if (index === 0 && value.toLowerCase() === 'symbol') return;
     if (!value) return;
+    const shown = value.length > REFUSED_VALUE_MAX ? `${value.slice(0, REFUSED_VALUE_MAX)}…` : value;
     if (!/^[A-Za-z0-9._-]{1,32}[/-][A-Za-z0-9._:-]{1,32}$/.test(value)) {
-      refused.push({ line: index + 1, value, reason: 'not a symbol' });
+      refused.push({ line: index + 1, value: shown, reason: 'not a symbol' });
       return;
     }
     const market = listedSymbol(markets, value);
     if (!market) {
-      refused.push({ line: index + 1, value, reason: 'unknown symbol' });
+      refused.push({ line: index + 1, value: shown, reason: 'unknown symbol' });
       return;
     }
     if (onList.has(market.symbol) || seen.has(market.symbol)) {
@@ -107,7 +124,7 @@ export function readImportCsv(text: string, markets: readonly MarketRow[], onLis
     seen.add(market.symbol);
     accepted.push(market.symbol);
   });
-  return { accepted, already, refused };
+  return { accepted, already, refused, tooMany: false };
 }
 
 /** The one line a person reads: "2 added, 1 refused: unknown symbol". Blank counts are left out. */
