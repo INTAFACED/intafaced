@@ -62,3 +62,27 @@ export async function setHelpCentre(changes, reason) {
     'setHelpCentre',
   );
 }
+
+/** Create or change a help library category as the support lead. */
+export async function saveCategory(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbSaveCategory', row, await leadToken()), 'kbSaveCategory');
+}
+
+/** Create or change a section under a category as the support lead. */
+export async function saveSection(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbSaveSection', row, await leadToken()), 'kbSaveSection');
+}
+
+/** Publish an article typed as text into a section. Returns the stored version. */
+export async function publishText(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'kbPublishText', row, await leadToken()), 'kbPublishText');
+}
+
+/** Take an article off the help centre (a new hidden version). */
+export async function unpublish(id, baseRevision) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'unpublishKb', { id, baseRevision }, await leadToken()), 'unpublishKb');
+}

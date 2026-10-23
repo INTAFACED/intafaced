@@ -45,7 +45,12 @@ beforeEach(() => {
   history.replaceState(null, '', '/help');
   world.signedIn = false;
   world.awaiting = { ok: true, data: { count: 0, longestWaiting: null } };
-  world.query = async (_module, procedure) => (procedure === 'awaitingMine' ? world.awaiting : { ok: true, data: [] });
+  world.query = async (_module, procedure) =>
+    procedure === 'awaitingMine'
+      ? world.awaiting
+      : procedure === 'kbLibrary'
+        ? { ok: true, data: { categories: [] } }
+        : { ok: true, data: [] };
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -135,7 +140,7 @@ describe('the help centre front door', () => {
     const asked: string[] = [];
     world.query = async (_m, procedure) => {
       asked.push(procedure);
-      return { ok: true, data: [] };
+      return procedure === 'kbLibrary' ? { ok: true, data: { categories: [] } } : { ok: true, data: [] };
     };
     await mount();
     expect(asked).not.toContain('awaitingMine');

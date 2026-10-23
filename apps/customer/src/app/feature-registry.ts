@@ -524,7 +524,7 @@ export const features: readonly Feature[] = [
   {
     id: 'help-support',
     label: 'Help and Support',
-    paths: ['/help', '/helplist', '/helpdetail', '/support'],
+    paths: ['/help', '/helplist', '/helpdetail', '/help/category/:id', '/help/section/:id', '/support'],
     status: 'live',
     reason: 'svc-support answers on the local stack',
     unlock: 'already live',

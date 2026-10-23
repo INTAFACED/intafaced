@@ -9,6 +9,7 @@ import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlSurveyBook } from './survey-settings.js';
 import { SqlHelpCentreBook } from './help-centre.js';
+import { SqlKbLibraryBook } from './kb-library.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
@@ -89,6 +90,9 @@ await sql`SELECT 1 FROM support.survey_log LIMIT 1`.catch(() => {
 });
 await sql`SELECT 1 FROM support.help_centre_log LIMIT 1`.catch(() => {
   throw new Error('support.help_centre_log is missing — apply migration 0031 before starting svc-support');
+});
+await sql`SELECT 1 FROM support.kb_library_log LIMIT 1`.catch(() => {
+  throw new Error('support.kb_library_log is missing — apply migration 0032 before starting svc-support');
 });
 
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
@@ -177,6 +181,7 @@ const appRouter = createSupportRouter(
   new SqlSurveyBook(sql, undefined, env.SUPPORT_SURVEY_CAP ?? null),
   createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
   new SqlHelpCentreBook(sql),
+  new SqlKbLibraryBook(sql),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,

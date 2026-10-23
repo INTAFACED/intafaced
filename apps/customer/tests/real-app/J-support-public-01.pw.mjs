@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { contactChannels, helpCentre, setHelpCentre } from './help-centre.mjs';
+import { contactChannels, helpCentre, publishText, saveCategory, saveSection, setHelpCentre, unpublish } from './help-centre.mjs';
 import { EDGE, ORIGIN } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
 // centre. Tests titled "J-support-public-01 #<n>" prove a whole step. A step that changes an owner setting puts back what
 // it found, so the stack is left as the run met it.
 const J = 'J-support-public-01';
+const RUN = Date.now().toString(36);
 
 test.describe.configure({ mode: 'serial' });
 
@@ -38,7 +39,7 @@ test(`${J} #1 /help is one front door: search, categories, the request button an
   const main = page.locator('main');
   await expect(main.getByRole('heading', { level: 1, name: 'How can we help?' })).toBeVisible();
   await expect(main.getByLabel('Search answers')).toBeVisible();
-  await expect(main.getByRole('group', { name: /categor|topic/i })).toBeVisible();
+  await expect(main.getByRole('navigation', { name: 'Browse by topic' })).toBeVisible();
   await expect(main.getByRole('button', { name: 'Send a request' })).toBeVisible();
   await expectContactCard(page);
   // Signed out, the request button asks for a sign-in in place; no mail draft stands in for the form.
@@ -75,5 +76,78 @@ test(`${J} #2 with the help centre switched off, /help says so, keeps the contac
   const page = await visitor(browser);
   await page.goto('/help');
   await expect(page.locator('main .help__row').first()).toBeVisible();
+  await page.context().close();
+});
+
+test(`${J} #3 browses a category and then a section: only that section's published answers, and an honest empty section`, async ({
+  browser,
+}) => {
+  // The run's own topic, made by the support lead: one category, a section with two answers (one then taken down) and an
+  // empty section. Retired at the end, so the help centre is left as the run found it.
+  const category = { id: `j01-${RUN}`, name: `TEST ${J} ${RUN} money`, position: 9000, reason: `TEST ${J} #3` };
+  const filled = { id: `j01-${RUN}-wd`, categoryId: category.id, name: `TEST withdrawals ${RUN}`, position: 0, reason: category.reason };
+  const empty = { id: `j01-${RUN}-dep`, categoryId: category.id, name: `TEST deposits ${RUN}`, position: 1, reason: category.reason };
+  await saveCategory(category);
+  try {
+    await saveSection(filled);
+    await saveSection(empty);
+    const shown = await publishText({
+      id: `j01-${RUN}-time`,
+      title: `TEST How long a withdrawal takes ${RUN}`,
+      body: 'TEST A withdrawal is sent once it is approved.\n\nPaste <script>window.__j01 = 1</script> nowhere: this line is text.',
+      language: 'en',
+      sectionId: filled.id,
+      baseRevision: 0,
+    });
+    const hidden = await publishText({
+      id: `j01-${RUN}-old`,
+      title: `TEST An answer taken down ${RUN}`,
+      body: 'TEST This answer is unpublished before the visitor arrives.',
+      language: 'en',
+      sectionId: filled.id,
+      baseRevision: 0,
+    });
+    await unpublish(hidden.id, hidden.revision);
+
+    const page = await visitor(browser);
+    await page.goto('/help');
+    const topics = page.getByRole('navigation', { name: 'Browse by topic' });
+    await topics.getByRole('link', { name: category.name }).click();
+    await expect(page).toHaveURL(new RegExp(`/help/category/${category.id}$`));
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: category.name })).toBeVisible();
+    const rows = main.locator('.help__row');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.filter({ hasText: filled.name })).toContainText('Published answers: 1');
+    await expect(rows.filter({ hasText: empty.name })).toContainText('Published answers: 0');
+
+    await rows
+      .filter({ hasText: filled.name })
+      .getByRole('link', { name: /Open section/ })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/help/section/${filled.id}$`));
+    await expect(main.getByRole('heading', { level: 1, name: filled.name })).toBeVisible();
+    await expect(main.getByRole('link', { name: category.name })).toBeVisible();
+    await expect(main.locator('.help__row')).toHaveCount(1);
+    await expect(main.locator('.help__row h2')).toHaveText(shown.title);
+    await expect(main.getByText('An answer taken down')).toHaveCount(0);
+
+    // The answer reads as text: the tag in the body is characters on the page and never runs.
+    await main.getByRole('link', { name: `Read answer: ${shown.title}` }).click();
+    await expect(main.getByRole('heading', { level: 1, name: shown.title })).toBeVisible();
+    await expect(main.locator('.help__body')).toContainText('<script>window.__j01 = 1</script>');
+    expect(await page.evaluate(() => window.__j01)).toBeUndefined();
+
+    await page.goto(`/help/section/${empty.id}`);
+    await expect(main.getByRole('heading', { level: 1, name: empty.name })).toBeVisible();
+    await expect(main.getByText('No answers in this section')).toBeVisible();
+    await expect(main.locator('.help__row')).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} #3 retire the run's topic` });
+  }
+  const page = await visitor(browser);
+  await page.goto(`/help/category/${category.id}`);
+  await expect(page.locator('main').getByTestId('help-topic-missing')).toBeVisible();
   await page.context().close();
 });

@@ -39,6 +39,8 @@ import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
 import { surveyProcedures } from './survey-router.js';
 import { MemoryHelpCentreBook, type HelpCentreBook } from './help-centre.js';
 import { helpCentreGate, helpCentreProcedures } from './help-centre-router.js';
+import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
+import { kbLibraryProcedures } from './kb-library-router.js';
 import { kbFeedbackProcedures } from './kb-feedback-router.js';
 import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
@@ -122,7 +124,8 @@ function mapError(err: unknown): never {
       err.code === 'support.feedback_rate_limit_unset' ||
       err.code === 'support.comment_cap_unset' ||
       err.code === 'support.comment_cap_reached' ||
-      err.code === 'support.assistant_model_unset'
+      err.code === 'support.assistant_model_unset' ||
+      err.code === 'support.kb_section_unknown'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }
@@ -174,6 +177,7 @@ export function createSupportRouter(
   surveys: SurveyBook = new MemorySurveyBook(),
   surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   helpCentre: HelpCentreBook = new MemoryHelpCentreBook(),
+  kbLibrary: KbLibraryBook = new MemoryKbLibraryBook(),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -182,6 +186,7 @@ export function createSupportRouter(
     ...surveyProcedures(surveys, support, surveyApprovals),
     ...helpCentreProcedures(helpCentre, support),
     ...kbFeedbackProcedures(support, mapError, helpCentreOpen),
+    ...kbLibraryProcedures(kbLibrary, support, helpCentreOpen, mapError),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

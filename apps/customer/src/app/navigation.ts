@@ -36,6 +36,8 @@ export const rooms: readonly Room[] = [
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/help/category/:id', title: 'Help topic', description: 'Sections of one help topic', area: 'public', hidden: true },
+  { path: '/help/section/:id', title: 'Help section', description: 'Published answers in one section', area: 'public', hidden: true },
   { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
   { path: '/status/confirm', title: 'Confirm status updates', description: 'Start status emails', area: 'public', hidden: true },
   { path: '/status/manage', title: 'Status updates', description: 'Choose what you are told about', area: 'public', hidden: true },
