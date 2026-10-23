@@ -106,6 +106,10 @@
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
     },
+    "./watchlists-preferences": {
+      "types": "./dist/watchlists-preferences.d.ts",
+      "default": "./dist/watchlists-preferences.js"
+    },
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"

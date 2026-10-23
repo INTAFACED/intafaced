@@ -30,6 +30,21 @@
       "service": "identity",
       "value": "8",
       "note": "Eight characters per short referral code."
+    },
+    "IDENTITY_WATCHLIST_LIST_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: named watchlists per account. Not an owner limit."
+    },
+    "IDENTITY_WATCHLIST_SYMBOL_CAP": {
+      "service": "identity",
+      "value": "100",
+      "note": "TEST: markets per watchlist. Not an owner limit."
+    },
+    "IDENTITY_SAVED_SCREEN_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: saved screens per account. Not an owner limit."
     }
   }
 }
