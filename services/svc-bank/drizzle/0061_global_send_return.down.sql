@@ -8,7 +8,7 @@ UPDATE "bank"."global_sends" SET "status" = 'sent' WHERE "status" = 'returned';
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "recall_requested_at";
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "recall_reason";
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "refunded_at";
-ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "refunded_by";
+ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "refund_operator_id";
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "returned_at";
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "returned_by";
 ALTER TABLE "bank"."global_sends" DROP COLUMN IF EXISTS "return_ref";

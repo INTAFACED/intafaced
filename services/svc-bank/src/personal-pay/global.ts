@@ -124,7 +124,7 @@ type SendRow = {
   return_ref: string | null;
   returned_by: string | null;
   returned_at: Date | null;
-  refunded_by: string | null;
+  refund_operator_id: string | null;
   refunded_at: Date | null;
   recall_reason: string | null;
   recall_requested_at: Date | null;
@@ -136,7 +136,7 @@ type SendRow = {
 const SEND_COLUMNS = [
   'id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id, country, delivery_method',
   'compliance, status, failure_code, failure_blocker, provider_ref, quote_rate, quote_fee, quote_fee_asset, quote_receive',
-  'quote_valid_until, quote_eta, ledger_tx_id, cancelled_by, return_ref, returned_by, returned_at, refunded_by, refunded_at',
+  'quote_valid_until, quote_eta, ledger_tx_id, cancelled_by, return_ref, returned_by, returned_at, refund_operator_id, refunded_at',
   'recall_reason, recall_requested_at, created_at, updated_at',
 ].join(', ');
 
@@ -759,7 +759,7 @@ export class GlobalSendService {
       throw personalPayError('bank.global_outcome_unknown');
     }
     await this.sql`
-      UPDATE bank.global_sends SET status = 'refunded', refunded_by = ${operatorId}, refunded_at = now(), updated_at = now()
+      UPDATE bank.global_sends SET status = 'refunded', refund_operator_id = ${operatorId}, refunded_at = now(), updated_at = now()
       WHERE id = ${row.id} AND status = 'returned'
     `;
     const after = await this.mustSend(row.id);

@@ -6,7 +6,7 @@ ALTER TABLE "bank"."global_sends" ADD CONSTRAINT "global_sends_status_ck"
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "return_ref" text;
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "returned_by" text;
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "returned_at" timestamptz;
-ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "refunded_by" text;
+ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "refund_operator_id" text;
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "refunded_at" timestamptz;
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "recall_reason" text;
 ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "recall_requested_at" timestamptz;
@@ -15,7 +15,7 @@ ALTER TABLE "bank"."global_sends" ADD COLUMN IF NOT EXISTS "recall_requested_at"
 ALTER TABLE "bank"."global_sends" ADD CONSTRAINT "global_sends_return_ck" CHECK (
   ("status" IN ('returned', 'refunded')) = ("return_ref" IS NOT NULL AND "returned_by" IS NOT NULL AND "returned_at" IS NOT NULL)
   AND ("status" NOT IN ('returned', 'refunded') OR "ledger_tx_id" IS NOT NULL)
-  AND ("status" = 'refunded') = ("refunded_by" IS NOT NULL AND "refunded_at" IS NOT NULL)
+  AND ("status" = 'refunded') = ("refund_operator_id" IS NOT NULL AND "refunded_at" IS NOT NULL)
 );
 ALTER TABLE "bank"."global_sends" ADD CONSTRAINT "global_sends_recall_ck" CHECK (
   ("recall_reason" IS NULL) = ("recall_requested_at" IS NULL)
