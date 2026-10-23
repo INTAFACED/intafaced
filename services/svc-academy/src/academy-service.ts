@@ -1684,7 +1684,9 @@ export class AcademyService {
 
   /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
   async myLearning(userId: string): Promise<AcademyMyCourse[]> {
-    const enrolments = (await this.customer.myEnrollments(userId)).filter((row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0);
+    const enrolments = (await this.customer.myEnrollments(userId)).filter(
+      (row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0,
+    );
     if (enrolments.length === 0) return [];
     const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
     return enrolments.map((row) => myCourseView(row.pathSlug as CurriculumPath, row, completed, state.lastItemSlug));
