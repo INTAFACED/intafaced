@@ -397,6 +397,8 @@ describe('refusal wording', () => {
     expect(academyRefusalKey(failure('academy.video_s3_region_unset'))).toBe('refVideoRegionUnset');
     expect(academyRefusalKey(failure('academy.video_grant_required'))).toBe('refVideoGrantRequired');
     expect(academyRefusalKey(failure('academy.video_not_found'))).toBe('refVideoNotFound');
+    expect(academyRefusalKey(failure('academy.sign_in_required'))).toBe('refSignInRequired');
+    expect(academyRefusalKey(failure('academy.curriculum_not_found'))).toBe('refCurriculumNotFound');
     expect(academyRefusalKey(failure('edge.upstream_unavailable'))).toBeNull();
     expect(academyRefusalKey(failure(undefined, 'The service could not be reached.'))).toBeNull();
     expect(academyRefusalText(failure('PRECONDITION_FAILED'), academyLmsCopy.t)).toBeNull();

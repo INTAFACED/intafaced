@@ -162,6 +162,8 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
+  /** The item has a prerequisite, so whether it is open depends on the reader's own record: sign in. */
+  | 'academy.sign_in_required'
   | 'academy.holder_name_invalid'
   /** AC-articles-02: a slug equal to a reserved academy tab. */
   | 'academy.slug_reserved';
@@ -263,6 +265,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_rate_unset',
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
+  'academy.sign_in_required',
   'academy.holder_name_invalid',
   'academy.slug_reserved',
 ] as const;
