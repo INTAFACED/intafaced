@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { InsufficientFundsError, formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
@@ -27,7 +27,7 @@ import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './sen
  * the bank exists.
  */
 
-const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed'] as const;
+const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled'] as const;
 export type GlobalSendStatus = (typeof SEND_STATUSES)[number];
 
 export interface RecipientView {
@@ -61,8 +61,19 @@ export interface SendView {
   readonly quoteValidUntil: string | null;
   readonly quoteEta: string | null;
   readonly ledgerTxId: string | null;
+  /** Who cancelled a `cancelled` send: its customer, or the owner's auto-cancel window. */
+  readonly cancelledBy: 'customer' | 'auto' | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/** A receipt for a send that left: the text, its SHA-256 and an HMAC-SHA256 signature over the same bytes. */
+export interface SendReceipt {
+  readonly fileName: string;
+  readonly text: string;
+  readonly ledgerTxId: string;
+  readonly sha256: string;
+  readonly signature: string;
 }
 
 type RecipientRow = {
@@ -102,6 +113,7 @@ type SendRow = {
   quote_valid_until: Date | null;
   quote_eta: string | null;
   ledger_tx_id: string | null;
+  cancelled_by: 'customer' | 'auto' | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -227,6 +239,11 @@ function recipientView(row: RecipientRow): RecipientView {
   };
 }
 
+/** The receipt signing key, derived from the service secret for receipts alone, so no other key is reused. */
+function receiptKey(secret: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), 'bank.global.receipt.v1', 32));
+}
+
 function sendView(row: SendRow): SendView {
   return {
     id: row.id,
@@ -248,6 +265,7 @@ function sendView(row: SendRow): SendView {
     quoteValidUntil: row.quote_valid_until ? row.quote_valid_until.toISOString() : null,
     quoteEta: row.quote_eta,
     ledgerTxId: row.ledger_tx_id,
+    cancelledBy: row.cancelled_by,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -265,6 +283,8 @@ export class GlobalSendService {
     payeeControlsJson?: string,
     /** Owner-published exchange payment allowance (`BANK_EXCHANGE_ALLOWANCE_JSON`). Blank refuses every send. */
     exchangeAllowanceJson?: string,
+    /** The service secret a receipt's signing key is derived from. Blank, no receipt is made. */
+    private readonly receiptSecret?: string,
   ) {
     this.fieldRules = parseSendFieldRules(fieldRulesJson);
     this.payeeControls = parsePayeeControls(payeeControlsJson);
@@ -483,7 +503,7 @@ export class GlobalSendService {
           SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
                  country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
                  quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, created_at, updated_at
+                 ledger_tx_id, cancelled_by, created_at, updated_at
           FROM bank.global_sends
           WHERE user_id = ${input.userId} AND (created_at, id) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)
           ORDER BY created_at DESC, id DESC
@@ -493,13 +513,15 @@ export class GlobalSendService {
           SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
                  country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
                  quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, created_at, updated_at
+                 ledger_tx_id, cancelled_by, created_at, updated_at
           FROM bank.global_sends
           WHERE user_id = ${input.userId}
           ORDER BY created_at DESC, id DESC
           LIMIT ${input.limit + 1}
         `;
-    const items = rows.slice(0, input.limit).map(sendView);
+    const page = rows.slice(0, input.limit);
+    await Promise.all(page.map((row) => this.settleCancelled(row)));
+    const items = page.map(sendView);
     const last = rows[input.limit - 1];
     return { items, nextCursor: rows.length > input.limit && last ? encodeCursor(last.created_at, last.id) : null };
   }
@@ -507,7 +529,71 @@ export class GlobalSendService {
   async get(userId: string, id: string): Promise<SendView> {
     const row = await this.sendById(id, userId);
     if (!row) throw personalPayError('bank.global_not_found');
+    await this.settleCancelled(row);
     return sendView(row);
+  }
+
+  /**
+   * A cancelled send keeps nothing. Its forward entry can exist only when a post was already under way as it was held and
+   * cancelled, and the send that posted it turns it back at once; if that reversal failed (or the process stopped first),
+   * any later read or replay finds the entry by its key and turns it back here, through the same occurrence-1 key, so it
+   * credits once however many times it runs. A read never fails on it: a failed reversal is tried again on the next.
+   */
+  private async settleCancelled(row: SendRow): Promise<void> {
+    if (row.status !== 'cancelled') return;
+    await this.reverseCancelled(row).catch(() => undefined);
+  }
+
+  /** Turns back a cancelled send's forward entry when one exists (occurrence 1, keyed by the send). */
+  private async reverseCancelled(row: SendRow): Promise<void> {
+    const forward = await this.ledger.getTxByKey(forwardKey(row.id));
+    if (!forward) return;
+    const railId = this.ports.payout.railId().trim();
+    if (!railId || railId.length > 64) throw personalPayError('bank.global_outcome_unknown');
+    const account = accountForSpace(await this.spaces.get(row.from_space_id));
+    try {
+      await reverseFromRail(this.ledger, row.id, account, railId, canonical(row.amount).amount);
+    } catch {
+      throw personalPayError('bank.global_outcome_unknown');
+    }
+  }
+
+  /**
+   * The signed receipt of a send that left (BK-xfer-08): what was sent, to whom (account masked), at what quote, the
+   * payout reference and the ledger transaction id, with the SHA-256 of the text and an HMAC-SHA256 signature over it
+   * under a key derived from the service secret for receipts alone. The same send always gives the same bytes.
+   */
+  async receipt(userId: string, id: string): Promise<SendReceipt> {
+    const row = await this.sendById(id, userId);
+    if (!row) throw personalPayError('bank.global_not_found');
+    if (!['sent', 'on_the_way', 'arrived'].includes(row.status) || !row.ledger_tx_id) throw personalPayError('bank.receipt_not_ready');
+    const secret = this.receiptSecret?.trim();
+    if (!secret) throw personalPayError('bank.receipt_signing_unset');
+    const to = await this.recipientById(row.recipient_id);
+    // Every value is one line: a control character or line separator in a stored name never adds a line to signed text.
+    const one = (value: string | null) => (value ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').trim();
+    const text = [
+      'INTAFACED receipt: global send',
+      `Send: ${row.id}`,
+      `Created (UTC): ${row.created_at.toISOString()}`,
+      `Status: ${row.status}`,
+      `Sent: ${row.amount} ${row.asset_id}`,
+      `They receive: ${row.quote_receive ?? ''} ${row.to_currency}`,
+      `Rate: ${row.quote_rate ?? ''}`,
+      `Fee: ${row.quote_fee ?? ''} ${row.quote_fee_asset ?? ''}`,
+      `To: ${one(to.name)} · …${one(to.account.slice(-4))} (${one(row.country)}, ${one(row.delivery_method)})`,
+      `Payout reference: ${one(row.provider_ref)}`,
+      `Ledger transaction: ${row.ledger_tx_id}`,
+      '',
+    ].join('\n');
+    const bytes = Buffer.from(text, 'utf8');
+    return {
+      fileName: `receipt-${row.id}.txt`,
+      text,
+      ledgerTxId: row.ledger_tx_id,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      signature: createHmac('sha256', receiptKey(secret)).update(bytes).digest('hex'),
+    };
   }
 
   async opsSummary(now = new Date()): Promise<{
@@ -560,7 +646,7 @@ export class GlobalSendService {
       SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
              country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
              quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-             ledger_tx_id, created_at, updated_at
+             ledger_tx_id, cancelled_by, created_at, updated_at
       FROM bank.global_sends
       WHERE status = 'failed'
       ORDER BY created_at DESC, id DESC
@@ -572,6 +658,7 @@ export class GlobalSendService {
   async opsGet(id: string): Promise<SendView & { userId: string }> {
     const row = await this.sendById(id);
     if (!row) throw personalPayError('bank.global_not_found');
+    await this.settleCancelled(row);
     return { ...sendView(row), userId: row.user_id };
   }
 
@@ -582,6 +669,10 @@ export class GlobalSendService {
     now: Date,
   ): Promise<SendView> {
     if (row.status === 'failed') throw personalPayError(row.failure_code ?? 'bank.global_payout_unset');
+    if (row.status === 'cancelled') {
+      await this.reverseCancelled(row);
+      return sendView(row);
+    }
     if (row.status !== 'submitted') return sendView(row);
 
     if (this.ports.corridors.status() !== 'live') return this.definite(row, 'bank.global_corridors_unset');
@@ -654,7 +745,9 @@ export class GlobalSendService {
     let txId = row.ledger_tx_id;
     // The TEST stand-in's screening: a send it marks is put on hold here, with nothing posted, and waits in the compliance
     // queue. A send screened before (its hold released) carries on.
-    if (!txId && this.screening && this.ports.review?.waits({ assetId: row.asset_id, amount: row.amount })) {
+    if (!txId && this.ports.review?.waits({ assetId: row.asset_id, amount: row.amount })) {
+      // A screening port with nobody to place its hold fails closed: the send stays submitted and nothing posts.
+      if (!this.screening) throw personalPayError('bank.global_payout_unusable');
       if (await this.screening(row.id)) return sendView((await this.sendById(row.id)) ?? row);
     }
     if (!txId) {
@@ -672,6 +765,12 @@ export class GlobalSendService {
         // A hold that landed while the forward entry was being posted stands: the debit is recorded on the held send and no
         // payout is made until someone else releases it. Release then carries on from here without posting again.
         const after = await this.sendById(row.id);
+        if (after?.status === 'cancelled') {
+          // Held and cancelled in the instant of posting: the cancelled send keeps nothing, so the entry is turned back. If
+          // this fails, the next read or replay of the send turns it back (settleCancelled).
+          await this.reverseCancelled(after);
+          return sendView(after);
+        }
         if (after && after.status !== 'submitted') return sendView(after);
       } catch (err) {
         if (err instanceof InsufficientFundsError) return this.definite(row, 'bank.global_insufficient_funds', err.message);
@@ -841,7 +940,7 @@ export class GlobalSendService {
       SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
              country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
              quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-             ledger_tx_id, created_at, updated_at
+             ledger_tx_id, cancelled_by, created_at, updated_at
       FROM bank.global_sends WHERE user_id = ${userId} AND idempotency_key = ${idempotencyKey}
     `;
     return rows[0] ?? null;
@@ -853,14 +952,14 @@ export class GlobalSendService {
           SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
                  country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
                  quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, created_at, updated_at
+                 ledger_tx_id, cancelled_by, created_at, updated_at
           FROM bank.global_sends WHERE id = ${id} AND user_id = ${userId}
         `
       : await this.sql<SendRow[]>`
           SELECT id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
                  country, delivery_method, compliance, status, failure_code, failure_blocker, provider_ref,
                  quote_rate, quote_fee, quote_fee_asset, quote_receive, quote_valid_until, quote_eta,
-                 ledger_tx_id, created_at, updated_at
+                 ledger_tx_id, cancelled_by, created_at, updated_at
           FROM bank.global_sends WHERE id = ${id}
         `;
     return rows[0] ?? null;

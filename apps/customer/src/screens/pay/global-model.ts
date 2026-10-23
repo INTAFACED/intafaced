@@ -45,7 +45,7 @@ export const sendSchema = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -56,15 +56,26 @@ export const sendSchema = z.object({
   quoteValidUntil: z.string().nullable(),
   quoteEta: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
+  cancelledBy: z.enum(['customer', 'auto']).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export const removedSchema = z.object({ removed: z.literal(true) });
 export const holdSchema = z.object({
-  state: z.enum(['requested', 'under_review', 'released']),
+  state: z.enum(['requested', 'under_review', 'released', 'cancelled']),
   infoRequest: z.string().nullable(),
   proofUploaded: z.boolean(),
   proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number().int().positive() }).nullable(),
+  /** The owner's auto-cancel rule for a send on hold, and when it cancels this one (null when unset or closed). */
+  autoCancel: z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable(), at: z.string().nullable() }),
+});
+/** The signed receipt of a send that left: the file's text, its SHA-256, the signature and the ledger transaction. */
+export const receiptSchema = z.object({
+  fileName: z.string(),
+  text: z.string(),
+  ledgerTxId: z.string(),
+  sha256: z.string(),
+  signature: z.string(),
 });
 export const sendPageSchema = z.object({ items: z.array(sendSchema), nextCursor: z.string().nullable() });
 
@@ -73,6 +84,7 @@ export type Recipient = z.infer<typeof recipientSchema>;
 export type GlobalQuote = z.infer<typeof quoteSchema>;
 export type GlobalSend = z.infer<typeof sendSchema>;
 export type GlobalHold = z.infer<typeof holdSchema>;
+export type GlobalReceipt = z.infer<typeof receiptSchema>;
 
 /** One row of the destination list: a country and currency with one delivery method. */
 export type Destination = { key: string; country: string; currency: string; method: string; corridor: Corridor };
@@ -171,9 +183,11 @@ export const recipientKey = (userId: string, country: string, account: string): 
   `global-recipient:${userId}:${country.toUpperCase()}:${account.replace(/\s+/g, '').toUpperCase()}`;
 
 const STATUS_ORDER = ['submitted', 'sent', 'on_the_way', 'arrived'] as const;
-/** How far a send has got along Sent, On its way, Arrived (0 to 3 steps done); a failed send has none. */
+/** How far a send has got along Sent, On its way, Arrived (0 to 3 steps done); a failed or cancelled send has none. */
 export const progressOf = (status: GlobalSend['status']): number =>
-  status === 'failed' || status === 'held' ? 0 : STATUS_ORDER.indexOf(status);
+  status === 'failed' || status === 'held' || status === 'cancelled' ? 0 : STATUS_ORDER.indexOf(status);
+/** A send that left the account: the only kind with a receipt. */
+export const hasLeft = (status: GlobalSend['status']): boolean => status === 'sent' || status === 'on_the_way' || status === 'arrived';
 
 const scaled = (text: string): bigint => {
   const [whole = '0', fraction = ''] = text.split('.');

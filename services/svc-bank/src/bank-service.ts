@@ -36,7 +36,7 @@ import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
-import { GlobalHoldService } from './personal-pay/holds.js';
+import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
@@ -107,6 +107,10 @@ export interface BankServices {
 export interface BankServiceOptions {
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
   payeeCoolingHours?: string;
+  /** `BANK_GLOBAL_HOLD_CANCEL_HOURS`: how long a global send may stay on hold before it is cancelled. Blank, never. */
+  holdCancelHours?: string;
+  /** The service secret a global-send receipt's signing key is derived from. Blank, no receipt is made. */
+  receiptSecret?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
   nativeAssetId?: string;
   /**
@@ -287,8 +291,11 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.sendFieldRules,
     options.payeeControls,
     options.exchangeAllowance,
+    options.receiptSecret,
   );
-  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
+  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits, () =>
+    options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
+  );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
 
   return {

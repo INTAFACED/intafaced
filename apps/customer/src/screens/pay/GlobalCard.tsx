@@ -10,6 +10,7 @@ import {
   amountProblem,
   askedField,
   destinationsFrom,
+  hasLeft,
   progressOf,
   recipientKey,
   type ComplianceField,
@@ -17,6 +18,7 @@ import {
   proofProblem,
   type GlobalHold,
   type GlobalQuote,
+  type GlobalReceipt,
   type GlobalSend,
   type Recipient,
   type SendDraft,
@@ -60,10 +62,19 @@ const toBase64 = (file: File): Promise<string> =>
  * The banner on a held send: what the team asked for and, when it asked for a file, the upload. It says nothing about
  * why the send was held, and it offers an upload only inside the limits the service published.
  */
-function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<typeof createGlobalApi> }) {
+function HoldPanel({
+  sendId,
+  global,
+  onCancelled,
+}: {
+  sendId: string;
+  global: ReturnType<typeof createGlobalApi>;
+  onCancelled: () => void;
+}) {
   const { t: g } = globalCopy.useCopy();
   const [hold, setHold] = useState<Load<GlobalHold>>(loading);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [problem, setProblem] = useState<Say | string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -108,8 +119,19 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
     }
   }
 
+  /** Cancelling moves nothing (nothing was taken while it is on hold), so it needs no confirmation code. */
+  async function cancel() {
+    setCancelling(true);
+    setProblem(null);
+    const result = await global.cancel(sendId);
+    setCancelling(false);
+    if (result.ok) onCancelled();
+    else setProblem(sayFor(result.code, result.message));
+  }
+
   const data = hold.state === 'ready' ? hold.data : null;
   const shown = typeof problem === 'string' ? { title: problem, body: '' } : problem;
+  const open = data !== null && (data.state === 'requested' || data.state === 'under_review');
   return (
     <div className="pay-block" role="status" data-testid="global-hold">
       <h4 className="pay-section-title">{g('holdTitle')}</h4>
@@ -136,9 +158,64 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
           <p className="pay-hint">{g('holdOff')}</p>
         )
       ) : null}
+      {data ? (
+        <p className="pay-hint" data-testid="global-hold-autocancel">
+          {data.autoCancel.state === 'published' && data.autoCancel.at
+            ? g('holdCancelAt', { time: data.autoCancel.at })
+            : g('holdCancelUnset', { code: 'bank.global_hold_cancel_unset' })}
+        </p>
+      ) : null}
+      {open ? (
+        <Button variant="secondary" disabled={cancelling} onClick={() => void cancel()} data-testid="global-cancel">
+          {cancelling ? g('cancelling') : g('cancelSend')}
+        </Button>
+      ) : null}
       {shown ? (
         <p className="pay-problem" role="alert">
           {shown.title} {shown.body}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Hands the receipt to the browser as a file, named as the service named it. */
+function saveFile(receipt: GlobalReceipt) {
+  const url = URL.createObjectURL(new Blob([receipt.text], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = receipt.fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** The signed receipt of a send that left: downloaded as a file, with its ledger record and hash shown beside it. */
+function ReceiptPanel({ sendId, global }: { sendId: string; global: ReturnType<typeof createGlobalApi> }) {
+  const { t: g } = globalCopy.useCopy();
+  const [receipt, setReceipt] = useState<Load<GlobalReceipt> | null>(null);
+  async function download() {
+    setReceipt(loading);
+    const result = await global.receipt(sendId);
+    setReceipt(settle(result));
+    if (result.ok) saveFile(result.data);
+  }
+  return (
+    <div data-testid="global-receipt">
+      <Button variant="secondary" disabled={receipt?.state === 'loading'} onClick={() => void download()}>
+        {g('receipt')}
+      </Button>
+      {receipt?.state === 'ready' ? (
+        <p className="pay-hint">
+          <span data-testid="global-receipt-ledger">{g('receiptLedger', { id: receipt.data.ledgerTxId })}</span>
+          <br />
+          <span data-testid="global-receipt-hash">{g('receiptHash', { hash: receipt.data.sha256 })}</span>
+          <br />
+          <span>{g('receiptSigned', { signature: receipt.data.signature })}</span>
+        </p>
+      ) : null}
+      {receipt?.state === 'failed' ? (
+        <p className="pay-problem" role="alert">
+          {sayFor(receipt.code, receipt.message).title} {sayFor(receipt.code, receipt.message).body}
         </p>
       ) : null}
     </div>
@@ -405,7 +482,9 @@ export function GlobalCard() {
               ? 'statusOnTheWay'
               : status === 'arrived'
                 ? 'statusArrived'
-                : 'statusFailed',
+                : status === 'cancelled'
+                  ? 'statusCancelled'
+                  : 'statusFailed',
     );
   const unavailable = corridors.state === 'failed' ? sayFor(corridors.code, corridors.message) : null;
   const trackSteps = [g('statusSent'), g('statusOnTheWay'), g('statusArrived')];
@@ -766,8 +845,15 @@ export function GlobalCard() {
             {history.data.map((row) => (
               <li key={row.id} data-status={row.status}>
                 {g('historyLine', { amount: row.amount, asset: row.assetId, currency: row.toCurrency, status: statusWord(row.status) })}
-                {row.status === 'failed' ? ` — ${g('failedWhy')}` : row.status === 'held' ? null : ` (${progressOf(row.status)}/3)`}
-                {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} /> : null}
+                {row.status === 'failed'
+                  ? ` — ${g('failedWhy')}`
+                  : row.status === 'cancelled'
+                    ? ` — ${g(row.cancelledBy === 'auto' ? 'cancelledAuto' : 'cancelledByYou')}`
+                    : row.status === 'held'
+                      ? null
+                      : ` (${progressOf(row.status)}/3)`}
+                {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} onCancelled={() => void loadHistory()} /> : null}
+                {hasLeft(row.status) ? <ReceiptPanel sendId={row.id} global={global} /> : null}
               </li>
             ))}
           </ul>

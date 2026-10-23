@@ -90,6 +90,17 @@ const en = {
   historyLine: '{amount} {asset} to {currency} · {status}',
   historyMore: 'Showing your latest transfers.',
   failedWhy: 'It was not sent and nothing remains taken from your balance.',
+  statusCancelled: 'Cancelled',
+  cancelledByYou: 'You cancelled it. Nothing was taken from your balance.',
+  cancelledAuto: 'It stayed on hold too long and was cancelled automatically. Nothing was taken from your balance.',
+  holdCancelAt: 'If it is still on hold at {time}, it is cancelled automatically and nothing is taken from your balance.',
+  holdCancelUnset: 'No time is published after which a send on hold is cancelled automatically. Reference: {code}',
+  cancelSend: 'Cancel this send',
+  cancelling: 'Cancelling…',
+  receipt: 'Download receipt',
+  receiptLedger: 'Ledger record: {id}',
+  receiptHash: 'SHA-256: {hash}',
+  receiptSigned: 'Signed: {signature}',
 } as const;
 
 const es = {
@@ -183,6 +194,17 @@ const es = {
   historyLine: '{amount} {asset} a {currency} · {status}',
   historyMore: 'Se muestran tus últimas transferencias.',
   failedWhy: 'No se envió y no queda nada retirado de tu saldo.',
+  statusCancelled: 'Cancelado',
+  cancelledByYou: 'Lo cancelaste. No se retiró nada de tu saldo.',
+  cancelledAuto: 'Estuvo en espera demasiado tiempo y se canceló automáticamente. No se retiró nada de tu saldo.',
+  holdCancelAt: 'Si sigue en espera el {time}, se cancela automáticamente y no se retira nada de tu saldo.',
+  holdCancelUnset: 'No se ha publicado un plazo tras el cual un envío en espera se cancela automáticamente. Referencia: {code}',
+  cancelSend: 'Cancelar este envío',
+  cancelling: 'Cancelando…',
+  receipt: 'Descargar recibo',
+  receiptLedger: 'Registro contable: {id}',
+  receiptHash: 'SHA-256: {hash}',
+  receiptSigned: 'Firma: {signature}',
 } as const;
 
 const fr = {
@@ -276,6 +298,17 @@ const fr = {
   historyLine: '{amount} {asset} en {currency} · {status}',
   historyMore: 'Tes derniers transferts sont affichés.',
   failedWhy: 'Il n’a pas été envoyé et rien n’est retiré de ton solde.',
+  statusCancelled: 'Annulé',
+  cancelledByYou: 'Tu l’as annulé. Rien n’a été retiré de ton solde.',
+  cancelledAuto: 'Il est resté en attente trop longtemps et a été annulé automatiquement. Rien n’a été retiré de ton solde.',
+  holdCancelAt: 'S’il est encore en attente le {time}, il est annulé automatiquement et rien n’est retiré de ton solde.',
+  holdCancelUnset: 'Aucun délai n’est publié après lequel un envoi en attente est annulé automatiquement. Référence : {code}',
+  cancelSend: 'Annuler cet envoi',
+  cancelling: 'Annulation…',
+  receipt: 'Télécharger le reçu',
+  receiptLedger: 'Écriture comptable : {id}',
+  receiptHash: 'SHA-256 : {hash}',
+  receiptSigned: 'Signature : {signature}',
 } as const;
 
 export const globalCopy = defineCopy('customer.payGlobal', en, { es, fr });

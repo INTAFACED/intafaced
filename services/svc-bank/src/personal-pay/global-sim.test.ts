@@ -34,6 +34,16 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(parseGlobalSim(json({ reviewFrom: [{ asset: 'USDT', amount: '0' }] }))).toBeNull();
     expect(parseGlobalSim(json({ reviewFrom: [{ asset: 'USDT' }] }))).toBeNull();
     expect(parseGlobalSim(json({ reviewFrom: '500' }))).toBeNull();
+    expect(
+      parseGlobalSim(
+        json({
+          reviewFrom: [
+            { asset: 'USDT', amount: '5000' },
+            { asset: 'USDT', amount: '500' },
+          ],
+        }),
+      ),
+    ).toBeNull();
     // Absent is a catalogue that screens nothing, so one written before screening existed still reads.
     expect(parseGlobalSim(json({}))).not.toBeNull();
   });
@@ -93,6 +103,7 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(review.waits({ assetId: 'USDT', amount: '499.999999999999999999' })).toBe(false);
     expect(review.waits({ assetId: 'USDT', amount: '500' })).toBe(true);
     expect(review.waits({ assetId: 'BTC', amount: '500' })).toBe(false);
+    expect(review.waits({ assetId: 'usdt', amount: '500' })).toBe(true);
   });
 
   it('pays nobody: the payout is acknowledged with a TEST reference keyed by the send, on its own rail boundary', async () => {

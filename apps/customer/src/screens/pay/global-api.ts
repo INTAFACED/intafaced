@@ -3,6 +3,7 @@ import type { ApiClient } from './deps';
 import {
   corridorSchema,
   holdSchema,
+  receiptSchema,
   removedSchema,
   quoteSchema,
   recipientSchema,
@@ -39,6 +40,9 @@ export function createGlobalApi(api: ApiClient) {
     hold: (id: string, signal?: AbortSignal) => api.query('bank', 'global.hold.get', { id }, holdSchema, { signal }),
     uploadProof: (input: { id: string; name: string; type: string; contentBase64: string }, signal?: AbortSignal) =>
       api.mutate('bank', 'global.hold.uploadProof', input, holdSchema, { signal }),
+    /** Cancel a send while it is on hold; nothing was taken, so nothing moves. */
+    cancel: (id: string, signal?: AbortSignal) => api.mutate('bank', 'global.cancel', { id }, sendSchema, { signal }),
+    receipt: (id: string, signal?: AbortSignal) => api.query('bank', 'global.receipt', { id }, receiptSchema, { signal }),
     stepUpRequest: sendStepUpRequest,
   };
 }

@@ -83,6 +83,9 @@ export function parseGlobalSim(json: string | undefined): GlobalSimCatalogue | n
   try {
     for (const rate of parsed.data.rates) if (parseAmount(rate.rate) <= 0n) return null;
     for (const line of parsed.data.reviewFrom ?? []) if (parseAmount(line.amount) <= 0n) return null;
+    // One line per asset: two lines for one asset would leave which one screens to their order.
+    const assets = (parsed.data.reviewFrom ?? []).map((line) => line.asset);
+    if (new Set(assets).size !== assets.length) return null;
     for (const corridor of parsed.data.corridors) {
       for (const bound of [corridor.minAmount, corridor.maxAmount]) if (bound !== null && parseAmount(bound) <= 0n) return null;
     }
@@ -108,7 +111,7 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
       ? {
           review: {
             waits: ({ assetId, amount }: { assetId: string; amount: string }) => {
-              const line = catalogue.reviewFrom!.find((one) => one.asset === assetId);
+              const line = catalogue.reviewFrom!.find((one) => one.asset === assetId.toUpperCase());
               return line !== undefined && parseAmount(amount) >= parseAmount(line.amount);
             },
           },
