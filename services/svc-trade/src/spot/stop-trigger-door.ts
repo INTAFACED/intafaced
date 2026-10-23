@@ -33,6 +33,14 @@ export function assertStopTrigger(stopPrice: Amount, tickSize: Amount): void {
   }
 }
 
+function positivePrice(raw: string): boolean {
+  try {
+    return parseAmount(raw) > 0n;
+  } catch {
+    return false;
+  }
+}
+
 export function sqlStopTrigger(sql: Sql): StopTriggerStore {
   return {
     async remember(orderId, userId, stopPrice) {
@@ -65,6 +73,8 @@ export function sqlStopTrigger(sql: Sql): StopTriggerStore {
       return out;
     },
     async recordFired(orderId, fired) {
+      // A price the table would refuse is not recorded: a retry could never land it, and the event would come back forever.
+      if (!positivePrice(fired.referencePrice)) return false;
       await sql`
         UPDATE order_stop_trigger
         SET triggered_at = ${fired.at}::timestamptz, trigger_reference = ${fired.referencePrice}::numeric,
@@ -118,6 +128,7 @@ export function memoryStopTrigger(): StopTriggerStore {
       return out;
     },
     async recordFired(orderId, fired) {
+      if (!positivePrice(fired.referencePrice)) return false;
       const held = byId.get(orderId);
       if (!held) return false;
       if (!held.fired) held.fired = fired;

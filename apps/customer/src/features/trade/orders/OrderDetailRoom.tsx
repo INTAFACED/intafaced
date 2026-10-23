@@ -18,7 +18,7 @@ import { dayTime } from '../../../screens/trade/desk/time';
 import { useSession } from '../../session/session';
 import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type OrderChange } from '../trade-api';
 import { orderReason } from './order-reason';
-import { fillsAverage, orderTrigger } from './order-trigger';
+import { fillsAverage, orderTrigger, type Slippage } from './order-trigger';
 import { ordersCopy, type OrdersT } from './orders-copy';
 import './orders.css';
 
@@ -51,6 +51,20 @@ function Reason({ order, t }: { order: Order; t: OrdersT }) {
   return <Row label={t('reason')}>{text}</Row>;
 }
 
+/** The slippage line: against the person ("worse") or for them ("better"), without the sign; none or not known in words. */
+function slippageText(s: Slippage | 'not-filled' | 'unknown', price: (value: string) => string, quote: string, t: OrdersT): string {
+  if (s === 'not-filled') return t('slippageNotFilled');
+  if (s === 'unknown') return t('notStated');
+  if (isZero(s.amount)) return t('slippageNone');
+  const better = s.amount.startsWith('-');
+  const words = {
+    amount: price(s.amount.replace(/^-/, '')),
+    quote,
+    pct: fmtPct(s.rate.replace(/^-/, ''), { signed: false }),
+  };
+  return better ? t('slippageBetter', words) : t('slippageWorse', words);
+}
+
 /** A stop order's trigger: its stop price, whether it fired, when and at what price, and how far its fills landed. */
 function Trigger({
   order,
@@ -77,19 +91,7 @@ function Trigger({
   else {
     const reference = state.by === 'mark' ? t('referenceMark') : state.by === 'index' ? t('referenceIndex') : t('referenceLast');
     fired = t('triggerFired', { time: dayTime(Date.parse(state.at), timeZone), reference, price: price(state.referencePrice), quote });
-    const s = state.slippage;
-    const text =
-      s === 'not-filled'
-        ? t('slippageNotFilled')
-        : s === 'unknown'
-          ? t('notStated')
-          : isZero(s.amount)
-            ? t('slippageNone')
-            : t(s.amount.startsWith('-') ? 'slippageBetter' : 'slippageWorse', {
-                amount: price(s.amount.replace(/^-/, '')),
-                quote,
-                pct: fmtPct(s.rate.replace(/^-/, ''), { signed: false }),
-              });
+    const text = slippageText(state.slippage, price, quote, t);
     slippage = (
       <Row label={t('slippage')}>
         <span className="if-num">{text}</span>

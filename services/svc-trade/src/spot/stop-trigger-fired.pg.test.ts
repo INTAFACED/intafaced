@@ -64,10 +64,12 @@ describe('a stop that fired keeps when and at what price (PG)', () => {
     const fired = { at: '2026-10-23T03:00:00.000Z', by: 'mark' as const, referencePrice: '1', sequence: 1 };
     expect(await store.recordFired(OTHER, fired)).toBe(false);
     expect(await db.sql`SELECT 1 FROM trade.order_stop_trigger WHERE order_id = ${OTHER}`).toHaveLength(0);
+    await store.remember(OTHER, ALICE, '5');
+    expect(await store.recordFired(OTHER, { ...fired, referencePrice: '0' })).toBe(false);
+    expect(await store.readFired([OTHER])).toEqual(new Map());
   });
 
   it('refuses a half-written trigger at the table', async () => {
-    await sqlStopTrigger(db.sql).remember(OTHER, ALICE, '5');
     await expect(db.sql`UPDATE trade.order_stop_trigger SET triggered_at = now() WHERE order_id = ${OTHER}`).rejects.toThrow(
       /order_stop_trigger_fired_ck/,
     );

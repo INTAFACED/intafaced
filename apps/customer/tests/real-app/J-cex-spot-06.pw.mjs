@@ -316,7 +316,8 @@ test(`${J} #6 a stop that fired says why: its stop price, the price that reached
   await signIn(page, who);
   await page.goto(`/trade/orders/${order.id}`);
   const dl = detail(page);
-  const usd = (value) => Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 });
+  // As the page writes a USDT price: rounded to the 0.01 tick.
+  const usd = (value) => Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   await expect(rowValue(dl, 'Stop price')).toHaveText(`${usd(stopPrice)} USDT`);
   await expect(rowValue(dl, 'Trigger')).toContainText(`when the last trade price reached ${usd(fired.triggered.referencePrice)} USDT`);
   await expect(rowValue(dl, 'Trigger')).toContainText(/Fired \d{1,2} \w{3}, \d{1,2}:\d{2}/);

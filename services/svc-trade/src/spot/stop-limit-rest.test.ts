@@ -213,6 +213,10 @@ describe('stop-limit placement', () => {
     const read = await app.inject({ method: 'GET', url: `/api/v1/orders/${id}`, headers: signed(ALICE) });
     expect(read.json().triggered).toEqual({ at: fired.at, by: 'last', referencePrice: '99.5' });
 
+    // A price the table would refuse is not recorded (and so never retried forever).
+    const other = orderIdFor(ALICE, market.id, 'stop-2');
+    await post(app, ALICE, { ...STOP, clientOrderId: 'stop-2' });
+    expect(await triggers!.recordFired(other, { ...fired, referencePrice: '0' })).toBe(false);
     // An order with no stop here (a futures stop, the house) is not recorded.
     expect(await triggers!.recordFired('44444444-4444-4444-8444-444444444444', fired)).toBe(false);
     await app.close();
