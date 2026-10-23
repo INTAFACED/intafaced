@@ -37,13 +37,13 @@ import type { MarginCallSink } from './loan-service.js';
  *
  * ── Idempotency ─────────────────────────────────────────────────────────────
  *
- * `<loanId>:<sequence>`, the same business key the consumer dedupes on, and the
- * reason `sequence` is on the payload at all rather than only in a header. A
- * loan can be called, cured and called again: the second call is a different
- * fact that must produce a second notification, so keying on `loanId` alone
- * would swallow every call after the first. Keying on the envelope id instead
- * would notify twice on a redelivered publish. Both failures land on somebody
- * being liquidated, in opposite directions.
+ * `bank.margin_call:<loanId>:<band>:<episode>`. `sequence` stays on the payload
+ * because the consumer dedupes on `<loanId>:<sequence>`, and for a margin call
+ * that sequence is the episode. A loan can be called, cured and called again:
+ * the second episode is a different fact and must produce a second notification.
+ * Keying on `loanId` alone would swallow every call after the first. Keying on
+ * the envelope id would notify twice on a redelivered publish. Sweeps that stay
+ * inside one episode reuse this key and do not send a second notice.
  *
  * ── Not a money event ───────────────────────────────────────────────────────
  *
@@ -67,7 +67,7 @@ export function eventMarginCallSink(bus: EventBus): MarginCallSink {
           calledAt: input.calledAt.toISOString(),
           graceExpiresAt: input.graceExpiresAt.toISOString(),
         },
-        { idempotencyKey: `bank.margin_call:${input.loanId}:${input.sequence}` },
+        { idempotencyKey: `bank.margin_call:${input.loanId}:${input.band}:${input.episode}` },
       );
     },
   };

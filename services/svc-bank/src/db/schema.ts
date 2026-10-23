@@ -434,12 +434,18 @@ export const loans = bank.table(
      */
     openingCollateral: amount('opening_collateral'),
     /**
-     * LTV bands agreed at open, copied from the product once. A later edit of
-     * the product does not re-band this loan. Null only on a row the migration
-     * could not fill; the book counts that loan as unpriced.
+     * Terms agreed at open, copied from the product once. The sweep, seize,
+     * margin call, penalty and excess-release cap read these, not the live
+     * product. A later product edit does not re-band this loan.
      */
-    marginCallLtvBps: integer('margin_call_ltv_bps'),
-    liquidationLtvBps: integer('liquidation_ltv_bps'),
+    maxLtvBps: integer('max_ltv_bps').notNull(),
+    marginCallLtvBps: integer('margin_call_ltv_bps').notNull(),
+    liquidationLtvBps: integer('liquidation_ltv_bps').notNull(),
+    insolvencyLtvBps: integer('insolvency_ltv_bps').notNull(),
+    targetLtvBps: integer('target_ltv_bps').notNull(),
+    penaltyBps: integer('penalty_bps').notNull(),
+    maxTrancheBps: integer('max_tranche_bps').notNull(),
+    graceSeconds: integer('grace_seconds').notNull(),
     status: loanStatusEnum('status').notNull().default('pending'),
     /** NULL means the principal has not been released. The crash-safe state. */
     drawLedgerTxId: text('draw_ledger_tx_id'),

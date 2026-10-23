@@ -24,17 +24,22 @@ describe('bankMarginCalled publisher', () => {
   const calledAt = new Date('2026-08-04T12:00:00.000Z');
   const graceExpiresAt = new Date('2026-08-04T13:00:00.000Z');
 
-  const call = (overrides: Partial<Parameters<ReturnType<typeof eventMarginCallSink>['send']>[0]> = {}) => ({
-    loanId,
-    userId,
-    sequence: 1,
-    ltvBps: 7_693,
-    cureCollateralAmount: parseAmount('0.0415'),
-    collateralAssetId: 'BTC',
-    calledAt,
-    graceExpiresAt,
-    ...overrides,
-  });
+  const call = (overrides: Partial<Parameters<ReturnType<typeof eventMarginCallSink>['send']>[0]> = {}) => {
+    const sequence = overrides.sequence ?? 1;
+    return {
+      loanId,
+      userId,
+      sequence,
+      band: 'margin_call' as const,
+      episode: overrides.episode ?? sequence,
+      ltvBps: 7_693,
+      cureCollateralAmount: parseAmount('0.0415'),
+      collateralAssetId: 'BTC',
+      calledAt,
+      graceExpiresAt,
+      ...overrides,
+    };
+  };
 
   it('publishes the call the consumer is waiting for', async () => {
     const bus = new MemoryEventBus('svc-bank');
@@ -61,21 +66,21 @@ describe('bankMarginCalled publisher', () => {
   });
 
   /**
-   * The business key, and the reason `sequence` is on the payload rather than
-   * only in a header: a loan can be called, cured and called again, and the
-   * consumer dedupes on `<loanId>:<sequence>`. Keying on the loan alone swallows
-   * every call after the first; keying on the envelope id notifies twice on a
-   * redelivery. Both land on somebody being liquidated.
+   * The bus key is loan + band + episode. `sequence` stays on the payload
+   * because the consumer dedupes on `<loanId>:<sequence>`, and that sequence is
+   * the episode. A cure then a new breach is a second notification. Keying on
+   * the loan alone would swallow it. Keying on the envelope id would notify
+   * twice on a redelivery.
    */
-  it('keys on <loanId>:<sequence>, so a second call is a second notification', async () => {
+  it('keys on loan + band + episode, so a second episode is a second notification', async () => {
     const bus = new MemoryEventBus('svc-bank');
     const sink = eventMarginCallSink(bus);
 
-    await sink.send(call({ sequence: 1 }));
-    await sink.send(call({ sequence: 2 }));
+    await sink.send(call({ sequence: 1, episode: 1 }));
+    await sink.send(call({ sequence: 2, episode: 2 }));
 
     const keys = bus.published.map((e) => e.idempotencyKey);
-    expect(keys).toEqual([`bank.margin_call:${loanId}:1`, `bank.margin_call:${loanId}:2`]);
+    expect(keys).toEqual([`bank.margin_call:${loanId}:margin_call:1`, `bank.margin_call:${loanId}:margin_call:2`]);
   });
 
   it('redelivers the same call under the same key', async () => {

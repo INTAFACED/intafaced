@@ -277,7 +277,25 @@ export function tickerPriceSource(options: { baseUrl: string; fetchImpl?: typeof
             if (!res.ok) return;
 
             const body = (await res.json()) as TickerResponse;
-            const asOf = typeof body.timestamp === 'number' ? new Date(body.timestamp) : new Date();
+            // A missing source time is not "now". Stamping the clock would let a
+            // stale print pass the age check. Omit the mark and alert; callers
+            // already refuse a missing mark.
+            const stamped = typeof body.timestamp === 'number' && Number.isFinite(body.timestamp);
+            if (!stamped) {
+              if (body.bid || body.ask || body.last) {
+                console.error(
+                  JSON.stringify({
+                    level: 'error',
+                    service: 'svc-bank',
+                    event: 'bank.mark_timestamp_missing',
+                    assetId,
+                    quoteAssetId,
+                  }),
+                );
+              }
+              return;
+            }
+            const asOf = new Date(body.timestamp as number);
 
             if (body.bid && body.ask) {
               const bid = parseAmount(body.bid);

@@ -186,6 +186,16 @@ export interface LoanRecord {
   collateralAssetId: string;
   quoteAssetId: string;
   aprBps: number;
+  /**
+   * Max LTV the borrower may draw or release to, copied from the product at
+   * open. A later product edit does not change it.
+   */
+  maxLtvBps: number;
+  /**
+   * Liquidation ladder copied from the product at open. The sweep, seize,
+   * margin call and penalty read this, not the live product row.
+   */
+  policy: LiquidationPolicy;
   principal: Amount;
   /**
    * Collateral pledged at open, snapshotted once — a TERM, not a live balance.
@@ -291,6 +301,10 @@ export interface MarginCallSink {
     userId: string;
     /** Per-loan call number, from 1. Half of the business key. */
     sequence: number;
+    /** Level this notice is for. One send per loan + band + episode. */
+    band: 'margin_call';
+    /** Episode id. A cure starts a new one; sweeps inside an episode do not. */
+    episode: number;
     ltvBps: number;
     cureCollateralAmount: Amount;
     collateralAssetId: string;
@@ -580,12 +594,15 @@ export class LoanService {
     const inserted = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loans (
         id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at,
-        margin_call_ltv_bps, liquidation_ltv_bps
+        max_ltv_bps, margin_call_ltv_bps, liquidation_ltv_bps, insolvency_ltv_bps, target_ltv_bps,
+        penalty_bps, max_tranche_bps, grace_seconds
       ) VALUES (
         ${loanId}, ${product.id}, ${input.userId}, ${product.debtAssetId}, ${product.collateralAssetId},
         ${product.quoteAssetId}, ${product.aprBps}, ${formatAmount(input.principal)}::numeric,
         ${formatAmount(input.collateralAmount)}::numeric, ${now},
-        ${product.policy.marginCallLtvBps}, ${product.policy.liquidationLtvBps}
+        ${product.maxLtvBps}, ${product.policy.marginCallLtvBps}, ${product.policy.liquidationLtvBps},
+        ${product.policy.insolvencyLtvBps}, ${product.policy.targetLtvBps},
+        ${product.policy.penaltyBps}, ${product.policy.maxTrancheBps}, ${product.policy.graceSeconds}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
@@ -1060,13 +1077,13 @@ export class LoanService {
    * new event. An overlapping retry that loses `ON CONFLICT (id)` posts the
    * claimed row's sequence — the ledger key is loanId:sequence.
    *
-   * Marks first. A missing mark refuses `bank.mark_missing` before any release —
-   * withdrawing against a book nobody priced is the same lie as originating on a
-   * default. After-release LTV uses those marks and the product cap; this method
-   * does not invent a rate. The cap is decided under the loan row lock, in the
-   * same transaction as the claim, counting releases already claimed and not yet
-   * settled. Two overlapping releases cannot each pass a stale read. Curing is
-   * still the next mark's job.
+   * Marks first, unless the ledger already booked this release: a replay of a
+   * booked release returns that transaction and does not need a price. A missing
+   * or stale mark refuses `bank.mark_missing` before an unbooked release is
+   * posted. The cap is the max LTV snapshotted on the loan, decided again under
+   * the loan row lock on a fresh mark, including a same-key resume whose first
+   * attempt never booked. Over the cap refuses `bank.ltv_exceeded` and posts
+   * nothing. Curing is still the next mark's job.
    */
   async releaseExcess(input: {
     loanId: string;
@@ -1090,13 +1107,18 @@ export class LoanService {
     }
     if (input.amount <= 0n) throw new BankError('Collateral release must be positive', 'bank.below_minimum');
 
-    const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
-    const product = await this.product(loan.productId);
-    const txId = await this.releaseCollateral(loan, input.amount, undefined, input.eventId, {
-      marks,
-      maxLtvBps: product.maxLtvBps,
-      productName: product.name,
-    });
+    const prior = await this.collateralEventById(input.eventId);
+    if (prior) this.assertCollateralRetryMatches(loan, input.eventId, input.amount, prior, 'release');
+    let bookedTxId = prior?.ledger_tx_id ?? null;
+    if (prior && !bookedTxId) {
+      bookedTxId = await this.bookedReleaseTxId(loan, input.amount, Number(prior.sequence));
+    }
+    // A missing mark refuses before a new or unbooked release is posted.
+    // A ledger replay of an already-booked release does not need a price.
+    if (!bookedTxId) {
+      await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+    }
+    const txId = await this.releaseCollateral(loan, input.amount, undefined, input.eventId, now);
     const stored = await this.collateralEventById(input.eventId);
     if (!stored) {
       throw new BankError(`Collateral release ${input.eventId} was not claimed`, 'bank.loan_not_found');
@@ -1187,9 +1209,9 @@ export class LoanService {
     amount: Amount,
     sequence?: number,
     eventId?: string,
-    cap?: { marks: Map<string, QuotedMark>; maxLtvBps: number; productName: string },
+    now?: Date,
   ): Promise<string> {
-    if (eventId) return this.releaseNamedCollateral(loan, amount, eventId, cap);
+    if (eventId) return this.releaseNamedCollateral(loan, amount, eventId, now ?? new Date());
     const seq = sequence ?? (await this.nextCollateralSequence(loan.id));
     return this.drivenPost({
       claim: async (tx) => {
@@ -1221,19 +1243,17 @@ export class LoanService {
 
   /**
    * One named excess release. The loan row lock is held across the cap check
-   * and the claim insert, then dropped before the ledger post. Pending release
-   * rows are reserved against the ledger balance so a second caller cannot pass
-   * the cap on a figure the first call has already claimed.
+   * and the claim insert, then dropped before the ledger post. Every attempt,
+   * including a same-key resume of a release the ledger has not booked,
+   * re-checks LTV on a fresh mark fetched under that lock. Over the max LTV
+   * snapshotted on the loan, the attempt is refused and nothing is posted. A
+   * release the ledger already booked is returned and not posted again.
+   *
+   * Pending release rows other than this event are reserved against the ledger
+   * balance so a second caller cannot pass the cap on a figure the first call
+   * has already claimed.
    */
-  private async releaseNamedCollateral(
-    loan: LoanRecord,
-    amount: Amount,
-    eventId: string,
-    cap: { marks: Map<string, QuotedMark>; maxLtvBps: number; productName: string } | undefined,
-  ): Promise<string> {
-    if (!cap) {
-      throw new BankError(`No usable mark for ${loan.collateralAssetId} in ${loan.quoteAssetId}`, 'bank.mark_missing');
-    }
+  private async releaseNamedCollateral(loan: LoanRecord, amount: Amount, eventId: string, now: Date): Promise<string> {
     let postSequence = 0;
     return this.drivenPost({
       claim: async (tx) => {
@@ -1248,40 +1268,15 @@ export class LoanService {
         if (prior) {
           this.assertCollateralRetryMatches(loan, eventId, amount, prior, 'release');
           postSequence = Number(prior.sequence);
-          return { claimed: false as const, id: prior.id, ledgerTxId: prior.ledger_tx_id };
+          const bookedTxId = prior.ledger_tx_id ?? (await this.bookedReleaseTxId(loan, amount, postSequence));
+          if (bookedTxId) {
+            return { claimed: false as const, id: prior.id, ledgerTxId: bookedTxId };
+          }
+          await this.assertExcessReleaseCap(tx, loan, amount, eventId, now);
+          return { claimed: false as const, id: prior.id, ledgerTxId: null };
         }
 
-        const pendingRows = await tx<Array<{ pending: string }>>`
-          SELECT COALESCE(SUM(amount), 0)::text AS pending
-            FROM bank.loan_collateral_events
-           WHERE loan_id = ${loan.id}
-             AND direction = 'release'
-             AND status = 'pending'
-        `;
-        const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
-        const ledgerHeld = await this.collateralOf(loan);
-        const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
-        if (amount > held) {
-          throw new BankError(
-            `Loan ${loan.id} holds ${formatAmount(held)} ${loan.collateralAssetId}, not ${formatAmount(amount)}`,
-            'bank.loan_collateral_short',
-          );
-        }
-
-        const debt = await this.outstanding(loan.id, tx);
-        const remaining = held - amount;
-        const collateralMark = cap.marks.get(loan.collateralAssetId)!;
-        const debtMark = cap.marks.get(loan.debtAssetId)!;
-        const debtValue = quoteValue(debt.total, debtMark.price, 'ceil');
-        const collateralValue = quoteValue(remaining, collateralMark.price, 'floor');
-        const afterLtv = ltvBps(debtValue, collateralValue);
-        if (afterLtv > cap.maxLtvBps) {
-          throw new BankError(
-            `Release would put loan ${loan.id} at LTV ${describeLtv(afterLtv)} ` +
-              `above the ${describeLtv(cap.maxLtvBps)} limit for "${cap.productName}"`,
-            'bank.ltv_exceeded',
-          );
-        }
+        await this.assertExcessReleaseCap(tx, loan, amount, eventId, now);
 
         const seqRows = await tx<Array<{ next: number | string | null }>>`
           SELECT COALESCE(MAX(sequence) + 1, 0) AS next
@@ -1311,7 +1306,9 @@ export class LoanService {
         const row = lost[0]!;
         this.assertCollateralRetryMatches(loan, eventId, amount, row, 'release');
         postSequence = Number(row.sequence);
-        return { claimed: false as const, id: row.id, ledgerTxId: row.ledger_tx_id };
+        const lostBooked = row.ledger_tx_id ?? (await this.bookedReleaseTxId(loan, amount, postSequence));
+        if (!lostBooked) await this.assertExcessReleaseCap(tx, loan, amount, eventId, now);
+        return { claimed: false as const, id: row.id, ledgerTxId: lostBooked };
       },
       post: () =>
         this.ledger.post(
@@ -1325,6 +1322,60 @@ export class LoanService {
         ),
       table: 'loan_collateral_events',
     });
+  }
+
+  /** Ledger row for this release key, if the post already committed. */
+  private async bookedReleaseTxId(loan: LoanRecord, amount: Amount, sequence: number): Promise<string | null> {
+    const key = recipes.loanCollateralRelease({
+      loanId: loan.id,
+      userId: loan.userId,
+      collateralAssetId: loan.collateralAssetId,
+      amount,
+      sequence,
+    }).idempotencyKey;
+    return (await this.ledger.getTxByKey(key))?.id ?? null;
+  }
+
+  /**
+   * Fresh marking-grade marks, fetched while the loan row lock is held.
+   * A ticker price with no source timestamp never arrives: the adapter omits
+   * it and `marksFor` refuses `bank.mark_missing`. Over the loan's snapshotted
+   * max LTV refuses `bank.ltv_exceeded` and posts nothing.
+   */
+  private async assertExcessReleaseCap(tx: Sql, loan: LoanRecord, amount: Amount, eventId: string, now: Date): Promise<void> {
+    const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
+    const pendingRows = await tx<Array<{ pending: string }>>`
+      SELECT COALESCE(SUM(amount), 0)::text AS pending
+        FROM bank.loan_collateral_events
+       WHERE loan_id = ${loan.id}
+         AND direction = 'release'
+         AND status = 'pending'
+         AND id <> ${eventId}
+    `;
+    const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
+    const ledgerHeld = await this.collateralOf(loan);
+    const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
+    if (amount > held) {
+      throw new BankError(
+        `Loan ${loan.id} holds ${formatAmount(held)} ${loan.collateralAssetId}, not ${formatAmount(amount)}`,
+        'bank.loan_collateral_short',
+      );
+    }
+
+    const debt = await this.outstanding(loan.id, tx);
+    const remaining = held - amount;
+    const collateralMark = marks.get(loan.collateralAssetId)!;
+    const debtMark = marks.get(loan.debtAssetId)!;
+    const debtValue = quoteValue(debt.total, debtMark.price, 'ceil');
+    const collateralValue = quoteValue(remaining, collateralMark.price, 'floor');
+    const afterLtv = ltvBps(debtValue, collateralValue);
+    if (afterLtv > loan.maxLtvBps) {
+      throw new BankError(
+        `Release would put loan ${loan.id} at LTV ${describeLtv(afterLtv)} ` +
+          `above the ${describeLtv(loan.maxLtvBps)} limit snapshotted on the loan`,
+        'bank.ltv_exceeded',
+      );
+    }
   }
 
   // ── Interest accrual ───────────────────────────────────────────────────────
@@ -1759,7 +1810,6 @@ export class LoanService {
       throw new BankError(`Loan ${loan.id} has no drawn principal to seize`, 'bank.loan_not_drawable');
     }
 
-    const product = await this.product(loan.productId);
     const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
     const collateralMark = marks.get(loan.collateralAssetId)!;
     const debtMark = marks.get(loan.debtAssetId)!;
@@ -1776,7 +1826,7 @@ export class LoanService {
       debtMark,
       collateral,
       collateralMark,
-      policy: product.policy,
+      policy: loan.policy,
       marginCalledAt: loan.marginCalledAt,
       now,
     });
@@ -1789,7 +1839,6 @@ export class LoanService {
 
     await this.liquidateTranche({
       loan,
-      product,
       ltv: rung.ltvBps,
       graceWaived: rung.graceWaived,
       collateralToSell: rung.collateralToSell,
@@ -1961,7 +2010,6 @@ export class LoanService {
   }
 
   private async markAndAct(loan: LoanRecord, now: Date): Promise<'none' | 'called' | 'liquidated' | 'cleared'> {
-    const product = await this.product(loan.productId);
     const marks = await this.marksFor(loan.collateralAssetId, loan.debtAssetId, loan.quoteAssetId, now);
     const collateralMark = marks.get(loan.collateralAssetId)!;
     const debtMark = marks.get(loan.debtAssetId)!;
@@ -2012,7 +2060,7 @@ export class LoanService {
       debtMark,
       collateral,
       collateralMark,
-      policy: product.policy,
+      policy: loan.policy,
       marginCalledAt: loan.marginCalledAt,
       now,
     });
@@ -2043,7 +2091,6 @@ export class LoanService {
     if (postedPending[0]) {
       await this.liquidateTranche({
         loan,
-        product,
         ltv: Number(postedPending[0].ltv_bps),
         graceWaived: postedPending[0].grace_waived,
         collateralToSell: parseAmount(postedPending[0].collateral_sold),
@@ -2090,8 +2137,8 @@ export class LoanService {
     }
 
     if (rung.action === 'margin-call') {
-      await this.raiseMarginCall(loan, product, rung.ltvBps, debt.total, collateral, collateralMark, debtMark, now);
-      return 'called';
+      const sent = await this.raiseMarginCall(loan, rung.ltvBps, debt.total, collateral, collateralMark, debtMark, now);
+      return sent ? 'called' : 'none';
     }
 
     // ── Liquidating. A stricter mark applies from here down. ────────────────
@@ -2099,7 +2146,6 @@ export class LoanService {
 
     await this.liquidateTranche({
       loan,
-      product,
       ltv: rung.ltvBps,
       graceWaived: rung.graceWaived,
       collateralToSell: rung.collateralToSell,
@@ -2126,30 +2172,30 @@ export class LoanService {
    */
   private async raiseMarginCall(
     loan: LoanRecord,
-    product: LoanProductRecord,
     ltv: number,
     debt: Amount,
     collateral: Amount,
     collateralMark: QuotedMark,
     debtMark: QuotedMark,
     now: Date,
-  ): Promise<void> {
-    const debtValue = quoteValue(debt, debtMark.price, 'ceil');
-    const target = BigInt(product.policy.targetLtvBps);
-
-    // Collateral value needed for target LTV: V = debtValue * 10000 / target.
-    const neededValue = (debtValue * 10_000n + target - 1n) / target;
-    const haveValue = quoteValue(collateral, collateralMark.price, 'floor');
-    const shortValue = neededValue > haveValue ? neededValue - haveValue : 0n;
-    const cure = shortValue === 0n ? 0n : (shortValue * ONE + collateralMark.price - 1n) / collateralMark.price;
-
-    const graceExpiresAt = new Date((loan.marginCalledAt ?? now).getTime() + product.policy.graceSeconds * 1_000);
-    const sequence = await this.nextSequence('loan_margin_calls', loan.id);
-
-    await this.sql`
-      INSERT INTO bank.loan_margin_calls (loan_id, sequence, ltv_bps, cure_collateral_amount, called_at, grace_expires_at)
-      VALUES (${loan.id}, ${sequence}, ${ltv}, ${formatAmount(cure)}::numeric, ${now}, ${graceExpiresAt})
-      ON CONFLICT (loan_id, sequence) DO NOTHING
+  ): Promise<boolean> {
+    const band = 'margin_call' as const;
+    const open = await this.sql<
+      Array<{
+        sequence: number;
+        notified_at: Date | null;
+        cure_collateral_amount: string;
+        called_at: Date;
+        grace_expires_at: Date;
+        ltv_bps: number;
+      }>
+    >`
+      SELECT sequence, notified_at, cure_collateral_amount::text AS cure_collateral_amount,
+             called_at, grace_expires_at, ltv_bps
+        FROM bank.loan_margin_calls
+       WHERE loan_id = ${loan.id} AND cleared_at IS NULL
+       ORDER BY sequence ASC
+       LIMIT 1
     `;
 
     await this.sql`
@@ -2158,20 +2204,53 @@ export class LoanService {
        WHERE id = ${loan.id}
     `;
 
+    // One notice per band crossing. Sweeps that stay inside the open episode
+    // do not write another row and do not send again.
+    const existing = open[0];
+    if (existing?.notified_at) return false;
+
+    let sequence: number;
+    let cure: Amount;
+    let calledAt: Date;
+    let graceExpiresAt: Date;
+    let noticeLtv: number;
+    if (existing) {
+      sequence = Number(existing.sequence);
+      cure = parseAmount(existing.cure_collateral_amount);
+      calledAt = existing.called_at;
+      graceExpiresAt = existing.grace_expires_at;
+      noticeLtv = Number(existing.ltv_bps);
+    } else {
+      const debtValue = quoteValue(debt, debtMark.price, 'ceil');
+      const target = BigInt(loan.policy.targetLtvBps);
+      const neededValue = (debtValue * 10_000n + target - 1n) / target;
+      const haveValue = quoteValue(collateral, collateralMark.price, 'floor');
+      const shortValue = neededValue > haveValue ? neededValue - haveValue : 0n;
+      cure = shortValue === 0n ? 0n : (shortValue * ONE + collateralMark.price - 1n) / collateralMark.price;
+      calledAt = now;
+      noticeLtv = ltv;
+      graceExpiresAt = new Date((loan.marginCalledAt ?? now).getTime() + loan.policy.graceSeconds * 1_000);
+      sequence = await this.nextSequence('loan_margin_calls', loan.id);
+      await this.sql`
+        INSERT INTO bank.loan_margin_calls (loan_id, sequence, ltv_bps, cure_collateral_amount, called_at, grace_expires_at)
+        VALUES (${loan.id}, ${sequence}, ${ltv}, ${formatAmount(cure)}::numeric, ${calledAt}, ${graceExpiresAt})
+        ON CONFLICT (loan_id, sequence) DO NOTHING
+      `;
+    }
+
     // Delivery is recorded separately from the call, and a delivery failure does
-    // NOT fail the call. A margin call that exists in the database with a grace
-    // clock running is a real margin call even if the notification bounced — and
-    // the borrower disputing the liquidation later can be shown exactly that:
-    // called at this time, delivery attempted, delivery failed with this error.
+    // NOT fail the call. A retry of a failed delivery uses the same episode key.
     try {
       await this.marginCalls.send({
         loanId: loan.id,
         userId: loan.userId,
         sequence,
-        ltvBps: ltv,
+        band,
+        episode: sequence,
+        ltvBps: noticeLtv,
         cureCollateralAmount: cure,
         collateralAssetId: loan.collateralAssetId,
-        calledAt: now,
+        calledAt,
         graceExpiresAt,
       });
       await this.sql`
@@ -2183,6 +2262,7 @@ export class LoanService {
          WHERE loan_id = ${loan.id} AND sequence = ${sequence}
       `;
     }
+    return true;
   }
 
   private async clearMarginCalls(loanId: string, now: Date): Promise<void> {
@@ -2231,7 +2311,6 @@ export class LoanService {
   private async liquidateTrancheLocked(
     input: {
       loan: LoanRecord;
-      product: LoanProductRecord;
       ltv: number;
       graceWaived: boolean;
       collateralToSell: Amount;
@@ -2244,7 +2323,7 @@ export class LoanService {
     },
     externalQuote?: LiquidationQuote,
   ): Promise<void> {
-    const { loan, product, collateralMark } = input;
+    const { loan, collateralMark } = input;
 
     // The collateral mark is denominated in the quote asset. Proceeds from
     // quantity × that mark are quote units. Booking them from the debt-asset
@@ -2390,7 +2469,7 @@ export class LoanService {
             proceeds: quoted!.proceeds,
             interestOwed: pricedDebt.interest,
             principalOwed: pricedDebt.principal,
-            penaltyBps: product.policy.penaltyBps,
+            penaltyBps: loan.policy.penaltyBps,
             closesPosition: input.closesPosition,
           });
       const saleProceeds = storedSale ? storedSale.proceeds : quoted!.proceeds;
@@ -3215,6 +3294,16 @@ function toLoan(row: Record<string, unknown>): LoanRecord {
     collateralAssetId: String(row.collateral_asset_id),
     quoteAssetId: String(row.quote_asset_id),
     aprBps: Number(row.apr_bps),
+    maxLtvBps: Number(row.max_ltv_bps),
+    policy: {
+      marginCallLtvBps: Number(row.margin_call_ltv_bps),
+      liquidationLtvBps: Number(row.liquidation_ltv_bps),
+      insolvencyLtvBps: Number(row.insolvency_ltv_bps),
+      targetLtvBps: Number(row.target_ltv_bps),
+      penaltyBps: Number(row.penalty_bps),
+      maxTrancheBps: Number(row.max_tranche_bps),
+      graceSeconds: Number(row.grace_seconds),
+    },
     principal: parseAmount(String(row.principal)),
     openingCollateral: openingRaw === null || openingRaw === undefined ? null : parseAmount(String(openingRaw)),
     status: row.status as LoanRecord['status'],
