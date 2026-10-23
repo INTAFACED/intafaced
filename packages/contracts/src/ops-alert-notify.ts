@@ -8,6 +8,9 @@ export const OPS_ALERT_DEFAULT_CONTACT_UNSET = 'ops.alert_default_contact_unset'
 export const OPS_CONTACT_POINT_IN_USE = 'ops.contact_point_in_use' as const;
 export const OPS_CHANNEL_AUTH_CONFLICT = 'ops.channel_auth_conflict' as const;
 export const OPS_GROUP_TIMING_UNSET = 'ops.group_timing_unset' as const;
+export const OPS_FLAP_SUPPRESSION_UNSET = 'ops.flap_suppression_unset' as const;
+export const OPS_MUTE_TIMING_UNSET = 'ops.mute_timing_unset' as const;
+export const OPS_ACTIVE_TIME_UNSET = 'ops.active_time_unset' as const;
 export const OPS_MATCHER_INVALID = 'ops.matcher_invalid' as const;
 export const OPS_SILENCE_END_UNSET = 'ops.silence_end_unset' as const;
 export const OPS_ALERT_CHANNEL_KEY_UNSET = 'ops.alert_channel_key_unset' as const;
@@ -27,6 +30,9 @@ export const OPS_ALERT_NOTIFY_REFUSAL_CODES = [
   OPS_CONTACT_POINT_IN_USE,
   OPS_CHANNEL_AUTH_CONFLICT,
   OPS_GROUP_TIMING_UNSET,
+  OPS_FLAP_SUPPRESSION_UNSET,
+  OPS_MUTE_TIMING_UNSET,
+  OPS_ACTIVE_TIME_UNSET,
   OPS_MATCHER_INVALID,
   OPS_SILENCE_END_UNSET,
   OPS_ALERT_CHANNEL_KEY_UNSET,
@@ -54,7 +60,30 @@ export const opsAlertTimingSchema = z.object({
   groupWaitSeconds: z.number().int().nullable(),
   groupIntervalSeconds: z.number().int().nullable(),
   repeatSeconds: z.number().int().nullable(),
+  flapSeconds: z.number().int().nullable(),
 });
+
+/** Days of the month, months, years, a clock range and a time zone. Every part is the owner's. */
+export const opsAlertNoticeWindowSchema = z.object({
+  days: z.array(z.number().int()),
+  months: z.array(z.number().int()),
+  years: z.array(z.number().int()),
+  start: z.string(),
+  end: z.string(),
+  location: z.string(),
+});
+export type OpsAlertNoticeWindow = z.infer<typeof opsAlertNoticeWindowSchema>;
+
+const opsAlertNoticeWindowInputSchema = z
+  .object({
+    days: z.array(z.number().int()).optional(),
+    months: z.array(z.number().int()).optional(),
+    years: z.array(z.number().int()).optional(),
+    start: z.string().optional(),
+    end: z.string().optional(),
+    location: z.string().optional(),
+  })
+  .nullable();
 
 export type OpsAlertPolicyNode = {
   id: string;
@@ -80,6 +109,8 @@ export const opsAlertRouteTreeSchema = z.object({
   version: z.number().int().min(1),
   defaultContactId: z.string().min(1),
   timing: opsAlertTimingSchema,
+  mute: opsAlertNoticeWindowSchema.nullable(),
+  active: opsAlertNoticeWindowSchema.nullable(),
   policies: z.array(opsAlertPolicyNodeSchema),
   actor: z.string().min(1),
   reason: z.string().min(1),
@@ -99,6 +130,7 @@ export const opsAlertPolicyInputSchema: z.ZodType<OpsAlertPolicyInput> = z.lazy(
     groupWaitSeconds: z.number().int().nullable().optional(),
     groupIntervalSeconds: z.number().int().nullable().optional(),
     repeatSeconds: z.number().int().nullable().optional(),
+    flapSeconds: z.number().int().nullable().optional(),
     children: z.array(opsAlertPolicyInputSchema).optional(),
   }),
 );
@@ -113,6 +145,7 @@ export interface OpsAlertPolicyInput {
   readonly groupWaitSeconds?: number | null;
   readonly groupIntervalSeconds?: number | null;
   readonly repeatSeconds?: number | null;
+  readonly flapSeconds?: number | null;
   readonly children?: readonly OpsAlertPolicyInput[];
 }
 
@@ -125,6 +158,9 @@ export const opsAlertRouteSaveSchema = z.object({
   groupWaitSeconds: z.number().int().nullable().optional(),
   groupIntervalSeconds: z.number().int().nullable().optional(),
   repeatSeconds: z.number().int().nullable().optional(),
+  flapSeconds: z.number().int().nullable().optional(),
+  mute: opsAlertNoticeWindowInputSchema.optional(),
+  active: opsAlertNoticeWindowInputSchema.optional(),
   policies: z.array(opsAlertPolicyInputSchema).optional(),
 });
 

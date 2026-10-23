@@ -301,12 +301,38 @@ export class AlertRules {
 
   async previewSilence(
     id: string,
-    firing: readonly { ruleId: string; name: string; instance: string; labels: Readonly<Record<string, string>>; state: string }[],
+    limit: number,
+    read: (
+      offset: number,
+      limit: number,
+    ) => Promise<readonly { ruleId: string; name: string; instance: string; labels: Readonly<Record<string, string>>; state: string }[]>,
   ) {
     const silence = await this.getSilence(id);
     const active = silenceActive(silence, this.now());
-    const alerts = active ? firing.filter((row) => matchersHold(silence.matchers, row.labels)) : [];
-    return { endsAt: silence.endsAt, active, alerts };
+    if (!active || limit < 1) return { endsAt: silence.endsAt, active, alerts: [], truncated: false };
+    const alerts: { ruleId: string; name: string; instance: string; labels: Readonly<Record<string, string>>; state: string }[] = [];
+    let offset = 0;
+    let truncated = false;
+    while (alerts.length < limit) {
+      const batch = await read(offset, limit);
+      if (batch.length === 0) break;
+      for (const row of batch) {
+        if (!matchersHold(silence.matchers, row.labels)) continue;
+        if (alerts.length === limit) {
+          truncated = true;
+          break;
+        }
+        alerts.push(row);
+      }
+      if (truncated || batch.length < limit) break;
+      offset += batch.length;
+      if (alerts.length === limit) {
+        const more = await read(offset, 1);
+        truncated = more.length > 0;
+        break;
+      }
+    }
+    return { endsAt: silence.endsAt, active: true, alerts, truncated };
   }
 
   saveContact(input: Omit<ContactSave, 'actor' | 'reason' | 'at'>, who: Actor) {

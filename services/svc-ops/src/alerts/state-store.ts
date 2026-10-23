@@ -65,8 +65,8 @@ export interface AlertStateStore {
   /** The stored state of each rule's instance, by rule id. A rule never evaluated has none. */
   states(ruleIds: readonly string[]): Promise<ReadonlyMap<string, InstanceState & { readonly instance: string }>>;
   history(filter: HistoryFilter): Promise<{ readonly rows: readonly HistoryRow[]; readonly truncated: boolean }>;
-  /** Pending and firing instances only, firing first. `limit` is a cap the caller chose; this does not invent a page size. */
-  active(states: readonly ('pending' | 'firing')[], limit: number): Promise<readonly ActiveInstance[]>;
+  /** Pending and firing instances only, firing first. `limit` and `offset` are the caller's; this does not invent a page size. */
+  active(states: readonly ('pending' | 'firing')[], limit: number, offset?: number): Promise<readonly ActiveInstance[]>;
 }
 
 export interface AlertOutbox {
@@ -155,7 +155,8 @@ export function createMemoryAlertState(): AlertStateStore &
         .sort((a, b) => b.id - a.id);
       return { rows: rows.slice(0, f.limit), truncated: rows.length > f.limit };
     },
-    async active(states, limit) {
+    async active(states, limit, offset = 0) {
+      if (limit < 1 || offset < 0) return [];
       const wanted = new Set<string>(states);
       return [...instances.values()]
         .filter((row) => wanted.has(row.state))
@@ -166,9 +167,11 @@ export function createMemoryAlertState(): AlertStateStore &
           const when = (row: { firingSince: string | null; pendingSince: string | null }) => row.firingSince ?? row.pendingSince ?? '';
           const byWhen = when(b).localeCompare(when(a));
           if (byWhen !== 0) return byWhen;
-          return a.ruleId < b.ruleId ? -1 : a.ruleId > b.ruleId ? 1 : 0;
+          const byRule = a.ruleId < b.ruleId ? -1 : a.ruleId > b.ruleId ? 1 : 0;
+          if (byRule !== 0) return byRule;
+          return a.instance < b.instance ? -1 : a.instance > b.instance ? 1 : 0;
         })
-        .slice(0, limit)
+        .slice(offset, offset + limit)
         .map((row) => ({
           ruleId: row.ruleId,
           instance: row.instance,
@@ -296,14 +299,14 @@ export function createPgAlertState(sql: Sql): AlertStateStore & AlertOutbox {
         truncated: rows.length > f.limit,
       };
     },
-    async active(states, limit) {
-      if (states.length === 0 || limit < 1) return [];
+    async active(states, limit, offset = 0) {
+      if (states.length === 0 || limit < 1 || offset < 0) return [];
       const rows = await sql<InstanceRow[]>`SELECT * FROM ops.alert_instances
         WHERE state IN ${sql([...states])}
         ORDER BY CASE state WHEN 'firing' THEN 0 ELSE 1 END,
           COALESCE(firing_since, pending_since) DESC NULLS LAST,
-          rule_id
-        LIMIT ${limit}`;
+          rule_id, instance
+        LIMIT ${limit} OFFSET ${offset}`;
       return rows.map((r) => {
         const inst = toInstance(r);
         return {

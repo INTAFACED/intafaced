@@ -90,6 +90,19 @@ CREATE TABLE ops.alert_channel_attempts (
  PRIMARY KEY (notification_id, attempt)
 );
 CREATE INDEX alert_channel_attempts_key_idx ON ops.alert_channel_attempts (idempotency_key, attempt);
+CREATE TABLE ops.alert_send_claims (
+ idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+ attempt integer NOT NULL CHECK (attempt >= 1),
+ notification_id text NOT NULL,
+ fingerprint text NOT NULL CHECK (fingerprint ~ '^[a-f0-9]{64}$'),
+ claimed_at timestamptz NOT NULL,
+ PRIMARY KEY (idempotency_key, attempt)
+);
+CREATE FUNCTION ops.alert_send_claims_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ RAISE EXCEPTION 'ops.alert_send_claim_immutable';
+END $$;
+CREATE TRIGGER alert_send_claims_append_only BEFORE UPDATE OR DELETE ON ops.alert_send_claims FOR EACH ROW EXECUTE FUNCTION ops.alert_send_claims_append_only();
 CREATE FUNCTION ops.alert_channel_attempts_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  RAISE EXCEPTION 'ops.alert_channel_attempt_immutable';
@@ -98,7 +111,7 @@ CREATE TRIGGER alert_channel_attempts_append_only BEFORE UPDATE OR DELETE ON ops
 
 CREATE TABLE ops.alert_notify_audit (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
- action text NOT NULL CHECK (action IN ('route.saved','contact.saved','contact.retired','silence.created','channel.tested','grouping.refused','grouping.sent')),
+ action text NOT NULL CHECK (action IN ('route.saved','contact.saved','contact.retired','silence.created','channel.tested','grouping.refused','grouping.suppressed','grouping.sent')),
  subject text NOT NULL CHECK (length(subject) BETWEEN 1 AND 200),
  before jsonb,
  after jsonb,

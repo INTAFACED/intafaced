@@ -23,7 +23,9 @@ import { fingerprintOf } from './rules.js';
 import {
   assertAuthExclusive,
   contactIdsOf,
+  groupDecision,
   maskContact,
+  matchersHold,
   notificationId,
   openSecret,
   parseIntegrations,
@@ -34,10 +36,11 @@ import {
   resolveRoute,
   routeMentions,
   signWebhook,
-  timingReady,
+  timingStored,
   vendorCode,
   webhookBody,
   type ContactBody,
+  type GroupSuppression,
   type ResolveHit,
   type RouteBody,
   type RouteTree,
@@ -65,6 +68,7 @@ export interface GroupResult {
   readonly sent: boolean;
   readonly code: string | null;
   readonly notificationId: string | null;
+  readonly suppressed: GroupSuppression | null;
 }
 
 export interface RouteSave {
@@ -78,6 +82,9 @@ export interface RouteSave {
   readonly groupWaitSeconds?: number | null;
   readonly groupIntervalSeconds?: number | null;
   readonly repeatSeconds?: number | null;
+  readonly flapSeconds?: number | null;
+  readonly mute?: unknown;
+  readonly active?: unknown;
   readonly policies?: readonly OpsAlertPolicyInput[];
 }
 
@@ -195,6 +202,9 @@ function routeFingerprint(input: RouteSave): string {
     groupWaitSeconds: input.groupWaitSeconds ?? null,
     groupIntervalSeconds: input.groupIntervalSeconds ?? null,
     repeatSeconds: input.repeatSeconds ?? null,
+    flapSeconds: input.flapSeconds ?? null,
+    mute: input.mute ?? null,
+    active: input.active ?? null,
     policies: input.policies ?? null,
   });
 }
@@ -226,7 +236,8 @@ export function createMemoryNotify(): AlertNotifyStore {
   const silenceKeys = new Map<string, { fingerprint: string; silence: OpsAlertSilence }>();
   const attempts: AttemptRow[] = [];
   const notes: { id: string; contactId: string; integrationId: string; ordinal: number }[] = [];
-  const audits: { key: string; fingerprint: string; action: string }[] = [];
+  const audits: { key: string; fingerprint: string; action: string; after?: unknown }[] = [];
+  const claims = new Map<string, { fingerprint: string; promise: Promise<TestResult> }>();
 
   const live = (id: string): LiveContact => {
     const found = contacts.get(id);
@@ -238,47 +249,77 @@ export function createMemoryNotify(): AlertNotifyStore {
     const actor = actorOf(input.actor);
     const reason = reasonOf(input.reason);
     const fingerprint = fingerprintOf({ op: action, key: input.key, contactId: input.contactId, integrationId: input.integrationId });
-    const rows = attempts.filter((row) => row.key === input.key);
+    const rowsFor = (): AttemptRow[] => attempts.filter((row) => row.key === input.key);
+    const rows = rowsFor();
     if (rows.some((row) => row.fingerprint !== fingerprint)) conflict('channel test');
     const done = finished(rows);
     if (done) return { notificationId: done.notificationId, code: done.code, stored: true };
-    const contact = live(input.contactId);
-    const integration = contact.integrations.find((item) => item.id === input.integrationId);
-    if (!integration) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'No such integration.');
-    assertAuthExclusive(integration);
-    const existingId = rows[0]?.notificationId;
-    let id = existingId;
-    if (!id) {
-      const ordinal =
-        (notes.filter((row) => row.contactId === input.contactId && row.integrationId === input.integrationId).at(-1)?.ordinal ?? 0) + 1;
-      id = notificationId(input.contactId, ordinal);
-      notes.push({ id, contactId: input.contactId, integrationId: input.integrationId, ordinal });
+    // Recorded before deliver, so the other same-key caller waits and does not POST.
+    const claimed = claims.get(input.key);
+    if (claimed) {
+      if (claimed.fingerprint !== fingerprint) conflict('channel test');
+      return claimed.promise;
     }
-    const attempt = (rows.at(-1)?.attempt ?? 0) + 1;
-    const vendor = vendorCode(integration.kind);
-    const write = (code: string | null): TestResult => {
-      attempts.push({
-        key: input.key,
-        fingerprint,
-        notificationId: id!,
-        attempt,
-        contactId: input.contactId,
-        integrationId: input.integrationId,
-        code,
-        actor,
-        reason,
-        at: input.at,
-      });
-      if (!audits.some((row) => row.key === input.key)) audits.push({ key: input.key, fingerprint, action });
-      return { notificationId: id!, code, stored: true };
+    let settle!: (value: TestResult) => void;
+    let fail!: (error: unknown) => void;
+    const promise = new Promise<TestResult>((resolve, reject) => {
+      settle = resolve;
+      fail = reject;
+    });
+    promise.catch(() => undefined);
+    claims.set(input.key, { fingerprint, promise });
+    const finish = async (): Promise<TestResult> => {
+      const again = rowsFor();
+      if (again.some((row) => row.fingerprint !== fingerprint)) conflict('channel test');
+      const already = finished(again);
+      if (already) return { notificationId: already.notificationId, code: already.code, stored: true };
+      const contact = live(input.contactId);
+      const integration = contact.integrations.find((item) => item.id === input.integrationId);
+      if (!integration) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'No such integration.');
+      assertAuthExclusive(integration);
+      let id = again[0]?.notificationId;
+      if (!id) {
+        const ordinal =
+          (notes.filter((row) => row.contactId === input.contactId && row.integrationId === input.integrationId).at(-1)?.ordinal ?? 0) + 1;
+        id = notificationId(input.contactId, ordinal);
+        notes.push({ id, contactId: input.contactId, integrationId: input.integrationId, ordinal });
+      }
+      const attempt = (again.at(-1)?.attempt ?? 0) + 1;
+      const write = (code: string | null): TestResult => {
+        attempts.push({
+          key: input.key,
+          fingerprint,
+          notificationId: id,
+          attempt,
+          contactId: input.contactId,
+          integrationId: input.integrationId,
+          code,
+          actor,
+          reason,
+          at: input.at,
+        });
+        if (!audits.some((row) => row.key === input.key)) audits.push({ key: input.key, fingerprint, action });
+        return { notificationId: id, code, stored: true };
+      };
+      const vendor = vendorCode(integration.kind);
+      if (vendor) return write(vendor);
+      const body = webhookBody({ notificationId: id, contactId: input.contactId, integrationId: input.integrationId, at: input.at });
+      try {
+        await deliver(integration, body);
+        return write(null);
+      } catch {
+        return write(OPS_CHANNEL_DELIVERY_FAILED);
+      }
     };
-    if (vendor) return write(vendor);
-    const body = webhookBody({ notificationId: id, contactId: input.contactId, integrationId: input.integrationId, at: input.at });
     try {
-      await deliver(integration, body);
-      return write(null);
-    } catch {
-      return write(OPS_CHANNEL_DELIVERY_FAILED);
+      const result = await finish();
+      settle(result);
+      return result;
+    } catch (error) {
+      fail(error);
+      throw error;
+    } finally {
+      claims.delete(input.key);
     }
   }
 
@@ -419,16 +460,37 @@ export function createMemoryNotify(): AlertNotifyStore {
     },
     async groupingSend(input) {
       const fingerprint = fingerprintOf({ op: 'group', key: input.key, ruleId: input.ruleId, labels: input.labels });
-      const prior = audits.find((row) => row.key === input.key && row.action === 'grouping.refused');
+      const prior = audits.find(
+        (row) => row.key === input.key && (row.action === 'grouping.refused' || row.action === 'grouping.suppressed'),
+      );
       if (prior) {
         if (prior.fingerprint !== fingerprint) conflict('grouped notice');
-        return { sent: false, code: OPS_GROUP_TIMING_UNSET, notificationId: null };
+        const after = prior.after as { code?: string; suppressed?: GroupSuppression } | undefined;
+        if (prior.action === 'grouping.suppressed') {
+          return { sent: false, code: null, notificationId: null, suppressed: after?.suppressed ?? null };
+        }
+        return { sent: false, code: after?.code ?? OPS_GROUP_TIMING_UNSET, notificationId: null, suppressed: null };
       }
       if (!route) throw new OpsError(OPS_ALERT_ROUTE_UNSET, 'No routing tree is saved. Nothing was sent.');
       const hit = resolveRoute(route, input.labels);
-      if (!timingReady(hit.timing)) {
-        audits.push({ key: input.key, fingerprint, action: 'grouping.refused' });
-        return { sent: false, code: OPS_GROUP_TIMING_UNSET, notificationId: null };
+      const silence = [...silences.values()]
+        .filter((row) => Date.parse(row.endsAt) > Date.parse(input.at))
+        .sort((a, b) => (a.id < b.id ? -1 : 1))
+        .find((row) => matchersHold(row.matchers, input.labels));
+      const block = groupDecision({
+        timing: timingStored(hit.timing),
+        mute: route.mute ?? null,
+        active: route.active ?? null,
+        silenceId: silence?.id ?? null,
+        now: input.at,
+      });
+      if (block.outcome === 'refused') {
+        audits.push({ key: input.key, fingerprint, action: 'grouping.refused', after: { code: block.code } });
+        return { sent: false, code: block.code, notificationId: null, suppressed: null };
+      }
+      if (block.outcome === 'suppressed') {
+        audits.push({ key: input.key, fingerprint, action: 'grouping.suppressed', after: { suppressed: block.suppressed } });
+        return { sent: false, code: null, notificationId: null, suppressed: block.suppressed };
       }
       const contact = live(hit.primaryContact);
       const integration = contact.integrations[0];
@@ -437,7 +499,7 @@ export function createMemoryNotify(): AlertNotifyStore {
         { contactId: contact.id, integrationId: integration.id, key: input.key, actor: input.actor, reason: input.reason, at: input.at },
         'grouping.sent',
       );
-      return { sent: result.code === null, code: result.code, notificationId: result.notificationId };
+      return { sent: result.code === null, code: result.code, notificationId: result.notificationId, suppressed: null };
     },
     async attempts(contactId, limit) {
       return attempts.filter((row) => row.contactId === contactId).slice(-limit);
@@ -487,7 +549,14 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
   };
   const readRoute = async (tx: Sql | TransactionSql): Promise<RouteTree | null> => {
     const [row] = await tx<RouteRow[]>`SELECT body, version, actor, reason, updated_at FROM ops.alert_route_policy WHERE id = 1`;
-    return row ? treeOf(row.body, row.version, row.actor, row.reason, iso(row.updated_at)) : null;
+    if (!row) return null;
+    const body: RouteBody = {
+      ...row.body,
+      timing: timingStored(row.body?.timing),
+      mute: row.body?.mute ?? null,
+      active: row.body?.active ?? null,
+    };
+    return treeOf(body, row.version, row.actor, row.reason, iso(row.updated_at));
   };
   const readContact = async (tx: Sql | TransactionSql, id: string): Promise<LiveContact | null> => {
     const [row] = await tx<
@@ -707,43 +776,63 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
     },
     async groupingSend(input) {
       const fingerprint = fingerprintOf({ op: 'group', key: input.key, ruleId: input.ruleId, labels: input.labels });
-      const [prior] = await sql<{ fingerprint: string; action: string }[]>`
-        SELECT fingerprint, action FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key} AND action = 'grouping.refused'`;
-      if (prior) {
-        if (prior.fingerprint !== fingerprint) conflict('grouped notice');
-        return { sent: false, code: OPS_GROUP_TIMING_UNSET, notificationId: null };
-      }
-      const route = await readRoute(sql);
-      if (!route) throw new OpsError(OPS_ALERT_ROUTE_UNSET, 'No routing tree is saved. Nothing was sent.');
-      const hit = resolveRoute(route, input.labels);
-      if (!timingReady(hit.timing)) {
-        await sql.begin(async (tx) => {
-          await lock(tx);
-          const [again] = await tx<
-            { fingerprint: string }[]
-          >`SELECT fingerprint FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key}`;
-          if (again) {
-            if (again.fingerprint !== fingerprint) conflict('grouped notice');
-            return;
+      const decided = await sql.begin(async (tx) => {
+        await lock(tx);
+        const [prior] = await tx<{ fingerprint: string; action: string; after: { code?: string; suppressed?: GroupSuppression } | null }[]>`
+          SELECT fingerprint, action, after FROM ops.alert_notify_audit
+          WHERE idempotency_key = ${input.key} AND action IN ('grouping.refused', 'grouping.suppressed')`;
+        if (prior) {
+          if (prior.fingerprint !== fingerprint) conflict('grouped notice');
+          if (prior.action === 'grouping.suppressed') {
+            return { kind: 'stop' as const, sent: false, code: null, notificationId: null, suppressed: prior.after?.suppressed ?? null };
           }
-          const actor = actorOf(input.actor);
-          const reason = reasonOf(input.reason);
-          await audit(
-            tx,
-            'grouping.refused',
-            input.ruleId,
-            null,
-            { code: OPS_GROUP_TIMING_UNSET },
-            actor,
-            reason,
-            input.key,
-            fingerprint,
-            input.at,
-          );
+          return {
+            kind: 'stop' as const,
+            sent: false,
+            code: prior.after?.code ?? OPS_GROUP_TIMING_UNSET,
+            notificationId: null,
+            suppressed: null,
+          };
+        }
+        const route = await readRoute(tx);
+        if (!route) throw new OpsError(OPS_ALERT_ROUTE_UNSET, 'No routing tree is saved. Nothing was sent.');
+        const hit = resolveRoute(route, input.labels);
+        const silenceRows = await tx<
+          { silence_id: string; matchers: OpsAlertSilence['matchers'] }[]
+        >`SELECT silence_id, matchers FROM ops.alert_silences WHERE ends_at > ${input.at} ORDER BY silence_id`;
+        const silence = silenceRows.find((row) => matchersHold(row.matchers, input.labels));
+        const block = groupDecision({
+          timing: timingStored(hit.timing),
+          mute: route.mute,
+          active: route.active,
+          silenceId: silence?.silence_id ?? null,
+          now: input.at,
         });
-        return { sent: false, code: OPS_GROUP_TIMING_UNSET, notificationId: null };
+        if (block.outcome === 'send') return { kind: 'send' as const, contactId: hit.primaryContact };
+        const actor = actorOf(input.actor);
+        const reason = reasonOf(input.reason);
+        if (block.outcome === 'refused') {
+          await audit(tx, 'grouping.refused', input.ruleId, null, { code: block.code }, actor, reason, input.key, fingerprint, input.at);
+          return { kind: 'stop' as const, sent: false, code: block.code, notificationId: null, suppressed: null };
+        }
+        await audit(
+          tx,
+          'grouping.suppressed',
+          input.ruleId,
+          null,
+          { suppressed: block.suppressed },
+          actor,
+          reason,
+          input.key,
+          fingerprint,
+          input.at,
+        );
+        return { kind: 'stop' as const, sent: false, code: null, notificationId: null, suppressed: block.suppressed };
+      });
+      if (decided.kind === 'stop') {
+        return { sent: decided.sent, code: decided.code, notificationId: decided.notificationId, suppressed: decided.suppressed };
       }
-      const contact = await readContact(sql, hit.primaryContact);
+      const contact = await readContact(sql, decided.contactId);
       if (!contact || contact.retiredAt) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'No such contact point.');
       const integration = contact.integrations[0];
       if (!integration) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'The contact has no integration. Nothing was sent.');
@@ -752,7 +841,7 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
         { contactId: contact.id, integrationId: integration.id, key: input.key, actor: input.actor, reason: input.reason, at: input.at },
         'grouping.sent',
       );
-      return { sent: result.code === null, code: result.code, notificationId: result.notificationId };
+      return { sent: result.code === null, code: result.code, notificationId: result.notificationId, suppressed: null };
     },
     async attempts(contactId, limit) {
       const rows = await sql<
@@ -791,6 +880,7 @@ async function pgSend(sql: Sql, input: SendInput, action: 'channel.tested' | 'gr
   const actor = actorOf(input.actor);
   const reason = reasonOf(input.reason);
   const fingerprint = fingerprintOf({ op: action, key: input.key, contactId: input.contactId, integrationId: input.integrationId });
+  // The claim commits under the transaction lock, before any POST. Attempts stay append-only, so the claim is its own row.
   const prepare = await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('ops.alert.notify'))`;
     const rows = await tx<{ notification_id: string; attempt: number; fingerprint: string; code: string | null }[]>`
@@ -817,34 +907,53 @@ async function pgSend(sql: Sql, input: SendInput, action: 'channel.tested' | 'gr
       await tx`INSERT INTO ops.alert_notifications (notification_id, contact_id, integration_id, ordinal, idempotency_key)
         VALUES (${id}, ${input.contactId}, ${input.integrationId}, ${ordinal}, ${input.key})`;
     }
-    return { kind: 'ready' as const, id, attempt: (rows.at(-1)?.attempt ?? 0) + 1, integration };
+    const attempt = (rows.at(-1)?.attempt ?? 0) + 1;
+    const [claim] = await tx<{ fingerprint: string }[]>`
+      SELECT fingerprint FROM ops.alert_send_claims WHERE idempotency_key = ${input.key} AND attempt = ${attempt}`;
+    if (claim) {
+      if (claim.fingerprint !== fingerprint) conflict('channel test');
+    } else {
+      await tx`INSERT INTO ops.alert_send_claims (idempotency_key, attempt, notification_id, fingerprint, claimed_at)
+        VALUES (${input.key}, ${attempt}, ${id}, ${fingerprint}, ${input.at})`;
+    }
+    return { kind: 'finish' as const, id, attempt, integration };
   });
   if (prepare.kind === 'done') return { notificationId: prepare.notificationId, code: prepare.code, stored: true };
-  const vendor = vendorCode(prepare.integration.kind);
-  const write = async (code: string | null): Promise<TestResult> => {
-    await sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext('ops.alert.notify'))`;
-      const [again] = await tx<{ code: string | null }[]>`
-        SELECT code FROM ops.alert_channel_attempts WHERE idempotency_key = ${input.key} AND attempt = ${prepare.attempt}`;
-      if (again) return;
-      await tx`INSERT INTO ops.alert_channel_attempts (notification_id, attempt, idempotency_key, fingerprint, code, actor, reason, at)
-        VALUES (${prepare.id}, ${prepare.attempt}, ${input.key}, ${fingerprint}, ${code}, ${actor}, ${reason}, ${input.at})`;
-      const [audited] = await tx<
-        { idempotency_key: string }[]
-      >`SELECT idempotency_key FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key}`;
-      if (!audited) {
-        await tx`INSERT INTO ops.alert_notify_audit (action, subject, before, after, actor, reason, idempotency_key, fingerprint, at)
-          VALUES (${action}, ${input.contactId}, NULL, ${tx.json({ notificationId: prepare.id, code })}, ${actor}, ${reason}, ${input.key}, ${fingerprint}, ${input.at})`;
+  // The row lock is held across the POST. The other same-key caller blocks here, then sees the attempt and does not POST.
+  // A crash drops the lock and leaves the claim, so the same key can finish it. This is not a session advisory lock.
+  return sql.begin(async (tx) => {
+    const [claim] = await tx<{ fingerprint: string }[]>`
+      SELECT fingerprint FROM ops.alert_send_claims
+      WHERE idempotency_key = ${input.key} AND attempt = ${prepare.attempt}
+      FOR UPDATE`;
+    if (!claim || claim.fingerprint !== fingerprint) conflict('channel test');
+    const [existing] = await tx<{ code: string | null }[]>`
+      SELECT code FROM ops.alert_channel_attempts WHERE idempotency_key = ${input.key} AND attempt = ${prepare.attempt}`;
+    if (existing) return { notificationId: prepare.id, code: existing.code, stored: true as const };
+    const vendor = vendorCode(prepare.integration.kind);
+    let code: string | null = vendor;
+    if (!vendor) {
+      const body = webhookBody({
+        notificationId: prepare.id,
+        contactId: input.contactId,
+        integrationId: input.integrationId,
+        at: input.at,
+      });
+      try {
+        await deliver(prepare.integration, body);
+        code = null;
+      } catch {
+        code = OPS_CHANNEL_DELIVERY_FAILED;
       }
-    });
-    return { notificationId: prepare.id, code, stored: true };
-  };
-  if (vendor) return write(vendor);
-  const body = webhookBody({ notificationId: prepare.id, contactId: input.contactId, integrationId: input.integrationId, at: input.at });
-  try {
-    await deliver(prepare.integration, body);
-    return write(null);
-  } catch {
-    return write(OPS_CHANNEL_DELIVERY_FAILED);
-  }
+    }
+    await tx`INSERT INTO ops.alert_channel_attempts (notification_id, attempt, idempotency_key, fingerprint, code, actor, reason, at)
+      VALUES (${prepare.id}, ${prepare.attempt}, ${input.key}, ${fingerprint}, ${code}, ${actor}, ${reason}, ${input.at})`;
+    const [audited] = await tx<{ idempotency_key: string }[]>`
+      SELECT idempotency_key FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key}`;
+    if (!audited) {
+      await tx`INSERT INTO ops.alert_notify_audit (action, subject, before, after, actor, reason, idempotency_key, fingerprint, at)
+        VALUES (${action}, ${input.contactId}, NULL, ${tx.json({ notificationId: prepare.id, code })}, ${actor}, ${reason}, ${input.key}, ${fingerprint}, ${input.at})`;
+    }
+    return { notificationId: prepare.id, code, stored: true as const };
+  });
 }

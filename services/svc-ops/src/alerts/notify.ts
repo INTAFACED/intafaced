@@ -10,9 +10,12 @@ import {
   OPS_ALERT_ROUTE_INVALID,
   OPS_CHANNEL_AUTH_CONFLICT,
   OPS_CHANNEL_SECRET_UNSET,
+  OPS_ACTIVE_TIME_UNSET,
   OPS_CHANNEL_TARGET_UNSET,
+  OPS_FLAP_SUPPRESSION_UNSET,
   OPS_GROUP_TIMING_UNSET,
   OPS_MATCHER_INVALID,
+  OPS_MUTE_TIMING_UNSET,
   OPS_SILENCE_END_UNSET,
   VENDOR_EMAIL,
   VENDOR_PUSH,
@@ -33,6 +36,17 @@ export interface Timing {
   readonly groupWaitSeconds: number | null;
   readonly groupIntervalSeconds: number | null;
   readonly repeatSeconds: number | null;
+  readonly flapSeconds: number | null;
+}
+
+/** Mute timing or the active window. Blank parts are refused; nothing here fills a day, a clock or a zone. */
+export interface NoticeWindow {
+  readonly days: number[];
+  readonly months: number[];
+  readonly years: number[];
+  readonly start: string;
+  readonly end: string;
+  readonly location: string;
 }
 
 export interface PolicyNode {
@@ -47,6 +61,8 @@ export interface PolicyNode {
 export interface RouteBody {
   readonly defaultContactId: string;
   readonly timing: Timing;
+  readonly mute: NoticeWindow | null;
+  readonly active: NoticeWindow | null;
   readonly policies: PolicyNode[];
 }
 
@@ -82,7 +98,8 @@ export interface ResolveHit {
   readonly primaryContact: string;
 }
 
-const EMPTY_TIMING: Timing = { groupBy: null, groupWaitSeconds: null, groupIntervalSeconds: null, repeatSeconds: null };
+const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
+type WindowCode = typeof OPS_MUTE_TIMING_UNSET | typeof OPS_ACTIVE_TIME_UNSET;
 
 export function notificationId(contactId: string, ordinal: number): string {
   return `ops:notify:${contactId}:${ordinal}`;
@@ -107,6 +124,17 @@ function optionalPositive(value: unknown, field: string): number | null {
   return value;
 }
 
+function flapOf(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new OpsError(
+      OPS_FLAP_SUPPRESSION_UNSET,
+      'Flapping suppression is blank or zero. No duration is invented, and nothing was saved.',
+    );
+  }
+  return value;
+}
+
 function groupByOf(value: unknown): string[] | null {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
@@ -125,16 +153,29 @@ export function timingOf(input: {
   readonly groupWaitSeconds?: number | null;
   readonly groupIntervalSeconds?: number | null;
   readonly repeatSeconds?: number | null;
+  readonly flapSeconds?: number | null;
 }): Timing {
   return {
     groupBy: groupByOf(input.groupBy),
     groupWaitSeconds: optionalPositive(input.groupWaitSeconds, 'groupWaitSeconds'),
     groupIntervalSeconds: optionalPositive(input.groupIntervalSeconds, 'groupIntervalSeconds'),
     repeatSeconds: optionalPositive(input.repeatSeconds, 'repeatSeconds'),
+    flapSeconds: flapOf(input.flapSeconds),
   };
 }
 
-/** A grouped notice needs every timing field. A blank or zero field means the notice is not sent. */
+/** A stored route may predate a field. Missing stays blank; it is not filled in. */
+export function timingStored(timing: Partial<Timing> | null | undefined): Timing {
+  return {
+    groupBy: timing?.groupBy ?? null,
+    groupWaitSeconds: timing?.groupWaitSeconds ?? null,
+    groupIntervalSeconds: timing?.groupIntervalSeconds ?? null,
+    repeatSeconds: timing?.repeatSeconds ?? null,
+    flapSeconds: timing?.flapSeconds ?? null,
+  };
+}
+
+/** Group by, wait, interval and repeat. A blank flap refuses on its own and is not filled in here. */
 export function timingReady(timing: Timing): boolean {
   return (
     timing.groupBy !== null &&
@@ -211,19 +252,135 @@ function parsePolicies(raw: readonly OpsAlertPolicyInput[] | undefined, depth: n
   });
 }
 
+function clockMinute(value: string): number | null {
+  const match = CLOCK.exec(value);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function numberList(value: unknown, min: number, max: number, code: WindowCode, label: string): number[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 40) {
+    throw new OpsError(code, `${label} is blank. No window is invented, and nothing was saved.`);
+  }
+  return value.map((item) => {
+    if (typeof item !== 'number' || !Number.isInteger(item) || item < min || item > max) {
+      throw new OpsError(code, `${label} is blank. No window is invented, and nothing was saved.`);
+    }
+    return item;
+  });
+}
+
+/** Omitted is blank. A present window must name every part; a zero-length range is blank. */
+export function parseNoticeWindow(value: unknown, code: WindowCode): NoticeWindow | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object') throw new OpsError(code, 'The time window is blank. No window is invented, and nothing was saved.');
+  const row = value as { days?: unknown; months?: unknown; years?: unknown; start?: unknown; end?: unknown; location?: unknown };
+  const days = numberList(row.days, 1, 31, code, 'The days');
+  const months = numberList(row.months, 1, 12, code, 'The months');
+  const years = numberList(row.years, 1970, 9999, code, 'The years');
+  if (typeof row.start !== 'string' || typeof row.end !== 'string') {
+    throw new OpsError(code, 'The time range is blank. No duration is invented, and nothing was saved.');
+  }
+  const start = clockMinute(row.start);
+  const end = clockMinute(row.end);
+  if (start === null || end === null || start === end) {
+    throw new OpsError(code, 'The time range is blank or zero. No duration is invented, and nothing was saved.');
+  }
+  const location = typeof row.location === 'string' ? row.location.trim() : '';
+  if (!location) throw new OpsError(code, 'The location is blank. No time zone is invented, and nothing was saved.');
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: location }).format(0);
+  } catch {
+    throw new OpsError(code, 'The location is not a time zone. No time zone is invented, and nothing was saved.');
+  }
+  return { days, months, years, start: row.start, end: row.end, location };
+}
+
+function zonedMinute(iso: string, timeZone: string): { year: number; month: number; day: number; minute: number } {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  const hour = Number(parts.hour) === 24 ? 0 : Number(parts.hour);
+  return { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day), minute: hour * 60 + Number(parts.minute) };
+}
+
+/** True when the owner's window contains `now` in the owner's zone. A broken zone refuses; it does not become UTC. */
+export function windowCovers(window: NoticeWindow, nowIso: string, code: WindowCode): boolean {
+  let parts: { year: number; month: number; day: number; minute: number };
+  try {
+    parts = zonedMinute(nowIso, window.location);
+  } catch {
+    throw new OpsError(code, 'The location is not a time zone. No time zone is invented, and nothing was sent.');
+  }
+  if (!window.years.includes(parts.year) || !window.months.includes(parts.month) || !window.days.includes(parts.day)) return false;
+  const start = clockMinute(window.start);
+  const end = clockMinute(window.end);
+  if (start === null || end === null || start === end) return false;
+  if (start < end) return parts.minute >= start && parts.minute < end;
+  return parts.minute >= start || parts.minute < end;
+}
+
+export type GroupSuppression =
+  { readonly kind: 'silence'; readonly id: string } | { readonly kind: 'mute' } | { readonly kind: 'inactive' };
+
+export type GroupDecision =
+  | { readonly outcome: 'refused'; readonly code: string }
+  | { readonly outcome: 'suppressed'; readonly suppressed: GroupSuppression }
+  | { readonly outcome: 'send' };
+
+/**
+ * Timing first, then an active silence, then flap and the two windows.
+ * A matching silence stores a suppression and does not deliver. Evaluation is not this function's job.
+ */
+export function groupDecision(input: {
+  readonly timing: Timing;
+  readonly mute: NoticeWindow | null;
+  readonly active: NoticeWindow | null;
+  readonly silenceId: string | null;
+  readonly now: string;
+}): GroupDecision {
+  const timing = timingStored(input.timing);
+  if (!timingReady(timing)) return { outcome: 'refused', code: OPS_GROUP_TIMING_UNSET };
+  if (input.silenceId) return { outcome: 'suppressed', suppressed: { kind: 'silence', id: input.silenceId } };
+  if (timing.flapSeconds === null || timing.flapSeconds <= 0) return { outcome: 'refused', code: OPS_FLAP_SUPPRESSION_UNSET };
+  if (!input.mute) return { outcome: 'refused', code: OPS_MUTE_TIMING_UNSET };
+  if (!input.active) return { outcome: 'refused', code: OPS_ACTIVE_TIME_UNSET };
+  if (windowCovers(input.mute, input.now, OPS_MUTE_TIMING_UNSET)) return { outcome: 'suppressed', suppressed: { kind: 'mute' } };
+  if (!windowCovers(input.active, input.now, OPS_ACTIVE_TIME_UNSET)) {
+    return { outcome: 'suppressed', suppressed: { kind: 'inactive' } };
+  }
+  return { outcome: 'send' };
+}
+
 export function parseRoute(input: {
   readonly defaultContactId?: string;
   readonly groupBy?: readonly string[] | null;
   readonly groupWaitSeconds?: number | null;
   readonly groupIntervalSeconds?: number | null;
   readonly repeatSeconds?: number | null;
+  readonly flapSeconds?: number | null;
+  readonly mute?: unknown;
+  readonly active?: unknown;
   readonly policies?: readonly OpsAlertPolicyInput[];
 }): RouteBody {
   const contact = input.defaultContactId?.trim() ?? '';
   if (!SLUG.test(contact)) {
     throw new OpsError(OPS_ALERT_DEFAULT_CONTACT_UNSET, 'The default contact is blank. The routing tree was not saved.');
   }
-  return { defaultContactId: contact, timing: timingOf(input), policies: parsePolicies(input.policies, 1, new Set()) };
+  return {
+    defaultContactId: contact,
+    timing: timingOf(input),
+    mute: parseNoticeWindow(input.mute, OPS_MUTE_TIMING_UNSET),
+    active: parseNoticeWindow(input.active, OPS_ACTIVE_TIME_UNSET),
+    policies: parsePolicies(input.policies, 1, new Set()),
+  };
 }
 
 export function contactIdsOf(body: RouteBody): string[] {

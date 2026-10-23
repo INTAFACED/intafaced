@@ -398,6 +398,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
                 state: z.string(),
               }),
             ),
+            truncated: z.boolean(),
           }),
         )
         .query(({ input }) =>
@@ -410,14 +411,22 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
               );
             }
             const limit = assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET);
-            const active = await stateStore.active(['firing'], limit);
-            const firing = [];
-            for (const row of active) {
-              const rule = await rules.get(row.ruleId);
-              if (!rule) continue;
-              firing.push({ ruleId: rule.id, name: rule.name, instance: row.instance, labels: rule.labels, state: row.state });
-            }
-            return rules.previewSilence(input.id, firing);
+            const read = async (offset: number, size: number) => {
+              const rows = await stateStore.active(['firing'], size, offset);
+              const page = [];
+              for (const row of rows) {
+                const rule = await rules.get(row.ruleId);
+                page.push({
+                  ruleId: row.ruleId,
+                  name: rule?.name ?? '',
+                  instance: row.instance,
+                  labels: rule?.labels ?? {},
+                  state: row.state,
+                });
+              }
+              return page;
+            };
+            return rules.previewSilence(input.id, limit, read);
           }),
         ),
     }),

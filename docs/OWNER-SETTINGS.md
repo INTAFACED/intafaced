@@ -4,7 +4,7 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-167 env settings, 239 owner values read elsewhere, 216 page sizes the caller sends. 571 distinct `_unset` codes in all.
+167 env settings, 242 owner values read elsewhere, 216 page sizes the caller sends. 574 distinct `_unset` codes in all.
 
 ## TEST profile
 
@@ -294,6 +294,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `notify.template_unset`                           | Notifications            | none yet                    | `services/svc-notify/src/ops-config/templates.ts`                |
 | `notify.verify_code_pepper_unset`                 | Notifications            | none yet                    | `services/svc-notify/src/notify-service.ts`                      |
 | `notify.verify_ttl_unset`                         | Notifications            | none yet                    | `apps/customer/src/features/account/NotificationTargets.tsx`     |
+| `ops.active_time_unset`                           | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `ops.alert_actor_unset`                           | Operations               | none yet                    | `services/svc-ops/src/codes.ts`                                  |
 | `ops.alert_channel_key_unset`                     | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `ops.alert_default_contact_unset`                 | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
@@ -306,7 +307,9 @@ Read from a database row, a published record or a caller input. The first file i
 | `ops.alert_threshold_unset`                       | Operations               | none yet                    | `packages/contracts/src/ops-alert-rules.ts`                      |
 | `ops.channel_secret_unset`                        | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `ops.channel_target_unset`                        | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
+| `ops.flap_suppression_unset`                      | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `ops.group_timing_unset`                          | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
+| `ops.mute_timing_unset`                           | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `ops.segment_cap_unset`                           | Operations               | none yet                    | `packages/contracts/src/ops-enquiry-intake.ts`                   |
 | `ops.silence_end_unset`                           | Operations               | none yet                    | `packages/contracts/src/ops-alert-notify.ts`                     |
 | `p2p.chat_thread_unset`                           | P2P                      | none yet                    | `services/svc-p2p/src/p2p-service.ts`                            |

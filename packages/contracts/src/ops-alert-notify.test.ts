@@ -12,7 +12,9 @@ describe('ops alert notify shapes', () => {
       opsAlertRouteTreeSchema.safeParse({
         version: 1,
         defaultContactId: '',
-        timing: { groupBy: null, groupWaitSeconds: null, groupIntervalSeconds: null, repeatSeconds: null },
+        timing: { groupBy: null, groupWaitSeconds: null, groupIntervalSeconds: null, repeatSeconds: null, flapSeconds: null },
+        mute: null,
+        active: null,
         policies: [],
         actor: 'op',
         reason: 'saved',
