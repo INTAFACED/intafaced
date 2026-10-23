@@ -292,6 +292,19 @@ if (!available) {
       expect(await user()).toMatchObject({ status: 'active' });
       // The customer's own closure page no longer reports the finished closure as the account's state.
       expect(await flow().status(target)).toBeNull();
+      // A later staff close for another reason wins over the earlier customer closure: it stays closed.
+      expect(await controls.closure(first, await approved(first, id(second), close('1', 'bank_reason')))).toMatchObject({
+        outcome: 'changed',
+      });
+      expect(await controls.closureState(first, { userId: target })).toMatchObject({
+        closedBy: 'staff',
+        closeReasonCode: 'bank_reason',
+        reopenable: false,
+      });
+      expect(await controls.closure(first, await approved(first, id(second), reopen('2')))).toMatchObject({
+        outcome: 'refused',
+        code: 'identity.reopen_not_allowed',
+      });
       // A close with no flow row and no staff code is not the customer's: it stays closed.
       target = id(await seed());
       await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;
