@@ -4,6 +4,18 @@ import { marketSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Fetcher } from '../../data/poll';
 import { statusPageSchema } from '@intafaced/contracts/status-page';
+import {
+  statusChallengeMet,
+  statusChallengeSchema,
+  statusChallengeText,
+  statusLinkInputSchema,
+  statusSubscribeInputSchema,
+  statusSubscribeResultSchema,
+  statusSubscriptionPolicySchema,
+  statusSubscriptionSchema,
+  statusSubscriptionUpdateInputSchema,
+  type StatusChallenge,
+} from '@intafaced/contracts/status-subscriptions';
 import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
 import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
 
@@ -69,4 +81,46 @@ const statusPageRead = contractProcedure('notify', 'statusPage.read', { output: 
 /** The founders' status page: defined components, their states, the uptime strip and incidents. Signed-out. */
 export function statusPageFetcher(api: ApiClient): Fetcher<StatusPage> {
   return (signal) => readContract(api, statusPageRead, undefined, { signal });
+}
+
+export const statusSubscriptionPolicy = contractProcedure('notify', 'statusPage.subscriptions.policy', {
+  output: statusSubscriptionPolicySchema,
+});
+export const statusSubscriptionChallenge = contractProcedure('notify', 'statusPage.subscriptions.challenge', {
+  output: statusChallengeSchema,
+});
+export const statusSubscribe = contractProcedure('notify', 'statusPage.subscriptions.subscribe', {
+  input: statusSubscribeInputSchema,
+  output: statusSubscribeResultSchema,
+});
+export const statusSubscriptionConfirm = contractProcedure('notify', 'statusPage.subscriptions.confirm', {
+  input: statusLinkInputSchema,
+  output: statusSubscriptionSchema.extend({ manageToken: z.string() }),
+});
+export const statusSubscriptionGet = contractProcedure('notify', 'statusPage.subscriptions.get', {
+  input: statusLinkInputSchema,
+  output: statusSubscriptionSchema,
+});
+export const statusSubscriptionUpdate = contractProcedure('notify', 'statusPage.subscriptions.update', {
+  input: statusSubscriptionUpdateInputSchema,
+  output: statusSubscriptionSchema,
+});
+export const statusUnsubscribe = contractProcedure('notify', 'statusPage.subscriptions.unsubscribe', {
+  input: statusLinkInputSchema,
+  output: statusSubscriptionSchema,
+});
+
+/**
+ * Finds a nonce whose sha256 over `token:nonce` starts with the challenge's zero bits. Runs in the browser with the
+ * platform's own hash; nothing third-party sees the visitor. Yields to the page every few hundred tries.
+ */
+export async function solveStatusChallenge(challenge: StatusChallenge, signal?: AbortSignal): Promise<string> {
+  const encoder = new TextEncoder();
+  for (let n = 0; ; n += 1) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    const nonce = n.toString(36);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(statusChallengeText(challenge.token, nonce))));
+    if (statusChallengeMet(digest, challenge.bits)) return nonce;
+    if (n % 500 === 499) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }

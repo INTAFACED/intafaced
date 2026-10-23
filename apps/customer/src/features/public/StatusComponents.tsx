@@ -3,6 +3,7 @@ import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import { statusPageFetcher, type StatusPage } from './status';
 import { statusCopy } from './status-copy';
+import { StatusSubscribe } from './StatusSubscribe';
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
 type Component = StatusPage['components'][number];
@@ -89,6 +90,7 @@ export function StatusComponents() {
           <IncidentCard key={incident.id} incident={incident} names={page.components} />
         ))}
       </section>
+      <StatusSubscribe components={page.components} />
     </>
   );
 }

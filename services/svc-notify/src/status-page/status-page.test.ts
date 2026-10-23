@@ -77,7 +77,13 @@ describe('status page definition', () => {
     const h = harness();
     const page = await h.read();
     expect(page).toMatchObject({ overall: 'none_defined', components: [], revision: 0 });
-    expect(page.settings).toEqual({ componentCap: null, stalenessSeconds: null, uptimeDays: null });
+    expect(page.settings).toEqual({
+      componentCap: null,
+      stalenessSeconds: null,
+      uptimeDays: null,
+      challengeBits: null,
+      subscribeRatePerHour: null,
+    });
   });
 
   it('refuses components while the cap is blank, and above the cap', async () => {

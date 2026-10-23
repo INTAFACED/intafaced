@@ -66,7 +66,7 @@ describe('/status', () => {
 const page = (over: Partial<StatusPageRead>): StatusPageRead => ({
   asOf: '2026-10-23T12:00:00.000Z',
   revision: 1,
-  settings: { componentCap: 5, stalenessSeconds: 600, uptimeDays: 3 },
+  settings: { componentCap: 5, stalenessSeconds: 600, uptimeDays: 3, challengeBits: null, subscribeRatePerHour: null },
   overall: 'none_defined',
   components: [],
   incidents: [],
@@ -92,7 +92,13 @@ const row = (over: Partial<StatusPageRead['components'][number]>): StatusPageRea
 
 describe('/status components', () => {
   it('with no component defined says so and shows no overall banner', () => {
-    pageLoad = { status: 'ready', asOf: 1, data: page({ settings: { componentCap: null, stalenessSeconds: null, uptimeDays: null } }) };
+    pageLoad = {
+      status: 'ready',
+      asOf: 1,
+      data: page({
+        settings: { componentCap: null, stalenessSeconds: null, uptimeDays: null, challengeBits: null, subscribeRatePerHour: null },
+      }),
+    };
     const html = renderToString(<StatusPage />);
     expect(html).toContain('No components are set');
     expect(html).not.toContain('data-testid="status-overall"');
@@ -130,7 +136,7 @@ describe('/status components', () => {
       asOf: 1,
       data: page({
         overall: 'no_data',
-        settings: { componentCap: 5, stalenessSeconds: 600, uptimeDays: null },
+        settings: { componentCap: 5, stalenessSeconds: 600, uptimeDays: null, challengeBits: null, subscribeRatePerHour: null },
         components: [row({ uptime: [] })],
       }),
     };

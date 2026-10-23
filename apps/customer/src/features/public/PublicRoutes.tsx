@@ -16,6 +16,7 @@ import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './Pu
 import { LabPage } from './LabPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
+import { StatusSubscriptionPage } from './StatusSubscription';
 
 function Brand() {
   return (
@@ -81,6 +82,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <DevelopersRoutes path={path} />
         ) : path === '/status' ? (
           <StatusPage />
+        ) : path === '/status/confirm' || path === '/status/manage' || path === '/status/unsubscribe' ? (
+          <StatusSubscriptionPage mode={path.slice('/status/'.length) as 'confirm' | 'manage' | 'unsubscribe'} />
         ) : path === '/partner' ? (
           <PartnerPage />
         ) : path === '/notice' || path === '/announcement' ? (

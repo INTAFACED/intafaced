@@ -82,6 +82,10 @@
       "types": "./dist/status-page.d.ts",
       "default": "./dist/status-page.js"
     },
+    "./status-subscriptions": {
+      "types": "./dist/status-subscriptions.d.ts",
+      "default": "./dist/status-subscriptions.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"

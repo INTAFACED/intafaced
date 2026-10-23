@@ -194,6 +194,33 @@ an open incident or active maintenance notice that names it, else its newest rea
   `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
 - Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
 
+### Status subscriptions (SP-status-04)
+
+`statusPage.subscriptions.*` is signed-out; the signed link is the credential. A visitor subscribes by email to every
+component or to chosen ones, confirms by the link in the confirmation message (double opt-in: nothing else is sent before
+that, and confirming again is the same one active subscriber), may add a webhook, and leaves by the link in every update.
+
+- Safeguards, owner values on the status page row and blank until a founder sets them: `challengeBits` (a self-hosted
+  sha256 proof of work the form solves in the browser; blank refuses `status.challenge_unset`) and `subscribeRatePerHour`
+  (requests per address per hour; blank refuses `status.rate_limit_unset`, over it `status.rate_limited`). A request
+  that fails the challenge stores nothing; a challenge is spent once.
+- Links are HMAC-signed with `NOTIFY_STATUS_LINK_SECRET`: confirm links expire after `NOTIFY_VERIFY_TTL_MINUTES` and are
+  tied to the subscriber's revision, so leaving and subscribing again voids old ones; manage and unsubscribe links do not
+  expire. Opening a link page changes nothing until its button is pressed, so a mail scanner spends nothing.
+- A webhook must be https to a public address. Loopback, private, link-local, shared and reserved addresses, `localhost`,
+  `.local` and `.internal` names, and names that do not resolve are refused (`status.webhook_target_refused`), when it is
+  saved and again at send time; redirects are not followed.
+- A published incident or maintenance notice fans out to the active subscribers it concerns (a notice naming no
+  component goes to all). Each send writes `notify.status_deliveries` first, keyed `<notice>:<subscriber>:<channel>`, so a
+  second fan-out never sends again once accepted.
+- Mail transport: the email gateway with `NOTIFY_PUBLIC_ORIGIN` for the links; with either missing, nothing is attempted
+  and the delivery waits `pending` with `vendor.email`, which the form says. `NOTIFY_STATUS_MAIL_TRANSPORT=local-outbox`
+  writes LOCAL-TEST lines to `NOTIFY_STATUS_MAIL_OUTBOX` and refuses to boot unless `APP_ENV` is exactly dev or test.
+  SMS and push are named not connected (`vendor.sms`, `vendor.push`).
+- `statusPage.subscriptions.find` (`admin:write`) is the founders' view of one address with its delivery rows.
+- Not yet: a per-source rate limit (only per address), a retry worker for failed deliveries (fan-out runs at publish
+  time), pruning old subscribe-request rows, and a founder console screen.
+
 ### Guest outreach emails
 
 `guestNotifications.send`, `get`, and `eraseSubmission` are **POST mutations**
@@ -696,6 +723,10 @@ is actually open.
 | `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                                               |
 | `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                                              |
 | `NOTIFY_PUSH_PUBLIC_KEY`                | —       | Push gateway's public application key, served by `notify.pushKey` so a browser can subscribe. Given only with the push URL and token; else `notify.push_key_unset`. |
+| `NOTIFY_STATUS_LINK_SECRET`             | —       | ≥32 chars. Signs status subscription links. Unset ⇒ subscribing refuses `status.challenge_unset`.                                                                   |
+| `NOTIFY_PUBLIC_ORIGIN`                  | —       | Site origin the links in status mail open. Unset ⇒ status mail waits with `vendor.email`.                                                                           |
+| `NOTIFY_STATUS_MAIL_TRANSPORT`          | —       | `local-outbox` only, and only with `APP_ENV` dev or test; else boot refuses. Unset ⇒ the email gateway.                                                             |
+| `NOTIFY_STATUS_MAIL_OUTBOX`             | —       | Absolute path of the LOCAL-TEST status mail file, with `local-outbox`.                                                                                              |
 | `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                                               |
 | `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                                            |
 | `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly.                             |

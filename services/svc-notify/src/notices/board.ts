@@ -308,6 +308,8 @@ export class NoticeBoard {
     private readonly now: () => Date = () => new Date(),
     /** The status page's own components, which a notice may name beside the built-in ones. None when no page is wired. */
     private readonly pageComponents: () => Promise<readonly string[]> = async () => [],
+    /** Told once a notice is published (status subscriptions fan it out). A failure there never undoes the publish. */
+    private readonly onPublished: (row: NoticeRow) => Promise<void> = async () => undefined,
   ) {}
 
   async draft(
@@ -581,6 +583,8 @@ export class NoticeBoard {
     if (!published) return fail('notify.notice_not_found');
     const wire = toNoticeWire(published);
     await this.commands.put(publisherId, 'publishNotice', input.clientRequestId, { ok: true, notice: wire } satisfies PublishReplay);
+    // Fan-out runs after the answer, so a slow subscriber endpoint never holds the publish.
+    void this.onPublished(published).catch(() => console.error('notify.notice_fanout_failed', published.id));
     return wire;
   }
 }

@@ -266,6 +266,7 @@ const SECRET_NAMES = [
   'payCardWebhook',
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
+  'notifyStatusLink', // notify's key for the signed links in status subscription mail
 ];
 
 function loadOrCreateSecrets() {

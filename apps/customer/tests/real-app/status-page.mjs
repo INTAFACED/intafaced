@@ -48,3 +48,11 @@ export async function recordReading({ componentId, state, observedAt, source }) 
   );
   return data(res, 'statusPage.record');
 }
+
+/** A founder's view of one status subscriber by address, with its delivery rows, or null when none is stored. */
+export async function findSubscriber(email) {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.query('notify', 'statusPage.subscriptions.find', { email }, await pair.a.tradeOpsToken());
+  if (res.json?.result && res.json.result.data === null) return null;
+  return data(res, 'statusPage.subscriptions.find');
+}
