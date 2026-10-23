@@ -719,6 +719,8 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                                   code: depth.t('stepUpCode'),
                                   codeHint: depth.t('stepUpCodeHint'),
                                   codeShort: depth.t('stepUpCodeShort'),
+                                  noFactor: depth.t('stepUpNoFactor'),
+                                  sendWithout: depth.t('stepUpSendWithout'),
                                 },
                               },
                             }

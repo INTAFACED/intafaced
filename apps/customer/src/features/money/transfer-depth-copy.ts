@@ -52,6 +52,9 @@ const en = {
   stepUpCode: 'Authenticator code',
   stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
   stepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
+  stepUpNoFactor:
+    'No authenticator app or passkey is saved on this account. The bank decides whether this send needs one; if it does, the send is refused and nothing leaves. Add one in Security.',
+  stepUpSendWithout: 'Send',
   periodCustom: 'Choose dates',
 } as const;
 const es = {
@@ -107,6 +110,9 @@ const es = {
   stepUpCode: 'Código del autenticador',
   stepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
   stepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
+  stepUpNoFactor:
+    'No hay una app de autenticación ni una passkey guardada en esta cuenta. El banco decide si este envío necesita una; si la necesita, el envío se rechaza y no sale nada. Añade una en Seguridad.',
+  stepUpSendWithout: 'Enviar',
   periodCustom: 'Elegir fechas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -164,6 +170,9 @@ const fr = {
   stepUpCode: 'Code d’authentification',
   stepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre app d’authentification.',
   stepUpCodeShort: 'Saisissez les 6 chiffres de votre app d’authentification.',
+  stepUpNoFactor:
+    'Aucune app d’authentification ni passkey n’est enregistrée sur ce compte. La banque décide si cet envoi en demande une ; si oui, l’envoi est refusé et rien ne part. Ajoutez-en une dans Sécurité.',
+  stepUpSendWithout: 'Envoyer',
   periodCustom: 'Choisir des dates',
 } satisfies Record<keyof typeof en, string>;
 

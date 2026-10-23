@@ -149,7 +149,7 @@ export type ActionSpec = {
    */
   stepUp?: {
     request: (input: Record<string, unknown>) => StepUpBegin;
-    words: { why: string; code: string; codeHint: string; codeShort: string };
+    words: { why: string; code: string; codeHint: string; codeShort: string; noFactor: string; sendWithout: string };
   };
   submit?: string;
   unit?: string;
@@ -416,9 +416,13 @@ export function MutationDialog({
     setReviewInput(input);
     setStage('review');
   }
-  async function submit(stepUpApprovalId?: string) {
+  // The confirmation answers after an async factor check; it must reach this render's submit, not the one it began with.
+  const latestSubmit = useRef<(stepUpApprovalId?: string | null) => Promise<void>>(async () => {});
+  latestSubmit.current = (approval) => submit(approval);
+  async function submit(stepUpApprovalId?: string | null) {
     if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput || termsHold) return;
-    if (spec.stepUp && !stepUpApprovalId) return;
+    // A step-up review sends only after its confirmation answered: an approval, or null for a person with no factor.
+    if (spec.stepUp && stepUpApprovalId === undefined) return;
     const run = {};
     sending.current = run;
     const input = reviewInput;
@@ -678,7 +682,7 @@ export function MutationDialog({
                     request={() => spec.stepUp!.request(reviewInput!)}
                     words={spec.stepUp.words}
                     disabled={termsHold}
-                    onApproved={(approval) => void submit(approval)}
+                    onApproved={(approval) => void latestSubmit.current(approval)}
                   />
                 ) : (
                   <Button disabled={termsHold} onClick={() => void submit()}>

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -110,6 +110,7 @@ test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with 
   test.setTimeout(240_000);
   const dialog = await reviewSend(page);
   const { recipient, sender } = run.read();
+  const received = await usdt(recipient);
   await expect(dialog).toContainText(`@${recipient.handle}`);
   const rows = dialog.getByTestId('review-terms-row');
   await expect(rows).toHaveCount(4);
@@ -125,7 +126,7 @@ test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with 
   await expect(dialog.getByTestId('step-up-confirm').getByLabel('Authenticator code')).toBeEnabled();
   await expect(dialog.getByTestId('review-terms-blocked')).toHaveCount(0);
   // Reviewing moves nothing.
-  expect(await usdt(recipient)).toBe('0');
+  expect(await usdt(recipient)).toBe(received);
 
   // BTC has no published fee or limits on this stack: the review names what is missing and Confirm stays off.
   const added = await fetch(`${EDGE}/api/bank/trpc/currencies.add`, {
@@ -160,8 +161,8 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   await stepUp.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(dialog.getByTestId('step-up-confirm')).toHaveCount(0, { timeout: 30_000 });
   await expect(dialog).not.toContainText('Nothing was sent');
-  await expect.poll(() => usdt(recipient), { timeout: 30_000 }).toBe(String(Number(before) + Number(AMOUNT)));
-  expect(await senderUsdt()).toBe(String(Number(senderBefore) - Number(AMOUNT)));
+  await expect.poll(async () => toUnits(await usdt(recipient)), { timeout: 30_000 }).toBe(toUnits(before) + toUnits(AMOUNT));
+  expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
 
   // C is frozen by staff after A picked them (a frozen account is not found by handle at all): the bank refuses the
   // send before any posting, and it is never shown as sent.
@@ -174,5 +175,5 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   await confirm.getByLabel('Authenticator code').fill(await code());
   await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(refused).toContainText('That person cannot receive this right now. Nothing was sent.', { timeout: 30_000 });
-  expect(await senderUsdt()).toBe(String(Number(senderBefore) - Number(AMOUNT)));
+  expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
 });

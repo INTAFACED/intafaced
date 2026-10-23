@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { bindCustomerStepUp, customerStepUpPayloadHash } from '@intafaced/contracts';
 import { personSendReview, personSendStepUp, type PersonSendQuote } from './person-send-terms';
 
 const quote = (over: Partial<PersonSendQuote> = {}): PersonSendQuote => ({
@@ -74,5 +75,22 @@ describe('the step-up for a send to a person (J-bank-04 #4)', () => {
       reference: 'INV-1',
     });
     expect(Object.keys(personSendStepUp('USDT', { ...input, note: '' }).fields)).not.toContain('note');
+  });
+  it('is accepted by identity’s door and hashes what the bank hashes for that send', () => {
+    const begin = personSendStepUp('USDT', { ...input, note: 'Lunch, TEST' });
+    const bound = bindCustomerStepUp('actor-a', begin);
+    expect(bound).toMatchObject({
+      ok: true,
+      // svc-bank toUserBinding: actor, the five ids and amounts, and the note because the send has one.
+      payloadHash: customerStepUpPayloadHash('bank.step_up.transfers.toUser', {
+        actor: 'actor-a',
+        transferId: 't-1',
+        fromSpaceId: 'space-a',
+        toUserId: 'user-b',
+        assetId: 'USDT',
+        amount: '40',
+        note: 'Lunch, TEST',
+      }),
+    });
   });
 });
