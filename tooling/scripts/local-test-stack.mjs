@@ -819,6 +819,8 @@ function serviceDefs(secrets) {
         LEDGER_POSTING_ENABLED: 'true',
         // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
         RECONCILE_CRON_MINUTES: '60',
+        // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.
+        IDENTITY_URL: urlOf('identity'),
       }),
     },
     {
@@ -923,6 +925,9 @@ function serviceDefs(secrets) {
         // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
         // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
         // integers; it does not compare orders against them. Test funds only.
+        // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
+        // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
+        TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
         TRADE_MAX_ORDER: '1000000',
         TRADE_MAX_POSITION: '5000000',
         TRADE_MAX_LOSS: '100000',
@@ -1019,6 +1024,11 @@ function serviceDefs(secrets) {
         BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
         BANK_SPACE_LIMIT: '5',
         BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
+        // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
+        // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
+        // blocked (bank.offramp_cooling_unset).
+        BANK_ADDRESS_BOOK_CAP: '10',
+        BANK_OFFRAMP_COOLING_HOURS: '24',
         // Nothing moves money in the background of a test stack.
         SCHEDULED_TRANSFERS_ENABLED: 'false',
         AUTO_INVEST_ENABLED: 'false',
@@ -1155,7 +1165,8 @@ function serviceDefs(secrets) {
     {
       name: 'quant',
       // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
-      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets) }),
+      // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
+      env: () => ({ ...c('svc-quant', PORTS.quant), DATABASE_URL: dbUrl('svc_quant', secrets), TRADE_URL: urlOf('trade') }),
     },
     {
       name: 'execution',

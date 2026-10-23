@@ -200,11 +200,14 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
   const empty = await fresh.newPage();
   const nobody = await signUp(empty, 'hme');
-  // Before verification the bank refuses the read: Home gives the bank's reason, not a bare "couldn't load".
+  // Before verification the bank refuses the read: Home says what the card will hold once verified, not a bare
+  // "couldn't load", and does not repeat the summary's own "Verify your identity first" (one ask per page).
   await empty.goto('/');
   const refused = empty.locator('section[aria-labelledby="home-activity-title"]');
-  await expect(refused.locator('[data-slot="state-block"]')).toBeVisible();
+  await expect(refused.locator('[data-slot="state-block"]')).toContainText('Your activity shows here once you’re verified');
   await expect(refused).not.toContainText('Couldn’t load your activity');
+  await expect(refused).not.toContainText('Verify your identity first');
+  await expect(empty.getByText('Verify your identity first')).toHaveCount(1);
   await verify(empty, nobody);
   await signIn(empty, nobody);
   await empty.goto('/');

@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import type { MerchantAreaFence } from '../merchant-ownership.js';
 import type { PayService } from '../payment-service.js';
+import { roleOnMerchantForUser } from '../control/access.js';
 import { createMerchantMetricsAuthority, type MerchantMetricsAuthority } from './authority.js';
 import { MetricsProjector } from './projector.js';
 import { MetricsReader, type BalanceReader, type RailHealthRow } from './reader.js';
@@ -27,7 +28,9 @@ export const railHealthRows = (rails: MetricsRuntimeDeps['rails']): RailHealthRo
 export function createMetricsRuntime(deps: MetricsRuntimeDeps): MetricsRuntime {
   return {
     projector: new MetricsProjector(deps.sql),
-    authority: createMerchantMetricsAuthority(deps.pay, deps.trees),
+    authority: createMerchantMetricsAuthority(deps.pay, deps.trees, (userId, merchantId) =>
+      roleOnMerchantForUser(deps.sql, userId, merchantId),
+    ),
     reader: new MetricsReader({
       sql: deps.sql,
       balances: deps.pay,

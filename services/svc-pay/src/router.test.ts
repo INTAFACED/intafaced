@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
@@ -1138,6 +1139,30 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
       code: 'FORBIDDEN',
       message: 'pay.merchant_not_found',
     });
+    // An active team member of a business sees it too (J-merchant-01 #4); the lookup is the member's own row only.
+    const asked: unknown[][] = [];
+    const teamSql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
+      asked.push(values);
+      return Promise.resolve(values[0] === '33333333-3333-4333-8333-333333333333' ? [{ '?column?': 1 }] : []);
+    }) as unknown as Sql;
+    const onTeam = createPayRouter(
+      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+      null,
+      undefined,
+      teamSql,
+    );
+    await expect(
+      onTeam.createCaller(await ctx(['pay:onboard'], { userId: '33333333-3333-4333-8333-333333333333' })).railHealth(),
+    ).resolves.toBeInstanceOf(Array);
+    await expect(onTeam.createCaller(await ctx(['pay:onboard'], { userId: stranger })).railHealth()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(asked).toEqual([['33333333-3333-4333-8333-333333333333'], [stranger]]);
 
     const other = fenced.createCaller(await ctx(['pay:onboard'], { userId: stranger }));
     await expect(other.fraud.getDispute({ disputeId: 'dp-onboard' })).rejects.toMatchObject({ code: 'NOT_FOUND' });

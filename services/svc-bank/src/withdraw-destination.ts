@@ -206,7 +206,8 @@ const MISSING = (userId: string, what: string) =>
 
 const LABEL_TAKEN = () => new BankError('You already have a saved address with this name', 'bank.destination_label_taken');
 
-const BOOK_FULL = () => new BankError('Your address book is full. Remove an address to save a new one', 'bank.address_book_full');
+const BOOK_FULL = (cap: number) =>
+  new BankError(`Your address book is full at ${cap} addresses. Remove one to save a new one`, 'bank.address_book_full');
 
 /**
  * Router-test default: assert on persist, never invent a stored ref.
@@ -303,7 +304,7 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
           (row.tag ?? '') === (entry.tag ?? ''),
       );
       if (same) return strip(same);
-      if (saved.length >= cap) throw BOOK_FULL();
+      if (saved.length >= cap) throw BOOK_FULL(cap);
       if (labelTaken(input.userId, entry.label)) throw LABEL_TAKEN();
       const stored = {
         userId: input.userId,
@@ -432,7 +433,7 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
         const count = await tx<Array<{ n: number }>>`
           SELECT count(*)::int AS n FROM bank.user_withdraw_destinations WHERE user_id = ${input.userId} AND origin = 'customer'
         `;
-        if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL();
+        if ((count[0]?.n ?? 0) >= cap) throw BOOK_FULL(cap);
         const rows = await tx<DestinationRow[]>`
           INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, asset_id, network, tag, origin)
           VALUES (${input.userId}, 'crypto', ${entry.ref}, ${entry.label}, ${entry.assetId}, ${entry.network}, ${entry.tag}, 'customer')

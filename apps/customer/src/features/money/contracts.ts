@@ -181,6 +181,15 @@ export const destinationSchema = z.object({
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
+export const withdrawAssetSchema = z.object({
+  assetId: z.string(),
+  precision: z.number().int(),
+  networks: z.array(z.object({ networkId: z.string(), label: z.string() })),
+  defaultNetworkId: z.string().nullable(),
+});
+export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
+export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),
@@ -298,6 +307,7 @@ export const bankReads = {
   'ramps.offramps': z.array(offrampSchema),
   // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
   'ramps.destinations.list': z.array(destinationSchema),
+  'ramps.destinations.networks': z.array(withdrawAssetSchema),
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),
