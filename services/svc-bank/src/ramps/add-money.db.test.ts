@@ -92,7 +92,7 @@ describe('add money (J-bank-02)', () => {
     ledger = new MemoryLedger();
   });
 
-  function as(userId: string, ramps: Parameters<typeof createBankServices>[3]['ramps'] = {}) {
+  function as(userId: string, ramps: NonNullable<Parameters<typeof createBankServices>[3]>['ramps'] = {}) {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps });
     const raw = encodePrincipal({
       sub: userId,
