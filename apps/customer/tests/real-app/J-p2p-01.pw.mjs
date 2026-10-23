@@ -275,3 +275,93 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   await expect(countdown).toContainText(/held for 1:[45]\d/);
   await expect(dialog.getByTestId('take-confirm')).toBeEnabled();
 });
+
+test('J-p2p-01 #4 a pair limit, the ongoing-order cap and the daily verification allowance each refuse in plain words with the end time', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // Its own seller and two buyers, so the 450 EUR order and the 20 open orders stay out of the main buyer's day. The
+  // limits are the labelled TEST profile values: USDT/EUR orders of 0.5 to 500 EUR, 600 EUR a day for every
+  // verification level, 20 ongoing orders.
+  const seller = await signUp(page, 'p2p01l');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '1200').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  const offer = await s.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: '1',
+    maxAmount: '1000',
+    totalAmount: '1200',
+    methods: [METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+    idempotencyKey: `${J}:limits-offer:${seller.handle}`,
+  });
+  const takeFiat = async (fiat) => {
+    const take = page.getByTestId('take-offer');
+    await take.getByTestId('take-fiat-amount').fill(fiat);
+    await take.locator('select').selectOption(METHOD);
+    return take.getByTestId('take-failure');
+  };
+
+  // Over the pair's bounds: refused while typing, with the bounds and no end time.
+  const daily = await signUp(page, 'p2p01d');
+  await verify(page, daily);
+  const d = await readyTaker(await api(daily), daily);
+  await signIn(page, daily);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  let failure = await takeFiat('600');
+  await expect(failure).toHaveAttribute('data-kind', 'pairLimit');
+  await expect(failure).toContainText('Each order on this pair is between 0.5 and 500 EUR. This limit has no end time');
+  const overPair = await d.raw.mutate('trades.lockQuote', { quoteId: randomUUID(), offerId: offer.id, fiatAmount: '600', method: METHOD });
+  expect(overPair.status).toBe(400);
+  expect(refusalCode(overPair)).toBe('p2p.pair_limit_exceeded');
+  expect(overPair.body.error.data.p2pLimit).toEqual({ until: null, min: '0.5', max: '500', currency: 'EUR' });
+
+  // 449.88 EUR bought today; 200 EUR more passes the 600 EUR day: what is left, and the next UTC day it starts again.
+  expect((await d.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '489', method: METHOD })).status).toBe(
+    'escrowed',
+  );
+  const overDay = await d.raw.query('trades.quote', { offerId: offer.id, fiatAmount: '200', method: METHOD });
+  expect(refusalCode(overDay)).toBe('p2p.verification_daily_limit');
+  // The allowance starts again at the next UTC midnight, as the service's own clock has it.
+  const dayLimit = overDay.body.error.data.p2pLimit;
+  expect(dayLimit).toEqual({ until: expect.stringMatching(/T00:00:00\.000Z$/), remaining: '150.12', currency: 'EUR' });
+  expect(Date.parse(dayLimit.until) - Date.now()).toBeGreaterThan(0);
+  expect(Date.parse(dayLimit.until) - Date.now()).toBeLessThanOrEqual(86_400_000);
+  await page.reload();
+  failure = await takeFiat('200');
+  await expect(failure).toHaveAttribute('data-kind', 'verificationLimit');
+  await expect(failure).toContainText('150.12 EUR is left today, and the allowance starts again at');
+  await expect(failure.getByRole('link', { name: 'Raise your verification level' })).toHaveAttribute('href', '/verification');
+
+  // Twenty ongoing orders: the next is refused with each of them linked and the soonest deadline.
+  const busy = await signUp(page, 'p2p01c');
+  await verify(page, busy);
+  const c = await readyTaker(await api(busy), busy);
+  const open = [];
+  for (let i = 0; i < 20; i++) {
+    open.push((await c.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '1', method: METHOD })).id);
+  }
+  const before = (await c.query('offers.get', { offerId: offer.id })).remainingAmount;
+  const capped = await c.raw.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '1', method: METHOD });
+  expect(capped.status).toBe(409);
+  expect(refusalCode(capped)).toBe('p2p.active_order_cap');
+  const limit = capped.body.error.data.p2pLimit;
+  expect(limit.cap).toBe('20');
+  expect([...limit.openTradeIds].sort()).toEqual([...open].sort());
+  expect(Date.parse(limit.until)).toBeGreaterThan(Date.now());
+  expect((await c.query('offers.get', { offerId: offer.id })).remainingAmount).toBe(before);
+  await signIn(page, busy);
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  failure = await takeFiat('5');
+  await expect(failure).toHaveAttribute('data-kind', 'orderCap');
+  await expect(failure).toContainText('You already have 20 ongoing orders, the most you can hold at once.');
+  await expect(failure).toContainText('The soonest of them reaches its deadline at');
+  await expect(failure.getByTestId('take-open-order')).toHaveCount(20);
+  await expect(failure.getByTestId('take-open-order').first()).toHaveAttribute('href', /^\/p2p\/orders\/[0-9a-f-]{36}$/);
+});

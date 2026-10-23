@@ -119,6 +119,28 @@ const en = {
   failTermsChanged: 'The offer changed after you reviewed it. Nothing was placed. Review the new terms and try again.',
   failQuoteChanged: 'The price or fee changed after you reviewed it. Nothing was placed. Review the new figures.',
   failQuoteExpired: 'The quote ended before the order was placed. Nothing was placed. Get a new quote.',
+  failOrderCap:
+    'You already have {cap} ongoing orders, the most you can hold at once. Finish or cancel one to place another. Nothing was placed.',
+  failOrderCapPlain:
+    'You already have the most ongoing orders you can hold at once. Finish or cancel one to place another. Nothing was placed.',
+  failOrderCapUntil: 'The soonest of them reaches its deadline at {time}.',
+  failOrderCapOpen: 'Your ongoing orders',
+  failOrderCapOrder: 'Order {ref}',
+  failPairLimit:
+    'Each order on this pair is between {min} and {max} {currency}. This limit has no end time: change the amount and review again. Nothing was placed.',
+  failPairLimitPlain: 'This amount is outside the order limits for this pair. Change the amount and review again. Nothing was placed.',
+  failVerificationDaily:
+    'This buy would pass the daily allowance for your verification level. {remaining} {currency} is left today, and the allowance starts again at {time}. Nothing was placed.',
+  failVerificationLifetime:
+    'This buy would pass the lifetime allowance for your verification level. {remaining} {currency} is left, and it has no end time. A higher verification level raises it. Nothing was placed.',
+  failVerificationMin: 'At your verification level, one buy is at least {min} {currency}. This limit has no end time. Nothing was placed.',
+  failVerificationMax:
+    'At your verification level, one buy is at most {max} {currency}. This limit has no end time; a higher verification level raises it. Nothing was placed.',
+  failVerificationPlain: 'This order is outside the verification-level allowance of the person buying. Nothing was placed.',
+  failVerificationCurrency:
+    'Verification-level allowances are published in another currency, so this order can’t be counted against them. Nothing was placed.',
+  failVerificationRaise: 'Raise your verification level',
+  failLimitsUnset: 'The order limits for this ad could not be checked, so no order can be placed. Nothing was placed.',
   takeFiatAmount: 'Or the amount in {fiat}',
   takeFiatHint: 'The service turns it into {asset} at this ad’s price, rounded down so you never pay more than you typed.',
   takeFiatConverting: 'Working out the {asset} amount…',
@@ -354,6 +376,30 @@ const es = {
   failTermsChanged: 'La oferta cambió después de revisarla. No se hizo nada. Revisa las nuevas condiciones e inténtalo de nuevo.',
   failQuoteChanged: 'El precio o la comisión cambiaron después de revisarlos. No se hizo nada. Revisa las nuevas cifras.',
   failQuoteExpired: 'La cotización terminó antes de hacer el pedido. No se hizo nada. Pide una cotización nueva.',
+  failOrderCap:
+    'Ya tienes {cap} pedidos en curso, el máximo que puedes tener a la vez. Termina o cancela uno para hacer otro. No se hizo nada.',
+  failOrderCapPlain:
+    'Ya tienes el máximo de pedidos en curso que puedes tener a la vez. Termina o cancela uno para hacer otro. No se hizo nada.',
+  failOrderCapUntil: 'El más próximo llega a su plazo a las {time}.',
+  failOrderCapOpen: 'Tus pedidos en curso',
+  failOrderCapOrder: 'Pedido {ref}',
+  failPairLimit:
+    'Cada pedido en este par está entre {min} y {max} {currency}. Este límite no tiene fecha de fin: cambia el importe y revisa de nuevo. No se hizo nada.',
+  failPairLimitPlain: 'Este importe está fuera de los límites de pedido de este par. Cambia el importe y revisa de nuevo. No se hizo nada.',
+  failVerificationDaily:
+    'Esta compra superaría el límite diario de tu nivel de verificación. Quedan {remaining} {currency} hoy, y el límite vuelve a empezar a las {time}. No se hizo nada.',
+  failVerificationLifetime:
+    'Esta compra superaría el límite total de tu nivel de verificación. Quedan {remaining} {currency}, y no tiene fecha de fin. Un nivel de verificación más alto lo aumenta. No se hizo nada.',
+  failVerificationMin:
+    'Con tu nivel de verificación, una compra es de al menos {min} {currency}. Este límite no tiene fecha de fin. No se hizo nada.',
+  failVerificationMax:
+    'Con tu nivel de verificación, una compra es de como máximo {max} {currency}. Este límite no tiene fecha de fin; un nivel de verificación más alto lo aumenta. No se hizo nada.',
+  failVerificationPlain: 'Este pedido está fuera del límite del nivel de verificación de quien compra. No se hizo nada.',
+  failVerificationCurrency:
+    'Los límites por nivel de verificación están publicados en otra moneda, así que este pedido no se puede contar contra ellos. No se hizo nada.',
+  failVerificationRaise: 'Subir tu nivel de verificación',
+  failLimitsUnset:
+    'No se pudieron comprobar los límites de pedido de este anuncio, así que no se puede hacer ningún pedido. No se hizo nada.',
   takeFiatAmount: 'O el importe en {fiat}',
   takeFiatHint:
     'El servicio lo convierte en {asset} al precio de este anuncio, redondeando a la baja para que nunca pagues más de lo escrito.',
@@ -590,6 +636,31 @@ const fr = {
   failTermsChanged: 'L’offre a changé après votre vérification. Rien n’a été passé. Vérifiez les nouvelles conditions et réessayez.',
   failQuoteChanged: 'Le prix ou les frais ont changé après votre vérification. Rien n’a été passé. Vérifiez les nouveaux chiffres.',
   failQuoteExpired: 'Le devis a pris fin avant que la commande soit passée. Rien n’a été passé. Demandez un nouveau devis.',
+  failOrderCap:
+    'Vous avez déjà {cap} commandes en cours, le maximum autorisé en même temps. Terminez ou annulez-en une pour en passer une autre. Rien n’a été passé.',
+  failOrderCapPlain:
+    'Vous avez déjà le maximum de commandes en cours autorisé en même temps. Terminez ou annulez-en une pour en passer une autre. Rien n’a été passé.',
+  failOrderCapUntil: 'La plus proche atteint son échéance à {time}.',
+  failOrderCapOpen: 'Vos commandes en cours',
+  failOrderCapOrder: 'Commande {ref}',
+  failPairLimit:
+    'Chaque commande sur cette paire est comprise entre {min} et {max} {currency}. Cette limite n’a pas de fin : changez le montant et vérifiez de nouveau. Rien n’a été passé.',
+  failPairLimitPlain:
+    'Ce montant est en dehors des limites de commande de cette paire. Changez le montant et vérifiez de nouveau. Rien n’a été passé.',
+  failVerificationDaily:
+    'Cet achat dépasserait le plafond quotidien de votre niveau de vérification. Il reste {remaining} {currency} aujourd’hui, et le plafond repart à {time}. Rien n’a été passé.',
+  failVerificationLifetime:
+    'Cet achat dépasserait le plafond total de votre niveau de vérification. Il reste {remaining} {currency}, sans date de fin. Un niveau de vérification plus élevé le relève. Rien n’a été passé.',
+  failVerificationMin:
+    'À votre niveau de vérification, un achat est d’au moins {min} {currency}. Cette limite n’a pas de fin. Rien n’a été passé.',
+  failVerificationMax:
+    'À votre niveau de vérification, un achat est d’au plus {max} {currency}. Cette limite n’a pas de fin ; un niveau de vérification plus élevé la relève. Rien n’a été passé.',
+  failVerificationPlain: 'Cette commande dépasse le plafond du niveau de vérification de la personne qui achète. Rien n’a été passé.',
+  failVerificationCurrency:
+    'Les plafonds par niveau de vérification sont publiés dans une autre devise, cette commande ne peut donc pas y être comptée. Rien n’a été passé.',
+  failVerificationRaise: 'Relever votre niveau de vérification',
+  failLimitsUnset:
+    'Les limites de commande de cette annonce n’ont pas pu être vérifiées, aucune commande ne peut donc être passée. Rien n’a été passé.',
   takeFiatAmount: 'Ou le montant en {fiat}',
   takeFiatHint:
     'Le service le convertit en {asset} au prix de cette annonce, arrondi à l’inférieur pour ne jamais payer plus que le montant saisi.',

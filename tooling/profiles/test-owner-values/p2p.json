@@ -1,6 +1,11 @@
 {
   "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
   "values": {
+    "P2P_ACTIVE_ORDER_CAP": {
+      "service": "p2p",
+      "value": "20",
+      "note": "Most ongoing P2P orders one person may hold as taker; J-p2p-18 holds 19 at once, J-p2p-01 reaches 20."
+    },
     "P2P_EXPORT_MAX_RANGE_DAYS": {
       "service": "p2p",
       "value": "90",
@@ -10,6 +15,11 @@
       "service": "p2p",
       "value": "1000",
       "note": "Most rows in one P2P order export."
+    },
+    "P2P_PAIR_LIMITS": {
+      "service": "p2p",
+      "value": "{\"USDT/EUR\":{\"min\":\"0.5\",\"max\":\"500\"},\"USDT/USD\":{\"min\":\"0.5\",\"max\":\"500\"}}",
+      "note": "Per-order fiat bounds for the pairs the stack trades, so a journey can see an amount outside them refuse."
     },
     "P2P_RECEIPT_DAILY_QUOTA": {
       "service": "p2p",
@@ -25,6 +35,11 @@
       "service": "p2p",
       "value": "TEST-2026-10-23",
       "note": "P2P risk notice version a taker accepts before the first take. TEST label, not a published notice."
+    },
+    "P2P_VERIFICATION_LIMITS": {
+      "service": "p2p",
+      "value": "{\"currency\":\"EUR\",\"tiers\":{\"none\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"basic\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"full\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"},\"institutional\":{\"orderMin\":\"0.5\",\"orderMax\":\"500\",\"dailyMax\":\"600\",\"lifetimeMax\":\"100000\"}}}",
+      "note": "Verification-level buy allowances in EUR, the same for every level; small enough for a journey to reach the daily allowance."
     }
   }
 }
