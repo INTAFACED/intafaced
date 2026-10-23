@@ -328,6 +328,8 @@ export const NOT_GATES = {
     'splits the test suite into the shards of the Tests job (SHARD_COUNT in ci-affected.mjs) on a run-everything change. Not a doctrine gate: it prints package lists for turbo and asserts nothing about the code. `node tooling/ci/test-shards.mjs --self-test` proves every package with a test script lands in exactly one shard and is wired in the `changes` job of ci.yml.',
   'main-trust.mjs':
     'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/main-trust.mjs --self-test` checks the decision table and parser.',
+  'post-merge-trust.mjs':
+    'runs from main-trust.yml after Order-path CX-8, Customer Money browser checks or Real-app journeys finish on main: re-runs a whole-run check that broke after a green once, then opens one issue naming the commits since the last green; for journeys, opens one issue per journey whose step passed, then failed on two runs in a row, and prints newly passing and newly broken steps. It only writes issues. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/post-merge-trust.mjs --self-test` checks the decision table and the report comparison and is wired in the `changes` job of ci.yml.',
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'review-signoff.mjs':
