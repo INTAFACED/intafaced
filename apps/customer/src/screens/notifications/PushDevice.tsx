@@ -35,25 +35,29 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
 
   async function allow() {
     setStep({ kind: 'working' });
+    try {
+      setStep(await run());
+    } catch {
+      // A browser or network call that throws leaves nothing half done on this screen: say so and allow another press.
+      setStep({ kind: 'subscribeFailed' });
+    }
+  }
+
+  async function run(): Promise<Step> {
     const answer = await askPermission(browser());
     setPermission(answer);
-    if (answer === 'denied') return setStep({ kind: 'denied' });
-    if (answer !== 'granted') return setStep({ kind: 'dismissed' });
+    if (answer === 'denied') return { kind: 'denied' };
+    if (answer !== 'granted') return { kind: 'dismissed' };
     const key = await pushKey(api);
-    if (!key.ok) return setStep({ kind: 'keyFailed' });
-    if (key.data.publicKey === null) return setStep({ kind: 'noGateway' });
-    let address: string;
-    try {
-      address = await deviceAddress(browser(), key.data.publicKey);
-    } catch {
-      return setStep({ kind: 'subscribeFailed' });
-    }
+    if (!key.ok) return { kind: 'keyFailed' };
+    if (key.data.publicKey === null) return { kind: 'noGateway' };
+    const address = await deviceAddress(browser(), key.data.publicKey);
     const result = await registerTarget(api, 'push', address, 'en');
     // A lost reply may still have stored the row: re-read what is stored rather than register again.
     onChanged();
-    if (!result.ok) return setStep({ kind: 'sent', note: 'sendFailed' });
+    if (!result.ok) return { kind: 'sent', note: 'sendFailed' };
     if (result.data.status === 'sent') onSent();
-    setStep({ kind: 'sent', note: registerNote(result.data.status) });
+    return { kind: 'sent', note: registerNote(result.data.status) };
   }
 
   if (unsupported) return <p className="nf-why">{copy.t('pushUnsupported')}</p>;
@@ -66,7 +70,7 @@ export function PushDevice({ onSent, onChanged }: { onSent: () => void; onChange
         <p className="nf-push__state" role="status">
           {copy.t(
             permission === 'granted'
-              ? step.kind === 'sent'
+              ? step.kind === 'sent' && step.note === 'codeSent'
                 ? 'pushStateAllowed'
                 : 'pushStateAllowedNotRegistered'
               : permission === 'denied'

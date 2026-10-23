@@ -129,6 +129,7 @@ const schema = serviceEnvSchema
       NOTIFY_PUSH_PUBLIC_KEY: blankAsAbsent(
         z
           .string()
+          .trim()
           .regex(/^[A-Za-z0-9_-]{16,256}$/)
           .optional(),
       ),

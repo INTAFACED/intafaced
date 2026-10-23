@@ -1,18 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import { askPermission, deviceAddress, hasPush, keyBytes, readPermission, PUSH_WORKER, type PushHost } from './push-device';
 
-function host(permission: string | null, answer = 'granted', existing: object | null = null) {
+function host(permission: string | null, answer = 'granted', existing: object | null = null, existingKey: Uint8Array | null = null) {
+  const unsubscribe = vi.fn(async () => true);
   const subscribe = vi.fn(async () => ({
     toJSON: () => ({ endpoint: 'https://push.example.test/e/1', keys: { p256dh: 'p', auth: 'a' } }),
   }));
-  const getSubscription = vi.fn(async () => (existing ? { toJSON: () => existing } : null));
+  const getSubscription = vi.fn(async () =>
+    existing
+      ? { toJSON: () => existing, options: { applicationServerKey: existingKey ? (existingKey.buffer as ArrayBuffer) : null }, unsubscribe }
+      : null,
+  );
   const register = vi.fn(async () => ({ pushManager: { getSubscription, subscribe } }));
   const requestPermission = vi.fn(async () => answer);
   const value: PushHost =
     permission === null
       ? { navigator: {} }
       : { Notification: { permission, requestPermission }, PushManager: {}, navigator: { serviceWorker: { register } } };
-  return { value, subscribe, getSubscription, register, requestPermission };
+  return { value, subscribe, getSubscription, register, requestPermission, unsubscribe };
 }
 
 describe('this device and push (HM-notifications-02)', () => {
@@ -54,6 +59,17 @@ describe('this device and push (HM-notifications-02)', () => {
       keys: { auth: 'x' },
     });
     expect(again.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('replaces a subscription made with an earlier key, so the device can receive what the gateway now signs', async () => {
+    const rotated = host('granted', 'granted', { endpoint: 'https://push.example.test/e/old' }, keyBytes('BBBBBBBBBBBBBBBBBBBBBB'));
+    const address = await deviceAddress(rotated.value, 'AAAAAAAAAAAAAAAAAAAAAA');
+    expect(rotated.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(rotated.subscribe).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(address).endpoint).toBe('https://push.example.test/e/1');
+    const same = host('granted', 'granted', { endpoint: 'https://push.example.test/e/old' }, keyBytes('AAAAAAAAAAAAAAAAAAAAAA'));
+    await deviceAddress(same.value, 'AAAAAAAAAAAAAAAAAAAAAA');
+    expect(same.unsubscribe).not.toHaveBeenCalled();
   });
 
   it('turns the URL-safe key into its bytes', () => {

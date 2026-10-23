@@ -20,7 +20,11 @@ type PushRegistration = {
     subscribe(options: { userVisibleOnly: true; applicationServerKey: Uint8Array }): Promise<PushSubscriptionLike>;
   };
 };
-type PushSubscriptionLike = { toJSON(): { endpoint?: string; keys?: Record<string, string> } };
+type PushSubscriptionLike = {
+  toJSON(): { endpoint?: string; keys?: Record<string, string> };
+  options?: { applicationServerKey?: ArrayBuffer | null };
+  unsubscribe?(): Promise<boolean>;
+};
 
 /** The service worker that shows a pushed notice and opens its room when pressed. */
 export const PUSH_WORKER = '/push-sw.js';
@@ -52,18 +56,30 @@ export function keyBytes(key: string): Uint8Array {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
+/** Whether a subscription's key is this key. A browser that does not report the key is taken at its word. */
+function sameKey(held: ArrayBuffer | null | undefined, wanted: Uint8Array): boolean {
+  if (!held) return true;
+  const bytes = new Uint8Array(held);
+  return bytes.length === wanted.length && bytes.every((byte, at) => byte === wanted[at]);
+}
+
 /**
  * This device's subscription, as the address the push gateway sends to: its endpoint and keys, as JSON. An existing
- * subscription is reused, so pressing again gives the same address and the service keeps one row for it. The address
+ * subscription made with the same key is reused, so pressing again gives the same address and the service keeps one row for it. The address
  * is a device secret: it goes only to `registerTarget`, and is never shown or logged.
  */
 export async function deviceAddress(host: PushHost, publicKey: string): Promise<string> {
   const worker = host.navigator.serviceWorker;
   if (!worker) throw new Error('push unsupported');
   const registration = await worker.register(PUSH_WORKER, { scope: '/' });
-  const subscription =
-    (await registration.pushManager.getSubscription()) ??
-    (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
+  const wanted = keyBytes(publicKey);
+  let subscription = await registration.pushManager.getSubscription();
+  // A subscription made with an earlier key can never receive what the gateway now signs: replace it.
+  if (subscription && !sameKey(subscription.options?.applicationServerKey, wanted)) {
+    await subscription.unsubscribe?.();
+    subscription = null;
+  }
+  subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: wanted });
   const { endpoint, keys } = subscription.toJSON();
   if (!endpoint) throw new Error('push subscription has no endpoint');
   return JSON.stringify({ endpoint, keys: keys ?? {} });
