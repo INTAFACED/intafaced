@@ -11,6 +11,7 @@ import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
+import { CashOutService } from './cash-out/cash-out.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
@@ -77,6 +78,8 @@ export interface BankServices {
   readonly addMoney: AddMoneyService;
   /** BK-acct-02: the customer's own accounts at other banks. Kept unverified until a banking partner verifies them. */
   readonly linkedAccounts: LinkedAccountService;
+  /** BK-ord-01: cash out to a linked bank account. Kept refused with its reason; nothing is held or posted. */
+  readonly cashOut: CashOutService;
   readonly deposits: DepositService;
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
@@ -295,6 +298,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     ramps,
     addMoney,
     linkedAccounts,
+    cashOut: new CashOutService(sql, { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts }),
     deposits,
     autoInvest,
     business,

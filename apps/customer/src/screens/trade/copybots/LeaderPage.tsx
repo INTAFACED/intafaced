@@ -86,7 +86,7 @@ export function LeaderPage({ leaderRef, onFollow }: { leaderRef: string; onFollo
     },
     {
       id: 'roi',
-      header: t('Return on the trade'),
+      header: t('Return before fees'),
       numeric: true,
       value: (r) => r.roiPercent,
       cell: (r) => (r.roiPercent === null ? '—' : percentText(r.roiPercent)),

@@ -327,6 +327,42 @@ export const linkedAccountWrites = {
   link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
   remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
 };
+/** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
+export const cashOutQuoteSchema = z.object({
+  assetId: z.string(),
+  amount: money,
+  available: money,
+  account: linkedAccountSchema,
+  rail: z.literal('rail.bank'),
+  fee: money.nullable(),
+  receiveAmount: money.nullable(),
+  blocker: z.string(),
+});
+export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
+export const cashOutRequestSchema = z.object({
+  requestId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  linkedAccountId: z.string(),
+  rail: z.literal('rail.bank'),
+  status: z.literal('refused'),
+  refusalCode: z.string(),
+  createdAt: z.string(),
+});
+export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+/** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
+export const incomingLineSchema = z.object({
+  id: z.string(),
+  // Only the kinds asked for: anything else is refused, never shown as a deposit.
+  kind: z.enum(['deposit', 'welcome_funds', 'transfer_in']),
+  direction: z.literal('in'),
+  asset: z.string(),
+  amount: money,
+  postedAt: z.string(),
+  txId: z.string(),
+  counterparty: z.object({ handle: z.string() }).nullable(),
+});
+export type IncomingLine = z.infer<typeof incomingLineSchema>;
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -340,6 +376,9 @@ export const bankReads = {
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
+  'cashOut.quote': cashOutQuoteSchema,
+  'cashOut.requests': z.array(cashOutRequestSchema),
+  'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),

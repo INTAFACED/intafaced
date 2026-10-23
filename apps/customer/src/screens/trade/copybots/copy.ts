@@ -266,7 +266,7 @@ const messages = {
   Resume: 'Resume',
   'Resume this bot?': 'Resume this bot?',
   'Resume this follow?': 'Resume this follow?',
-  'Return on the trade': 'Return on the trade',
+  'Return before fees': 'Return before fees',
   'Risk limits': 'Risk limits',
   'Room left': 'Room left',
   Rules: 'Rules',

@@ -90,6 +90,11 @@ export const offers = p2p.table(
     /** Payment methods the maker accepts, e.g. `[{"id":"sepa","label":"SEPA"}]`. */
     methods: jsonb('methods').notNull().default([]),
     terms: text('terms').notNull().default(''),
+    /**
+     * Verification tier of the maker at create. Null on older rows: a published
+     * buy cap refuses that fill rather than treating the maker as uncapped.
+     */
+    makerTier: text('maker_tier'),
     status: offerStatusEnum('status').notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

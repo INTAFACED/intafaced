@@ -6,9 +6,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { CopyService } from '../controls/test-admission.js';
+import { createTradeRouter } from '../router.js';
+import type { TradeService } from '../spot/trade-service.js';
 import { principalFor } from '../spot/testing.js';
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { SqlCopyFollowStore } from './follow-store.js';
@@ -31,6 +34,22 @@ const COUNTER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
 
 const operator = () => principalFor(OP, ['admin:write']);
 const reader = () => principalFor(READER, ['trade:read']);
+
+const SECRET = 'a-trade-copy-lead-trades-test-edge-secret';
+const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
+
+/** The reader as the edge signs them, so a call runs through the router's input schema. */
+function signedReader() {
+  const raw = encodePrincipal(reader());
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'SG'),
+      'x-intafaced-region': 'SG',
+    },
+    id: 'req-copy-lead-trades',
+  });
+}
 
 function openDb(): string {
   const url = process.env.TEST_DATABASE_URL?.trim();
@@ -137,7 +156,9 @@ describe('copy leader directory filters and lead trades on Postgres', () => {
       expect.objectContaining({ symbol: 'BTC/USDT', state: 'open', entryPrice: '130', margin: '130', closePrice: null, roiPercent: null }),
     ]);
     expect(first.nextCursor).toMatch(/^\d+\.[0-9a-f]{24}$/);
-    const second = await copy.leaderTrades(reader(), { leaderRef: listed.leaderRef, limit: 1, cursor: first.nextCursor! });
+    // The next page goes through the router, as the lead page sends it: the cursor must pass the input schema.
+    const caller = createTradeRouter({} as unknown as TradeService, undefined, copy).createCaller(signedReader());
+    const second = await caller.copy.leaderTrades({ leaderRef: listed.leaderRef, limit: 1, cursor: first.nextCursor! });
     expect(second.trades).toEqual([
       expect.objectContaining({
         state: 'closed',

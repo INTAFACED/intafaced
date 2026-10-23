@@ -166,6 +166,13 @@ export const rooms: readonly Room[] = [
     door: 'Bank',
     area: 'money',
   },
+  {
+    path: '/bank/ramps/cash-out',
+    title: 'Cash out to your bank',
+    description: 'Send money to a linked bank account',
+    door: 'Bank',
+    area: 'money',
+  },
   { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Bank', area: 'money' },
   {
     path: '/bank/business',

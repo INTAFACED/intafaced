@@ -1680,7 +1680,7 @@ export function createTradeRouter(
           z.object({
             leaderRef: z.string().min(1).max(80),
             limit: z.number().optional(),
-            cursor: z.string().max(16).optional(),
+            cursor: z.string().max(64).optional(),
           }),
         )
         .query(({ ctx, input }) =>

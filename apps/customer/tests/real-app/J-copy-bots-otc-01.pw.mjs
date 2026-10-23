@@ -134,7 +134,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(rows.nth(1)).toContainText('Closed');
   await expect(rows.nth(1)).toContainText('None set');
   await expect(rows.nth(1)).toContainText(/[−]?\d+\.\d\d%/);
-  for (const header of ['Entry price', 'Margin', 'TP / SL', 'Close price', 'Return on the trade']) {
+  for (const header of ['Entry price', 'Margin', 'TP / SL', 'Close price', 'Return before fees']) {
     await expect(trades.getByRole('columnheader', { name: header })).toBeVisible();
   }
 
