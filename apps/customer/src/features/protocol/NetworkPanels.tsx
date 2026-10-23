@@ -60,8 +60,12 @@ function useWallets(): DiscoveredWallet[] {
   return wallets;
 }
 
-function NoneListed({ t }: { t: Translate }) {
-  return <p className="muted">{t('noneListed')}</p>;
+function NoneListed({ t, list }: { t: Translate; list: 'gas' | 'faucets' | 'ecosystem' }) {
+  return (
+    <p className="muted" data-list={list}>
+      {t('noneListed')}
+    </p>
+  );
 }
 
 function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
@@ -128,7 +132,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
       )}
       <h3>{t('gasTitle')}</h3>
       <p className="muted">{t('gasNote')}</p>
-      <NoneListed t={t} />
+      <NoneListed t={t} list="gas" />
       <h3>{t('faucetsTitle')}</h3>
       <p className="muted">{t('faucetsNote')}</p>
       {network.faucets ? (
@@ -140,7 +144,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
           ))}
         </ul>
       ) : (
-        <NoneListed t={t} />
+        <NoneListed t={t} list="faucets" />
       )}
       <h3>{t('ecosystemTitle')}</h3>
       {network.ecosystem ? (
@@ -152,7 +156,7 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
           ))}
         </ul>
       ) : (
-        <NoneListed t={t} />
+        <NoneListed t={t} list="ecosystem" />
       )}
     </>
   );
@@ -227,9 +231,39 @@ export function ContractsPanel({ chain, t }: { chain: ChainRef; t: Translate }) 
 
 type SupportedRow = { chainId: number; name: string | null; deployments: Deployments | 'unrecorded' | 'unreadable' };
 
-/** Every published network with its recorded router versions. A chain with nothing recorded gets one honest row. */
-export function SupportedNetworksPanel({ t, now = new Date() }: { t: Translate; now?: Date }) {
+/**
+ * The fast-confirmation cell. The service probes only the configured chain (`protocol.capabilities`): "not offered" comes
+ * only from a probe the node answered; every other chain, and a probe that could not tell, is not confirmed.
+ */
+type FastConfirmations = 'not_offered' | 'unknown' | 'unreadable' | 'checking';
+const FAST_COPY: Record<FastConfirmations, 'fast_not_offered' | 'fast_unknown' | 'fast_unreadable' | 'fast_checking'> = {
+  not_offered: 'fast_not_offered',
+  unknown: 'fast_unknown',
+  unreadable: 'fast_unreadable',
+  checking: 'fast_checking',
+};
+function useFastConfirmations(api: ProtocolApi, chain: ChainRef): (chainId: number) => FastConfirmations {
+  const configured = chain.status === 'ready' ? chain.chainId : null;
+  const probe = useResource(
+    (signal) => (configured === null ? Promise.resolve({ ok: true as const, data: null }) : api.capabilities(configured, signal)),
+    `protocol-room:capabilities:${configured ?? 'none'}`,
+  ).resource;
+  return (chainId) => {
+    if (chain.status === 'loading') return 'checking';
+    if (chainId !== configured) return 'unknown';
+    if (probe.status === 'loading') return 'checking';
+    if (probe.status === 'failed') return 'unreadable';
+    return probe.data?.preconfirmations ?? 'unknown';
+  };
+}
+
+/**
+ * Every published network with its recorded router versions and its fast-confirmation status. A chain with nothing recorded
+ * gets one honest row.
+ */
+export function SupportedNetworksPanel({ t, chain, now = new Date() }: { t: Translate; chain: ChainRef; now?: Date }) {
   const api = usePublishedApi();
+  const fastOf = useFastConfirmations(api, chain);
   const { resource, reload } = useResource(async (signal) => {
     const list = await api.networksList(signal);
     if (!list.ok) return list;
@@ -255,39 +289,48 @@ export function SupportedNetworksPanel({ t, now = new Date() }: { t: Translate; 
       ) : (
         <DataTable
           label={t('supportedTitle')}
-          headers={[t('hdr_chain'), t('hdr_router'), t('hdr_version'), t('hdr_sunset'), t('hdr_verified')]}
+          headers={[t('hdr_chain'), t('hdr_router'), t('hdr_version'), t('hdr_sunset'), t('hdr_verified'), t('hdr_fast')]}
         >
           {resource.data.length === 0 ? (
             <tr>
-              <td colSpan={5}>
+              <td colSpan={6}>
                 <EmptyState title={t('netNone')} />
               </td>
             </tr>
           ) : (
             resource.data.flatMap((row) => {
-              const chain = `${row.name ?? t('notPublished')} (${row.chainId})`;
+              const label = `${row.name ?? t('notPublished')} (${row.chainId})`;
+              const state = fastOf(row.chainId);
+              const fast = (
+                <td data-fast={state} data-probed={chain.status === 'ready' && row.chainId === chain.chainId}>
+                  {t(FAST_COPY[state])}
+                </td>
+              );
               if (row.deployments === 'unreadable')
                 return [
                   <tr key={row.chainId}>
-                    <td>{chain}</td>
+                    <td>{label}</td>
                     <td colSpan={4}>{t('routerUnreadable')}</td>
+                    {fast}
                   </tr>,
                 ];
               const routers = row.deployments === 'unrecorded' ? [] : row.deployments.routers;
               if (routers.length === 0)
                 return [
                   <tr key={row.chainId}>
-                    <td>{chain}</td>
+                    <td>{label}</td>
                     <td colSpan={4}>{t('noRouter')}</td>
+                    {fast}
                   </tr>,
                 ];
               return routers.map((router) => (
                 <tr key={`${row.chainId}:${router.address}`}>
-                  <td>{chain}</td>
+                  <td>{label}</td>
                   <td className="numeric">{router.address}</td>
                   <td>{router.version}</td>
                   <td>{routerIsSunset(router, now) ? t('sunsetNow') : (router.sunsetAt ?? t('noSunset'))}</td>
                   <td>{router.verified ? t('yes') : t('no')}</td>
+                  {fast}
                 </tr>
               ));
             })
